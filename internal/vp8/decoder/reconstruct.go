@@ -12,6 +12,7 @@ import (
 // - vp8/common/invtrans.h inverse-transform dispatch
 // - vp8/common/setupintrarecon.c intra edge setup
 // - vp8/common/reconinter.c whole-macroblock inter predictor offsets
+// - vp8/common/findnearmv.h motion-vector border clamping
 
 var (
 	ErrReconstructGridBufferTooSmall      = errors.New("libgopx: VP8 reconstruction grid buffer too small")
@@ -326,7 +327,8 @@ func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {
 		return false
 	}
-	plan, ok := wholeMVReferencePlan(ref, mbRow, mbCol, mode.MV)
+	mv := clampMotionVectorToUMVBorder(mode.MV, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
+	plan, ok := wholeMVReferencePlan(ref, mbRow, mbCol, mv)
 	if !ok {
 		return false
 	}
@@ -347,7 +349,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	}
 	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
 	for block := 0; block < 16; block++ {
-		mv := mode.BlockMV[block]
+		mv := clampMotionVectorToUMVBorder(mode.BlockMV[block], mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
 		blockRow := block >> 2
 		blockCol := block & 3
 		srcRow := mbRow*16 + blockRow*4 + int(mv.Row>>3)
@@ -367,6 +369,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	uvHeight := (codedImageHeight(ref) + 1) >> 1
 	for block := 0; block < 4; block++ {
 		mvRow, mvCol := splitChromaMotionVector(mode, block)
+		mvRow, mvCol = clampChromaMotionVectorToUMVBorder(mvRow, mvCol, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
 		blockRow := block >> 1
 		blockCol := block & 1
 		srcRow := mbRow*8 + blockRow*4 + (mvRow >> 3)
@@ -526,6 +529,49 @@ func splitChromaMotionVectorComponent(a int16, b int16, c int16, d int16) int {
 		sum += 4
 	}
 	return sum / 8
+}
+
+func clampMotionVectorToUMVBorder(mv MotionVector, mbRow int, mbCol int, codedWidth int, codedHeight int) MotionVector {
+	top, bottom, left, right := macroblockMotionVectorEdges(mbRow, mbCol, codedWidth, codedHeight)
+	return MotionVector{
+		Row: int16(clampUMVComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampUMVComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampChromaMotionVectorToUMVBorder(row int, col int, mbRow int, mbCol int, codedWidth int, codedHeight int) (int, int) {
+	top, bottom, left, right := macroblockMotionVectorEdges(mbRow, mbCol, codedWidth, codedHeight)
+	return clampChromaUMVComponent(row, top, bottom), clampChromaUMVComponent(col, left, right)
+}
+
+func macroblockMotionVectorEdges(mbRow int, mbCol int, codedWidth int, codedHeight int) (int, int, int, int) {
+	mbRows := codedHeight >> 4
+	mbCols := codedWidth >> 4
+	top := -(mbRow * 16) << 3
+	bottom := (mbRows - 1 - mbRow) * 16 << 3
+	left := -(mbCol * 16) << 3
+	right := (mbCols - 1 - mbCol) * 16 << 3
+	return top, bottom, left, right
+}
+
+func clampUMVComponent(v int, lowEdge int, highEdge int) int {
+	if v < lowEdge-(19<<3) {
+		return lowEdge - (16 << 3)
+	}
+	if v > highEdge+(18<<3) {
+		return highEdge + (16 << 3)
+	}
+	return v
+}
+
+func clampChromaUMVComponent(v int, lowEdge int, highEdge int) int {
+	if 2*v < lowEdge-(19<<3) {
+		return (lowEdge - (16 << 3)) >> 1
+	}
+	if 2*v > highEdge+(18<<3) {
+		return (highEdge + (16 << 3)) >> 1
+	}
+	return v
 }
 
 func chromaMotionVectorComponent(v int16) int {

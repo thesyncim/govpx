@@ -798,6 +798,28 @@ func TestReconstructInterFrameGridPredictsBorderSubpixelWholeMV(t *testing.T) {
 	assertCopiedBlock(t, "V border subpixel", img.V, img.VStride, wantV, 8, 0, 0, 8, 8)
 }
 
+func TestReconstructInterFrameGridClampsWholeMVToBorder(t *testing.T) {
+	img := blankImage(16, 16)
+	ref, err := common.NewFrameBuffer(16, 16, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	fillImage(&ref.Img, testImage(16, 16))
+	ref.ExtendBorders()
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: -300, Col: -300}, MBSkipCoeff: true}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &ref.Img, &ref.Img, &ref.Img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	assertCopiedBlock(t, "Y clamped whole MV", img.Y, img.YStride, ref.Img.YFull[ref.Img.YOrigin-16*ref.Img.YStride-16:], ref.Img.YStride, 0, 0, 16, 16)
+	assertCopiedBlock(t, "U clamped whole MV", img.U, img.UStride, ref.Img.UFull[ref.Img.UOrigin-8*ref.Img.UStride-8:], ref.Img.UStride, 0, 0, 8, 8)
+	assertCopiedBlock(t, "V clamped whole MV", img.V, img.VStride, ref.Img.VFull[ref.Img.VOrigin-8*ref.Img.VStride-8:], ref.Img.VStride, 0, 0, 8, 8)
+}
+
 func TestReconstructInterFrameGridPredictsSplitMVQuadrants(t *testing.T) {
 	img := blankImage(32, 32)
 	last := testImage(48, 48)
@@ -904,6 +926,32 @@ func TestReconstructInterFrameGridPredictsBorderSubpixelSplitMV(t *testing.T) {
 	assertCopiedBlock(t, "Y split border subpixel", img.Y, img.YStride, wantY, 4, 0, 0, 4, 4)
 	assertCopiedBlock(t, "U split border subpixel", img.U, img.UStride, wantU, 4, 0, 0, 4, 4)
 	assertCopiedBlock(t, "V split border subpixel", img.V, img.VStride, wantV, 4, 0, 0, 4, 4)
+}
+
+func TestReconstructInterFrameGridClampsSplitMVToBorder(t *testing.T) {
+	img := blankImage(16, 16)
+	ref, err := common.NewFrameBuffer(16, 16, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	fillImage(&ref.Img, testImage(16, 16))
+	ref.ExtendBorders()
+	split := MacroblockMode{Mode: common.SplitMV, RefFrame: common.LastFrame, Is4x4: true, MBSkipCoeff: true}
+	for i := range split.BlockMV {
+		split.BlockMV[i] = MotionVector{Row: -300, Col: -300}
+	}
+	modes := []MacroblockMode{split}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &ref.Img, &ref.Img, &ref.Img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	assertCopiedBlock(t, "Y clamped split MV", img.Y, img.YStride, ref.Img.YFull[ref.Img.YOrigin-16*ref.Img.YStride-16:], ref.Img.YStride, 0, 0, 4, 4)
+	assertCopiedBlock(t, "U clamped split MV", img.U, img.UStride, ref.Img.UFull[ref.Img.UOrigin-8*ref.Img.UStride-8:], ref.Img.UStride, 0, 0, 4, 4)
+	assertCopiedBlock(t, "V clamped split MV", img.V, img.VStride, ref.Img.VFull[ref.Img.VOrigin-8*ref.Img.VStride-8:], ref.Img.VStride, 0, 0, 4, 4)
 }
 
 func TestReconstructInterFrameGridRejectsUnaddressableLumaSubpixelMV(t *testing.T) {

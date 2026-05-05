@@ -64,8 +64,8 @@ grant. This repository keeps libvpx license and patent notices in
 ## Known Deviations
 
 - `Decode` and `DecodeInto` can expose narrow profile-0 keyframe and supported
-  inter-frame scaffolds, but extreme MV clamping and many VP8 features still
-  return `ErrUnsupportedFeature`.
+  inter-frame scaffolds, but error concealment, post-processing, and many VP8
+  features still return `ErrUnsupportedFeature`.
 - `EncodeInto` validates basic inputs but returns `ErrUnsupportedFeature`
   because VP8 encoder algorithms are not ported yet.
 - The package exposes a small Go API, not the libvpx C API.
