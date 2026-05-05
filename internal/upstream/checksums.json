@@ -20,6 +20,10 @@
       "sha256": "4e3e4cb5df8292bcd6ff49a317dadeaab4b5c53be6665e2ac82377424161e981"
     },
     {
+      "path": "vp8/common/dequantize.c",
+      "sha256": "1c6fcef0275aa7680718789cd34c57aed6bfd453cfccd7b0cc2bba7068464626"
+    },
+    {
       "path": "vp8/common/entropymode.c",
       "sha256": "a8b1d914c9ec1e75e823cc8eb9444e6e20fd754ed70cb6851220c20e4940ef2f"
     },

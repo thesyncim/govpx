@@ -53,7 +53,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
 | Decoder state and reconstruction | state headers scaffolded; reconstruction not started |
 | Token and mode parsing | tree reader scaffolded |
-| Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
+| Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
