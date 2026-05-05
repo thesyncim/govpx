@@ -57,7 +57,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
-| Encoder bitstream writer | not started |
+| Encoder bitstream writer | bool writer and packet primitives scaffolded |
 | Encoder frame algorithms | not started |
 | SIMD/assembly | not started |
 
