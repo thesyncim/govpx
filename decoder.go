@@ -100,6 +100,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.reconstructFrame(info); err != nil {
 		return err
 	}
+	d.refreshReferences()
 
 	d.currentPTS = pts
 	d.frameReady = false
@@ -161,6 +162,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.reconstructFrame(info); err != nil {
 		return FrameInfo{}, err
 	}
+	d.refreshReferences()
 	d.currentPTS = pts
 	d.frameReady = false
 	d.initialized = true
@@ -322,6 +324,24 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		return ErrInvalidData
 	}
 	return nil
+}
+
+func (d *VP8Decoder) refreshReferences() {
+	if d.state.Refresh.RefreshLast {
+		copyFrameImage(&d.lastRef.Img, &d.current.Img)
+	}
+	if d.state.Refresh.RefreshGolden {
+		copyFrameImage(&d.goldenRef.Img, &d.current.Img)
+	}
+	if d.state.Refresh.RefreshAltRef {
+		copyFrameImage(&d.altRef.Img, &d.current.Img)
+	}
+}
+
+func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
+	copy(dst.Y, src.Y)
+	copy(dst.U, src.U)
+	copy(dst.V, src.V)
 }
 
 func (d *VP8Decoder) ensureWorkspace(width int, height int) {
