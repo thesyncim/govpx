@@ -92,9 +92,26 @@ func parseModeHeaderInto(br *boolcoder.Decoder, keyFrame bool, probs *ModeProbs)
 	return h
 }
 
+func DecodeKeyFrameMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHeader, modeHeader ModeHeader, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
+	*out = MacroblockMode{}
+	if segmentation != nil && segmentation.Enabled && segmentation.UpdateMap {
+		out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+	}
+	if modeHeader.MBNoCoeffSkip {
+		out.MBSkipCoeff = br.ReadBool(modeHeader.ProbSkipFalse) != 0
+	}
+	decodeKeyFrameMacroblockMode(br, above, left, out)
+}
+
 func DecodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
 	*out = MacroblockMode{}
+	decodeKeyFrameMacroblockMode(br, above, left, out)
+}
+
+func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
 	out.RefFrame = common.IntraFrame
+	out.Is4x4 = false
+	out.BModes = [16]common.BPredictionMode{}
 	out.Mode = common.MBPredictionMode(ReadKeyFrameYMode(br, tables.KeyFrameYModeProbs[:]))
 
 	if out.Mode == common.BPred {
@@ -107,6 +124,13 @@ func DecodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, 
 	}
 
 	out.UVMode = common.MBPredictionMode(ReadUVMode(br, tables.KeyFrameUVModeProbs[:]))
+}
+
+func readMacroblockSegmentID(br *boolcoder.Decoder, probs [common.MBFeatureTreeProbs]uint8) uint8 {
+	if br.ReadBool(probs[0]) != 0 {
+		return uint8(2 + br.ReadBool(probs[2]))
+	}
+	return br.ReadBool(probs[1])
 }
 
 func keyFrameLeftBlockMode(cur *MacroblockMode, left *MacroblockMode, block int) common.BPredictionMode {

@@ -71,6 +71,33 @@ func TestKeyFrameBlockModeContexts(t *testing.T) {
 	}
 }
 
+func TestDecodeKeyFrameMacroblockReadsSegmentAndSkip(t *testing.T) {
+	payload := encodeKeyFrameMacroblockWithFeatures(t)
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	segmentation := SegmentationHeader{
+		Enabled:   true,
+		UpdateMap: true,
+		TreeProbs: [common.MBFeatureTreeProbs]uint8{128, 128, 128},
+	}
+	modeHeader := ModeHeader{MBNoCoeffSkip: true, ProbSkipFalse: 128}
+	var out MacroblockMode
+
+	DecodeKeyFrameMacroblock(&br, &segmentation, modeHeader, nil, nil, &out)
+
+	if out.SegmentID != 3 {
+		t.Fatalf("SegmentID = %d, want 3", out.SegmentID)
+	}
+	if !out.MBSkipCoeff {
+		t.Fatalf("MBSkipCoeff = false, want true")
+	}
+	if out.Mode != common.DCPred || out.UVMode != common.VPred {
+		t.Fatalf("mode = %+v, want DC/V", out)
+	}
+}
+
 func TestDecodeKeyFrameMacroblockModeAllocatesZero(t *testing.T) {
 	payload := encodeKeyFrameMacroblockMode(t, common.BPred, common.VPred, common.BDCPred)
 	allocs := testing.AllocsPerRun(1000, func() {
@@ -84,18 +111,50 @@ func TestDecodeKeyFrameMacroblockModeAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestDecodeKeyFrameMacroblockAllocatesZero(t *testing.T) {
+	payload := encodeKeyFrameMacroblockWithFeatures(t)
+	segmentation := SegmentationHeader{
+		Enabled:   true,
+		UpdateMap: true,
+		TreeProbs: [common.MBFeatureTreeProbs]uint8{128, 128, 128},
+	}
+	modeHeader := ModeHeader{MBNoCoeffSkip: true, ProbSkipFalse: 128}
+	allocs := testing.AllocsPerRun(1000, func() {
+		var br boolcoder.Decoder
+		_ = br.Init(payload)
+		var out MacroblockMode
+		DecodeKeyFrameMacroblock(&br, &segmentation, modeHeader, nil, nil, &out)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func encodeKeyFrameMacroblockMode(t *testing.T, yMode common.MBPredictionMode, uvMode common.MBPredictionMode, bMode common.BPredictionMode) []byte {
 	var w testBoolWriter
 	w.init()
+	writeKeyFrameMacroblockMode(t, &w, yMode, uvMode, bMode)
+	return w.finish()
+}
 
-	writeTreeToken(t, &w, tables.KeyFrameYModeTree[:], tables.KeyFrameYModeProbs[:], int(yMode))
+func encodeKeyFrameMacroblockWithFeatures(t *testing.T) []byte {
+	var w testBoolWriter
+	w.init()
+	w.writeBool(1, 128)
+	w.writeBool(1, 128)
+	w.writeBool(1, 128)
+	writeKeyFrameMacroblockMode(t, &w, common.DCPred, common.VPred, common.BDCPred)
+	return w.finish()
+}
+
+func writeKeyFrameMacroblockMode(t *testing.T, w *testBoolWriter, yMode common.MBPredictionMode, uvMode common.MBPredictionMode, bMode common.BPredictionMode) {
+	writeTreeToken(t, w, tables.KeyFrameYModeTree[:], tables.KeyFrameYModeProbs[:], int(yMode))
 	if yMode == common.BPred {
 		for i := 0; i < 16; i++ {
-			writeTreeToken(t, &w, tables.BModeTree[:], tables.KeyFrameBModeProbs[common.BDCPred][common.BDCPred][:], int(bMode))
+			writeTreeToken(t, w, tables.BModeTree[:], tables.KeyFrameBModeProbs[common.BDCPred][common.BDCPred][:], int(bMode))
 		}
 	}
-	writeTreeToken(t, &w, tables.UVModeTree[:], tables.KeyFrameUVModeProbs[:], int(uvMode))
-	return w.finish()
+	writeTreeToken(t, w, tables.UVModeTree[:], tables.KeyFrameUVModeProbs[:], int(uvMode))
 }
 
 func writeTreeToken(t *testing.T, w *testBoolWriter, tree []int16, probs []uint8, token int) {
