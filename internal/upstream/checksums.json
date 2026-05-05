@@ -64,6 +64,14 @@
       "sha256": "a6833e959660a6496672ff7d4ba603f57a8eae4379247a9f40c14fc898f656e4"
     },
     {
+      "path": "vp8/common/loopfilter.h",
+      "sha256": "113cc38a41503434075d9ec4e936d1739cc12985c50c7650a7f608905692cff8"
+    },
+    {
+      "path": "vp8/common/loopfilter_filters.c",
+      "sha256": "279786a3f0563986507274e5ac91132852bd620d7ed4a8f2db92039b5c6da4f9"
+    },
+    {
       "path": "vp8/common/onyx.h",
       "sha256": "a238b4c0bb609914c545d93a35c54655a04ca35484a5f00a89d578c075c0710c"
     },
