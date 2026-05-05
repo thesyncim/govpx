@@ -56,7 +56,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |
-| VP8 constants and static tables | scaffolded |
+| VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | not started |
 | Encoder frame algorithms | not started |
 | SIMD/assembly | not started |

@@ -68,6 +68,14 @@
       "sha256": "94b6db61c954bf9153f1c4558162807402a87944b168f2d784268e50391424cd"
     },
     {
+      "path": "vp8/common/quant_common.c",
+      "sha256": "fc8471698f061e5dcb9e7caef0df3bceec9921ec3aada2e1dc4c3348a5d7e8f2"
+    },
+    {
+      "path": "vp8/common/quant_common.h",
+      "sha256": "a1cf144ce2e77ac9a6ff233bf40c055bc520141bb9fce9205b364a489757354c"
+    },
+    {
       "path": "vp8/common/reconinter.c",
       "sha256": "c84c43167981f89b966fef57abc58ec0e347f74916459a07a6f10c6d459291b0"
     },
