@@ -1,6 +1,9 @@
 package encoder
 
-import "github.com/thesyncim/libgopx/internal/vp8/tables"
+import (
+	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
+)
 
 // Ported from libvpx v1.16.0 vp8/encoder/tokenize.c coefficient token
 // selection and vp8/encoder/bitstream.c coefficient token packing.
@@ -81,6 +84,9 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 	if !is4x4 {
 		eob := BlockCoeffEOB(&coeffs.QCoeff[24], 0)
 		ctx := int(above.Y2 + left.Y2)
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
 		if err := writeBlockTokensEOB(w, probs, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
 			return err
 		}
@@ -102,6 +108,9 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(above.Y1[a] + left.Y1[l])
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
 		if err := writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
 			return err
 		}
@@ -117,6 +126,9 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 		eob := BlockCoeffEOB(&coeffs.QCoeff[block], 0)
 		a, l := tokenUVContextIndex(block)
 		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
 		if err := writeBlockTokensEOB(w, probs, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
 			return err
 		}
@@ -126,6 +138,40 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 		}
 		setTokenUVContext(above, a, hasCoeffs)
 		setTokenUVContext(left, l, hasCoeffs)
+	}
+	return nil
+}
+
+func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if w == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := 0; col < cols; col++ {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := 0; row < rows; row++ {
+		left := TokenContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if !validKeyFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
+			if err := WriteCoefficientMacroblockTokens(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
+	}
+	if w.Err() != nil {
+		return w.Err()
 	}
 	return nil
 }

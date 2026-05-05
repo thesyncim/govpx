@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
+	"github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
@@ -114,6 +115,56 @@ func TestWriteCoefficientMacroblockTokensRoundTripsBPred(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientTokenGridRoundTrips(t *testing.T) {
+	modes := []KeyFrameMacroblockMode{
+		{YMode: common.DCPred, UVMode: common.DCPred},
+		{YMode: common.BPred, UVMode: common.VPred},
+		{YMode: common.HPred, UVMode: common.HPred},
+		{YMode: common.TMPred, UVMode: common.TMPred},
+	}
+	var coeffs [4]MacroblockCoefficients
+	coeffs[0].QCoeff[24][0] = 1
+	coeffs[0].QCoeff[0][1] = 2
+	coeffs[1].QCoeff[0][0] = -3
+	coeffs[2].QCoeff[16][0] = 4
+	coeffs[3].QCoeff[23][15] = -5
+
+	payload := coefficientTokenGridPayload(t, 2, 2, modes, coeffs[:])
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, len(modes))
+	for i := range modes {
+		decodedModes[i] = decoderModeFromKeyFrameMode(&modes[i])
+	}
+	above := make([]vp8dec.EntropyContextPlanes, 2)
+	tokens := make([]vp8dec.MacroblockTokens, len(modes))
+	if _, err := vp8dec.DecodeTokenGrid([]boolcoder.Decoder{br}, 2, 2, &tables.DefaultCoefProbs, decodedModes, above, tokens); err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+
+	if tokens[0].QCoeff[24][0] != 1 || tokens[0].QCoeff[0][1] != 2 || tokens[1].QCoeff[0][0] != -3 || tokens[2].QCoeff[16][0] != 4 || tokens[3].QCoeff[23][15] != -5 {
+		t.Fatalf("decoded grid key coeffs = %v %v %v %v", tokens[0].QCoeff[24], tokens[1].QCoeff[0], tokens[2].QCoeff[16], tokens[3].QCoeff[23])
+	}
+}
+
+func TestWriteCoefficientTokenGridRejectsInvalidInput(t *testing.T) {
+	var w BoolWriter
+	w.Init(make([]byte, 64))
+	modes := []KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	coeffs := []MacroblockCoefficients{{}}
+	above := []TokenContextPlanes{{}}
+
+	if err := WriteCoefficientTokenGrid(&w, 1, 2, modes, coeffs, above, &tables.DefaultCoefProbs); !errors.Is(err, ErrModeBufferTooSmall) {
+		t.Fatalf("short grid error = %v, want ErrModeBufferTooSmall", err)
+	}
+	badModes := []KeyFrameMacroblockMode{{YMode: common.MBPredictionMode(99), UVMode: common.DCPred}}
+	if err := WriteCoefficientTokenGrid(&w, 1, 1, badModes, coeffs, above, &tables.DefaultCoefProbs); !errors.Is(err, ErrInvalidPacketConfig) {
+		t.Fatalf("invalid mode error = %v, want ErrInvalidPacketConfig", err)
+	}
+}
+
 func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 1
@@ -131,6 +182,19 @@ func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+
+	modes := []KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	gridCoeffs := []MacroblockCoefficients{coeffs}
+	above = TokenContextPlanes{}
+	gridAbove := []TokenContextPlanes{above}
+	allocs = testing.AllocsPerRun(1000, func() {
+		w.Init(buf)
+		_ = WriteCoefficientTokenGrid(&w, 1, 1, modes, gridCoeffs, gridAbove, &tables.DefaultCoefProbs)
+		w.Finish()
+	})
+	if allocs != 0 {
+		t.Fatalf("grid allocs = %v, want 0", allocs)
 	}
 }
 
@@ -150,6 +214,25 @@ func BenchmarkWriteCoefficientMacroblockTokens(b *testing.B) {
 		left = TokenContextPlanes{}
 		w.Init(buf)
 		_ = WriteCoefficientMacroblockTokens(&w, &tables.DefaultCoefProbs, false, &above, &left, &coeffs)
+		w.Finish()
+	}
+}
+
+func BenchmarkWriteCoefficientTokenGrid(b *testing.B) {
+	modes := make([]KeyFrameMacroblockMode, 16)
+	coeffs := make([]MacroblockCoefficients, 16)
+	for i := range modes {
+		modes[i] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+		coeffs[i].QCoeff[0][1] = int16((i % 4) + 1)
+	}
+	above := make([]TokenContextPlanes, 4)
+	buf := make([]byte, 8192)
+	var w BoolWriter
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		w.Init(buf)
+		_ = WriteCoefficientTokenGrid(&w, 4, 4, modes, coeffs, above, &tables.DefaultCoefProbs)
 		w.Finish()
 	}
 }
@@ -177,6 +260,22 @@ func macroblockTokenPayload(t *testing.T, is4x4 bool, coeffs *MacroblockCoeffici
 	var above, left TokenContextPlanes
 	if err := WriteCoefficientMacroblockTokens(&w, &tables.DefaultCoefProbs, is4x4, &above, &left, coeffs); err != nil {
 		t.Fatalf("WriteCoefficientMacroblockTokens returned error: %v", err)
+	}
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error = %v, want nil", err)
+	}
+	return w.Bytes()
+}
+
+func coefficientTokenGridPayload(t *testing.T, rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) []byte {
+	t.Helper()
+	var w BoolWriter
+	buf := make([]byte, 8192)
+	w.Init(buf)
+	above := make([]TokenContextPlanes, cols)
+	if err := WriteCoefficientTokenGrid(&w, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+		t.Fatalf("WriteCoefficientTokenGrid returned error: %v", err)
 	}
 	w.Finish()
 	if err := w.Err(); err != nil {
