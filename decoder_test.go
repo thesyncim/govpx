@@ -468,6 +468,18 @@ func assertCodedPaddingExtended(t *testing.T, img *vp8common.Image) {
 	}
 }
 
+func fillVP8Image(img *vp8common.Image, value byte) {
+	for i := range img.Y {
+		img.Y[i] = value
+	}
+	for i := range img.U {
+		img.U[i] = value
+	}
+	for i := range img.V {
+		img.V[i] = value
+	}
+}
+
 func newTestImage(width int, height int) Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
@@ -628,6 +640,62 @@ func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {
 	}
 	if d.lastRef.Img.U[0] != d.current.Img.U[0] || d.goldenRef.Img.V[0] != d.current.Img.V[0] || d.altRef.Img.V[0] != d.current.Img.V[0] {
 		t.Fatalf("reference chroma was not refreshed from current")
+	}
+}
+
+func TestRefreshReferencesCopiesExistingBuffersInVP8Order(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.ensureFrameBuffers(StreamInfo{Width: 16, Height: 16, KeyFrame: true}); err != nil {
+		t.Fatalf("ensureFrameBuffers returned error: %v", err)
+	}
+	fillVP8Image(&d.current.Img, 40)
+	fillVP8Image(&d.lastRef.Img, 10)
+	fillVP8Image(&d.goldenRef.Img, 20)
+	fillVP8Image(&d.altRef.Img, 30)
+	d.state.Refresh = vp8dec.RefreshHeader{
+		CopyBufferToAltRef: 2,
+		CopyBufferToGolden: 1,
+	}
+
+	d.refreshReferences()
+
+	if got := d.altRef.Img.Y[0]; got != 20 {
+		t.Fatalf("alt Y[0] = %d, want old golden 20", got)
+	}
+	if got := d.goldenRef.Img.Y[0]; got != 10 {
+		t.Fatalf("golden Y[0] = %d, want last 10", got)
+	}
+	if got := d.lastRef.Img.Y[0]; got != 10 {
+		t.Fatalf("last Y[0] = %d, want unchanged 10", got)
+	}
+}
+
+func TestRefreshReferencesCurrentFrameOverridesCopies(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.ensureFrameBuffers(StreamInfo{Width: 16, Height: 16, KeyFrame: true}); err != nil {
+		t.Fatalf("ensureFrameBuffers returned error: %v", err)
+	}
+	fillVP8Image(&d.current.Img, 40)
+	fillVP8Image(&d.lastRef.Img, 10)
+	fillVP8Image(&d.goldenRef.Img, 20)
+	fillVP8Image(&d.altRef.Img, 30)
+	d.state.Refresh = vp8dec.RefreshHeader{
+		CopyBufferToGolden: 1,
+		RefreshGolden:      true,
+		RefreshAltRef:      true,
+		RefreshLast:        true,
+	}
+
+	d.refreshReferences()
+
+	if d.goldenRef.Img.Y[0] != 40 || d.altRef.Img.Y[0] != 40 || d.lastRef.Img.Y[0] != 40 {
+		t.Fatalf("reference Y[0] = %d/%d/%d, want all current 40", d.goldenRef.Img.Y[0], d.altRef.Img.Y[0], d.lastRef.Img.Y[0])
 	}
 }
 

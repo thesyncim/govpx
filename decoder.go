@@ -377,6 +377,22 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 }
 
 func (d *VP8Decoder) refreshReferences() {
+	switch d.state.Refresh.CopyBufferToAltRef {
+	case 1:
+		copyFrameImage(&d.altRef.Img, &d.lastRef.Img)
+		d.altRef.ExtendBorders()
+	case 2:
+		copyFrameImage(&d.altRef.Img, &d.goldenRef.Img)
+		d.altRef.ExtendBorders()
+	}
+	switch d.state.Refresh.CopyBufferToGolden {
+	case 1:
+		copyFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
+		d.goldenRef.ExtendBorders()
+	case 2:
+		copyFrameImage(&d.goldenRef.Img, &d.altRef.Img)
+		d.goldenRef.ExtendBorders()
+	}
 	if d.state.Refresh.RefreshLast {
 		copyFrameImage(&d.lastRef.Img, &d.current.Img)
 		d.lastRef.ExtendBorders()
