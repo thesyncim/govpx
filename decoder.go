@@ -52,6 +52,7 @@ type VP8Decoder struct {
 	tokenReaders       [8]boolcoder.Decoder
 	coefProbs          vp8tables.CoefficientProbs
 	frameCoefProbs     vp8tables.CoefficientProbs
+	loopInfo           vp8common.LoopFilterInfo
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
@@ -252,8 +253,7 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
 	return info.KeyFrame &&
 		info.ShowFrame &&
-		info.Profile == 0 &&
-		d.state.LoopFilter.Level == 0
+		info.Profile == 0
 }
 
 func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
@@ -344,6 +344,9 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		return ErrUnsupportedFeature
 	}
 	if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
+		return ErrInvalidData
+	}
+	if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, vp8common.KeyFrame, d.state.LoopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
 		return ErrInvalidData
 	}
 	d.current.ExtendBorders()

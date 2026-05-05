@@ -53,7 +53,7 @@ func TestDecodeQueuesSupportedKeyFrameAfterValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeReturnsUnsupportedWhenLoopFilterNeeded(t *testing.T) {
+func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
@@ -61,11 +61,14 @@ func TestDecodeReturnsUnsupportedWhenLoopFilterNeeded(t *testing.T) {
 	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(1))
 
 	err = d.Decode(packet)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatalf("NextFrame returned a frame for unsupported filtered output")
+	if d.loopInfo.MBLimit[1] == 0 || d.loopInfo.BLimit[1] == 0 {
+		t.Fatalf("loop filter tables were not initialized")
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("NextFrame returned no frame for filtered output")
 	}
 }
 

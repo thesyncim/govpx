@@ -51,10 +51,10 @@ grant. This repository keeps libvpx license and patent notices in
 | Frame memory | macroblock-padded frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, and B_PRED 4x4 prediction/reconstruction scaffolded |
+| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe reference refresh, and narrow profile-0 keyframe output scaffolded |
 | Token and mode parsing | tree reader, partition layout, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
-| Loop filter | scalar edge primitives and limit table setup scaffolded |
+| Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | not started |
@@ -63,6 +63,8 @@ grant. This repository keeps libvpx license and patent notices in
 
 ## Known Deviations
 
-- `Decode`, `DecodeInto`, and `EncodeInto` validate basic inputs but return
-  `ErrUnsupportedFeature` because VP8 algorithms are not ported yet.
+- `Decode` and `DecodeInto` can expose narrow profile-0 keyframe scaffolds, but
+  inter frames and many VP8 features still return `ErrUnsupportedFeature`.
+- `EncodeInto` validates basic inputs but returns `ErrUnsupportedFeature`
+  because VP8 encoder algorithms are not ported yet.
 - The package exposes a small Go API, not the libvpx C API.
