@@ -90,6 +90,11 @@ func vp8KeyFramePacket(width int, height int, firstPartitionSize int, profile in
 	return packet
 }
 
+func vp8KeyFramePacketWithPayload(width int, height int, firstPartitionSize int, profile int, showFrame bool) []byte {
+	packet := vp8KeyFramePacket(width, height, firstPartitionSize, profile, showFrame)
+	return append(packet, make([]byte, firstPartitionSize)...)
+}
+
 func vp8InterFramePacket(firstPartitionSize int, profile int, showFrame bool) []byte {
 	packet := make([]byte, 3)
 	tag := uint32(1) | uint32(profile&7)<<1

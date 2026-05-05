@@ -40,6 +40,9 @@ type VP8Decoder struct {
 	modes              []vp8dec.MacroblockMode
 	tokens             []vp8dec.MacroblockTokens
 	tokenAbove         []vp8dec.EntropyContextPlanes
+	previousQuant      vp8dec.QuantHeader
+	state              vp8dec.StateHeader
+	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
@@ -70,6 +73,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return ErrNeedKeyFrame
 	}
 	if err := d.validateStreamInfo(info); err != nil {
+		return err
+	}
+	if err := d.parseState(packet); err != nil {
 		return err
 	}
 	if err := d.ensureFrameBuffers(info); err != nil {
@@ -121,6 +127,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.validateStreamInfo(info); err != nil {
 		return FrameInfo{}, err
 	}
+	if err := d.parseState(packet); err != nil {
+		return FrameInfo{}, err
+	}
 	if err := d.ensureFrameBuffers(info); err != nil {
 		return FrameInfo{}, err
 	}
@@ -151,6 +160,8 @@ func (d *VP8Decoder) Reset() {
 	d.lastInfo = FrameInfo{}
 	d.currentPTS = 0
 	d.initialized = false
+	d.previousQuant = vp8dec.QuantHeader{}
+	d.state = vp8dec.StateHeader{}
 }
 
 func (d *VP8Decoder) Close() error {
@@ -218,6 +229,17 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	d.ensureWorkspace(info.Width, info.Height)
 	d.frameWidth = info.Width
 	d.frameHeight = info.Height
+	return nil
+}
+
+func (d *VP8Decoder) parseState(packet []byte) error {
+	_, state, err := vp8dec.ParseStateHeader(packet, d.previousQuant)
+	if err != nil {
+		return ErrInvalidData
+	}
+	d.state = state
+	d.previousQuant = state.Quant
+	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
 }
 
