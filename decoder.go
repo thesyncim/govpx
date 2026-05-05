@@ -1,5 +1,7 @@
 package libgopx
 
+import vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+
 type DecoderOptions struct {
 	Threads int
 
@@ -24,6 +26,13 @@ type VP8Decoder struct {
 	lastInfo    FrameInfo
 	currentPTS  uint64
 	initialized bool
+
+	frameWidth  int
+	frameHeight int
+	current     vp8common.FrameBuffer
+	lastRef     vp8common.FrameBuffer
+	goldenRef   vp8common.FrameBuffer
+	altRef      vp8common.FrameBuffer
 }
 
 func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
@@ -52,6 +61,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return ErrNeedKeyFrame
 	}
 	if err := d.validateStreamInfo(info); err != nil {
+		return err
+	}
+	if err := d.ensureFrameBuffers(info); err != nil {
 		return err
 	}
 
@@ -98,6 +110,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, ErrNeedKeyFrame
 	}
 	if err := d.validateStreamInfo(info); err != nil {
+		return FrameInfo{}, err
+	}
+	if err := d.ensureFrameBuffers(info); err != nil {
 		return FrameInfo{}, err
 	}
 	d.currentPTS = pts
@@ -169,5 +184,29 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 			return ErrUnsupportedFeature
 		}
 	}
+	return nil
+}
+
+func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
+	if !info.KeyFrame {
+		return nil
+	}
+	if d.frameWidth == info.Width && d.frameHeight == info.Height && d.current.BufferLen() != 0 {
+		return nil
+	}
+	if err := d.current.Resize(info.Width, info.Height, 32, 32); err != nil {
+		return ErrInvalidData
+	}
+	if err := d.lastRef.Resize(info.Width, info.Height, 32, 32); err != nil {
+		return ErrInvalidData
+	}
+	if err := d.goldenRef.Resize(info.Width, info.Height, 32, 32); err != nil {
+		return ErrInvalidData
+	}
+	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
+		return ErrInvalidData
+	}
+	d.frameWidth = info.Width
+	d.frameHeight = info.Height
 	return nil
 }
