@@ -237,6 +237,47 @@ func TestPredictIntraInvalidMode(t *testing.T) {
 	}
 }
 
+func TestPredictIntraY4x4TMPredPropagatesNeighbors(t *testing.T) {
+	above := make([]byte, 20)
+	left := make([]byte, 16)
+	for i := range above {
+		above[i] = byte(50 + i)
+	}
+	for i := range left {
+		left[i] = byte(70 + i)
+	}
+	var modes [16]common.BPredictionMode
+	for i := range modes {
+		modes[i] = common.BTMPred
+	}
+	dst := filledPlane(16, 16, 0)
+
+	if ok := PredictIntraY4x4(&modes, dst, 16, above, left, 40); !ok {
+		t.Fatalf("PredictIntraY4x4 returned false")
+	}
+
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			want := byte(int(left[row]) + int(above[col]) - 40)
+			if got := dst[row*16+col]; got != want {
+				t.Fatalf("Y4x4[%d,%d] = %d, want %d", row, col, got, want)
+			}
+		}
+	}
+}
+
+func TestPredictIntraY4x4InvalidMode(t *testing.T) {
+	above := make([]byte, 20)
+	left := make([]byte, 16)
+	modes := [16]common.BPredictionMode{common.Above4x4}
+	dst := filledPlane(16, 16, 99)
+
+	if ok := PredictIntraY4x4(&modes, dst, 16, above, left, 0); ok {
+		t.Fatalf("invalid 4x4 mode returned true")
+	}
+	assertPlaneValue(t, "Y4x4 invalid", dst, 99)
+}
+
 func TestPredictIntraAllocatesZero(t *testing.T) {
 	aboveY := make([]byte, 16)
 	leftY := make([]byte, 16)
@@ -244,9 +285,16 @@ func TestPredictIntraAllocatesZero(t *testing.T) {
 	aboveUV := make([]byte, 8)
 	leftUV := make([]byte, 8)
 	dstUV := make([]byte, 8*8)
+	above4x4 := make([]byte, 20)
+	left4x4 := make([]byte, 16)
+	var modes [16]common.BPredictionMode
+	for i := range modes {
+		modes[i] = common.BDCPred
+	}
 	allocs := testing.AllocsPerRun(1000, func() {
 		PredictIntraY16x16(common.TMPred, dstY, 16, aboveY, leftY, 128, true, true)
 		PredictIntraUV8x8(common.DCPred, dstUV, 8, aboveUV, leftUV, 128, true, true)
+		PredictIntraY4x4(&modes, dstY, 16, above4x4, left4x4, 128)
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
