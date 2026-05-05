@@ -34,6 +34,13 @@ type ModeHeader struct {
 	MVUpdateCount int
 }
 
+type InterModeCounts struct {
+	Intra   uint8
+	Nearest uint8
+	Near    uint8
+	Split   uint8
+}
+
 func ResetModeProbs(probs *ModeProbs) {
 	probs.YMode = tables.DefaultYModeProbs
 	probs.UVMode = tables.DefaultUVModeProbs
@@ -153,6 +160,22 @@ func ReadInterReferenceFrame(br *boolcoder.Decoder, modeHeader ModeHeader) commo
 		return common.MVReferenceFrame(2 + br.ReadBool(modeHeader.ProbGolden))
 	}
 	return common.LastFrame
+}
+
+func ReadInterPredictionMode(br *boolcoder.Decoder, counts InterModeCounts) common.MBPredictionMode {
+	if br.ReadBool(tables.InterModeContexts[counts.Intra][0]) == 0 {
+		return common.ZeroMV
+	}
+	if br.ReadBool(tables.InterModeContexts[counts.Nearest][1]) == 0 {
+		return common.NearestMV
+	}
+	if br.ReadBool(tables.InterModeContexts[counts.Near][2]) == 0 {
+		return common.NearMV
+	}
+	if br.ReadBool(tables.InterModeContexts[counts.Split][3]) != 0 {
+		return common.SplitMV
+	}
+	return common.NewMV
 }
 
 func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
