@@ -115,6 +115,7 @@ type VP8Encoder struct {
 	tokenAbove     []vp8enc.TokenContextPlanes
 
 	current   vp8common.FrameBuffer
+	analysis  vp8common.FrameBuffer
 	lastRef   vp8common.FrameBuffer
 	goldenRef vp8common.FrameBuffer
 	altRef    vp8common.FrameBuffer
@@ -193,7 +194,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		UStride: src.UStride,
 		VStride: src.VStride,
 	}
-	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required]); err != nil {
+	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
 
@@ -201,9 +202,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
-	if err := e.reconstructKeyFrame(e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
-		return EncodeResult{}, err
-	}
+	e.refreshKeyFrameReferencesFromAnalysis()
 	result.Data = dst[:n]
 	result.SizeBytes = n
 	e.forceKeyFrame = false
@@ -323,6 +322,7 @@ func (e *VP8Encoder) Reset() {
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0
 	e.current.Reset()
+	e.analysis.Reset()
 	e.lastRef.Reset()
 	e.goldenRef.Reset()
 	e.altRef.Reset()
@@ -416,6 +416,9 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	if err := e.current.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	if err := e.analysis.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
 	if err := e.lastRef.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
@@ -428,20 +431,8 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	return nil
 }
 
-func (e *VP8Encoder) reconstructKeyFrame(qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
-	required := rows * cols
-	if len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
-		return ErrInvalidConfig
-	}
-	for i := 0; i < required; i++ {
-		convertKeyFrameMode(&modes[i], &e.reconstructModes[i])
-		convertMacroblockCoefficients(&coeffs[i], e.reconstructModes[i].Is4x4, &e.reconstructTokens[i])
-	}
-
-	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
-	if err := vp8dec.ReconstructKeyFrameIntraGrid(&e.current.Img, rows, cols, e.reconstructModes[:required], e.reconstructTokens[:required], &e.dequants, &e.reconstructScratch); err != nil {
-		return ErrInvalidConfig
-	}
+func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
+	copyFrameImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
 	copyFrameImage(&e.lastRef.Img, &e.current.Img)
 	e.lastRef.ExtendBorders()
@@ -449,7 +440,6 @@ func (e *VP8Encoder) reconstructKeyFrame(qIndex int, modes []vp8enc.KeyFrameMacr
 	e.goldenRef.ExtendBorders()
 	copyFrameImage(&e.altRef.Img, &e.current.Img)
 	e.altRef.ExtendBorders()
-	return nil
 }
 
 func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {

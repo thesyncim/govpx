@@ -156,10 +156,15 @@ func TestEncodeIntoUsesSourcePixels(t *testing.T) {
 }
 
 func TestEncodeIntoReconstructsReferencesLikeDecoder(t *testing.T) {
-	e := newTestEncoder(t)
-	src := testImage(16, 16)
+	e := newSizedTestEncoder(t, 32, 16)
+	src := testImage(32, 16)
 	fillImage(src, 220, 90, 170)
-	dst := make([]byte, 4096)
+	for row := 0; row < src.Height; row++ {
+		for col := 16; col < src.Width; col++ {
+			src.Y[row*src.YStride+col] = 40
+		}
+	}
+	dst := make([]byte, 8192)
 
 	result, err := e.EncodeInto(dst, src, 0, 1, 0)
 	if err != nil {
@@ -224,9 +229,14 @@ func TestEncodeIntoSuccessAllocatesZero(t *testing.T) {
 
 func newTestEncoder(t *testing.T) *VP8Encoder {
 	t.Helper()
+	return newSizedTestEncoder(t, 16, 16)
+}
+
+func newSizedTestEncoder(t *testing.T, width int, height int) *VP8Encoder {
+	t.Helper()
 	e, err := NewVP8Encoder(EncoderOptions{
-		Width:               16,
-		Height:              16,
+		Width:               width,
+		Height:              height,
 		FPS:                 30,
 		RateControlMode:     RateControlCBR,
 		TargetBitrateKbps:   1200,
