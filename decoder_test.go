@@ -3,6 +3,8 @@ package libgopx
 import (
 	"errors"
 	"testing"
+
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 )
 
 func TestNewVP8DecoderValidation(t *testing.T) {
@@ -105,6 +107,32 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 	}
 	if d.modeReader.Err() != nil || d.modeReader.Corrupted() {
 		t.Fatalf("mode reader error/corrupted = %v/%v, want clean reader", d.modeReader.Err(), d.modeReader.Corrupted())
+	}
+}
+
+func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(17, 17, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	if len(d.modes) != 4 {
+		t.Fatalf("modes len = %d, want 4", len(d.modes))
+	}
+	for i, mode := range d.modes {
+		if mode.Mode != vp8common.BPred || mode.UVMode != vp8common.DCPred || !mode.Is4x4 {
+			t.Fatalf("mode[%d] = %+v, want keyframe BPred/DC 4x4", i, mode)
+		}
+		for block, blockMode := range mode.BModes {
+			if blockMode != vp8common.BDCPred {
+				t.Fatalf("mode[%d].BModes[%d] = %d, want BDCPred", i, block, blockMode)
+			}
+		}
 	}
 }
 

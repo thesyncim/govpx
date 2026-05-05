@@ -88,6 +88,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.ensureFrameBuffers(info); err != nil {
 		return err
 	}
+	if err := d.decodeModeGrid(info); err != nil {
+		return err
+	}
 
 	d.currentPTS = pts
 	d.frameReady = false
@@ -138,6 +141,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	if err := d.ensureFrameBuffers(info); err != nil {
+		return FrameInfo{}, err
+	}
+	if err := d.decodeModeGrid(info); err != nil {
 		return FrameInfo{}, err
 	}
 	d.currentPTS = pts
@@ -261,6 +267,21 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	d.modeReader = modeReader
 	d.previousQuant = state.Quant
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
+	return nil
+}
+
+func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
+	if !info.KeyFrame {
+		return ErrUnsupportedFeature
+	}
+	reader := d.modeReader
+	if err := vp8dec.DecodeKeyFrameModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, d.modes); err != nil {
+		return ErrInvalidData
+	}
+	if reader.Err() != nil {
+		return ErrInvalidData
+	}
+	d.modeReader = reader
 	return nil
 }
 
