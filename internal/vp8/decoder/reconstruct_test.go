@@ -467,6 +467,37 @@ func TestReconstructBPredIntraMacroblockAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestReconstructIntraMacroblockDispatchesModes(t *testing.T) {
+	dequant := testMacroblockDequant()
+	var scratch MacroblockResidual
+
+	wholeMode := MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred}
+	wholeTokens := wholeBlockResidualTokens()
+	wholeRefs := testIntraPredictorRefs(100, 90, 70)
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	if ok := ReconstructIntraMacroblock(&wholeMode, &wholeTokens, &dequant, wholeRefs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("whole-block dispatch returned false")
+	}
+	if got := y[0]; got != 101 {
+		t.Fatalf("whole-block dispatch Y[0] = %d, want 101", got)
+	}
+
+	bpredMode := bpredMacroblockMode(false)
+	bpredTokens := bpredResidualTokens()
+	bpredRefs := tmIntraPredictorRefs()
+	y = filledPlane(16, 16, 0)
+	u = filledPlane(8, 8, 0)
+	v = filledPlane(8, 8, 0)
+	if ok := ReconstructIntraMacroblock(&bpredMode, &bpredTokens, &dequant, bpredRefs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("BPred dispatch returned false")
+	}
+	if got := y[4]; got != 94 {
+		t.Fatalf("BPred dispatch Y[4] = %d, want 94", got)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {
