@@ -118,15 +118,8 @@ func DecodeKeyFrameMacroblock(br *boolcoder.Decoder, segmentation *SegmentationH
 }
 
 func DecodeKeyFrameModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation *SegmentationHeader, modeHeader ModeHeader, modes []MacroblockMode) error {
-	if rows < 0 || cols < 0 {
-		return ErrModeBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrModeBufferTooSmall
-	}
-	required := rows * cols
-	if len(modes) < required {
-		return ErrModeBufferTooSmall
+	if _, err := validateModeGrid(rows, cols, modes); err != nil {
+		return err
 	}
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
@@ -140,6 +133,33 @@ func DecodeKeyFrameModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentat
 				left = &modes[index-1]
 			}
 			DecodeKeyFrameMacroblock(br, segmentation, modeHeader, above, left, &modes[index])
+		}
+	}
+	return nil
+}
+
+func DecodeInterModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, signBias [common.MaxRefFrames]bool, modes []MacroblockMode) error {
+	if _, err := validateModeGrid(rows, cols, modes); err != nil {
+		return err
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			var above *MacroblockMode
+			var left *MacroblockMode
+			var aboveLeft *MacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			if row > 0 && col > 0 {
+				aboveLeft = &modes[index-cols-1]
+			}
+			if err := DecodeInterMacroblock(br, segmentation, modeHeader, probs, above, left, aboveLeft, signBias, &modes[index]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -297,4 +317,18 @@ func blockModeFromMacroblockMode(mode common.MBPredictionMode) common.BPredictio
 
 func addMotionVectors(a MotionVector, b MotionVector) MotionVector {
 	return MotionVector{Row: a.Row + b.Row, Col: a.Col + b.Col}
+}
+
+func validateModeGrid(rows int, cols int, modes []MacroblockMode) (int, error) {
+	if rows < 0 || cols < 0 {
+		return 0, ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return 0, ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if len(modes) < required {
+		return 0, ErrModeBufferTooSmall
+	}
+	return required, nil
 }
