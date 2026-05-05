@@ -301,6 +301,12 @@ func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *co
 			if ref == nil {
 				return ErrUnsupportedInterReconstructionMode
 			}
+			if mode.Mode == common.SplitMV {
+				if !ReconstructSplitMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
+					return ErrUnsupportedInterReconstructionMode
+				}
+				continue
+			}
 			if !ReconstructWholeMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
 				return ErrUnsupportedInterReconstructionMode
 			}
@@ -327,6 +333,56 @@ func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		return true
 	}
 	TransformMacroblockTokens(tokens, dequant, false, scratch)
+	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
+	return true
+}
+
+func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+	if mode.RefFrame == common.IntraFrame || mode.Mode != common.SplitMV || !mode.Is4x4 {
+		return false
+	}
+	for block := 0; block < 16; block++ {
+		mv := mode.BlockMV[block]
+		blockRow := block >> 2
+		blockCol := block & 3
+		srcRow := mbRow*16 + blockRow*4 + int(mv.Row>>3)
+		srcCol := mbCol*16 + blockCol*4 + int(mv.Col>>3)
+		xOffset := int(mv.Col) & 7
+		yOffset := int(mv.Row) & 7
+		offset, ok := wholeMVPlaneOffset(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), srcRow, srcCol, 4, 4, xOffset, yOffset)
+		if !ok {
+			return false
+		}
+		predictInter4x4(ref.Y[offset:], ref.YStride, xOffset, yOffset, y[yBlockOffset(block, yStride):], yStride)
+	}
+
+	uvWidth := (codedImageWidth(ref) + 1) >> 1
+	uvHeight := (codedImageHeight(ref) + 1) >> 1
+	for block := 0; block < 4; block++ {
+		mvRow, mvCol := splitChromaMotionVector(mode, block)
+		blockRow := block >> 1
+		blockCol := block & 1
+		srcRow := mbRow*8 + blockRow*4 + (mvRow >> 3)
+		srcCol := mbCol*8 + blockCol*4 + (mvCol >> 3)
+		xOffset := mvCol & 7
+		yOffset := mvRow & 7
+		uOffset, ok := wholeMVPlaneOffset(ref.U, ref.UStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset)
+		if !ok {
+			return false
+		}
+		vOffset, ok := wholeMVPlaneOffset(ref.V, ref.VStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset)
+		if !ok {
+			return false
+		}
+		dstOffset := uvBlockOffset(block, uStride)
+		predictInter4x4(ref.U[uOffset:], ref.UStride, xOffset, yOffset, u[dstOffset:], uStride)
+		predictInter4x4(ref.V[vOffset:], ref.VStride, xOffset, yOffset, v[uvBlockOffset(block, vStride):], vStride)
+	}
+
+	if mode.MBSkipCoeff {
+		return true
+	}
+	TransformMacroblockTokens(tokens, dequant, true, scratch)
 	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
 	return true
 }
@@ -409,6 +465,47 @@ func predictInter8x8(src []byte, srcStride int, xOffset int, yOffset int, dst []
 		return
 	}
 	dsp.SixTapPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
+}
+
+func predictInter4x4(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int) {
+	if xOffset|yOffset == 0 {
+		copyInter4x4(src, srcStride, dst, dstStride)
+		return
+	}
+	dsp.SixTapPredict4x4(src, srcStride, xOffset, yOffset, dst, dstStride)
+}
+
+func copyInter4x4(src []byte, srcStride int, dst []byte, dstStride int) {
+	for row := 0; row < 4; row++ {
+		copy(dst[row*dstStride:row*dstStride+4], src[row*srcStride:row*srcStride+4])
+	}
+}
+
+func splitChromaMotionVector(mode *MacroblockMode, block int) (int, int) {
+	yBlock := (block>>1)*8 + (block&1)*2
+	row := splitChromaMotionVectorComponent(
+		mode.BlockMV[yBlock].Row,
+		mode.BlockMV[yBlock+1].Row,
+		mode.BlockMV[yBlock+4].Row,
+		mode.BlockMV[yBlock+5].Row,
+	)
+	col := splitChromaMotionVectorComponent(
+		mode.BlockMV[yBlock].Col,
+		mode.BlockMV[yBlock+1].Col,
+		mode.BlockMV[yBlock+4].Col,
+		mode.BlockMV[yBlock+5].Col,
+	)
+	return row, col
+}
+
+func splitChromaMotionVectorComponent(a int16, b int16, c int16, d int16) int {
+	sum := int(a) + int(b) + int(c) + int(d)
+	if sum < 0 {
+		sum -= 4
+	} else {
+		sum += 4
+	}
+	return sum / 8
 }
 
 func chromaMotionVectorComponent(v int16) int {
