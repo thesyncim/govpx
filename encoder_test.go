@@ -219,24 +219,48 @@ func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
 	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
-func TestEncodeIntoFallsBackToKeyFrameWhenSourceDiffersFromReference(t *testing.T) {
+func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
 	fillImage(second, 40, 90, 170)
-	dst := make([]byte, 4096)
-	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
 		t.Fatalf("first EncodeInto returned error: %v", err)
 	}
+	dst := make([]byte, 4096)
 
 	result, err := e.EncodeInto(dst, second, 1, 1, 0)
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
-	if !result.KeyFrame {
-		t.Fatalf("second frame KeyFrame = false, want keyframe fallback")
+	if result.KeyFrame {
+		t.Fatalf("second frame KeyFrame = true, want residual interframe")
 	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(result.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("inter NextFrame returned no frame")
+	}
+	if frame.Y[0] >= 220 {
+		t.Fatalf("inter decoded Y0 = %d, want residual to move toward darker source", frame.Y[0])
+	}
+	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
 func TestEncoderHotPathAllocs(t *testing.T) {

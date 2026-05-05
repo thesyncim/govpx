@@ -127,6 +127,62 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 	return tokenStart + tokens.BytesWritten(), nil
 }
 
+type InterFrameMacroblockMode struct {
+	MBSkipCoeff bool
+}
+
+func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
+	if len(dst) < FrameTagSize {
+		return 0, ErrBufferTooSmall
+	}
+	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
+		return 0, ErrInvalidPacketConfig
+	}
+	if cfg.TokenPartition != common.OnePartition || !cfg.MBNoCoeffSkip {
+		return 0, ErrInvalidPacketConfig
+	}
+	rows := (height + 15) >> 4
+	cols := (width + 15) >> 4
+	required := rows * cols
+	if len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return 0, ErrModeBufferTooSmall
+	}
+
+	firstStart := FrameTagSize
+	first := BoolWriter{}
+	first.Init(dst[firstStart:])
+	if err := WriteInterFrameStateHeader(&first, cfg); err != nil {
+		return 0, err
+	}
+	if err := WriteLastFrameZeroMVModeGridWithSkip(&first, rows, cols, cfg, modes); err != nil {
+		return 0, err
+	}
+	first.Finish()
+	if err := first.Err(); err != nil {
+		return 0, err
+	}
+	firstSize := first.BytesWritten()
+	if firstSize > MaxFirstPartitionSize {
+		return 0, ErrInvalidPacketConfig
+	}
+
+	tokenStart := firstStart + firstSize
+	tokens := BoolWriter{}
+	tokens.Init(dst[tokenStart:])
+	if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+		return 0, err
+	}
+	tokens.Finish()
+	if err := tokens.Err(); err != nil {
+		return 0, err
+	}
+
+	if err := PutFrameTag(dst, false, 0, true, firstSize); err != nil {
+		return 0, err
+	}
+	return tokenStart + tokens.BytesWritten(), nil
+}
+
 func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig) error {
 	if w == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip {
 		return ErrInvalidPacketConfig
@@ -144,6 +200,76 @@ func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFr
 		return w.Err()
 	}
 	return nil
+}
+
+func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if w == nil || len(modes) < required || !cfg.MBNoCoeffSkip {
+		return ErrModeBufferTooSmall
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			mode := modes[row*cols+col]
+			if mode.MBSkipCoeff {
+				w.WriteBool(1, cfg.ProbSkipFalse)
+			} else {
+				w.WriteBool(0, cfg.ProbSkipFalse)
+			}
+			w.WriteBool(1, cfg.ProbIntra)
+			w.WriteBool(0, cfg.ProbLast)
+			counts := zeroMVInterModeCounts(row, col)
+			w.WriteBool(0, tables.InterModeContexts[counts][0])
+		}
+	}
+	if w.Err() != nil {
+		return w.Err()
+	}
+	return nil
+}
+
+func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if w == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := 0; col < cols; col++ {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := 0; row < rows; row++ {
+		left := TokenContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			if modes[index].MBSkipCoeff {
+				resetTokenContext(&above[col], &left)
+				continue
+			}
+			if err := WriteCoefficientMacroblockTokens(w, probs, false, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
+	}
+	if w.Err() != nil {
+		return w.Err()
+	}
+	return nil
+}
+
+func resetTokenContext(above *TokenContextPlanes, left *TokenContextPlanes) {
+	*above = TokenContextPlanes{}
+	*left = TokenContextPlanes{}
 }
 
 func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {

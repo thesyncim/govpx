@@ -110,9 +110,10 @@ type VP8Encoder struct {
 	forceKeyFrame bool
 	frameCount    uint64
 
-	keyFrameModes  []vp8enc.KeyFrameMacroblockMode
-	keyFrameCoeffs []vp8enc.MacroblockCoefficients
-	tokenAbove     []vp8enc.TokenContextPlanes
+	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
+	interFrameModes []vp8enc.InterFrameMacroblockMode
+	keyFrameCoeffs  []vp8enc.MacroblockCoefficients
+	tokenAbove      []vp8enc.TokenContextPlanes
 
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
@@ -135,11 +136,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
-		opts:           normalized,
-		timing:         timing,
-		keyFrameModes:  make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		keyFrameCoeffs: make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		tokenAbove:     make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
+		opts:            normalized,
+		timing:          timing,
+		keyFrameModes:   make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		interFrameModes: make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		keyFrameCoeffs:  make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		tokenAbove:      make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
 		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
@@ -181,22 +183,6 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
 	required := rows * cols
-	if !keyFrame {
-		n, err := vp8enc.WriteZeroInterFrame(dst, e.opts.Width, e.opts.Height, vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer)))
-		if err != nil {
-			return EncodeResult{}, translateEncoderError(err)
-		}
-		e.refreshZeroInterFrameReferences()
-		result.Data = dst[:n]
-		result.SizeBytes = n
-		e.forceKeyFrame = false
-		e.frameCount++
-		return result, nil
-	}
-
-	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
-		return EncodeResult{}, ErrInvalidConfig
-	}
 	source := vp8enc.SourceImage{
 		Width:   src.Width,
 		Height:  src.Height,
@@ -206,6 +192,21 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		YStride: src.YStride,
 		UStride: src.UStride,
 		VStride: src.VStride,
+	}
+	if !keyFrame {
+		n, err := e.encodeInterFrame(dst, source, rows, cols, required)
+		if err != nil {
+			return EncodeResult{}, err
+		}
+		result.Data = dst[:n]
+		result.SizeBytes = n
+		e.forceKeyFrame = false
+		e.frameCount++
+		return result, nil
+	}
+
+	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
+		return EncodeResult{}, ErrInvalidConfig
 	}
 	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
 		return EncodeResult{}, translateEncoderError(err)
@@ -223,6 +224,39 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	return result, nil
 }
 
+func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int) (int, error) {
+	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
+	if sourceMatchesReference(Image{
+		Width:   source.Width,
+		Height:  source.Height,
+		Y:       source.Y,
+		U:       source.U,
+		V:       source.V,
+		YStride: source.YStride,
+		UStride: source.UStride,
+		VStride: source.VStride,
+	}, &e.lastRef.Img) {
+		n, err := vp8enc.WriteZeroInterFrame(dst, e.opts.Width, e.opts.Height, cfg)
+		if err != nil {
+			return 0, translateEncoderError(err)
+		}
+		e.refreshZeroInterFrameReferences()
+		return n, nil
+	}
+	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
+		return 0, ErrInvalidConfig
+	}
+	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
+		return 0, translateEncoderError(err)
+	}
+	n, err := vp8enc.WriteCoefficientInterFrame(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	if err != nil {
+		return 0, translateEncoderError(err)
+	}
+	e.refreshInterFrameReferencesFromAnalysis()
+	return n, nil
+}
+
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
@@ -230,7 +264,7 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
 		return true
 	}
-	return !sourceMatchesReference(src, &e.lastRef.Img)
+	return false
 }
 
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
@@ -472,6 +506,13 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences() {
 	e.lastRef.ExtendBorders()
 }
 
+func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis() {
+	copyFrameImage(&e.current.Img, &e.analysis.Img)
+	e.current.ExtendBorders()
+	copyFrameImage(&e.lastRef.Img, &e.current.Img)
+	e.lastRef.ExtendBorders()
+}
+
 func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
 		RefFrame: vp8common.IntraFrame,
@@ -479,6 +520,14 @@ func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.Macrobl
 		UVMode:   src.UVMode,
 		Is4x4:    src.YMode == vp8common.BPred,
 		BModes:   src.BModes,
+	}
+}
+
+func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
+	*dst = vp8dec.MacroblockMode{
+		RefFrame:    vp8common.LastFrame,
+		Mode:        vp8common.ZeroMV,
+		MBSkipCoeff: src.MBSkipCoeff,
 	}
 }
 

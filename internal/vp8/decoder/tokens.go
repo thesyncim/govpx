@@ -112,6 +112,10 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 		return 0, ErrTokenGridBufferTooSmall
 	}
 
+	for col := 0; col < cols; col++ {
+		above[col] = EntropyContextPlanes{}
+	}
+
 	partition := 0
 	total := 0
 	for row := 0; row < rows; row++ {

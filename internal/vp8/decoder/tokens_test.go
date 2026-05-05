@@ -206,6 +206,32 @@ func TestDecodeTokenGridSinglePartition(t *testing.T) {
 	}
 }
 
+func TestDecodeTokenGridResetsAboveContextsPerFrame(t *testing.T) {
+	probs := tables.DefaultCoefProbs
+	payload := encodeTokenRows(&probs, 1, 1, 1, []int{-1})
+	readers := initTokenReaders(t, payload)
+	modes := []MacroblockMode{{}}
+	above := []EntropyContextPlanes{{
+		Y1: [4]uint8{1, 1, 1, 1},
+		U:  [2]uint8{1, 1},
+		V:  [2]uint8{1, 1},
+		Y2: 1,
+	}}
+	tokens := make([]MacroblockTokens, 1)
+
+	total, err := DecodeTokenGrid(readers[:], 1, 1, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if above[0] != (EntropyContextPlanes{}) {
+		t.Fatalf("above context = %+v, want frame-local reset", above[0])
+	}
+}
+
 func TestDecodeTokenGridSkipsMacroblockCoefficients(t *testing.T) {
 	probs := uniformCoefficientProbs(128)
 	var w testBoolWriter

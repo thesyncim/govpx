@@ -68,6 +68,51 @@ func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
+	modes := []InterFrameMacroblockMode{{MBSkipCoeff: false}, {MBSkipCoeff: true}}
+	coeffs := make([]MacroblockCoefficients, 2)
+	coeffs[0].QCoeff[24][0] = 1
+	packet := make([]byte, 512)
+	above := make([]TokenContextPlanes, 2)
+	n, err := WriteCoefficientInterFrame(packet, 32, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	var layout vp8dec.PartitionLayout
+	if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
+		t.Fatalf("ParsePartitionLayout returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, 2)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 2, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	if decodedModes[0].MBSkipCoeff || !decodedModes[1].MBSkipCoeff {
+		t.Fatalf("decoded skip flags = %t/%t, want false/true", decodedModes[0].MBSkipCoeff, decodedModes[1].MBSkipCoeff)
+	}
+
+	readers := [8]boolcoder.Decoder{}
+	if err := readers[0].Init(layout.Tokens[0]); err != nil {
+		t.Fatalf("token reader Init returned error: %v", err)
+	}
+	tokens := make([]vp8dec.MacroblockTokens, 2)
+	decoderAbove := make([]vp8dec.EntropyContextPlanes, 2)
+	total, err := vp8dec.DecodeTokenGrid(readers[:1], 1, 2, &coefProbs, decodedModes, decoderAbove, tokens)
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total == 0 || tokens[0].QCoeff[24][0] != 1 || tokens[1] != (vp8dec.MacroblockTokens{}) {
+		t.Fatalf("decoded tokens total=%d firstY2=%d second=%+v, want residual then skipped", total, tokens[0].QCoeff[24][0], tokens[1])
+	}
+}
+
 func TestWriteZeroInterFrameRejectsUnsupportedConfig(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.MBNoCoeffSkip = false
@@ -82,6 +127,21 @@ func TestWriteZeroInterFrameAllocatesZero(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_, _ = WriteZeroInterFrame(dst, 16, 16, cfg)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func TestWriteCoefficientInterFrameAllocatesZero(t *testing.T) {
+	dst := make([]byte, 512)
+	modes := []InterFrameMacroblockMode{{MBSkipCoeff: false}}
+	coeffs := make([]MacroblockCoefficients, 1)
+	coeffs[0].QCoeff[24][0] = 1
+	above := make([]TokenContextPlanes, 1)
+	cfg := DefaultInterFrameStateConfig(20)
+	allocs := testing.AllocsPerRun(1000, func() {
+		_, _ = WriteCoefficientInterFrame(dst, 16, 16, cfg, modes, coeffs, above)
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)

@@ -148,6 +148,45 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 4096)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want residual interframe")
+	}
+
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []byte) []byte {
 	return makeIVF(width, height, den, num, [][]byte{frame})
 }
@@ -214,6 +253,36 @@ func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil
 		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
 	}
 	return frames
+}
+
+func decodeFrameSequence(t *testing.T, packets ...[]byte) []Image {
+	t.Helper()
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	frames := make([]Image, 0, len(packets))
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d returned error: %v", i, err)
+		}
+		frame, ok := d.NextFrame()
+		if !ok {
+			t.Fatalf("NextFrame packet %d returned no frame", i)
+		}
+		frames = append(frames, cloneImage(frame))
+	}
+	return frames
+}
+
+func cloneImage(src Image) Image {
+	dst := testImage(src.Width, src.Height)
+	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	return dst
 }
 
 func checksumFrame(index int, keyFrame bool, showFrame bool, img Image) testutil.FrameChecksum {

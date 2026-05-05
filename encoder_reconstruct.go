@@ -42,6 +42,41 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	return nil
 }
 
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
+	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
+		return ErrInvalidConfig
+	}
+	required := rows * cols
+	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
+		return ErrInvalidConfig
+	}
+
+	var dequant vp8common.MacroblockDequant
+	var quant vp8enc.MacroblockQuant
+	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &e.dequantTables)
+	vp8common.InitMacroblockDequant(&e.dequantTables, qIndex, &dequant)
+	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
+
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			coeffs[index] = vp8enc.MacroblockCoefficients{}
+			buildDCPredMacroblockCoefficients(src, row, col, &e.lastRef.Img, &quant, &coeffs[index])
+			modes[index] = vp8enc.InterFrameMacroblockMode{
+				MBSkipCoeff: macroblockCoefficientsEmpty(&coeffs[index]),
+			}
+			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+			convertMacroblockCoefficients(&coeffs[index], false, &e.reconstructTokens[index])
+			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, &e.lastRef.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+				return ErrInvalidConfig
+			}
+		}
+	}
+	e.analysis.ExtendBorders()
+	return nil
+}
+
 func buildDCPredMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients) {
 	var y2Input [16]int16
 	var y2Coeff [16]int16
@@ -78,6 +113,23 @@ func buildDCPredMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol 
 	}
 }
 
+func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients) bool {
+	if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[24], 0) > 0 {
+		return false
+	}
+	for i := 0; i < 16; i++ {
+		if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[i], 1) > 1 {
+			return false
+		}
+	}
+	for i := 16; i < 24; i++ {
+		if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[i], 0) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, scratch *vp8dec.IntraReconstructionScratch) bool {
 	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
 	yOff := row*16*img.YStride + col*16
@@ -86,6 +138,13 @@ func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8
 	return vp8dec.PredictIntraY16x16(mode.Mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.U[uOff:], img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
+func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
 }
 
 func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
