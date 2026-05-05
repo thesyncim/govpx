@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 func TestNewVP8EncoderValidation(t *testing.T) {
@@ -167,6 +169,66 @@ func TestEncodeIntoWritesDecodableKeyFrame(t *testing.T) {
 	if frame.Width != 16 || frame.Height != 16 || frame.Y[0] >= 128 {
 		t.Fatalf("decoded frame = %dx%d Y0=%d, want 16x16 dark source-directed frame", frame.Width, frame.Height, frame.Y[0])
 	}
+}
+
+func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        20,
+		Sharpness:           3,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	first := testImage(32, 16)
+	fillImage(first, 220, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 16; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = 40
+		}
+	}
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := parseEncoderStateHeader(t, key.Data)
+	if keyState.LoopFilter.Level != 5 || keyState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("key loop filter = %+v, want level 5 sharpness 3", keyState.LoopFilter)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	assertImagesEqual(t, "filtered key current", keyFrame, publicImageFromVP8(&e.current.Img))
+
+	second := testImage(32, 16)
+	fillImage(second, 40, 90, 170)
+	for row := 0; row < second.Height; row++ {
+		for col := 16; col < second.Width; col++ {
+			second.Y[row*second.YStride+col] = 220
+		}
+	}
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	interState := parseEncoderStateHeader(t, inter.Data)
+	if interState.LoopFilter.Level != 5 || interState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("inter loop filter = %+v, want level 5 sharpness 3", interState.LoopFilter)
+	}
+	decoded := decodeFrameSequence(t, key.Data, inter.Data)
+	assertImagesEqual(t, "filtered inter current", decoded[1], publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "filtered inter last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
 }
 
 func TestEncodeIntoUsesSourcePixels(t *testing.T) {
@@ -614,6 +676,18 @@ func decodeSingleFrame(t *testing.T, packet []byte) Image {
 		t.Fatalf("NextFrame returned no frame")
 	}
 	return frame
+}
+
+func parseEncoderStateHeader(t *testing.T, packet []byte) vp8dec.StateHeader {
+	t.Helper()
+	var coefProbs = vp8tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	return state
 }
 
 func assertImagesEqual(t *testing.T, name string, want Image, got Image) {

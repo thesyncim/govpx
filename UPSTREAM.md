@@ -58,7 +58,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, and keyframe state primitives scaffolded |
-| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with last/golden/altref reference selection and refresh control, simple full-pixel NEWMV interframes with near-MV reuse, forward transforms, and fast block quantization scaffolded |
+| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with last/golden/altref reference selection and refresh control, simple full-pixel NEWMV interframes with near-MV reuse, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations
@@ -69,6 +69,7 @@ grant. This repository keeps libvpx license and patent notices in
 - `EncodeInto` can emit source-dependent DCPred keyframes, LAST/ZEROMV
   residual interframes, and simple full-pixel NEWMV interframes with
   last/golden/altref reference selection, near-MV reuse, and reference refresh
-  control, but full prediction mode analysis, broader motion search, and
-  rate-control feedback are not complete yet.
+  control, plus opt-in reconstructed-frame loop filtering, but full prediction
+  mode analysis, broader motion search, and rate-control feedback are not
+  complete yet.
 - The package exposes a small Go API, not the libvpx C API.

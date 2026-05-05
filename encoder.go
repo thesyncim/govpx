@@ -126,6 +126,7 @@ type VP8Encoder struct {
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
+	loopInfo           vp8common.LoopFilterInfo
 }
 
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
@@ -213,8 +214,12 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
+	lfLevel, lfSharpness := e.encoderLoopFilter()
+	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
+		return EncodeResult{}, err
+	}
 
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{BaseQIndex: uint8(e.rc.currentQuantizer)}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
@@ -230,10 +235,11 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
+	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	if flags&EncodeNoReferenceLast == 0 && sourceMatchesReference(Image{
+	if cfg.LoopFilterLevel == 0 && flags&EncodeNoReferenceLast == 0 && sourceMatchesReference(Image{
 		Width:   source.Width,
 		Height:  source.Height,
 		Y:       source.Y,
@@ -255,6 +261,9 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	}
 	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags); err != nil {
 		return 0, translateEncoderError(err)
+	}
+	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
+		return 0, err
 	}
 	n, err := vp8enc.WriteCoefficientInterFrame(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
@@ -495,6 +504,35 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	if err := e.altRef.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	return nil
+}
+
+func (e *VP8Encoder) encoderLoopFilter() (uint8, uint8) {
+	if e.opts.Sharpness == 0 {
+		return 0, 0
+	}
+	level := e.rc.currentQuantizer / 4
+	if level < 1 {
+		level = 1
+	}
+	if level > 63 {
+		level = 63
+	}
+	return uint8(level), uint8(e.opts.Sharpness)
+}
+
+func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, level uint8, sharpness uint8, rows int, cols int, required int) error {
+	if level == 0 {
+		return nil
+	}
+	if len(e.reconstructModes) < required {
+		return ErrInvalidConfig
+	}
+	header := vp8dec.LoopFilterHeader{Level: level, SharpnessLevel: sharpness}
+	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
+		return ErrInvalidConfig
+	}
+	e.analysis.ExtendBorders()
 	return nil
 }
 
