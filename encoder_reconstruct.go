@@ -3,6 +3,7 @@ package libgopx
 import (
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
@@ -150,17 +151,26 @@ func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interA
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
-	sad := 0
 	baseY := mbRow * 16
 	baseX := mbCol * 16
 	mvY := int(mv.Row >> 3)
 	mvX := int(mv.Col >> 3)
+	refBaseY := baseY + mvY
+	refBaseX := baseX + mvX
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+16 <= src.Height && baseX+16 <= src.Width &&
+		refBaseY >= 0 && refBaseX >= 0 &&
+		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
+		return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride)
+	}
+
+	sad := 0
 	for row := 0; row < 16; row++ {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(baseY+row+mvY, ref.CodedHeight)
+		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
 		for col := 0; col < 16; col++ {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(baseX+col+mvX, ref.CodedWidth)
+			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			if diff < 0 {
 				diff = -diff
