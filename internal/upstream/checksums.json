@@ -24,6 +24,10 @@
       "sha256": "1c6fcef0275aa7680718789cd34c57aed6bfd453cfccd7b0cc2bba7068464626"
     },
     {
+      "path": "vp8/common/default_coef_probs.h",
+      "sha256": "a3aab021e2a4524f530205eae1463aa861cef0108c77770ba85050e1f94bde4a"
+    },
+    {
       "path": "vp8/common/entropymode.c",
       "sha256": "a8b1d914c9ec1e75e823cc8eb9444e6e20fd754ed70cb6851220c20e4940ef2f"
     },

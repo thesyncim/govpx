@@ -39,6 +39,12 @@ func TestEntropyTableSentinels(t *testing.T) {
 	if CoefUpdateProbs[0][1][0][0] != 176 || CoefUpdateProbs[3][7][1][0] != 254 {
 		t.Fatalf("CoefUpdateProbs sentinels changed")
 	}
+	if sumDefaultCoefProbs() != 174918 {
+		t.Fatalf("DefaultCoefProbs checksum = %d, want 174918", sumDefaultCoefProbs())
+	}
+	if DefaultCoefProbs[0][0][0][0] != 128 || DefaultCoefProbs[3][7][2][10] != 128 {
+		t.Fatalf("DefaultCoefProbs sentinels changed")
+	}
 }
 
 func TestModeTableSentinels(t *testing.T) {
@@ -146,6 +152,20 @@ func sumCoefUpdateProbs() int {
 		for band := range CoefUpdateProbs[block] {
 			for ctx := range CoefUpdateProbs[block][band] {
 				for _, v := range CoefUpdateProbs[block][band][ctx] {
+					sum += int(v)
+				}
+			}
+		}
+	}
+	return sum
+}
+
+func sumDefaultCoefProbs() int {
+	sum := 0
+	for block := range DefaultCoefProbs {
+		for band := range DefaultCoefProbs[block] {
+			for ctx := range DefaultCoefProbs[block][band] {
+				for _, v := range DefaultCoefProbs[block][band][ctx] {
 					sum += int(v)
 				}
 			}
