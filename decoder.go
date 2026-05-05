@@ -225,6 +225,9 @@ func validateDecoderOptions(opts DecoderOptions) error {
 }
 
 func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
+	if !vp8dec.IsSupportedVersion(info.Profile) {
+		return ErrUnsupportedFeature
+	}
 	if !info.KeyFrame {
 		return nil
 	}
@@ -265,7 +268,7 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 
 func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
 	return info.ShowFrame &&
-		info.Profile == 0
+		vp8dec.IsSupportedVersion(info.Profile)
 }
 
 func (d *VP8Decoder) outputDimensions(info StreamInfo) (int, int) {
@@ -380,15 +383,19 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		}
 	} else {
 		frameType = vp8common.InterFrame
-		if err := vp8dec.ReconstructInterFrameGrid(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
+		cfg := vp8dec.InterPredictionConfigForVersion(info.Profile)
+		if err := vp8dec.ReconstructInterFrameGridWithConfig(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg); err != nil {
 			if errors.Is(err, vp8dec.ErrUnsupportedInterReconstructionMode) {
 				return ErrUnsupportedFeature
 			}
 			return ErrInvalidData
 		}
 	}
-	if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, d.state.LoopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
-		return ErrInvalidData
+	if !vp8dec.VersionSkipsLoopFilter(info.Profile) {
+		loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
+		if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
+			return ErrInvalidData
+		}
 	}
 	d.current.ExtendBorders()
 	return nil

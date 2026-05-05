@@ -769,6 +769,61 @@ func TestReconstructInterFrameGridPredictsSubpixelWholeMV(t *testing.T) {
 	assertCopiedBlock(t, "V", img.V[8*img.VStride+8:], img.VStride, wantV, 8, 0, 0, 8, 8)
 }
 
+func TestReconstructInterFrameGridUsesBilinearInterFilter(t *testing.T) {
+	img := blankImage(32, 32)
+	last := testImage(48, 48)
+	ref := blankImage(32, 32)
+	modes := []MacroblockMode{
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2, Col: 2}, MBSkipCoeff: true},
+	}
+	tokens := make([]MacroblockTokens, 4)
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructInterFrameGridWithConfig(&img, &last, &ref, &ref, 2, 2, modes, tokens, &dequants, &scratch, InterPredictionConfig{UseBilinear: true})
+	if err != nil {
+		t.Fatalf("ReconstructInterFrameGridWithConfig returned error: %v", err)
+	}
+
+	wantY := make([]byte, 16*16)
+	wantU := make([]byte, 8*8)
+	wantV := make([]byte, 8*8)
+	dsp.BilinearPredict16x16(last.Y[16*last.YStride+16:], last.YStride, 2, 2, wantY, 16)
+	dsp.BilinearPredict8x8(last.U[8*last.UStride+8:], last.UStride, 1, 1, wantU, 8)
+	dsp.BilinearPredict8x8(last.V[8*last.VStride+8:], last.VStride, 1, 1, wantV, 8)
+
+	assertCopiedBlock(t, "Y bilinear", img.Y[16*img.YStride+16:], img.YStride, wantY, 16, 0, 0, 16, 16)
+	assertCopiedBlock(t, "U bilinear", img.U[8*img.UStride+8:], img.UStride, wantU, 8, 0, 0, 8, 8)
+	assertCopiedBlock(t, "V bilinear", img.V[8*img.VStride+8:], img.VStride, wantV, 8, 0, 0, 8, 8)
+}
+
+func TestReconstructInterFrameGridMasksFullPixelVersionMV(t *testing.T) {
+	img := blankImage(32, 32)
+	last := testImage(48, 48)
+	ref := blankImage(32, 32)
+	modes := []MacroblockMode{
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2, Col: 2}, MBSkipCoeff: true},
+	}
+	tokens := make([]MacroblockTokens, 4)
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructInterFrameGridWithConfig(&img, &last, &ref, &ref, 2, 2, modes, tokens, &dequants, &scratch, InterPredictionConfig{UseBilinear: true, FullPixel: true})
+	if err != nil {
+		t.Fatalf("ReconstructInterFrameGridWithConfig returned error: %v", err)
+	}
+
+	assertCopiedBlock(t, "Y full-pixel version", img.Y[16*img.YStride+16:], img.YStride, last.Y, last.YStride, 16, 16, 16, 16)
+	assertCopiedBlock(t, "U full-pixel version", img.U[8*img.UStride+8:], img.UStride, last.U, last.UStride, 8, 8, 8, 8)
+	assertCopiedBlock(t, "V full-pixel version", img.V[8*img.VStride+8:], img.VStride, last.V, last.VStride, 8, 8, 8, 8)
+}
+
 func TestReconstructInterFrameGridPredictsBorderSubpixelWholeMV(t *testing.T) {
 	img := blankImage(16, 16)
 	ref, err := common.NewFrameBuffer(16, 16, 32, 32)

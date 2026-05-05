@@ -72,6 +72,59 @@ func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeOutputsSupportedVersionKeyFrames(t *testing.T) {
+	for _, version := range []int{1, 2, 3} {
+		d, err := NewVP8Decoder(DecoderOptions{})
+		if err != nil {
+			t.Fatalf("NewVP8Decoder returned error: %v", err)
+		}
+		packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
+
+		err = d.Decode(packet)
+		if err != nil {
+			t.Fatalf("version %d Decode error = %v, want nil", version, err)
+		}
+		frame, ok := d.NextFrame()
+		if !ok {
+			t.Fatalf("version %d NextFrame returned no frame", version)
+		}
+		if frame.Width != 16 || frame.Height != 16 {
+			t.Fatalf("version %d frame dimensions = %dx%d, want 16x16", version, frame.Width, frame.Height)
+		}
+	}
+}
+
+func TestDecodeSkipsLoopFilterForNoLPFVersion(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartitionProfile(16, 16, 2, vp8FirstPartitionWithLoopFilterLevel(1))
+
+	err = d.Decode(packet)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
+	}
+	if d.loopInfo.MBLimit[1] != 0 || d.loopInfo.BLimit[1] != 0 {
+		t.Fatalf("loop filter tables = mb:%d b:%d, want skipped", d.loopInfo.MBLimit[1], d.loopInfo.BLimit[1])
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("NextFrame returned no frame for no-lpf version")
+	}
+}
+
+func TestDecodeRejectsReservedVersion(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 4, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("error = %v, want ErrUnsupportedFeature", err)
+	}
+}
+
 func TestDecodeOutputsMacroblockSkipKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -210,7 +263,11 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 }
 
 func vp8KeyFramePacketWithFirstPartition(width int, height int, first []byte) []byte {
-	packet := vp8KeyFramePacket(width, height, len(first), 0, true)
+	return vp8KeyFramePacketWithFirstPartitionProfile(width, height, 0, first)
+}
+
+func vp8KeyFramePacketWithFirstPartitionProfile(width int, height int, profile int, first []byte) []byte {
+	packet := vp8KeyFramePacket(width, height, len(first), profile, true)
 	packet = append(packet, first...)
 	return append(packet, make([]byte, 10000)...)
 }
