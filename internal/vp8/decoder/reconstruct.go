@@ -11,6 +11,7 @@ import (
 // - vp8/decoder/decodeframe.c macroblock inverse transform setup
 // - vp8/common/invtrans.h inverse-transform dispatch
 // - vp8/common/setupintrarecon.c intra edge setup
+// - vp8/common/reconinter.c whole-macroblock inter predictor offsets
 
 var (
 	ErrReconstructGridBufferTooSmall      = errors.New("libgopx: VP8 reconstruction grid buffer too small")
@@ -289,7 +290,7 @@ func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *co
 			if ref == nil {
 				return ErrUnsupportedInterReconstructionMode
 			}
-			if !ReconstructZeroMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
+			if !ReconstructWholeMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 		}
@@ -297,13 +298,17 @@ func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *co
 	return nil
 }
 
-func ReconstructZeroMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
-	if mode.RefFrame == common.IntraFrame || mode.Mode != common.ZeroMV || mode.Is4x4 || !mode.MV.IsZero() {
+func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+	if mode.RefFrame == common.IntraFrame || mode.Is4x4 || !isWholeMacroblockInterMode(mode.Mode) {
 		return false
 	}
-	yRef := mbRow*16*ref.YStride + mbCol*16
-	uRef := mbRow*8*ref.UStride + mbCol*8
-	vRef := mbRow*8*ref.VStride + mbCol*8
+	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {
+		return false
+	}
+	yRef, uRef, vRef, ok := wholeMVReferenceOffsets(ref, mbRow, mbCol, mode.MV)
+	if !ok {
+		return false
+	}
 	dsp.Copy16x16(ref.Y[yRef:], ref.YStride, y, yStride)
 	dsp.Copy8x8(ref.U[uRef:], ref.UStride, u, uStride)
 	dsp.Copy8x8(ref.V[vRef:], ref.VStride, v, vStride)
@@ -313,6 +318,57 @@ func ReconstructZeroMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTo
 	TransformMacroblockTokens(tokens, dequant, false, scratch)
 	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
 	return true
+}
+
+func isWholeMacroblockInterMode(mode common.MBPredictionMode) bool {
+	switch mode {
+	case common.ZeroMV, common.NearestMV, common.NearMV, common.NewMV:
+		return true
+	default:
+		return false
+	}
+}
+
+func wholeMVReferenceOffsets(ref *common.Image, mbRow int, mbCol int, mv MotionVector) (int, int, int, bool) {
+	if ref == nil {
+		return 0, 0, 0, false
+	}
+	if (int(mv.Row)|int(mv.Col))&7 != 0 {
+		return 0, 0, 0, false
+	}
+
+	yRow := mbRow*16 + int(mv.Row>>3)
+	yCol := mbCol*16 + int(mv.Col>>3)
+	if !imageHasReferenceBlock(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16) {
+		return 0, 0, 0, false
+	}
+
+	uvMVRow := chromaMotionVectorComponent(mv.Row)
+	uvMVCol := chromaMotionVectorComponent(mv.Col)
+	if (uvMVRow|uvMVCol)&7 != 0 {
+		return 0, 0, 0, false
+	}
+
+	uvRow := mbRow*8 + (uvMVRow >> 3)
+	uvCol := mbCol*8 + (uvMVCol >> 3)
+	uvWidth := (codedImageWidth(ref) + 1) >> 1
+	uvHeight := (codedImageHeight(ref) + 1) >> 1
+	if !imageHasReferenceBlock(ref.U, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8) ||
+		!imageHasReferenceBlock(ref.V, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8) {
+		return 0, 0, 0, false
+	}
+
+	return yRow*ref.YStride + yCol, uvRow*ref.UStride + uvCol, uvRow*ref.VStride + uvCol, true
+}
+
+func chromaMotionVectorComponent(v int16) int {
+	mv := int(v)
+	if mv < 0 {
+		mv--
+	} else {
+		mv++
+	}
+	return mv / 2
 }
 
 func referenceImageForMode(refFrame common.MVReferenceFrame, last *common.Image, golden *common.Image, alt *common.Image) *common.Image {
@@ -435,6 +491,20 @@ func planeHasBlock(plane []byte, stride int, width int, height int) bool {
 		return true
 	}
 	need := (height-1)*stride + width
+	return need <= len(plane)
+}
+
+func imageHasReferenceBlock(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int) bool {
+	if row < 0 || col < 0 || width < 0 || height < 0 || stride < codedWidth {
+		return false
+	}
+	if col > codedWidth-width || row > codedHeight-height {
+		return false
+	}
+	if height == 0 {
+		return true
+	}
+	need := (row+height-1)*stride + col + width
 	return need <= len(plane)
 }
 

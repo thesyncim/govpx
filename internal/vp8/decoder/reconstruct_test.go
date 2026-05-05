@@ -715,10 +715,62 @@ func TestReconstructInterFrameGridCopiesLastZeroMV(t *testing.T) {
 	}
 }
 
-func TestReconstructInterFrameGridRejectsUnsupportedMode(t *testing.T) {
+func TestReconstructInterFrameGridCopiesFullPixelWholeMV(t *testing.T) {
+	img := blankImage(16, 16)
+	last := testImage(48, 48)
+	golden := blankImage(16, 16)
+	alt := blankImage(16, 16)
+	modes := []MacroblockMode{{
+		Mode:        common.NewMV,
+		RefFrame:    common.LastFrame,
+		MV:          MotionVector{Row: 16, Col: 16},
+		MBSkipCoeff: true,
+	}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &last, &golden, &alt, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	assertCopiedBlock(t, "Y", img.Y, img.YStride, last.Y, last.YStride, 2, 2, 16, 16)
+	assertCopiedBlock(t, "U", img.U, img.UStride, last.U, last.UStride, 1, 1, 8, 8)
+	assertCopiedBlock(t, "V", img.V, img.VStride, last.V, last.VStride, 1, 1, 8, 8)
+}
+
+func TestReconstructInterFrameGridRejectsLumaSubpixelMV(t *testing.T) {
 	img := blankImage(16, 16)
 	ref := testImage(16, 16)
 	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2}}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
+	if err != ErrUnsupportedInterReconstructionMode {
+		t.Fatalf("error = %v, want ErrUnsupportedInterReconstructionMode", err)
+	}
+}
+
+func TestReconstructInterFrameGridRejectsNonZeroZeroMV(t *testing.T) {
+	img := blankImage(16, 16)
+	ref := testImage(32, 32)
+	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 16}}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
+	if err != ErrUnsupportedInterReconstructionMode {
+		t.Fatalf("error = %v, want ErrUnsupportedInterReconstructionMode", err)
+	}
+}
+
+func TestReconstructInterFrameGridRejectsChromaSubpixelMV(t *testing.T) {
+	img := blankImage(16, 16)
+	ref := testImage(32, 32)
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 8}}}
 	tokens := []MacroblockTokens{{}}
 	dequants := testMacroblockDequants()
 	var scratch IntraReconstructionScratch
@@ -753,8 +805,8 @@ func TestReconstructInterFrameGridReconstructsIntraMacroblock(t *testing.T) {
 
 func TestReconstructInterFrameGridAllocatesZero(t *testing.T) {
 	img := blankImage(16, 16)
-	ref := testImage(16, 16)
-	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame}}
+	ref := testImage(48, 48)
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 16, Col: 16}}}
 	tokens := []MacroblockTokens{{}}
 	dequants := testMacroblockDequants()
 	var scratch IntraReconstructionScratch
@@ -920,6 +972,19 @@ func assertPlaneEqual(t *testing.T, name string, got []byte, want []byte) {
 	for i := range got {
 		if got[i] != want[i] {
 			t.Fatalf("%s[%d] = %d, want %d", name, i, got[i], want[i])
+		}
+	}
+}
+
+func assertCopiedBlock(t *testing.T, name string, got []byte, gotStride int, want []byte, wantStride int, wantRow int, wantCol int, width int, height int) {
+	t.Helper()
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			gotValue := got[row*gotStride+col]
+			wantValue := want[(wantRow+row)*wantStride+wantCol+col]
+			if gotValue != wantValue {
+				t.Fatalf("%s[%d,%d] = %d, want reference[%d,%d] %d", name, row, col, gotValue, wantRow+row, wantCol+col, wantValue)
+			}
 		}
 	}
 }
