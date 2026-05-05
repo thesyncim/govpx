@@ -165,6 +165,76 @@ func (rc *rateControlState) clampQuantizer() {
 	}
 }
 
+func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
+	actualBits := encodedSizeBits(sizeBytes)
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	rc.rollingActualBits = saturatingAdd(rc.rollingActualBits, actualBits)
+	rc.rollingTargetBits = saturatingAdd(rc.rollingTargetBits, targetBits)
+	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
+	rc.clampBuffer()
+
+	rc.lastQuantizer = rc.currentQuantizer
+	if rc.mode != RateControlCQ {
+		rc.adjustQuantizer(actualBits, targetBits)
+	}
+	rc.clampQuantizer()
+
+	if keyFrame {
+		rc.framesSinceKeyframe = 0
+		return
+	}
+	rc.framesSinceKeyframe++
+}
+
+func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
+	if targetBits <= 0 {
+		return
+	}
+	lowBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits < rc.bufferOptimalBits/2
+	highBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits > rc.bufferOptimalBits
+	switch {
+	case actualBits > targetBits || lowBuffer:
+		step := 1
+		if int64(actualBits) > int64(targetBits)*2 || lowBuffer {
+			step = 2
+		}
+		rc.currentQuantizer += step
+	case int64(actualBits)*2 < int64(targetBits) && highBuffer:
+		rc.currentQuantizer--
+	}
+}
+
+func encodedSizeBits(sizeBytes int) int {
+	if sizeBytes <= 0 {
+		return 0
+	}
+	if sizeBytes > maxInt()/8 {
+		return maxInt()
+	}
+	return sizeBytes * 8
+}
+
+func saturatingAdd(a int, b int) int {
+	if b > 0 && a > maxInt()-b {
+		return maxInt()
+	}
+	if b < 0 && a < -maxInt()-b {
+		return -maxInt()
+	}
+	return a + b
+}
+
+func saturatingSub(a int, b int) int {
+	if b == -maxInt() {
+		return saturatingAdd(a, maxInt())
+	}
+	return saturatingAdd(a, -b)
+}
+
 func computeBitsPerFrame(targetBandwidthBits int, timing timingState) int {
 	if targetBandwidthBits <= 0 || timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
 		return 0

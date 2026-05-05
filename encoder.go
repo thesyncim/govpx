@@ -200,6 +200,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		}
 		result.Data = dst[:n]
 		result.SizeBytes = n
+		e.rc.postEncodeFrame(n, false)
+		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		e.frameCount++
 		return result, nil
@@ -219,6 +221,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.refreshKeyFrameReferencesFromAnalysis()
 	result.Data = dst[:n]
 	result.SizeBytes = n
+	e.rc.postEncodeFrame(n, true)
+	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.frameCount++
 	return result, nil

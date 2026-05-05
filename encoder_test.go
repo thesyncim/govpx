@@ -45,6 +45,42 @@ func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	initialQuantizer := e.rc.currentQuantizer
+	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+
+	if e.rc.rollingActualBits != result.SizeBytes*8 || e.rc.rollingTargetBits != result.FrameTargetBits {
+		t.Fatalf("rolling bits = actual:%d target:%d, want %d/%d", e.rc.rollingActualBits, e.rc.rollingTargetBits, result.SizeBytes*8, result.FrameTargetBits)
+	}
+	if result.BufferLevelBits != e.rc.bufferLevelBits {
+		t.Fatalf("result buffer = %d, want rc buffer %d", result.BufferLevelBits, e.rc.bufferLevelBits)
+	}
+	if e.rc.currentQuantizer <= initialQuantizer {
+		t.Fatalf("currentQuantizer = %d, want above initial %d after overshoot", e.rc.currentQuantizer, initialQuantizer)
+	}
+	if e.rc.framesSinceKeyframe != 0 {
+		t.Fatalf("framesSinceKeyframe = %d, want 0 after keyframe", e.rc.framesSinceKeyframe)
+	}
+}
+
 func TestSetRateControlValidation(t *testing.T) {
 	e := newTestEncoder(t)
 
