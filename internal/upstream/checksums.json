@@ -60,6 +60,18 @@
       "sha256": "94b6db61c954bf9153f1c4558162807402a87944b168f2d784268e50391424cd"
     },
     {
+      "path": "vp8/common/reconinter.c",
+      "sha256": "c84c43167981f89b966fef57abc58ec0e347f74916459a07a6f10c6d459291b0"
+    },
+    {
+      "path": "vp8/common/reconinter.h",
+      "sha256": "382e2eef893d2eda4fc158e09353c13b23c8bfb4e0c725f0e7b1615fbf8bc7d9"
+    },
+    {
+      "path": "vpx_dsp/vpx_dsp_common.h",
+      "sha256": "2c33e52935eefc7a2aa72ee04e2e235b25d64c7fa06ea51215ee2bcc6baf2893"
+    },
+    {
       "path": "vp8/decoder/dboolhuff.c",
       "sha256": "a4adbe494cbf7a75c3c6743deeb8ffc99e605c5b21a23f76a5871c27dbc1fe12"
     },
