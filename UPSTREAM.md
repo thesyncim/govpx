@@ -46,8 +46,8 @@ grant. This repository keeps libvpx license and patent notices in
 | --- | --- |
 | Public API | scaffolded |
 | Upstream manifest | scaffolded |
-| Oracle harness | not started |
-| IVF/test vectors | not started |
+| Oracle harness | optional vpxdec smoke test scaffolded |
+| IVF/test vectors | IVF parser scaffolded; smoke vectors not started |
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
