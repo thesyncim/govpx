@@ -46,6 +46,7 @@ type VP8Decoder struct {
 	tokenAbove         []vp8dec.EntropyContextPlanes
 	frameHeader        vp8dec.FrameHeader
 	previousQuant      vp8dec.QuantHeader
+	previousLoopFilter vp8dec.LoopFilterHeader
 	state              vp8dec.StateHeader
 	partitions         vp8dec.PartitionLayout
 	modeReader         boolcoder.Decoder
@@ -183,6 +184,7 @@ func (d *VP8Decoder) Reset() {
 	d.currentPTS = 0
 	d.initialized = false
 	d.previousQuant = vp8dec.QuantHeader{}
+	d.previousLoopFilter = vp8dec.LoopFilterHeader{}
 	d.state = vp8dec.StateHeader{}
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
@@ -283,7 +285,7 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 
 func (d *VP8Decoder) parseState(packet []byte) error {
 	frameProbs := d.coefProbs
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbs(packet, d.previousQuant, &frameProbs)
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs)
 	if err != nil {
 		return ErrInvalidData
 	}
@@ -307,6 +309,7 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 		d.coefProbs = vp8tables.DefaultCoefProbs
 	}
 	d.previousQuant = state.Quant
+	d.previousLoopFilter = state.LoopFilter
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
 }

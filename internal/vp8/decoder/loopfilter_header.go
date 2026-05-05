@@ -28,7 +28,13 @@ type LoopFilterHeader struct {
 }
 
 func parseLoopFilterHeader(br *boolcoder.Decoder) LoopFilterHeader {
+	return parseLoopFilterHeaderWithPrevious(br, LoopFilterHeader{})
+}
+
+func parseLoopFilterHeaderWithPrevious(br *boolcoder.Decoder, previous LoopFilterHeader) LoopFilterHeader {
 	var h LoopFilterHeader
+	h.RefDeltas = previous.RefDeltas
+	h.ModeDeltas = previous.ModeDeltas
 	h.Type = LoopFilterType(br.ReadBit())
 	h.Level = uint8(br.ReadLiteral(6))
 	h.SharpnessLevel = uint8(br.ReadLiteral(3))

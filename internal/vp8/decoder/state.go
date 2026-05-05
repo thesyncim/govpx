@@ -35,6 +35,10 @@ func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (Frame
 }
 
 func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader, probs *tables.CoefficientProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
+	return ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, LoopFilterHeader{}, probs)
+}
+
+func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	frame, err := ParseFrameHeader(packet)
 	if err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
@@ -53,16 +57,18 @@ func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader
 	}
 
 	var state StateHeader
+	loopFilter := previousLoopFilter
 	if frame.KeyFrame() {
 		if probs != nil {
 			*probs = tables.DefaultCoefProbs
 		}
+		loopFilter = LoopFilterHeader{}
 		state.ColorSpace = int(br.ReadBit())
 		state.ClampType = common.ClampType(br.ReadBit())
 	}
 
 	state.Segmentation = parseSegmentationHeader(&br)
-	state.LoopFilter = parseLoopFilterHeader(&br)
+	state.LoopFilter = parseLoopFilterHeaderWithPrevious(&br, loopFilter)
 	state.TokenPartition = common.TokenPartition(br.ReadLiteral(2))
 	state.Quant = parseQuantHeader(&br, previousQuant)
 	state.Refresh = parseRefreshHeader(&br, frame)
