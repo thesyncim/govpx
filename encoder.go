@@ -1,5 +1,11 @@
 package libgopx
 
+import (
+	"errors"
+
+	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+)
+
 type Deadline int
 
 const (
@@ -133,10 +139,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 
-	keyFrame := e.forceKeyFrame || flags&EncodeForceKeyFrame != 0
-	if e.frameCount == 0 || e.opts.KeyFrameInterval > 0 && int(e.frameCount)%e.opts.KeyFrameInterval == 0 {
-		keyFrame = true
-	}
+	keyFrame := true
 
 	result := EncodeResult{
 		KeyFrame:          keyFrame,
@@ -148,8 +151,15 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		BufferLevelBits:   e.rc.bufferLevelBits,
 	}
 
+	n, err := vp8enc.WriteNeutralKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{})
+	if err != nil {
+		return EncodeResult{}, translateEncoderError(err)
+	}
+	result.Data = dst[:n]
+	result.SizeBytes = n
 	e.forceKeyFrame = false
-	return result, ErrUnsupportedFeature
+	e.frameCount++
+	return result, nil
 }
 
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
@@ -333,4 +343,15 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 
 func validDimension(v int) bool {
 	return v > 0 && v <= maxVP8Dimension
+}
+
+func translateEncoderError(err error) error {
+	switch {
+	case errors.Is(err, vp8enc.ErrBufferTooSmall):
+		return ErrBufferTooSmall
+	case errors.Is(err, vp8enc.ErrInvalidPacketConfig), errors.Is(err, vp8enc.ErrModeBufferTooSmall):
+		return ErrInvalidConfig
+	default:
+		return err
+	}
 }

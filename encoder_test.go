@@ -64,9 +64,12 @@ func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	e.frameCount = 7
 	e.ForceKeyFrame()
 
-	_, err := e.EncodeInto(make([]byte, 1), testImage(16, 16), 1, 1, 0)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("error = %v, want ErrUnsupportedFeature", err)
+	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame {
+		t.Fatalf("KeyFrame = false, want true")
 	}
 	if e.forceKeyFrame {
 		t.Fatalf("forceKeyFrame = true, want false")
@@ -79,6 +82,37 @@ func TestEncodeIntoBufferTooSmall(t *testing.T) {
 	_, err := e.EncodeInto(nil, testImage(16, 16), 0, 1, 0)
 	if !errors.Is(err, ErrBufferTooSmall) {
 		t.Fatalf("error = %v, want ErrBufferTooSmall", err)
+	}
+}
+
+func TestEncodeIntoWritesDecodableKeyFrame(t *testing.T) {
+	e := newTestEncoder(t)
+	dst := make([]byte, 4096)
+
+	result, err := e.EncodeInto(dst, testImage(16, 16), 22, 3, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if len(result.Data) == 0 || result.SizeBytes != len(result.Data) || !result.KeyFrame || result.PTS != 22 || result.Duration != 3 {
+		t.Fatalf("EncodeResult = %+v, want populated keyframe result", result)
+	}
+	if e.frameCount != 1 {
+		t.Fatalf("frameCount = %d, want 1", e.frameCount)
+	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(result.Data); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if frame.Width != 16 || frame.Height != 16 || frame.Y[0] != 128 {
+		t.Fatalf("decoded frame = %dx%d Y0=%d, want 16x16 Y0 128", frame.Width, frame.Height, frame.Y[0])
 	}
 }
 
@@ -116,6 +150,18 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		if allocs != 0 {
 			t.Fatalf("%s allocs = %v, want 0", tt.name, allocs)
 		}
+	}
+}
+
+func TestEncodeIntoSuccessAllocatesZero(t *testing.T) {
+	e := newTestEncoder(t)
+	dst := make([]byte, 4096)
+	src := testImage(16, 16)
+	allocs := testing.AllocsPerRun(1000, func() {
+		_, _ = e.EncodeInto(dst, src, 0, 1, 0)
+	})
+	if allocs != 0 {
+		t.Fatalf("EncodeInto success allocs = %v, want 0", allocs)
 	}
 }
 
