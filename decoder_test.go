@@ -103,6 +103,9 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 	if d.frameHeader.FirstPartitionSize != 200 {
 		t.Fatalf("frame first partition = %d, want 200", d.frameHeader.FirstPartitionSize)
 	}
+	if d.modeReader.Err() != nil || d.modeReader.Corrupted() {
+		t.Fatalf("mode reader error/corrupted = %v/%v, want clean reader", d.modeReader.Err(), d.modeReader.Corrupted())
+	}
 }
 
 func TestDecodeRejectsMissingTokenPartition(t *testing.T) {

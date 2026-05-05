@@ -87,6 +87,21 @@ func TestParseStateHeaderReadsTokenPartitionBeforeQuant(t *testing.T) {
 	}
 }
 
+func TestParseStateHeaderWithReaderReturnsPostStateReader(t *testing.T) {
+	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
+
+	frame, state, br, err := ParseStateHeaderWithReader(packet, QuantHeader{})
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReader returned error: %v", err)
+	}
+	if !frame.KeyFrame() || state.TokenPartition != common.OnePartition {
+		t.Fatalf("frame/state = %+v/%+v, want keyframe one partition", frame, state)
+	}
+	if br.Err() != nil || br.Corrupted() {
+		t.Fatalf("reader error/corrupted = %v/%v, want clean reader", br.Err(), br.Corrupted())
+	}
+}
+
 func TestParseStateHeaderTruncated(t *testing.T) {
 	packet := keyFramePacket(64, 64, 0, 0, 0, 0, true)
 
@@ -100,6 +115,16 @@ func TestParseStateHeaderAllocatesZero(t *testing.T) {
 	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_, _, _ = ParseStateHeader(packet, QuantHeader{})
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func TestParseStateHeaderWithReaderAllocatesZero(t *testing.T) {
+	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
+	allocs := testing.AllocsPerRun(1000, func() {
+		_, _, _, _ = ParseStateHeaderWithReader(packet, QuantHeader{})
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)

@@ -47,6 +47,7 @@ type VP8Decoder struct {
 	previousQuant      vp8dec.QuantHeader
 	state              vp8dec.StateHeader
 	partitions         vp8dec.PartitionLayout
+	modeReader         boolcoder.Decoder
 	tokenReaders       [8]boolcoder.Decoder
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
@@ -241,7 +242,7 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 }
 
 func (d *VP8Decoder) parseState(packet []byte) error {
-	frame, state, err := vp8dec.ParseStateHeader(packet, d.previousQuant)
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReader(packet, d.previousQuant)
 	if err != nil {
 		return ErrInvalidData
 	}
@@ -257,6 +258,7 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	d.frameHeader = frame
 	d.state = state
 	d.partitions = partitions
+	d.modeReader = modeReader
 	d.previousQuant = state.Quant
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil

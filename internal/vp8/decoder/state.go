@@ -25,21 +25,26 @@ type StateHeader struct {
 }
 
 func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, StateHeader, error) {
+	frame, state, _, err := ParseStateHeaderWithReader(packet, previousQuant)
+	return frame, state, err
+}
+
+func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	frame, err := ParseFrameHeader(packet)
 	if err != nil {
-		return FrameHeader{}, StateHeader{}, err
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
 	}
 	if len(packet) < frame.HeaderSize {
-		return FrameHeader{}, StateHeader{}, ErrInvalidFrameHeader
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrInvalidFrameHeader
 	}
 	firstPartitionEnd := frame.HeaderSize + frame.FirstPartitionSize
 	if frame.FirstPartitionSize <= 0 || firstPartitionEnd < frame.HeaderSize || firstPartitionEnd > len(packet) {
-		return FrameHeader{}, StateHeader{}, ErrTruncatedStateHeader
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
 	}
 
 	var br boolcoder.Decoder
 	if err := br.Init(packet[frame.HeaderSize:firstPartitionEnd]); err != nil {
-		return FrameHeader{}, StateHeader{}, err
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
 	}
 
 	var state StateHeader
@@ -57,7 +62,7 @@ func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, St
 	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), nil)
 
 	if br.Err() != nil {
-		return FrameHeader{}, StateHeader{}, ErrTruncatedStateHeader
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
 	}
-	return frame, state, nil
+	return frame, state, br, nil
 }
