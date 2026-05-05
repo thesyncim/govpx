@@ -54,6 +54,14 @@
     {
       "path": "vp8/common/onyxc_int.h",
       "sha256": "94b6db61c954bf9153f1c4558162807402a87944b168f2d784268e50391424cd"
+    },
+    {
+      "path": "vp8/decoder/dboolhuff.c",
+      "sha256": "a4adbe494cbf7a75c3c6743deeb8ffc99e605c5b21a23f76a5871c27dbc1fe12"
+    },
+    {
+      "path": "vp8/decoder/dboolhuff.h",
+      "sha256": "dd08337dc4178f3da7421c032bc7fea51268c01fcea5a11d77268464627c19b5"
     }
   ]
 }

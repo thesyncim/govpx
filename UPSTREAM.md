@@ -49,7 +49,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Oracle harness | not started |
 | IVF/test vectors | not started |
 | Frame memory | scaffolded |
-| Bool decoder/writer | not started |
+| Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | public frame tag peek scaffolded |
 | Decoder state and reconstruction | not started |
 | Loop filter | not started |
