@@ -166,6 +166,93 @@ func TestAddMacroblockResidualSkipsZeroEOBOffsets(t *testing.T) {
 	AddMacroblockResidual(&tokens, &residual, make([]byte, 1), 1, make([]byte, 1), 1, make([]byte, 1), 1)
 }
 
+func TestPredictIntraY16x16Modes(t *testing.T) {
+	above := make([]byte, 16)
+	left := make([]byte, 16)
+	for i := 0; i < 16; i++ {
+		above[i] = byte(i + 1)
+		left[i] = byte(101 + i)
+	}
+
+	cases := []struct {
+		name string
+		mode common.MBPredictionMode
+		want func(row int, col int) byte
+	}{
+		{name: "dc", mode: common.DCPred, want: func(row int, col int) byte { return 59 }},
+		{name: "vertical", mode: common.VPred, want: func(row int, col int) byte { return above[col] }},
+		{name: "horizontal", mode: common.HPred, want: func(row int, col int) byte { return left[row] }},
+		{name: "tm", mode: common.TMPred, want: func(row int, col int) byte {
+			return dsp.ClipPixel(int(left[row]) + int(above[col]) - 100)
+		}},
+	}
+
+	for _, tc := range cases {
+		dst := filledPlane(16, 16, 0)
+		if ok := PredictIntraY16x16(tc.mode, dst, 16, above, left, 100, true, true); !ok {
+			t.Fatalf("%s returned false", tc.name)
+		}
+		for row := 0; row < 16; row++ {
+			for col := 0; col < 16; col++ {
+				want := tc.want(row, col)
+				if got := dst[row*16+col]; got != want {
+					t.Fatalf("%s Y[%d,%d] = %d, want %d", tc.name, row, col, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestPredictIntraUV8x8Modes(t *testing.T) {
+	above := []byte{10, 20, 30, 40, 50, 60, 70, 80}
+	left := []byte{200, 180, 160, 140, 120, 100, 80, 60}
+
+	dst := filledPlane(8, 8, 0)
+	if ok := PredictIntraUV8x8(common.DCPred, dst, 8, above, left, 77, true, false); !ok {
+		t.Fatalf("dc returned false")
+	}
+	assertPlaneValue(t, "UV dc", dst, 45)
+
+	dst = filledPlane(8, 8, 0)
+	if ok := PredictIntraUV8x8(common.TMPred, dst, 8, above, left, 100, true, true); !ok {
+		t.Fatalf("tm returned false")
+	}
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			want := dsp.ClipPixel(int(left[row]) + int(above[col]) - 100)
+			if got := dst[row*8+col]; got != want {
+				t.Fatalf("tm UV[%d,%d] = %d, want %d", row, col, got, want)
+			}
+		}
+	}
+}
+
+func TestPredictIntraInvalidMode(t *testing.T) {
+	dst := make([]byte, 16*16)
+	if ok := PredictIntraY16x16(common.BPred, dst, 16, nil, nil, 0, false, false); ok {
+		t.Fatalf("Y BPred returned true")
+	}
+	if ok := PredictIntraUV8x8(common.NearestMV, dst, 8, nil, nil, 0, false, false); ok {
+		t.Fatalf("UV inter mode returned true")
+	}
+}
+
+func TestPredictIntraAllocatesZero(t *testing.T) {
+	aboveY := make([]byte, 16)
+	leftY := make([]byte, 16)
+	dstY := make([]byte, 16*16)
+	aboveUV := make([]byte, 8)
+	leftUV := make([]byte, 8)
+	dstUV := make([]byte, 8*8)
+	allocs := testing.AllocsPerRun(1000, func() {
+		PredictIntraY16x16(common.TMPred, dstY, 16, aboveY, leftY, 128, true, true)
+		PredictIntraUV8x8(common.DCPred, dstUV, 8, aboveUV, leftUV, 128, true, true)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {

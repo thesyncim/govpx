@@ -66,6 +66,38 @@ func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidua
 	}
 }
 
+func PredictIntraY16x16(mode common.MBPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, upAvailable bool, leftAvailable bool) bool {
+	switch mode {
+	case common.DCPred:
+		dsp.IntraDCPredict16x16(dst, stride, above, left, upAvailable, leftAvailable)
+	case common.VPred:
+		dsp.IntraVerticalPredict16x16(dst, stride, above)
+	case common.HPred:
+		dsp.IntraHorizontalPredict16x16(dst, stride, left)
+	case common.TMPred:
+		dsp.IntraTMPredict16x16(dst, stride, above, left, topLeft)
+	default:
+		return false
+	}
+	return true
+}
+
+func PredictIntraUV8x8(mode common.MBPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, upAvailable bool, leftAvailable bool) bool {
+	switch mode {
+	case common.DCPred:
+		dsp.IntraDCPredict8x8(dst, stride, above, left, upAvailable, leftAvailable)
+	case common.VPred:
+		dsp.IntraVerticalPredict8x8(dst, stride, above)
+	case common.HPred:
+		dsp.IntraHorizontalPredict8x8(dst, stride, left)
+	case common.TMPred:
+		dsp.IntraTMPredict8x8(dst, stride, above, left, topLeft)
+	default:
+		return false
+	}
+	return true
+}
+
 func clearMacroblockResidual(out *MacroblockResidual) {
 	for i := range out.DQCoeff {
 		out.DQCoeff[i] = 0
