@@ -128,6 +128,14 @@
       "sha256": "828ec9e7a0e168aa4cb445a9d420271987ac8cf99c14812dc2eaa696e4d41559"
     },
     {
+      "path": "vp8/decoder/detokenize.c",
+      "sha256": "0d0680c1ce295cd780b1f973b4eab6cfd0144c3afc8a53555faf79afc4903b41"
+    },
+    {
+      "path": "vp8/decoder/detokenize.h",
+      "sha256": "3ecc6e20a9c26fa4bc3035ea0a34ceabf97db63e5998c5635e44e067616c56a2"
+    },
+    {
       "path": "vp8/decoder/treereader.h",
       "sha256": "b5b8227e322c342ff224a432f1c6da7f62b16c68349f21931c08371ece4545f4"
     },
