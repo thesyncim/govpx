@@ -585,6 +585,86 @@ func TestReconstructIntraMacroblockDispatchesModes(t *testing.T) {
 	}
 }
 
+func TestReconstructKeyFrameIntraGridUsesReconstructedLeft(t *testing.T) {
+	img := blankImage(32, 16)
+	modes := []MacroblockMode{
+		{Mode: common.DCPred, UVMode: common.DCPred},
+		{Mode: common.DCPred, UVMode: common.DCPred},
+	}
+	tokens := make([]MacroblockTokens, 2)
+	tokens[0] = wholeBlockResidualTokens()
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructKeyFrameIntraGrid(&img, 1, 2, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructKeyFrameIntraGrid returned error: %v", err)
+	}
+
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 32; col++ {
+			if got := img.Y[row*img.YStride+col]; got != 129 {
+				t.Fatalf("Y[%d,%d] = %d, want 129", row, col, got)
+			}
+		}
+	}
+}
+
+func TestReconstructKeyFrameIntraGridSelectsSegmentDequant(t *testing.T) {
+	img := blankImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.DCPred, UVMode: common.DCPred, SegmentID: 1}}
+	tokens := []MacroblockTokens{wholeBlockResidualTokens()}
+	dequants := testMacroblockDequants()
+	dequants[1].Y2[0] = 8
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructKeyFrameIntraGrid(&img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructKeyFrameIntraGrid returned error: %v", err)
+	}
+
+	assertPlaneValue(t, "Y", img.Y, 130)
+}
+
+func TestReconstructKeyFrameIntraGridRejectsSmallBuffers(t *testing.T) {
+	img := blankImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.DCPred, UVMode: common.DCPred}}
+	tokens := []MacroblockTokens{wholeBlockResidualTokens()}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructKeyFrameIntraGrid(&img, 1, 2, modes, tokens, &dequants, &scratch)
+	if err != ErrReconstructGridBufferTooSmall {
+		t.Fatalf("error = %v, want ErrReconstructGridBufferTooSmall", err)
+	}
+}
+
+func TestReconstructKeyFrameIntraGridRejectsUnsupportedMode(t *testing.T) {
+	img := blankImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.NearestMV, UVMode: common.DCPred}}
+	tokens := []MacroblockTokens{wholeBlockResidualTokens()}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	err := ReconstructKeyFrameIntraGrid(&img, 1, 1, modes, tokens, &dequants, &scratch)
+	if err != ErrUnsupportedIntraReconstructionMode {
+		t.Fatalf("error = %v, want ErrUnsupportedIntraReconstructionMode", err)
+	}
+}
+
+func TestReconstructKeyFrameIntraGridAllocatesZero(t *testing.T) {
+	img := blankImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.DCPred, UVMode: common.DCPred}}
+	tokens := []MacroblockTokens{wholeBlockResidualTokens()}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = ReconstructKeyFrameIntraGrid(&img, 1, 1, modes, tokens, &dequants, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {
@@ -595,6 +675,14 @@ func testMacroblockDequant() common.MacroblockDequant {
 	}
 	dequant.Y1DC[0] = 1
 	return dequant
+}
+
+func testMacroblockDequants() [common.MaxMBSegments]common.MacroblockDequant {
+	var dequants [common.MaxMBSegments]common.MacroblockDequant
+	for i := range dequants {
+		dequants[i] = testMacroblockDequant()
+	}
+	return dequants
 }
 
 func wholeBlockResidualTokens() MacroblockTokens {
@@ -679,6 +767,21 @@ func testImage(width int, height int) common.Image {
 		}
 	}
 	return img
+}
+
+func blankImage(width int, height int) common.Image {
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	return common.Image{
+		Width:   width,
+		Height:  height,
+		YStride: width,
+		UStride: uvWidth,
+		VStride: uvWidth,
+		Y:       make([]byte, width*height),
+		U:       make([]byte, uvWidth*uvHeight),
+		V:       make([]byte, uvWidth*uvHeight),
+	}
 }
 
 func filledPlane(stride int, height int, value byte) []byte {

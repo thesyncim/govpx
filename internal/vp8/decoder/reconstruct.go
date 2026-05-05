@@ -1,6 +1,8 @@
 package decoder
 
 import (
+	"errors"
+
 	"github.com/thesyncim/libgopx/internal/vp8/common"
 	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 )
@@ -9,6 +11,11 @@ import (
 // - vp8/decoder/decodeframe.c macroblock inverse transform setup
 // - vp8/common/invtrans.h inverse-transform dispatch
 // - vp8/common/setupintrarecon.c intra edge setup
+
+var (
+	ErrReconstructGridBufferTooSmall      = errors.New("libgopx: VP8 reconstruction grid buffer too small")
+	ErrUnsupportedIntraReconstructionMode = errors.New("libgopx: unsupported VP8 intra reconstruction mode")
+)
 
 type MacroblockResidual struct {
 	DQCoeff [25 * 16]int16
@@ -37,6 +44,11 @@ type IntraPredictorScratch struct {
 	ULeft  [8]byte
 	VAbove [8]byte
 	VLeft  [8]byte
+}
+
+type IntraReconstructionScratch struct {
+	Refs     IntraPredictorScratch
+	Residual MacroblockResidual
 }
 
 func (r *MacroblockResidual) Block(index int) *[16]int16 {
@@ -197,6 +209,43 @@ func ReconstructIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, 
 	return ReconstructWholeBlockIntraMacroblock(mode, tokens, dequant, refs, y, yStride, u, uStride, v, vStride, scratch)
 }
 
+func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch) error {
+	if rows < 0 || cols < 0 {
+		return ErrReconstructGridBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrReconstructGridBufferTooSmall
+	}
+	required := rows * cols
+	if img == nil || dequants == nil || scratch == nil || len(modes) < required || len(tokens) < required {
+		return ErrReconstructGridBufferTooSmall
+	}
+	if !imageHasMacroblockGrid(img, rows, cols) {
+		return ErrReconstructGridBufferTooSmall
+	}
+
+	for row := 0; row < rows; row++ {
+		yRow := row * 16 * img.YStride
+		uRow := row * 8 * img.UStride
+		vRow := row * 8 * img.VStride
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if mode.SegmentID >= common.MaxMBSegments {
+				return ErrUnsupportedIntraReconstructionMode
+			}
+			refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+			yOff := yRow + col*16
+			uOff := uRow + col*8
+			vOff := vRow + col*8
+			if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+				return ErrUnsupportedIntraReconstructionMode
+			}
+		}
+	}
+	return nil
+}
+
 func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, refs IntraPredictorRefs, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual) bool {
 	if !mode.Is4x4 || mode.Mode != common.BPred {
 		return false
@@ -278,6 +327,33 @@ func topLeftSample(plane []byte, stride int, row int, col int, upAvailable bool,
 		return 129
 	}
 	return plane[(row-1)*stride+col-1]
+}
+
+func imageHasMacroblockGrid(img *common.Image, rows int, cols int) bool {
+	if img.YStride <= 0 || img.UStride <= 0 || img.VStride <= 0 {
+		return false
+	}
+	yWidth := cols * 16
+	yHeight := rows * 16
+	uvWidth := cols * 8
+	uvHeight := rows * 8
+	if img.Width < yWidth || img.Height < yHeight {
+		return false
+	}
+	return planeHasBlock(img.Y, img.YStride, yWidth, yHeight) &&
+		planeHasBlock(img.U, img.UStride, uvWidth, uvHeight) &&
+		planeHasBlock(img.V, img.VStride, uvWidth, uvHeight)
+}
+
+func planeHasBlock(plane []byte, stride int, width int, height int) bool {
+	if width < 0 || height < 0 || stride < width {
+		return false
+	}
+	if height == 0 {
+		return true
+	}
+	need := (height-1)*stride + width
+	return need <= len(plane)
 }
 
 func predictIntraY4x4Block(mode common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, block int) bool {
