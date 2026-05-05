@@ -28,18 +28,44 @@ func TestDecodeRequiresInitialKeyFrame(t *testing.T) {
 	}
 }
 
-func TestDecodeStubReturnsUnsupportedAfterValidation(t *testing.T) {
+func TestDecodeQueuesSupportedKeyFrameAfterValidation(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{MaxWidth: 640, MaxHeight: 480})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 
 	err = d.DecodeWithPTS(vp8KeyFramePacketWithPayload(320, 240, 200, 0, true), 44)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
 	}
 	if d.lastInfo.Width != 320 || d.lastInfo.Height != 240 || d.lastInfo.PTS != 44 {
 		t.Fatalf("lastInfo = %+v, want validated frame metadata", d.lastInfo)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if frame.Width != 320 || frame.Height != 240 || frame.YStride == 0 {
+		t.Fatalf("frame = %+v, want decoded 320x240 frame", frame)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("NextFrame returned the same frame twice")
+	}
+}
+
+func TestDecodeReturnsUnsupportedWhenLoopFilterNeeded(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(1))
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("NextFrame returned a frame for unsupported filtered output")
 	}
 }
 
@@ -50,8 +76,8 @@ func TestDecodeInitializesReferenceFrameBuffers(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(5, 3, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.current.Img.Width != 5 || d.current.Img.Height != 3 {
@@ -78,8 +104,8 @@ func TestDecodeParsesStateAndInitializesDequants(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.previousQuant.BaseQIndex != 0 || d.state.Quant.BaseQIndex != 0 {
@@ -98,8 +124,8 @@ func TestDecodePersistsCoefficientProbabilityUpdates(t *testing.T) {
 	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
 
 	err = d.Decode(packet)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.state.Probability.UpdateCount != 1 || !d.state.Refresh.RefreshEntropyProbs {
@@ -121,8 +147,8 @@ func TestDecodeKeepsTransientCoefficientProbabilityUpdatesFrameLocal(t *testing.
 	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(false, 77))
 
 	err = d.Decode(packet)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.state.Probability.UpdateCount != 1 || d.state.Refresh.RefreshEntropyProbs {
@@ -143,8 +169,8 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.partitions.TokenCount != 1 || len(d.partitions.First) != 200 || len(d.partitions.Tokens[0]) == 0 {
@@ -202,6 +228,26 @@ func vp8FirstPartitionWithSingleCoefProbabilityUpdate(refreshEntropy bool, value
 		}
 	}
 
+	w.writeBool(0, 128)
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+func vp8FirstPartitionWithLoopFilterLevel(level uint8) []byte {
+	var w vp8TestBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(uint32(level), 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(0, 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
 	w.writeBool(0, 128)
 	payload := w.finish()
 	return append(payload, make([]byte, 200)...)
@@ -311,6 +357,21 @@ func assertCodedPaddingExtended(t *testing.T, img *vp8common.Image) {
 	}
 }
 
+func newTestImage(width int, height int) Image {
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	return Image{
+		Width:   width,
+		Height:  height,
+		Y:       make([]byte, width*height),
+		U:       make([]byte, uvWidth*uvHeight),
+		V:       make([]byte, uvWidth*uvHeight),
+		YStride: width,
+		UStride: uvWidth,
+		VStride: uvWidth,
+	}
+}
+
 func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -318,8 +379,8 @@ func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(17, 17, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if len(d.modes) != 4 {
@@ -344,8 +405,8 @@ func TestDecodeParsesTokenGrid(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if len(d.tokens) != 1 {
@@ -366,8 +427,8 @@ func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	yChecks := []struct {
@@ -403,8 +464,8 @@ func TestDecodeExtendsKeyFrameCodedPadding(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(5, 3, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	assertCodedPaddingExtended(t, &d.current.Img)
@@ -420,8 +481,8 @@ func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
 	if d.lastRef.Img.Y[0] != d.current.Img.Y[0] || d.goldenRef.Img.Y[0] != d.current.Img.Y[0] || d.altRef.Img.Y[0] != d.current.Img.Y[0] {
@@ -511,13 +572,51 @@ func TestDecodeIntoRejectsNilImage(t *testing.T) {
 	}
 }
 
+func TestDecodeIntoCopiesSupportedKeyFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := newTestImage(16, 16)
+
+	info, err := d.DecodeIntoWithPTS(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), &dst, 88)
+	if err != nil {
+		t.Fatalf("DecodeIntoWithPTS error = %v, want nil", err)
+	}
+	if info.Width != 16 || info.Height != 16 || !info.KeyFrame || info.PTS != 88 {
+		t.Fatalf("FrameInfo = %+v, want 16x16 keyframe PTS 88", info)
+	}
+	if got := dst.Y[0]; got != 128 {
+		t.Fatalf("dst Y[0] = %d, want 128", got)
+	}
+	if got := dst.U[0]; got != 128 {
+		t.Fatalf("dst U[0] = %d, want 128", got)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("DecodeInto queued a frame for NextFrame")
+	}
+}
+
+func TestDecodeIntoRejectsInvalidImage(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := Image{Width: 16, Height: 16}
+
+	_, err = d.DecodeInto(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true), &dst)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("DecodeInto error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestDecoderHotPathAllocs(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 	packet := vp8KeyFramePacketWithPayload(64, 64, 200, 0, true)
-	dst := Image{Width: 64, Height: 64}
+	dst := newTestImage(64, 64)
 
 	tests := []struct {
 		name string

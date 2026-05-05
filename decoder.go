@@ -104,19 +104,13 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	}
 	d.refreshReferences()
 
-	d.currentPTS = pts
+	d.finishFrame(info, pts)
+	if d.supportsDecodedOutput(info) {
+		d.lastFrame = publicImageFromVP8(&d.current.Img)
+		d.frameReady = true
+		return nil
+	}
 	d.frameReady = false
-	d.initialized = true
-	if info.KeyFrame {
-		d.needKey = false
-	}
-	d.lastInfo = FrameInfo{
-		Width:     info.Width,
-		Height:    info.Height,
-		KeyFrame:  info.KeyFrame,
-		ShowFrame: info.ShowFrame,
-		PTS:       pts,
-	}
 	return ErrUnsupportedFeature
 }
 
@@ -149,6 +143,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.validateStreamInfo(info); err != nil {
 		return FrameInfo{}, err
 	}
+	if info.KeyFrame && !dst.validForEncode(info.Width, info.Height) {
+		return FrameInfo{}, ErrInvalidConfig
+	}
 	if err := d.parseState(packet); err != nil {
 		return FrameInfo{}, err
 	}
@@ -165,20 +162,12 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	d.refreshReferences()
-	d.currentPTS = pts
+	frameInfo := d.finishFrame(info, pts)
 	d.frameReady = false
-	d.initialized = true
-	if info.KeyFrame {
-		d.needKey = false
+	if d.supportsDecodedOutput(info) {
+		copyVP8ImageToPublic(dst, &d.current.Img)
+		return frameInfo, nil
 	}
-	frameInfo := FrameInfo{
-		Width:     info.Width,
-		Height:    info.Height,
-		KeyFrame:  info.KeyFrame,
-		ShowFrame: info.ShowFrame,
-		PTS:       pts,
-	}
-	d.lastInfo = frameInfo
 	return frameInfo, ErrUnsupportedFeature
 }
 
@@ -241,6 +230,31 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 		}
 	}
 	return nil
+}
+
+func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
+	d.currentPTS = pts
+	d.initialized = true
+	if info.KeyFrame {
+		d.needKey = false
+	}
+	frameInfo := FrameInfo{
+		Width:     info.Width,
+		Height:    info.Height,
+		KeyFrame:  info.KeyFrame,
+		ShowFrame: info.ShowFrame,
+		PTS:       pts,
+	}
+	d.lastInfo = frameInfo
+	return frameInfo
+}
+
+func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
+	return info.KeyFrame &&
+		info.ShowFrame &&
+		info.Profile == 0 &&
+		d.state.LoopFilter.Level == 0 &&
+		!d.state.Mode.MBNoCoeffSkip
 }
 
 func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
@@ -356,6 +370,33 @@ func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
 	copy(dst.Y, src.Y)
 	copy(dst.U, src.U)
 	copy(dst.V, src.V)
+}
+
+func publicImageFromVP8(src *vp8common.Image) Image {
+	return Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       src.Y,
+		U:       src.U,
+		V:       src.V,
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+}
+
+func copyVP8ImageToPublic(dst *Image, src *vp8common.Image) {
+	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+}
+
+func copyPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
+	for row := 0; row < height; row++ {
+		copy(dst[row*dstStride:row*dstStride+width], src[row*srcStride:row*srcStride+width])
+	}
 }
 
 func (d *VP8Decoder) ensureWorkspace(width int, height int) {
