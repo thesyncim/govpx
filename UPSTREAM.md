@@ -58,7 +58,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer and packet primitives scaffolded |
-| Encoder frame algorithms | not started |
+| Encoder frame algorithms | keyframe mode writer scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations

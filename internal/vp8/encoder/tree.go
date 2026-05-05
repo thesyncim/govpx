@@ -30,6 +30,9 @@ func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken)
 		}
 		bit := uint8((token.Value >> uint(bitIndex)) & 1)
 		w.WriteBool(bit, probs[probIndex])
+		if w.Err() != nil {
+			return false
+		}
 		next := tree[int(node)+int(bit)]
 		if next <= 0 {
 			return bitIndex == 0
