@@ -15,12 +15,13 @@ type StateHeader struct {
 	ColorSpace int
 	ClampType  common.ClampType
 
-	Segmentation SegmentationHeader
-	LoopFilter   LoopFilterHeader
-	Quant        QuantHeader
-	Refresh      RefreshHeader
-	Probability  CoefficientProbabilityHeader
-	Mode         ModeHeader
+	Segmentation   SegmentationHeader
+	LoopFilter     LoopFilterHeader
+	TokenPartition common.TokenPartition
+	Quant          QuantHeader
+	Refresh        RefreshHeader
+	Probability    CoefficientProbabilityHeader
+	Mode           ModeHeader
 }
 
 func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, StateHeader, error) {
@@ -31,9 +32,13 @@ func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, St
 	if len(packet) < frame.HeaderSize {
 		return FrameHeader{}, StateHeader{}, ErrInvalidFrameHeader
 	}
+	firstPartitionEnd := frame.HeaderSize + frame.FirstPartitionSize
+	if frame.FirstPartitionSize <= 0 || firstPartitionEnd < frame.HeaderSize || firstPartitionEnd > len(packet) {
+		return FrameHeader{}, StateHeader{}, ErrTruncatedStateHeader
+	}
 
 	var br boolcoder.Decoder
-	if err := br.Init(packet[frame.HeaderSize:]); err != nil {
+	if err := br.Init(packet[frame.HeaderSize:firstPartitionEnd]); err != nil {
 		return FrameHeader{}, StateHeader{}, err
 	}
 
@@ -45,6 +50,7 @@ func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, St
 
 	state.Segmentation = parseSegmentationHeader(&br)
 	state.LoopFilter = parseLoopFilterHeader(&br)
+	state.TokenPartition = common.TokenPartition(br.ReadLiteral(2))
 	state.Quant = parseQuantHeader(&br, previousQuant)
 	state.Refresh = parseRefreshHeader(&br, frame)
 	state.Probability = parseCoefficientProbabilityHeader(&br)

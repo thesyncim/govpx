@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
-	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 200)...)
+	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
 
 	frame, state, err := ParseStateHeader(packet, QuantHeader{})
 	if err != nil {
@@ -26,6 +26,9 @@ func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
 	if state.LoopFilter.Type != NormalLoopFilter || state.LoopFilter.Level != 0 || state.LoopFilter.SharpnessLevel != 0 {
 		t.Fatalf("loop filter = %+v, want zero normal filter", state.LoopFilter)
 	}
+	if state.TokenPartition != common.OnePartition {
+		t.Fatalf("token partition = %d, want one partition", state.TokenPartition)
+	}
 	if state.Quant.BaseQIndex != 0 || state.Quant.Updated {
 		t.Fatalf("quant = %+v, want zero unchanged quant", state.Quant)
 	}
@@ -38,7 +41,7 @@ func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
 }
 
 func TestParseStateHeaderInterFrameZeroPayload(t *testing.T) {
-	packet := append(interFramePacket(0, 0, true), make([]byte, 200)...)
+	packet := append(interFramePacket(200, 0, true), make([]byte, 200)...)
 
 	frame, state, err := ParseStateHeader(packet, QuantHeader{})
 	if err != nil {
@@ -54,7 +57,7 @@ func TestParseStateHeaderInterFrameZeroPayload(t *testing.T) {
 
 func TestParseStateHeaderUsesPreviousQuantDeltas(t *testing.T) {
 	prev := QuantHeader{Y1DCDelta: 2, Y2DCDelta: -1}
-	packet := append(interFramePacket(0, 0, true), make([]byte, 200)...)
+	packet := append(interFramePacket(200, 0, true), make([]byte, 200)...)
 
 	_, state, err := ParseStateHeader(packet, prev)
 	if err != nil {
@@ -68,6 +71,22 @@ func TestParseStateHeaderUsesPreviousQuantDeltas(t *testing.T) {
 	}
 }
 
+func TestParseStateHeaderReadsTokenPartitionBeforeQuant(t *testing.T) {
+	payload := encodeStateHeaderPrefix(common.EightPartition, 17)
+	packet := append(keyFramePacket(64, 64, 0, 0, len(payload), 0, true), payload...)
+
+	_, state, err := ParseStateHeader(packet, QuantHeader{})
+	if err != nil {
+		t.Fatalf("ParseStateHeader returned error: %v", err)
+	}
+	if state.TokenPartition != common.EightPartition {
+		t.Fatalf("TokenPartition = %d, want eight partitions", state.TokenPartition)
+	}
+	if state.Quant.BaseQIndex != 17 {
+		t.Fatalf("BaseQIndex = %d, want 17", state.Quant.BaseQIndex)
+	}
+}
+
 func TestParseStateHeaderTruncated(t *testing.T) {
 	packet := keyFramePacket(64, 64, 0, 0, 0, 0, true)
 
@@ -78,11 +97,30 @@ func TestParseStateHeaderTruncated(t *testing.T) {
 }
 
 func TestParseStateHeaderAllocatesZero(t *testing.T) {
-	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 200)...)
+	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_, _, _ = ParseStateHeader(packet, QuantHeader{})
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
 	}
+}
+
+func encodeStateHeaderPrefix(tokenPartition common.TokenPartition, baseQ uint8) []byte {
+	var w testBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(uint32(tokenPartition), 2)
+	w.writeLiteral(uint32(baseQ), 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
 }
