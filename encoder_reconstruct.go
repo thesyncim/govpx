@@ -42,7 +42,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	return nil
 }
 
-func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
 	}
@@ -58,11 +58,16 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
 	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
 
+	var refs [3]interAnalysisReference
+	refCount := e.interAnalysisReferences(flags, &refs)
+	if refCount == 0 {
+		return ErrInvalidConfig
+	}
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
-			mv := selectLastFrameMotionVector(src, &e.lastRef.Img, row, col)
+			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			var above *vp8enc.InterFrameMacroblockMode
 			var left *vp8enc.InterFrameMacroblockMode
 			var aboveLeft *vp8enc.InterFrameMacroblockMode
@@ -75,18 +80,18 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			modes[index] = vp8enc.InterFrameMotionModeForVector(mv, above, left, aboveLeft)
+			modes[index] = vp8enc.InterFrameMotionModeForVector(ref.Frame, mv, above, left, aboveLeft)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			predMode := e.reconstructModes[index]
 			predMode.MBSkipCoeff = true
-			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, &e.lastRef.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
 			buildDCPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
 			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index])
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], false, &e.reconstructTokens[index])
-			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, &e.lastRef.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
 		}
@@ -95,7 +100,29 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	return nil
 }
 
-var lastFrameMVCandidates = [...]vp8enc.MotionVector{
+type interAnalysisReference struct {
+	Frame vp8common.MVReferenceFrame
+	Img   *vp8common.Image
+}
+
+func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAnalysisReference) int {
+	count := 0
+	if flags&EncodeNoReferenceLast == 0 {
+		refs[count] = interAnalysisReference{Frame: vp8common.LastFrame, Img: &e.lastRef.Img}
+		count++
+	}
+	if flags&EncodeNoReferenceGolden == 0 {
+		refs[count] = interAnalysisReference{Frame: vp8common.GoldenFrame, Img: &e.goldenRef.Img}
+		count++
+	}
+	if flags&EncodeNoReferenceAltRef == 0 {
+		refs[count] = interAnalysisReference{Frame: vp8common.AltRefFrame, Img: &e.altRef.Img}
+		count++
+	}
+	return count
+}
+
+var interFrameMVCandidates = [...]vp8enc.MotionVector{
 	{},
 	{Col: -8},
 	{Col: 8},
@@ -103,18 +130,23 @@ var lastFrameMVCandidates = [...]vp8enc.MotionVector{
 	{Row: 8},
 }
 
-func selectLastFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) vp8enc.MotionVector {
+func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int) (interAnalysisReference, vp8enc.MotionVector) {
+	bestRef := refs[0]
 	best := vp8enc.MotionVector{}
-	bestSAD := macroblockSAD(src, ref, mbRow, mbCol, best)
-	for i := 1; i < len(lastFrameMVCandidates); i++ {
-		mv := lastFrameMVCandidates[i]
-		sad := macroblockSAD(src, ref, mbRow, mbCol, mv)
-		if sad < bestSAD {
-			best = mv
-			bestSAD = sad
+	bestSAD := macroblockSAD(src, bestRef.Img, mbRow, mbCol, best)
+	for refIndex := 0; refIndex < refCount; refIndex++ {
+		ref := refs[refIndex]
+		for i := 0; i < len(interFrameMVCandidates); i++ {
+			mv := interFrameMVCandidates[i]
+			sad := macroblockSAD(src, ref.Img, mbRow, mbCol, mv)
+			if sad < bestSAD {
+				bestRef = ref
+				best = mv
+				bestSAD = sad
+			}
 		}
 	}
-	return best
+	return bestRef, best
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {

@@ -229,7 +229,7 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	if sourceMatchesReference(Image{
+	if flags&EncodeNoReferenceLast == 0 && sourceMatchesReference(Image{
 		Width:   source.Width,
 		Height:  source.Height,
 		Y:       source.Y,
@@ -249,7 +249,7 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return 0, ErrInvalidConfig
 	}
-	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
+	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags); err != nil {
 		return 0, translateEncoderError(err)
 	}
 	n, err := vp8enc.WriteCoefficientInterFrame(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
@@ -264,7 +264,7 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	if flags&EncodeNoReferenceLast != 0 {
+	if flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) == EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef {
 		return true
 	}
 	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
@@ -551,11 +551,18 @@ func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.Macrobl
 
 func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
-		RefFrame:    vp8common.LastFrame,
+		RefFrame:    convertInterFrameReference(src.RefFrame),
 		Mode:        src.Mode,
 		MV:          vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col},
 		MBSkipCoeff: src.MBSkipCoeff,
 	}
+}
+
+func convertInterFrameReference(ref vp8common.MVReferenceFrame) vp8common.MVReferenceFrame {
+	if ref == vp8common.IntraFrame {
+		return vp8common.LastFrame
+	}
+	return ref
 }
 
 func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {

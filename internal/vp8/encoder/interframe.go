@@ -129,6 +129,7 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 
 type InterFrameMacroblockMode struct {
 	MBSkipCoeff bool
+	RefFrame    common.MVReferenceFrame
 	Mode        common.MBPredictionMode
 	MV          MotionVector
 }
@@ -225,7 +226,10 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 				w.WriteBool(0, cfg.ProbSkipFalse)
 			}
 			w.WriteBool(1, cfg.ProbIntra)
-			w.WriteBool(0, cfg.ProbLast)
+			refFrame := interFrameReference(mode)
+			if !WriteInterReferenceFrame(w, cfg, refFrame) {
+				return ErrInvalidPacketConfig
+			}
 			var above *InterFrameMacroblockMode
 			var left *InterFrameMacroblockMode
 			var aboveLeft *InterFrameMacroblockMode
@@ -241,11 +245,11 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if !validInterFrameMacroblockMode(mode, above, left, aboveLeft) {
 				return ErrInvalidPacketConfig
 			}
-			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft), mode.Mode) {
+			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame), mode.Mode) {
 				return ErrInvalidPacketConfig
 			}
 			if mode.Mode == common.NewMV {
-				best := interBestMotionVector(above, left, aboveLeft)
+				best := interBestMotionVector(above, left, aboveLeft, refFrame)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := WriteMotionVector(w, &tables.DefaultMVContext, delta); err != nil {
 					return err
@@ -281,6 +285,22 @@ func WriteInterPredictionMode(w *BoolWriter, counts InterModeCounts, mode common
 	return w.Err() == nil
 }
 
+func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) bool {
+	switch refFrame {
+	case common.LastFrame:
+		w.WriteBool(0, cfg.ProbLast)
+	case common.GoldenFrame:
+		w.WriteBool(1, cfg.ProbLast)
+		w.WriteBool(0, cfg.ProbGolden)
+	case common.AltRefFrame:
+		w.WriteBool(1, cfg.ProbLast)
+		w.WriteBool(1, cfg.ProbGolden)
+	default:
+		return false
+	}
+	return w.Err() == nil
+}
+
 type InterModeCounts struct {
 	Intra   uint8
 	Nearest uint8
@@ -288,38 +308,38 @@ type InterModeCounts struct {
 	Split   uint8
 }
 
-func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterModeCounts {
-	_, _, _, counts := findNearInterMotionVectors(above, left, aboveLeft)
+func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) InterModeCounts {
+	_, _, _, counts := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
 	return counts
 }
 
-func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) MotionVector {
-	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft)
+func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) MotionVector {
+	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
 	return best
 }
 
-func InterFrameMotionModeForVector(mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
+func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
 	if mv.IsZero() {
-		return InterFrameMacroblockMode{Mode: common.ZeroMV}
+		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.ZeroMV}
 	}
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft)
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
 	switch mv {
 	case nearest:
-		return InterFrameMacroblockMode{Mode: common.NearestMV, MV: mv}
+		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.NearestMV, MV: mv}
 	case near:
-		return InterFrameMacroblockMode{Mode: common.NearMV, MV: mv}
+		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.NearMV, MV: mv}
 	default:
-		return InterFrameMacroblockMode{Mode: common.NewMV, MV: mv}
+		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.NewMV, MV: mv}
 	}
 }
 
-func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
+func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
 	var nearMVs [4]MotionVector
 	var counts [4]uint8
 	mvIndex := 0
 	countIndex := 0
 
-	if above != nil {
+	if above != nil && interFrameReference(above) != common.IntraFrame {
 		if !above.MV.IsZero() {
 			mvIndex++
 			nearMVs[mvIndex] = above.MV
@@ -327,7 +347,7 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 		}
 		counts[countIndex] += 2
 	}
-	if left != nil {
+	if left != nil && interFrameReference(left) != common.IntraFrame {
 		if !left.MV.IsZero() {
 			if left.MV != nearMVs[mvIndex] {
 				mvIndex++
@@ -339,7 +359,7 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 			counts[0] += 2
 		}
 	}
-	if aboveLeft != nil {
+	if aboveLeft != nil && interFrameReference(aboveLeft) != common.IntraFrame {
 		if !aboveLeft.MV.IsZero() {
 			if aboveLeft.MV != nearMVs[mvIndex] {
 				mvIndex++
@@ -361,6 +381,7 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 	if counts[1] >= counts[0] {
 		nearMVs[0] = nearMVs[1]
 	}
+	_ = refFrame
 	return nearMVs[1], nearMVs[2], nearMVs[0], InterModeCounts{
 		Intra:   counts[0],
 		Nearest: counts[1],
@@ -377,7 +398,11 @@ func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterF
 	if mode == nil {
 		return false
 	}
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft)
+	refFrame := interFrameReference(mode)
+	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
+		return false
+	}
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
 	switch mode.Mode {
 	case common.ZeroMV:
 		return mode.MV.IsZero()
@@ -390,6 +415,16 @@ func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterF
 	default:
 		return false
 	}
+}
+
+func interFrameReference(mode *InterFrameMacroblockMode) common.MVReferenceFrame {
+	if mode == nil {
+		return common.IntraFrame
+	}
+	if mode.RefFrame == common.IntraFrame {
+		return common.LastFrame
+	}
+	return mode.RefFrame
 }
 
 func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {

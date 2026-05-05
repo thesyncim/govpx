@@ -387,7 +387,43 @@ func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {
 	assertImagesEqual(t, "alt", keyFrame, publicImageFromVP8(&e.altRef.Img))
 }
 
-func TestEncodeIntoNoReferenceLastForcesKeyFrame(t *testing.T) {
+func TestEncodeIntoNoReferenceLastCanUseGoldenReference(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+	secondInter, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+
+	thirdPacket := make([]byte, 4096)
+	result, err := e.EncodeInto(thirdPacket, keyFrame, 2, 1, EncodeNoReferenceLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)
+	if err != nil {
+		t.Fatalf("third EncodeInto returned error: %v", err)
+	}
+	if result.KeyFrame {
+		t.Fatalf("KeyFrame = true, want interframe using golden when last reference is disallowed")
+	}
+	if e.interFrameModes[0].RefFrame != vp8common.GoldenFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
+		t.Fatalf("mode[0] = %+v, want GOLDEN/ZEROMV", e.interFrameModes[0])
+	}
+	decoded := decodeFrameSequence(t, key.Data, secondInter.Data, result.Data)
+	if len(decoded) != 3 {
+		t.Fatalf("decoded frame count = %d, want 3", len(decoded))
+	}
+	assertImagesEqual(t, "golden interframe", keyFrame, decoded[2])
+}
+
+func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
@@ -398,12 +434,12 @@ func TestEncodeIntoNoReferenceLastForcesKeyFrame(t *testing.T) {
 		t.Fatalf("first EncodeInto returned error: %v", err)
 	}
 
-	result, err := e.EncodeInto(dst, second, 1, 1, EncodeNoReferenceLast)
+	result, err := e.EncodeInto(dst, second, 1, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
 	if !result.KeyFrame {
-		t.Fatalf("KeyFrame = false, want keyframe when last reference is disallowed")
+		t.Fatalf("KeyFrame = false, want keyframe when all references are disallowed")
 	}
 }
 
