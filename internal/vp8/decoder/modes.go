@@ -140,6 +140,11 @@ func DecodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, 
 	decodeKeyFrameMacroblockMode(br, above, left, out)
 }
 
+func DecodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out *MacroblockMode) {
+	*out = MacroblockMode{}
+	decodeInterIntraMacroblockMode(br, probs, out)
+}
+
 func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
 	out.RefFrame = common.IntraFrame
 	out.Is4x4 = false
@@ -156,6 +161,22 @@ func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, 
 	}
 
 	out.UVMode = common.MBPredictionMode(ReadUVMode(br, tables.KeyFrameUVModeProbs[:]))
+}
+
+func decodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out *MacroblockMode) {
+	out.RefFrame = common.IntraFrame
+	out.Is4x4 = false
+	out.BModes = [16]common.BPredictionMode{}
+	out.Mode = common.MBPredictionMode(ReadYMode(br, probs.YMode[:]))
+
+	if out.Mode == common.BPred {
+		out.Is4x4 = true
+		for i := 0; i < 16; i++ {
+			out.BModes[i] = common.BPredictionMode(ReadBMode(br, probs.BMode[:]))
+		}
+	}
+
+	out.UVMode = common.MBPredictionMode(ReadUVMode(br, probs.UVMode[:]))
 }
 
 func readMacroblockSegmentID(br *boolcoder.Decoder, probs [common.MBFeatureTreeProbs]uint8) uint8 {
