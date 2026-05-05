@@ -2,7 +2,7 @@ package common
 
 // ExtendBorders replicates visible edge samples into the frame border.
 func (fb *FrameBuffer) ExtendBorders() {
-	if fb == nil || fb.border == 0 {
+	if fb == nil {
 		return
 	}
 	extendPlane(
@@ -11,23 +11,25 @@ func (fb *FrameBuffer) ExtendBorders() {
 		fb.Img.Width,
 		fb.Img.Height,
 		fb.border,
+		fb.border+fb.Img.CodedWidth-fb.Img.Width,
 		fb.border,
-		fb.border,
-		fb.border,
+		fb.border+fb.Img.CodedHeight-fb.Img.Height,
 	)
 
 	uvBorder := (fb.border + 1) >> 1
 	uvWidth := (fb.Img.Width + 1) >> 1
 	uvHeight := (fb.Img.Height + 1) >> 1
+	codedUVWidth := (fb.Img.CodedWidth + 1) >> 1
+	codedUVHeight := (fb.Img.CodedHeight + 1) >> 1
 	extendPlane(
 		fb.buf[fb.uPlaneOff:fb.vPlaneOff],
 		fb.Img.UStride,
 		uvWidth,
 		uvHeight,
 		uvBorder,
+		uvBorder+codedUVWidth-uvWidth,
 		uvBorder,
-		uvBorder,
-		uvBorder,
+		uvBorder+codedUVHeight-uvHeight,
 	)
 	extendPlane(
 		fb.buf[fb.vPlaneOff:],
@@ -35,9 +37,9 @@ func (fb *FrameBuffer) ExtendBorders() {
 		uvWidth,
 		uvHeight,
 		uvBorder,
+		uvBorder+codedUVWidth-uvWidth,
 		uvBorder,
-		uvBorder,
-		uvBorder,
+		uvBorder+codedUVHeight-uvHeight,
 	)
 }
 

@@ -97,6 +97,60 @@ func TestExtendBorders(t *testing.T) {
 	}
 }
 
+func TestExtendBordersFillsCodedPadding(t *testing.T) {
+	fb, err := NewFrameBuffer(5, 3, 2, 8)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	for y := 0; y < fb.Img.Height; y++ {
+		for x := 0; x < fb.Img.Width; x++ {
+			fb.Img.Y[y*fb.Img.YStride+x] = byte(10*y + x + 1)
+		}
+	}
+	uvWidth := (fb.Img.Width + 1) >> 1
+	uvHeight := (fb.Img.Height + 1) >> 1
+	for y := 0; y < uvHeight; y++ {
+		for x := 0; x < uvWidth; x++ {
+			fb.Img.U[y*fb.Img.UStride+x] = byte(40 + 10*y + x)
+		}
+	}
+
+	fb.ExtendBorders()
+
+	yPlane := fb.buf[fb.yPlaneOff:fb.uPlaneOff]
+	top := fb.border
+	left := fb.border
+	stride := fb.Img.YStride
+	row0 := top * stride
+	row0Edge := yPlane[row0+left+fb.Img.Width-1]
+	if got := yPlane[row0+left+fb.Img.Width]; got != row0Edge {
+		t.Fatalf("first Y coded padding = %d, want edge %d", got, row0Edge)
+	}
+	if got := yPlane[row0+left+fb.Img.CodedWidth+fb.border-1]; got != row0Edge {
+		t.Fatalf("far right Y border = %d, want edge %d", got, row0Edge)
+	}
+	bottomEdge := yPlane[(top+fb.Img.Height-1)*stride+left+fb.Img.Width-1]
+	bottomRow := top + fb.Img.CodedHeight + fb.border - 1
+	if got := yPlane[bottomRow*stride+left+fb.Img.CodedWidth+fb.border-1]; got != bottomEdge {
+		t.Fatalf("far bottom Y border = %d, want edge %d", got, bottomEdge)
+	}
+
+	uPlane := fb.buf[fb.uPlaneOff:fb.vPlaneOff]
+	uvBorder := (fb.border + 1) >> 1
+	codedUVWidth := (fb.Img.CodedWidth + 1) >> 1
+	codedUVHeight := (fb.Img.CodedHeight + 1) >> 1
+	uvRow0 := uvBorder * fb.Img.UStride
+	uvEdge := uPlane[uvRow0+uvBorder+uvWidth-1]
+	if got := uPlane[uvRow0+uvBorder+uvWidth]; got != uvEdge {
+		t.Fatalf("first U coded padding = %d, want edge %d", got, uvEdge)
+	}
+	uvBottomEdge := uPlane[(uvBorder+uvHeight-1)*fb.Img.UStride+uvBorder+uvWidth-1]
+	uvBottomRow := uvBorder + codedUVHeight + uvBorder - 1
+	if got := uPlane[uvBottomRow*fb.Img.UStride+uvBorder+codedUVWidth+uvBorder-1]; got != uvBottomEdge {
+		t.Fatalf("far bottom U border = %d, want edge %d", got, uvBottomEdge)
+	}
+}
+
 func TestExtendBordersAllocatesZero(t *testing.T) {
 	fb, err := NewFrameBuffer(16, 16, 4, 16)
 	if err != nil {

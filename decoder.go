@@ -333,18 +333,22 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 	if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
 		return ErrInvalidData
 	}
+	d.current.ExtendBorders()
 	return nil
 }
 
 func (d *VP8Decoder) refreshReferences() {
 	if d.state.Refresh.RefreshLast {
 		copyFrameImage(&d.lastRef.Img, &d.current.Img)
+		d.lastRef.ExtendBorders()
 	}
 	if d.state.Refresh.RefreshGolden {
 		copyFrameImage(&d.goldenRef.Img, &d.current.Img)
+		d.goldenRef.ExtendBorders()
 	}
 	if d.state.Refresh.RefreshAltRef {
 		copyFrameImage(&d.altRef.Img, &d.current.Img)
+		d.altRef.ExtendBorders()
 	}
 }
 

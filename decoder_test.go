@@ -272,6 +272,45 @@ func (w *vp8TestBoolWriter) writeBool(bit uint8, probability uint8) {
 	w.count = count
 }
 
+func assertCodedPaddingExtended(t *testing.T, img *vp8common.Image) {
+	t.Helper()
+
+	yRightEdge := img.Y[img.Width-1]
+	if got := img.Y[img.Width]; got != yRightEdge {
+		t.Fatalf("first Y coded padding = %d, want edge %d", got, yRightEdge)
+	}
+	if got := img.Y[img.CodedWidth-1]; got != yRightEdge {
+		t.Fatalf("far Y coded padding = %d, want edge %d", got, yRightEdge)
+	}
+	yBottomEdge := img.Y[(img.Height-1)*img.YStride+img.Width-1]
+	if got := img.Y[(img.CodedHeight-1)*img.YStride+img.CodedWidth-1]; got != yBottomEdge {
+		t.Fatalf("bottom Y coded padding = %d, want edge %d", got, yBottomEdge)
+	}
+
+	uvWidth := (img.Width + 1) >> 1
+	uvHeight := (img.Height + 1) >> 1
+	codedUVWidth := (img.CodedWidth + 1) >> 1
+	codedUVHeight := (img.CodedHeight + 1) >> 1
+
+	uRightEdge := img.U[uvWidth-1]
+	if got := img.U[uvWidth]; got != uRightEdge {
+		t.Fatalf("first U coded padding = %d, want edge %d", got, uRightEdge)
+	}
+	uBottomEdge := img.U[(uvHeight-1)*img.UStride+uvWidth-1]
+	if got := img.U[(codedUVHeight-1)*img.UStride+codedUVWidth-1]; got != uBottomEdge {
+		t.Fatalf("bottom U coded padding = %d, want edge %d", got, uBottomEdge)
+	}
+
+	vRightEdge := img.V[uvWidth-1]
+	if got := img.V[uvWidth]; got != vRightEdge {
+		t.Fatalf("first V coded padding = %d, want edge %d", got, vRightEdge)
+	}
+	vBottomEdge := img.V[(uvHeight-1)*img.VStride+uvWidth-1]
+	if got := img.V[(codedUVHeight-1)*img.VStride+codedUVWidth-1]; got != vBottomEdge {
+		t.Fatalf("bottom V coded padding = %d, want edge %d", got, vBottomEdge)
+	}
+}
+
 func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -355,6 +394,23 @@ func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDecodeExtendsKeyFrameCodedPadding(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(5, 3, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	assertCodedPaddingExtended(t, &d.current.Img)
+	assertCodedPaddingExtended(t, &d.lastRef.Img)
+	assertCodedPaddingExtended(t, &d.goldenRef.Img)
+	assertCodedPaddingExtended(t, &d.altRef.Img)
 }
 
 func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {
