@@ -49,6 +49,23 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 	}
 }
 
+func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidual, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
+	for i := 0; i < 16; i++ {
+		if tokens.EOB[i] == 0 {
+			continue
+		}
+		addTransformBlock(tokens.EOB[i], residual.Block(i), y[yBlockOffset(i, yStride):], yStride)
+	}
+	for i := 0; i < 4; i++ {
+		if tokens.EOB[16+i] != 0 {
+			addTransformBlock(tokens.EOB[16+i], residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
+		}
+		if tokens.EOB[20+i] != 0 {
+			addTransformBlock(tokens.EOB[20+i], residual.Block(20+i), v[uvBlockOffset(i, vStride):], vStride)
+		}
+	}
+}
+
 func clearMacroblockResidual(out *MacroblockResidual) {
 	for i := range out.DQCoeff {
 		out.DQCoeff[i] = 0
@@ -59,4 +76,23 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
 	for i := 0; i < 16; i++ {
 		out[i] += qcoeff[i] * dequant[i]
 	}
+}
+
+func addTransformBlock(eob uint8, coeff *[16]int16, dst []byte, stride int) {
+	if eob == 0 {
+		return
+	}
+	if eob == 1 {
+		dsp.DCOnlyIDCT4x4Add(coeff[0], dst, stride, dst, stride)
+		return
+	}
+	dsp.IDCT4x4Add(coeff, dst, stride, dst, stride)
+}
+
+func yBlockOffset(block int, stride int) int {
+	return (block>>2)*4*stride + (block&3)*4
+}
+
+func uvBlockOffset(block int, stride int) int {
+	return (block>>1)*4*stride + (block&1)*4
 }
