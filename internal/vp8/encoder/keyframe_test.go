@@ -61,6 +61,37 @@ func TestWriteNeutralKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientKeyFrameDecodesWithPublicDecoder(t *testing.T) {
+	packet := make([]byte, 4096)
+	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	coeffs := []vp8enc.MacroblockCoefficients{{}}
+	coeffs[0].QCoeff[24][0] = 16
+	above := make([]vp8enc.TokenContextPlanes, 1)
+
+	n, err := vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{BaseQIndex: 20}, modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientKeyFrame returned error: %v", err)
+	}
+
+	d, err := libgopx.NewVP8Decoder(libgopx.DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(packet[:n]); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if frame.Width != 16 || frame.Height != 16 {
+		t.Fatalf("frame dimensions = %dx%d, want 16x16", frame.Width, frame.Height)
+	}
+	if frame.Y[0] == 128 {
+		t.Fatalf("frame Y0 = 128, want non-neutral reconstruction")
+	}
+}
+
 func TestWriteZeroKeyFrameHandlesMacroblockPadding(t *testing.T) {
 	packet := make([]byte, 8192)
 	modes := []vp8enc.KeyFrameMacroblockMode{
@@ -109,6 +140,26 @@ func TestWriteZeroKeyFrameRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientKeyFrameRejectsInvalidInput(t *testing.T) {
+	packet := make([]byte, 4096)
+	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	coeffs := []vp8enc.MacroblockCoefficients{{}}
+	above := make([]vp8enc.TokenContextPlanes, 1)
+
+	_, err := vp8enc.WriteCoefficientKeyFrame(packet[:2], 16, 16, vp8enc.KeyFrameStateConfig{}, modes, coeffs, above)
+	if !errors.Is(err, vp8enc.ErrBufferTooSmall) {
+		t.Fatalf("small buffer error = %v, want ErrBufferTooSmall", err)
+	}
+	_, err = vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{TokenPartition: common.TwoPartition}, modes, coeffs, above)
+	if !errors.Is(err, vp8enc.ErrInvalidPacketConfig) {
+		t.Fatalf("token partition error = %v, want ErrInvalidPacketConfig", err)
+	}
+	_, err = vp8enc.WriteCoefficientKeyFrame(packet, 17, 17, vp8enc.KeyFrameStateConfig{}, modes, coeffs, above)
+	if !errors.Is(err, vp8enc.ErrModeBufferTooSmall) {
+		t.Fatalf("short coefficient grid error = %v, want ErrModeBufferTooSmall", err)
+	}
+}
+
 func TestWriteZeroKeyFrameAllocatesZero(t *testing.T) {
 	packet := make([]byte, 4096)
 	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
@@ -117,6 +168,15 @@ func TestWriteZeroKeyFrameAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+
+	coeffs := []vp8enc.MacroblockCoefficients{{}}
+	above := make([]vp8enc.TokenContextPlanes, 1)
+	allocs = testing.AllocsPerRun(1000, func() {
+		_, _ = vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{}, modes, coeffs, above)
+	})
+	if allocs != 0 {
+		t.Fatalf("coefficient allocs = %v, want 0", allocs)
 	}
 }
 
@@ -134,5 +194,17 @@ func BenchmarkWriteNeutralKeyFrame(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_, _ = vp8enc.WriteNeutralKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{})
+	}
+}
+
+func BenchmarkWriteCoefficientKeyFrame(b *testing.B) {
+	packet := make([]byte, 4096)
+	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	coeffs := []vp8enc.MacroblockCoefficients{{}}
+	coeffs[0].QCoeff[24][0] = 1
+	above := make([]vp8enc.TokenContextPlanes, 1)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{}, modes, coeffs, above)
 	}
 }
