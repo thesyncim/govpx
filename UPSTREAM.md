@@ -50,7 +50,7 @@ grant. This repository keeps libvpx license and patent notices in
 | IVF/test vectors | not started |
 | Frame memory | scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
-| Header parsing | public frame tag peek scaffolded |
+| Header parsing | frame tag and uncompressed keyframe header scaffolded |
 | Decoder state and reconstruction | not started |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |

@@ -62,6 +62,14 @@
     {
       "path": "vp8/decoder/dboolhuff.h",
       "sha256": "dd08337dc4178f3da7421c032bc7fea51268c01fcea5a11d77268464627c19b5"
+    },
+    {
+      "path": "vp8/decoder/decodeframe.c",
+      "sha256": "828ec9e7a0e168aa4cb445a9d420271987ac8cf99c14812dc2eaa696e4d41559"
+    },
+    {
+      "path": "vp8/vp8_dx_iface.c",
+      "sha256": "583db9b3a0a5515aa8830a6140fbae52761210496a88688ba2a0302743b49ea5"
     }
   ]
 }
