@@ -301,6 +301,89 @@ func TestPredictIntraAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestReconstructWholeBlockIntraMacroblockPredictsAndAddsResidual(t *testing.T) {
+	mode := MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred}
+	tokens := wholeBlockResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := testIntraPredictorRefs(100, 90, 70)
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructWholeBlockIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("ReconstructWholeBlockIntraMacroblock returned false")
+	}
+
+	assertPlaneValue(t, "Y", y, 101)
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			want := byte(90)
+			if row < 4 && col < 4 {
+				want = 102
+			}
+			if got := u[row*8+col]; got != want {
+				t.Fatalf("U[%d,%d] = %d, want %d", row, col, got, want)
+			}
+		}
+	}
+	assertPlaneValue(t, "V", v, 70)
+}
+
+func TestReconstructWholeBlockIntraMacroblockSkipCoeff(t *testing.T) {
+	mode := MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred, MBSkipCoeff: true}
+	tokens := wholeBlockResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := testIntraPredictorRefs(100, 90, 70)
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructWholeBlockIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("ReconstructWholeBlockIntraMacroblock returned false")
+	}
+
+	assertPlaneValue(t, "Y", y, 100)
+	assertPlaneValue(t, "U", u, 90)
+	assertPlaneValue(t, "V", v, 70)
+}
+
+func TestReconstructWholeBlockIntraMacroblockRejectsBPred(t *testing.T) {
+	mode := MacroblockMode{Mode: common.BPred, UVMode: common.DCPred, Is4x4: true}
+	tokens := wholeBlockResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := testIntraPredictorRefs(100, 90, 70)
+	y := filledPlane(16, 16, 99)
+	u := filledPlane(8, 8, 99)
+	v := filledPlane(8, 8, 99)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructWholeBlockIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); ok {
+		t.Fatalf("BPred macroblock returned true")
+	}
+	assertPlaneValue(t, "Y", y, 99)
+	assertPlaneValue(t, "U", u, 99)
+	assertPlaneValue(t, "V", v, 99)
+}
+
+func TestReconstructWholeBlockIntraMacroblockAllocatesZero(t *testing.T) {
+	mode := MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred}
+	tokens := wholeBlockResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := testIntraPredictorRefs(100, 90, 70)
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+	allocs := testing.AllocsPerRun(1000, func() {
+		ReconstructWholeBlockIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {
@@ -311,6 +394,34 @@ func testMacroblockDequant() common.MacroblockDequant {
 	}
 	dequant.Y1DC[0] = 1
 	return dequant
+}
+
+func wholeBlockResidualTokens() MacroblockTokens {
+	var tokens MacroblockTokens
+	for i := 0; i < 16; i++ {
+		tokens.EOB[i] = 1
+	}
+	tokens.QCoeff[24][0] = 16
+	tokens.EOB[24] = 1
+	tokens.QCoeff[16][0] = 16
+	tokens.EOB[16] = 1
+	return tokens
+}
+
+func testIntraPredictorRefs(y byte, u byte, v byte) IntraPredictorRefs {
+	return IntraPredictorRefs{
+		YAbove:        filledPlane(20, 1, y),
+		YLeft:         filledPlane(16, 1, y),
+		UAbove:        filledPlane(8, 1, u),
+		ULeft:         filledPlane(8, 1, u),
+		VAbove:        filledPlane(8, 1, v),
+		VLeft:         filledPlane(8, 1, v),
+		YTopLeft:      y,
+		UTopLeft:      u,
+		VTopLeft:      v,
+		UpAvailable:   true,
+		LeftAvailable: true,
+	}
 }
 
 func filledPlane(stride int, height int, value byte) []byte {

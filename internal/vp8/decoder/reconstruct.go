@@ -13,6 +13,22 @@ type MacroblockResidual struct {
 	DQCoeff [25 * 16]int16
 }
 
+type IntraPredictorRefs struct {
+	YAbove []byte
+	YLeft  []byte
+	UAbove []byte
+	ULeft  []byte
+	VAbove []byte
+	VLeft  []byte
+
+	YTopLeft byte
+	UTopLeft byte
+	VTopLeft byte
+
+	UpAvailable   bool
+	LeftAvailable bool
+}
+
 func (r *MacroblockResidual) Block(index int) *[16]int16 {
 	return (*[16]int16)(r.DQCoeff[index*16 : index*16+16])
 }
@@ -142,6 +158,27 @@ func PredictIntraY4x4(modes *[16]common.BPredictionMode, dst []byte, stride int,
 			return false
 		}
 	}
+	return true
+}
+
+func ReconstructWholeBlockIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, refs IntraPredictorRefs, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual) bool {
+	if mode.Is4x4 || mode.Mode == common.BPred {
+		return false
+	}
+	if !PredictIntraY16x16(mode.Mode, y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if !PredictIntraUV8x8(mode.UVMode, u, uStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if !PredictIntraUV8x8(mode.UVMode, v, vStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return true
+	}
+	TransformMacroblockTokens(tokens, dequant, false, scratch)
+	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
 	return true
 }
 
