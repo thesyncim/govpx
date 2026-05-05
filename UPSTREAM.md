@@ -66,8 +66,7 @@ grant. This repository keeps libvpx license and patent notices in
 - `Decode` and `DecodeInto` can expose narrow supported-version keyframe and
   inter-frame scaffolds, but error concealment, post-processing, and many VP8
   features still return `ErrUnsupportedFeature`.
-- `EncodeInto` can emit neutral intra-only keyframes, but real image
-  analysis is not wired into the public encoder yet, and full
-  transform/quantization integration, interframes, and rate-control feedback are
-  not complete yet.
+- `EncodeInto` can emit source-dependent intra-only keyframes using a
+  neutral-predictor residual path, but full prediction analysis, reconstruction
+  feedback, interframes, and rate-control feedback are not complete yet.
 - The package exposes a small Go API, not the libvpx C API.

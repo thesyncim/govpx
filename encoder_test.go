@@ -59,6 +59,17 @@ func TestSetRateControlValidation(t *testing.T) {
 	}
 }
 
+func TestSetRealtimeTargetRejectsScratchGrowth(t *testing.T) {
+	e := newTestEncoder(t)
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("larger resolution error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 8, Height: 16}); err != nil {
+		t.Fatalf("smaller resolution returned error: %v", err)
+	}
+}
+
 func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	e := newTestEncoder(t)
 	e.frameCount = 7
@@ -111,8 +122,33 @@ func TestEncodeIntoWritesDecodableKeyFrame(t *testing.T) {
 	if !ok {
 		t.Fatalf("NextFrame returned no frame")
 	}
-	if frame.Width != 16 || frame.Height != 16 || frame.Y[0] != 128 {
-		t.Fatalf("decoded frame = %dx%d Y0=%d, want 16x16 Y0 128", frame.Width, frame.Height, frame.Y[0])
+	if frame.Width != 16 || frame.Height != 16 || frame.Y[0] >= 128 {
+		t.Fatalf("decoded frame = %dx%d Y0=%d, want 16x16 dark source-directed frame", frame.Width, frame.Height, frame.Y[0])
+	}
+}
+
+func TestEncodeIntoUsesSourcePixels(t *testing.T) {
+	darkEncoder := newTestEncoder(t)
+	brightEncoder := newTestEncoder(t)
+	dark := testImage(16, 16)
+	bright := testImage(16, 16)
+	fillImage(bright, 220, 128, 128)
+	dstDark := make([]byte, 4096)
+	dstBright := make([]byte, 4096)
+
+	darkResult, err := darkEncoder.EncodeInto(dstDark, dark, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("dark EncodeInto returned error: %v", err)
+	}
+	brightResult, err := brightEncoder.EncodeInto(dstBright, bright, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("bright EncodeInto returned error: %v", err)
+	}
+
+	darkFrame := decodeSingleFrame(t, darkResult.Data)
+	brightFrame := decodeSingleFrame(t, brightResult.Data)
+	if brightFrame.Y[0] <= darkFrame.Y[0] {
+		t.Fatalf("decoded Y0 dark/bright = %d/%d, want bright greater", darkFrame.Y[0], brightFrame.Y[0])
 	}
 }
 
@@ -203,4 +239,32 @@ func testImage(width int, height int) Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
+}
+
+func fillImage(img Image, y byte, u byte, v byte) {
+	for i := range img.Y {
+		img.Y[i] = y
+	}
+	for i := range img.U {
+		img.U[i] = u
+	}
+	for i := range img.V {
+		img.V[i] = v
+	}
+}
+
+func decodeSingleFrame(t *testing.T, packet []byte) Image {
+	t.Helper()
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	return frame
 }

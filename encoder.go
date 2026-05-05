@@ -107,6 +107,10 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+
+	keyFrameModes  []vp8enc.KeyFrameMacroblockMode
+	keyFrameCoeffs []vp8enc.MacroblockCoefficients
+	tokenAbove     []vp8enc.TokenContextPlanes
 }
 
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
@@ -117,8 +121,11 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
-		opts:   normalized,
-		timing: timing,
+		opts:           normalized,
+		timing:         timing,
+		keyFrameModes:  make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		keyFrameCoeffs: make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		tokenAbove:     make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 	}
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
@@ -151,7 +158,27 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		BufferLevelBits:   e.rc.bufferLevelBits,
 	}
 
-	n, err := vp8enc.WriteNeutralKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{})
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	required := rows * cols
+	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
+		return EncodeResult{}, ErrInvalidConfig
+	}
+	source := vp8enc.SourceImage{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       src.Y,
+		U:       src.U,
+		V:       src.V,
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required]); err != nil {
+		return EncodeResult{}, translateEncoderError(err)
+	}
+
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{BaseQIndex: uint8(e.rc.currentQuantizer)}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
@@ -191,6 +218,9 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	if target.Width > 0 || target.Height > 0 {
 		if target.Width <= 0 || target.Height <= 0 || !validDimension(target.Width) || !validDimension(target.Height) {
+			return ErrInvalidConfig
+		}
+		if !e.hasEncoderScratchCapacity(target.Width, target.Height) {
 			return ErrInvalidConfig
 		}
 		e.opts.Width = target.Width
@@ -354,4 +384,22 @@ func translateEncoderError(err error) error {
 	default:
 		return err
 	}
+}
+
+func (e *VP8Encoder) hasEncoderScratchCapacity(width int, height int) bool {
+	return cap(e.keyFrameModes) >= encoderMacroblockCount(width, height) &&
+		cap(e.keyFrameCoeffs) >= encoderMacroblockCount(width, height) &&
+		cap(e.tokenAbove) >= encoderMacroblockCols(width)
+}
+
+func encoderMacroblockCount(width int, height int) int {
+	return encoderMacroblockRows(height) * encoderMacroblockCols(width)
+}
+
+func encoderMacroblockRows(height int) int {
+	return (height + 15) >> 4
+}
+
+func encoderMacroblockCols(width int) int {
+	return (width + 15) >> 4
 }
