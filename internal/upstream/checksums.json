@@ -52,6 +52,14 @@
       "sha256": "a563876cb35c94c4921cbc1081f7cabfe15eb73f10c7e8434db4e0f376423988"
     },
     {
+      "path": "vp8/common/idct_blk.c",
+      "sha256": "a3ac9af0931ad1786a079f4d84699d21e305d671ae317ddd9bd05c209bd13bb2"
+    },
+    {
+      "path": "vp8/common/idctllm.c",
+      "sha256": "a6833e959660a6496672ff7d4ba603f57a8eae4379247a9f40c14fc898f656e4"
+    },
+    {
       "path": "vp8/common/onyx.h",
       "sha256": "a238b4c0bb609914c545d93a35c54655a04ca35484a5f00a89d578c075c0710c"
     },
