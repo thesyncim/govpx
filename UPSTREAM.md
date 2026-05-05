@@ -48,12 +48,13 @@ grant. This repository keeps libvpx license and patent notices in
 | Upstream manifest | scaffolded |
 | Oracle harness | not started |
 | IVF/test vectors | not started |
-| Frame memory | not started |
+| Frame memory | scaffolded |
 | Bool decoder/writer | not started |
 | Header parsing | public frame tag peek scaffolded |
 | Decoder state and reconstruction | not started |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |
+| VP8 constants and static tables | scaffolded |
 | Encoder bitstream writer | not started |
 | Encoder frame algorithms | not started |
 | SIMD/assembly | not started |

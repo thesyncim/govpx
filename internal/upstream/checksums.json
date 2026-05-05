@@ -10,5 +10,50 @@
     "url": "https://github.com/webmproject/libvpx/archive/v1.16.0/libvpx-1.16.0.tar.gz",
     "md5": "fb51551487ecfdec93f3d243b7fb1a67"
   },
-  "ported_files": []
+  "ported_files": [
+    {
+      "path": "vp8/common/blockd.h",
+      "sha256": "63bf20f34fadbd989596fde3bcbbeafa2f804a7084f375679592dee6e7aa6c7e"
+    },
+    {
+      "path": "vp8/common/entropymode.c",
+      "sha256": "a8b1d914c9ec1e75e823cc8eb9444e6e20fd754ed70cb6851220c20e4940ef2f"
+    },
+    {
+      "path": "vp8/common/entropymode.h",
+      "sha256": "69d990d690b11465ffc8010b950367a3f9eb0d9af2eab91b974d13636bab003e"
+    },
+    {
+      "path": "vp8/common/entropymv.c",
+      "sha256": "4f03678d718fe592dabdab9e151e8efed322e6ac10e43f410f93eaae76bbec4c"
+    },
+    {
+      "path": "vp8/common/entropymv.h",
+      "sha256": "fb13e5ca70886b46b2a32dfb2261a91410b8e4c13560871502261dcae6e027f7"
+    },
+    {
+      "path": "vp8/common/entropy.c",
+      "sha256": "b678063f72e2a153d11b47502c9c4d9ec63d99ae80d7d610b445277658022eb2"
+    },
+    {
+      "path": "vp8/common/entropy.h",
+      "sha256": "3cec64b7018cd9a7aeccaca07ff747981e616c7f3de8407cec56b852c33f632a"
+    },
+    {
+      "path": "vp8/common/filter.c",
+      "sha256": "6bfa6b03201d825731401cde4a2145df9f9af83a295be14b3503cf336e947dc3"
+    },
+    {
+      "path": "vp8/common/filter.h",
+      "sha256": "a563876cb35c94c4921cbc1081f7cabfe15eb73f10c7e8434db4e0f376423988"
+    },
+    {
+      "path": "vp8/common/onyx.h",
+      "sha256": "a238b4c0bb609914c545d93a35c54655a04ca35484a5f00a89d578c075c0710c"
+    },
+    {
+      "path": "vp8/common/onyxc_int.h",
+      "sha256": "94b6db61c954bf9153f1c4558162807402a87944b168f2d784268e50391424cd"
+    }
+  ]
 }
