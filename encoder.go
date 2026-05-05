@@ -227,6 +227,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
+	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
+	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
 	if sourceMatchesReference(Image{
 		Width:   source.Width,
 		Height:  source.Height,
@@ -510,6 +512,14 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
 	}
+	if cfg.RefreshGolden {
+		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+		e.goldenRef.ExtendBorders()
+	}
+	if cfg.RefreshAltRef {
+		copyFrameImage(&e.altRef.Img, &e.current.Img)
+		e.altRef.ExtendBorders()
+	}
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
@@ -518,6 +528,14 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 	if cfg.RefreshLast {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
+	}
+	if cfg.RefreshGolden {
+		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+		e.goldenRef.ExtendBorders()
+	}
+	if cfg.RefreshAltRef {
+		copyFrameImage(&e.altRef.Img, &e.current.Img)
+		e.altRef.ExtendBorders()
 	}
 }
 

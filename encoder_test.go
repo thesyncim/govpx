@@ -323,6 +323,67 @@ func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoInterFrameRefreshesGoldenAndAltRef(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 91, 171)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	decoded := decodeFrameSequence(t, key.Data, inter.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertImagesEqual(t, "current", decoded[1], publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
+	assertImagesEqual(t, "golden", decoded[1], publicImageFromVP8(&e.goldenRef.Img))
+	assertImagesEqual(t, "alt", decoded[1], publicImageFromVP8(&e.altRef.Img))
+}
+
+func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 91, 171)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	decoded := decodeFrameSequence(t, key.Data, inter.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertImagesEqual(t, "current", decoded[1], publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
+	assertImagesEqual(t, "golden", keyFrame, publicImageFromVP8(&e.goldenRef.Img))
+	assertImagesEqual(t, "alt", keyFrame, publicImageFromVP8(&e.altRef.Img))
+}
+
 func TestEncodeIntoNoReferenceLastForcesKeyFrame(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
