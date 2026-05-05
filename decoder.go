@@ -97,6 +97,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.decodeTokenGrid(); err != nil {
 		return err
 	}
+	if err := d.reconstructFrame(info); err != nil {
+		return err
+	}
 
 	d.currentPTS = pts
 	d.frameReady = false
@@ -153,6 +156,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	if err := d.decodeTokenGrid(); err != nil {
+		return FrameInfo{}, err
+	}
+	if err := d.reconstructFrame(info); err != nil {
 		return FrameInfo{}, err
 	}
 	d.currentPTS = pts
@@ -304,6 +310,16 @@ func (d *VP8Decoder) decodeTokenGrid() error {
 		if readers[i].Err() != nil {
 			return ErrInvalidData
 		}
+	}
+	return nil
+}
+
+func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
+	if !info.KeyFrame {
+		return ErrUnsupportedFeature
+	}
+	if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
+		return ErrInvalidData
 	}
 	return nil
 }

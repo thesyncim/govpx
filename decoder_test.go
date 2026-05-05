@@ -159,6 +159,43 @@ func TestDecodeParsesTokenGrid(t *testing.T) {
 	}
 }
 
+func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	yChecks := []struct {
+		row  int
+		col  int
+		want byte
+	}{
+		{row: 0, col: 0, want: 128},
+		{row: 4, col: 0, want: 129},
+		{row: 15, col: 15, want: 129},
+	}
+	for _, check := range yChecks {
+		if got := d.current.Img.Y[check.row*d.current.Img.YStride+check.col]; got != check.want {
+			t.Fatalf("Y[%d,%d] = %d, want %d", check.row, check.col, got, check.want)
+		}
+	}
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			if got := d.current.Img.U[row*d.current.Img.UStride+col]; got != 128 {
+				t.Fatalf("U[%d,%d] = %d, want 128", row, col, got)
+			}
+			if got := d.current.Img.V[row*d.current.Img.VStride+col]; got != 128 {
+				t.Fatalf("V[%d,%d] = %d, want 128", row, col, got)
+			}
+		}
+	}
+}
+
 func TestDecodeRejectsMissingTokenPartition(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
