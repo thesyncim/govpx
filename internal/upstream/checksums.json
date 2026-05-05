@@ -16,6 +16,10 @@
       "sha256": "63bf20f34fadbd989596fde3bcbbeafa2f804a7084f375679592dee6e7aa6c7e"
     },
     {
+      "path": "vp8/common/coefupdateprobs.h",
+      "sha256": "4e3e4cb5df8292bcd6ff49a317dadeaab4b5c53be6665e2ac82377424161e981"
+    },
+    {
       "path": "vp8/common/entropymode.c",
       "sha256": "a8b1d914c9ec1e75e823cc8eb9444e6e20fd754ed70cb6851220c20e4940ef2f"
     },

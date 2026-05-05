@@ -51,7 +51,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Frame memory | scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state-header prefix scaffolded; reconstruction not started |
+| Decoder state and reconstruction | state headers scaffolded; reconstruction not started |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded |

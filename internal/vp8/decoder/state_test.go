@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
-	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 32)...)
+	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 200)...)
 
 	frame, state, err := ParseStateHeader(packet, QuantHeader{})
 	if err != nil {
@@ -32,10 +32,13 @@ func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
 	if !state.Refresh.RefreshLast || !state.Refresh.RefreshGolden || !state.Refresh.RefreshAltRef {
 		t.Fatalf("keyframe refresh = %+v, want all references refreshed", state.Refresh)
 	}
+	if state.Probability.UpdateCount != 0 || !state.Probability.IndependentPartitions {
+		t.Fatalf("probability header = %+v, want no updates and independent partitions", state.Probability)
+	}
 }
 
 func TestParseStateHeaderInterFrameZeroPayload(t *testing.T) {
-	packet := append(interFramePacket(0, 0, true), make([]byte, 32)...)
+	packet := append(interFramePacket(0, 0, true), make([]byte, 200)...)
 
 	frame, state, err := ParseStateHeader(packet, QuantHeader{})
 	if err != nil {
@@ -51,7 +54,7 @@ func TestParseStateHeaderInterFrameZeroPayload(t *testing.T) {
 
 func TestParseStateHeaderUsesPreviousQuantDeltas(t *testing.T) {
 	prev := QuantHeader{Y1DCDelta: 2, Y2DCDelta: -1}
-	packet := append(interFramePacket(0, 0, true), make([]byte, 32)...)
+	packet := append(interFramePacket(0, 0, true), make([]byte, 200)...)
 
 	_, state, err := ParseStateHeader(packet, prev)
 	if err != nil {
@@ -75,7 +78,7 @@ func TestParseStateHeaderTruncated(t *testing.T) {
 }
 
 func TestParseStateHeaderAllocatesZero(t *testing.T) {
-	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 32)...)
+	packet := append(keyFramePacket(64, 64, 0, 0, 0, 0, true), make([]byte, 200)...)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_, _, _ = ParseStateHeader(packet, QuantHeader{})
 	})

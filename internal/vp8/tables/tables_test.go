@@ -33,6 +33,12 @@ func TestEntropyTableSentinels(t *testing.T) {
 	if ExtraBitsTable[DCTValCategory6].BaseVal != 67 || ExtraBitsTable[DCTValCategory6].Len != 11 {
 		t.Fatalf("category 6 extra bits changed")
 	}
+	if sumCoefUpdateProbs() != 268469 {
+		t.Fatalf("CoefUpdateProbs checksum = %d, want 268469", sumCoefUpdateProbs())
+	}
+	if CoefUpdateProbs[0][1][0][0] != 176 || CoefUpdateProbs[3][7][1][0] != 254 {
+		t.Fatalf("CoefUpdateProbs sentinels changed")
+	}
 }
 
 func TestModeTableSentinels(t *testing.T) {
@@ -129,6 +135,20 @@ func sumFilter6(v [][6]int16) int {
 	for _, row := range v {
 		for _, x := range row {
 			sum += int(x)
+		}
+	}
+	return sum
+}
+
+func sumCoefUpdateProbs() int {
+	sum := 0
+	for block := range CoefUpdateProbs {
+		for band := range CoefUpdateProbs[block] {
+			for ctx := range CoefUpdateProbs[block][band] {
+				for _, v := range CoefUpdateProbs[block][band][ctx] {
+					sum += int(v)
+				}
+			}
 		}
 	}
 	return sum
