@@ -134,6 +134,10 @@
     {
       "path": "vp8/vp8_dx_iface.c",
       "sha256": "583db9b3a0a5515aa8830a6140fbae52761210496a88688ba2a0302743b49ea5"
+    },
+    {
+      "path": "vp8/common/vp8_loopfilter.c",
+      "sha256": "85e3a09c7ab53a38f78db870f06de44abde1ce0553d8245fab51a27cf10e3a83"
     }
   ]
 }
