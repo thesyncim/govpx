@@ -19,6 +19,17 @@ var (
 	ErrUnsupportedInterReconstructionMode = errors.New("libgopx: unsupported VP8 inter reconstruction mode")
 )
 
+type interPredictorPlan struct {
+	YOffset int
+	UOffset int
+	VOffset int
+
+	YXOffset  int
+	YYOffset  int
+	UVXOffset int
+	UVYOffset int
+}
+
 type MacroblockResidual struct {
 	DQCoeff [25 * 16]int16
 }
@@ -305,13 +316,13 @@ func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {
 		return false
 	}
-	yRef, uRef, vRef, ok := wholeMVReferenceOffsets(ref, mbRow, mbCol, mode.MV)
+	plan, ok := wholeMVReferencePlan(ref, mbRow, mbCol, mode.MV)
 	if !ok {
 		return false
 	}
-	dsp.Copy16x16(ref.Y[yRef:], ref.YStride, y, yStride)
-	dsp.Copy8x8(ref.U[uRef:], ref.UStride, u, uStride)
-	dsp.Copy8x8(ref.V[vRef:], ref.VStride, v, vStride)
+	predictInter16x16(ref.Y[plan.YOffset:], ref.YStride, plan.YXOffset, plan.YYOffset, y, yStride)
+	predictInter8x8(ref.U[plan.UOffset:], ref.UStride, plan.UVXOffset, plan.UVYOffset, u, uStride)
+	predictInter8x8(ref.V[plan.VOffset:], ref.VStride, plan.UVXOffset, plan.UVYOffset, v, vStride)
 	if mode.MBSkipCoeff {
 		return true
 	}
@@ -329,36 +340,75 @@ func isWholeMacroblockInterMode(mode common.MBPredictionMode) bool {
 	}
 }
 
-func wholeMVReferenceOffsets(ref *common.Image, mbRow int, mbCol int, mv MotionVector) (int, int, int, bool) {
+func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVector) (interPredictorPlan, bool) {
 	if ref == nil {
-		return 0, 0, 0, false
-	}
-	if (int(mv.Row)|int(mv.Col))&7 != 0 {
-		return 0, 0, 0, false
+		return interPredictorPlan{}, false
 	}
 
 	yRow := mbRow*16 + int(mv.Row>>3)
 	yCol := mbCol*16 + int(mv.Col>>3)
-	if !imageHasReferenceBlock(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16) {
-		return 0, 0, 0, false
+	yXOffset := int(mv.Col) & 7
+	yYOffset := int(mv.Row) & 7
+	yOffset, ok := wholeMVPlaneOffset(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16, yXOffset, yYOffset)
+	if !ok {
+		return interPredictorPlan{}, false
 	}
 
 	uvMVRow := chromaMotionVectorComponent(mv.Row)
 	uvMVCol := chromaMotionVectorComponent(mv.Col)
-	if (uvMVRow|uvMVCol)&7 != 0 {
-		return 0, 0, 0, false
-	}
-
 	uvRow := mbRow*8 + (uvMVRow >> 3)
 	uvCol := mbCol*8 + (uvMVCol >> 3)
+	uvXOffset := uvMVCol & 7
+	uvYOffset := uvMVRow & 7
 	uvWidth := (codedImageWidth(ref) + 1) >> 1
 	uvHeight := (codedImageHeight(ref) + 1) >> 1
-	if !imageHasReferenceBlock(ref.U, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8) ||
-		!imageHasReferenceBlock(ref.V, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8) {
-		return 0, 0, 0, false
+	uOffset, ok := wholeMVPlaneOffset(ref.U, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset)
+	if !ok {
+		return interPredictorPlan{}, false
+	}
+	vOffset, ok := wholeMVPlaneOffset(ref.V, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset)
+	if !ok {
+		return interPredictorPlan{}, false
 	}
 
-	return yRow*ref.YStride + yCol, uvRow*ref.UStride + uvCol, uvRow*ref.VStride + uvCol, true
+	return interPredictorPlan{
+		YOffset:   yOffset,
+		UOffset:   uOffset,
+		VOffset:   vOffset,
+		YXOffset:  yXOffset,
+		YYOffset:  yYOffset,
+		UVXOffset: uvXOffset,
+		UVYOffset: uvYOffset,
+	}, true
+}
+
+func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int, xOffset int, yOffset int) (int, bool) {
+	if xOffset|yOffset != 0 {
+		row -= 2
+		col -= 2
+		width += 5
+		height += 5
+	}
+	if !imageHasReferenceBlock(plane, stride, codedWidth, codedHeight, row, col, width, height) {
+		return 0, false
+	}
+	return row*stride + col, true
+}
+
+func predictInter16x16(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int) {
+	if xOffset|yOffset == 0 {
+		dsp.Copy16x16(src, srcStride, dst, dstStride)
+		return
+	}
+	dsp.SixTapPredict16x16(src, srcStride, xOffset, yOffset, dst, dstStride)
+}
+
+func predictInter8x8(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int) {
+	if xOffset|yOffset == 0 {
+		dsp.Copy8x8(src, srcStride, dst, dstStride)
+		return
+	}
+	dsp.SixTapPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
 }
 
 func chromaMotionVectorComponent(v int16) int {
