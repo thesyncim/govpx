@@ -1,6 +1,7 @@
 package libgopx
 
 import vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+import vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 
 type DecoderOptions struct {
 	Threads int
@@ -33,6 +34,14 @@ type VP8Decoder struct {
 	lastRef     vp8common.FrameBuffer
 	goldenRef   vp8common.FrameBuffer
 	altRef      vp8common.FrameBuffer
+
+	mbRows             int
+	mbCols             int
+	modes              []vp8dec.MacroblockMode
+	tokens             []vp8dec.MacroblockTokens
+	tokenAbove         []vp8dec.EntropyContextPlanes
+	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
 func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
@@ -206,7 +215,31 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
 	}
+	d.ensureWorkspace(info.Width, info.Height)
 	d.frameWidth = info.Width
 	d.frameHeight = info.Height
 	return nil
+}
+
+func (d *VP8Decoder) ensureWorkspace(width int, height int) {
+	cols := (width + 15) >> 4
+	rows := (height + 15) >> 4
+	count := rows * cols
+	if cap(d.modes) < count {
+		d.modes = make([]vp8dec.MacroblockMode, count)
+	} else {
+		d.modes = d.modes[:count]
+	}
+	if cap(d.tokens) < count {
+		d.tokens = make([]vp8dec.MacroblockTokens, count)
+	} else {
+		d.tokens = d.tokens[:count]
+	}
+	if cap(d.tokenAbove) < cols {
+		d.tokenAbove = make([]vp8dec.EntropyContextPlanes, cols)
+	} else {
+		d.tokenAbove = d.tokenAbove[:cols]
+	}
+	d.mbRows = rows
+	d.mbCols = cols
 }

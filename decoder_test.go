@@ -59,6 +59,12 @@ func TestDecodeInitializesReferenceFrameBuffers(t *testing.T) {
 	if d.lastRef.BufferLen() == 0 || d.goldenRef.BufferLen() == 0 || d.altRef.BufferLen() == 0 {
 		t.Fatalf("reference buffers were not initialized")
 	}
+	if d.mbRows != 1 || d.mbCols != 1 || len(d.modes) != 1 || len(d.tokens) != 1 || len(d.tokenAbove) != 1 {
+		t.Fatalf("workspace rows/cols/lens = %dx%d %d/%d/%d, want 1x1 1/1/1", d.mbRows, d.mbCols, len(d.modes), len(d.tokens), len(d.tokenAbove))
+	}
+	if d.current.Img.CodedWidth < d.mbCols*16 || d.current.Img.CodedHeight < d.mbRows*16 {
+		t.Fatalf("coded frame is smaller than macroblock workspace")
+	}
 }
 
 func TestDecodeReusesReferenceFrameBuffers(t *testing.T) {
@@ -70,6 +76,8 @@ func TestDecodeReusesReferenceFrameBuffers(t *testing.T) {
 	_ = d.Decode(packet)
 	firstY := &d.current.Img.Y[0]
 	firstLastY := &d.lastRef.Img.Y[0]
+	firstModes := &d.modes[0]
+	firstTokens := &d.tokens[0]
 
 	_ = d.Decode(packet)
 
@@ -78,6 +86,25 @@ func TestDecodeReusesReferenceFrameBuffers(t *testing.T) {
 	}
 	if &d.lastRef.Img.Y[0] != firstLastY {
 		t.Fatalf("last reference buffer was reallocated for same resolution")
+	}
+	if &d.modes[0] != firstModes || &d.tokens[0] != firstTokens {
+		t.Fatalf("macroblock workspace was reallocated for same resolution")
+	}
+}
+
+func TestDecodeWorkspaceTracksMacroblockGrid(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	_ = d.Decode(vp8KeyFramePacket(17, 17, 0, 0, true))
+
+	if d.mbRows != 2 || d.mbCols != 2 {
+		t.Fatalf("workspace grid = %dx%d, want 2x2", d.mbRows, d.mbCols)
+	}
+	if len(d.modes) != 4 || len(d.tokens) != 4 || len(d.tokenAbove) != 2 {
+		t.Fatalf("workspace lengths = %d/%d/%d, want 4/4/2", len(d.modes), len(d.tokens), len(d.tokenAbove))
 	}
 }
 
