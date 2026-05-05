@@ -3,6 +3,8 @@ package libgopx
 import (
 	"errors"
 
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
@@ -111,6 +113,17 @@ type VP8Encoder struct {
 	keyFrameModes  []vp8enc.KeyFrameMacroblockMode
 	keyFrameCoeffs []vp8enc.MacroblockCoefficients
 	tokenAbove     []vp8enc.TokenContextPlanes
+
+	current   vp8common.FrameBuffer
+	lastRef   vp8common.FrameBuffer
+	goldenRef vp8common.FrameBuffer
+	altRef    vp8common.FrameBuffer
+
+	reconstructModes   []vp8dec.MacroblockMode
+	reconstructTokens  []vp8dec.MacroblockTokens
+	dequantTables      vp8common.FrameDequantTables
+	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
@@ -126,6 +139,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		keyFrameModes:  make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameCoeffs: make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		tokenAbove:     make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
+
+		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
+	}
+	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
+		return nil, err
 	}
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
@@ -182,6 +201,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
+	if err := e.reconstructKeyFrame(e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
+		return EncodeResult{}, err
+	}
 	result.Data = dst[:n]
 	result.SizeBytes = n
 	e.forceKeyFrame = false
@@ -220,7 +242,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if target.Width <= 0 || target.Height <= 0 || !validDimension(target.Width) || !validDimension(target.Height) {
 			return ErrInvalidConfig
 		}
-		if !e.hasEncoderScratchCapacity(target.Width, target.Height) {
+		if target.Width != e.opts.Width || target.Height != e.opts.Height {
 			return ErrInvalidConfig
 		}
 		e.opts.Width = target.Width
@@ -300,6 +322,10 @@ func (e *VP8Encoder) Reset() {
 	e.rc.rollingTargetBits = 0
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0
+	e.current.Reset()
+	e.lastRef.Reset()
+	e.goldenRef.Reset()
+	e.altRef.Reset()
 }
 
 func (e *VP8Encoder) Close() error {
@@ -386,10 +412,74 @@ func translateEncoderError(err error) error {
 	}
 }
 
-func (e *VP8Encoder) hasEncoderScratchCapacity(width int, height int) bool {
-	return cap(e.keyFrameModes) >= encoderMacroblockCount(width, height) &&
-		cap(e.keyFrameCoeffs) >= encoderMacroblockCount(width, height) &&
-		cap(e.tokenAbove) >= encoderMacroblockCols(width)
+func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
+	if err := e.current.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
+	if err := e.lastRef.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
+	if err := e.goldenRef.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
+	if err := e.altRef.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func (e *VP8Encoder) reconstructKeyFrame(qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
+	required := rows * cols
+	if len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
+		return ErrInvalidConfig
+	}
+	for i := 0; i < required; i++ {
+		convertKeyFrameMode(&modes[i], &e.reconstructModes[i])
+		convertMacroblockCoefficients(&coeffs[i], e.reconstructModes[i].Is4x4, &e.reconstructTokens[i])
+	}
+
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
+	if err := vp8dec.ReconstructKeyFrameIntraGrid(&e.current.Img, rows, cols, e.reconstructModes[:required], e.reconstructTokens[:required], &e.dequants, &e.reconstructScratch); err != nil {
+		return ErrInvalidConfig
+	}
+	e.current.ExtendBorders()
+	copyFrameImage(&e.lastRef.Img, &e.current.Img)
+	e.lastRef.ExtendBorders()
+	copyFrameImage(&e.goldenRef.Img, &e.current.Img)
+	e.goldenRef.ExtendBorders()
+	copyFrameImage(&e.altRef.Img, &e.current.Img)
+	e.altRef.ExtendBorders()
+	return nil
+}
+
+func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
+	*dst = vp8dec.MacroblockMode{
+		RefFrame: vp8common.IntraFrame,
+		Mode:     src.YMode,
+		UVMode:   src.UVMode,
+		Is4x4:    src.YMode == vp8common.BPred,
+		BModes:   src.BModes,
+	}
+}
+
+func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {
+	for i := range dst.QCoeff {
+		dst.QCoeff[i] = src.QCoeff[i]
+	}
+	dst.EOB = [25]uint8{}
+	if !is4x4 {
+		dst.EOB[24] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[24], 0))
+		for i := 0; i < 16; i++ {
+			dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 1))
+		}
+	} else {
+		for i := 0; i < 16; i++ {
+			dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 0))
+		}
+	}
+	for i := 16; i < 24; i++ {
+		dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 0))
+	}
 }
 
 func encoderMacroblockCount(width int, height int) int {

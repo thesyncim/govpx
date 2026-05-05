@@ -59,14 +59,17 @@ func TestSetRateControlValidation(t *testing.T) {
 	}
 }
 
-func TestSetRealtimeTargetRejectsScratchGrowth(t *testing.T) {
+func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
 	e := newTestEncoder(t)
 
 	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("larger resolution error = %v, want ErrInvalidConfig", err)
 	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 8, Height: 16}); err != nil {
-		t.Fatalf("smaller resolution returned error: %v", err)
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 8, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("smaller resolution error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 16, Height: 16}); err != nil {
+		t.Fatalf("same resolution returned error: %v", err)
 	}
 }
 
@@ -150,6 +153,24 @@ func TestEncodeIntoUsesSourcePixels(t *testing.T) {
 	if brightFrame.Y[0] <= darkFrame.Y[0] {
 		t.Fatalf("decoded Y0 dark/bright = %d/%d, want bright greater", darkFrame.Y[0], brightFrame.Y[0])
 	}
+}
+
+func TestEncodeIntoReconstructsReferencesLikeDecoder(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	dst := make([]byte, 4096)
+
+	result, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	decoded := decodeSingleFrame(t, result.Data)
+
+	assertImagesEqual(t, "current", decoded, publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "last", decoded, publicImageFromVP8(&e.lastRef.Img))
+	assertImagesEqual(t, "golden", decoded, publicImageFromVP8(&e.goldenRef.Img))
+	assertImagesEqual(t, "alt", decoded, publicImageFromVP8(&e.altRef.Img))
 }
 
 func TestEncoderHotPathAllocs(t *testing.T) {
@@ -267,4 +288,29 @@ func decodeSingleFrame(t *testing.T, packet []byte) Image {
 		t.Fatalf("NextFrame returned no frame")
 	}
 	return frame
+}
+
+func assertImagesEqual(t *testing.T, name string, want Image, got Image) {
+	t.Helper()
+	if got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf("%s dimensions = %dx%d, want %dx%d", name, got.Width, got.Height, want.Width, want.Height)
+	}
+	assertPlaneEqual(t, name+" Y", want.Y, want.YStride, got.Y, got.YStride, want.Width, want.Height)
+	uvWidth := (want.Width + 1) >> 1
+	uvHeight := (want.Height + 1) >> 1
+	assertPlaneEqual(t, name+" U", want.U, want.UStride, got.U, got.UStride, uvWidth, uvHeight)
+	assertPlaneEqual(t, name+" V", want.V, want.VStride, got.V, got.VStride, uvWidth, uvHeight)
+}
+
+func assertPlaneEqual(t *testing.T, name string, want []byte, wantStride int, got []byte, gotStride int, width int, height int) {
+	t.Helper()
+	for row := 0; row < height; row++ {
+		wantRow := want[row*wantStride : row*wantStride+width]
+		gotRow := got[row*gotStride : row*gotStride+width]
+		for col := 0; col < width; col++ {
+			if gotRow[col] != wantRow[col] {
+				t.Fatalf("%s[%d,%d] = %d, want %d", name, row, col, gotRow[col], wantRow[col])
+			}
+		}
+	}
 }
