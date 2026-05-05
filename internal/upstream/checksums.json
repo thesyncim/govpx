@@ -80,6 +80,10 @@
       "sha256": "3a14f08fc0674ccfa092043fdcf5804ae7dbc8fcd5e393fbd25afc5dbe3b1e9a"
     },
     {
+      "path": "vp8/common/reconintra4x4.c",
+      "sha256": "7346991d8bd1ba071d8b941f55ca64e2fbac82eea5198822a3a063fa3915bae0"
+    },
+    {
       "path": "vpx_dsp/intrapred.c",
       "sha256": "a12832eeaf5c74b765d001f278f02698b435baad64b486522ab80de269968cea"
     },
