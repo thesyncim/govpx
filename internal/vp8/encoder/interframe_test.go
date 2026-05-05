@@ -187,6 +187,62 @@ func TestWriteCoefficientInterFrameDecodesNewMV(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesNearestAndNearMV(t *testing.T) {
+	modes := []InterFrameMacroblockMode{
+		{Mode: common.NewMV, MV: MotionVector{Col: -8}, MBSkipCoeff: true},
+		{Mode: common.NewMV, MV: MotionVector{Col: 8}, MBSkipCoeff: true},
+		{Mode: common.NearestMV, MV: MotionVector{Col: -8}, MBSkipCoeff: true},
+		{Mode: common.NearMV, MV: MotionVector{Col: 8}, MBSkipCoeff: true},
+	}
+	coeffs := make([]MacroblockCoefficients, 4)
+	packet := make([]byte, 1024)
+	above := make([]TokenContextPlanes, 2)
+	n, err := WriteCoefficientInterFrame(packet, 32, 32, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, 4)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 2, 2, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	want := []struct {
+		mode common.MBPredictionMode
+		mv   vp8dec.MotionVector
+	}{
+		{common.NewMV, vp8dec.MotionVector{Col: -8}},
+		{common.NewMV, vp8dec.MotionVector{Col: 8}},
+		{common.NearestMV, vp8dec.MotionVector{Col: -8}},
+		{common.NearMV, vp8dec.MotionVector{Col: 8}},
+	}
+	for i := range want {
+		if decodedModes[i].Mode != want[i].mode || decodedModes[i].MV != want[i].mv || !decodedModes[i].MBSkipCoeff {
+			t.Fatalf("mode[%d] = %+v, want %v %+v skipped", i, decodedModes[i], want[i].mode, want[i].mv)
+		}
+	}
+}
+
+func TestInterFrameMotionModeForVectorClassifiesNeighbors(t *testing.T) {
+	left := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: -8}}
+	mode := InterFrameMotionModeForVector(MotionVector{Col: -8}, nil, &left, nil)
+	if mode.Mode != common.NearestMV || mode.MV != left.MV {
+		t.Fatalf("mode = %+v, want nearest col -8", mode)
+	}
+
+	above := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: 8}}
+	aboveLeft := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: -8}}
+	mode = InterFrameMotionModeForVector(MotionVector{Col: 8}, &above, &left, &aboveLeft)
+	if mode.Mode != common.NearMV || mode.MV != above.MV {
+		t.Fatalf("mode = %+v, want near col 8", mode)
+	}
+}
+
 func TestWriteZeroInterFrameRejectsUnsupportedConfig(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.MBNoCoeffSkip = false

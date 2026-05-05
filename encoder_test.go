@@ -294,6 +294,9 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	if e.interFrameModes[0].Mode != vp8common.NewMV || e.interFrameModes[0].MV != (vp8enc.MotionVector{Col: -8}) {
 		t.Fatalf("mode[0] = %+v, want NEWMV col -8", e.interFrameModes[0])
 	}
+	if e.interFrameModes[1].Mode != vp8common.NearestMV || e.interFrameModes[1].MV != (vp8enc.MotionVector{Col: -8}) {
+		t.Fatalf("mode[1] = %+v, want NEARESTMV col -8", e.interFrameModes[1])
+	}
 }
 
 func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {

@@ -63,11 +63,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			index := row*cols + col
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
 			mv := selectLastFrameMotionVector(src, &e.lastRef.Img, row, col)
-			modes[index] = vp8enc.InterFrameMacroblockMode{Mode: vp8common.ZeroMV}
-			if mv != (vp8enc.MotionVector{}) {
-				modes[index].Mode = vp8common.NewMV
-				modes[index].MV = mv
+			var above *vp8enc.InterFrameMacroblockMode
+			var left *vp8enc.InterFrameMacroblockMode
+			var aboveLeft *vp8enc.InterFrameMacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
 			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			if row > 0 && col > 0 {
+				aboveLeft = &modes[index-cols-1]
+			}
+			modes[index] = vp8enc.InterFrameMotionModeForVector(mv, above, left, aboveLeft)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			predMode := e.reconstructModes[index]
 			predMode.MBSkipCoeff = true

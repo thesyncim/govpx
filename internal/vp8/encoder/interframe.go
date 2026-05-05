@@ -219,9 +219,6 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			mode := &modes[index]
-			if !validInterFrameMacroblockMode(mode) {
-				return ErrInvalidPacketConfig
-			}
 			if mode.MBSkipCoeff {
 				w.WriteBool(1, cfg.ProbSkipFalse)
 			} else {
@@ -240,6 +237,9 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			}
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
+			}
+			if !validInterFrameMacroblockMode(mode, above, left, aboveLeft) {
+				return ErrInvalidPacketConfig
 			}
 			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft), mode.Mode) {
 				return ErrInvalidPacketConfig
@@ -296,6 +296,21 @@ func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblock
 func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) MotionVector {
 	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft)
 	return best
+}
+
+func InterFrameMotionModeForVector(mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
+	if mv.IsZero() {
+		return InterFrameMacroblockMode{Mode: common.ZeroMV}
+	}
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft)
+	switch mv {
+	case nearest:
+		return InterFrameMacroblockMode{Mode: common.NearestMV, MV: mv}
+	case near:
+		return InterFrameMacroblockMode{Mode: common.NearMV, MV: mv}
+	default:
+		return InterFrameMacroblockMode{Mode: common.NewMV, MV: mv}
+	}
 }
 
 func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
@@ -358,13 +373,18 @@ func (mv MotionVector) IsZero() bool {
 	return mv.Row == 0 && mv.Col == 0
 }
 
-func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode) bool {
+func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) bool {
 	if mode == nil {
 		return false
 	}
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft)
 	switch mode.Mode {
 	case common.ZeroMV:
 		return mode.MV.IsZero()
+	case common.NearestMV:
+		return mode.MV == nearest
+	case common.NearMV:
+		return mode.MV == near
 	case common.NewMV:
 		return true
 	default:
