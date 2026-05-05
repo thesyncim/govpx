@@ -114,6 +114,10 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	d.refreshReferences()
 
 	d.finishFrame(info, pts)
+	if !info.ShowFrame {
+		d.frameReady = false
+		return nil
+	}
 	if d.supportsDecodedOutput(info) {
 		d.lastFrame = publicImageFromVP8(&d.current.Img)
 		d.frameReady = true
@@ -174,6 +178,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	d.refreshReferences()
 	frameInfo := d.finishFrame(info, pts)
 	d.frameReady = false
+	if !info.ShowFrame {
+		return frameInfo, nil
+	}
 	if d.supportsDecodedOutput(info) {
 		copyVP8ImageToPublic(dst, &d.current.Img)
 		return frameInfo, nil

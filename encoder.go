@@ -180,6 +180,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		FrameTargetBits:   e.rc.frameTargetBits,
 		BufferLevelBits:   e.rc.bufferLevelBits,
 	}
+	invisible := flags&EncodeInvisibleFrame != 0
 
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
@@ -219,7 +220,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, err
 	}
 
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
@@ -235,6 +236,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
+	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0

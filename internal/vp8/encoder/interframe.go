@@ -9,6 +9,7 @@ import (
 // and simple LAST/ZEROMV mode packing.
 
 type InterFrameStateConfig struct {
+	InvisibleFrame   bool
 	SimpleLoopFilter bool
 	LoopFilterLevel  uint8
 	SharpnessLevel   uint8
@@ -121,7 +122,7 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 		return 0, err
 	}
 
-	if err := PutFrameTag(dst, false, 0, true, firstSize); err != nil {
+	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	return tokenStart + tokens.BytesWritten(), nil
@@ -180,7 +181,7 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 		return 0, err
 	}
 
-	if err := PutFrameTag(dst, false, 0, true, firstSize); err != nil {
+	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	return tokenStart + tokens.BytesWritten(), nil

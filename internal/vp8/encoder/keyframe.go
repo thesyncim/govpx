@@ -59,7 +59,7 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 		return 0, err
 	}
 
-	if err := PutFrameTag(dst, true, 0, true, firstSize); err != nil {
+	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
@@ -114,7 +114,7 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 		return 0, err
 	}
 
-	if err := PutFrameTag(dst, true, 0, true, firstSize); err != nil {
+	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
@@ -169,7 +169,7 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 		return 0, err
 	}
 
-	if err := PutFrameTag(dst, true, 0, true, firstSize); err != nil {
+	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {

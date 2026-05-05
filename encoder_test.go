@@ -171,6 +171,53 @@ func TestEncodeIntoWritesDecodableKeyFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoInvisibleFrameUpdatesReferenceWithoutOutput(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	invisiblePacket := make([]byte, 4096)
+
+	invisible, err := e.EncodeInto(invisiblePacket, src, 0, 1, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("invisible EncodeInto returned error: %v", err)
+	}
+	info, err := PeekVP8StreamInfo(invisible.Data)
+	if err != nil {
+		t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
+	}
+	if !invisible.KeyFrame || !info.KeyFrame || info.ShowFrame {
+		t.Fatalf("invisible result/header = %+v/%+v, want invisible keyframe", invisible, info)
+	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(invisible.Data); err != nil {
+		t.Fatalf("Decode invisible returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("NextFrame returned invisible frame")
+	}
+
+	visiblePacket := make([]byte, 4096)
+	visible, err := e.EncodeInto(visiblePacket, publicImageFromVP8(&e.lastRef.Img), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("visible EncodeInto returned error: %v", err)
+	}
+	if visible.KeyFrame {
+		t.Fatalf("visible KeyFrame = true, want interframe after invisible keyframe reference update")
+	}
+	if err := d.Decode(visible.Data); err != nil {
+		t.Fatalf("Decode visible returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no visible frame")
+	}
+	assertImagesEqual(t, "visible after invisible", publicImageFromVP8(&e.current.Img), frame)
+}
+
 func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

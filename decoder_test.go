@@ -53,6 +53,27 @@ func TestDecodeQueuesSupportedKeyFrameAfterValidation(t *testing.T) {
 	}
 }
 
+func TestDecodeInvisibleKeyFrameUpdatesStateWithoutOutput(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.DecodeWithPTS(vp8KeyFramePacketWithPayload(16, 16, 200, 0, false), 44)
+	if err != nil {
+		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
+	}
+	if d.needKey {
+		t.Fatalf("needKey = true, want false after invisible keyframe")
+	}
+	if d.lastInfo.ShowFrame || d.lastInfo.PTS != 44 {
+		t.Fatalf("lastInfo = %+v, want invisible frame metadata", d.lastInfo)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("NextFrame returned invisible frame")
+	}
+}
+
 func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -868,6 +889,29 @@ func TestDecodeIntoCopiesSupportedKeyFrame(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); ok {
 		t.Fatalf("DecodeInto queued a frame for NextFrame")
+	}
+}
+
+func TestDecodeIntoInvisibleFrameDoesNotCopyOutput(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := newTestImage(16, 16)
+	fillImage(dst, 7, 8, 9)
+
+	info, err := d.DecodeIntoWithPTS(vp8KeyFramePacketWithPayload(16, 16, 200, 0, false), &dst, 88)
+	if err != nil {
+		t.Fatalf("DecodeIntoWithPTS error = %v, want nil", err)
+	}
+	if info.ShowFrame || info.PTS != 88 {
+		t.Fatalf("FrameInfo = %+v, want invisible PTS 88", info)
+	}
+	if dst.Y[0] != 7 || dst.U[0] != 8 || dst.V[0] != 9 {
+		t.Fatalf("dst samples = %d/%d/%d, want unchanged 7/8/9", dst.Y[0], dst.U[0], dst.V[0])
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("DecodeInto queued invisible frame")
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 type KeyFrameStateConfig struct {
 	ClampType common.ClampType
 
+	InvisibleFrame   bool
 	SimpleLoopFilter bool
 	LoopFilterLevel  uint8
 	SharpnessLevel   uint8
