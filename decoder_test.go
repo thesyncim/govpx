@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 )
 
 func TestNewVP8DecoderValidation(t *testing.T) {
@@ -99,8 +100,8 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
 	}
 
-	if d.partitions.TokenCount != 1 || len(d.partitions.First) != 200 || len(d.partitions.Tokens[0]) != 1 {
-		t.Fatalf("partition layout = first:%d tokenCount:%d token0:%d, want 200/1/1", len(d.partitions.First), d.partitions.TokenCount, len(d.partitions.Tokens[0]))
+	if d.partitions.TokenCount != 1 || len(d.partitions.First) != 200 || len(d.partitions.Tokens[0]) == 0 {
+		t.Fatalf("partition layout = first:%d tokenCount:%d token0:%d, want nonempty one-partition layout", len(d.partitions.First), d.partitions.TokenCount, len(d.partitions.Tokens[0]))
 	}
 	if d.frameHeader.FirstPartitionSize != 200 {
 		t.Fatalf("frame first partition = %d, want 200", d.frameHeader.FirstPartitionSize)
@@ -133,6 +134,28 @@ func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
 				t.Fatalf("mode[%d].BModes[%d] = %d, want BDCPred", i, block, blockMode)
 			}
 		}
+	}
+}
+
+func TestDecodeParsesTokenGrid(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	if len(d.tokens) != 1 {
+		t.Fatalf("tokens len = %d, want 1", len(d.tokens))
+	}
+	if d.tokens[0] != (vp8dec.MacroblockTokens{}) {
+		t.Fatalf("tokens[0] = %+v, want zero token macroblock", d.tokens[0])
+	}
+	if d.tokenAbove[0] != (vp8dec.EntropyContextPlanes{}) {
+		t.Fatalf("tokenAbove[0] = %+v, want zero context", d.tokenAbove[0])
 	}
 }
 

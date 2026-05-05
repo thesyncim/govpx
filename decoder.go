@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 type DecoderOptions struct {
@@ -49,6 +50,7 @@ type VP8Decoder struct {
 	partitions         vp8dec.PartitionLayout
 	modeReader         boolcoder.Decoder
 	tokenReaders       [8]boolcoder.Decoder
+	coefProbs          vp8tables.CoefficientProbs
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
@@ -59,8 +61,9 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 		return nil, err
 	}
 	return &VP8Decoder{
-		opts:    opts,
-		needKey: true,
+		opts:      opts,
+		needKey:   true,
+		coefProbs: vp8tables.DefaultCoefProbs,
 	}, nil
 }
 
@@ -89,6 +92,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return err
 	}
 	if err := d.decodeModeGrid(info); err != nil {
+		return err
+	}
+	if err := d.decodeTokenGrid(); err != nil {
 		return err
 	}
 
@@ -146,6 +152,9 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.decodeModeGrid(info); err != nil {
 		return FrameInfo{}, err
 	}
+	if err := d.decodeTokenGrid(); err != nil {
+		return FrameInfo{}, err
+	}
 	d.currentPTS = pts
 	d.frameReady = false
 	d.initialized = true
@@ -177,6 +186,7 @@ func (d *VP8Decoder) Reset() {
 	d.state = vp8dec.StateHeader{}
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
+	d.coefProbs = vp8tables.DefaultCoefProbs
 }
 
 func (d *VP8Decoder) Close() error {
@@ -282,6 +292,19 @@ func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
 		return ErrInvalidData
 	}
 	d.modeReader = reader
+	return nil
+}
+
+func (d *VP8Decoder) decodeTokenGrid() error {
+	readers := d.tokenReaders[:d.partitions.TokenCount]
+	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.coefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
+		return ErrInvalidData
+	}
+	for i := range readers {
+		if readers[i].Err() != nil {
+			return ErrInvalidData
+		}
+	}
 	return nil
 }
 
