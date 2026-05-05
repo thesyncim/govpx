@@ -325,18 +325,28 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 }
 
 func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
-	if !info.KeyFrame {
-		return ErrUnsupportedFeature
-	}
 	reader := d.modeReader
-	if err := vp8dec.DecodeKeyFrameModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, d.modes); err != nil {
-		return ErrInvalidData
+	if info.KeyFrame {
+		if err := vp8dec.DecodeKeyFrameModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, d.modes); err != nil {
+			return ErrInvalidData
+		}
+	} else {
+		if err := vp8dec.DecodeInterModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, &d.frameModeProbs, d.referenceSignBias(), d.modes); err != nil {
+			return ErrInvalidData
+		}
 	}
 	if reader.Err() != nil {
 		return ErrInvalidData
 	}
 	d.modeReader = reader
 	return nil
+}
+
+func (d *VP8Decoder) referenceSignBias() [vp8common.MaxRefFrames]bool {
+	var signBias [vp8common.MaxRefFrames]bool
+	signBias[vp8common.GoldenFrame] = d.state.Refresh.GoldenSignBias
+	signBias[vp8common.AltRefFrame] = d.state.Refresh.AltRefSignBias
+	return signBias
 }
 
 func (d *VP8Decoder) decodeTokenGrid() error {

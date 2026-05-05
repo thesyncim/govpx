@@ -215,6 +215,56 @@ func vp8KeyFramePacketWithFirstPartition(width int, height int, first []byte) []
 	return append(packet, make([]byte, 10000)...)
 }
 
+func vp8InterFramePacketWithFirstPartition(first []byte) []byte {
+	packet := vp8InterFramePacket(len(first), 0, true)
+	packet = append(packet, first...)
+	return append(packet, make([]byte, 10000)...)
+}
+
+func vp8InterFirstPartitionLastZeroMV() []byte {
+	var w vp8TestBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(0, 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+
+	writeNoCoefficientProbabilityUpdates(&w)
+	w.writeBool(0, 128)
+	w.writeLiteral(128, 8)
+	w.writeLiteral(128, 8)
+	w.writeLiteral(128, 8)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	for component := 0; component < 2; component++ {
+		for i := 0; i < vp8tables.MVPCount; i++ {
+			w.writeBool(0, vp8tables.MVUpdateProbs[component][i])
+		}
+	}
+
+	w.writeBool(1, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, vp8tables.InterModeContexts[0][0])
+
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
 func vp8FirstPartitionWithSingleCoefProbabilityUpdate(refreshEntropy bool, value uint8) []byte {
 	var w vp8TestBoolWriter
 	w.init()
@@ -455,6 +505,33 @@ func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {
 			if blockMode != vp8common.BDCPred {
 				t.Fatalf("mode[%d].BModes[%d] = %d, want BDCPred", i, block, blockMode)
 			}
+		}
+	}
+}
+
+func TestDecodeParsesInterModeGrid(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("keyframe Decode error = %v, want nil", err)
+	}
+	packet := vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("inter Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+	if len(d.modes) != 1 {
+		t.Fatalf("modes len = %d, want 1", len(d.modes))
+	}
+	if d.modes[0].RefFrame != vp8common.LastFrame || d.modes[0].Mode != vp8common.ZeroMV || !d.modes[0].MV.IsZero() {
+		t.Fatalf("inter mode = %+v, want LAST/ZEROMV", d.modes[0])
+	}
+	for block, coeffs := range d.tokens[0].QCoeff {
+		if coeffs != ([16]int16{}) {
+			t.Fatalf("tokens[0].QCoeff[%d] = %v, want zero coefficients", block, coeffs)
 		}
 	}
 }
