@@ -127,6 +127,49 @@ func TestParseStateHeaderWithReaderAndProbsAppliesCoefficientUpdates(t *testing.
 	}
 }
 
+func TestParseStateHeaderWithReaderAndModeProbsResetsKeyFrame(t *testing.T) {
+	packet := append(keyFramePacket(64, 64, 0, 0, 200, 0, true), make([]byte, 200)...)
+	modeProbs := ModeProbs{
+		YMode:  [tables.YModeProbCount]uint8{1, 2, 3, 4},
+		UVMode: [tables.UVModeProbCount]uint8{5, 6, 7},
+	}
+
+	frame, _, _, err := ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, QuantHeader{}, LoopFilterHeader{}, nil, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if !frame.KeyFrame() {
+		t.Fatalf("frame is not keyframe")
+	}
+	if modeProbs.YMode != tables.DefaultYModeProbs || modeProbs.UVMode != tables.DefaultUVModeProbs || modeProbs.MV != tables.DefaultMVContext {
+		t.Fatalf("mode probs were not reset to defaults: %+v", modeProbs)
+	}
+}
+
+func TestParseStateHeaderWithReaderAndModeProbsAppliesInterUpdates(t *testing.T) {
+	payload := encodeInterStateHeaderWithModeProbabilityUpdates()
+	packet := append(interFramePacket(len(payload), 0, true), payload...)
+	var modeProbs ModeProbs
+	ResetModeProbs(&modeProbs)
+
+	frame, state, _, err := ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, QuantHeader{}, LoopFilterHeader{}, nil, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if frame.KeyFrame() {
+		t.Fatalf("frame is keyframe, want inter")
+	}
+	if !state.Mode.MBNoCoeffSkip || !state.Mode.YModeUpdated || !state.Mode.UVModeUpdated {
+		t.Fatalf("mode header = %+v, want skip/y/uv updates", state.Mode)
+	}
+	if modeProbs.YMode != ([tables.YModeProbCount]uint8{10, 20, 30, 40}) {
+		t.Fatalf("YMode = %v, want updated", modeProbs.YMode)
+	}
+	if modeProbs.UVMode != ([tables.UVModeProbCount]uint8{50, 60, 70}) {
+		t.Fatalf("UVMode = %v, want updated", modeProbs.UVMode)
+	}
+}
+
 func TestParseStateHeaderTruncated(t *testing.T) {
 	packet := keyFramePacket(64, 64, 0, 0, 0, 0, true)
 
@@ -238,6 +281,74 @@ func fillCoefficientProbs(probs *tables.CoefficientProbs, value uint8) {
 					probs[block][band][ctx][node] = value
 				}
 			}
+		}
+	}
+}
+
+func encodeInterStateHeaderWithModeProbabilityUpdates() []byte {
+	var w testBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(0, 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+
+	writeNoCoefficientProbabilityUpdates(&w)
+	writeInterModeProbabilityUpdates(&w)
+
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+func writeNoCoefficientProbabilityUpdates(w *testBoolWriter) {
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					w.writeBool(0, tables.CoefUpdateProbs[block][band][ctx][node])
+				}
+			}
+		}
+	}
+}
+
+func writeInterModeProbabilityUpdates(w *testBoolWriter) {
+	w.writeBool(1, 128)
+	w.writeLiteral(77, 8)
+
+	w.writeLiteral(33, 8)
+	w.writeLiteral(44, 8)
+	w.writeLiteral(55, 8)
+
+	w.writeBool(1, 128)
+	w.writeLiteral(10, 8)
+	w.writeLiteral(20, 8)
+	w.writeLiteral(30, 8)
+	w.writeLiteral(40, 8)
+
+	w.writeBool(1, 128)
+	w.writeLiteral(50, 8)
+	w.writeLiteral(60, 8)
+	w.writeLiteral(70, 8)
+
+	for component := 0; component < 2; component++ {
+		for i := 0; i < tables.MVPCount; i++ {
+			w.writeBool(0, tables.MVUpdateProbs[component][i])
 		}
 	}
 }

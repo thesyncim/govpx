@@ -53,6 +53,8 @@ type VP8Decoder struct {
 	tokenReaders       [8]boolcoder.Decoder
 	coefProbs          vp8tables.CoefficientProbs
 	frameCoefProbs     vp8tables.CoefficientProbs
+	modeProbs          vp8dec.ModeProbs
+	frameModeProbs     vp8dec.ModeProbs
 	loopInfo           vp8common.LoopFilterInfo
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
@@ -63,12 +65,15 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	if err := validateDecoderOptions(opts); err != nil {
 		return nil, err
 	}
-	return &VP8Decoder{
+	d := &VP8Decoder{
 		opts:           opts,
 		needKey:        true,
 		coefProbs:      vp8tables.DefaultCoefProbs,
 		frameCoefProbs: vp8tables.DefaultCoefProbs,
-	}, nil
+	}
+	vp8dec.ResetModeProbs(&d.modeProbs)
+	vp8dec.ResetModeProbs(&d.frameModeProbs)
+	return d, nil
 }
 
 func (d *VP8Decoder) Decode(packet []byte) error {
@@ -190,6 +195,8 @@ func (d *VP8Decoder) Reset() {
 	d.partitions = vp8dec.PartitionLayout{}
 	d.coefProbs = vp8tables.DefaultCoefProbs
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
+	vp8dec.ResetModeProbs(&d.modeProbs)
+	vp8dec.ResetModeProbs(&d.frameModeProbs)
 }
 
 func (d *VP8Decoder) Close() error {
@@ -285,7 +292,8 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 
 func (d *VP8Decoder) parseState(packet []byte) error {
 	frameProbs := d.coefProbs
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs)
+	frameModeProbs := d.modeProbs
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
 	if err != nil {
 		return ErrInvalidData
 	}
@@ -303,11 +311,13 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	d.partitions = partitions
 	d.modeReader = modeReader
 	d.frameCoefProbs = frameProbs
+	d.frameModeProbs = frameModeProbs
 	if state.Refresh.RefreshEntropyProbs {
 		d.coefProbs = frameProbs
 	} else if frame.KeyFrame() {
 		d.coefProbs = vp8tables.DefaultCoefProbs
 	}
+	d.modeProbs = frameModeProbs
 	d.previousQuant = state.Quant
 	d.previousLoopFilter = state.LoopFilter
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)

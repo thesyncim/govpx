@@ -35,10 +35,10 @@ func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (Frame
 }
 
 func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader, probs *tables.CoefficientProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
-	return ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, LoopFilterHeader{}, probs)
+	return ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, LoopFilterHeader{}, probs, nil)
 }
 
-func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
+func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	frame, err := ParseFrameHeader(packet)
 	if err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
@@ -62,6 +62,9 @@ func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuan
 		if probs != nil {
 			*probs = tables.DefaultCoefProbs
 		}
+		if modeProbs != nil {
+			ResetModeProbs(modeProbs)
+		}
 		loopFilter = LoopFilterHeader{}
 		state.ColorSpace = int(br.ReadBit())
 		state.ClampType = common.ClampType(br.ReadBit())
@@ -73,7 +76,7 @@ func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuan
 	state.Quant = parseQuantHeader(&br, previousQuant)
 	state.Refresh = parseRefreshHeader(&br, frame)
 	state.Probability = parseCoefficientProbabilityHeaderInto(&br, probs)
-	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), nil)
+	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), modeProbs)
 
 	if br.Err() != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
