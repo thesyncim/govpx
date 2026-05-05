@@ -6,6 +6,7 @@ import (
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 func TestNewVP8DecoderValidation(t *testing.T) {
@@ -89,6 +90,52 @@ func TestDecodeParsesStateAndInitializesDequants(t *testing.T) {
 	}
 }
 
+func TestDecodePersistsCoefficientProbabilityUpdates(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	if d.state.Probability.UpdateCount != 1 || !d.state.Refresh.RefreshEntropyProbs {
+		t.Fatalf("probability/refresh = %+v/%t, want one persisted update", d.state.Probability, d.state.Refresh.RefreshEntropyProbs)
+	}
+	if got := d.frameCoefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("frame coefficient probability = %d, want 77", got)
+	}
+	if got := d.coefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("persistent coefficient probability = %d, want 77", got)
+	}
+}
+
+func TestDecodeKeepsTransientCoefficientProbabilityUpdatesFrameLocal(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(false, 77))
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	if d.state.Probability.UpdateCount != 1 || d.state.Refresh.RefreshEntropyProbs {
+		t.Fatalf("probability/refresh = %+v/%t, want one transient update", d.state.Probability, d.state.Refresh.RefreshEntropyProbs)
+	}
+	if got := d.frameCoefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("frame coefficient probability = %d, want 77", got)
+	}
+	if got := d.coefProbs[0][0][0][0]; got != vp8tables.DefaultCoefProbs[0][0][0][0] {
+		t.Fatalf("persistent coefficient probability = %d, want default %d", got, vp8tables.DefaultCoefProbs[0][0][0][0])
+	}
+}
+
 func TestDecodeParsesPartitionLayout(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -109,6 +156,120 @@ func TestDecodeParsesPartitionLayout(t *testing.T) {
 	if d.modeReader.Err() != nil || d.modeReader.Corrupted() {
 		t.Fatalf("mode reader error/corrupted = %v/%v, want clean reader", d.modeReader.Err(), d.modeReader.Corrupted())
 	}
+}
+
+func vp8KeyFramePacketWithFirstPartition(width int, height int, first []byte) []byte {
+	packet := vp8KeyFramePacket(width, height, len(first), 0, true)
+	packet = append(packet, first...)
+	return append(packet, make([]byte, 10000)...)
+}
+
+func vp8FirstPartitionWithSingleCoefProbabilityUpdate(refreshEntropy bool, value uint8) []byte {
+	var w vp8TestBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(0, 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+	if refreshEntropy {
+		w.writeBool(1, 128)
+	} else {
+		w.writeBool(0, 128)
+	}
+
+	first := true
+	for block := 0; block < vp8tables.BlockTypes; block++ {
+		for band := 0; band < vp8tables.CoefBands; band++ {
+			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < vp8tables.EntropyNodes; node++ {
+					if first {
+						w.writeBool(1, vp8tables.CoefUpdateProbs[block][band][ctx][node])
+						w.writeLiteral(uint32(value), 8)
+						first = false
+					} else {
+						w.writeBool(0, vp8tables.CoefUpdateProbs[block][band][ctx][node])
+					}
+				}
+			}
+		}
+	}
+
+	w.writeBool(0, 128)
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+type vp8TestBoolWriter struct {
+	low   uint32
+	rng   uint32
+	count int
+	buf   []byte
+}
+
+func (w *vp8TestBoolWriter) init() {
+	w.low = 0
+	w.rng = 255
+	w.count = -24
+	w.buf = w.buf[:0]
+}
+
+func (w *vp8TestBoolWriter) writeLiteral(value uint32, bits int) {
+	for bit := bits - 1; bit >= 0; bit-- {
+		w.writeBool(uint8((value>>uint(bit))&1), 128)
+	}
+}
+
+func (w *vp8TestBoolWriter) finish() []byte {
+	for i := 0; i < 32; i++ {
+		w.writeBool(0, 128)
+	}
+	return w.buf
+}
+
+func (w *vp8TestBoolWriter) writeBool(bit uint8, probability uint8) {
+	split := uint32(1 + (((w.rng - 1) * uint32(probability)) >> 8))
+
+	rng := split
+	low := w.low
+	if bit != 0 {
+		low += split
+		rng = w.rng - split
+	}
+
+	shift := int(vp8tables.BoolNorm[byte(rng)])
+	rng <<= uint(shift)
+	count := w.count + shift
+
+	if count >= 0 {
+		offset := shift - count
+		if ((low << uint(offset-1)) & 0x80000000) != 0 {
+			for i := len(w.buf) - 1; i >= 0; i-- {
+				if w.buf[i] != 0xff {
+					w.buf[i]++
+					break
+				}
+				w.buf[i] = 0
+			}
+		}
+
+		w.buf = append(w.buf, byte((low>>uint(24-offset))&0xff))
+		shift = count
+		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+		count -= 8
+	}
+
+	low <<= uint(shift)
+	w.low = low
+	w.rng = rng
+	w.count = count
 }
 
 func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {

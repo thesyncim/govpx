@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {
@@ -102,6 +103,30 @@ func TestParseStateHeaderWithReaderReturnsPostStateReader(t *testing.T) {
 	}
 }
 
+func TestParseStateHeaderWithReaderAndProbsAppliesCoefficientUpdates(t *testing.T) {
+	payload := encodeStateHeaderWithSingleCoefProbabilityUpdate(common.OnePartition, 0, true, 77)
+	packet := append(keyFramePacket(64, 64, 0, 0, len(payload), 0, true), payload...)
+	var probs tables.CoefficientProbs
+	fillCoefficientProbs(&probs, 99)
+
+	frame, state, _, err := ParseStateHeaderWithReaderAndProbs(packet, QuantHeader{}, &probs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbs returned error: %v", err)
+	}
+	if !frame.KeyFrame() || !state.Refresh.RefreshEntropyProbs {
+		t.Fatalf("frame/refresh = %t/%t, want keyframe refresh entropy", frame.KeyFrame(), state.Refresh.RefreshEntropyProbs)
+	}
+	if state.Probability.UpdateCount != 1 || !state.Probability.IndependentPartitions {
+		t.Fatalf("probability header = %+v, want one independent update", state.Probability)
+	}
+	if got := probs[0][0][0][0]; got != 77 {
+		t.Fatalf("updated probability = %d, want 77", got)
+	}
+	if got := probs[0][0][0][1]; got != tables.DefaultCoefProbs[0][0][0][1] {
+		t.Fatalf("neighbor probability = %d, want keyframe default", got)
+	}
+}
+
 func TestParseStateHeaderTruncated(t *testing.T) {
 	packet := keyFramePacket(64, 64, 0, 0, 0, 0, true)
 
@@ -131,6 +156,18 @@ func TestParseStateHeaderWithReaderAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestParseStateHeaderWithReaderAndProbsAllocatesZero(t *testing.T) {
+	payload := encodeStateHeaderWithSingleCoefProbabilityUpdate(common.OnePartition, 0, true, 77)
+	packet := append(keyFramePacket(64, 64, 0, 0, len(payload), 0, true), payload...)
+	allocs := testing.AllocsPerRun(1000, func() {
+		probs := tables.DefaultCoefProbs
+		_, _, _, _ = ParseStateHeaderWithReaderAndProbs(packet, QuantHeader{}, &probs)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func encodeStateHeaderPrefix(tokenPartition common.TokenPartition, baseQ uint8) []byte {
 	var w testBoolWriter
 	w.init()
@@ -148,4 +185,59 @@ func encodeStateHeaderPrefix(tokenPartition common.TokenPartition, baseQ uint8) 
 	}
 	payload := w.finish()
 	return append(payload, make([]byte, 200)...)
+}
+
+func encodeStateHeaderWithSingleCoefProbabilityUpdate(tokenPartition common.TokenPartition, baseQ uint8, refreshEntropy bool, value uint8) []byte {
+	var w testBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(uint32(tokenPartition), 2)
+	w.writeLiteral(uint32(baseQ), 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+	if refreshEntropy {
+		w.writeBool(1, 128)
+	} else {
+		w.writeBool(0, 128)
+	}
+
+	first := true
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					if first {
+						w.writeBool(1, tables.CoefUpdateProbs[block][band][ctx][node])
+						w.writeLiteral(uint32(value), 8)
+						first = false
+					} else {
+						w.writeBool(0, tables.CoefUpdateProbs[block][band][ctx][node])
+					}
+				}
+			}
+		}
+	}
+
+	w.writeBool(0, 128)
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+func fillCoefficientProbs(probs *tables.CoefficientProbs, value uint8) {
+	for block := range probs {
+		for band := range probs[block] {
+			for ctx := range probs[block][band] {
+				for node := range probs[block][band][ctx] {
+					probs[block][band][ctx][node] = value
+				}
+			}
+		}
+	}
 }

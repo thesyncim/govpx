@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodeframe.c.
@@ -30,6 +31,10 @@ func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, St
 }
 
 func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
+	return ParseStateHeaderWithReaderAndProbs(packet, previousQuant, nil)
+}
+
+func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader, probs *tables.CoefficientProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	frame, err := ParseFrameHeader(packet)
 	if err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
@@ -49,6 +54,9 @@ func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (Frame
 
 	var state StateHeader
 	if frame.KeyFrame() {
+		if probs != nil {
+			*probs = tables.DefaultCoefProbs
+		}
 		state.ColorSpace = int(br.ReadBit())
 		state.ClampType = common.ClampType(br.ReadBit())
 	}
@@ -58,7 +66,7 @@ func ParseStateHeaderWithReader(packet []byte, previousQuant QuantHeader) (Frame
 	state.TokenPartition = common.TokenPartition(br.ReadLiteral(2))
 	state.Quant = parseQuantHeader(&br, previousQuant)
 	state.Refresh = parseRefreshHeader(&br, frame)
-	state.Probability = parseCoefficientProbabilityHeader(&br)
+	state.Probability = parseCoefficientProbabilityHeaderInto(&br, probs)
 	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), nil)
 
 	if br.Err() != nil {

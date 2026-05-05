@@ -51,6 +51,7 @@ type VP8Decoder struct {
 	modeReader         boolcoder.Decoder
 	tokenReaders       [8]boolcoder.Decoder
 	coefProbs          vp8tables.CoefficientProbs
+	frameCoefProbs     vp8tables.CoefficientProbs
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
@@ -61,9 +62,10 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 		return nil, err
 	}
 	return &VP8Decoder{
-		opts:      opts,
-		needKey:   true,
-		coefProbs: vp8tables.DefaultCoefProbs,
+		opts:           opts,
+		needKey:        true,
+		coefProbs:      vp8tables.DefaultCoefProbs,
+		frameCoefProbs: vp8tables.DefaultCoefProbs,
 	}, nil
 }
 
@@ -195,6 +197,7 @@ func (d *VP8Decoder) Reset() {
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
 	d.coefProbs = vp8tables.DefaultCoefProbs
+	d.frameCoefProbs = vp8tables.DefaultCoefProbs
 }
 
 func (d *VP8Decoder) Close() error {
@@ -266,7 +269,8 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 }
 
 func (d *VP8Decoder) parseState(packet []byte) error {
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReader(packet, d.previousQuant)
+	frameProbs := d.coefProbs
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbs(packet, d.previousQuant, &frameProbs)
 	if err != nil {
 		return ErrInvalidData
 	}
@@ -283,6 +287,12 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	d.state = state
 	d.partitions = partitions
 	d.modeReader = modeReader
+	d.frameCoefProbs = frameProbs
+	if state.Refresh.RefreshEntropyProbs {
+		d.coefProbs = frameProbs
+	} else if frame.KeyFrame() {
+		d.coefProbs = vp8tables.DefaultCoefProbs
+	}
 	d.previousQuant = state.Quant
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
@@ -305,7 +315,7 @@ func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
 
 func (d *VP8Decoder) decodeTokenGrid() error {
 	readers := d.tokenReaders[:d.partitions.TokenCount]
-	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.coefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
+	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.frameCoefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
 		return ErrInvalidData
 	}
 	for i := range readers {
