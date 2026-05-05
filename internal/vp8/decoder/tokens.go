@@ -7,6 +7,91 @@ import (
 
 // Ported from libvpx v1.16.0 vp8/decoder/detokenize.c GetCoeffs.
 
+type EntropyContextPlanes struct {
+	Y1 [4]uint8
+	U  [2]uint8
+	V  [2]uint8
+	Y2 uint8
+}
+
+type MacroblockTokens struct {
+	QCoeff [25][16]int16
+	EOB    [25]uint8
+}
+
+func ResetMacroblockTokenContext(above *EntropyContextPlanes, left *EntropyContextPlanes, is4x4 bool) {
+	above.Y1 = [4]uint8{}
+	above.U = [2]uint8{}
+	above.V = [2]uint8{}
+	left.Y1 = [4]uint8{}
+	left.U = [2]uint8{}
+	left.V = [2]uint8{}
+	if !is4x4 {
+		above.Y2 = 0
+		left.Y2 = 0
+	}
+}
+
+func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProbs, is4x4 bool, above *EntropyContextPlanes, left *EntropyContextPlanes, out *MacroblockTokens) int {
+	clearMacroblockTokens(out)
+
+	blockType := 0
+	skipDC := 0
+	eobTotal := 0
+
+	if !is4x4 {
+		ctx := int(above.Y2 + left.Y2)
+		nonzeros := DecodeBlockCoeffs(br, probs, 1, ctx, 0, &out.QCoeff[24])
+		hasCoeffs := uint8(0)
+		if nonzeros > 0 {
+			hasCoeffs = 1
+		}
+		above.Y2 = hasCoeffs
+		left.Y2 = hasCoeffs
+		out.EOB[24] = uint8(nonzeros)
+		eobTotal += nonzeros - 16
+
+		blockType = 0
+		skipDC = 1
+	} else {
+		blockType = 3
+	}
+
+	for i := 0; i < 16; i++ {
+		a := i & 3
+		l := (i & 0x0c) >> 2
+		ctx := int(above.Y1[a] + left.Y1[l])
+		nonzeros := DecodeBlockCoeffs(br, probs, blockType, ctx, skipDC, &out.QCoeff[i])
+		hasCoeffs := uint8(0)
+		if nonzeros > 0 {
+			hasCoeffs = 1
+		}
+		above.Y1[a] = hasCoeffs
+		left.Y1[l] = hasCoeffs
+
+		nonzeros += skipDC
+		out.EOB[i] = uint8(nonzeros)
+		eobTotal += nonzeros
+	}
+
+	for i := 16; i < 24; i++ {
+		a, l := uvContextIndex(i)
+		ctx := int(getUVContext(above, a) + getUVContext(left, l))
+		nonzeros := DecodeBlockCoeffs(br, probs, 2, ctx, 0, &out.QCoeff[i])
+		hasCoeffs := uint8(0)
+		if nonzeros > 0 {
+			hasCoeffs = 1
+		}
+		setUVContext(above, a, hasCoeffs)
+		setUVContext(left, l, hasCoeffs)
+
+		out.EOB[i] = uint8(nonzeros)
+		eobTotal += nonzeros
+	}
+
+	return eobTotal
+}
+
 func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, blockType int, ctx int, n int, out *[16]int16) int {
 	p := (*probs)[blockType][n][ctx]
 	if br.ReadBool(p[0]) == 0 {
@@ -60,6 +145,41 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 			return 16
 		}
 	}
+}
+
+func clearMacroblockTokens(out *MacroblockTokens) {
+	for i := range out.QCoeff {
+		out.QCoeff[i] = [16]int16{}
+	}
+	out.EOB = [25]uint8{}
+}
+
+func uvContextIndex(block int) (int, int) {
+	base := 0
+	if block > 19 {
+		base = 2
+	}
+	a := base + (block & 1)
+	l := base
+	if (block & 3) > 1 {
+		l++
+	}
+	return a, l
+}
+
+func getUVContext(ctx *EntropyContextPlanes, index int) uint8 {
+	if index < 2 {
+		return ctx.U[index]
+	}
+	return ctx.V[index-2]
+}
+
+func setUVContext(ctx *EntropyContextPlanes, index int, value uint8) {
+	if index < 2 {
+		ctx.U[index] = value
+		return
+	}
+	ctx.V[index-2] = value
 }
 
 func readSignedCoeff(br *boolcoder.Decoder, value int) int16 {
