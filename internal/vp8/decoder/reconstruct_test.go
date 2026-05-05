@@ -637,6 +637,24 @@ func TestReconstructKeyFrameIntraGridRejectsSmallBuffers(t *testing.T) {
 	}
 }
 
+func TestReconstructKeyFrameIntraGridUsesCodedFrameDimensions(t *testing.T) {
+	fb, err := common.NewFrameBuffer(5, 3, 2, 16)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	modes := []MacroblockMode{{Mode: common.DCPred, UVMode: common.DCPred}}
+	tokens := []MacroblockTokens{wholeBlockResidualTokens()}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructKeyFrameIntraGrid(&fb.Img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructKeyFrameIntraGrid returned error: %v", err)
+	}
+	if got := fb.Img.Y[15*fb.Img.YStride+15]; got != 129 {
+		t.Fatalf("coded Y edge = %d, want 129", got)
+	}
+}
+
 func TestReconstructKeyFrameIntraGridRejectsUnsupportedMode(t *testing.T) {
 	img := blankImage(16, 16)
 	modes := []MacroblockMode{{Mode: common.NearestMV, UVMode: common.DCPred}}

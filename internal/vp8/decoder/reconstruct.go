@@ -62,11 +62,13 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 	uvCol := mbCol * 8
 	upAvailable := mbRow > 0
 	leftAvailable := mbCol > 0
+	codedWidth := codedImageWidth(img)
+	codedHeight := codedImageHeight(img)
 
-	buildAbove(scratch.YAbove[:], img.Y, img.YStride, img.Width, yRow, yCol, upAvailable)
-	buildLeft(scratch.YLeft[:], img.Y, img.YStride, img.Height, yRow, yCol, leftAvailable)
-	uvWidth := (img.Width + 1) >> 1
-	uvHeight := (img.Height + 1) >> 1
+	buildAbove(scratch.YAbove[:], img.Y, img.YStride, codedWidth, yRow, yCol, upAvailable)
+	buildLeft(scratch.YLeft[:], img.Y, img.YStride, codedHeight, yRow, yCol, leftAvailable)
+	uvWidth := (codedWidth + 1) >> 1
+	uvHeight := (codedHeight + 1) >> 1
 	buildAbove(scratch.UAbove[:], img.U, img.UStride, uvWidth, uvRow, uvCol, upAvailable)
 	buildLeft(scratch.ULeft[:], img.U, img.UStride, uvHeight, uvRow, uvCol, leftAvailable)
 	buildAbove(scratch.VAbove[:], img.V, img.VStride, uvWidth, uvRow, uvCol, upAvailable)
@@ -337,7 +339,7 @@ func imageHasMacroblockGrid(img *common.Image, rows int, cols int) bool {
 	yHeight := rows * 16
 	uvWidth := cols * 8
 	uvHeight := rows * 8
-	if img.Width < yWidth || img.Height < yHeight {
+	if codedImageWidth(img) < yWidth || codedImageHeight(img) < yHeight {
 		return false
 	}
 	return planeHasBlock(img.Y, img.YStride, yWidth, yHeight) &&
@@ -354,6 +356,20 @@ func planeHasBlock(plane []byte, stride int, width int, height int) bool {
 	}
 	need := (height-1)*stride + width
 	return need <= len(plane)
+}
+
+func codedImageWidth(img *common.Image) int {
+	if img.CodedWidth > 0 {
+		return img.CodedWidth
+	}
+	return img.Width
+}
+
+func codedImageHeight(img *common.Image) int {
+	if img.CodedHeight > 0 {
+		return img.CodedHeight
+	}
+	return img.Height
 }
 
 func predictIntraY4x4Block(mode common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, block int) bool {

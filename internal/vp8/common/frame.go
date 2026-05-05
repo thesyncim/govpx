@@ -5,11 +5,14 @@ import (
 )
 
 // Image is the internal planar 8-bit 4:2:0 image view used by VP8 frame
-// buffers. It mirrors the public image shape without importing the root package
-// from internal codec code.
+// buffers. Width and Height are visible dimensions; CodedWidth and CodedHeight
+// cover the macroblock-padded reconstruction area.
 type Image struct {
 	Width  int
 	Height int
+
+	CodedWidth  int
+	CodedHeight int
 
 	Y []byte
 	U []byte
@@ -76,10 +79,12 @@ func (fb *FrameBuffer) Resize(width int, height int, border int, align int) erro
 
 	fb.Img.Width = width
 	fb.Img.Height = height
+	fb.Img.CodedWidth = layout.codedWidth
+	fb.Img.CodedHeight = layout.codedHeight
 	fb.Img.YStride = layout.yStride
 	fb.Img.UStride = layout.uStride
 	fb.Img.VStride = layout.vStride
-	fb.Img.Y = fb.buf[layout.yPlaneOff+layout.yOff : layout.yPlaneOff+layout.yOff+planeLen(layout.yStride, height, width)]
+	fb.Img.Y = fb.buf[layout.yPlaneOff+layout.yOff : layout.yPlaneOff+layout.yOff+planeLen(layout.yStride, layout.codedHeight, layout.codedWidth)]
 	fb.Img.U = fb.buf[layout.uPlaneOff+layout.uOff : layout.uPlaneOff+layout.uOff+planeLen(layout.uStride, layout.uvHeight, layout.uvWidth)]
 	fb.Img.V = fb.buf[layout.vPlaneOff+layout.vOff : layout.vPlaneOff+layout.vOff+planeLen(layout.vStride, layout.uvHeight, layout.uvWidth)]
 	return nil
@@ -113,9 +118,11 @@ type frameLayout struct {
 	uStride int
 	vStride int
 
-	uvWidth  int
-	uvHeight int
-	uvBorder int
+	codedWidth  int
+	codedHeight int
+	uvWidth     int
+	uvHeight    int
+	uvBorder    int
 
 	yRows int
 	uRows int
@@ -140,14 +147,16 @@ func computeLayout(width int, height int, border int, align int) (frameLayout, e
 	if align <= 0 {
 		align = 1
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	codedWidth := roundUp(width, 16)
+	codedHeight := roundUp(height, 16)
+	uvWidth := (codedWidth + 1) >> 1
+	uvHeight := (codedHeight + 1) >> 1
 	uvBorder := (border + 1) >> 1
 
-	yStride := roundUp(width+border*2, align)
+	yStride := roundUp(codedWidth+border*2, align)
 	uStride := roundUp(uvWidth+uvBorder*2, align)
 	vStride := uStride
-	yRows := height + border*2
+	yRows := codedHeight + border*2
 	uRows := uvHeight + uvBorder*2
 	vRows := uRows
 
@@ -159,22 +168,24 @@ func computeLayout(width int, height int, border int, align int) (frameLayout, e
 	total := vPlaneOff + vPlaneSize
 
 	return frameLayout{
-		yStride:   yStride,
-		uStride:   uStride,
-		vStride:   vStride,
-		uvWidth:   uvWidth,
-		uvHeight:  uvHeight,
-		uvBorder:  uvBorder,
-		yRows:     yRows,
-		uRows:     uRows,
-		vRows:     vRows,
-		uPlaneOff: uPlaneOff,
-		vPlaneOff: vPlaneOff,
-		yOff:      border*yStride + border,
-		uOff:      uvBorder*uStride + uvBorder,
-		vOff:      uvBorder*vStride + uvBorder,
-		total:     total,
-		align:     align,
+		yStride:     yStride,
+		uStride:     uStride,
+		vStride:     vStride,
+		codedWidth:  codedWidth,
+		codedHeight: codedHeight,
+		uvWidth:     uvWidth,
+		uvHeight:    uvHeight,
+		uvBorder:    uvBorder,
+		yRows:       yRows,
+		uRows:       uRows,
+		vRows:       vRows,
+		uPlaneOff:   uPlaneOff,
+		vPlaneOff:   vPlaneOff,
+		yOff:        border*yStride + border,
+		uOff:        uvBorder*uStride + uvBorder,
+		vOff:        uvBorder*vStride + uvBorder,
+		total:       total,
+		align:       align,
 	}, nil
 }
 

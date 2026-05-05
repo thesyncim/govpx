@@ -11,17 +11,20 @@ func TestFrameBufferLayoutOddDimensions(t *testing.T) {
 	if fb.Img.Width != 5 || fb.Img.Height != 3 {
 		t.Fatalf("dimensions = %dx%d, want 5x3", fb.Img.Width, fb.Img.Height)
 	}
-	if fb.Img.YStride != 16 || fb.Img.UStride != 16 || fb.Img.VStride != 16 {
-		t.Fatalf("strides = %d/%d/%d, want 16/16/16", fb.Img.YStride, fb.Img.UStride, fb.Img.VStride)
+	if fb.Img.CodedWidth != 16 || fb.Img.CodedHeight != 16 {
+		t.Fatalf("coded dimensions = %dx%d, want 16x16", fb.Img.CodedWidth, fb.Img.CodedHeight)
 	}
-	if len(fb.Img.Y) != 37 {
-		t.Fatalf("len(Y) = %d, want 37", len(fb.Img.Y))
+	if fb.Img.YStride != 32 || fb.Img.UStride != 16 || fb.Img.VStride != 16 {
+		t.Fatalf("strides = %d/%d/%d, want 32/16/16", fb.Img.YStride, fb.Img.UStride, fb.Img.VStride)
 	}
-	if len(fb.Img.U) != 19 || len(fb.Img.V) != 19 {
-		t.Fatalf("len(U/V) = %d/%d, want 19/19", len(fb.Img.U), len(fb.Img.V))
+	if len(fb.Img.Y) != 496 {
+		t.Fatalf("len(Y) = %d, want 496", len(fb.Img.Y))
 	}
-	if fb.BufferLen() != 240 {
-		t.Fatalf("BufferLen = %d, want 240", fb.BufferLen())
+	if len(fb.Img.U) != 120 || len(fb.Img.V) != 120 {
+		t.Fatalf("len(U/V) = %d/%d, want 120/120", len(fb.Img.U), len(fb.Img.V))
+	}
+	if fb.BufferLen() != 960 {
+		t.Fatalf("BufferLen = %d, want 960", fb.BufferLen())
 	}
 }
 

@@ -48,7 +48,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Upstream manifest | scaffolded |
 | Oracle harness | not started |
 | IVF/test vectors | not started |
-| Frame memory | scaffolded |
+| Frame memory | macroblock-padded frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
 | Decoder state and reconstruction | state headers, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, and B_PRED 4x4 prediction/reconstruction scaffolded |
