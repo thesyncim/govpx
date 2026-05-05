@@ -142,12 +142,66 @@ func BenchmarkBilinearPredict16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkBilinearPredict8x8(b *testing.B) {
+	src := makeGradient(32, 32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		BilinearPredict8x8(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkBilinearPredict8x4(b *testing.B) {
+	src := makeGradient(32, 32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		BilinearPredict8x4(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkBilinearPredict4x4(b *testing.B) {
+	src := makeGradient(32, 32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		BilinearPredict4x4(src, 32, 3, 5, dst, 32)
+	}
+}
+
 func BenchmarkSixTapPredict16x16(b *testing.B) {
 	src := makeSixTapSource(32, 21)
 	dst := make([]byte, 32*32)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		SixTapPredict16x16(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict8x8(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict8x8(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict8x4(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict8x4(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict4x4(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict4x4(src, 32, 3, 5, dst, 32)
 	}
 }
 

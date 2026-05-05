@@ -73,6 +73,33 @@ func BenchmarkCopy16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkCopy8x8(b *testing.B) {
+	src := make([]byte, 32*32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Copy8x8(src, 32, dst, 32)
+	}
+}
+
+func BenchmarkCopy8x4(b *testing.B) {
+	src := make([]byte, 32*32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Copy8x4(src, 32, dst, 32)
+	}
+}
+
+func BenchmarkCopy4x4(b *testing.B) {
+	src := make([]byte, 32*32)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Copy4x4(src, 32, dst, 32)
+	}
+}
+
 func BenchmarkAddResidual4x4(b *testing.B) {
 	dst := make([]byte, 32*32)
 	residual := [16]int16{}

@@ -47,3 +47,21 @@ func BenchmarkClipPixel(b *testing.B) {
 	}
 	_ = sum
 }
+
+func BenchmarkClipPixelAdd(b *testing.B) {
+	sum := uint8(0)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sum ^= ClipPixelAdd(byte(i), (i&511)-255)
+	}
+	_ = sum
+}
+
+func BenchmarkClamp(b *testing.B) {
+	sum := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sum ^= Clamp((i&511)-255, -12, 240)
+	}
+	_ = sum
+}

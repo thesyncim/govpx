@@ -102,12 +102,31 @@ func BenchmarkIntraDCPredict16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkIntraDCPredict8x8(b *testing.B) {
+	above := make([]byte, 8)
+	left := make([]byte, 8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		IntraDCPredict8x8(dst, 8, above, left, true, true)
+	}
+}
+
 func BenchmarkIntraVerticalPredict16x16(b *testing.B) {
 	above := make([]byte, 16)
 	dst := make([]byte, 16*16)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		IntraVerticalPredict16x16(dst, 16, above)
+	}
+}
+
+func BenchmarkIntraVerticalPredict8x8(b *testing.B) {
+	above := make([]byte, 8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		IntraVerticalPredict8x8(dst, 8, above)
 	}
 }
 
@@ -120,6 +139,15 @@ func BenchmarkIntraHorizontalPredict16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkIntraHorizontalPredict8x8(b *testing.B) {
+	left := make([]byte, 8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		IntraHorizontalPredict8x8(dst, 8, left)
+	}
+}
+
 func BenchmarkIntraTMPredict16x16(b *testing.B) {
 	above := make([]byte, 16)
 	left := make([]byte, 16)
@@ -127,6 +155,16 @@ func BenchmarkIntraTMPredict16x16(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		IntraTMPredict16x16(dst, 16, above, left, 128)
+	}
+}
+
+func BenchmarkIntraTMPredict8x8(b *testing.B) {
+	above := make([]byte, 8)
+	left := make([]byte, 8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		IntraTMPredict8x8(dst, 8, above, left, 128)
 	}
 }
 
