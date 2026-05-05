@@ -15,6 +15,7 @@ Out of scope:
 - cgo dependency
 - full libvpx C API compatibility
 
-Normal tests run without libvpx installed. Optional libvpx smoke tests are
-enabled with `LIBGOPX_WITH_ORACLE=1`; set `LIBGOPX_VPXDEC` to a vpxdec binary
-from the pinned libvpx version when it is not on `PATH`.
+Normal tests run without libvpx installed. Optional libvpx tests are enabled
+with `LIBGOPX_WITH_ORACLE=1`; set `LIBGOPX_VPXDEC` to a vpxdec binary for
+decode smoke tests and `LIBGOPX_ORACLE` to the checksum oracle built from
+`internal/coracle/`.

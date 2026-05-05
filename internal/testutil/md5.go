@@ -7,9 +7,10 @@ import (
 )
 
 type PlaneMD5 struct {
-	Y [16]byte
-	U [16]byte
-	V [16]byte
+	Y    [16]byte
+	U    [16]byte
+	V    [16]byte
+	Full [16]byte
 }
 
 func MD5Plane(plane []byte, stride int, width int, height int) [16]byte {
@@ -30,10 +31,17 @@ func MD5Plane(plane []byte, stride int, width int, height int) [16]byte {
 func MD5Planes(y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, width int, height int) PlaneMD5 {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
+	full := md5.New()
+	writePlaneHash(full, y, yStride, width, height)
+	writePlaneHash(full, u, uStride, uvWidth, uvHeight)
+	writePlaneHash(full, v, vStride, uvWidth, uvHeight)
+	var fullSum [16]byte
+	copy(fullSum[:], full.Sum(nil))
 	return PlaneMD5{
-		Y: MD5Plane(y, yStride, width, height),
-		U: MD5Plane(u, uStride, uvWidth, uvHeight),
-		V: MD5Plane(v, vStride, uvWidth, uvHeight),
+		Y:    MD5Plane(y, yStride, width, height),
+		U:    MD5Plane(u, uStride, uvWidth, uvHeight),
+		V:    MD5Plane(v, vStride, uvWidth, uvHeight),
+		Full: fullSum,
 	}
 }
 
