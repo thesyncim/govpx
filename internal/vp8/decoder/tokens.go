@@ -125,6 +125,11 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 		left := EntropyContextPlanes{}
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			if modes[index].MBSkipCoeff {
+				clearMacroblockTokens(&tokens[index])
+				ResetMacroblockTokenContext(&above[col], &left, modes[index].Is4x4)
+				continue
+			}
 			total += DecodeMacroblockTokens(&readers[rowPartition], probs, modes[index].Is4x4, &above[col], &left, &tokens[index])
 		}
 	}

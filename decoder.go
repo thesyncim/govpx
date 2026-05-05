@@ -253,8 +253,7 @@ func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
 	return info.KeyFrame &&
 		info.ShowFrame &&
 		info.Profile == 0 &&
-		d.state.LoopFilter.Level == 0 &&
-		!d.state.Mode.MBNoCoeffSkip
+		d.state.LoopFilter.Level == 0
 }
 
 func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {

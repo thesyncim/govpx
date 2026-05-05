@@ -69,6 +69,28 @@ func TestDecodeReturnsUnsupportedWhenLoopFilterNeeded(t *testing.T) {
 	}
 }
 
+func TestDecodeOutputsMacroblockSkipKeyFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithMacroblockSkip(128))
+
+	err = d.Decode(packet)
+	if err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
+	}
+	if len(d.modes) != 1 || !d.modes[0].MBSkipCoeff {
+		t.Fatalf("mode skip = %+v, want skipped macroblock", d.modes)
+	}
+	if d.tokens[0] != (vp8dec.MacroblockTokens{}) {
+		t.Fatalf("tokens[0] = %+v, want zero tokens for skipped macroblock", d.tokens[0])
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("NextFrame returned no frame for skipped keyframe")
+	}
+}
+
 func TestDecodeInitializesReferenceFrameBuffers(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -251,6 +273,42 @@ func vp8FirstPartitionWithLoopFilterLevel(level uint8) []byte {
 	w.writeBool(0, 128)
 	payload := w.finish()
 	return append(payload, make([]byte, 200)...)
+}
+
+func vp8FirstPartitionWithMacroblockSkip(probSkipFalse uint8) []byte {
+	var w vp8TestBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(0, 7)
+	for i := 0; i < 5; i++ {
+		w.writeBool(0, 128)
+	}
+	w.writeBool(0, 128)
+	writeNoCoefficientProbabilityUpdates(&w)
+	w.writeBool(1, 128)
+	w.writeLiteral(uint32(probSkipFalse), 8)
+	w.writeBool(1, probSkipFalse)
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+func writeNoCoefficientProbabilityUpdates(w *vp8TestBoolWriter) {
+	for block := 0; block < vp8tables.BlockTypes; block++ {
+		for band := 0; band < vp8tables.CoefBands; band++ {
+			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < vp8tables.EntropyNodes; node++ {
+					w.writeBool(0, vp8tables.CoefUpdateProbs[block][band][ctx][node])
+				}
+			}
+		}
+	}
 }
 
 type vp8TestBoolWriter struct {

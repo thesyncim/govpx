@@ -182,6 +182,41 @@ func TestDecodeTokenGridSinglePartition(t *testing.T) {
 	}
 }
 
+func TestDecodeTokenGridSkipsMacroblockCoefficients(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	var w testBoolWriter
+	w.init()
+	writeMacroblockTokenEvents(&w, &probs, false, 24)
+	readers := initTokenReaders(t, [][]byte{w.finish()})
+	modes := []MacroblockMode{{MBSkipCoeff: true}, {}}
+	above := []EntropyContextPlanes{
+		{Y1: [4]uint8{1, 1, 1, 1}, U: [2]uint8{1, 1}, V: [2]uint8{1, 1}, Y2: 1},
+		{},
+	}
+	tokens := []MacroblockTokens{
+		{EOB: [25]uint8{24: 1}},
+		{},
+	}
+
+	total, err := DecodeTokenGrid(readers[:], 1, 2, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want one coefficient from unskipped macroblock", total)
+	}
+	if tokens[0] != (MacroblockTokens{}) {
+		t.Fatalf("skipped tokens = %+v, want cleared", tokens[0])
+	}
+	if above[0] != (EntropyContextPlanes{}) {
+		t.Fatalf("skipped above context = %+v, want reset", above[0])
+	}
+	if tokens[1].QCoeff[24][0] != 1 || tokens[1].EOB[24] != 1 {
+		t.Fatalf("unskipped Y2 coeff/eob = %d/%d, want 1/1", tokens[1].QCoeff[24][0], tokens[1].EOB[24])
+	}
+}
+
 func TestDecodeTokenGridCyclesPartitionsByRow(t *testing.T) {
 	probs := uniformCoefficientProbs(128)
 	payloads := encodeTokenRows(&probs, 2, 3, 1, []int{-1, 24, -1})
