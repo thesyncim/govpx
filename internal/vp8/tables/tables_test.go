@@ -63,6 +63,12 @@ func TestModeTableSentinels(t *testing.T) {
 	if KeyFrameBModeProbs[0][0][0] != 231 || KeyFrameBModeProbs[9][9][8] != 24 {
 		t.Fatalf("KeyFrameBModeProbs sentinels changed")
 	}
+	if sumInterModeContexts() != 1971 {
+		t.Fatalf("InterModeContexts checksum changed")
+	}
+	if InterModeContexts[0][0] != 7 || InterModeContexts[5][3] != 28 {
+		t.Fatalf("InterModeContexts sentinels changed")
+	}
 	if sumU8(MBSplits[0][:]) != 8 || sumU8(MBSplits[3][:]) != 120 {
 		t.Fatalf("MBSplits checksums changed")
 	}
@@ -196,6 +202,16 @@ func sumKeyFrameBModeProbs() int {
 			for _, v := range KeyFrameBModeProbs[above][left] {
 				sum += int(v)
 			}
+		}
+	}
+	return sum
+}
+
+func sumInterModeContexts() int {
+	sum := 0
+	for row := range InterModeContexts {
+		for _, v := range InterModeContexts[row] {
+			sum += int(v)
 		}
 	}
 	return sum

@@ -80,6 +80,14 @@
       "sha256": "113cc38a41503434075d9ec4e936d1739cc12985c50c7650a7f608905692cff8"
     },
     {
+      "path": "vp8/common/modecont.c",
+      "sha256": "e894dbd079305db82cd029bce46032a102970f4521700f4a6f7cf2d2b7d846bf"
+    },
+    {
+      "path": "vp8/common/modecont.h",
+      "sha256": "9fe20879395536d1c0df10667e1dbe08aa95fd20ed3306bfc1bfb5b57fce7ccf"
+    },
+    {
       "path": "vp8/common/loopfilter_filters.c",
       "sha256": "279786a3f0563986507274e5ac91132852bd620d7ed4a8f2db92039b5c6da4f9"
     },

@@ -145,6 +145,16 @@ func DecodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out
 	decodeInterIntraMacroblockMode(br, probs, out)
 }
 
+func ReadInterReferenceFrame(br *boolcoder.Decoder, modeHeader ModeHeader) common.MVReferenceFrame {
+	if br.ReadBool(modeHeader.ProbIntra) == 0 {
+		return common.IntraFrame
+	}
+	if br.ReadBool(modeHeader.ProbLast) != 0 {
+		return common.MVReferenceFrame(2 + br.ReadBool(modeHeader.ProbGolden))
+	}
+	return common.LastFrame
+}
+
 func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
 	out.RefFrame = common.IntraFrame
 	out.Is4x4 = false
