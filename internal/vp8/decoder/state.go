@@ -20,6 +20,7 @@ type StateHeader struct {
 	Quant        QuantHeader
 	Refresh      RefreshHeader
 	Probability  CoefficientProbabilityHeader
+	Mode         ModeHeader
 }
 
 func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, StateHeader, error) {
@@ -47,6 +48,7 @@ func ParseStateHeader(packet []byte, previousQuant QuantHeader) (FrameHeader, St
 	state.Quant = parseQuantHeader(&br, previousQuant)
 	state.Refresh = parseRefreshHeader(&br, frame)
 	state.Probability = parseCoefficientProbabilityHeader(&br)
+	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), nil)
 
 	if br.Err() != nil {
 		return FrameHeader{}, StateHeader{}, ErrTruncatedStateHeader

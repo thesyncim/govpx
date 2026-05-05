@@ -36,6 +36,10 @@
       "sha256": "69d990d690b11465ffc8010b950367a3f9eb0d9af2eab91b974d13636bab003e"
     },
     {
+      "path": "vp8/common/vp8_entropymodedata.h",
+      "sha256": "6d0ea636a3242aada520d72cc17086700cbed6698508c3dcbd407e3821d506f1"
+    },
+    {
       "path": "vp8/common/entropymv.c",
       "sha256": "4f03678d718fe592dabdab9e151e8efed322e6ac10e43f410f93eaae76bbec4c"
     },
@@ -126,6 +130,14 @@
     {
       "path": "vp8/decoder/decodeframe.c",
       "sha256": "828ec9e7a0e168aa4cb445a9d420271987ac8cf99c14812dc2eaa696e4d41559"
+    },
+    {
+      "path": "vp8/decoder/decodemv.c",
+      "sha256": "5423431b7d6913f30e41f41e1db7b7e284b04e99736d22ffbdb80e715b0e267c"
+    },
+    {
+      "path": "vp8/decoder/decodemv.h",
+      "sha256": "e336b9252f71dffd538782524a9889891b9985bba38102a614b166dc826f88eb"
     },
     {
       "path": "vp8/decoder/detokenize.c",

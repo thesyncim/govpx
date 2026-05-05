@@ -48,6 +48,15 @@ func TestEntropyTableSentinels(t *testing.T) {
 }
 
 func TestModeTableSentinels(t *testing.T) {
+	if sumU8(DefaultYModeProbs[:]) != 375 || sumU8(KeyFrameYModeProbs[:]) != 592 {
+		t.Fatalf("Y mode probability checksums changed")
+	}
+	if sumU8(DefaultUVModeProbs[:]) != 467 || sumU8(KeyFrameUVModeProbs[:]) != 439 {
+		t.Fatalf("UV mode probability checksums changed")
+	}
+	if sumU8(DefaultBModeProbs[:]) != 936 {
+		t.Fatalf("B mode probability checksum changed")
+	}
 	if sumU8(MBSplits[0][:]) != 8 || sumU8(MBSplits[3][:]) != 120 {
 		t.Fatalf("MBSplits checksums changed")
 	}

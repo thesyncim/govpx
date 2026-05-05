@@ -3,11 +3,26 @@ package tables
 // Ported static mode tables from libvpx v1.16.0:
 // - vp8/common/entropymode.c
 // - vp8/common/entropymode.h
+// - vp8/common/vp8_entropymodedata.h
 
 const (
 	NumMBSplits   = 4
 	SubMVRefCount = 5
+
+	YModeProbCount  = 4
+	UVModeProbCount = 3
+	BModeProbCount  = 9
 )
+
+var DefaultYModeProbs = [YModeProbCount]uint8{112, 86, 140, 37}
+
+var KeyFrameYModeProbs = [YModeProbCount]uint8{145, 156, 163, 128}
+
+var DefaultUVModeProbs = [UVModeProbCount]uint8{162, 101, 204}
+
+var KeyFrameUVModeProbs = [UVModeProbCount]uint8{142, 114, 183}
+
+var DefaultBModeProbs = [BModeProbCount]uint8{120, 90, 79, 133, 87, 85, 80, 111, 151}
 
 var SubMVRefProb2 = [SubMVRefCount][3]uint8{
 	{147, 136, 18},
