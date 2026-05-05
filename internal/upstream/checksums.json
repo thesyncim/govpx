@@ -1,0 +1,14 @@
+{
+  "upstream": {
+    "project": "chromium/webm/libvpx",
+    "tag": "v1.16.0",
+    "tag_object": "04def0a07f8bfa95785e30e6db95036cda17f9b2",
+    "commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
+    "tree": "5e48c010122b13fe684e4419d45feee3157d7387"
+  },
+  "archive": {
+    "url": "https://github.com/webmproject/libvpx/archive/v1.16.0/libvpx-1.16.0.tar.gz",
+    "md5": "fb51551487ecfdec93f3d243b7fb1a67"
+  },
+  "ported_files": []
+}

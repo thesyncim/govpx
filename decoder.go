@@ -1,0 +1,173 @@
+package libgopx
+
+type DecoderOptions struct {
+	Threads int
+
+	ErrorResilient bool
+	PostProcess    bool
+
+	MaxWidth  int
+	MaxHeight int
+
+	// If true, Decode returns an explicit error when resolution changes.
+	// If false, decoder may reallocate internal frame buffers on keyframe
+	// resolution change.
+	RejectResolutionChange bool
+}
+
+type VP8Decoder struct {
+	opts        DecoderOptions
+	closed      bool
+	needKey     bool
+	frameReady  bool
+	lastFrame   Image
+	lastInfo    FrameInfo
+	currentPTS  uint64
+	initialized bool
+}
+
+func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
+	if err := validateDecoderOptions(opts); err != nil {
+		return nil, err
+	}
+	return &VP8Decoder{
+		opts:    opts,
+		needKey: true,
+	}, nil
+}
+
+func (d *VP8Decoder) Decode(packet []byte) error {
+	return d.DecodeWithPTS(packet, 0)
+}
+
+func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	info, err := PeekVP8StreamInfo(packet)
+	if err != nil {
+		return err
+	}
+	if d.needKey && !info.KeyFrame {
+		return ErrNeedKeyFrame
+	}
+	if err := d.validateStreamInfo(info); err != nil {
+		return err
+	}
+
+	d.currentPTS = pts
+	d.frameReady = false
+	d.initialized = true
+	if info.KeyFrame {
+		d.needKey = false
+	}
+	d.lastInfo = FrameInfo{
+		Width:     info.Width,
+		Height:    info.Height,
+		KeyFrame:  info.KeyFrame,
+		ShowFrame: info.ShowFrame,
+		PTS:       pts,
+	}
+	return ErrUnsupportedFeature
+}
+
+func (d *VP8Decoder) NextFrame() (Image, bool) {
+	if d == nil || d.closed || !d.frameReady {
+		return Image{}, false
+	}
+	d.frameReady = false
+	return d.lastFrame, true
+}
+
+func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
+	return d.DecodeIntoWithPTS(packet, dst, 0)
+}
+
+func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (FrameInfo, error) {
+	if d == nil || d.closed {
+		return FrameInfo{}, ErrClosed
+	}
+	if dst == nil {
+		return FrameInfo{}, ErrInvalidConfig
+	}
+	info, err := PeekVP8StreamInfo(packet)
+	if err != nil {
+		return FrameInfo{}, err
+	}
+	if d.needKey && !info.KeyFrame {
+		return FrameInfo{}, ErrNeedKeyFrame
+	}
+	if err := d.validateStreamInfo(info); err != nil {
+		return FrameInfo{}, err
+	}
+	d.currentPTS = pts
+	d.frameReady = false
+	d.initialized = true
+	if info.KeyFrame {
+		d.needKey = false
+	}
+	frameInfo := FrameInfo{
+		Width:     info.Width,
+		Height:    info.Height,
+		KeyFrame:  info.KeyFrame,
+		ShowFrame: info.ShowFrame,
+		PTS:       pts,
+	}
+	d.lastInfo = frameInfo
+	return frameInfo, ErrUnsupportedFeature
+}
+
+func (d *VP8Decoder) Reset() {
+	if d == nil {
+		return
+	}
+	d.needKey = true
+	d.frameReady = false
+	d.lastFrame = Image{}
+	d.lastInfo = FrameInfo{}
+	d.currentPTS = 0
+	d.initialized = false
+}
+
+func (d *VP8Decoder) Close() error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	d.Reset()
+	d.closed = true
+	return nil
+}
+
+func validateDecoderOptions(opts DecoderOptions) error {
+	if opts.Threads < 0 {
+		return ErrInvalidConfig
+	}
+	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
+		return ErrInvalidConfig
+	}
+	if opts.MaxWidth > maxVP8Dimension || opts.MaxHeight > maxVP8Dimension {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
+	if !info.KeyFrame {
+		return nil
+	}
+	if info.Width <= 0 || info.Height <= 0 {
+		return ErrInvalidData
+	}
+	if d.opts.MaxWidth > 0 && info.Width > d.opts.MaxWidth {
+		return ErrUnsupportedFeature
+	}
+	if d.opts.MaxHeight > 0 && info.Height > d.opts.MaxHeight {
+		return ErrUnsupportedFeature
+	}
+	if d.initialized && d.opts.RejectResolutionChange {
+		if info.Width != d.lastInfo.Width || info.Height != d.lastInfo.Height {
+			return ErrUnsupportedFeature
+		}
+	}
+	return nil
+}

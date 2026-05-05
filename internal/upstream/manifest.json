@@ -1,0 +1,79 @@
+{
+  "upstream": {
+    "project": "chromium/webm/libvpx",
+    "tag": "v1.16.0",
+    "tag_object": "04def0a07f8bfa95785e30e6db95036cda17f9b2",
+    "commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
+    "source_url": "https://chromium.googlesource.com/webm/libvpx/+/refs/tags/v1.16.0"
+  },
+  "codec_scope": "VP8 only",
+  "included_directories": [
+    "vp8/common",
+    "vp8/decoder",
+    "vp8/encoder",
+    "vpx",
+    "vpx_dsp",
+    "vpx_mem",
+    "vpx_ports",
+    "vpx_scale",
+    "vpx_util"
+  ],
+  "excluded_directories": [
+    {
+      "path": "vp9",
+      "reason": "VP9 is explicitly out of scope"
+    },
+    {
+      "path": "av1",
+      "reason": "AV1 is explicitly out of scope"
+    },
+    {
+      "path": "examples",
+      "reason": "examples are not codec package code"
+    },
+    {
+      "path": "tools",
+      "reason": "tools are optional references only"
+    }
+  ],
+  "representative_vp8_files": [
+    "vp8/common/alloccommon.c",
+    "vp8/common/blockd.c",
+    "vp8/common/entropymode.c",
+    "vp8/common/entropymv.c",
+    "vp8/common/filter.c",
+    "vp8/common/idctllm.c",
+    "vp8/common/invtrans.c",
+    "vp8/common/loopfilter.c",
+    "vp8/common/onyxc_int.h",
+    "vp8/common/quant_common.c",
+    "vp8/common/reconinter.c",
+    "vp8/common/reconintra.c",
+    "vp8/common/setupintrarecon.c",
+    "vp8/common/swapyv12buffer.c",
+    "vp8/common/treecoder.c",
+    "vp8/decoder/dboolhuff.c",
+    "vp8/decoder/decodeframe.c",
+    "vp8/decoder/decodemv.c",
+    "vp8/decoder/decoderthreading.c",
+    "vp8/decoder/detokenize.c",
+    "vp8/decoder/onyxd_if.c",
+    "vp8/encoder/bitstream.c",
+    "vp8/encoder/boolhuff.c",
+    "vp8/encoder/dct.c",
+    "vp8/encoder/encodeframe.c",
+    "vp8/encoder/encodeintra.c",
+    "vp8/encoder/encodemb.c",
+    "vp8/encoder/ethreading.c",
+    "vp8/encoder/lookahead.c",
+    "vp8/encoder/mcomp.c",
+    "vp8/encoder/onyx_if.c",
+    "vp8/encoder/pickinter.c",
+    "vp8/encoder/quantize.c",
+    "vp8/encoder/ratectrl.c",
+    "vp8/encoder/rdopt.c",
+    "vp8/encoder/segmentation.c",
+    "vp8/encoder/tokenize.c"
+  ],
+  "status": "metadata and public API scaffold only; no C algorithms ported"
+}

@@ -1,0 +1,7 @@
+libgopx
+
+This project is a pure-Go VP8 codec implementation scaffold inspired by libvpx.
+
+Ported VP8 algorithms, when added, must cite the corresponding libvpx v1.16.0
+source files in comments and preserve applicable copyright, license, and patent
+notices.
