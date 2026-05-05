@@ -68,6 +68,10 @@
       "sha256": "f081103e72a85be09df98e70bbc102275433aaeddf90724d7b030669862dabf2"
     },
     {
+      "path": "vp8/common/findnearmv.c",
+      "sha256": "80231cfb34c69ff7f7a6ce7a77386e74c90085344ed2b4579f3eeec9140bc49f"
+    },
+    {
       "path": "vp8/common/idct_blk.c",
       "sha256": "a3ac9af0931ad1786a079f4d84699d21e305d671ae317ddd9bd05c209bd13bb2"
     },

@@ -8,6 +8,7 @@ type MacroblockMode struct {
 	Mode     common.MBPredictionMode
 	UVMode   common.MBPredictionMode
 	RefFrame common.MVReferenceFrame
+	MV       MotionVector
 
 	Is4x4       bool
 	MBSkipCoeff bool
