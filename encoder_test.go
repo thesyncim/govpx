@@ -263,6 +263,53 @@ func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *tes
 	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	assertImagesEqual(t, "last", keyFrame, publicImageFromVP8(&e.lastRef.Img))
+	if publicImageFromVP8(&e.current.Img).Y[0] == keyFrame.Y[0] {
+		t.Fatalf("current Y0 = last Y0 = %d, want current reconstructed without last refresh", keyFrame.Y[0])
+	}
+}
+
+func TestEncodeIntoNoReferenceLastForcesKeyFrame(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	dst := make([]byte, 4096)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(dst, second, 1, 1, EncodeNoReferenceLast)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame {
+		t.Fatalf("KeyFrame = false, want keyframe when last reference is disallowed")
+	}
+}
+
 func TestEncoderHotPathAllocs(t *testing.T) {
 	e := newTestEncoder(t)
 	dst := make([]byte, 1)

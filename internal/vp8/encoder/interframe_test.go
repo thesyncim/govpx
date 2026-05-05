@@ -31,6 +31,27 @@ func TestWriteInterFrameStateHeaderParsesInDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderCanSkipLastRefresh(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.RefreshLast = false
+	packet := make([]byte, 256)
+	n, err := WriteZeroInterFrame(packet, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.Refresh.RefreshLast {
+		t.Fatalf("RefreshLast = true, want false")
+	}
+}
+
 func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 	packet := zeroInterFramePacket(t, 32, 16)
 	var coefProbs = tables.DefaultCoefProbs

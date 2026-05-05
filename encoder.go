@@ -194,7 +194,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		VStride: src.VStride,
 	}
 	if !keyFrame {
-		n, err := e.encodeInterFrame(dst, source, rows, cols, required)
+		n, err := e.encodeInterFrame(dst, source, rows, cols, required, flags)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -224,8 +224,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	return result, nil
 }
 
-func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int) (int, error) {
+func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
+	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	if sourceMatchesReference(Image{
 		Width:   source.Width,
 		Height:  source.Height,
@@ -240,7 +241,7 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 		if err != nil {
 			return 0, translateEncoderError(err)
 		}
-		e.refreshZeroInterFrameReferences()
+		e.refreshZeroInterFrameReferences(cfg)
 		return n, nil
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -253,12 +254,15 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	if err != nil {
 		return 0, translateEncoderError(err)
 	}
-	e.refreshInterFrameReferencesFromAnalysis()
+	e.refreshInterFrameReferencesFromAnalysis(cfg)
 	return n, nil
 }
 
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
+		return true
+	}
+	if flags&EncodeNoReferenceLast != 0 {
 		return true
 	}
 	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
@@ -499,18 +503,22 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.altRef.ExtendBorders()
 }
 
-func (e *VP8Encoder) refreshZeroInterFrameReferences() {
+func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig) {
 	copyFrameImage(&e.current.Img, &e.lastRef.Img)
 	e.current.ExtendBorders()
-	copyFrameImage(&e.lastRef.Img, &e.current.Img)
-	e.lastRef.ExtendBorders()
+	if cfg.RefreshLast {
+		copyFrameImage(&e.lastRef.Img, &e.current.Img)
+		e.lastRef.ExtendBorders()
+	}
 }
 
-func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis() {
+func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
 	copyFrameImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
-	copyFrameImage(&e.lastRef.Img, &e.current.Img)
-	e.lastRef.ExtendBorders()
+	if cfg.RefreshLast {
+		copyFrameImage(&e.lastRef.Img, &e.current.Img)
+		e.lastRef.ExtendBorders()
+	}
 }
 
 func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
