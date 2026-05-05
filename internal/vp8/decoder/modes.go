@@ -1,6 +1,8 @@
 package decoder
 
 import (
+	"errors"
+
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	"github.com/thesyncim/libgopx/internal/vp8/common"
 	"github.com/thesyncim/libgopx/internal/vp8/tables"
@@ -9,6 +11,8 @@ import (
 // Ported from libvpx v1.16.0 vp8/decoder/decodemv.c mode probability
 // initialization, update parsing, and keyframe mode decoding. Block mode
 // context helpers mirror vp8/common/findnearmv.h.
+
+var ErrModeBufferTooSmall = errors.New("libgopx: VP8 mode buffer too small")
 
 type ModeProbs struct {
 	YMode  [tables.YModeProbCount]uint8
@@ -101,6 +105,34 @@ func DecodeKeyFrameMacroblock(br *boolcoder.Decoder, segmentation *SegmentationH
 		out.MBSkipCoeff = br.ReadBool(modeHeader.ProbSkipFalse) != 0
 	}
 	decodeKeyFrameMacroblockMode(br, above, left, out)
+}
+
+func DecodeKeyFrameModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation *SegmentationHeader, modeHeader ModeHeader, modes []MacroblockMode) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if len(modes) < required {
+		return ErrModeBufferTooSmall
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			var above *MacroblockMode
+			var left *MacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			DecodeKeyFrameMacroblock(br, segmentation, modeHeader, above, left, &modes[index])
+		}
+	}
+	return nil
 }
 
 func DecodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {

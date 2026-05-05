@@ -1,6 +1,7 @@
 package decoder
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
@@ -98,6 +99,36 @@ func TestDecodeKeyFrameMacroblockReadsSegmentAndSkip(t *testing.T) {
 	}
 }
 
+func TestDecodeKeyFrameModeGrid(t *testing.T) {
+	payload := encodeKeyFrameModeGrid(t, 4, common.DCPred, common.TMPred)
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	modes := make([]MacroblockMode, 4)
+
+	if err := DecodeKeyFrameModeGrid(&br, 2, 2, nil, ModeHeader{}, modes); err != nil {
+		t.Fatalf("DecodeKeyFrameModeGrid returned error: %v", err)
+	}
+
+	for i, mode := range modes {
+		if mode.Mode != common.DCPred || mode.UVMode != common.TMPred || mode.RefFrame != common.IntraFrame {
+			t.Fatalf("mode[%d] = %+v, want DC/TM intra", i, mode)
+		}
+	}
+}
+
+func TestDecodeKeyFrameModeGridRejectsSmallBuffer(t *testing.T) {
+	var br boolcoder.Decoder
+	_ = br.Init(make([]byte, 8))
+
+	err := DecodeKeyFrameModeGrid(&br, 2, 2, nil, ModeHeader{}, make([]MacroblockMode, 3))
+
+	if !errors.Is(err, ErrModeBufferTooSmall) {
+		t.Fatalf("error = %v, want ErrModeBufferTooSmall", err)
+	}
+}
+
 func TestDecodeKeyFrameMacroblockModeAllocatesZero(t *testing.T) {
 	payload := encodeKeyFrameMacroblockMode(t, common.BPred, common.VPred, common.BDCPred)
 	allocs := testing.AllocsPerRun(1000, func() {
@@ -130,10 +161,32 @@ func TestDecodeKeyFrameMacroblockAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestDecodeKeyFrameModeGridAllocatesZero(t *testing.T) {
+	payload := encodeKeyFrameModeGrid(t, 4, common.DCPred, common.TMPred)
+	modes := make([]MacroblockMode, 4)
+	allocs := testing.AllocsPerRun(1000, func() {
+		var br boolcoder.Decoder
+		_ = br.Init(payload)
+		_ = DecodeKeyFrameModeGrid(&br, 2, 2, nil, ModeHeader{}, modes)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func encodeKeyFrameMacroblockMode(t *testing.T, yMode common.MBPredictionMode, uvMode common.MBPredictionMode, bMode common.BPredictionMode) []byte {
 	var w testBoolWriter
 	w.init()
 	writeKeyFrameMacroblockMode(t, &w, yMode, uvMode, bMode)
+	return w.finish()
+}
+
+func encodeKeyFrameModeGrid(t *testing.T, count int, yMode common.MBPredictionMode, uvMode common.MBPredictionMode) []byte {
+	var w testBoolWriter
+	w.init()
+	for i := 0; i < count; i++ {
+		writeKeyFrameMacroblockMode(t, &w, yMode, uvMode, common.BDCPred)
+	}
 	return w.finish()
 }
 
