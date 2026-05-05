@@ -249,7 +249,7 @@ func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes [
 	return nil
 }
 
-func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, rows int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *MacroblockResidual) error {
+func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, rows int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch) error {
 	if rows < 0 || cols < 0 {
 		return ErrReconstructGridBufferTooSmall
 	}
@@ -274,14 +274,22 @@ func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *co
 			if mode.SegmentID >= common.MaxMBSegments {
 				return ErrUnsupportedInterReconstructionMode
 			}
+			yOff := yRow + col*16
+			uOff := uRow + col*8
+			vOff := vRow + col*8
+			if mode.RefFrame == common.IntraFrame {
+				refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+				if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+					return ErrUnsupportedInterReconstructionMode
+				}
+				continue
+			}
+
 			ref := referenceImageForMode(mode.RefFrame, last, golden, alt)
 			if ref == nil {
 				return ErrUnsupportedInterReconstructionMode
 			}
-			yOff := yRow + col*16
-			uOff := uRow + col*8
-			vOff := vRow + col*8
-			if !ReconstructZeroMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, scratch, row, col) {
+			if !ReconstructZeroMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 		}

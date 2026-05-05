@@ -380,7 +380,7 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		}
 	} else {
 		frameType = vp8common.InterFrame
-		if err := vp8dec.ReconstructInterFrameGrid(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch.Residual); err != nil {
+		if err := vp8dec.ReconstructInterFrameGrid(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
 			if errors.Is(err, vp8dec.ErrUnsupportedInterReconstructionMode) {
 				return ErrUnsupportedFeature
 			}

@@ -691,7 +691,7 @@ func TestReconstructInterFrameGridCopiesLastZeroMV(t *testing.T) {
 	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame}}
 	tokens := []MacroblockTokens{{}}
 	dequants := testMacroblockDequants()
-	var scratch MacroblockResidual
+	var scratch IntraReconstructionScratch
 
 	if err := ReconstructInterFrameGrid(&img, &last, &golden, &alt, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
 		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
@@ -721,11 +721,33 @@ func TestReconstructInterFrameGridRejectsUnsupportedMode(t *testing.T) {
 	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2}}}
 	tokens := []MacroblockTokens{{}}
 	dequants := testMacroblockDequants()
-	var scratch MacroblockResidual
+	var scratch IntraReconstructionScratch
 
 	err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
 	if err != ErrUnsupportedInterReconstructionMode {
 		t.Fatalf("error = %v, want ErrUnsupportedInterReconstructionMode", err)
+	}
+}
+
+func TestReconstructInterFrameGridReconstructsIntraMacroblock(t *testing.T) {
+	img := blankImage(16, 16)
+	ref := testImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.DCPred, UVMode: common.DCPred, RefFrame: common.IntraFrame}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+	if got := img.Y[0]; got != 128 {
+		t.Fatalf("inter intra Y[0] = %d, want synthetic DC 128", got)
+	}
+	if got := img.U[0]; got != 128 {
+		t.Fatalf("inter intra U[0] = %d, want synthetic DC 128", got)
+	}
+	if got := img.V[0]; got != 128 {
+		t.Fatalf("inter intra V[0] = %d, want synthetic DC 128", got)
 	}
 }
 
@@ -735,7 +757,7 @@ func TestReconstructInterFrameGridAllocatesZero(t *testing.T) {
 	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame}}
 	tokens := []MacroblockTokens{{}}
 	dequants := testMacroblockDequants()
-	var scratch MacroblockResidual
+	var scratch IntraReconstructionScratch
 
 	allocs := testing.AllocsPerRun(1000, func() {
 		_ = ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
