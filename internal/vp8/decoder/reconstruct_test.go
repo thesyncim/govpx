@@ -769,6 +769,35 @@ func TestReconstructInterFrameGridPredictsSubpixelWholeMV(t *testing.T) {
 	assertCopiedBlock(t, "V", img.V[8*img.VStride+8:], img.VStride, wantV, 8, 0, 0, 8, 8)
 }
 
+func TestReconstructInterFrameGridPredictsBorderSubpixelWholeMV(t *testing.T) {
+	img := blankImage(16, 16)
+	ref, err := common.NewFrameBuffer(16, 16, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	fillImage(&ref.Img, testImage(16, 16))
+	ref.ExtendBorders()
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2, Col: 2}, MBSkipCoeff: true}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &ref.Img, &ref.Img, &ref.Img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	wantY := make([]byte, 16*16)
+	wantU := make([]byte, 8*8)
+	wantV := make([]byte, 8*8)
+	dsp.SixTapPredict16x16(ref.Img.YFull[ref.Img.YOrigin-2*ref.Img.YStride-2:], ref.Img.YStride, 2, 2, wantY, 16)
+	dsp.SixTapPredict8x8(ref.Img.UFull[ref.Img.UOrigin-2*ref.Img.UStride-2:], ref.Img.UStride, 1, 1, wantU, 8)
+	dsp.SixTapPredict8x8(ref.Img.VFull[ref.Img.VOrigin-2*ref.Img.VStride-2:], ref.Img.VStride, 1, 1, wantV, 8)
+
+	assertCopiedBlock(t, "Y border subpixel", img.Y, img.YStride, wantY, 16, 0, 0, 16, 16)
+	assertCopiedBlock(t, "U border subpixel", img.U, img.UStride, wantU, 8, 0, 0, 8, 8)
+	assertCopiedBlock(t, "V border subpixel", img.V, img.VStride, wantV, 8, 0, 0, 8, 8)
+}
+
 func TestReconstructInterFrameGridPredictsSplitMVQuadrants(t *testing.T) {
 	img := blankImage(32, 32)
 	last := testImage(48, 48)
@@ -842,6 +871,39 @@ func TestReconstructInterFrameGridPredictsSplitMVSubpixel(t *testing.T) {
 	assertCopiedBlock(t, "Y split subpixel", img.Y[16*img.YStride+16:], img.YStride, wantY, 4, 0, 0, 4, 4)
 	assertCopiedBlock(t, "U split subpixel", img.U[8*img.UStride+8:], img.UStride, wantU, 4, 0, 0, 4, 4)
 	assertCopiedBlock(t, "V split subpixel", img.V[8*img.VStride+8:], img.VStride, wantV, 4, 0, 0, 4, 4)
+}
+
+func TestReconstructInterFrameGridPredictsBorderSubpixelSplitMV(t *testing.T) {
+	img := blankImage(16, 16)
+	ref, err := common.NewFrameBuffer(16, 16, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	fillImage(&ref.Img, testImage(16, 16))
+	ref.ExtendBorders()
+	split := MacroblockMode{Mode: common.SplitMV, RefFrame: common.LastFrame, Is4x4: true, MBSkipCoeff: true}
+	for i := range split.BlockMV {
+		split.BlockMV[i] = MotionVector{Row: 2, Col: 2}
+	}
+	modes := []MacroblockMode{split}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&img, &ref.Img, &ref.Img, &ref.Img, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	wantY := make([]byte, 4*4)
+	wantU := make([]byte, 4*4)
+	wantV := make([]byte, 4*4)
+	dsp.SixTapPredict4x4(ref.Img.YFull[ref.Img.YOrigin-2*ref.Img.YStride-2:], ref.Img.YStride, 2, 2, wantY, 4)
+	dsp.SixTapPredict4x4(ref.Img.UFull[ref.Img.UOrigin-2*ref.Img.UStride-2:], ref.Img.UStride, 1, 1, wantU, 4)
+	dsp.SixTapPredict4x4(ref.Img.VFull[ref.Img.VOrigin-2*ref.Img.VStride-2:], ref.Img.VStride, 1, 1, wantV, 4)
+
+	assertCopiedBlock(t, "Y split border subpixel", img.Y, img.YStride, wantY, 4, 0, 0, 4, 4)
+	assertCopiedBlock(t, "U split border subpixel", img.U, img.UStride, wantU, 4, 0, 0, 4, 4)
+	assertCopiedBlock(t, "V split border subpixel", img.V, img.VStride, wantV, 4, 0, 0, 4, 4)
 }
 
 func TestReconstructInterFrameGridRejectsUnaddressableLumaSubpixelMV(t *testing.T) {
@@ -1039,6 +1101,18 @@ func testImage(width int, height int) common.Image {
 		}
 	}
 	return img
+}
+
+func fillImage(dst *common.Image, src common.Image) {
+	for row := 0; row < dst.Height; row++ {
+		copy(dst.Y[row*dst.YStride:row*dst.YStride+dst.Width], src.Y[row*src.YStride:row*src.YStride+dst.Width])
+	}
+	uvWidth := (dst.Width + 1) >> 1
+	uvHeight := (dst.Height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		copy(dst.U[row*dst.UStride:row*dst.UStride+uvWidth], src.U[row*src.UStride:row*src.UStride+uvWidth])
+		copy(dst.V[row*dst.VStride:row*dst.VStride+uvWidth], src.V[row*src.VStride:row*src.VStride+uvWidth])
+	}
 }
 
 func blankImage(width int, height int) common.Image {

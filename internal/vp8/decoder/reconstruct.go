@@ -20,6 +20,10 @@ var (
 )
 
 type interPredictorPlan struct {
+	YPlane []byte
+	UPlane []byte
+	VPlane []byte
+
 	YOffset int
 	UOffset int
 	VOffset int
@@ -326,9 +330,9 @@ func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	if !ok {
 		return false
 	}
-	predictInter16x16(ref.Y[plan.YOffset:], ref.YStride, plan.YXOffset, plan.YYOffset, y, yStride)
-	predictInter8x8(ref.U[plan.UOffset:], ref.UStride, plan.UVXOffset, plan.UVYOffset, u, uStride)
-	predictInter8x8(ref.V[plan.VOffset:], ref.VStride, plan.UVXOffset, plan.UVYOffset, v, vStride)
+	predictInter16x16(plan.YPlane[plan.YOffset:], ref.YStride, plan.YXOffset, plan.YYOffset, y, yStride)
+	predictInter8x8(plan.UPlane[plan.UOffset:], ref.UStride, plan.UVXOffset, plan.UVYOffset, u, uStride)
+	predictInter8x8(plan.VPlane[plan.VOffset:], ref.VStride, plan.UVXOffset, plan.UVYOffset, v, vStride)
 	if mode.MBSkipCoeff {
 		return true
 	}
@@ -341,6 +345,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	if mode.RefFrame == common.IntraFrame || mode.Mode != common.SplitMV || !mode.Is4x4 {
 		return false
 	}
+	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
 	for block := 0; block < 16; block++ {
 		mv := mode.BlockMV[block]
 		blockRow := block >> 2
@@ -349,13 +354,15 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		srcCol := mbCol*16 + blockCol*4 + int(mv.Col>>3)
 		xOffset := int(mv.Col) & 7
 		yOffset := int(mv.Row) & 7
-		offset, ok := wholeMVPlaneOffset(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), srcRow, srcCol, 4, 4, xOffset, yOffset)
+		offset, ok := wholeMVPlaneOffset(yPlane, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), srcRow, srcCol, 4, 4, xOffset, yOffset, yOrigin, yBorder)
 		if !ok {
 			return false
 		}
-		predictInter4x4(ref.Y[offset:], ref.YStride, xOffset, yOffset, y[yBlockOffset(block, yStride):], yStride)
+		predictInter4x4(yPlane[offset:], ref.YStride, xOffset, yOffset, y[yBlockOffset(block, yStride):], yStride)
 	}
 
+	uPlane, uOrigin, uvBorder := referencePlane(ref.U, ref.UFull, ref.UOrigin, ref.UVBorder)
+	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
 	uvWidth := (codedImageWidth(ref) + 1) >> 1
 	uvHeight := (codedImageHeight(ref) + 1) >> 1
 	for block := 0; block < 4; block++ {
@@ -366,17 +373,17 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		srcCol := mbCol*8 + blockCol*4 + (mvCol >> 3)
 		xOffset := mvCol & 7
 		yOffset := mvRow & 7
-		uOffset, ok := wholeMVPlaneOffset(ref.U, ref.UStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset)
+		uOffset, ok := wholeMVPlaneOffset(uPlane, ref.UStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset, uOrigin, uvBorder)
 		if !ok {
 			return false
 		}
-		vOffset, ok := wholeMVPlaneOffset(ref.V, ref.VStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset)
+		vOffset, ok := wholeMVPlaneOffset(vPlane, ref.VStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset, vOrigin, uvBorder)
 		if !ok {
 			return false
 		}
 		dstOffset := uvBlockOffset(block, uStride)
-		predictInter4x4(ref.U[uOffset:], ref.UStride, xOffset, yOffset, u[dstOffset:], uStride)
-		predictInter4x4(ref.V[vOffset:], ref.VStride, xOffset, yOffset, v[uvBlockOffset(block, vStride):], vStride)
+		predictInter4x4(uPlane[uOffset:], ref.UStride, xOffset, yOffset, u[dstOffset:], uStride)
+		predictInter4x4(vPlane[vOffset:], ref.VStride, xOffset, yOffset, v[uvBlockOffset(block, vStride):], vStride)
 	}
 
 	if mode.MBSkipCoeff {
@@ -401,15 +408,18 @@ func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVect
 		return interPredictorPlan{}, false
 	}
 
+	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
 	yRow := mbRow*16 + int(mv.Row>>3)
 	yCol := mbCol*16 + int(mv.Col>>3)
 	yXOffset := int(mv.Col) & 7
 	yYOffset := int(mv.Row) & 7
-	yOffset, ok := wholeMVPlaneOffset(ref.Y, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16, yXOffset, yYOffset)
+	yOffset, ok := wholeMVPlaneOffset(yPlane, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16, yXOffset, yYOffset, yOrigin, yBorder)
 	if !ok {
 		return interPredictorPlan{}, false
 	}
 
+	uPlane, uOrigin, uvBorder := referencePlane(ref.U, ref.UFull, ref.UOrigin, ref.UVBorder)
+	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
 	uvMVRow := chromaMotionVectorComponent(mv.Row)
 	uvMVCol := chromaMotionVectorComponent(mv.Col)
 	uvRow := mbRow*8 + (uvMVRow >> 3)
@@ -418,16 +428,19 @@ func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVect
 	uvYOffset := uvMVRow & 7
 	uvWidth := (codedImageWidth(ref) + 1) >> 1
 	uvHeight := (codedImageHeight(ref) + 1) >> 1
-	uOffset, ok := wholeMVPlaneOffset(ref.U, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset)
+	uOffset, ok := wholeMVPlaneOffset(uPlane, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset, uOrigin, uvBorder)
 	if !ok {
 		return interPredictorPlan{}, false
 	}
-	vOffset, ok := wholeMVPlaneOffset(ref.V, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset)
+	vOffset, ok := wholeMVPlaneOffset(vPlane, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset, vOrigin, uvBorder)
 	if !ok {
 		return interPredictorPlan{}, false
 	}
 
 	return interPredictorPlan{
+		YPlane:    yPlane,
+		UPlane:    uPlane,
+		VPlane:    vPlane,
 		YOffset:   yOffset,
 		UOffset:   uOffset,
 		VOffset:   vOffset,
@@ -438,17 +451,24 @@ func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVect
 	}, true
 }
 
-func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int, xOffset int, yOffset int) (int, bool) {
+func referencePlane(visible []byte, full []byte, origin int, border int) ([]byte, int, int) {
+	if len(full) == 0 {
+		return visible, 0, 0
+	}
+	return full, origin, border
+}
+
+func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int, xOffset int, yOffset int, origin int, border int) (int, bool) {
 	if xOffset|yOffset != 0 {
 		row -= 2
 		col -= 2
 		width += 5
 		height += 5
 	}
-	if !imageHasReferenceBlock(plane, stride, codedWidth, codedHeight, row, col, width, height) {
+	if !imageHasReferenceBlock(plane, stride, codedWidth, codedHeight, row, col, width, height, origin, border) {
 		return 0, false
 	}
-	return row*stride + col, true
+	return origin + row*stride + col, true
 }
 
 func predictInter16x16(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int) {
@@ -641,17 +661,27 @@ func planeHasBlock(plane []byte, stride int, width int, height int) bool {
 	return need <= len(plane)
 }
 
-func imageHasReferenceBlock(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int) bool {
-	if row < 0 || col < 0 || width < 0 || height < 0 || stride < codedWidth {
+func imageHasReferenceBlock(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int, origin int, border int) bool {
+	if width < 0 || height < 0 || border < 0 || origin < 0 || stride < codedWidth+border*2 {
 		return false
 	}
-	if col > codedWidth-width || row > codedHeight-height {
+	if width > codedWidth+border*2 || height > codedHeight+border*2 {
+		return false
+	}
+	if row < -border || col < -border {
+		return false
+	}
+	if col > codedWidth+border-width || row > codedHeight+border-height {
 		return false
 	}
 	if height == 0 {
 		return true
 	}
-	need := (row+height-1)*stride + col + width
+	start := origin + row*stride + col
+	if start < 0 {
+		return false
+	}
+	need := start + (height-1)*stride + width
 	return need <= len(plane)
 }
 

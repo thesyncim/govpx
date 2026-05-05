@@ -18,9 +18,20 @@ type Image struct {
 	U []byte
 	V []byte
 
+	YFull []byte
+	UFull []byte
+	VFull []byte
+
 	YStride int
 	UStride int
 	VStride int
+
+	YOrigin int
+	UOrigin int
+	VOrigin int
+
+	YBorder  int
+	UVBorder int
 }
 
 // FrameBuffer owns one bordered VP8 frame. Allocation happens in NewFrameBuffer
@@ -84,6 +95,14 @@ func (fb *FrameBuffer) Resize(width int, height int, border int, align int) erro
 	fb.Img.YStride = layout.yStride
 	fb.Img.UStride = layout.uStride
 	fb.Img.VStride = layout.vStride
+	fb.Img.YFull = fb.buf[layout.yPlaneOff:layout.uPlaneOff]
+	fb.Img.UFull = fb.buf[layout.uPlaneOff:layout.vPlaneOff]
+	fb.Img.VFull = fb.buf[layout.vPlaneOff:]
+	fb.Img.YOrigin = layout.yOff
+	fb.Img.UOrigin = layout.uOff
+	fb.Img.VOrigin = layout.vOff
+	fb.Img.YBorder = border
+	fb.Img.UVBorder = layout.uvBorder
 	fb.Img.Y = fb.buf[layout.yPlaneOff+layout.yOff : layout.yPlaneOff+layout.yOff+planeLen(layout.yStride, layout.codedHeight, layout.codedWidth)]
 	fb.Img.U = fb.buf[layout.uPlaneOff+layout.uOff : layout.uPlaneOff+layout.uOff+planeLen(layout.uStride, layout.uvHeight, layout.uvWidth)]
 	fb.Img.V = fb.buf[layout.vPlaneOff+layout.vOff : layout.vPlaneOff+layout.vOff+planeLen(layout.vStride, layout.uvHeight, layout.uvWidth)]

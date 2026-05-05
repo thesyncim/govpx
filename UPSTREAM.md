@@ -48,10 +48,10 @@ grant. This repository keeps libvpx license and patent notices in
 | Upstream manifest | scaffolded |
 | Oracle harness | not started |
 | IVF/test vectors | not started |
-| Frame memory | macroblock-padded frame buffers scaffolded |
+| Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, whole-macroblock and SplitMV inter prediction/reconstruction, and narrow profile-0 frame output scaffolded |
+| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, and narrow profile-0 frame output scaffolded |
 | Token and mode parsing | tree reader, partition layout, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
@@ -64,8 +64,8 @@ grant. This repository keeps libvpx license and patent notices in
 ## Known Deviations
 
 - `Decode` and `DecodeInto` can expose narrow profile-0 keyframe and supported
-  inter-frame scaffolds, but border-clamped subpixel prediction and many VP8
-  features still return `ErrUnsupportedFeature`.
+  inter-frame scaffolds, but extreme MV clamping and many VP8 features still
+  return `ErrUnsupportedFeature`.
 - `EncodeInto` validates basic inputs but returns `ErrUnsupportedFeature`
   because VP8 encoder algorithms are not ported yet.
 - The package exposes a small Go API, not the libvpx C API.

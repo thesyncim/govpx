@@ -26,6 +26,19 @@ func TestFrameBufferLayoutOddDimensions(t *testing.T) {
 	if fb.BufferLen() != 960 {
 		t.Fatalf("BufferLen = %d, want 960", fb.BufferLen())
 	}
+	if len(fb.Img.YFull) != fb.Img.YStride*fb.yRows || len(fb.Img.UFull) != fb.Img.UStride*fb.uRows || len(fb.Img.VFull) != fb.Img.VStride*fb.vRows {
+		t.Fatalf("full plane lengths = %d/%d/%d, want %d/%d/%d", len(fb.Img.YFull), len(fb.Img.UFull), len(fb.Img.VFull), fb.Img.YStride*fb.yRows, fb.Img.UStride*fb.uRows, fb.Img.VStride*fb.vRows)
+	}
+	if fb.Img.YOrigin != fb.yOff || fb.Img.UOrigin != fb.uOff || fb.Img.VOrigin != fb.vOff {
+		t.Fatalf("origins = %d/%d/%d, want %d/%d/%d", fb.Img.YOrigin, fb.Img.UOrigin, fb.Img.VOrigin, fb.yOff, fb.uOff, fb.vOff)
+	}
+	if fb.Img.YBorder != 2 || fb.Img.UVBorder != 1 {
+		t.Fatalf("borders = %d/%d, want 2/1", fb.Img.YBorder, fb.Img.UVBorder)
+	}
+	fb.Img.Y[0] = 77
+	if fb.Img.YFull[fb.Img.YOrigin] != 77 {
+		t.Fatalf("YFull origin does not alias visible Y")
+	}
 }
 
 func TestFrameBufferRejectsInvalidSize(t *testing.T) {
