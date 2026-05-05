@@ -178,6 +178,67 @@ func TestEncodeIntoReconstructsReferencesLikeDecoder(t *testing.T) {
 	assertImagesEqual(t, "alt", decoded, publicImageFromVP8(&e.altRef.Img))
 }
 
+func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	dstKey := make([]byte, 4096)
+	key, err := e.EncodeInto(dstKey, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	dstInter := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(dstInter, reconstructed, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("second frame KeyFrame = true, want interframe")
+	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(inter.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("inter NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "inter", reconstructed, frame)
+	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
+}
+
+func TestEncodeIntoFallsBackToKeyFrameWhenSourceDiffersFromReference(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	dst := make([]byte, 4096)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(dst, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame {
+		t.Fatalf("second frame KeyFrame = false, want keyframe fallback")
+	}
+}
+
 func TestEncoderHotPathAllocs(t *testing.T) {
 	e := newTestEncoder(t)
 	dst := make([]byte, 1)

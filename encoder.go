@@ -166,7 +166,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 
-	keyFrame := true
+	keyFrame := e.shouldEncodeKeyFrame(src, flags)
 
 	result := EncodeResult{
 		KeyFrame:          keyFrame,
@@ -181,6 +181,19 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
 	required := rows * cols
+	if !keyFrame {
+		n, err := vp8enc.WriteZeroInterFrame(dst, e.opts.Width, e.opts.Height, vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer)))
+		if err != nil {
+			return EncodeResult{}, translateEncoderError(err)
+		}
+		e.refreshZeroInterFrameReferences()
+		result.Data = dst[:n]
+		result.SizeBytes = n
+		e.forceKeyFrame = false
+		e.frameCount++
+		return result, nil
+	}
+
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return EncodeResult{}, ErrInvalidConfig
 	}
@@ -208,6 +221,16 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.forceKeyFrame = false
 	e.frameCount++
 	return result, nil
+}
+
+func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
+	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
+		return true
+	}
+	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
+		return true
+	}
+	return !sourceMatchesReference(src, &e.lastRef.Img)
 }
 
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
@@ -440,6 +463,13 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.goldenRef.ExtendBorders()
 	copyFrameImage(&e.altRef.Img, &e.current.Img)
 	e.altRef.ExtendBorders()
+}
+
+func (e *VP8Encoder) refreshZeroInterFrameReferences() {
+	copyFrameImage(&e.current.Img, &e.lastRef.Img)
+	e.current.ExtendBorders()
+	copyFrameImage(&e.lastRef.Img, &e.current.Img)
+	e.lastRef.ExtendBorders()
 }
 
 func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {

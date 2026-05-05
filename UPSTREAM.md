@@ -58,7 +58,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, and keyframe state primitives scaffolded |
-| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, forward transforms, and fast block quantization scaffolded |
+| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, zero-residual LAST/ZEROMV interframes, forward transforms, and fast block quantization scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations
@@ -66,7 +66,8 @@ grant. This repository keeps libvpx license and patent notices in
 - `Decode` and `DecodeInto` can expose narrow supported-version keyframe and
   inter-frame scaffolds, but error concealment, post-processing, and many VP8
   features still return `ErrUnsupportedFeature`.
-- `EncodeInto` can emit source-dependent DCPred intra-only keyframes with
-  keyframe reference refresh, but full prediction mode analysis, interframes,
-  and rate-control feedback are not complete yet.
+- `EncodeInto` can emit source-dependent DCPred keyframes and zero-residual
+  LAST/ZEROMV interframes for reconstructed reference repeats, but full
+  prediction mode analysis, residual interframes, and rate-control feedback are
+  not complete yet.
 - The package exposes a small Go API, not the libvpx C API.

@@ -65,14 +65,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
-	oracle := os.Getenv("LIBGOPX_ORACLE")
-	if oracle == "" {
-		path, err := exec.LookPath("gopx-vpx-oracle")
-		if err != nil {
-			t.Skip("set LIBGOPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
-		}
-		oracle = path
-	}
+	oracle := findChecksumOracle(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
@@ -115,12 +108,60 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+	inter, err := e.EncodeInto(interPacket, reconstructed, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != 2 {
+		t.Fatalf("oracle frame count = %d, want 2", len(oracleFrames))
+	}
+	want := []testutil.FrameChecksum{
+		checksumFrame(0, true, true, reconstructed),
+		checksumFrame(1, false, true, reconstructed),
+	}
+	for i := range want {
+		if !testutil.SameFrameChecksum(oracleFrames[i], want[i]) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want[i]))
+		}
+	}
+}
+
 func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []byte) []byte {
+	return makeIVF(width, height, den, num, [][]byte{frame})
+}
+
+func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []byte {
 	const (
 		fileHeaderSize  = 32
 		frameHeaderSize = 12
 	)
-	out := make([]byte, fileHeaderSize+frameHeaderSize+len(frame))
+	size := fileHeaderSize
+	for _, frame := range frames {
+		size += frameHeaderSize + len(frame)
+	}
+	out := make([]byte, size)
 	copy(out[0:4], []byte("DKIF"))
 	binary.LittleEndian.PutUint16(out[4:6], 0)
 	binary.LittleEndian.PutUint16(out[6:8], fileHeaderSize)
@@ -129,10 +170,28 @@ func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []b
 	binary.LittleEndian.PutUint16(out[14:16], uint16(height))
 	binary.LittleEndian.PutUint32(out[16:20], den)
 	binary.LittleEndian.PutUint32(out[20:24], num)
-	binary.LittleEndian.PutUint32(out[24:28], 1)
-	binary.LittleEndian.PutUint32(out[fileHeaderSize:fileHeaderSize+4], uint32(len(frame)))
-	copy(out[fileHeaderSize+frameHeaderSize:], frame)
+	binary.LittleEndian.PutUint32(out[24:28], uint32(len(frames)))
+	offset := fileHeaderSize
+	for i, frame := range frames {
+		binary.LittleEndian.PutUint32(out[offset:offset+4], uint32(len(frame)))
+		binary.LittleEndian.PutUint64(out[offset+4:offset+12], uint64(i))
+		copy(out[offset+frameHeaderSize:], frame)
+		offset += frameHeaderSize + len(frame)
+	}
 	return out
+}
+
+func findChecksumOracle(t *testing.T) string {
+	t.Helper()
+	oracle := os.Getenv("LIBGOPX_ORACLE")
+	if oracle != "" {
+		return oracle
+	}
+	path, err := exec.LookPath("gopx-vpx-oracle")
+	if err != nil {
+		t.Skip("set LIBGOPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
+	}
+	return path
 }
 
 func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil.FrameChecksum {
