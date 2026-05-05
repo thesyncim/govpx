@@ -90,7 +90,10 @@ func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 }
 
 func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
-	modes := []InterFrameMacroblockMode{{MBSkipCoeff: false}, {MBSkipCoeff: true}}
+	modes := []InterFrameMacroblockMode{
+		{Mode: common.ZeroMV, MBSkipCoeff: false},
+		{Mode: common.ZeroMV, MBSkipCoeff: true},
+	}
 	coeffs := make([]MacroblockCoefficients, 2)
 	coeffs[0].QCoeff[24][0] = 1
 	packet := make([]byte, 512)
@@ -134,6 +137,31 @@ func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesNewMV(t *testing.T) {
+	modes := []InterFrameMacroblockMode{{Mode: common.NewMV, MV: MotionVector{Col: -8}, MBSkipCoeff: true}}
+	coeffs := make([]MacroblockCoefficients, 1)
+	packet := make([]byte, 512)
+	above := make([]TokenContextPlanes, 1)
+	n, err := WriteCoefficientInterFrame(packet, 16, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, 1)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 1, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	if decodedModes[0].Mode != common.NewMV || decodedModes[0].MV != (vp8dec.MotionVector{Col: -8}) || !decodedModes[0].MBSkipCoeff {
+		t.Fatalf("mode = %+v, want skipped NEWMV col -8", decodedModes[0])
+	}
+}
+
 func TestWriteZeroInterFrameRejectsUnsupportedConfig(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.MBNoCoeffSkip = false
@@ -156,7 +184,7 @@ func TestWriteZeroInterFrameAllocatesZero(t *testing.T) {
 
 func TestWriteCoefficientInterFrameAllocatesZero(t *testing.T) {
 	dst := make([]byte, 512)
-	modes := []InterFrameMacroblockMode{{MBSkipCoeff: false}}
+	modes := []InterFrameMacroblockMode{{Mode: common.ZeroMV, MBSkipCoeff: false}}
 	coeffs := make([]MacroblockCoefficients, 1)
 	coeffs[0].QCoeff[24][0] = 1
 	above := make([]TokenContextPlanes, 1)

@@ -129,6 +129,8 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 
 type InterFrameMacroblockMode struct {
 	MBSkipCoeff bool
+	Mode        common.MBPredictionMode
+	MV          MotionVector
 }
 
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
@@ -215,7 +217,11 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	}
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
-			mode := modes[row*cols+col]
+			index := row*cols + col
+			mode := &modes[index]
+			if !validInterFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
 			if mode.MBSkipCoeff {
 				w.WriteBool(1, cfg.ProbSkipFalse)
 			} else {
@@ -223,14 +229,147 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			}
 			w.WriteBool(1, cfg.ProbIntra)
 			w.WriteBool(0, cfg.ProbLast)
-			counts := zeroMVInterModeCounts(row, col)
-			w.WriteBool(0, tables.InterModeContexts[counts][0])
+			var above *InterFrameMacroblockMode
+			var left *InterFrameMacroblockMode
+			var aboveLeft *InterFrameMacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			if row > 0 && col > 0 {
+				aboveLeft = &modes[index-cols-1]
+			}
+			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft), mode.Mode) {
+				return ErrInvalidPacketConfig
+			}
+			if mode.Mode == common.NewMV {
+				best := interBestMotionVector(above, left, aboveLeft)
+				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
+				if err := WriteMotionVector(w, &tables.DefaultMVContext, delta); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if w.Err() != nil {
 		return w.Err()
 	}
 	return nil
+}
+
+func WriteInterPredictionMode(w *BoolWriter, counts InterModeCounts, mode common.MBPredictionMode) bool {
+	switch mode {
+	case common.ZeroMV:
+		w.WriteBool(0, tables.InterModeContexts[counts.Intra][0])
+	case common.NearestMV:
+		w.WriteBool(1, tables.InterModeContexts[counts.Intra][0])
+		w.WriteBool(0, tables.InterModeContexts[counts.Nearest][1])
+	case common.NearMV:
+		w.WriteBool(1, tables.InterModeContexts[counts.Intra][0])
+		w.WriteBool(1, tables.InterModeContexts[counts.Nearest][1])
+		w.WriteBool(0, tables.InterModeContexts[counts.Near][2])
+	case common.NewMV:
+		w.WriteBool(1, tables.InterModeContexts[counts.Intra][0])
+		w.WriteBool(1, tables.InterModeContexts[counts.Nearest][1])
+		w.WriteBool(1, tables.InterModeContexts[counts.Near][2])
+		w.WriteBool(0, tables.InterModeContexts[counts.Split][3])
+	default:
+		return false
+	}
+	return w.Err() == nil
+}
+
+type InterModeCounts struct {
+	Intra   uint8
+	Nearest uint8
+	Near    uint8
+	Split   uint8
+}
+
+func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterModeCounts {
+	_, _, _, counts := findNearInterMotionVectors(above, left, aboveLeft)
+	return counts
+}
+
+func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) MotionVector {
+	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft)
+	return best
+}
+
+func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
+	var nearMVs [4]MotionVector
+	var counts [4]uint8
+	mvIndex := 0
+	countIndex := 0
+
+	if above != nil {
+		if !above.MV.IsZero() {
+			mvIndex++
+			nearMVs[mvIndex] = above.MV
+			countIndex++
+		}
+		counts[countIndex] += 2
+	}
+	if left != nil {
+		if !left.MV.IsZero() {
+			if left.MV != nearMVs[mvIndex] {
+				mvIndex++
+				nearMVs[mvIndex] = left.MV
+				countIndex++
+			}
+			counts[countIndex] += 2
+		} else {
+			counts[0] += 2
+		}
+	}
+	if aboveLeft != nil {
+		if !aboveLeft.MV.IsZero() {
+			if aboveLeft.MV != nearMVs[mvIndex] {
+				mvIndex++
+				nearMVs[mvIndex] = aboveLeft.MV
+				countIndex++
+			}
+			counts[countIndex]++
+		} else {
+			counts[0]++
+		}
+	}
+	if counts[3] != 0 && nearMVs[mvIndex] == nearMVs[1] {
+		counts[1]++
+	}
+	if counts[2] > counts[1] {
+		counts[1], counts[2] = counts[2], counts[1]
+		nearMVs[1], nearMVs[2] = nearMVs[2], nearMVs[1]
+	}
+	if counts[1] >= counts[0] {
+		nearMVs[0] = nearMVs[1]
+	}
+	return nearMVs[1], nearMVs[2], nearMVs[0], InterModeCounts{
+		Intra:   counts[0],
+		Nearest: counts[1],
+		Near:    counts[2],
+		Split:   0,
+	}
+}
+
+func (mv MotionVector) IsZero() bool {
+	return mv.Row == 0 && mv.Col == 0
+}
+
+func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode) bool {
+	if mode == nil {
+		return false
+	}
+	switch mode.Mode {
+	case common.ZeroMV:
+		return mode.MV.IsZero()
+	case common.NewMV:
+		return true
+	default:
+		return false
+	}
 }
 
 func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {

@@ -4,9 +4,10 @@
 v1.16.0 and structured for a small Go-style API.
 
 Current status: active VP8 scalar port in progress. Decoder and encoder paths
-support a growing subset of VP8, including source-dependent DCPred keyframes and
-LAST/ZEROMV interframes with residual coding against the reconstructed last
-reference, but production conformance is not complete yet.
+support a growing subset of VP8, including source-dependent DCPred keyframes,
+LAST/ZEROMV residual interframes, and simple full-pixel NEWMV interframes
+against the reconstructed last reference, but production conformance is not
+complete yet.
 
 Out of scope:
 

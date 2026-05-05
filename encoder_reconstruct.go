@@ -62,10 +62,20 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
-			buildDCPredMacroblockCoefficients(src, row, col, &e.lastRef.Img, &quant, &coeffs[index])
-			modes[index] = vp8enc.InterFrameMacroblockMode{
-				MBSkipCoeff: macroblockCoefficientsEmpty(&coeffs[index]),
+			mv := selectLastFrameMotionVector(src, &e.lastRef.Img, row, col)
+			modes[index] = vp8enc.InterFrameMacroblockMode{Mode: vp8common.ZeroMV}
+			if mv != (vp8enc.MotionVector{}) {
+				modes[index].Mode = vp8common.NewMV
+				modes[index].MV = mv
 			}
+			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+			predMode := e.reconstructModes[index]
+			predMode.MBSkipCoeff = true
+			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, &e.lastRef.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+				return ErrInvalidConfig
+			}
+			buildDCPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
+			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index])
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], false, &e.reconstructTokens[index])
 			if !reconstructInterAnalysisMacroblock(&e.analysis.Img, &e.lastRef.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
@@ -75,6 +85,50 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	}
 	e.analysis.ExtendBorders()
 	return nil
+}
+
+var lastFrameMVCandidates = [...]vp8enc.MotionVector{
+	{},
+	{Col: -8},
+	{Col: 8},
+	{Row: -8},
+	{Row: 8},
+}
+
+func selectLastFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) vp8enc.MotionVector {
+	best := vp8enc.MotionVector{}
+	bestSAD := macroblockSAD(src, ref, mbRow, mbCol, best)
+	for i := 1; i < len(lastFrameMVCandidates); i++ {
+		mv := lastFrameMVCandidates[i]
+		sad := macroblockSAD(src, ref, mbRow, mbCol, mv)
+		if sad < bestSAD {
+			best = mv
+			bestSAD = sad
+		}
+	}
+	return best
+}
+
+func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
+	sad := 0
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	mvY := int(mv.Row >> 3)
+	mvX := int(mv.Col >> 3)
+	for row := 0; row < 16; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(baseY+row+mvY, ref.CodedHeight)
+		for col := 0; col < 16; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(baseX+col+mvX, ref.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+	}
+	return sad
 }
 
 func buildDCPredMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients) {
@@ -166,6 +220,9 @@ func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, 
 }
 
 func clampEncodeCoord(v int, limit int) int {
+	if v < 0 {
+		return 0
+	}
 	if v >= limit {
 		return limit - 1
 	}

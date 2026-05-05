@@ -534,7 +534,8 @@ func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.Macrobl
 func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
 		RefFrame:    vp8common.LastFrame,
-		Mode:        vp8common.ZeroMV,
+		Mode:        src.Mode,
+		MV:          vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col},
 		MBSkipCoeff: src.MBSkipCoeff,
 	}
 }

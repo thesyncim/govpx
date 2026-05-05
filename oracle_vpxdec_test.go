@@ -187,6 +187,50 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newSizedTestEncoder(t, 32, 16)
+	first := testImage(32, 16)
+	fillImage(first, 0, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 0; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = byte(32 + col*5)
+		}
+	}
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	shifted := shiftImageRightOne(reconstructed)
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, shifted, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want NEWMV interframe")
+	}
+
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []byte) []byte {
 	return makeIVF(width, height, den, num, [][]byte{frame})
 }

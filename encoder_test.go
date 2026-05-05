@@ -3,6 +3,9 @@ package libgopx
 import (
 	"errors"
 	"testing"
+
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
 func TestNewVP8EncoderValidation(t *testing.T) {
@@ -263,6 +266,36 @@ func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *tes
 	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	first := testImage(32, 16)
+	fillImage(first, 0, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 0; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = byte(32 + col*5)
+		}
+	}
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	shifted := shiftImageRightOne(reconstructed)
+	interPacket := make([]byte, 8192)
+
+	inter, err := e.EncodeInto(interPacket, shifted, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	if e.interFrameModes[0].Mode != vp8common.NewMV || e.interFrameModes[0].MV != (vp8enc.MotionVector{Col: -8}) {
+		t.Fatalf("mode[0] = %+v, want NEWMV col -8", e.interFrameModes[0])
+	}
+}
+
 func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
@@ -414,6 +447,21 @@ func fillImage(img Image, y byte, u byte, v byte) {
 	for i := range img.V {
 		img.V[i] = v
 	}
+}
+
+func shiftImageRightOne(src Image) Image {
+	dst := testImage(src.Width, src.Height)
+	for row := 0; row < src.Height; row++ {
+		dst.Y[row*dst.YStride] = src.Y[row*src.YStride]
+		for col := 1; col < src.Width; col++ {
+			dst.Y[row*dst.YStride+col] = src.Y[row*src.YStride+col-1]
+		}
+	}
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	return dst
 }
 
 func decodeSingleFrame(t *testing.T, packet []byte) Image {
