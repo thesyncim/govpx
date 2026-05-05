@@ -1,7 +1,10 @@
 package libgopx
 
-import vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
-import vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+import (
+	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+)
 
 type DecoderOptions struct {
 	Threads int
@@ -40,8 +43,11 @@ type VP8Decoder struct {
 	modes              []vp8dec.MacroblockMode
 	tokens             []vp8dec.MacroblockTokens
 	tokenAbove         []vp8dec.EntropyContextPlanes
+	frameHeader        vp8dec.FrameHeader
 	previousQuant      vp8dec.QuantHeader
 	state              vp8dec.StateHeader
+	partitions         vp8dec.PartitionLayout
+	tokenReaders       [8]boolcoder.Decoder
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
@@ -162,6 +168,8 @@ func (d *VP8Decoder) Reset() {
 	d.initialized = false
 	d.previousQuant = vp8dec.QuantHeader{}
 	d.state = vp8dec.StateHeader{}
+	d.frameHeader = vp8dec.FrameHeader{}
+	d.partitions = vp8dec.PartitionLayout{}
 }
 
 func (d *VP8Decoder) Close() error {
@@ -233,11 +241,22 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 }
 
 func (d *VP8Decoder) parseState(packet []byte) error {
-	_, state, err := vp8dec.ParseStateHeader(packet, d.previousQuant)
+	frame, state, err := vp8dec.ParseStateHeader(packet, d.previousQuant)
 	if err != nil {
 		return ErrInvalidData
 	}
+	var partitions vp8dec.PartitionLayout
+	if err := vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &partitions); err != nil {
+		return ErrInvalidData
+	}
+	for i := 0; i < partitions.TokenCount; i++ {
+		if err := d.tokenReaders[i].Init(partitions.Tokens[i]); err != nil {
+			return ErrInvalidData
+		}
+	}
+	d.frameHeader = frame
 	d.state = state
+	d.partitions = partitions
 	d.previousQuant = state.Quant
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil

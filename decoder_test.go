@@ -86,6 +86,39 @@ func TestDecodeParsesStateAndInitializesDequants(t *testing.T) {
 	}
 }
 
+func TestDecodeParsesPartitionLayout(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+
+	if d.partitions.TokenCount != 1 || len(d.partitions.First) != 200 || len(d.partitions.Tokens[0]) != 1 {
+		t.Fatalf("partition layout = first:%d tokenCount:%d token0:%d, want 200/1/1", len(d.partitions.First), d.partitions.TokenCount, len(d.partitions.Tokens[0]))
+	}
+	if d.frameHeader.FirstPartitionSize != 200 {
+		t.Fatalf("frame first partition = %d, want 200", d.frameHeader.FirstPartitionSize)
+	}
+}
+
+func TestDecodeRejectsMissingTokenPartition(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacket(16, 16, 200, 0, true)
+	packet = append(packet, make([]byte, 200)...)
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("Decode error = %v, want ErrInvalidData", err)
+	}
+}
+
 func TestDecodeRejectsTruncatedStateHeader(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
