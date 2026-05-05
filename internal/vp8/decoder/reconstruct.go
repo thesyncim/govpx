@@ -8,6 +8,7 @@ import (
 // Ported from libvpx v1.16.0:
 // - vp8/decoder/decodeframe.c macroblock inverse transform setup
 // - vp8/common/invtrans.h inverse-transform dispatch
+// - vp8/common/setupintrarecon.c intra edge setup
 
 type MacroblockResidual struct {
 	DQCoeff [25 * 16]int16
@@ -29,8 +30,49 @@ type IntraPredictorRefs struct {
 	LeftAvailable bool
 }
 
+type IntraPredictorScratch struct {
+	YAbove [20]byte
+	YLeft  [16]byte
+	UAbove [8]byte
+	ULeft  [8]byte
+	VAbove [8]byte
+	VLeft  [8]byte
+}
+
 func (r *MacroblockResidual) Block(index int) *[16]int16 {
 	return (*[16]int16)(r.DQCoeff[index*16 : index*16+16])
+}
+
+func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *IntraPredictorScratch) IntraPredictorRefs {
+	yRow := mbRow * 16
+	yCol := mbCol * 16
+	uvRow := mbRow * 8
+	uvCol := mbCol * 8
+	upAvailable := mbRow > 0
+	leftAvailable := mbCol > 0
+
+	buildAbove(scratch.YAbove[:], img.Y, img.YStride, img.Width, yRow, yCol, upAvailable)
+	buildLeft(scratch.YLeft[:], img.Y, img.YStride, img.Height, yRow, yCol, leftAvailable)
+	uvWidth := (img.Width + 1) >> 1
+	uvHeight := (img.Height + 1) >> 1
+	buildAbove(scratch.UAbove[:], img.U, img.UStride, uvWidth, uvRow, uvCol, upAvailable)
+	buildLeft(scratch.ULeft[:], img.U, img.UStride, uvHeight, uvRow, uvCol, leftAvailable)
+	buildAbove(scratch.VAbove[:], img.V, img.VStride, uvWidth, uvRow, uvCol, upAvailable)
+	buildLeft(scratch.VLeft[:], img.V, img.VStride, uvHeight, uvRow, uvCol, leftAvailable)
+
+	return IntraPredictorRefs{
+		YAbove:        scratch.YAbove[:],
+		YLeft:         scratch.YLeft[:],
+		UAbove:        scratch.UAbove[:],
+		ULeft:         scratch.ULeft[:],
+		VAbove:        scratch.VAbove[:],
+		VLeft:         scratch.VLeft[:],
+		YTopLeft:      topLeftSample(img.Y, img.YStride, yRow, yCol, upAvailable, leftAvailable),
+		UTopLeft:      topLeftSample(img.U, img.UStride, uvRow, uvCol, upAvailable, leftAvailable),
+		VTopLeft:      topLeftSample(img.V, img.VStride, uvRow, uvCol, upAvailable, leftAvailable),
+		UpAvailable:   upAvailable,
+		LeftAvailable: leftAvailable,
+	}
 }
 
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
@@ -192,6 +234,50 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
 	for i := 0; i < 16; i++ {
 		out[i] += qcoeff[i] * dequant[i]
 	}
+}
+
+func buildAbove(out []byte, plane []byte, stride int, width int, row int, col int, available bool) {
+	if !available {
+		for i := range out {
+			out[i] = 127
+		}
+		return
+	}
+	src := (row-1)*stride + col
+	for i := range out {
+		if col+i < width {
+			out[i] = plane[src+i]
+		} else {
+			out[i] = 127
+		}
+	}
+}
+
+func buildLeft(out []byte, plane []byte, stride int, height int, row int, col int, available bool) {
+	if !available {
+		for i := range out {
+			out[i] = 129
+		}
+		return
+	}
+	src := row*stride + col - 1
+	for i := range out {
+		if row+i < height {
+			out[i] = plane[src+i*stride]
+		} else {
+			out[i] = 129
+		}
+	}
+}
+
+func topLeftSample(plane []byte, stride int, row int, col int, upAvailable bool, leftAvailable bool) byte {
+	if !upAvailable {
+		return 127
+	}
+	if !leftAvailable {
+		return 129
+	}
+	return plane[(row-1)*stride+col-1]
 }
 
 func predictIntraY4x4Block(mode common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, block int) bool {
