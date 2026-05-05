@@ -72,6 +72,14 @@
       "sha256": "828ec9e7a0e168aa4cb445a9d420271987ac8cf99c14812dc2eaa696e4d41559"
     },
     {
+      "path": "vp8/decoder/treereader.h",
+      "sha256": "b5b8227e322c342ff224a432f1c6da7f62b16c68349f21931c08371ece4545f4"
+    },
+    {
+      "path": "vp8/common/treecoder.h",
+      "sha256": "bb478e554f554078a2c41400694be5eae022fb9163e2cd72a091720eba056f24"
+    },
+    {
       "path": "vp8/vp8_dx_iface.c",
       "sha256": "583db9b3a0a5515aa8830a6140fbae52761210496a88688ba2a0302743b49ea5"
     }
