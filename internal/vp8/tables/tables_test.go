@@ -57,6 +57,12 @@ func TestModeTableSentinels(t *testing.T) {
 	if sumU8(DefaultBModeProbs[:]) != 936 {
 		t.Fatalf("B mode probability checksum changed")
 	}
+	if sumKeyFrameBModeProbs() != 77557 {
+		t.Fatalf("KeyFrameBModeProbs checksum changed")
+	}
+	if KeyFrameBModeProbs[0][0][0] != 231 || KeyFrameBModeProbs[9][9][8] != 24 {
+		t.Fatalf("KeyFrameBModeProbs sentinels changed")
+	}
 	if sumU8(MBSplits[0][:]) != 8 || sumU8(MBSplits[3][:]) != 120 {
 		t.Fatalf("MBSplits checksums changed")
 	}
@@ -177,6 +183,18 @@ func sumDefaultCoefProbs() int {
 				for _, v := range DefaultCoefProbs[block][band][ctx] {
 					sum += int(v)
 				}
+			}
+		}
+	}
+	return sum
+}
+
+func sumKeyFrameBModeProbs() int {
+	sum := 0
+	for above := range KeyFrameBModeProbs {
+		for left := range KeyFrameBModeProbs[above] {
+			for _, v := range KeyFrameBModeProbs[above][left] {
+				sum += int(v)
 			}
 		}
 	}
