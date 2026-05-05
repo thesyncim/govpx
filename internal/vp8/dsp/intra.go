@@ -1,0 +1,110 @@
+package dsp
+
+// Ported from libvpx v1.16.0 vpx_dsp/intrapred.c and
+// vp8/common/reconintra.c.
+
+func IntraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
+	intraDCPredict(dst, dstStride, above, left, 16, upAvailable, leftAvailable)
+}
+
+func IntraDCPredict8x8(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
+	intraDCPredict(dst, dstStride, above, left, 8, upAvailable, leftAvailable)
+}
+
+func IntraVerticalPredict16x16(dst []byte, dstStride int, above []byte) {
+	intraVerticalPredict(dst, dstStride, above, 16)
+}
+
+func IntraVerticalPredict8x8(dst []byte, dstStride int, above []byte) {
+	intraVerticalPredict(dst, dstStride, above, 8)
+}
+
+func IntraHorizontalPredict16x16(dst []byte, dstStride int, left []byte) {
+	intraHorizontalPredict(dst, dstStride, left, 16)
+}
+
+func IntraHorizontalPredict8x8(dst []byte, dstStride int, left []byte) {
+	intraHorizontalPredict(dst, dstStride, left, 8)
+}
+
+func IntraTMPredict16x16(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intraTMPredict(dst, dstStride, above, left, topLeft, 16)
+}
+
+func IntraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intraTMPredict(dst, dstStride, above, left, topLeft, 8)
+}
+
+func intraDCPredict(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) {
+	dc := 128
+
+	if upAvailable && leftAvailable {
+		sum := 0
+		for i := 0; i < size; i++ {
+			sum += int(above[i]) + int(left[i])
+		}
+		dc = (sum + size) / (2 * size)
+	} else if upAvailable {
+		sum := 0
+		for i := 0; i < size; i++ {
+			sum += int(above[i])
+		}
+		dc = (sum + (size >> 1)) / size
+	} else if leftAvailable {
+		sum := 0
+		for i := 0; i < size; i++ {
+			sum += int(left[i])
+		}
+		dc = (sum + (size >> 1)) / size
+	}
+
+	fillBlock(dst, dstStride, size, byte(dc))
+}
+
+func intraVerticalPredict(dst []byte, dstStride int, above []byte, size int) {
+	_ = above[size-1]
+	_ = dst[(size-1)*dstStride+size-1]
+
+	for y := 0; y < size; y++ {
+		copy(dst[y*dstStride:y*dstStride+size], above[:size])
+	}
+}
+
+func intraHorizontalPredict(dst []byte, dstStride int, left []byte, size int) {
+	_ = left[size-1]
+	_ = dst[(size-1)*dstStride+size-1]
+
+	for y := 0; y < size; y++ {
+		row := y * dstStride
+		v := left[y]
+		for x := 0; x < size; x++ {
+			dst[row+x] = v
+		}
+	}
+}
+
+func intraTMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte, size int) {
+	_ = above[size-1]
+	_ = left[size-1]
+	_ = dst[(size-1)*dstStride+size-1]
+
+	base := int(topLeft)
+	for y := 0; y < size; y++ {
+		row := y * dstStride
+		leftDelta := int(left[y]) - base
+		for x := 0; x < size; x++ {
+			dst[row+x] = ClipPixel(leftDelta + int(above[x]))
+		}
+	}
+}
+
+func fillBlock(dst []byte, dstStride int, size int, v byte) {
+	_ = dst[(size-1)*dstStride+size-1]
+
+	for y := 0; y < size; y++ {
+		row := y * dstStride
+		for x := 0; x < size; x++ {
+			dst[row+x] = v
+		}
+	}
+}

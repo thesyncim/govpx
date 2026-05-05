@@ -23,8 +23,8 @@ The intended VP8-only porting scope is:
 - `vpx_scale/`
 - `vpx_util/`
 
-The current repository contains only API scaffolding and metadata. No libvpx C
-algorithms have been ported yet.
+The current repository contains public API scaffolding, upstream metadata,
+internal parser/state scaffolding, and initial scalar VP8 algorithm ports.
 
 ## Excluded Scope
 
@@ -53,7 +53,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
 | Decoder state and reconstruction | state headers scaffolded; reconstruction not started |
 | Token and mode parsing | tree reader scaffolded |
-| Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, IDCT4x4, and IWHT4x4 primitives scaffolded |
+| Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, IDCT4x4, IWHT4x4, and 16x16/8x8 intra predictors scaffolded |
 | Loop filter | not started |
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded |

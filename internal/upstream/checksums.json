@@ -76,6 +76,14 @@
       "sha256": "382e2eef893d2eda4fc158e09353c13b23c8bfb4e0c725f0e7b1615fbf8bc7d9"
     },
     {
+      "path": "vp8/common/reconintra.c",
+      "sha256": "3a14f08fc0674ccfa092043fdcf5804ae7dbc8fcd5e393fbd25afc5dbe3b1e9a"
+    },
+    {
+      "path": "vpx_dsp/intrapred.c",
+      "sha256": "a12832eeaf5c74b765d001f278f02698b435baad64b486522ab80de269968cea"
+    },
+    {
       "path": "vpx_dsp/vpx_dsp_common.h",
       "sha256": "2c33e52935eefc7a2aa72ee04e2e235b25d64c7fa06ea51215ee2bcc6baf2893"
     },
