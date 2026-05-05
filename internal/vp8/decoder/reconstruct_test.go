@@ -683,6 +683,68 @@ func TestReconstructKeyFrameIntraGridAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestReconstructInterFrameGridCopiesLastZeroMV(t *testing.T) {
+	img := blankImage(16, 16)
+	last := testImage(16, 16)
+	golden := blankImage(16, 16)
+	alt := blankImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch MacroblockResidual
+
+	if err := ReconstructInterFrameGrid(&img, &last, &golden, &alt, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			if got, want := img.Y[row*img.YStride+col], last.Y[row*last.YStride+col]; got != want {
+				t.Fatalf("Y[%d,%d] = %d, want last %d", row, col, got, want)
+			}
+		}
+	}
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			if got, want := img.U[row*img.UStride+col], last.U[row*last.UStride+col]; got != want {
+				t.Fatalf("U[%d,%d] = %d, want last %d", row, col, got, want)
+			}
+			if got, want := img.V[row*img.VStride+col], last.V[row*last.VStride+col]; got != want {
+				t.Fatalf("V[%d,%d] = %d, want last %d", row, col, got, want)
+			}
+		}
+	}
+}
+
+func TestReconstructInterFrameGridRejectsUnsupportedMode(t *testing.T) {
+	img := blankImage(16, 16)
+	ref := testImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 2}}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch MacroblockResidual
+
+	err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
+	if err != ErrUnsupportedInterReconstructionMode {
+		t.Fatalf("error = %v, want ErrUnsupportedInterReconstructionMode", err)
+	}
+}
+
+func TestReconstructInterFrameGridAllocatesZero(t *testing.T) {
+	img := blankImage(16, 16)
+	ref := testImage(16, 16)
+	modes := []MacroblockMode{{Mode: common.ZeroMV, RefFrame: common.LastFrame}}
+	tokens := []MacroblockTokens{{}}
+	dequants := testMacroblockDequants()
+	var scratch MacroblockResidual
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {

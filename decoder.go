@@ -1,6 +1,8 @@
 package libgopx
 
 import (
+	"errors"
+
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
@@ -150,7 +152,8 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.validateStreamInfo(info); err != nil {
 		return FrameInfo{}, err
 	}
-	if info.KeyFrame && !dst.validForEncode(info.Width, info.Height) {
+	outputWidth, outputHeight := d.outputDimensions(info)
+	if !dst.validForEncode(outputWidth, outputHeight) {
 		return FrameInfo{}, ErrInvalidConfig
 	}
 	if err := d.parseState(packet); err != nil {
@@ -248,9 +251,10 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 	if info.KeyFrame {
 		d.needKey = false
 	}
+	width, height := d.outputDimensions(info)
 	frameInfo := FrameInfo{
-		Width:     info.Width,
-		Height:    info.Height,
+		Width:     width,
+		Height:    height,
 		KeyFrame:  info.KeyFrame,
 		ShowFrame: info.ShowFrame,
 		PTS:       pts,
@@ -260,9 +264,15 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 }
 
 func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
-	return info.KeyFrame &&
-		info.ShowFrame &&
+	return info.ShowFrame &&
 		info.Profile == 0
+}
+
+func (d *VP8Decoder) outputDimensions(info StreamInfo) (int, int) {
+	if info.KeyFrame {
+		return info.Width, info.Height
+	}
+	return d.frameWidth, d.frameHeight
 }
 
 func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
@@ -363,13 +373,21 @@ func (d *VP8Decoder) decodeTokenGrid() error {
 }
 
 func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
-	if !info.KeyFrame {
-		return ErrUnsupportedFeature
+	frameType := vp8common.KeyFrame
+	if info.KeyFrame {
+		if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
+			return ErrInvalidData
+		}
+	} else {
+		frameType = vp8common.InterFrame
+		if err := vp8dec.ReconstructInterFrameGrid(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch.Residual); err != nil {
+			if errors.Is(err, vp8dec.ErrUnsupportedInterReconstructionMode) {
+				return ErrUnsupportedFeature
+			}
+			return ErrInvalidData
+		}
 	}
-	if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
-		return ErrInvalidData
-	}
-	if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, vp8common.KeyFrame, d.state.LoopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
+	if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, d.state.LoopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
 		return ErrInvalidData
 	}
 	d.current.ExtendBorders()

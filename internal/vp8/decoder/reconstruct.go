@@ -15,6 +15,7 @@ import (
 var (
 	ErrReconstructGridBufferTooSmall      = errors.New("libgopx: VP8 reconstruction grid buffer too small")
 	ErrUnsupportedIntraReconstructionMode = errors.New("libgopx: unsupported VP8 intra reconstruction mode")
+	ErrUnsupportedInterReconstructionMode = errors.New("libgopx: unsupported VP8 inter reconstruction mode")
 )
 
 type MacroblockResidual struct {
@@ -246,6 +247,77 @@ func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes [
 		}
 	}
 	return nil
+}
+
+func ReconstructInterFrameGrid(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, rows int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *MacroblockResidual) error {
+	if rows < 0 || cols < 0 {
+		return ErrReconstructGridBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrReconstructGridBufferTooSmall
+	}
+	required := rows * cols
+	if img == nil || last == nil || golden == nil || alt == nil || dequants == nil || scratch == nil || len(modes) < required || len(tokens) < required {
+		return ErrReconstructGridBufferTooSmall
+	}
+	if !imageHasMacroblockGrid(img, rows, cols) || !imageHasMacroblockGrid(last, rows, cols) || !imageHasMacroblockGrid(golden, rows, cols) || !imageHasMacroblockGrid(alt, rows, cols) {
+		return ErrReconstructGridBufferTooSmall
+	}
+
+	for row := 0; row < rows; row++ {
+		yRow := row * 16 * img.YStride
+		uRow := row * 8 * img.UStride
+		vRow := row * 8 * img.VStride
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if mode.SegmentID >= common.MaxMBSegments {
+				return ErrUnsupportedInterReconstructionMode
+			}
+			ref := referenceImageForMode(mode.RefFrame, last, golden, alt)
+			if ref == nil {
+				return ErrUnsupportedInterReconstructionMode
+			}
+			yOff := yRow + col*16
+			uOff := uRow + col*8
+			vOff := vRow + col*8
+			if !ReconstructZeroMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, scratch, row, col) {
+				return ErrUnsupportedInterReconstructionMode
+			}
+		}
+	}
+	return nil
+}
+
+func ReconstructZeroMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+	if mode.RefFrame == common.IntraFrame || mode.Mode != common.ZeroMV || mode.Is4x4 || !mode.MV.IsZero() {
+		return false
+	}
+	yRef := mbRow*16*ref.YStride + mbCol*16
+	uRef := mbRow*8*ref.UStride + mbCol*8
+	vRef := mbRow*8*ref.VStride + mbCol*8
+	dsp.Copy16x16(ref.Y[yRef:], ref.YStride, y, yStride)
+	dsp.Copy8x8(ref.U[uRef:], ref.UStride, u, uStride)
+	dsp.Copy8x8(ref.V[vRef:], ref.VStride, v, vStride)
+	if mode.MBSkipCoeff {
+		return true
+	}
+	TransformMacroblockTokens(tokens, dequant, false, scratch)
+	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
+	return true
+}
+
+func referenceImageForMode(refFrame common.MVReferenceFrame, last *common.Image, golden *common.Image, alt *common.Image) *common.Image {
+	switch refFrame {
+	case common.LastFrame:
+		return last
+	case common.GoldenFrame:
+		return golden
+	case common.AltRefFrame:
+		return alt
+	default:
+		return nil
+	}
 }
 
 func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, refs IntraPredictorRefs, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual) bool {

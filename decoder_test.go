@@ -529,11 +529,12 @@ func TestDecodeParsesInterModeGrid(t *testing.T) {
 	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
+	fillVP8Image(&d.lastRef.Img, 77)
 	packet := vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())
 
 	err = d.Decode(packet)
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("inter Decode error = %v, want ErrUnsupportedFeature", err)
+	if err != nil {
+		t.Fatalf("inter Decode error = %v, want nil", err)
 	}
 	if len(d.modes) != 1 {
 		t.Fatalf("modes len = %d, want 1", len(d.modes))
@@ -545,6 +546,16 @@ func TestDecodeParsesInterModeGrid(t *testing.T) {
 		if coeffs != ([16]int16{}) {
 			t.Fatalf("tokens[0].QCoeff[%d] = %v, want zero coefficients", block, coeffs)
 		}
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no inter frame")
+	}
+	if frame.Width != 16 || frame.Height != 16 {
+		t.Fatalf("inter frame dimensions = %dx%d, want 16x16", frame.Width, frame.Height)
+	}
+	if frame.Y[0] != 77 || frame.U[0] != 77 || frame.V[0] != 77 {
+		t.Fatalf("inter frame samples = %d/%d/%d, want copied last ref 77", frame.Y[0], frame.U[0], frame.V[0])
 	}
 }
 
