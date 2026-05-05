@@ -1,6 +1,7 @@
 package decoder
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
@@ -160,6 +161,80 @@ func TestDecodeMacroblockTokensY2Coefficient(t *testing.T) {
 	}
 }
 
+func TestDecodeTokenGridSinglePartition(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	payload := encodeTokenRows(&probs, 1, 1, 2, []int{-1, -1})
+	readers := initTokenReaders(t, payload)
+	modes := []MacroblockMode{{}, {Is4x4: true}}
+	above := make([]EntropyContextPlanes, 2)
+	tokens := make([]MacroblockTokens, 2)
+
+	total, err := DecodeTokenGrid(readers[:], 1, 2, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if tokens[0].EOB[24] != 0 || tokens[1].EOB[24] != 0 {
+		t.Fatalf("unexpected Y2 EOBs: %d/%d", tokens[0].EOB[24], tokens[1].EOB[24])
+	}
+}
+
+func TestDecodeTokenGridCyclesPartitionsByRow(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	payloads := encodeTokenRows(&probs, 2, 3, 1, []int{-1, 24, -1})
+	readers := initTokenReaders(t, payloads)
+	modes := make([]MacroblockMode, 3)
+	above := make([]EntropyContextPlanes, 1)
+	tokens := make([]MacroblockTokens, 3)
+
+	total, err := DecodeTokenGrid(readers[:], 3, 1, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if tokens[1].QCoeff[24][0] != 1 || tokens[1].EOB[24] != 1 {
+		t.Fatalf("row 1 Y2 coeff/eob = %d/%d, want 1/1", tokens[1].QCoeff[24][0], tokens[1].EOB[24])
+	}
+	if tokens[0].EOB[24] != 0 || tokens[2].EOB[24] != 0 {
+		t.Fatalf("unexpected row 0/2 Y2 EOBs: %d/%d", tokens[0].EOB[24], tokens[2].EOB[24])
+	}
+}
+
+func TestDecodeTokenGridRejectsSmallBuffers(t *testing.T) {
+	var readers [1]boolcoder.Decoder
+	_ = readers[0].Init(make([]byte, 8))
+	probs := uniformCoefficientProbs(128)
+
+	_, err := DecodeTokenGrid(readers[:], 2, 2, &probs, make([]MacroblockMode, 3), make([]EntropyContextPlanes, 2), make([]MacroblockTokens, 4))
+
+	if !errors.Is(err, ErrTokenGridBufferTooSmall) {
+		t.Fatalf("error = %v, want ErrTokenGridBufferTooSmall", err)
+	}
+}
+
+func TestDecodeTokenGridAllocatesZero(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	payload := encodeTokenRows(&probs, 1, 1, 1, []int{-1})
+	modes := []MacroblockMode{{}}
+	above := make([]EntropyContextPlanes, 1)
+	tokens := make([]MacroblockTokens, 1)
+	payload0 := payload[0]
+	allocs := testing.AllocsPerRun(1000, func() {
+		var readers [1]boolcoder.Decoder
+		_ = readers[0].Init(payload0)
+		_, _ = DecodeTokenGrid(readers[:], 1, 1, &probs, modes, above, tokens)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func BenchmarkDecodeBlockCoeffs(b *testing.B) {
 	probs := uniformCoefficientProbs(128)
 	payload := encodeCoeffBits(&probs, 0, 0, 0, []coefEvent{{token: tables.OneToken, value: 1, sign: 0, eob: true}})
@@ -245,12 +320,17 @@ func writeCoeffEvents(w *testBoolWriter, probs *tables.CoefficientProbs, blockTy
 func encodeMacroblockTokens(probs *tables.CoefficientProbs, is4x4 bool, nonzeroBlock int) []byte {
 	var w testBoolWriter
 	w.init()
+	writeMacroblockTokenEvents(&w, probs, is4x4, nonzeroBlock)
+	return w.finish()
+}
+
+func writeMacroblockTokenEvents(w *testBoolWriter, probs *tables.CoefficientProbs, is4x4 bool, nonzeroBlock int) {
 	if !is4x4 {
 		events := []coefEvent(nil)
 		if nonzeroBlock == 24 {
 			events = []coefEvent{{token: tables.OneToken, sign: 0, eob: true}}
 		}
-		writeCoeffEvents(&w, probs, 1, 0, 0, events)
+		writeCoeffEvents(w, probs, 1, 0, 0, events)
 	}
 
 	yBlockType := 3
@@ -260,10 +340,47 @@ func encodeMacroblockTokens(probs *tables.CoefficientProbs, is4x4 bool, nonzeroB
 		skipDC = 1
 	}
 	for i := 0; i < 16; i++ {
-		writeCoeffEvents(&w, probs, yBlockType, 0, skipDC, nil)
+		writeCoeffEvents(w, probs, yBlockType, 0, skipDC, nil)
 	}
 	for i := 16; i < 24; i++ {
-		writeCoeffEvents(&w, probs, 2, 0, 0, nil)
+		writeCoeffEvents(w, probs, 2, 0, 0, nil)
 	}
-	return w.finish()
+}
+
+func encodeTokenRows(probs *tables.CoefficientProbs, partitions int, rows int, cols int, nonzeroBlocks []int) [][]byte {
+	var writers [8]testBoolWriter
+	for i := 0; i < partitions; i++ {
+		writers[i].init()
+	}
+	partition := 0
+	for row := 0; row < rows; row++ {
+		rowPartition := partition
+		if partitions > 1 {
+			partition++
+			if partition == partitions {
+				partition = 0
+			}
+		}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			writeMacroblockTokenEvents(&writers[rowPartition], probs, false, nonzeroBlocks[index])
+		}
+	}
+
+	payloads := make([][]byte, partitions)
+	for i := 0; i < partitions; i++ {
+		payloads[i] = writers[i].finish()
+	}
+	return payloads
+}
+
+func initTokenReaders(t *testing.T, payloads [][]byte) []boolcoder.Decoder {
+	t.Helper()
+	readers := make([]boolcoder.Decoder, len(payloads))
+	for i := range payloads {
+		if err := readers[i].Init(payloads[i]); err != nil {
+			t.Fatalf("Init[%d] returned error: %v", i, err)
+		}
+	}
+	return readers
 }

@@ -1,11 +1,15 @@
 package decoder
 
 import (
+	"errors"
+
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/detokenize.c GetCoeffs.
+
+var ErrTokenGridBufferTooSmall = errors.New("libgopx: VP8 token grid buffer too small")
 
 type EntropyContextPlanes struct {
 	Y1 [4]uint8
@@ -90,6 +94,41 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 	}
 
 	return eobTotal
+}
+
+func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tables.CoefficientProbs, modes []MacroblockMode, above []EntropyContextPlanes, tokens []MacroblockTokens) (int, error) {
+	if rows < 0 || cols < 0 {
+		return 0, ErrTokenGridBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return 0, ErrTokenGridBufferTooSmall
+	}
+	required := rows * cols
+	if len(modes) < required || len(tokens) < required || len(above) < cols {
+		return 0, ErrTokenGridBufferTooSmall
+	}
+	partitions := len(readers)
+	if partitions != 1 && partitions != 2 && partitions != 4 && partitions != 8 {
+		return 0, ErrTokenGridBufferTooSmall
+	}
+
+	partition := 0
+	total := 0
+	for row := 0; row < rows; row++ {
+		rowPartition := partition
+		if partitions > 1 {
+			partition++
+			if partition == partitions {
+				partition = 0
+			}
+		}
+		left := EntropyContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			total += DecodeMacroblockTokens(&readers[rowPartition], probs, modes[index].Is4x4, &above[col], &left, &tokens[index])
+		}
+	}
+	return total, nil
 }
 
 func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, blockType int, ctx int, n int, out *[16]int16) int {
