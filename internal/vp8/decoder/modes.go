@@ -12,7 +12,10 @@ import (
 // initialization, update parsing, and keyframe mode decoding. Block mode
 // context helpers mirror vp8/common/findnearmv.h.
 
-var ErrModeBufferTooSmall = errors.New("libgopx: VP8 mode buffer too small")
+var (
+	ErrModeBufferTooSmall   = errors.New("libgopx: VP8 mode buffer too small")
+	ErrUnsupportedInterMode = errors.New("libgopx: unsupported VP8 inter macroblock mode")
+)
 
 type ModeProbs struct {
 	YMode  [tables.YModeProbCount]uint8
@@ -152,6 +155,40 @@ func DecodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out
 	decodeInterIntraMacroblockMode(br, probs, out)
 }
 
+func DecodeInterMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, signBias [common.MaxRefFrames]bool, out *MacroblockMode) error {
+	*out = MacroblockMode{}
+	if segmentation != nil && segmentation.Enabled && segmentation.UpdateMap {
+		out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+	}
+	if modeHeader.MBNoCoeffSkip {
+		out.MBSkipCoeff = br.ReadBool(modeHeader.ProbSkipFalse) != 0
+	}
+
+	refFrame := ReadInterReferenceFrame(br, modeHeader)
+	if refFrame == common.IntraFrame {
+		decodeInterIntraMacroblockMode(br, probs, out)
+		return nil
+	}
+
+	nearest, near, best, counts := FindNearMotionVectors(above, left, aboveLeft, refFrame, signBias)
+	out.RefFrame = refFrame
+	out.Mode = ReadInterPredictionMode(br, counts)
+	switch out.Mode {
+	case common.ZeroMV:
+		out.MV = MotionVector{}
+	case common.NearestMV:
+		out.MV = nearest
+	case common.NearMV:
+		out.MV = near
+	case common.NewMV:
+		out.MV = addMotionVectors(best, DecodeMotionVector(br, &probs.MV))
+	case common.SplitMV:
+		out.Is4x4 = true
+		return ErrUnsupportedInterMode
+	}
+	return nil
+}
+
 func ReadInterReferenceFrame(br *boolcoder.Decoder, modeHeader ModeHeader) common.MVReferenceFrame {
 	if br.ReadBool(modeHeader.ProbIntra) == 0 {
 		return common.IntraFrame
@@ -256,4 +293,8 @@ func blockModeFromMacroblockMode(mode common.MBPredictionMode) common.BPredictio
 	default:
 		return common.BDCPred
 	}
+}
+
+func addMotionVectors(a MotionVector, b MotionVector) MotionVector {
+	return MotionVector{Row: a.Row + b.Row, Col: a.Col + b.Col}
 }
