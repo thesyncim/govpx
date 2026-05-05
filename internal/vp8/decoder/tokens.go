@@ -151,8 +151,9 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 			p = (*probs)[blockType][tables.CoefBandsTable[n]][0]
 		} else {
 			v := 0
+			tokenClass := uint8(2)
 			if br.ReadBool(p[2]) == 0 {
-				p = (*probs)[blockType][tables.CoefBandsTable[n]][1]
+				tokenClass = 1
 				v = 1
 			} else {
 				if br.ReadBool(p[3]) == 0 {
@@ -176,12 +177,15 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 						v = readTokenCategory(br, cat)
 					}
 				}
-				p = (*probs)[blockType][tables.CoefBandsTable[n]][2]
 			}
 
 			j := tables.DefaultZigZag1D[n-1]
 			out[j] = readSignedCoeff(br, v)
-			if n == 16 || br.ReadBool(p[0]) == 0 {
+			if n == 16 {
+				return 16
+			}
+			p = (*probs)[blockType][tables.CoefBandsTable[n]][tokenClass]
+			if br.ReadBool(p[0]) == 0 {
 				return n
 			}
 		}

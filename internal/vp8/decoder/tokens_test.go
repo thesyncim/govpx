@@ -68,6 +68,30 @@ func TestDecodeBlockCoeffsZeroThenNegativeOne(t *testing.T) {
 	}
 }
 
+func TestDecodeBlockCoeffsLastCoeffToken(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	events := make([]coefEvent, 0, 16)
+	for i := 0; i < 15; i++ {
+		events = append(events, coefEvent{token: tables.ZeroToken})
+	}
+	events = append(events, coefEvent{token: tables.OneToken, value: 1})
+	payload := encodeCoeffBits(&probs, 0, 0, 0, events)
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	var coeffs [16]int16
+
+	eob := DecodeBlockCoeffs(&br, &probs, 0, 0, 0, &coeffs)
+
+	if eob != 16 {
+		t.Fatalf("eob = %d, want 16", eob)
+	}
+	if coeffs[15] != 1 {
+		t.Fatalf("coeffs[15] = %d, want 1", coeffs[15])
+	}
+}
+
 func TestDecodeBlockCoeffsSkipDCImmediateEOB(t *testing.T) {
 	probs := uniformCoefficientProbs(128)
 	payload := encodeCoeffBits(&probs, 0, 0, 1, nil)
@@ -340,13 +364,14 @@ func writeCoeffEvents(w *testBoolWriter, probs *tables.CoefficientProbs, blockTy
 				panic("unsupported test token")
 			}
 			w.writeBool(ev.sign, 128)
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][tables.PrevTokenClass[ev.token]]
 			if n == 16 || ev.eob {
 				if n != 16 {
+					p = (*probs)[blockType][tables.CoefBandsTable[n]][tables.PrevTokenClass[ev.token]]
 					w.writeBool(0, p[0])
 				}
 				return
 			}
+			p = (*probs)[blockType][tables.CoefBandsTable[n]][tables.PrevTokenClass[ev.token]]
 			w.writeBool(1, p[0])
 		}
 	}
