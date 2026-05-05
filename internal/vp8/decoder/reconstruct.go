@@ -72,6 +72,10 @@ func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidua
 		}
 		addTransformBlock(tokens.EOB[i], residual.Block(i), y[yBlockOffset(i, yStride):], yStride)
 	}
+	addChromaResidual(tokens, residual, u, uStride, v, vStride)
+}
+
+func addChromaResidual(tokens *MacroblockTokens, residual *MacroblockResidual, u []byte, uStride int, v []byte, vStride int) {
 	for i := 0; i < 4; i++ {
 		if tokens.EOB[16+i] != 0 {
 			addTransformBlock(tokens.EOB[16+i], residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
@@ -116,45 +120,7 @@ func PredictIntraUV8x8(mode common.MBPredictionMode, dst []byte, stride int, abo
 
 func PredictIntraY4x4(modes *[16]common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte) bool {
 	for block := 0; block < 16; block++ {
-		blockRow := block >> 2
-		blockCol := block & 3
-		y := blockRow * 4
-		x := blockCol * 4
-		var blockAbove [8]byte
-		var blockLeft [4]byte
-
-		if blockRow == 0 {
-			copy(blockAbove[:], above[x:x+8])
-		} else {
-			aboveOff := (y-1)*stride + x
-			copy(blockAbove[:4], dst[aboveOff:aboveOff+4])
-			if blockCol < 3 {
-				copy(blockAbove[4:], dst[aboveOff+4:aboveOff+8])
-			} else {
-				copy(blockAbove[4:], above[16:20])
-			}
-		}
-
-		if blockCol == 0 {
-			copy(blockLeft[:], left[y:y+4])
-		} else {
-			for i := 0; i < 4; i++ {
-				blockLeft[i] = dst[(y+i)*stride+x-1]
-			}
-		}
-
-		blockTopLeft := topLeft
-		switch {
-		case blockRow == 0 && blockCol == 0:
-		case blockRow == 0:
-			blockTopLeft = above[x-1]
-		case blockCol == 0:
-			blockTopLeft = left[y-1]
-		default:
-			blockTopLeft = dst[(y-1)*stride+x-1]
-		}
-
-		if ok := dsp.Intra4x4Predict(dst[y*stride+x:], stride, (*modes)[block], blockAbove[:], blockLeft[:], blockTopLeft); !ok {
+		if ok := predictIntraY4x4Block((*modes)[block], dst, stride, above, left, topLeft, block); !ok {
 			return false
 		}
 	}
@@ -182,6 +148,33 @@ func ReconstructWholeBlockIntraMacroblock(mode *MacroblockMode, tokens *Macroblo
 	return true
 }
 
+func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, refs IntraPredictorRefs, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual) bool {
+	if !mode.Is4x4 || mode.Mode != common.BPred {
+		return false
+	}
+	if !PredictIntraUV8x8(mode.UVMode, u, uStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if !PredictIntraUV8x8(mode.UVMode, v, vStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return PredictIntraY4x4(&mode.BModes, y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft)
+	}
+
+	TransformMacroblockTokens(tokens, dequant, true, scratch)
+	for block := 0; block < 16; block++ {
+		if ok := predictIntraY4x4Block(mode.BModes[block], y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block); !ok {
+			return false
+		}
+		if tokens.EOB[block] != 0 {
+			addTransformBlock(tokens.EOB[block], scratch.Block(block), y[yBlockOffset(block, yStride):], yStride)
+		}
+	}
+	addChromaResidual(tokens, scratch, u, uStride, v, vStride)
+	return true
+}
+
 func clearMacroblockResidual(out *MacroblockResidual) {
 	for i := range out.DQCoeff {
 		out.DQCoeff[i] = 0
@@ -192,6 +185,48 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
 	for i := 0; i < 16; i++ {
 		out[i] += qcoeff[i] * dequant[i]
 	}
+}
+
+func predictIntraY4x4Block(mode common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte, block int) bool {
+	blockRow := block >> 2
+	blockCol := block & 3
+	y := blockRow * 4
+	x := blockCol * 4
+	var blockAbove [8]byte
+	var blockLeft [4]byte
+
+	if blockRow == 0 {
+		copy(blockAbove[:], above[x:x+8])
+	} else {
+		aboveOff := (y-1)*stride + x
+		copy(blockAbove[:4], dst[aboveOff:aboveOff+4])
+		if blockCol < 3 {
+			copy(blockAbove[4:], dst[aboveOff+4:aboveOff+8])
+		} else {
+			copy(blockAbove[4:], above[16:20])
+		}
+	}
+
+	if blockCol == 0 {
+		copy(blockLeft[:], left[y:y+4])
+	} else {
+		for i := 0; i < 4; i++ {
+			blockLeft[i] = dst[(y+i)*stride+x-1]
+		}
+	}
+
+	blockTopLeft := topLeft
+	switch {
+	case blockRow == 0 && blockCol == 0:
+	case blockRow == 0:
+		blockTopLeft = above[x-1]
+	case blockCol == 0:
+		blockTopLeft = left[y-1]
+	default:
+		blockTopLeft = dst[(y-1)*stride+x-1]
+	}
+
+	return dsp.Intra4x4Predict(dst[y*stride+x:], stride, mode, blockAbove[:], blockLeft[:], blockTopLeft)
 }
 
 func addTransformBlock(eob uint8, coeff *[16]int16, dst []byte, stride int) {

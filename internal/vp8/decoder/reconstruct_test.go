@@ -384,6 +384,89 @@ func TestReconstructWholeBlockIntraMacroblockAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestReconstructBPredIntraMacroblockInterleavesYResiduals(t *testing.T) {
+	mode := bpredMacroblockMode(false)
+	tokens := bpredResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := tmIntraPredictorRefs()
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructBPredIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("ReconstructBPredIntraMacroblock returned false")
+	}
+
+	if got := y[0]; got != 90 {
+		t.Fatalf("reconstructed first BPred pixel = %d, want 90", got)
+	}
+	if got := y[4]; got != 94 {
+		t.Fatalf("next block did not read reconstructed left neighbor: got %d, want 94", got)
+	}
+	assertPlaneValue(t, "U", u, 90)
+	assertPlaneValue(t, "V", v, 70)
+}
+
+func TestReconstructBPredIntraMacroblockSkipCoeff(t *testing.T) {
+	mode := bpredMacroblockMode(true)
+	tokens := bpredResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := tmIntraPredictorRefs()
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructBPredIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); !ok {
+		t.Fatalf("ReconstructBPredIntraMacroblock returned false")
+	}
+
+	if got := y[0]; got != 80 {
+		t.Fatalf("skip first BPred pixel = %d, want prediction 80", got)
+	}
+	if got := y[4]; got != 84 {
+		t.Fatalf("skip next block pixel = %d, want prediction 84", got)
+	}
+	assertPlaneValue(t, "U", u, 90)
+	assertPlaneValue(t, "V", v, 70)
+}
+
+func TestReconstructBPredIntraMacroblockRejectsWholeBlock(t *testing.T) {
+	mode := MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred}
+	tokens := bpredResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := tmIntraPredictorRefs()
+	y := filledPlane(16, 16, 99)
+	u := filledPlane(8, 8, 99)
+	v := filledPlane(8, 8, 99)
+	var scratch MacroblockResidual
+
+	if ok := ReconstructBPredIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch); ok {
+		t.Fatalf("whole-block mode returned true")
+	}
+	assertPlaneValue(t, "Y", y, 99)
+	assertPlaneValue(t, "U", u, 99)
+	assertPlaneValue(t, "V", v, 99)
+}
+
+func TestReconstructBPredIntraMacroblockAllocatesZero(t *testing.T) {
+	mode := bpredMacroblockMode(false)
+	tokens := bpredResidualTokens()
+	dequant := testMacroblockDequant()
+	refs := tmIntraPredictorRefs()
+	y := filledPlane(16, 16, 0)
+	u := filledPlane(8, 8, 0)
+	v := filledPlane(8, 8, 0)
+	var scratch MacroblockResidual
+	allocs := testing.AllocsPerRun(1000, func() {
+		ReconstructBPredIntraMacroblock(&mode, &tokens, &dequant, refs, y, 16, u, 8, v, 8, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
 	for i := 0; i < 16; i++ {
@@ -406,6 +489,35 @@ func wholeBlockResidualTokens() MacroblockTokens {
 	tokens.QCoeff[16][0] = 16
 	tokens.EOB[16] = 1
 	return tokens
+}
+
+func bpredResidualTokens() MacroblockTokens {
+	var tokens MacroblockTokens
+	tokens.QCoeff[0][0] = 16
+	tokens.EOB[0] = 1
+	return tokens
+}
+
+func bpredMacroblockMode(skip bool) MacroblockMode {
+	mode := MacroblockMode{Mode: common.BPred, UVMode: common.DCPred, Is4x4: true, MBSkipCoeff: skip}
+	for i := range mode.BModes {
+		mode.BModes[i] = common.BTMPred
+	}
+	return mode
+}
+
+func tmIntraPredictorRefs() IntraPredictorRefs {
+	refs := testIntraPredictorRefs(0, 90, 70)
+	refs.YAbove = make([]byte, 20)
+	refs.YLeft = make([]byte, 16)
+	for i := range refs.YAbove {
+		refs.YAbove[i] = byte(50 + i)
+	}
+	for i := range refs.YLeft {
+		refs.YLeft[i] = byte(70 + i)
+	}
+	refs.YTopLeft = 40
+	return refs
 }
 
 func testIntraPredictorRefs(y byte, u byte, v byte) IntraPredictorRefs {

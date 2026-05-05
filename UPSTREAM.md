@@ -51,7 +51,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Frame memory | scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, macroblock residual transform, residual pixel add, whole-block intra prediction/reconstruction, and B_PRED 4x4 prediction scaffolded |
+| Decoder state and reconstruction | state headers, macroblock residual transform, residual pixel add, whole-block intra prediction/reconstruction, and B_PRED 4x4 prediction/reconstruction scaffolded |
 | Token and mode parsing | tree reader, partition layout, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives and limit table setup scaffolded |
