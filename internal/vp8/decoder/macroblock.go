@@ -15,5 +15,6 @@ type MacroblockMode struct {
 	SegmentID   uint8
 	Partition   uint8
 
-	BModes [16]common.BPredictionMode
+	BModes  [16]common.BPredictionMode
+	BlockMV [16]MotionVector
 }

@@ -43,7 +43,7 @@ func TestDecodeInterModeGridRejectsSmallBuffer(t *testing.T) {
 	}
 }
 
-func TestDecodeInterModeGridPropagatesSplitMV(t *testing.T) {
+func TestDecodeInterModeGridDecodesSplitMV(t *testing.T) {
 	var probs ModeProbs
 	ResetModeProbs(&probs)
 	header := ModeHeader{ProbIntra: 128, ProbLast: 128, ProbGolden: 128}
@@ -54,10 +54,11 @@ func TestDecodeInterModeGridPropagatesSplitMV(t *testing.T) {
 	}
 	modes := make([]MacroblockMode, 1)
 
-	err := DecodeInterModeGrid(&br, 1, 1, nil, header, &probs, [common.MaxRefFrames]bool{}, modes)
-
-	if !errors.Is(err, ErrUnsupportedInterMode) {
-		t.Fatalf("error = %v, want ErrUnsupportedInterMode", err)
+	if err := DecodeInterModeGrid(&br, 1, 1, nil, header, &probs, [common.MaxRefFrames]bool{}, modes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	if modes[0].Mode != common.SplitMV || !modes[0].Is4x4 {
+		t.Fatalf("mode = %+v, want split MV", modes[0])
 	}
 }
 

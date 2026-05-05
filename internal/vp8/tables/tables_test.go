@@ -87,6 +87,12 @@ func TestModeTableSentinels(t *testing.T) {
 	if SubMVRefProb2[4][0] != 208 || SubMVRefProb2[4][2] != 1 {
 		t.Fatalf("SubMVRefProb2 sentinels changed")
 	}
+	if sumSubMVRefProb3() != 2091 {
+		t.Fatalf("SubMVRefProb3 checksum changed")
+	}
+	if sumMBSplitOffset() != 150 || sumU8(MBSplitFillCount[:]) != 21 || sumMBSplitFillOffset() != 480 {
+		t.Fatalf("MBSplit offset/fill checksums changed")
+	}
 }
 
 func TestMVTableSentinels(t *testing.T) {
@@ -211,6 +217,36 @@ func sumInterModeContexts() int {
 	sum := 0
 	for row := range InterModeContexts {
 		for _, v := range InterModeContexts[row] {
+			sum += int(v)
+		}
+	}
+	return sum
+}
+
+func sumSubMVRefProb3() int {
+	sum := 0
+	for row := range SubMVRefProb3 {
+		for _, v := range SubMVRefProb3[row] {
+			sum += int(v)
+		}
+	}
+	return sum
+}
+
+func sumMBSplitOffset() int {
+	sum := 0
+	for row := range MBSplitOffset {
+		for _, v := range MBSplitOffset[row] {
+			sum += int(v)
+		}
+	}
+	return sum
+}
+
+func sumMBSplitFillOffset() int {
+	sum := 0
+	for row := range MBSplitFillOffset {
+		for _, v := range MBSplitFillOffset[row] {
 			sum += int(v)
 		}
 	}

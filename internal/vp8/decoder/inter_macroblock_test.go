@@ -1,7 +1,6 @@
 package decoder
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
@@ -67,7 +66,7 @@ func TestDecodeInterMacroblockNewMV(t *testing.T) {
 	}
 }
 
-func TestDecodeInterMacroblockRejectsSplitMV(t *testing.T) {
+func TestDecodeInterMacroblockSplitMV(t *testing.T) {
 	var probs ModeProbs
 	ResetModeProbs(&probs)
 	header := ModeHeader{ProbIntra: 128, ProbLast: 128, ProbGolden: 128}
@@ -78,13 +77,11 @@ func TestDecodeInterMacroblockRejectsSplitMV(t *testing.T) {
 	}
 	var out MacroblockMode
 
-	err := DecodeInterMacroblock(&br, nil, header, &probs, nil, nil, nil, [common.MaxRefFrames]bool{}, &out)
-
-	if !errors.Is(err, ErrUnsupportedInterMode) {
-		t.Fatalf("error = %v, want ErrUnsupportedInterMode", err)
+	if err := DecodeInterMacroblock(&br, nil, header, &probs, nil, nil, nil, [common.MaxRefFrames]bool{}, &out); err != nil {
+		t.Fatalf("DecodeInterMacroblock returned error: %v", err)
 	}
-	if out.Mode != common.SplitMV || !out.Is4x4 {
-		t.Fatalf("mode = %+v, want SplitMV 4x4 marker", out)
+	if out.Mode != common.SplitMV || !out.Is4x4 || out.Partition != 3 || !out.MV.IsZero() {
+		t.Fatalf("mode = %+v, want SplitMV 4x4 partition 3 zero MV", out)
 	}
 }
 

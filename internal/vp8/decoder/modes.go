@@ -13,8 +13,7 @@ import (
 // context helpers mirror vp8/common/findnearmv.h.
 
 var (
-	ErrModeBufferTooSmall   = errors.New("libgopx: VP8 mode buffer too small")
-	ErrUnsupportedInterMode = errors.New("libgopx: unsupported VP8 inter macroblock mode")
+	ErrModeBufferTooSmall = errors.New("libgopx: VP8 mode buffer too small")
 )
 
 type ModeProbs struct {
@@ -203,8 +202,7 @@ func DecodeInterMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHead
 	case common.NewMV:
 		out.MV = addMotionVectors(best, DecodeMotionVector(br, &probs.MV))
 	case common.SplitMV:
-		out.Is4x4 = true
-		return ErrUnsupportedInterMode
+		decodeSplitMotionVectors(br, probs, left, above, best, out)
 	}
 	return nil
 }
@@ -317,6 +315,89 @@ func blockModeFromMacroblockMode(mode common.MBPredictionMode) common.BPredictio
 
 func addMotionVectors(a MotionVector, b MotionVector) MotionVector {
 	return MotionVector{Row: a.Row + b.Row, Col: a.Col + b.Col}
+}
+
+func decodeSplitMotionVectors(br *boolcoder.Decoder, probs *ModeProbs, left *MacroblockMode, above *MacroblockMode, best MotionVector, out *MacroblockMode) {
+	partition := 3
+	partitions := 16
+	if br.ReadBool(tables.MBSplitProbs[0]) != 0 {
+		partition = 2
+		partitions = 4
+		if br.ReadBool(tables.MBSplitProbs[1]) != 0 {
+			partition = int(br.ReadBool(tables.MBSplitProbs[2]))
+			partitions = 2
+		}
+	}
+
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[partition][subset])
+		leftMV := splitLeftMV(out, left, block)
+		aboveMV := splitAboveMV(out, above, block)
+		prob := subMVRefProbs(leftMV, aboveMV)
+		blockMV := leftMV
+		if br.ReadBool(prob[0]) != 0 {
+			if br.ReadBool(prob[1]) != 0 {
+				blockMV = MotionVector{}
+				if br.ReadBool(prob[2]) != 0 {
+					blockMV = addMotionVectors(best, DecodeMotionVector(br, &probs.MV))
+				}
+			} else {
+				blockMV = aboveMV
+			}
+		}
+
+		fillCount := int(tables.MBSplitFillCount[partition])
+		fillStart := subset * fillCount
+		for i := 0; i < fillCount; i++ {
+			out.BlockMV[tables.MBSplitFillOffset[partition][fillStart+i]] = blockMV
+		}
+	}
+
+	out.Partition = uint8(partition)
+	out.MV = out.BlockMV[15]
+	out.Is4x4 = true
+}
+
+func splitLeftMV(cur *MacroblockMode, left *MacroblockMode, block int) MotionVector {
+	if block&3 == 0 {
+		if left == nil {
+			return MotionVector{}
+		}
+		if left.Mode == common.SplitMV {
+			return left.BlockMV[block+3]
+		}
+		return left.MV
+	}
+	return cur.BlockMV[block-1]
+}
+
+func splitAboveMV(cur *MacroblockMode, above *MacroblockMode, block int) MotionVector {
+	if block>>2 == 0 {
+		if above == nil {
+			return MotionVector{}
+		}
+		if above.Mode == common.SplitMV {
+			return above.BlockMV[block+12]
+		}
+		return above.MV
+	}
+	return cur.BlockMV[block-4]
+}
+
+func subMVRefProbs(left MotionVector, above MotionVector) [3]uint8 {
+	lez := 0
+	if left.IsZero() {
+		lez = 1
+	}
+	aez := 0
+	if above.IsZero() {
+		aez = 1
+	}
+	lea := 0
+	if left == above {
+		lea = 1
+	}
+	return tables.SubMVRefProb3[(aez<<2)|(lez<<1)|lea]
 }
 
 func validateModeGrid(rows int, cols int, modes []MacroblockMode) (int, error) {
