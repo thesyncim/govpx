@@ -444,6 +444,36 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoInterFrameCanUseIntraMacroblock(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 0, 90, 170)
+	fillImage(second, 128, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	if e.interFrameModes[0].RefFrame != vp8common.IntraFrame || e.interFrameModes[0].Mode != vp8common.DCPred {
+		t.Fatalf("mode[0] = %+v, want intra DCPRED macroblock", e.interFrameModes[0])
+	}
+	decoded := decodeFrameSequence(t, key.Data, inter.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertImagesEqual(t, "intra interframe current", decoded[1], publicImageFromVP8(&e.current.Img))
+}
+
 func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)

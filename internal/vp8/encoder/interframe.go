@@ -132,6 +132,8 @@ type InterFrameMacroblockMode struct {
 	MBSkipCoeff bool
 	RefFrame    common.MVReferenceFrame
 	Mode        common.MBPredictionMode
+	UVMode      common.MBPredictionMode
+	BModes      [16]common.BPredictionMode
 	MV          MotionVector
 }
 
@@ -226,8 +228,15 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			} else {
 				w.WriteBool(0, cfg.ProbSkipFalse)
 			}
-			w.WriteBool(1, cfg.ProbIntra)
 			refFrame := interFrameReference(mode)
+			if refFrame == common.IntraFrame {
+				w.WriteBool(0, cfg.ProbIntra)
+				if !WriteInterIntraMacroblockMode(w, mode) {
+					return ErrInvalidPacketConfig
+				}
+				continue
+			}
+			w.WriteBool(1, cfg.ProbIntra)
 			if !WriteInterReferenceFrame(w, cfg, refFrame) {
 				return ErrInvalidPacketConfig
 			}
@@ -262,6 +271,25 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 		return w.Err()
 	}
 	return nil
+}
+
+var interFrameYModeTokens = initInterFrameYModeTokens()
+
+func WriteInterIntraMacroblockMode(w *BoolWriter, mode *InterFrameMacroblockMode) bool {
+	if w == nil || mode == nil || !validInterIntraMacroblockMode(mode) {
+		return false
+	}
+	if !WriteTreeToken(w, tables.YModeTree[:], tables.DefaultYModeProbs[:], interFrameYModeTokens[int(mode.Mode)]) {
+		return false
+	}
+	if mode.Mode == common.BPred {
+		for block := 0; block < 16; block++ {
+			if !WriteTreeToken(w, tables.BModeTree[:], tables.DefaultBModeProbs[:], bModeTokens[int(mode.BModes[block])]) {
+				return false
+			}
+		}
+	}
+	return WriteTreeToken(w, tables.UVModeTree[:], tables.DefaultUVModeProbs[:], keyFrameUVModeTokens[int(mode.UVMode)])
 }
 
 func WriteInterPredictionMode(w *BoolWriter, counts InterModeCounts, mode common.MBPredictionMode) bool {
@@ -400,6 +428,9 @@ func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterF
 		return false
 	}
 	refFrame := interFrameReference(mode)
+	if refFrame == common.IntraFrame {
+		return validInterIntraMacroblockMode(mode)
+	}
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return false
 	}
@@ -422,10 +453,40 @@ func interFrameReference(mode *InterFrameMacroblockMode) common.MVReferenceFrame
 	if mode == nil {
 		return common.IntraFrame
 	}
+	if isInterIntraMacroblockMode(mode.Mode) {
+		return common.IntraFrame
+	}
 	if mode.RefFrame == common.IntraFrame {
 		return common.LastFrame
 	}
 	return mode.RefFrame
+}
+
+func validInterIntraMacroblockMode(mode *InterFrameMacroblockMode) bool {
+	if mode.RefFrame != common.IntraFrame || !isInterIntraMacroblockMode(mode.Mode) || mode.UVMode < common.DCPred || mode.UVMode > common.TMPred {
+		return false
+	}
+	if mode.Mode != common.BPred {
+		return true
+	}
+	for _, bMode := range mode.BModes {
+		if bMode < common.BDCPred || bMode > common.BHUPred {
+			return false
+		}
+	}
+	return true
+}
+
+func isInterIntraMacroblockMode(mode common.MBPredictionMode) bool {
+	return mode >= common.DCPred && mode <= common.BPred
+}
+
+func initInterFrameYModeTokens() [common.VP8YModes]TreeToken {
+	var out [common.VP8YModes]TreeToken
+	for i := range out {
+		BuildTreeToken(tables.YModeTree[:], i, &out[i])
+	}
+	return out
 }
 
 func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
@@ -448,10 +509,13 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			if modes[index].MBSkipCoeff {
-				resetTokenContext(&above[col], &left)
+				resetTokenContext(&above[col], &left, modes[index].Mode == common.BPred)
 				continue
 			}
-			if err := WriteCoefficientMacroblockTokens(w, probs, false, &above[col], &left, &coeffs[index]); err != nil {
+			if !validInterCoefficientTokenMode(&modes[index]) {
+				return ErrInvalidPacketConfig
+			}
+			if err := WriteCoefficientMacroblockTokens(w, probs, modes[index].Mode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -462,9 +526,42 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 	return nil
 }
 
-func resetTokenContext(above *TokenContextPlanes, left *TokenContextPlanes) {
-	*above = TokenContextPlanes{}
-	*left = TokenContextPlanes{}
+func resetTokenContext(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
+	above.Y1 = [4]uint8{}
+	above.U = [2]uint8{}
+	above.V = [2]uint8{}
+	left.Y1 = [4]uint8{}
+	left.U = [2]uint8{}
+	left.V = [2]uint8{}
+	if !is4x4 {
+		above.Y2 = 0
+		left.Y2 = 0
+	}
+}
+
+func validInterCoefficientTokenMode(mode *InterFrameMacroblockMode) bool {
+	if mode == nil {
+		return false
+	}
+	refFrame := interFrameReference(mode)
+	if refFrame == common.IntraFrame {
+		return validInterIntraMacroblockMode(mode)
+	}
+	switch refFrame {
+	case common.LastFrame, common.GoldenFrame, common.AltRefFrame:
+	default:
+		return false
+	}
+	return isWholeInterMacroblockMode(mode.Mode)
+}
+
+func isWholeInterMacroblockMode(mode common.MBPredictionMode) bool {
+	switch mode {
+	case common.ZeroMV, common.NearestMV, common.NearMV, common.NewMV:
+		return true
+	default:
+		return false
+	}
 }
 
 func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {

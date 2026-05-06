@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/testutil"
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 )
 
 func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
@@ -219,6 +220,48 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
 
 	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
+func TestOracleLibvpxChecksumMatchesEncodeIntoIntraMacroblockInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 0, 90, 170)
+	fillImage(second, 128, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 4096)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want intra-macroblock interframe")
+	}
+	if e.interFrameModes[0].RefFrame != vp8common.IntraFrame {
+		t.Fatalf("mode[0] = %+v, want intra macroblock", e.interFrameModes[0])
+	}
+
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(libgopxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))

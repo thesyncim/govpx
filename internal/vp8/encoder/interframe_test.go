@@ -187,6 +187,50 @@ func TestWriteCoefficientInterFrameDecodesNewMV(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesIntraMacroblock(t *testing.T) {
+	modes := []InterFrameMacroblockMode{{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.HPred}}
+	coeffs := make([]MacroblockCoefficients, 1)
+	coeffs[0].QCoeff[24][0] = 1
+	packet := make([]byte, 512)
+	above := make([]TokenContextPlanes, 1)
+	n, err := WriteCoefficientInterFrame(packet, 16, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	var layout vp8dec.PartitionLayout
+	if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
+		t.Fatalf("ParsePartitionLayout returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, 1)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 1, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	if decodedModes[0].RefFrame != common.IntraFrame || decodedModes[0].Mode != common.DCPred || decodedModes[0].UVMode != common.HPred || decodedModes[0].MBSkipCoeff || decodedModes[0].Is4x4 {
+		t.Fatalf("mode = %+v, want non-skipped intra DCPRED/HPRED", decodedModes[0])
+	}
+
+	readers := [8]boolcoder.Decoder{}
+	if err := readers[0].Init(layout.Tokens[0]); err != nil {
+		t.Fatalf("token reader Init returned error: %v", err)
+	}
+	tokens := make([]vp8dec.MacroblockTokens, 1)
+	decoderAbove := make([]vp8dec.EntropyContextPlanes, 1)
+	total, err := vp8dec.DecodeTokenGrid(readers[:1], 1, 1, &coefProbs, decodedModes, decoderAbove, tokens)
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total == 0 || tokens[0].QCoeff[24][0] != 1 {
+		t.Fatalf("decoded tokens total=%d Y2=%d, want intra residual token", total, tokens[0].QCoeff[24][0])
+	}
+}
+
 func TestWriteCoefficientInterFrameDecodesGoldenAndAltRef(t *testing.T) {
 	modes := []InterFrameMacroblockMode{
 		{RefFrame: common.GoldenFrame, Mode: common.ZeroMV, MBSkipCoeff: true},

@@ -595,18 +595,24 @@ func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.Macrobl
 
 func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
-		RefFrame:    convertInterFrameReference(src.RefFrame),
+		RefFrame:    convertInterFrameReference(src),
 		Mode:        src.Mode,
+		UVMode:      src.UVMode,
+		Is4x4:       src.Mode == vp8common.BPred,
+		BModes:      src.BModes,
 		MV:          vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col},
 		MBSkipCoeff: src.MBSkipCoeff,
 	}
 }
 
-func convertInterFrameReference(ref vp8common.MVReferenceFrame) vp8common.MVReferenceFrame {
-	if ref == vp8common.IntraFrame {
+func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common.MVReferenceFrame {
+	if mode.Mode >= vp8common.DCPred && mode.Mode <= vp8common.BPred {
+		return vp8common.IntraFrame
+	}
+	if mode.RefFrame == vp8common.IntraFrame {
 		return vp8common.LastFrame
 	}
-	return ref
+	return mode.RefFrame
 }
 
 func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {
