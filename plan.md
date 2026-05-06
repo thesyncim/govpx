@@ -111,10 +111,11 @@ Remaining work:
 - Test layer sync, TL0PICIDX, reference refreshes, and entropy
   refresh/no-refresh per layer pattern; packet refresh/entropy flags now cover
   all libvpx example temporal patterns, and libvpx-style droppable encoded-frame
-  metadata is now reported.
+  metadata plus per-frame incremental/cumulative layer bitrate targets are now
+  reported.
 - Add oracle-backed realtime/SVC encode validation clips; generated temporal
   streams now cover base-layer and full-sequence decode parity.
-- Verify per-layer bitrate accounting and buffer behavior.
+- Verify per-layer actual bitrate accounting and buffer behavior.
 
 Useful references:
 

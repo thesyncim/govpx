@@ -1824,9 +1824,17 @@ func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	wantTL0 := []uint8{0, 0, 1, 1}
 	wantLayerSync := []bool{false, true, false, false}
 	wantTargetBits := []int{240000, 32000, 48000, 32000}
+	wantLayerBitrate := []int{720, 480, 720, 480}
+	wantCumulativeBitrate := []int{720, 1200, 720, 1200}
 	for i := range results {
-		if results[i].TemporalLayerID != wantLayerID[i] || results[i].TemporalLayerCount != 2 || results[i].TL0PICIDX != wantTL0[i] || results[i].TemporalLayerSync != wantLayerSync[i] || results[i].FrameTargetBits != wantTargetBits[i] {
-			t.Fatalf("result[%d] temporal = id:%d count:%d tl0:%d sync:%t target:%d, want %d/2/%d/%t/%d", i, results[i].TemporalLayerID, results[i].TemporalLayerCount, results[i].TL0PICIDX, results[i].TemporalLayerSync, results[i].FrameTargetBits, wantLayerID[i], wantTL0[i], wantLayerSync[i], wantTargetBits[i])
+		if results[i].TemporalLayerID != wantLayerID[i] ||
+			results[i].TemporalLayerCount != 2 ||
+			results[i].TL0PICIDX != wantTL0[i] ||
+			results[i].TemporalLayerSync != wantLayerSync[i] ||
+			results[i].FrameTargetBits != wantTargetBits[i] ||
+			results[i].TemporalLayerTargetBitrateKbps != wantLayerBitrate[i] ||
+			results[i].TemporalLayerCumulativeBitrateKbps != wantCumulativeBitrate[i] {
+			t.Fatalf("result[%d] temporal = id:%d count:%d tl0:%d sync:%t target:%d layerKbps:%d cumulativeKbps:%d, want %d/2/%d/%t/%d/%d/%d", i, results[i].TemporalLayerID, results[i].TemporalLayerCount, results[i].TL0PICIDX, results[i].TemporalLayerSync, results[i].FrameTargetBits, results[i].TemporalLayerTargetBitrateKbps, results[i].TemporalLayerCumulativeBitrateKbps, wantLayerID[i], wantTL0[i], wantLayerSync[i], wantTargetBits[i], wantLayerBitrate[i], wantCumulativeBitrate[i])
 		}
 	}
 	if !results[0].KeyFrame || results[1].KeyFrame || results[2].KeyFrame || results[3].KeyFrame {

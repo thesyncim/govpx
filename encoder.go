@@ -116,6 +116,9 @@ type EncodeResult struct {
 	TemporalLayerSync              bool
 	TL0PICIDX                      uint8
 	TemporalLayerTargetBitrateKbps int
+	// TemporalLayerCumulativeBitrateKbps reports the cumulative libvpx
+	// ts_target_bitrate[] entry for TemporalLayerID.
+	TemporalLayerCumulativeBitrateKbps int
 
 	PSNRHint float64
 }
@@ -243,18 +246,19 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.rc.selectQuantizerForFrameKind(keyFrame, goldenCBRRefresh, required)
 
 	result := EncodeResult{
-		KeyFrame:                       keyFrame,
-		PTS:                            pts,
-		Duration:                       duration,
-		Quantizer:                      e.rc.currentQuantizer,
-		TargetBitrateKbps:              e.rc.targetBitrateKbps,
-		FrameTargetBits:                e.rc.frameTargetBits,
-		BufferLevelBits:                e.rc.bufferLevelBits,
-		TemporalLayerID:                temporalFrame.LayerID,
-		TemporalLayerCount:             temporalFrame.LayerCount,
-		TemporalLayerSync:              temporalFrame.LayerSync,
-		TL0PICIDX:                      temporalFrame.TL0PICIDX,
-		TemporalLayerTargetBitrateKbps: temporalFrame.LayerTargetBitrateKbps,
+		KeyFrame:                           keyFrame,
+		PTS:                                pts,
+		Duration:                           duration,
+		Quantizer:                          e.rc.currentQuantizer,
+		TargetBitrateKbps:                  e.rc.targetBitrateKbps,
+		FrameTargetBits:                    e.rc.frameTargetBits,
+		BufferLevelBits:                    e.rc.bufferLevelBits,
+		TemporalLayerID:                    temporalFrame.LayerID,
+		TemporalLayerCount:                 temporalFrame.LayerCount,
+		TemporalLayerSync:                  temporalFrame.LayerSync,
+		TL0PICIDX:                          temporalFrame.TL0PICIDX,
+		TemporalLayerTargetBitrateKbps:     temporalFrame.LayerTargetBitrateKbps,
+		TemporalLayerCumulativeBitrateKbps: temporalFrame.LayerCumulativeBitrateKbps,
 	}
 	invisible := flags&EncodeInvisibleFrame != 0
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
