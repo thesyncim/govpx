@@ -19,6 +19,10 @@ func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxNewMVIVFHex, libvpxNewMVChecksums[:])
 }
 
+func TestSubpixelNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSubpixelNewMVIVFHex, libvpxSubpixelNewMVChecksums[:])
+}
+
 func TestIntraInterSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxIntraInterIVFHex, libvpxIntraInterChecksums[:])
 }
@@ -201,6 +205,40 @@ var libvpxNewMVChecksums = [...]testutil.FrameChecksum{
 			V:    [16]byte{0xeb, 0x7a, 0x49, 0x1f, 0x09, 0xf6, 0x1a, 0x33, 0x8a, 0x2b, 0x9f, 0xc2, 0xdf, 0xdf, 0x00, 0x40},
 			Full: [16]byte{0x95, 0xa1, 0xcb, 0x39, 0xa7, 0x9e, 0x9b, 0x93, 0xe6, 0x9f, 0x73, 0x43, 0xa9, 0x0d, 0x7e, 0x83},
 		},
+	},
+}
+
+// Generated from libgopx encoder output and verified with the libvpx v1.16.0
+// checksum oracle in internal/coracle. This vector exercises a subpixel NEWMV
+// interframe.
+const libvpxSubpixelNewMVIVFHex = "444b49460000200056503830100010001e000000010000000200000000000000830100000000000000000000f000009d012a10001000000008000011d0fefa9fa07ffd455c3cf6ffe3b7f929fd3fa1bffffcabfff453b569f4fcdc7fa2ebff533ff9727e973ecbfff601f3bca7ffffc1afa57d807ecc6ff40359cbf37aff3fff68ff277effff7fff75ffffe55fffa29dacdfffc1affea34fb47fd69ffd00d67dfffdffbaffe4dbf5ffdfdebfdff7fff3ff99fd807e4dbfe8058bef5ff7af4df33bf601f33bbff07c7fe7ff4ffb47fcabffd47b17debfef5e9be7ffed1fe7ff7fe0f9ffffc1affea34fb00fd5e9fd47d67dfffdffbaffe55ff68aafdebfdff7affffe55fffa29dacdffc1afa57da3fed08ff51f59cbf37aff33bf601f33bf7fffbfffb6c547e68bfd081ffa99ffcb93f4b9f5d1ffb47f9de57ffff2afffd14ed66fffea34ff9c4bff9adddff319fe61c97fccdbff33bf33bf371fff957ffe8a76a5347e6e3fd175ffa99ffcb93f4b9f65fffb00f9de53ffff06be95f601fb31bfd00d672fcdebfcfffda3fc9dfbfffdfffdd7fffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff31300750000000100000000000000b101000000203100048981818017fe809bffffacdbffee827fd611c7ff0eb7fff336fffba09ff58471ffc3adfffe8a3bffe5fbaa7fcde9ffe8a3bffe5fbaa7fcde9fffff3633ffed5c7fe6976bff5b0bfffcd8cfffb571ff9a5daffd6c2ffffa6677ffcd00b97fbe51fff4ccefff9a0172ff7c7000"
+
+var libvpxSubpixelNewMVChecksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     16,
+		Height:    16,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"add56b48e2cfcf4af5d36380df2b3c23",
+			"ce7b785b1be7ad4f72773217db8c5d3e",
+			"18605d3935338c5bcb1b1c6a47ece81a",
+			"00d91d994f5c48c49601e204ba7b6364",
+		),
+	},
+	{
+		Index:     1,
+		Width:     16,
+		Height:    16,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"0e83ed227561506856c561fc52dd36f4",
+			"ca8c302f6aa83ab653b65a3b62abd855",
+			"d6a2ea34758f123bad77a0cefe135c78",
+			"2047d065c8d6d4fa2e6078ee01c8aed8",
+		),
 	},
 }
 

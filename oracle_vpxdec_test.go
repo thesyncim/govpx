@@ -11,6 +11,8 @@ import (
 
 	"github.com/thesyncim/libgopx/internal/testutil"
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/dsp"
+	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
 func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
@@ -220,6 +222,61 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
 
 	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
+func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	fillImage(first, 0, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 0; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = byte(32 + ((row*17 + col*13) & 127))
+		}
+	}
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+
+	second := testImage(16, 16)
+	fillImage(second, 0, 90, 170)
+	ref := &e.lastRef.Img
+	start := ref.YOrigin - 2*ref.YStride - 2
+	dsp.SixTapPredict16x16(ref.YFull[start:], ref.YStride, 2, 2, second.Y, second.YStride)
+	reconstructed := publicImageFromVP8(ref)
+	copy(second.U, reconstructed.U)
+	copy(second.V, reconstructed.V)
+
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want subpixel NEWMV interframe")
+	}
+	if e.interFrameModes[0].Mode != vp8common.NewMV || e.interFrameModes[0].MV != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("mode[0] = %+v, want subpixel NEWMV +2,+2", e.interFrameModes[0])
+	}
+
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
 	if len(oracleFrames) != len(libgopxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
