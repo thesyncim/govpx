@@ -77,7 +77,7 @@ func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing
 	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 24}) {
-		t.Fatalf("selection = %v %+v, want last row +24 after diamond refinement", ref.Frame, mv)
+		t.Fatalf("selection = %v %+v, want last row +24 after exhaustive search", ref.Frame, mv)
 	}
 }
 
@@ -155,6 +155,12 @@ func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
 	}
 	if limited <= 1024 || limited >= full {
 		t.Fatalf("limited SAD = %d, full = %d, want early result above limit and below full", limited, full)
+	}
+}
+
+func TestInterFrameSubpixelSearchCandidateCount(t *testing.T) {
+	if got := interFrameSubpixelSearchCandidateCount(); got != 1089 {
+		t.Fatalf("subpixel candidate count = %d, want exhaustive even-MV grid 1089", got)
 	}
 }
 
@@ -272,7 +278,7 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 	}
 	source := sourceImageFromPublic(src)
 	b.ReportAllocs()
-	b.SetBytes(16 * 16 * int64(len(refs)) * int64(interFrameFullPixelSearchCandidateCount()))
+	b.SetBytes(16 * 16 * int64(len(refs)) * int64(interFrameSubpixelSearchCandidateCount()))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		row := (i >> 2) & 3
