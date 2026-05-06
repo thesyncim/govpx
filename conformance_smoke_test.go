@@ -22,6 +22,25 @@ func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxTokenPartitionIVFHex, libvpxTokenPartitionChecksums[:])
 }
 
+func TestSupportedProfileSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	cases := []struct {
+		name      string
+		ivfHex    string
+		profile   int
+		checksums []testutil.FrameChecksum
+	}{
+		{name: "profile1", ivfHex: libvpxProfile1IVFHex, profile: 1, checksums: libvpxProfile1Checksums[:]},
+		{name: "profile2", ivfHex: libvpxProfile2IVFHex, profile: 2, checksums: libvpxProfile2Checksums[:]},
+		{name: "profile3", ivfHex: libvpxProfile3IVFHex, profile: 3, checksums: libvpxProfile3Checksums[:]},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertSmokeIVFProfile(t, tc.ivfHex, tc.profile)
+			assertSmokeIVFMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
+		})
+	}
+}
+
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxNewMVIVFHex, libvpxNewMVChecksums[:])
 }
@@ -108,6 +127,29 @@ func assertSmokeIVFTokenPartition(t *testing.T, ivfHex string, want vp8common.To
 			t.Fatalf("frame %d token partition = %d, want %d", i, state.TokenPartition, want)
 		}
 		previous = state.Quant
+		offset = next
+	}
+}
+
+func assertSmokeIVFProfile(t *testing.T, ivfHex string, want int) {
+	t.Helper()
+	ivf := mustDecodeHex(t, ivfHex)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	for i := 0; offset < len(ivf); i++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", i, err)
+		}
+		if info.Profile != want {
+			t.Fatalf("frame %d profile = %d, want %d", i, info.Profile, want)
+		}
 		offset = next
 	}
 }
@@ -393,6 +435,66 @@ var libvpxTokenPartitionChecksums = [...]testutil.FrameChecksum{
 			"64c4cbf0f983644a000f6b12f304865d",
 			"f02a75aed0d945c31677c4d8c0f4990d",
 			"fc4719b039d181cdab1026c6c62f0ac8",
+		),
+	},
+}
+
+// Generated with libvpx v1.16.0 vpxenc --profile=1 and verified with the
+// libvpx v1.16.0 checksum oracle in internal/coracle.
+const libvpxProfile1IVFHex = "444b4946000020005650383010001000e8030000010000000100000000000000ce00000000000000000000001204009d012a100010001207088585888584880c8202755400e815feb3551b7ea6d701364311b82d3560fef8705c0b77f027ad9b2f323e480c39d3e537d4dc61e777991a498ff841877fa01e966d1394ac83c5d06d2e772f084f2fed6abf3ffef699a2c633c7b4becb930acb2c46148d316f583f8567393ff142c40ae889bdb01f2d654498ab36547b115b49f5bfc5e7569a7fa5390c3155c5f1bfd87f90424fee15afc84828fbce3e639fddd1c478510023ffd833ff8b1f6eeead7fe6c95086f15eb0f974bba1a1b97ed7539400"
+
+var libvpxProfile1Checksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     16,
+		Height:    16,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"86f4fa6bbcb473d5b9f760f18f45fc62",
+			"c2f94143306052e11f5943ce20a1cb0d",
+			"ad094a02c4633e1280ca37fea5702871",
+			"626219ba7cbef22e7e20090bd8781595",
+		),
+	},
+}
+
+// Generated with libvpx v1.16.0 vpxenc --profile=2 and verified with the
+// libvpx v1.16.0 checksum oracle in internal/coracle.
+const libvpxProfile2IVFHex = "444b4946000020005650383010001000e8030000010000000100000000000000ce00000000000000000000001404009d012a100010000007088585888584880c8202755400e815feb3551b7ea6d701364311b82d3560fef8705c0b77f027ad9b2f323e480c39d3e537d4dc61e777991a498ff841877fa01e966d1394ac83c5d06d2e772f084f2fed6abf3ffef699a2c633c7b4becb930acb2c46148d316f583f8567393ff142c40ae889bdb01f2d654498ab36547b115b49f5bfc5e7569a7fa5390c3155c5f1bfd87f90424fee15afc84828fbce3e639fddd1c478510023ffd833ff8b1f6eeead7fe6c95086f15eb0f974bba1a1b97ed7539400"
+
+var libvpxProfile2Checksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     16,
+		Height:    16,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"5926ffee33058455d8a0de656fc8ba77",
+			"c2f94143306052e11f5943ce20a1cb0d",
+			"ad094a02c4633e1280ca37fea5702871",
+			"c9edf89b38c6d6213d12b33ab343ea7b",
+		),
+	},
+}
+
+// Generated with libvpx v1.16.0 vpxenc --profile=3 and verified with the
+// libvpx v1.16.0 checksum oracle in internal/coracle.
+const libvpxProfile3IVFHex = "444b4946000020005650383010001000e8030000010000000100000000000000ce00000000000000000000001604009d012a100010001007088585888584880c8202755400e815feb3551b7ea6d701364311b82d3560fef8705c0b77f027ad9b2f323e480c39d3e537d4dc61e777991a498ff841877fa01e966d1394ac83c5d06d2e772f084f2fed6abf3ffef699a2c633c7b4becb930acb2c46148d316f583f8567393ff142c40ae889bdb01f2d654498ab36547b115b49f5bfc5e7569a7fa5390c3155c5f1bfd87f90424fee15afc84828fbce3e639fddd1c478510023ffd833ff8b1f6eeead7fe6c95086f15eb0f974bba1a1b97ed7539400"
+
+var libvpxProfile3Checksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     16,
+		Height:    16,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"5926ffee33058455d8a0de656fc8ba77",
+			"c2f94143306052e11f5943ce20a1cb0d",
+			"ad094a02c4633e1280ca37fea5702871",
+			"c9edf89b38c6d6213d12b33ab343ea7b",
 		),
 	},
 }
