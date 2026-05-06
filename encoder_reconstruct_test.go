@@ -23,6 +23,18 @@ func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *test
 	last := testVP8Frame(t, 16, 16, 220, 90, 170)
 	golden := testVP8Frame(t, 16, 16, 40, 90, 170)
 	alt := testVP8Frame(t, 16, 16, 80, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			v := byte(32 + ((row*17 + col*11) & 127))
+			src.Y[row*src.YStride+col] = v
+			golden.Img.Y[row*golden.Img.YStride+col] = v
+			last.Img.Y[row*last.Img.YStride+col] = byte(200 - ((row*7 + col*19) & 63))
+			alt.Img.Y[row*alt.Img.YStride+col] = byte(96 + ((row*5 + col*3) & 63))
+		}
+	}
+	last.ExtendBorders()
+	golden.ExtendBorders()
+	alt.ExtendBorders()
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &last.Img},
 		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
@@ -162,9 +174,86 @@ func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestMacroblockSubpixelVarianceMatchesBilinearPredictor(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((17 + row*13 + col*19 + row*col*3) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
+	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 6, src.Y[16*src.YStride+16:], src.YStride)
+
+	variance, sse, ok := macroblockSubpixelVariance(sourceImageFromPublic(src), &ref.Img, 16, 16, 16, 16, 2, 6)
+
+	if !ok {
+		t.Fatalf("macroblockSubpixelVariance returned ok=false")
+	}
+	if variance != 0 || sse != 0 {
+		t.Fatalf("subpixel variance = %d/%d, want exact bilinear match", variance, sse)
+	}
+}
+
+func TestIterativeInterFrameSubpixelMotionVectorUsesBilinearVariance(t *testing.T) {
+	src := testImage(48, 48)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 48, 48, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*11 + col*7 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
+	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
+
+	mv, cost, ok := iterativeInterFrameSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 1, 1, vp8enc.MotionVector{}, testInterSearchQIndex)
+
+	if !ok {
+		t.Fatalf("iterativeInterFrameSubpixelMotionVector returned ok=false")
+	}
+	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("mv = %+v, want +2,+2 quarter-pel candidate", mv)
+	}
+	if want := interMotionSearchErrorVectorCost(mv, testInterSearchQIndex); cost != want {
+		t.Fatalf("cost = %d, want zero distortion plus mv cost %d", cost, want)
+	}
+}
+
+func TestCollectInterFrameMotionCandidatesIncludesSubpixelCandidate(t *testing.T) {
+	src := testImage(48, 48)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 48, 48, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((31 + row*5 + col*17 + row*col*11) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
+	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
+	refs := []interAnalysisReference{{Frame: vp8common.LastFrame, Img: &ref.Img}}
+	var candidates [6]interAnalysisMotionCandidate
+
+	count := collectInterFrameMotionCandidates(sourceImageFromPublic(src), refs, len(refs), 1, 1, testInterSearchQIndex, &candidates)
+
+	if count != 2 {
+		t.Fatalf("candidate count = %d, want full-pixel plus subpixel", count)
+	}
+	if candidates[0].MV != (vp8enc.MotionVector{}) {
+		t.Fatalf("full-pixel candidate = %+v, want zero MV", candidates[0].MV)
+	}
+	if candidates[1].MV != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("subpixel candidate = %+v, want +2,+2", candidates[1].MV)
+	}
+}
+
 func TestInterFrameSubpixelSearchCandidateCount(t *testing.T) {
-	if got := interFrameSubpixelSearchCandidateCount(); got != 4225 {
-		t.Fatalf("subpixel candidate count = %d, want exhaustive even-MV grid 4225", got)
+	if got := interFrameSubpixelSearchCandidateCount(); got != 31 {
+		t.Fatalf("subpixel candidate count = %d, want libvpx iterative max 31", got)
 	}
 }
 
