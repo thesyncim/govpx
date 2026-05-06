@@ -109,7 +109,8 @@ Remaining work:
 - Keep temporal pattern flags aligned with `vpx_temporal_svc_encoder.c`.
 - Test layer sync, TL0PICIDX, droppable frames, reference refreshes, and entropy
   refresh/no-refresh per layer pattern.
-- Add oracle-backed realtime/SVC encode validation clips.
+- Add oracle-backed realtime/SVC encode validation clips; generated temporal
+  streams now cover base-layer and full-sequence decode parity.
 - Verify per-layer bitrate accounting and buffer behavior.
 
 Useful references:

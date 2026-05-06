@@ -229,28 +229,7 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	}
 	oracle := findChecksumOracle(t)
 
-	cases := []struct {
-		name       string
-		mode       TemporalLayeringMode
-		bitrates   [MaxTemporalLayers]int
-		frameCount int
-	}{
-		{name: "one-layer", mode: TemporalLayeringOneLayer, frameCount: 6},
-		{name: "two-layers", mode: TemporalLayeringTwoLayers, frameCount: 6},
-		{name: "two-layers-three-frame", mode: TemporalLayeringTwoLayersThreeFrame, frameCount: 7},
-		{name: "three-layers-six-frame", mode: TemporalLayeringThreeLayersSixFrame, frameCount: 13},
-		{name: "three-layers-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction, frameCount: 9},
-		{name: "three-layers-layer-one-prediction", mode: TemporalLayeringThreeLayersLayerOnePrediction, frameCount: 9},
-		{name: "three-layers", mode: TemporalLayeringThreeLayers, frameCount: 9},
-		{name: "five-layers", mode: TemporalLayeringFiveLayers, bitrates: [MaxTemporalLayers]int{200, 400, 700, 950, 1200}, frameCount: 18},
-		{name: "two-layers-with-sync", mode: TemporalLayeringTwoLayersWithSync, frameCount: 9},
-		{name: "three-layers-with-sync", mode: TemporalLayeringThreeLayersWithSync, frameCount: 9},
-		{name: "three-layers-altref-with-sync", mode: TemporalLayeringThreeLayersAltRefWithSync, frameCount: 9},
-		{name: "three-layers-one-reference", mode: TemporalLayeringThreeLayersOneReference, frameCount: 9},
-		{name: "three-layers-no-sync", mode: TemporalLayeringThreeLayersNoSync, frameCount: 9},
-	}
-
-	for _, tc := range cases {
+	for _, tc := range temporalOracleTestCases() {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := TemporalScalabilityConfig{
@@ -293,6 +272,78 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	for _, tc := range temporalOracleTestCases() {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := TemporalScalabilityConfig{
+				Enabled:                true,
+				Mode:                   tc.mode,
+				LayerTargetBitrateKbps: tc.bitrates,
+			}
+			e := newTemporalTestEncoder(t, cfg)
+			packet := make([]byte, 8192)
+			packets := make([][]byte, 0, tc.frameCount)
+			keyFrames := make([]bool, 0, tc.frameCount)
+			for i := 0; i < tc.frameCount; i++ {
+				src := rateControlTestFrame(16, 16, i)
+				result, err := e.EncodeInto(packet, src, uint64(i), 1, 0)
+				if err != nil {
+					t.Fatalf("EncodeInto %d returned error: %v", i, err)
+				}
+				if result.Dropped {
+					t.Fatalf("EncodeInto %d dropped, want full temporal oracle sequence", i)
+				}
+				packets = append(packets, append([]byte(nil), result.Data...))
+				keyFrames = append(keyFrames, result.KeyFrame)
+			}
+
+			govpxFrames := decodeFrameSequence(t, packets...)
+			ivf := makeIVF(16, 16, 30, 1, packets)
+			oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+			if len(oracleFrames) != len(govpxFrames) {
+				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
+			}
+			for i := range govpxFrames {
+				want := checksumFrame(i, keyFrames[i], true, govpxFrames[i])
+				if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+					t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngovpx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+				}
+			}
+		})
+	}
+}
+
+type temporalOracleCase struct {
+	name       string
+	mode       TemporalLayeringMode
+	bitrates   [MaxTemporalLayers]int
+	frameCount int
+}
+
+func temporalOracleTestCases() []temporalOracleCase {
+	return []temporalOracleCase{
+		{name: "one-layer", mode: TemporalLayeringOneLayer, frameCount: 6},
+		{name: "two-layers", mode: TemporalLayeringTwoLayers, frameCount: 6},
+		{name: "two-layers-three-frame", mode: TemporalLayeringTwoLayersThreeFrame, frameCount: 7},
+		{name: "three-layers-six-frame", mode: TemporalLayeringThreeLayersSixFrame, frameCount: 13},
+		{name: "three-layers-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction, frameCount: 9},
+		{name: "three-layers-layer-one-prediction", mode: TemporalLayeringThreeLayersLayerOnePrediction, frameCount: 9},
+		{name: "three-layers", mode: TemporalLayeringThreeLayers, frameCount: 9},
+		{name: "five-layers", mode: TemporalLayeringFiveLayers, bitrates: [MaxTemporalLayers]int{200, 400, 700, 950, 1200}, frameCount: 18},
+		{name: "two-layers-with-sync", mode: TemporalLayeringTwoLayersWithSync, frameCount: 9},
+		{name: "three-layers-with-sync", mode: TemporalLayeringThreeLayersWithSync, frameCount: 9},
+		{name: "three-layers-altref-with-sync", mode: TemporalLayeringThreeLayersAltRefWithSync, frameCount: 9},
+		{name: "three-layers-one-reference", mode: TemporalLayeringThreeLayersOneReference, frameCount: 9},
+		{name: "three-layers-no-sync", mode: TemporalLayeringThreeLayersNoSync, frameCount: 9},
 	}
 }
 
