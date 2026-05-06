@@ -54,7 +54,15 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			mode, ok := predictBestKeyFrameIntraMode(src, qIndex, row, col, &e.analysis.Img, &e.reconstructScratch)
+			var above *vp8enc.KeyFrameMacroblockMode
+			var left *vp8enc.KeyFrameMacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			mode, ok := predictBestKeyFrameIntraMode(src, qIndex, row, col, above, left, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
@@ -219,13 +227,13 @@ func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int
 	return yMode, uvMode, ok
 }
 
-func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.KeyFrameMacroblockMode, bool) {
+func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.KeyFrameMacroblockMode, bool) {
 	wholeY, wholeUV, wholeCost, ok := predictBestWholeBlockIntraModeCost(src, qIndex, true, mbRow, mbCol, pred, scratch)
 	if !ok {
 		return vp8enc.KeyFrameMacroblockMode{}, false
 	}
 	best := vp8enc.KeyFrameMacroblockMode{YMode: wholeY, UVMode: wholeUV}
-	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, qIndex, true, mbRow, mbCol, pred, scratch)
+	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, qIndex, true, mbRow, mbCol, above, left, pred, scratch)
 	if !ok {
 		return vp8enc.KeyFrameMacroblockMode{}, false
 	}
@@ -247,7 +255,7 @@ func predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int
 	}
 	best := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: wholeY, UVMode: wholeUV}
 	bestCost := wholeCost
-	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, qIndex, false, mbRow, mbCol, pred, scratch)
+	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, qIndex, false, mbRow, mbCol, nil, nil, pred, scratch)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -302,7 +310,7 @@ func predictBestIntraChromaModeCost(src vp8enc.SourceImage, qIndex int, keyFrame
 	return bestUVMode, bestUVCost, true
 }
 
-func predictBestBPredLumaModeCost(src vp8enc.SourceImage, qIndex int, keyFrame bool, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) ([16]vp8common.BPredictionMode, int, bool) {
+func predictBestBPredLumaModeCost(src vp8enc.SourceImage, qIndex int, keyFrame bool, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) ([16]vp8common.BPredictionMode, int, bool) {
 	refs := vp8dec.BuildIntraPredictorRefs(pred, mbRow, mbCol, &scratch.Refs)
 	yOff := mbRow*16*pred.YStride + mbCol*16
 	y := pred.Y[yOff:]
@@ -317,8 +325,8 @@ func predictBestBPredLumaModeCost(src vp8enc.SourceImage, qIndex int, keyFrame b
 			if !predictAnalysisBPredBlock(candidate, candidatePred[:], 4, y, pred.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 				return [16]vp8common.BPredictionMode{}, 0, false
 			}
-			aboveMode := bPredAnalysisAboveMode(keyFrame, modes, block)
-			leftMode := bPredAnalysisLeftMode(keyFrame, modes, block)
+			aboveMode := bPredAnalysisAboveMode(keyFrame, above, modes, block)
+			leftMode := bPredAnalysisLeftMode(keyFrame, left, modes, block)
 			rate := bPredModeRate(keyFrame, candidate, aboveMode, leftMode)
 			cost := rdModeScore(qIndex, rate, bPredBlockSSE(src, mbRow, mbCol, block, candidatePred[:], 4))
 			if i == 0 || cost < bestCost {
@@ -334,24 +342,49 @@ func predictBestBPredLumaModeCost(src vp8enc.SourceImage, qIndex int, keyFrame b
 	return modes, totalCost, true
 }
 
-func bPredAnalysisAboveMode(keyFrame bool, modes [16]vp8common.BPredictionMode, block int) vp8common.BPredictionMode {
+func bPredAnalysisAboveMode(keyFrame bool, above *vp8enc.KeyFrameMacroblockMode, modes [16]vp8common.BPredictionMode, block int) vp8common.BPredictionMode {
 	if !keyFrame {
 		return vp8common.BDCPred
 	}
 	if block >= 4 {
 		return modes[block-4]
 	}
-	return vp8common.BDCPred
+	if above == nil {
+		return vp8common.BDCPred
+	}
+	if above.YMode == vp8common.BPred {
+		return above.BModes[block+12]
+	}
+	return blockModeFromKeyFrameMacroblockMode(above.YMode)
 }
 
-func bPredAnalysisLeftMode(keyFrame bool, modes [16]vp8common.BPredictionMode, block int) vp8common.BPredictionMode {
+func bPredAnalysisLeftMode(keyFrame bool, left *vp8enc.KeyFrameMacroblockMode, modes [16]vp8common.BPredictionMode, block int) vp8common.BPredictionMode {
 	if !keyFrame {
 		return vp8common.BDCPred
 	}
 	if block&3 != 0 {
 		return modes[block-1]
 	}
-	return vp8common.BDCPred
+	if left == nil {
+		return vp8common.BDCPred
+	}
+	if left.YMode == vp8common.BPred {
+		return left.BModes[block+3]
+	}
+	return blockModeFromKeyFrameMacroblockMode(left.YMode)
+}
+
+func blockModeFromKeyFrameMacroblockMode(mode vp8common.MBPredictionMode) vp8common.BPredictionMode {
+	switch mode {
+	case vp8common.VPred:
+		return vp8common.BVEPred
+	case vp8common.HPred:
+		return vp8common.BHEPred
+	case vp8common.TMPred:
+		return vp8common.BTMPred
+	default:
+		return vp8common.BDCPred
+	}
 }
 
 func intraYModeRate(keyFrame bool, mode vp8common.MBPredictionMode) int {

@@ -193,7 +193,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 
 	var scratch vp8dec.IntraReconstructionScratch
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, &pred.Img, &scratch)
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, &pred.Img, &scratch)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
@@ -202,6 +202,61 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 	if mode.BModes[0] != vp8common.BHEPred {
 		t.Fatalf("B mode[0] = %v, want B_HE_PRED", mode.BModes[0])
+	}
+}
+
+func TestBPredAnalysisKeyFrameUsesNeighborContexts(t *testing.T) {
+	var modes [16]vp8common.BPredictionMode
+	modes[1] = vp8common.BTMPred
+	modes[4] = vp8common.BHDPred
+
+	aboveB := vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred}
+	aboveB.BModes[12] = vp8common.BHUPred
+	aboveB.BModes[13] = vp8common.BRDPred
+	leftB := vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred}
+	leftB.BModes[3] = vp8common.BVLPred
+	leftB.BModes[7] = vp8common.BLDPred
+
+	if got := bPredAnalysisAboveMode(true, &aboveB, modes, 0); got != vp8common.BHUPred {
+		t.Fatalf("above edge B_PRED context = %v, want B_HU_PRED", got)
+	}
+	if got := bPredAnalysisAboveMode(true, &aboveB, modes, 1); got != vp8common.BRDPred {
+		t.Fatalf("above edge block 1 context = %v, want B_RD_PRED", got)
+	}
+	if got := bPredAnalysisLeftMode(true, &leftB, modes, 0); got != vp8common.BVLPred {
+		t.Fatalf("left edge B_PRED context = %v, want B_VL_PRED", got)
+	}
+	if got := bPredAnalysisLeftMode(true, &leftB, modes, 4); got != vp8common.BLDPred {
+		t.Fatalf("left edge block 4 context = %v, want B_LD_PRED", got)
+	}
+	if got := bPredAnalysisAboveMode(true, &aboveB, modes, 5); got != vp8common.BTMPred {
+		t.Fatalf("internal above context = %v, want B_TM_PRED", got)
+	}
+	if got := bPredAnalysisLeftMode(true, &leftB, modes, 5); got != vp8common.BHDPred {
+		t.Fatalf("internal left context = %v, want B_HD_PRED", got)
+	}
+}
+
+func TestBPredAnalysisKeyFrameMapsWholeBlockNeighborContexts(t *testing.T) {
+	var modes [16]vp8common.BPredictionMode
+	aboveV := vp8enc.KeyFrameMacroblockMode{YMode: vp8common.VPred}
+	aboveH := vp8enc.KeyFrameMacroblockMode{YMode: vp8common.HPred}
+	leftTM := vp8enc.KeyFrameMacroblockMode{YMode: vp8common.TMPred}
+
+	if got := bPredAnalysisAboveMode(true, &aboveV, modes, 0); got != vp8common.BVEPred {
+		t.Fatalf("above V_PRED context = %v, want B_VE_PRED", got)
+	}
+	if got := bPredAnalysisAboveMode(true, &aboveH, modes, 0); got != vp8common.BHEPred {
+		t.Fatalf("above H_PRED context = %v, want B_HE_PRED", got)
+	}
+	if got := bPredAnalysisLeftMode(true, &leftTM, modes, 0); got != vp8common.BTMPred {
+		t.Fatalf("left TM_PRED context = %v, want B_TM_PRED", got)
+	}
+	if got := bPredAnalysisAboveMode(false, &aboveV, modes, 0); got != vp8common.BDCPred {
+		t.Fatalf("inter above context = %v, want B_DC_PRED", got)
+	}
+	if got := bPredAnalysisLeftMode(false, &leftTM, modes, 0); got != vp8common.BDCPred {
+		t.Fatalf("inter left context = %v, want B_DC_PRED", got)
 	}
 }
 
