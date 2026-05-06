@@ -5,51 +5,19 @@ the pinned libvpx v1.16.0 decoder with VP8 postprocess and error-concealment
 support enabled, then emits one JSON object per decoded frame. The Go package
 does not import cgo or link libvpx.
 
-Build the helper:
+Run the full correctness/parity gate from the repository root:
 
 ```sh
-internal/coracle/build_libvpx.sh
+make verify-production
 ```
 
-Build the optional pinned `vpxenc` reference binary for encoder benchmarks:
-
-```sh
-internal/coracle/build_vpxenc.sh
-```
-
-Run opt-in oracle tests:
-
-```sh
-LIBGOPX_WITH_ORACLE=1 LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle go test ./...
-```
-
-Run opt-in extended conformance against external VP8 IVF data:
-
-```sh
-LIBGOPX_WITH_ORACLE=1 \
-LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle \
-LIBGOPX_TEST_DATA_PATH=/path/to/vp8-ivf-data \
-go test .
-```
-
-Use `LIBGOPX_TEST_DATA_LIMIT=N` to cap the number of IVF files discovered from
-the external data path.
-
-Run opt-in encoder source-corpus validation against external 8-bit 4:2:0 Y4M/YUV
-data:
-
-```sh
-LIBGOPX_WITH_ORACLE=1 \
-LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle \
-LIBGOPX_VPXENC=internal/coracle/build/vpxenc \
-LIBGOPX_ENCODER_TEST_DATA_PATH=/path/to/y4m-or-yuv-data \
-go test . -run TestOracleExternalEncoderTestDataValidation
-```
-
-Use `LIBGOPX_ENCODER_TEST_DATA_LIMIT=N` to cap the number of source files,
-`LIBGOPX_ENCODER_TEST_DATA_FRAMES=N` to cap frames per source, and
-`LIBGOPX_ENCODER_TEST_DATA_REQUIRED=1` plus
-`LIBGOPX_ENCODER_TEST_DATA_MIN=N` for enforced CI corpus runs.
+That target builds `gopx-vpx-oracle`, pinned `vpxenc`, and pinned `vpxdec` with
+libvpx optimizations enabled; fetches the libvpx VP8 IVF corpus plus supported
+encoder source data under ignored `internal/coracle/build/test-data/`; and runs
+all root `TestOracle*` tests with the required/minimum-count corpus checks
+enabled. The raw
+`LIBGOPX_*` switches remain available inside the Makefile for targeted
+debugging, but the supported parity workflow is the make target.
 
 The helper accepts IVF VP8 input:
 
@@ -70,5 +38,6 @@ Output is newline-delimited JSON:
 Run the libgopx encoder benchmark with the optional libvpx comparison:
 
 ```sh
+make oracle-tools
 LIBGOPX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/gopx-bench
 ```

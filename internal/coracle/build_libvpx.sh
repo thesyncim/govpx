@@ -8,7 +8,7 @@ src_dir="$build_dir/libvpx-$tag"
 prefix=${LIBGOPX_LIBVPX_PREFIX:-"$build_dir/libvpx-$tag-install"}
 oracle_bin=${LIBGOPX_ORACLE_BIN:-"$build_dir/gopx-vpx-oracle"}
 config_stamp="$prefix/.libgopx-libvpx-config"
-want_config="v1.16.0-vp8-decoder-postproc-error-concealment"
+want_config="v1.16.0-vp8-decoder-postproc-error-concealment-optimized"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -45,6 +45,9 @@ if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [
 			--disable-tools \
 			--disable-docs \
 			--disable-unit-tests \
+			--disable-debug \
+			--disable-gprof \
+			--enable-optimizations \
 			--disable-vp9 \
 			--disable-vp9-highbitdepth \
 			--enable-vp8 \

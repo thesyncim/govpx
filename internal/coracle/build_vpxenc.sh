@@ -6,8 +6,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 build_dir=${LIBGOPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxenc"
 vpxenc_bin=${LIBGOPX_VPXENC_BIN:-"$build_dir/vpxenc"}
+vpxdec_bin=${LIBGOPX_VPXDEC_BIN:-"$build_dir/vpxdec"}
 config_stamp="$src_dir/.libgopx-vpxenc-config"
-want_config="v1.16.0-vp8-tools-postproc-error-concealment"
+want_config="v1.16.0-vp8-tools-postproc-error-concealment-optimized"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -43,6 +44,9 @@ if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
 		./configure \
 			--disable-docs \
 			--disable-unit-tests \
+			--disable-debug \
+			--disable-gprof \
+			--enable-optimizations \
 			--disable-vp9 \
 			--disable-vp9-highbitdepth \
 			--enable-vp8_encoder \
@@ -57,4 +61,6 @@ fi
 
 cp "$src_dir/vpxenc" "$vpxenc_bin"
 chmod +x "$vpxenc_bin"
+cp "$src_dir/vpxdec" "$vpxdec_bin"
+chmod +x "$vpxdec_bin"
 printf '%s\n' "$vpxenc_bin"

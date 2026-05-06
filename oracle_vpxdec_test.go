@@ -931,6 +931,44 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
+	}
+	root, ok := externalInvalidIVFTestDataRoot(t)
+	if !ok {
+		return
+	}
+	oracle := findChecksumOracle(t)
+	paths := findInvalidVP8IVFTestData(t, root)
+	if len(paths) == 0 {
+		if os.Getenv("LIBGOPX_INVALID_TEST_DATA_REQUIRED") == "1" || externalInvalidIVFTestMinimum(t) > 0 {
+			t.Fatalf("no invalid VP8 IVF files found under %s", root)
+		}
+		t.Skipf("no invalid VP8 IVF files found under %s", root)
+	}
+	assertExternalInvalidIVFTestDataMinimum(t, paths)
+
+	for _, path := range paths {
+		path := path
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			if err := runLibvpxChecksumOracleFileExpectError(t, oracle, path); err == nil {
+				t.Fatalf("libvpx oracle decoded invalid VP8 IVF without error")
+			}
+			ivf, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			if err := decodeIVFExpectError(t, ivf, DecoderOptions{}); err == nil {
+				t.Fatalf("Decode accepted invalid VP8 IVF that libvpx rejected")
+			}
+			if err := decodeIVFIntoExpectError(t, ivf); err == nil {
+				t.Fatalf("DecodeInto accepted invalid VP8 IVF that libvpx rejected")
+			}
+		})
+	}
+}
+
 func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
@@ -1105,6 +1143,17 @@ func runLibvpxChecksumOracleFileMode(t *testing.T, oracle string, mode string, p
 	return frames
 }
 
+func runLibvpxChecksumOracleFileExpectError(t *testing.T, oracle string, path string) error {
+	t.Helper()
+	cmd := exec.Command(oracle, "decode", path)
+	out, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		t.Fatalf("libvpx oracle failed to start: %v\n%s", err, out)
+	}
+	return err
+}
+
 func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameChecksum, want []testutil.FrameChecksum) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -1163,6 +1212,36 @@ func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions
 		offset = next
 	}
 	return frames
+}
+
+func decodeIVFExpectError(t *testing.T, ivf []byte, opts DecoderOptions) error {
+	t.Helper()
+	if _, err := testutil.ParseIVFHeader(ivf); err != nil {
+		return err
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		return err
+	}
+	d, err := NewVP8Decoder(opts)
+	if err != nil {
+		return err
+	}
+	for inputIndex := 0; offset < len(ivf); inputIndex++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
+		if err != nil {
+			return err
+		}
+		if _, err := PeekVP8StreamInfo(frame.Data); err != nil {
+			return err
+		}
+		if err := d.Decode(frame.Data); err != nil {
+			return err
+		}
+		_, _ = d.NextFrame()
+		offset = next
+	}
+	return nil
 }
 
 type generatedLibvpxCorpusCase struct {
@@ -1375,6 +1454,41 @@ func decodeIVFIntoChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 	return frames
 }
 
+func decodeIVFIntoExpectError(t *testing.T, ivf []byte) error {
+	t.Helper()
+	header, err := testutil.ParseIVFHeader(ivf)
+	if err != nil {
+		return err
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		return err
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		return err
+	}
+	dst := testImage(header.Width, header.Height)
+	for inputIndex := 0; offset < len(ivf); inputIndex++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
+		if err != nil {
+			return err
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			return err
+		}
+		if info.KeyFrame && (dst.Width != info.Width || dst.Height != info.Height) {
+			dst = testImage(info.Width, info.Height)
+		}
+		if _, err := d.DecodeInto(frame.Data, &dst); err != nil {
+			return err
+		}
+		offset = next
+	}
+	return nil
+}
+
 func findVP8IVFTestData(t *testing.T, root string) []string {
 	t.Helper()
 	limit := externalIVFTestLimit(t)
@@ -1384,7 +1498,7 @@ func findVP8IVFTestData(t *testing.T, root string) []string {
 	}
 	var paths []string
 	if info.Mode().IsRegular() {
-		if isVP8IVFTestData(t, root) {
+		if !isInvalidVP8IVFTestDataName(root) && isVP8IVFTestData(t, root) {
 			paths = append(paths, root)
 		}
 		return paths
@@ -1396,7 +1510,7 @@ func findVP8IVFTestData(t *testing.T, root string) []string {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") || isInvalidVP8IVFTestDataName(path) {
 			return nil
 		}
 		if isVP8IVFTestData(t, path) {
@@ -1414,6 +1528,49 @@ func findVP8IVFTestData(t *testing.T, root string) []string {
 	return paths
 }
 
+func findInvalidVP8IVFTestData(t *testing.T, root string) []string {
+	t.Helper()
+	limit := externalInvalidIVFTestLimit(t)
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat %s: %v", root, err)
+	}
+	var paths []string
+	if info.Mode().IsRegular() {
+		if isInvalidVP8IVFTestDataName(root) && isVP8IVFTestData(t, root) {
+			paths = append(paths, root)
+		}
+		return paths
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a regular file or directory", root)
+	}
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") || !isInvalidVP8IVFTestDataName(path) {
+			return nil
+		}
+		if isVP8IVFTestData(t, path) {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	sort.Strings(paths)
+	if limit > 0 && len(paths) > limit {
+		return paths[:limit]
+	}
+	return paths
+}
+
+func isInvalidVP8IVFTestDataName(path string) bool {
+	return strings.HasPrefix(strings.ToLower(filepath.Base(path)), "invalid-")
+}
+
 func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
 	t.Helper()
 	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
@@ -1427,6 +1584,23 @@ func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
 	return "", false
 }
 
+func externalInvalidIVFTestDataRoot(t *testing.T) (string, bool) {
+	t.Helper()
+	root := os.Getenv("LIBGOPX_INVALID_TEST_DATA_PATH")
+	if root != "" {
+		return root, true
+	}
+	root = os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	if root != "" {
+		return root, true
+	}
+	if os.Getenv("LIBGOPX_INVALID_TEST_DATA_REQUIRED") == "1" {
+		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_REQUIRED=1 but neither LIBGOPX_INVALID_TEST_DATA_PATH nor LIBGOPX_TEST_DATA_PATH is set")
+	}
+	t.Skip("set LIBGOPX_INVALID_TEST_DATA_PATH to invalid VP8 IVF data or point LIBGOPX_TEST_DATA_PATH at a full libvpx test-data directory")
+	return "", false
+}
+
 func externalIVFTestLimit(t *testing.T) int {
 	t.Helper()
 	raw := os.Getenv("LIBGOPX_TEST_DATA_LIMIT")
@@ -1436,6 +1610,19 @@ func externalIVFTestLimit(t *testing.T) int {
 	limit, err := strconv.Atoi(raw)
 	if err != nil || limit < 0 {
 		t.Fatalf("LIBGOPX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
+	}
+	return limit
+}
+
+func externalInvalidIVFTestLimit(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("LIBGOPX_INVALID_TEST_DATA_LIMIT")
+	if raw == "" {
+		return 0
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 0 {
+		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
 	}
 	return limit
 }
@@ -1453,11 +1640,32 @@ func externalIVFTestMinimum(t *testing.T) int {
 	return minimum
 }
 
+func externalInvalidIVFTestMinimum(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("LIBGOPX_INVALID_TEST_DATA_MIN")
+	if raw == "" {
+		return 0
+	}
+	minimum, err := strconv.Atoi(raw)
+	if err != nil || minimum < 0 {
+		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_MIN = %q, want a non-negative integer", raw)
+	}
+	return minimum
+}
+
 func assertExternalIVFTestDataMinimum(t *testing.T, paths []string) {
 	t.Helper()
 	minimum := externalIVFTestMinimum(t)
 	if minimum > 0 && len(paths) < minimum {
 		t.Fatalf("VP8 IVF test data count = %d, want at least %d from LIBGOPX_TEST_DATA_MIN", len(paths), minimum)
+	}
+}
+
+func assertExternalInvalidIVFTestDataMinimum(t *testing.T, paths []string) {
+	t.Helper()
+	minimum := externalInvalidIVFTestMinimum(t)
+	if minimum > 0 && len(paths) < minimum {
+		t.Fatalf("invalid VP8 IVF test data count = %d, want at least %d from LIBGOPX_INVALID_TEST_DATA_MIN", len(paths), minimum)
 	}
 }
 
