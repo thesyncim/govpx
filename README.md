@@ -26,3 +26,6 @@ by the libvpx v1.16.0 oracle. These run without libvpx installed.
 Optional live libvpx tests are enabled with `LIBGOPX_WITH_ORACLE=1`; set
 `LIBGOPX_VPXDEC` to a vpxdec binary for decode smoke tests and
 `LIBGOPX_ORACLE` to the checksum oracle built from `internal/coracle/`.
+
+`go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
+prints JSON metrics for CI/local tracking.
