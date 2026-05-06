@@ -90,6 +90,41 @@ func TestWriteKeyFrameModeGridRoundTrips(t *testing.T) {
 	}
 }
 
+func TestWriteKeyFrameModeGridWithSegmentationRoundTrips(t *testing.T) {
+	segmentation := testSegmentationConfig()
+	modes := []KeyFrameMacroblockMode{
+		{SegmentID: 0, YMode: common.DCPred, UVMode: common.DCPred},
+		{SegmentID: 1, YMode: common.VPred, UVMode: common.VPred},
+		{SegmentID: 2, YMode: common.HPred, UVMode: common.HPred},
+		{SegmentID: 3, YMode: common.TMPred, UVMode: common.TMPred},
+	}
+	var w BoolWriter
+	buf := make([]byte, 128)
+	w.Init(buf)
+	if err := WriteKeyFrameModeGridWithSegmentation(&w, 2, 2, modes, segmentation); err != nil {
+		t.Fatalf("WriteKeyFrameModeGridWithSegmentation returned error: %v", err)
+	}
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error = %v, want nil", err)
+	}
+
+	var br boolcoder.Decoder
+	if err := br.Init(w.Bytes()); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	decoded := make([]vp8dec.MacroblockMode, 4)
+	decoderSegmentation := decoderSegmentationHeader(segmentation)
+	if err := vp8dec.DecodeKeyFrameModeGrid(&br, 2, 2, &decoderSegmentation, vp8dec.ModeHeader{}, decoded); err != nil {
+		t.Fatalf("DecodeKeyFrameModeGrid returned error: %v", err)
+	}
+	for i, want := range modes {
+		if decoded[i].SegmentID != want.SegmentID || decoded[i].Mode != want.YMode || decoded[i].UVMode != want.UVMode {
+			t.Fatalf("decoded[%d] = %+v, want segment %d %+v", i, decoded[i], want.SegmentID, want)
+		}
+	}
+}
+
 func TestWriteKeyFrameModeGridRejectsInvalidInput(t *testing.T) {
 	var w BoolWriter
 	w.Init(make([]byte, 16))
@@ -99,6 +134,11 @@ func TestWriteKeyFrameModeGridRejectsInvalidInput(t *testing.T) {
 	bad := []KeyFrameMacroblockMode{{YMode: common.MBPredictionMode(99), UVMode: common.DCPred}}
 	if err := WriteKeyFrameModeGrid(&w, 1, 1, bad); !errors.Is(err, ErrInvalidPacketConfig) {
 		t.Fatalf("invalid mode error = %v, want ErrInvalidPacketConfig", err)
+	}
+	segmentation := testSegmentationConfig()
+	badSegment := []KeyFrameMacroblockMode{{SegmentID: common.MaxMBSegments, YMode: common.DCPred, UVMode: common.DCPred}}
+	if err := WriteKeyFrameModeGridWithSegmentation(&w, 1, 1, badSegment, segmentation); !errors.Is(err, ErrInvalidPacketConfig) {
+		t.Fatalf("invalid segment error = %v, want ErrInvalidPacketConfig", err)
 	}
 }
 

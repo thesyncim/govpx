@@ -13,9 +13,10 @@ import (
 var ErrModeBufferTooSmall = errors.New("libgopx: VP8 encoder mode buffer too small")
 
 type KeyFrameMacroblockMode struct {
-	YMode  common.MBPredictionMode
-	UVMode common.MBPredictionMode
-	BModes [16]common.BPredictionMode
+	SegmentID uint8
+	YMode     common.MBPredictionMode
+	UVMode    common.MBPredictionMode
+	BModes    [16]common.BPredictionMode
 }
 
 var keyFrameYModeTokens = initKeyFrameYModeTokens()
@@ -44,6 +45,10 @@ func WriteKeyFrameMacroblockMode(w *BoolWriter, above *KeyFrameMacroblockMode, l
 }
 
 func WriteKeyFrameModeGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode) error {
+	return WriteKeyFrameModeGridWithSegmentation(w, rows, cols, modes, SegmentationConfig{})
+}
+
+func WriteKeyFrameModeGridWithSegmentation(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode, segmentation SegmentationConfig) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall
 	}
@@ -54,7 +59,12 @@ func WriteKeyFrameModeGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMa
 	if w == nil || len(modes) < required {
 		return ErrModeBufferTooSmall
 	}
+	if !validSegmentationConfig(segmentation) {
+		return ErrInvalidPacketConfig
+	}
 
+	writeSegmentID := segmentation.Enabled && segmentation.UpdateMap
+	segmentProbs := segmentationTreeProbs(segmentation)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
@@ -65,6 +75,12 @@ func WriteKeyFrameModeGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMa
 			}
 			if col > 0 {
 				left = &modes[index-1]
+			}
+			if writeSegmentID && !writeMacroblockSegmentID(w, &segmentProbs, modes[index].SegmentID) {
+				if w.Err() != nil {
+					return w.Err()
+				}
+				return ErrInvalidPacketConfig
 			}
 			if !WriteKeyFrameMacroblockMode(w, above, left, &modes[index]) {
 				if w.Err() != nil {

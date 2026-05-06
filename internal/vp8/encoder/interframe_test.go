@@ -31,6 +31,25 @@ func TestWriteInterFrameStateHeaderParsesInDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderParsesSegmentation(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.Segmentation = testSegmentationConfig()
+	packet := make([]byte, 1024)
+	n, err := WriteZeroInterFrame(packet, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	assertParsedSegmentation(t, state.Segmentation)
+}
+
 func TestWriteInterFrameStateHeaderCanSkipLastRefresh(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.RefreshLast = false
@@ -111,6 +130,51 @@ func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 	}
 	if total != 0 {
 		t.Fatalf("decoded coefficient count = %d, want 0", total)
+	}
+}
+
+func TestWriteLastFrameZeroMVModeGridWithSkipWritesSegmentMap(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.Segmentation = testSegmentationConfig()
+	modes := []InterFrameMacroblockMode{
+		{SegmentID: 0, Mode: common.ZeroMV, MBSkipCoeff: true},
+		{SegmentID: 1, Mode: common.ZeroMV, MBSkipCoeff: true},
+		{SegmentID: 2, Mode: common.ZeroMV, MBSkipCoeff: true},
+		{SegmentID: 3, Mode: common.ZeroMV, MBSkipCoeff: true},
+	}
+	var w BoolWriter
+	buf := make([]byte, 128)
+	w.Init(buf)
+	if err := WriteLastFrameZeroMVModeGridWithSkip(&w, 2, 2, cfg, modes); err != nil {
+		t.Fatalf("WriteLastFrameZeroMVModeGridWithSkip returned error: %v", err)
+	}
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error = %v, want nil", err)
+	}
+
+	var br boolcoder.Decoder
+	if err := br.Init(w.Bytes()); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	decoded := make([]vp8dec.MacroblockMode, 4)
+	decoderSegmentation := decoderSegmentationHeader(cfg.Segmentation)
+	modeHeader := vp8dec.ModeHeader{
+		MBNoCoeffSkip: true,
+		ProbSkipFalse: cfg.ProbSkipFalse,
+		ProbIntra:     cfg.ProbIntra,
+		ProbLast:      cfg.ProbLast,
+		ProbGolden:    cfg.ProbGolden,
+	}
+	if err := vp8dec.DecodeInterModeGrid(&br, 2, 2, &decoderSegmentation, modeHeader, &modeProbs, [common.MaxRefFrames]bool{}, decoded); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	for i, mode := range decoded {
+		if mode.SegmentID != modes[i].SegmentID || !mode.MBSkipCoeff || mode.RefFrame != common.LastFrame || mode.Mode != common.ZeroMV || !mode.MV.IsZero() {
+			t.Fatalf("mode[%d] = %+v, want segment %d skipped LAST/ZEROMV", i, mode, modes[i].SegmentID)
+		}
 	}
 }
 

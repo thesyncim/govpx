@@ -12,6 +12,7 @@ type KeyFrameStateConfig struct {
 	ClampType common.ClampType
 
 	InvisibleFrame   bool
+	Segmentation     SegmentationConfig
 	SimpleLoopFilter bool
 	LoopFilterLevel  uint8
 	SharpnessLevel   uint8
@@ -32,7 +33,9 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 
 	w.WriteBit(0)
 	w.WriteBit(uint8(cfg.ClampType))
-	w.WriteBit(0)
+	if err := writeSegmentationHeader(w, cfg.Segmentation); err != nil {
+		return err
+	}
 	if cfg.SimpleLoopFilter {
 		w.WriteBit(1)
 	} else {
@@ -85,5 +88,6 @@ func validKeyFrameStateConfig(cfg KeyFrameStateConfig) bool {
 		cfg.SharpnessLevel <= 7 &&
 		cfg.TokenPartition >= common.OnePartition &&
 		cfg.TokenPartition <= common.EightPartition &&
-		cfg.BaseQIndex <= 127
+		cfg.BaseQIndex <= 127 &&
+		validSegmentationConfig(cfg.Segmentation)
 }

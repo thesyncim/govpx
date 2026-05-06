@@ -10,6 +10,7 @@ import (
 
 type InterFrameStateConfig struct {
 	InvisibleFrame   bool
+	Segmentation     SegmentationConfig
 	SimpleLoopFilter bool
 	LoopFilterLevel  uint8
 	SharpnessLevel   uint8
@@ -58,7 +59,9 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error 
 		return ErrInvalidPacketConfig
 	}
 
-	w.WriteBit(0)
+	if err := writeSegmentationHeader(w, cfg.Segmentation); err != nil {
+		return err
+	}
 	if cfg.SimpleLoopFilter {
 		w.WriteBit(1)
 	} else {
@@ -149,6 +152,7 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 }
 
 type InterFrameMacroblockMode struct {
+	SegmentID   uint8
 	MBSkipCoeff bool
 	RefFrame    common.MVReferenceFrame
 	Mode        common.MBPredictionMode
@@ -227,14 +231,22 @@ func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFr
 }
 
 func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) error {
-	if w == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip {
+	if w == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip || !validSegmentationConfig(cfg.Segmentation) {
 		return ErrInvalidPacketConfig
 	}
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return ErrInvalidPacketConfig
 	}
+	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
+	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
+			if writeSegmentID && !writeMacroblockSegmentID(w, &segmentProbs, 0) {
+				if w.Err() != nil {
+					return w.Err()
+				}
+				return ErrInvalidPacketConfig
+			}
 			w.WriteBool(1, cfg.ProbSkipFalse)
 			w.WriteBool(1, cfg.ProbIntra)
 			if !WriteInterReferenceFrame(w, cfg, refFrame) {
@@ -261,10 +273,21 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	if w == nil || len(modes) < required || !cfg.MBNoCoeffSkip {
 		return ErrModeBufferTooSmall
 	}
+	if !validSegmentationConfig(cfg.Segmentation) {
+		return ErrInvalidPacketConfig
+	}
+	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
+	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			mode := &modes[index]
+			if writeSegmentID && !writeMacroblockSegmentID(w, &segmentProbs, mode.SegmentID) {
+				if w.Err() != nil {
+					return w.Err()
+				}
+				return ErrInvalidPacketConfig
+			}
 			if mode.MBSkipCoeff {
 				w.WriteBool(1, cfg.ProbSkipFalse)
 			} else {
@@ -743,5 +766,6 @@ func validInterFrameStateConfig(cfg InterFrameStateConfig) bool {
 		cfg.CopyBufferToGolden >= 0 &&
 		cfg.CopyBufferToGolden <= 3 &&
 		cfg.CopyBufferToAltRef >= 0 &&
-		cfg.CopyBufferToAltRef <= 3
+		cfg.CopyBufferToAltRef <= 3 &&
+		validSegmentationConfig(cfg.Segmentation)
 }

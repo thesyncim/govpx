@@ -26,8 +26,16 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	if err := WriteKeyFrameStateHeader(&first, cfg); err != nil {
 		return 0, err
 	}
+	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
+	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
+			if writeSegmentID && !writeMacroblockSegmentID(&first, &segmentProbs, 0) {
+				if first.Err() != nil {
+					return 0, first.Err()
+				}
+				return 0, ErrInvalidPacketConfig
+			}
 			if !WriteKeyFrameMacroblockMode(&first, nil, nil, &mode) {
 				if first.Err() != nil {
 					return 0, first.Err()
@@ -109,7 +117,7 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 	if err := WriteKeyFrameStateHeader(&first, cfg); err != nil {
 		return 0, err
 	}
-	if err := WriteKeyFrameModeGrid(&first, rows, cols, modes); err != nil {
+	if err := WriteKeyFrameModeGridWithSegmentation(&first, rows, cols, modes, cfg.Segmentation); err != nil {
 		return 0, err
 	}
 	first.Finish()
@@ -177,7 +185,7 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	if err := WriteKeyFrameStateHeader(&first, cfg); err != nil {
 		return 0, err
 	}
-	if err := WriteKeyFrameModeGrid(&first, rows, cols, modes); err != nil {
+	if err := WriteKeyFrameModeGridWithSegmentation(&first, rows, cols, modes, cfg.Segmentation); err != nil {
 		return 0, err
 	}
 	first.Finish()

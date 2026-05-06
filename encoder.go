@@ -617,16 +617,18 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 
 func convertKeyFrameMode(src *vp8enc.KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
-		RefFrame: vp8common.IntraFrame,
-		Mode:     src.YMode,
-		UVMode:   src.UVMode,
-		Is4x4:    src.YMode == vp8common.BPred,
-		BModes:   src.BModes,
+		SegmentID: src.SegmentID,
+		RefFrame:  vp8common.IntraFrame,
+		Mode:      src.YMode,
+		UVMode:    src.UVMode,
+		Is4x4:     src.YMode == vp8common.BPred,
+		BModes:    src.BModes,
 	}
 }
 
 func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
 	*dst = vp8dec.MacroblockMode{
+		SegmentID:   src.SegmentID,
 		RefFrame:    convertInterFrameReference(src),
 		Mode:        src.Mode,
 		UVMode:      src.UVMode,

@@ -49,6 +49,21 @@ func TestWriteKeyFrameStateHeaderParsesInDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteKeyFrameStateHeaderParsesSegmentation(t *testing.T) {
+	cfg := KeyFrameStateConfig{
+		TokenPartition: common.OnePartition,
+		BaseQIndex:     20,
+		Segmentation:   testSegmentationConfig(),
+	}
+	packet := keyFrameStatePacket(t, cfg)
+
+	_, state, err := vp8dec.ParseStateHeader(packet, vp8dec.QuantHeader{})
+	if err != nil {
+		t.Fatalf("ParseStateHeader returned error: %v", err)
+	}
+	assertParsedSegmentation(t, state.Segmentation)
+}
+
 func TestWriteKeyFrameStateHeaderRejectsInvalidConfig(t *testing.T) {
 	var w BoolWriter
 	w.Init(make([]byte, 512))
@@ -63,6 +78,13 @@ func TestWriteKeyFrameStateHeaderRejectsInvalidConfig(t *testing.T) {
 	err = WriteKeyFrameStateHeader(&w, KeyFrameStateConfig{LoopFilterLevel: 64})
 	if !errors.Is(err, ErrInvalidPacketConfig) {
 		t.Fatalf("invalid loop filter error = %v, want ErrInvalidPacketConfig", err)
+	}
+	badSegmentation := SegmentationConfig{Enabled: true, UpdateData: true}
+	badSegmentation.FeatureEnabled[common.MBLvlAltLF][0] = true
+	badSegmentation.FeatureData[common.MBLvlAltLF][0] = -64
+	err = WriteKeyFrameStateHeader(&w, KeyFrameStateConfig{Segmentation: badSegmentation})
+	if !errors.Is(err, ErrInvalidPacketConfig) {
+		t.Fatalf("invalid segmentation error = %v, want ErrInvalidPacketConfig", err)
 	}
 }
 
@@ -124,4 +146,50 @@ func keyFrameStatePacket(t *testing.T, cfg KeyFrameStateConfig) []byte {
 	}
 	copy(packet[KeyFrameUncompressedHdrSize:], first)
 	return packet
+}
+
+func testSegmentationConfig() SegmentationConfig {
+	var cfg SegmentationConfig
+	cfg.Enabled = true
+	cfg.UpdateMap = true
+	cfg.UpdateData = true
+	cfg.AbsDelta = true
+	cfg.FeatureEnabled[common.MBLvlAltQ][0] = true
+	cfg.FeatureData[common.MBLvlAltQ][0] = 0
+	cfg.FeatureEnabled[common.MBLvlAltQ][1] = true
+	cfg.FeatureData[common.MBLvlAltQ][1] = -7
+	cfg.FeatureEnabled[common.MBLvlAltLF][2] = true
+	cfg.FeatureData[common.MBLvlAltLF][2] = 31
+	cfg.TreeProbUpdated[0] = true
+	cfg.TreeProbs[0] = 200
+	cfg.TreeProbUpdated[2] = true
+	cfg.TreeProbs[2] = 77
+	return cfg
+}
+
+func decoderSegmentationHeader(cfg SegmentationConfig) vp8dec.SegmentationHeader {
+	return vp8dec.SegmentationHeader{
+		Enabled:     cfg.Enabled,
+		UpdateMap:   cfg.UpdateMap,
+		UpdateData:  cfg.UpdateData,
+		AbsDelta:    cfg.AbsDelta,
+		FeatureData: cfg.FeatureData,
+		TreeProbs:   segmentationTreeProbs(cfg),
+	}
+}
+
+func assertParsedSegmentation(t *testing.T, segmentation vp8dec.SegmentationHeader) {
+	t.Helper()
+	if !segmentation.Enabled || !segmentation.UpdateMap || !segmentation.UpdateData || !segmentation.AbsDelta {
+		t.Fatalf("segmentation flags = %+v, want enabled update-map update-data abs", segmentation)
+	}
+	if got := segmentation.FeatureData[common.MBLvlAltQ][1]; got != -7 {
+		t.Fatalf("alt-q segment 1 = %d, want -7", got)
+	}
+	if got := segmentation.FeatureData[common.MBLvlAltLF][2]; got != 31 {
+		t.Fatalf("alt-lf segment 2 = %d, want 31", got)
+	}
+	if segmentation.TreeProbs != ([common.MBFeatureTreeProbs]uint8{200, 255, 77}) {
+		t.Fatalf("tree probs = %v, want [200 255 77]", segmentation.TreeProbs)
+	}
 }
