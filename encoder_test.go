@@ -218,6 +218,14 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	}
 }
 
+func TestGoldenFrameCBRIntervalMirrorsLibvpxCyclicRefreshCadence(t *testing.T) {
+	e := newSizedTestEncoder(t, 64, 80)
+
+	if got := e.goldenFrameCBRInterval(encoderMacroblockRows(e.opts.Height), encoderMacroblockCols(e.opts.Width)); got != 40 {
+		t.Fatalf("GF CBR interval = %d, want libvpx cyclic-refresh cadence clamp 40", got)
+	}
+}
+
 func TestEncodeIntoGFCBRBoostDisabledForErrorResilient(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,

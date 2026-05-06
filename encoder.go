@@ -564,11 +564,9 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 	interval := 10
-	if e.opts.StaticThreshold > 0 {
-		refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
-		if refreshCount > 0 {
-			interval = (2 * rows * cols) / refreshCount
-		}
+	refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
+	if refreshCount > 0 {
+		interval = (2 * rows * cols) / refreshCount
 	}
 	if interval < 6 {
 		return 6
