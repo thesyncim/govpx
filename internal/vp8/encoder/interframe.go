@@ -110,6 +110,7 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
+	adaptZeroReferenceInterFrameModeProbabilities(rows, cols, refFrame, &cfg)
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
@@ -187,6 +188,9 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 		return 0, err
 	}
 	cfg.CoefficientProbs = coefUpdates
+	if err := adaptInterFrameModeProbabilities(rows, cols, modes, &cfg); err != nil {
+		return 0, err
+	}
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
@@ -402,6 +406,93 @@ func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame
 		return false
 	}
 	return w.Err() == nil
+}
+
+func adaptZeroReferenceInterFrameModeProbabilities(rows int, cols int, refFrame common.MVReferenceFrame, cfg *InterFrameStateConfig) {
+	blocks := rows * cols
+	if blocks <= 0 || cfg == nil {
+		return
+	}
+	var skipCounts [2]int
+	var intraCounts [2]int
+	var lastCounts [2]int
+	var goldenCounts [2]int
+	skipCounts[1] = blocks
+	intraCounts[1] = blocks
+	switch refFrame {
+	case common.LastFrame:
+		lastCounts[0] = blocks
+	case common.GoldenFrame:
+		lastCounts[1] = blocks
+		goldenCounts[0] = blocks
+	case common.AltRefFrame:
+		lastCounts[1] = blocks
+		goldenCounts[1] = blocks
+	default:
+		return
+	}
+	cfg.ProbSkipFalse = interFrameModeProbability(skipCounts, cfg.ProbSkipFalse)
+	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
+	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
+	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
+}
+
+func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacroblockMode, cfg *InterFrameStateConfig) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if cfg == nil || len(modes) < required {
+		return ErrModeBufferTooSmall
+	}
+	var skipCounts [2]int
+	var intraCounts [2]int
+	var lastCounts [2]int
+	var goldenCounts [2]int
+	for i := 0; i < required; i++ {
+		mode := &modes[i]
+		if mode.MBSkipCoeff {
+			skipCounts[1]++
+		} else {
+			skipCounts[0]++
+		}
+		refFrame := interFrameReference(mode)
+		if refFrame == common.IntraFrame {
+			intraCounts[0]++
+			continue
+		}
+		intraCounts[1]++
+		switch refFrame {
+		case common.LastFrame:
+			lastCounts[0]++
+		case common.GoldenFrame:
+			lastCounts[1]++
+			goldenCounts[0]++
+		case common.AltRefFrame:
+			lastCounts[1]++
+			goldenCounts[1]++
+		default:
+			return ErrInvalidPacketConfig
+		}
+	}
+	cfg.ProbSkipFalse = interFrameModeProbability(skipCounts, cfg.ProbSkipFalse)
+	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
+	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
+	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
+	return nil
+}
+
+func interFrameModeProbability(counts [2]int, fallback uint8) uint8 {
+	if counts[0]+counts[1] == 0 {
+		if fallback == 0 {
+			return 128
+		}
+		return fallback
+	}
+	return coefficientProbabilityFromBranchCount(counts)
 }
 
 type InterModeCounts struct {

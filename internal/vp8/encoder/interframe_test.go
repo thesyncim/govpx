@@ -26,8 +26,56 @@ func TestWriteInterFrameStateHeaderParsesInDecoder(t *testing.T) {
 	if state.Quant.BaseQIndex != 20 || !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
 		t.Fatalf("state = %+v, want base q and last refresh only", state)
 	}
-	if !state.Mode.MBNoCoeffSkip || state.Mode.ProbSkipFalse != 128 || state.Mode.ProbIntra != 128 || state.Mode.ProbLast != 128 || state.Mode.ProbGolden != 128 {
-		t.Fatalf("mode header = %+v, want default inter probabilities and skip support", state.Mode)
+	if !state.Mode.MBNoCoeffSkip || state.Mode.ProbSkipFalse != 1 || state.Mode.ProbIntra != 1 || state.Mode.ProbLast != 255 || state.Mode.ProbGolden != 128 {
+		t.Fatalf("mode header = %+v, want adapted LAST/ZEROMV skip probabilities", state.Mode)
+	}
+}
+
+func TestAdaptInterFrameModeProbabilities(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	modes := []InterFrameMacroblockMode{
+		{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.DCPred},
+		{Mode: common.ZeroMV, MBSkipCoeff: true},
+		{RefFrame: common.GoldenFrame, Mode: common.ZeroMV, MBSkipCoeff: true},
+		{RefFrame: common.AltRefFrame, Mode: common.ZeroMV, MBSkipCoeff: true},
+	}
+
+	if err := adaptInterFrameModeProbabilities(1, 4, modes, &cfg); err != nil {
+		t.Fatalf("adaptInterFrameModeProbabilities returned error: %v", err)
+	}
+
+	if cfg.ProbSkipFalse != 64 || cfg.ProbIntra != 64 || cfg.ProbLast != 85 || cfg.ProbGolden != 128 {
+		t.Fatalf("mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/64/85/128",
+			cfg.ProbSkipFalse, cfg.ProbIntra, cfg.ProbLast, cfg.ProbGolden)
+	}
+}
+
+func TestWriteCoefficientInterFrameEmitsAdaptedModeProbabilities(t *testing.T) {
+	modes := []InterFrameMacroblockMode{
+		{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.DCPred},
+		{Mode: common.ZeroMV, MBSkipCoeff: true},
+		{RefFrame: common.GoldenFrame, Mode: common.ZeroMV, MBSkipCoeff: true},
+		{RefFrame: common.AltRefFrame, Mode: common.ZeroMV, MBSkipCoeff: true},
+	}
+	coeffs := make([]MacroblockCoefficients, len(modes))
+	packet := make([]byte, 2048)
+	above := make([]TokenContextPlanes, len(modes))
+
+	n, err := WriteCoefficientInterFrame(packet, 64, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.Mode.ProbSkipFalse != 64 || state.Mode.ProbIntra != 64 || state.Mode.ProbLast != 85 || state.Mode.ProbGolden != 128 {
+		t.Fatalf("parsed mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/64/85/128",
+			state.Mode.ProbSkipFalse, state.Mode.ProbIntra, state.Mode.ProbLast, state.Mode.ProbGolden)
 	}
 }
 
