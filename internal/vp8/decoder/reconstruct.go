@@ -132,14 +132,14 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 		if is4x4 || tokens.EOB[24] == 0 {
 			clearResidualBlock(out.Block(i))
 		}
-		dequantizeInto(&tokens.QCoeff[i], yDequant, out.Block(i))
+		dequantizeInto(&tokens.QCoeff[i], yDequant, tokens.EOB[i], out.Block(i))
 	}
 	for i := 16; i < 24; i++ {
 		if tokens.EOB[i] == 0 {
 			continue
 		}
 		clearResidualBlock(out.Block(i))
-		dequantizeInto(&tokens.QCoeff[i], &dequant.UV, out.Block(i))
+		dequantizeInto(&tokens.QCoeff[i], &dequant.UV, tokens.EOB[i], out.Block(i))
 	}
 }
 
@@ -679,7 +679,11 @@ func clearResidualBlock(block *[16]int16) {
 	*block = [16]int16{}
 }
 
-func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
+func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, eob uint8, out *[16]int16) {
+	if eob == 1 {
+		out[0] += qcoeff[0] * dequant[0]
+		return
+	}
 	for i := 0; i < 16; i++ {
 		out[i] += qcoeff[i] * dequant[i]
 	}

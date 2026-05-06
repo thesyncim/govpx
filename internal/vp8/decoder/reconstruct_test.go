@@ -255,6 +255,31 @@ func BenchmarkTransformMacroblockTokensSparse(b *testing.B) {
 	}
 }
 
+func BenchmarkTransformMacroblockTokensDCOnly(b *testing.B) {
+	var tokens MacroblockTokens
+	for i := 0; i < 16; i++ {
+		tokens.QCoeff[i][0] = 1
+		tokens.EOB[i] = 1
+	}
+	for i := 16; i < 24; i++ {
+		tokens.QCoeff[i][0] = -1
+		tokens.EOB[i] = 1
+	}
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		TransformMacroblockTokens(&tokens, &dequant, true, &residual)
+	}
+	if got := residual.Block(0)[0]; got != 5 {
+		b.Fatalf("Y block 0 DC = %d, want 5", got)
+	}
+	if got := residual.Block(16)[0]; got != -6 {
+		b.Fatalf("UV block 16 DC = %d, want -6", got)
+	}
+}
+
 func TestAddMacroblockResidualYDCOnly(t *testing.T) {
 	y := filledPlane(16, 16, 100)
 	u := filledPlane(8, 8, 90)
