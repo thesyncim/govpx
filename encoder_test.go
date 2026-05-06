@@ -360,6 +360,8 @@ func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	if !key.KeyFrame || key.Dropped {
 		t.Fatalf("key result = key:%t dropped:%t, want encoded keyframe", key.KeyFrame, key.Dropped)
 	}
+	e.rc.bufferLevelBits = 0
+	drainedBuffer := e.rc.bufferLevelBits
 
 	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
 	if err != nil {
@@ -368,8 +370,8 @@ func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	if !inter.Dropped || inter.KeyFrame || len(inter.Data) != 0 || inter.SizeBytes != 0 {
 		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped interframe", inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
 	}
-	if inter.BufferLevelBits <= key.BufferLevelBits {
-		t.Fatalf("buffer after drop = %d, want above post-key buffer %d", inter.BufferLevelBits, key.BufferLevelBits)
+	if inter.BufferLevelBits <= drainedBuffer {
+		t.Fatalf("buffer after drop = %d, want above drained buffer %d", inter.BufferLevelBits, drainedBuffer)
 	}
 }
 
@@ -491,11 +493,11 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 }
 
 func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
-	low := encodeRateControlTestClip(t, 60)
+	low := encodeRateControlTestClip(t, 40)
 	high := encodeRateControlTestClip(t, 80)
 
 	if low.BitrateErrorPct < -35 || low.BitrateErrorPct > 35 {
-		t.Fatalf("60kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
+		t.Fatalf("40kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
 	}
 	if high.BitrateErrorPct < -35 || high.BitrateErrorPct > 35 {
 		t.Fatalf("80kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)

@@ -178,6 +178,11 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	if len(modes) < required || len(coeffs) < required || len(above) < cols {
 		return 0, ErrModeBufferTooSmall
 	}
+	frameCoefProbs, coefUpdates, err := BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+	if err != nil {
+		return 0, err
+	}
+	cfg.CoefficientProbs = coefUpdates
 
 	firstStart := KeyFrameUncompressedHdrSize
 	first := BoolWriter{}
@@ -202,7 +207,7 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	if partitionCount == 1 {
 		tokens := BoolWriter{}
 		tokens.Init(dst[tokenStart:])
-		if err := WriteCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+		if err := WriteCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
 			return 0, err
 		}
 		tokens.Finish()
@@ -213,7 +218,7 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	} else {
 		var err error
 		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return WriteCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+			return WriteCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
 		})
 		if err != nil {
 			return 0, err

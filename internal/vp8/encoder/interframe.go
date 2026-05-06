@@ -30,6 +30,8 @@ type InterFrameStateConfig struct {
 
 	RefreshEntropyProbs bool
 
+	CoefficientProbs CoefficientProbabilityUpdates
+
 	MBNoCoeffSkip bool
 	ProbSkipFalse uint8
 
@@ -77,7 +79,9 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error 
 	}
 
 	writeInterRefreshHeader(w, cfg)
-	WriteNoCoefficientProbabilityUpdates(w)
+	if err := WriteCoefficientProbabilityUpdates(w, &cfg.CoefficientProbs); err != nil {
+		return err
+	}
 	writeInterModeHeader(w, cfg)
 
 	if w.Err() != nil {
@@ -178,6 +182,11 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 	if len(modes) < required || len(coeffs) < required || len(above) < cols {
 		return 0, ErrModeBufferTooSmall
 	}
+	frameCoefProbs, coefUpdates, err := BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+	if err != nil {
+		return 0, err
+	}
+	cfg.CoefficientProbs = coefUpdates
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
@@ -202,7 +211,7 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 	if partitionCount == 1 {
 		tokens := BoolWriter{}
 		tokens.Init(dst[tokenStart:])
-		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
 			return 0, err
 		}
 		tokens.Finish()
@@ -213,7 +222,7 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 	} else {
 		var err error
 		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+			return WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
 		})
 		if err != nil {
 			return 0, err

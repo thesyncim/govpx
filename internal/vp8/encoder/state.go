@@ -22,6 +22,8 @@ type KeyFrameStateConfig struct {
 
 	RefreshEntropyProbs bool
 
+	CoefficientProbs CoefficientProbabilityUpdates
+
 	MBNoCoeffSkip bool
 	ProbSkipFalse uint8
 }
@@ -55,7 +57,9 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 		w.WriteBit(0)
 	}
 
-	WriteNoCoefficientProbabilityUpdates(w)
+	if err := WriteCoefficientProbabilityUpdates(w, &cfg.CoefficientProbs); err != nil {
+		return err
+	}
 
 	if cfg.MBNoCoeffSkip {
 		w.WriteBit(1)
