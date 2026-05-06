@@ -25,6 +25,11 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("error = %v, want ErrInvalidConfig", err)
 	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, TokenPartitions: 2})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("token partition error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {

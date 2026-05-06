@@ -72,7 +72,8 @@ type EncoderOptions struct {
 	KeyFrameInterval int
 
 	// VP8 behavior.
-	ErrorResilient  bool
+	ErrorResilient bool
+	// TokenPartitions currently supports only 0, VP8's one-token-partition mode.
 	TokenPartitions int
 
 	// Quality knobs.
@@ -479,7 +480,7 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.CpuUsed < -16 || opts.CpuUsed > 16 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.KeyFrameInterval < 0 || opts.TokenPartitions < 0 || opts.TokenPartitions > 3 {
+	if opts.KeyFrameInterval < 0 || opts.TokenPartitions != 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 	if opts.Sharpness < 0 || opts.Sharpness > 7 || opts.StaticThreshold < 0 {
