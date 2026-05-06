@@ -1,6 +1,7 @@
 package libgopx
 
 import (
+	"errors"
 	"testing"
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
@@ -351,12 +352,147 @@ func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 	}
 }
 
+func TestEncoderSegmentQIndex(t *testing.T) {
+	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
+	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][1] = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][1] = -10
+	if got := encoderSegmentQIndex(20, segmentation, 1); got != 10 {
+		t.Fatalf("delta segment q = %d, want 10", got)
+	}
+	if got := encoderSegmentQIndex(4, segmentation, 1); got != vp8common.MinQ {
+		t.Fatalf("clamped delta segment q = %d, want MinQ", got)
+	}
+	segmentation.AbsDelta = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][1] = 63
+	if got := encoderSegmentQIndex(20, segmentation, 1); got != 63 {
+		t.Fatalf("absolute segment q = %d, want 63", got)
+	}
+	if got := encoderSegmentQIndex(20, segmentation, 2); got != 20 {
+		t.Fatalf("disabled segment q = %d, want base q", got)
+	}
+}
+
+func TestBuildReconstructingKeyFrameCoefficientsWithSegmentationQuantizesPerSegment(t *testing.T) {
+	lowEncoder := newSizedTestEncoder(t, 32, 16)
+	highEncoder := newSizedTestEncoder(t, 32, 16)
+	src := segmentedQuantizationTestImage()
+	lowModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 1}}
+	highModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 1}}
+	lowCoeffs := make([]vp8enc.MacroblockCoefficients, 2)
+	highCoeffs := make([]vp8enc.MacroblockCoefficients, 2)
+
+	lowSegmentation := testAltQSegmentation(1, 0)
+	highSegmentation := testAltQSegmentation(1, 100)
+	if err := lowEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, lowSegmentation, true, lowModes, lowCoeffs, 1, 2); err != nil {
+		t.Fatalf("low-q keyframe reconstruction returned error: %v", err)
+	}
+	if err := highEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, highSegmentation, true, highModes, highCoeffs, 1, 2); err != nil {
+		t.Fatalf("high-q keyframe reconstruction returned error: %v", err)
+	}
+
+	if lowModes[0].SegmentID != 0 || lowModes[1].SegmentID != 1 || highModes[0].SegmentID != 0 || highModes[1].SegmentID != 1 {
+		t.Fatalf("segment IDs low=%d/%d high=%d/%d, want preserved 0/1", lowModes[0].SegmentID, lowModes[1].SegmentID, highModes[0].SegmentID, highModes[1].SegmentID)
+	}
+	if highEncoder.reconstructModes[1].SegmentID != 1 {
+		t.Fatalf("decoder reconstruct segment ID = %d, want 1", highEncoder.reconstructModes[1].SegmentID)
+	}
+	if highEncoder.dequants[0].Y1[0] == highEncoder.dequants[1].Y1[0] {
+		t.Fatalf("segment dequant Y1 DC = %d/%d, want segment-specific dequant", highEncoder.dequants[0].Y1[0], highEncoder.dequants[1].Y1[0])
+	}
+
+	lowSum := macroblockCoeffAbsSum(&lowCoeffs[1])
+	highSum := macroblockCoeffAbsSum(&highCoeffs[1])
+	if lowSum <= highSum {
+		t.Fatalf("segment 1 coefficient abs sum low/high = %d/%d, want high segment q to quantize harder", lowSum, highSum)
+	}
+}
+
+func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegmentDequants(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 16)
+	fillBenchmarkVP8Image(&e.lastRef.Img, 128, 128, 128)
+	e.lastRef.ExtendBorders()
+	src := segmentedQuantizationTestImage()
+	modes := []vp8enc.InterFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 1}}
+	coeffs := make([]vp8enc.MacroblockCoefficients, 2)
+	segmentation := testAltQSegmentation(1, 100)
+
+	if err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, segmentation, true, modes, coeffs, 1, 2, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+		t.Fatalf("inter reconstruction returned error: %v", err)
+	}
+
+	if modes[0].SegmentID != 0 || modes[1].SegmentID != 1 {
+		t.Fatalf("segment IDs = %d/%d, want preserved 0/1", modes[0].SegmentID, modes[1].SegmentID)
+	}
+	if e.reconstructModes[1].SegmentID != 1 {
+		t.Fatalf("decoder reconstruct segment ID = %d, want 1", e.reconstructModes[1].SegmentID)
+	}
+	if e.dequants[0].Y1[0] == e.dequants[1].Y1[0] {
+		t.Fatalf("segment dequant Y1 DC = %d/%d, want segment-specific dequant", e.dequants[0].Y1[0], e.dequants[1].Y1[0])
+	}
+	if got := macroblockCoeffAbsSum(&coeffs[1]); got == 0 {
+		t.Fatalf("segment 1 coefficient abs sum = 0, want residual coefficients")
+	}
+}
+
+func TestBuildReconstructingCoefficientsWithSegmentationRejectsInvalidSegmentID(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	src := segmentedQuantizationTestImage()
+	segmentation := testAltQSegmentation(1, 63)
+	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: vp8common.MaxMBSegments}}
+	keyCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := e.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, keyModes, keyCoeffs, 1, 1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("keyframe invalid segment error = %v, want ErrInvalidConfig", err)
+	}
+
+	interModes := []vp8enc.InterFrameMacroblockMode{{SegmentID: vp8common.MaxMBSegments}}
+	interCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, interModes, interCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("inter invalid segment error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func copyBPredBlockToSource(block []byte, blockStride int, dst Image, mbRow int, mbCol int, blockIndex int) {
 	baseY := mbRow*16 + (blockIndex>>2)*4
 	baseX := mbCol*16 + (blockIndex&3)*4
 	for row := 0; row < 4; row++ {
 		copy(dst.Y[(baseY+row)*dst.YStride+baseX:], block[row*blockStride:row*blockStride+4])
 	}
+}
+
+func testAltQSegmentation(segmentID uint8, qIndex int8) vp8enc.SegmentationConfig {
+	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true, AbsDelta: true}
+	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][segmentID] = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][segmentID] = qIndex
+	return segmentation
+}
+
+func segmentedQuantizationTestImage() Image {
+	img := testImage(32, 16)
+	fillImage(img, 128, 128, 128)
+	for row := 0; row < img.Height; row++ {
+		for col := 16; col < img.Width; col++ {
+			if (row+col)&1 == 0 {
+				img.Y[row*img.YStride+col] = 16
+			} else {
+				img.Y[row*img.YStride+col] = 240
+			}
+		}
+	}
+	return img
+}
+
+func macroblockCoeffAbsSum(coeffs *vp8enc.MacroblockCoefficients) int {
+	sum := 0
+	for block := range coeffs.QCoeff {
+		for _, coeff := range coeffs.QCoeff[block] {
+			if coeff < 0 {
+				sum -= int(coeff)
+			} else {
+				sum += int(coeff)
+			}
+		}
+	}
+	return sum
 }
 
 func BenchmarkMacroblockCoefficientsEmpty(b *testing.B) {

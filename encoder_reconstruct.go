@@ -36,6 +36,10 @@ var bPredIntraModeCandidates = [...]vp8common.BPredictionMode{
 }
 
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
+	return e.buildReconstructingKeyFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols)
+}
+
+func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
 	}
@@ -44,16 +48,21 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 		return ErrInvalidConfig
 	}
 
-	var dequant vp8common.MacroblockDequant
-	var quant vp8enc.MacroblockQuant
-	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &e.dequantTables)
-	vp8common.InitMacroblockDequant(&e.dequantTables, qIndex, &dequant)
-	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
-	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, vp8common.QuantDeltas{}, segmentation, &quants); err != nil {
+		return ErrInvalidConfig
+	}
+	decSegmentation := encoderSegmentationToDecoder(segmentation)
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, &decSegmentation, &e.dequantTables, &e.dequants)
 
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			segmentID, ok := keyFrameAnalysisSegmentID(&modes[index], segmentation, preserveSegmentID)
+			if !ok {
+				return ErrInvalidConfig
+			}
+			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			var above *vp8enc.KeyFrameMacroblockMode
 			var left *vp8enc.KeyFrameMacroblockMode
 			if row > 0 {
@@ -62,18 +71,19 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 			if col > 0 {
 				left = &modes[index-1]
 			}
-			mode, ok := predictBestKeyFrameIntraMode(src, qIndex, row, col, above, left, &quant, &e.analysis.Img, &e.reconstructScratch)
+			mode, ok := predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
+			mode.SegmentID = segmentID
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, modes[index].YMode == vp8common.BPred, &coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], modes[index].YMode == vp8common.BPred, &coeffs[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].YMode == vp8common.BPred, &e.reconstructTokens[index])
-			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
 		}
@@ -83,6 +93,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 }
 
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) error {
+	return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
+}
+
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
 	}
@@ -91,12 +105,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 		return ErrInvalidConfig
 	}
 
-	var dequant vp8common.MacroblockDequant
-	var quant vp8enc.MacroblockQuant
-	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &e.dequantTables)
-	vp8common.InitMacroblockDequant(&e.dequantTables, qIndex, &dequant)
-	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
-	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, nil, &e.dequantTables, &e.dequants)
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, vp8common.QuantDeltas{}, segmentation, &quants); err != nil {
+		return ErrInvalidConfig
+	}
+	decSegmentation := encoderSegmentationToDecoder(segmentation)
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, &decSegmentation, &e.dequantTables, &e.dequants)
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)
@@ -106,15 +120,20 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			segmentID, ok := interFrameAnalysisSegmentID(&modes[index], segmentation, preserveSegmentID)
+			if !ok {
+				return ErrInvalidConfig
+			}
+			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
-			interScore := interMotionRDScore(src, ref.Img, row, col, mv, qIndex)
+			interScore := interMotionRDScore(src, ref.Img, row, col, mv, segmentQIndex)
 			useIntra := false
 			intraMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
 			if interCost > 0 {
 				var intraCost int
 				var ok bool
-				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, qIndex, row, col, &quant, &e.analysis.Img, &e.reconstructScratch)
+				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, segmentQIndex, row, col, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch)
 				if !ok {
 					return ErrInvalidConfig
 				}
@@ -135,34 +154,87 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 
 			if useIntra {
 				modes[index] = intraMode
+				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 			} else {
 				modes[index] = vp8enc.InterFrameMotionModeForVectorAt(ref.Frame, mv, above, left, aboveLeft, row, col, rows, cols)
+				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true
-				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, modes[index].Mode == vp8common.BPred, &coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], modes[index].Mode == vp8common.BPred, &coeffs[index])
 			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame {
-				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
-			} else if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+			} else if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
 		}
 	}
 	e.analysis.ExtendBorders()
 	return nil
+}
+
+func keyFrameAnalysisSegmentID(mode *vp8enc.KeyFrameMacroblockMode, segmentation vp8enc.SegmentationConfig, preserve bool) (uint8, bool) {
+	if !segmentation.Enabled || !preserve {
+		return 0, true
+	}
+	if mode.SegmentID >= vp8common.MaxMBSegments {
+		return 0, false
+	}
+	return mode.SegmentID, true
+}
+
+func interFrameAnalysisSegmentID(mode *vp8enc.InterFrameMacroblockMode, segmentation vp8enc.SegmentationConfig, preserve bool) (uint8, bool) {
+	if !segmentation.Enabled || !preserve {
+		return 0, true
+	}
+	if mode.SegmentID >= vp8common.MaxMBSegments {
+		return 0, false
+	}
+	return mode.SegmentID, true
+}
+
+func encoderSegmentQIndex(baseQ int, segmentation vp8enc.SegmentationConfig, segmentID uint8) int {
+	if !segmentation.Enabled || segmentID >= vp8common.MaxMBSegments || !segmentation.FeatureEnabled[vp8common.MBLvlAltQ][segmentID] {
+		return vp8common.ClampQIndex(baseQ)
+	}
+	altQ := int(segmentation.FeatureData[vp8common.MBLvlAltQ][segmentID])
+	if segmentation.AbsDelta {
+		return vp8common.ClampQIndex(altQ)
+	}
+	return vp8common.ClampQIndex(baseQ + altQ)
+}
+
+func encoderSegmentationToDecoder(segmentation vp8enc.SegmentationConfig) vp8dec.SegmentationHeader {
+	if !segmentation.Enabled {
+		return vp8dec.SegmentationHeader{}
+	}
+	var out vp8dec.SegmentationHeader
+	out.Enabled = true
+	out.UpdateMap = segmentation.UpdateMap
+	out.UpdateData = segmentation.UpdateData
+	out.AbsDelta = segmentation.AbsDelta
+	out.TreeProbs = segmentation.TreeProbs
+	for feature := 0; feature < int(vp8common.MBLvlMax); feature++ {
+		for segment := 0; segment < vp8common.MaxMBSegments; segment++ {
+			if segmentation.FeatureEnabled[feature][segment] {
+				out.FeatureData[feature][segment] = segmentation.FeatureData[feature][segment]
+			}
+		}
+	}
+	return out
 }
 
 type interAnalysisReference struct {
