@@ -79,6 +79,56 @@ func TestWriteCoefficientInterFrameEmitsAdaptedModeProbabilities(t *testing.T) {
 	}
 }
 
+func TestAdaptInterFrameMVProbabilities(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	var counts [2][tables.MVPCount][2]int
+	for i := 0; i < 64; i++ {
+		if err := countMotionVectorBranches(&counts, MotionVector{Col: 16}); err != nil {
+			t.Fatalf("countMotionVectorBranches returned error: %v", err)
+		}
+	}
+
+	adaptInterFrameMVProbabilities(&counts, &cfg)
+
+	if cfg.MVUpdateCount == 0 {
+		t.Fatalf("MVUpdateCount = 0, want repeated NEWMV deltas to update probabilities")
+	}
+	if !cfg.MVUpdate[1][mvProbIsShort] || cfg.MVProbs[1][mvProbIsShort] == tables.DefaultMVContext[1][mvProbIsShort] {
+		t.Fatalf("col is-short update = %t prob=%d default=%d, want updated",
+			cfg.MVUpdate[1][mvProbIsShort], cfg.MVProbs[1][mvProbIsShort], tables.DefaultMVContext[1][mvProbIsShort])
+	}
+}
+
+func TestWriteCoefficientInterFrameEmitsMVProbabilityUpdates(t *testing.T) {
+	const rows, cols = 16, 4
+	modes := make([]InterFrameMacroblockMode, rows*cols)
+	coeffs := make([]MacroblockCoefficients, len(modes))
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: 16}, MBSkipCoeff: true}
+	}
+	packet := make([]byte, 8192)
+	above := make([]TokenContextPlanes, cols)
+
+	n, err := WriteCoefficientInterFrame(packet, cols*16, rows*16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.Mode.MVUpdateCount == 0 {
+		t.Fatalf("parsed MVUpdateCount = 0, want emitted MV probability updates")
+	}
+	if modeProbs.MV == tables.DefaultMVContext {
+		t.Fatalf("parsed MV probabilities equal defaults, want updates applied")
+	}
+}
+
 func TestWriteInterFrameStateHeaderParsesSegmentation(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.Segmentation = testSegmentationConfig()

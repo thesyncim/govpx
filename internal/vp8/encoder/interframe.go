@@ -38,6 +38,10 @@ type InterFrameStateConfig struct {
 	ProbIntra  uint8
 	ProbLast   uint8
 	ProbGolden uint8
+
+	MVProbs       [2][tables.MVPCount]uint8
+	MVUpdate      [2][tables.MVPCount]bool
+	MVUpdateCount int
 }
 
 func DefaultInterFrameStateConfig(baseQIndex uint8) InterFrameStateConfig {
@@ -82,7 +86,9 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error 
 	if err := WriteCoefficientProbabilityUpdates(w, &cfg.CoefficientProbs); err != nil {
 		return err
 	}
-	writeInterModeHeader(w, cfg)
+	if err := writeInterModeHeader(w, cfg); err != nil {
+		return err
+	}
 
 	if w.Err() != nil {
 		return w.Err()
@@ -291,6 +297,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	}
 	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
 	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
+	mvProbs := interFrameMVProbs(cfg)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
@@ -339,7 +346,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if mode.Mode == common.NewMV {
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
-				if err := WriteMotionVector(w, &tables.DefaultMVContext, delta); err != nil {
+				if err := WriteMotionVector(w, &mvProbs, delta); err != nil {
 					return err
 				}
 			}
@@ -452,36 +459,66 @@ func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacr
 	var intraCounts [2]int
 	var lastCounts [2]int
 	var goldenCounts [2]int
-	for i := 0; i < required; i++ {
-		mode := &modes[i]
-		if mode.MBSkipCoeff {
-			skipCounts[1]++
-		} else {
-			skipCounts[0]++
-		}
-		refFrame := interFrameReference(mode)
-		if refFrame == common.IntraFrame {
-			intraCounts[0]++
-			continue
-		}
-		intraCounts[1]++
-		switch refFrame {
-		case common.LastFrame:
-			lastCounts[0]++
-		case common.GoldenFrame:
-			lastCounts[1]++
-			goldenCounts[0]++
-		case common.AltRefFrame:
-			lastCounts[1]++
-			goldenCounts[1]++
-		default:
-			return ErrInvalidPacketConfig
+	var mvCounts [2][tables.MVPCount][2]int
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if mode.MBSkipCoeff {
+				skipCounts[1]++
+			} else {
+				skipCounts[0]++
+			}
+			refFrame := interFrameReference(mode)
+			if refFrame == common.IntraFrame {
+				if !validInterIntraMacroblockMode(mode) {
+					return ErrInvalidPacketConfig
+				}
+				intraCounts[0]++
+				continue
+			}
+			intraCounts[1]++
+			var above *InterFrameMacroblockMode
+			var left *InterFrameMacroblockMode
+			var aboveLeft *InterFrameMacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			if row > 0 && col > 0 {
+				aboveLeft = &modes[index-cols-1]
+			}
+			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols) {
+				return ErrInvalidPacketConfig
+			}
+			switch refFrame {
+			case common.LastFrame:
+				lastCounts[0]++
+			case common.GoldenFrame:
+				lastCounts[1]++
+				goldenCounts[0]++
+			case common.AltRefFrame:
+				lastCounts[1]++
+				goldenCounts[1]++
+			default:
+				return ErrInvalidPacketConfig
+			}
+			if mode.Mode == common.NewMV {
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
+				if err := countMotionVectorBranches(&mvCounts, delta); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	cfg.ProbSkipFalse = interFrameModeProbability(skipCounts, cfg.ProbSkipFalse)
 	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
 	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
 	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
+	adaptInterFrameMVProbabilities(&mvCounts, cfg)
 	return nil
 }
 
@@ -493,6 +530,145 @@ func interFrameModeProbability(counts [2]int, fallback uint8) uint8 {
 		return fallback
 	}
 	return coefficientProbabilityFromBranchCount(counts)
+}
+
+func adaptInterFrameMVProbabilities(counts *[2][tables.MVPCount][2]int, cfg *InterFrameStateConfig) {
+	if counts == nil || cfg == nil {
+		return
+	}
+	cfg.MVProbs = tables.DefaultMVContext
+	cfg.MVUpdate = [2][tables.MVPCount]bool{}
+	cfg.MVUpdateCount = 0
+	for component := 0; component < 2; component++ {
+		for i := 0; i < tables.MVPCount; i++ {
+			ct := (*counts)[component][i]
+			if ct[0]+ct[1] == 0 {
+				continue
+			}
+			oldProb := tables.DefaultMVContext[component][i]
+			newProb := motionVectorProbabilityFromBranchCount(ct)
+			if newProb == oldProb {
+				continue
+			}
+			if motionVectorProbabilityUpdateSavings(ct, oldProb, newProb, tables.MVUpdateProbs[component][i]) <= 0 {
+				continue
+			}
+			cfg.MVProbs[component][i] = newProb
+			cfg.MVUpdate[component][i] = true
+			cfg.MVUpdateCount++
+		}
+	}
+}
+
+func motionVectorProbabilityFromBranchCount(counts [2]int) uint8 {
+	prob := coefficientProbabilityFromBranchCount(counts)
+	if prob <= 1 {
+		return 1
+	}
+	if prob >= 254 {
+		return 254
+	}
+	return prob &^ 1
+}
+
+func motionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb uint8, updateProb uint8) int {
+	oldBits := coefficientBranchCost(counts, oldProb)
+	newBits := coefficientBranchCost(counts, newProb)
+	updateBits := 7 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0)) >> 8)
+	return oldBits - newBits - updateBits
+}
+
+func interFrameMVProbs(cfg InterFrameStateConfig) [2][tables.MVPCount]uint8 {
+	probs := tables.DefaultMVContext
+	for component := 0; component < 2; component++ {
+		for i := 0; i < tables.MVPCount; i++ {
+			if cfg.MVUpdate[component][i] {
+				probs[component][i] = cfg.MVProbs[component][i]
+			}
+		}
+	}
+	return probs
+}
+
+func countMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mv MotionVector) error {
+	if counts == nil || mv.Row&1 != 0 || mv.Col&1 != 0 {
+		return ErrInvalidPacketConfig
+	}
+	if !countMVComponentBranches(&(*counts)[0], int(mv.Row/2)) {
+		return ErrInvalidPacketConfig
+	}
+	if !countMVComponentBranches(&(*counts)[1], int(mv.Col/2)) {
+		return ErrInvalidPacketConfig
+	}
+	return nil
+}
+
+func countMVComponentBranches(counts *[tables.MVPCount][2]int, component int) bool {
+	negative := component < 0
+	if negative {
+		component = -component
+	}
+	if component >= 8 {
+		return countLargeMVComponentBranches(counts, component, negative)
+	}
+	counts[mvProbIsShort][0]++
+	if !countTreeTokenBranches(counts[mvProbShort:], tables.SmallMVTree[:], smallMVTokens[component]) {
+		return false
+	}
+	if component != 0 {
+		countBoolBranch(&counts[mvProbSign], negative)
+	}
+	return true
+}
+
+func countLargeMVComponentBranches(counts *[tables.MVPCount][2]int, component int, negative bool) bool {
+	if component < 8 || component > 0x7ff {
+		return false
+	}
+	counts[mvProbIsShort][1]++
+	coded := component
+	if component < 16 {
+		coded = component - 8
+	}
+	for i := 0; i < 3; i++ {
+		counts[mvProbBits+i][(coded>>i)&1]++
+	}
+	for i := mvLongWidth - 1; i > 3; i-- {
+		counts[mvProbBits+i][(coded>>i)&1]++
+	}
+	if coded&0xfff0 != 0 {
+		counts[mvProbBits+3][(component>>3)&1]++
+	}
+	if component != 0 {
+		countBoolBranch(&counts[mvProbSign], negative)
+	}
+	return true
+}
+
+func countBoolBranch(counts *[2]int, value bool) {
+	if value {
+		counts[1]++
+		return
+	}
+	counts[0]++
+}
+
+func countTreeTokenBranches(counts []([2]int), tree []int16, token TreeToken) bool {
+	node := int16(0)
+	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
+		probIndex := int(node >> 1)
+		if probIndex < 0 || probIndex >= len(counts) || int(node)+1 >= len(tree) {
+			return false
+		}
+		bit := int((token.Value >> uint(bitIndex)) & 1)
+		counts[probIndex][bit]++
+		next := tree[int(node)+bit]
+		if next <= 0 {
+			return bitIndex == 0
+		}
+		node = next
+	}
+	return false
 }
 
 type InterModeCounts struct {
@@ -818,7 +994,7 @@ func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {
 	writeBoolBit(w, cfg.RefreshLast)
 }
 
-func writeInterModeHeader(w *BoolWriter, cfg InterFrameStateConfig) {
+func writeInterModeHeader(w *BoolWriter, cfg InterFrameStateConfig) error {
 	writeBoolBit(w, cfg.MBNoCoeffSkip)
 	if cfg.MBNoCoeffSkip {
 		w.WriteLiteral(uint32(cfg.ProbSkipFalse), 8)
@@ -830,9 +1006,32 @@ func writeInterModeHeader(w *BoolWriter, cfg InterFrameStateConfig) {
 	w.WriteBit(0)
 	for component := 0; component < 2; component++ {
 		for i := 0; i < tables.MVPCount; i++ {
-			w.WriteBool(0, tables.MVUpdateProbs[component][i])
+			if cfg.MVUpdate[component][i] {
+				encoded, ok := encodeMotionVectorProbabilityUpdate(cfg.MVProbs[component][i])
+				if !ok {
+					return ErrInvalidPacketConfig
+				}
+				w.WriteBool(1, tables.MVUpdateProbs[component][i])
+				w.WriteLiteral(uint32(encoded), 7)
+			} else {
+				w.WriteBool(0, tables.MVUpdateProbs[component][i])
+			}
 		}
 	}
+	if w.Err() != nil {
+		return w.Err()
+	}
+	return nil
+}
+
+func encodeMotionVectorProbabilityUpdate(prob uint8) (uint8, bool) {
+	if prob == 1 {
+		return 0, true
+	}
+	if prob >= 2 && prob <= 254 && prob&1 == 0 {
+		return prob >> 1, true
+	}
+	return 0, false
 }
 
 func writeBoolBit(w *BoolWriter, value bool) {
