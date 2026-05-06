@@ -266,7 +266,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
-		e.temporal.finishDroppedFrame()
+		e.temporal.finishDroppedFrame(temporalFrame)
 		e.frameCount++
 		return result, nil
 	}
@@ -303,7 +303,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
 			AltRef: attempt.Config.RefreshAltRef,
-		})
+		}, encodedSizeBits(attempt.Size))
 		e.frameCount++
 		return result, nil
 	}
@@ -322,7 +322,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
 	e.lastInterZeroMVCount = 0
-	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true})
+	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n))
 	e.frameCount++
 	return result, nil
 }
@@ -862,6 +862,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.tl0PicIdx = 0
 	e.temporal.tl0Valid = false
 	e.temporal.refLayer = [temporalReferenceCount]int{}
+	e.temporal.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.current.Reset()

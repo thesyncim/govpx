@@ -50,6 +50,7 @@ type temporalState struct {
 	tl0PicIdx   uint8
 	tl0Valid    bool
 	refLayer    [temporalReferenceCount]int
+	accounting  [MaxTemporalLayers]temporalLayerAccounting
 }
 
 type temporalFrame struct {
@@ -62,6 +63,13 @@ type temporalFrame struct {
 	LayerTargetBitrateKbps     int
 	LayerFrameTargetBits       int
 	LayerCumulativeBitrateKbps int
+}
+
+type temporalLayerAccounting struct {
+	InputFrames        int
+	EncodedFrames      int
+	TotalEncodedFrames int
+	EncodedBits        int
 }
 
 const (
@@ -92,6 +100,7 @@ func (t *temporalState) configure(cfg TemporalScalabilityConfig, totalBitrateKbp
 	t.tl0PicIdx = 0
 	t.tl0Valid = false
 	t.refLayer = [temporalReferenceCount]int{}
+	t.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	return nil
 }
 
@@ -146,10 +155,11 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	return meta
 }
 
-func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh temporalReferenceRefresh) {
+func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh temporalReferenceRefresh, encodedBits int) {
 	if !t.enabled {
 		return
 	}
+	t.accountEncodedFrame(meta, keyFrame, encodedBits)
 	if keyFrame {
 		t.refLayer = [temporalReferenceCount]int{}
 	} else {
@@ -170,10 +180,32 @@ func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh t
 	t.frameIndex++
 }
 
-func (t *temporalState) finishDroppedFrame() {
+func (t *temporalState) finishDroppedFrame(meta temporalFrame) {
 	if t.enabled {
+		t.accountInputFrame(meta)
 		t.frameIndex++
 	}
+}
+
+func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, encodedBits int) {
+	t.accountInputFrame(meta)
+	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+		return
+	}
+	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
+		t.accounting[layer].TotalEncodedFrames++
+		t.accounting[layer].EncodedBits = saturatingAdd(t.accounting[layer].EncodedBits, encodedBits)
+	}
+	if !keyFrame {
+		t.accounting[meta.LayerID].EncodedFrames++
+	}
+}
+
+func (t *temporalState) accountInputFrame(meta temporalFrame) {
+	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+		return
+	}
+	t.accounting[meta.LayerID].InputFrames++
 }
 
 func (t *temporalState) layerSync(meta temporalFrame) bool {

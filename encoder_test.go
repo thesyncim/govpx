@@ -1855,6 +1855,46 @@ func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	var sizes [4]int
+	for i := range sizes {
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		sizes[i] = encodedSizeBits(result.SizeBytes)
+	}
+
+	wantLayer0 := temporalLayerAccounting{
+		InputFrames:        2,
+		EncodedFrames:      1,
+		TotalEncodedFrames: 2,
+		EncodedBits:        sizes[0] + sizes[2],
+	}
+	wantLayer1 := temporalLayerAccounting{
+		InputFrames:        2,
+		EncodedFrames:      2,
+		TotalEncodedFrames: 4,
+		EncodedBits:        sizes[0] + sizes[1] + sizes[2] + sizes[3],
+	}
+	if got := e.temporal.accounting[0]; got != wantLayer0 {
+		t.Fatalf("layer0 accounting = %+v, want %+v", got, wantLayer0)
+	}
+	if got := e.temporal.accounting[1]; got != wantLayer1 {
+		t.Fatalf("layer1 accounting = %+v, want %+v", got, wantLayer1)
+	}
+
+	e.Reset()
+	if got := e.temporal.accounting; got != ([MaxTemporalLayers]temporalLayerAccounting{}) {
+		t.Fatalf("accounting after reset = %+v, want zero", got)
+	}
+}
+
 func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer})
 	src := testImage(16, 16)
