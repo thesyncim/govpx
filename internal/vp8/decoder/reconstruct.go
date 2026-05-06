@@ -684,9 +684,7 @@ func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTok
 }
 
 func clearYResidualBlocks(out *MacroblockResidual) {
-	for i := 0; i < 16*16; i++ {
-		out.DQCoeff[i] = 0
-	}
+	clear(out.DQCoeff[:16*16])
 }
 
 func clearResidualBlock(block *[16]int16) {
