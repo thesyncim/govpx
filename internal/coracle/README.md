@@ -22,6 +22,18 @@ Run opt-in oracle tests:
 LIBGOPX_WITH_ORACLE=1 LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle go test ./...
 ```
 
+Run opt-in extended conformance against external VP8 IVF data:
+
+```sh
+LIBGOPX_WITH_ORACLE=1 \
+LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle \
+LIBGOPX_TEST_DATA_PATH=/path/to/vp8-ivf-data \
+go test .
+```
+
+Use `LIBGOPX_TEST_DATA_LIMIT=N` to cap the number of IVF files discovered from
+the external data path.
+
 The helper accepts IVF VP8 input:
 
 ```sh

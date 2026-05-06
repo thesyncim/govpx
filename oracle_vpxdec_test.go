@@ -4,9 +4,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/testutil"
@@ -395,6 +400,63 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLoopFilteredInterFrame(t *testing.
 	}
 }
 
+func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx conformance tests")
+	}
+	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	if root == "" {
+		t.Skip("set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	}
+	oracle := findChecksumOracle(t)
+	paths := findVP8IVFTestData(t, root)
+	if len(paths) == 0 {
+		t.Fatalf("no VP8 IVF files found under %s", root)
+	}
+
+	for _, path := range paths {
+		path := path
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			ivf, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			want := runLibvpxChecksumOracleFile(t, oracle, path)
+			got := decodeIVFChecksums(t, ivf)
+			if len(got) != len(want) {
+				t.Fatalf("frame count = %d, want %d from libvpx", len(got), len(want))
+			}
+			for i := range want {
+				if !testutil.SameFrameChecksum(got[i], want[i]) {
+					t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
+				}
+			}
+		})
+	}
+}
+
+func TestFindVP8IVFTestData(t *testing.T) {
+	dir := t.TempDir()
+	vp8Path := filepath.Join(dir, "vp8.ivf")
+	if err := os.WriteFile(vp8Path, makeIVF(16, 16, 30, 1, [][]byte{{1}}), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	vp9Path := filepath.Join(dir, "vp9.ivf")
+	vp9 := makeIVF(16, 16, 30, 1, [][]byte{{1}})
+	copy(vp9[8:12], []byte("VP90"))
+	if err := os.WriteFile(vp9Path, vp9, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("not ivf"), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	paths := findVP8IVFTestData(t, dir)
+	if len(paths) != 1 || paths[0] != vp8Path {
+		t.Fatalf("paths = %v, want [%s]", paths, vp8Path)
+	}
+}
+
 func makeSingleFrameIVF(width int, height int, den uint32, num uint32, frame []byte) []byte {
 	return makeIVF(width, height, den, num, [][]byte{frame})
 }
@@ -447,7 +509,11 @@ func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil
 	if err := os.WriteFile(path, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
+	return runLibvpxChecksumOracleFile(t, oracle, path)
+}
 
+func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []testutil.FrameChecksum {
+	t.Helper()
 	cmd := exec.Command(oracle, "decode", path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -461,6 +527,139 @@ func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil
 		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
 	}
 	return frames
+}
+
+func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
+	t.Helper()
+	if _, err := testutil.ParseIVFHeader(ivf); err != nil {
+		t.Fatalf("ParseIVFHeader returned error: %v", err)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+
+	var frames []testutil.FrameChecksum
+	outputIndex := 0
+	for inputIndex := 0; offset < len(ivf); inputIndex++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", inputIndex, err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", inputIndex, err)
+		}
+		if err := d.Decode(frame.Data); err != nil {
+			t.Fatalf("Decode frame %d returned error: %v", inputIndex, err)
+		}
+		img, ok := d.NextFrame()
+		if info.ShowFrame {
+			if !ok {
+				t.Fatalf("NextFrame frame %d returned no frame", inputIndex)
+			}
+			frames = append(frames, checksumFrame(outputIndex, info.KeyFrame, info.ShowFrame, img))
+			outputIndex++
+		} else if ok {
+			t.Fatalf("NextFrame frame %d returned an invisible frame", inputIndex)
+		}
+		offset = next
+	}
+	return frames
+}
+
+func findVP8IVFTestData(t *testing.T, root string) []string {
+	t.Helper()
+	limit := externalIVFTestLimit(t)
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat %s: %v", root, err)
+	}
+	var paths []string
+	if info.Mode().IsRegular() {
+		if isVP8IVFTestData(t, root) {
+			paths = append(paths, root)
+		}
+		return paths
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a regular file or directory", root)
+	}
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".ivf") {
+			return nil
+		}
+		if isVP8IVFTestData(t, path) {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	sort.Strings(paths)
+	if limit > 0 && len(paths) > limit {
+		return paths[:limit]
+	}
+	return paths
+}
+
+func externalIVFTestLimit(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("LIBGOPX_TEST_DATA_LIMIT")
+	if raw == "" {
+		return 0
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 0 {
+		t.Fatalf("LIBGOPX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
+	}
+	return limit
+}
+
+func isVP8IVFTestData(t *testing.T, path string) bool {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open %s returned error: %v", path, err)
+	}
+	defer file.Close()
+	header := make([]byte, testutil.IVFFileHeaderSize)
+	if _, err := io.ReadFull(file, header); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			t.Fatalf("%s is not valid IVF data: %v", path, testutil.ErrInvalidIVF)
+		}
+		t.Fatalf("ReadFull %s returned error: %v", path, err)
+	}
+	_, err = testutil.ParseIVFHeader(header)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, testutil.ErrUnsupportedFourCC) {
+		return false
+	}
+	t.Fatalf("%s is not valid VP8 IVF data: %v", path, err)
+	return false
+}
+
+func safeIVFTestName(root string, path string) string {
+	name, err := filepath.Rel(root, path)
+	if err != nil || name == "." {
+		name = filepath.Base(path)
+	}
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
+	if name == "" {
+		return "ivf"
+	}
+	return name
 }
 
 func decodeFrameSequence(t *testing.T, packets ...[]byte) []Image {
