@@ -51,12 +51,12 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
+	var input [16]int16
+	var dct [16]int16
 
 	for block := 0; block < 16; block++ {
 		x := mbCol*16 + (block&3)*4
 		y := mbRow*16 + (block>>2)*4
-		var input [16]int16
-		var dct [16]int16
 		fillResidual4x4(src.Y, src.YStride, src.Width, src.Height, x, y, &input)
 		ForwardDCT4x4(input[:], 4, &dct)
 		y2Input[block] = dct[0]
@@ -71,8 +71,6 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 	for block := 0; block < 4; block++ {
 		x := mbCol*8 + (block&1)*4
 		y := mbRow*8 + (block>>1)*4
-		var input [16]int16
-		var dct [16]int16
 		fillResidual4x4(src.U, src.UStride, uvWidth, uvHeight, x, y, &input)
 		ForwardDCT4x4(input[:], 4, &dct)
 		coeffs.SetBlockEOB(16+block, FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq))
