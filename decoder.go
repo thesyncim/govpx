@@ -96,23 +96,18 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.validateStreamInfo(info); err != nil {
 		return err
 	}
-	if err := d.parseState(packet); err != nil {
+	if err := d.decodeFramePacket(packet, info); err != nil {
+		if d.opts.ErrorResilient && d.canConceal(info) {
+			frameInfo := d.finishConcealedFrame(info, pts)
+			d.frameReady = false
+			if frameInfo.ShowFrame {
+				d.lastFrame = publicImageFromVP8(&d.lastRef.Img)
+				d.frameReady = true
+			}
+			return nil
+		}
 		return err
 	}
-	if err := d.ensureFrameBuffers(info); err != nil {
-		return err
-	}
-	if err := d.decodeModeGrid(info); err != nil {
-		return err
-	}
-	if err := d.decodeTokenGrid(); err != nil {
-		return err
-	}
-	if err := d.reconstructFrame(info); err != nil {
-		return err
-	}
-	d.refreshReferences()
-	d.commitParsedState(info)
 
 	d.finishFrame(info, pts)
 	if !info.ShowFrame {
@@ -157,23 +152,17 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if !dst.validForEncode(outputWidth, outputHeight) {
 		return FrameInfo{}, ErrInvalidConfig
 	}
-	if err := d.parseState(packet); err != nil {
+	if err := d.decodeFramePacket(packet, info); err != nil {
+		if d.opts.ErrorResilient && d.canConceal(info) {
+			frameInfo := d.finishConcealedFrame(info, pts)
+			d.frameReady = false
+			if frameInfo.ShowFrame {
+				copyVP8ImageToPublic(dst, &d.lastRef.Img)
+			}
+			return frameInfo, nil
+		}
 		return FrameInfo{}, err
 	}
-	if err := d.ensureFrameBuffers(info); err != nil {
-		return FrameInfo{}, err
-	}
-	if err := d.decodeModeGrid(info); err != nil {
-		return FrameInfo{}, err
-	}
-	if err := d.decodeTokenGrid(); err != nil {
-		return FrameInfo{}, err
-	}
-	if err := d.reconstructFrame(info); err != nil {
-		return FrameInfo{}, err
-	}
-	d.refreshReferences()
-	d.commitParsedState(info)
 	frameInfo := d.finishFrame(info, pts)
 	d.frameReady = false
 	if !info.ShowFrame {
@@ -214,6 +203,27 @@ func (d *VP8Decoder) Close() error {
 	}
 	d.Reset()
 	d.closed = true
+	return nil
+}
+
+func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
+	if err := d.parseState(packet); err != nil {
+		return err
+	}
+	if err := d.ensureFrameBuffers(info); err != nil {
+		return err
+	}
+	if err := d.decodeModeGrid(info); err != nil {
+		return err
+	}
+	if err := d.decodeTokenGrid(); err != nil {
+		return err
+	}
+	if err := d.reconstructFrame(info); err != nil {
+		return err
+	}
+	d.refreshReferences()
+	d.commitParsedState(info)
 	return nil
 }
 
@@ -266,6 +276,28 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 		Height:    height,
 		KeyFrame:  info.KeyFrame,
 		ShowFrame: info.ShowFrame,
+		PTS:       pts,
+	}
+	d.lastInfo = frameInfo
+	return frameInfo
+}
+
+func (d *VP8Decoder) canConceal(info StreamInfo) bool {
+	return d.initialized &&
+		!info.KeyFrame &&
+		d.frameWidth > 0 &&
+		d.frameHeight > 0 &&
+		d.lastRef.BufferLen() != 0
+}
+
+func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo {
+	d.currentPTS = pts
+	frameInfo := FrameInfo{
+		Width:     d.frameWidth,
+		Height:    d.frameHeight,
+		KeyFrame:  false,
+		ShowFrame: info.ShowFrame,
+		Corrupted: true,
 		PTS:       pts,
 	}
 	d.lastInfo = frameInfo
