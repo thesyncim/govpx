@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -60,6 +61,35 @@ func TestBoolWriterReportsSmallBuffer(t *testing.T) {
 	}
 	if w.BytesWritten() > 1 {
 		t.Fatalf("bytes written = %d, want at most 1", w.BytesWritten())
+	}
+}
+
+func TestBoolWriterWriteBitMatchesWriteBool128(t *testing.T) {
+	pattern := []uint8{0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0}
+	bufBit := make([]byte, 64)
+	bufBool := make([]byte, 64)
+	var bitWriter, boolWriter BoolWriter
+	bitWriter.Init(bufBit)
+	boolWriter.Init(bufBool)
+
+	for _, bit := range pattern {
+		bitWriter.WriteBit(bit)
+		boolWriter.WriteBool(bit, 128)
+	}
+	bitWriter.WriteLiteral(0xa5, 8)
+	for i := 7; i >= 0; i-- {
+		boolWriter.WriteBool(uint8((0xa5>>uint(i))&1), 128)
+	}
+	bitWriter.Finish()
+	for i := 0; i < 32; i++ {
+		boolWriter.WriteBool(0, 128)
+	}
+
+	if bitWriter.Err() != nil || boolWriter.Err() != nil {
+		t.Fatalf("errors = %v/%v, want nil", bitWriter.Err(), boolWriter.Err())
+	}
+	if !bytes.Equal(bitWriter.Bytes(), boolWriter.Bytes()) {
+		t.Fatalf("WriteBit bytes = %x, WriteBool bytes = %x", bitWriter.Bytes(), boolWriter.Bytes())
 	}
 }
 
