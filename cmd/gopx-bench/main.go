@@ -42,6 +42,7 @@ type benchReport struct {
 	BitrateErrorPct   float64            `json:"bitrate_error_pct"`
 	NSPerFrame        int64              `json:"ns_per_frame"`
 	EncodeFPS         float64            `json:"encode_fps"`
+	MacroblocksPerSec float64            `json:"macroblocks_per_second"`
 	AllocsPerFrame    float64            `json:"allocs_per_frame"`
 	PSNR              float64            `json:"psnr"`
 	SSIM              float64            `json:"ssim"`
@@ -64,6 +65,7 @@ type referenceReport struct {
 	BitrateErrorPct   float64       `json:"bitrate_error_pct"`
 	NSPerFrame        int64         `json:"ns_per_frame"`
 	EncodeFPS         float64       `json:"encode_fps"`
+	MacroblocksPerSec float64       `json:"macroblocks_per_second"`
 	PSNR              float64       `json:"psnr"`
 	SSIM              float64       `json:"ssim"`
 	QualityFrames     int           `json:"quality_frames"`
@@ -205,6 +207,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	if interCount > 0 {
 		avgInter = float64(interBytes) / float64(interCount)
 	}
+	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	quantMean := 0.0
 	if encodedFrames > 0 {
 		quantMean = float64(quantSum) / float64(encodedFrames)
@@ -222,6 +225,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        nsPerFrame,
 		EncodeFPS:         1e9 / float64(nsPerFrame),
+		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(nsPerFrame),
 		AllocsPerFrame:    float64(memAfter.Mallocs-memBefore.Mallocs) / float64(cfg.Frames),
 		PSNR:              psnr,
 		SSIM:              ssim,
@@ -441,6 +445,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 	if qualityErr != nil {
 		qualityError = qualityErr.Error()
 	}
+	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	return referenceReport{
 		Encoder:           "libvpx-vp8",
 		Mode:              deadlineName,
@@ -448,6 +453,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        nsPerFrame,
 		EncodeFPS:         1e9 / float64(nsPerFrame),
+		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(nsPerFrame),
 		PSNR:              psnr,
 		SSIM:              ssim,
 		QualityFrames:     qualityFrames,
@@ -462,6 +468,12 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		OutputBytes:   outputBytes,
 		EncodedFrames: len(sizes),
 	}, nil
+}
+
+func benchmarkMacroblocks(width int, height int) float64 {
+	cols := (width + 15) >> 4
+	rows := (height + 15) >> 4
+	return float64(cols * rows)
 }
 
 func referenceQualityMetrics(ivf []byte, frames []libgopx.Image) (float64, float64, int, error) {

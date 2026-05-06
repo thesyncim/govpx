@@ -31,8 +31,8 @@ func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.Width != 16 || report.Height != 16 || report.Frames != 3 || report.EncodedFrames == 0 {
 		t.Fatalf("dimensions/counts = %+v", report)
 	}
-	if report.NSPerFrame <= 0 || report.EncodeFPS <= 0 || report.LatencyNS.P50 <= 0 || report.OutputBytes <= 0 {
-		t.Fatalf("timing/output metrics = ns:%d fps:%f p50:%d bytes:%d", report.NSPerFrame, report.EncodeFPS, report.LatencyNS.P50, report.OutputBytes)
+	if report.NSPerFrame <= 0 || report.EncodeFPS <= 0 || report.MacroblocksPerSec <= 0 || report.LatencyNS.P50 <= 0 || report.OutputBytes <= 0 {
+		t.Fatalf("timing/output metrics = ns:%d fps:%f mbps:%f p50:%d bytes:%d", report.NSPerFrame, report.EncodeFPS, report.MacroblocksPerSec, report.LatencyNS.P50, report.OutputBytes)
 	}
 	if report.AllocsPerFrame != 0 {
 		t.Fatalf("AllocsPerFrame = %f, want 0 for measured encode pass", report.AllocsPerFrame)
@@ -64,8 +64,8 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	if report.Reference.Encoder != "libvpx-vp8" || report.Reference.EncodedFrames != 3 || report.Reference.OutputBytes <= 0 {
 		t.Fatalf("reference = %+v, want libvpx-vp8 with 3 encoded frames and bytes", *report.Reference)
 	}
-	if report.Reference.KeyframeBytes <= 0 || report.Reference.AvgInterBytes <= 0 {
-		t.Fatalf("reference sizes = key:%d inter:%f, want positive values", report.Reference.KeyframeBytes, report.Reference.AvgInterBytes)
+	if report.Reference.KeyframeBytes <= 0 || report.Reference.AvgInterBytes <= 0 || report.Reference.MacroblocksPerSec <= 0 {
+		t.Fatalf("reference sizes/throughput = key:%d inter:%f mbps:%f, want positive values", report.Reference.KeyframeBytes, report.Reference.AvgInterBytes, report.Reference.MacroblocksPerSec)
 	}
 	if report.Reference.PSNR <= 0 || report.Reference.SSIM <= 0 || report.Reference.SSIM > 1 || report.Reference.QualityFrames != 3 || report.Reference.QualityError != "" {
 		t.Fatalf("reference quality = psnr:%f ssim:%f frames:%d err:%q, want 3 decoded quality frames", report.Reference.PSNR, report.Reference.SSIM, report.Reference.QualityFrames, report.Reference.QualityError)
@@ -101,6 +101,23 @@ func TestQuantizerHistogramMap(t *testing.T) {
 	got := quantizerHistogramMap(&hist)
 	if len(got) != 2 || got["4"] != 3 || got["56"] != 2 {
 		t.Fatalf("histogram = %v, want q4=3 q56=2", got)
+	}
+}
+
+func TestBenchmarkMacroblocksRoundsToCodedGrid(t *testing.T) {
+	tests := []struct {
+		width  int
+		height int
+		want   float64
+	}{
+		{width: 16, height: 16, want: 1},
+		{width: 17, height: 16, want: 2},
+		{width: 17, height: 17, want: 4},
+	}
+	for _, tt := range tests {
+		if got := benchmarkMacroblocks(tt.width, tt.height); got != tt.want {
+			t.Fatalf("benchmarkMacroblocks(%d, %d) = %f, want %f", tt.width, tt.height, got, tt.want)
+		}
 	}
 }
 
