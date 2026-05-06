@@ -543,6 +543,46 @@ func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
 	}
 }
 
+func TestQuantizeOptimizedBlockUpdatesDequantizedCoefficients(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+		quant.Round[i] = 5
+		quant.QuantFast[i] = (1 << 16) / 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	coeff[rc] = 11
+
+	eob := quantizeOptimizedBlock(127, 0, 0, 1, 0, &coeff, &quant, &qcoeff, &dqcoeff)
+
+	if eob != 1 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
+		t.Fatalf("optimized eob/q/dq = %d/%d/%d, want trailing coefficient dropped and dequantized", eob, qcoeff[rc], dqcoeff[rc])
+	}
+}
+
+func TestQuantizeOptimizedBlockKeepsDequantizedCoefficient(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 100
+		quant.Round[i] = 37
+		quant.QuantFast[i] = (1 << 16) / 100
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	coeff[rc] = 100
+
+	eob := quantizeOptimizedBlock(4, 0, 0, 1, 0, &coeff, &quant, &qcoeff, &dqcoeff)
+
+	if eob != 2 || qcoeff[rc] != 1 || dqcoeff[rc] != 100 {
+		t.Fatalf("optimized eob/q/dq = %d/%d/%d, want coefficient kept and dequantized", eob, qcoeff[rc], dqcoeff[rc])
+	}
+}
+
 func TestInterZbinModeBoostMatchesLibvpxClasses(t *testing.T) {
 	tests := []struct {
 		name string
