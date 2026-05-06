@@ -215,6 +215,30 @@ func TestDecodeTokenGridSinglePartition(t *testing.T) {
 	if tokens[0].EOB[24] != 0 || tokens[1].EOB[24] != 0 {
 		t.Fatalf("unexpected Y2 EOBs: %d/%d", tokens[0].EOB[24], tokens[1].EOB[24])
 	}
+	if !modes[0].MBSkipCoeff || !modes[1].MBSkipCoeff {
+		t.Fatalf("MBSkipCoeff = %v/%v, want implicit skip for zero-residual macroblocks", modes[0].MBSkipCoeff, modes[1].MBSkipCoeff)
+	}
+}
+
+func TestDecodeTokenGridKeepsNonZeroResidualMacroblockUnskipped(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	payload := encodeTokenRows(&probs, 1, 1, 1, []int{24})
+	readers := initTokenReaders(t, payload)
+	modes := []MacroblockMode{{}}
+	above := make([]EntropyContextPlanes, 1)
+	tokens := make([]MacroblockTokens, 1)
+
+	total, err := DecodeTokenGrid(readers[:], 1, 1, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if modes[0].MBSkipCoeff {
+		t.Fatalf("MBSkipCoeff = true, want false for nonzero residual macroblock")
+	}
 }
 
 func TestDecodeTokenGridResetsAboveContextsPerFrame(t *testing.T) {

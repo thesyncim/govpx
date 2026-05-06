@@ -130,7 +130,11 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 				ResetMacroblockTokenContext(&above[col], &left, mode.Is4x4)
 				continue
 			}
-			total += DecodeMacroblockTokens(&readers[rowPartition], probs, mode.Is4x4, &above[col], &left, token)
+			eobTotal := DecodeMacroblockTokens(&readers[rowPartition], probs, mode.Is4x4, &above[col], &left, token)
+			if eobTotal == 0 {
+				mode.MBSkipCoeff = true
+			}
+			total += eobTotal
 		}
 	}
 	return total, nil
