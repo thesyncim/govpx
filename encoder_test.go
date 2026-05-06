@@ -1109,6 +1109,128 @@ func TestEncodeIntoInterFramePreservesGoldenAndAltRefByDefault(t *testing.T) {
 	assertImagesEqual(t, "alt", keyFrame, publicImageFromVP8(&e.altRef.Img))
 }
 
+func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	var results [4]EncodeResult
+	for i := range results {
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		results[i] = result
+		results[i].Data = append([]byte(nil), result.Data...)
+	}
+
+	wantLayerID := []int{0, 1, 0, 1}
+	wantTL0 := []uint8{0, 0, 1, 1}
+	wantLayerSync := []bool{false, true, false, false}
+	wantTargetBits := []int{160000, 32000, 48000, 32000}
+	for i := range results {
+		if results[i].TemporalLayerID != wantLayerID[i] || results[i].TemporalLayerCount != 2 || results[i].TL0PICIDX != wantTL0[i] || results[i].TemporalLayerSync != wantLayerSync[i] || results[i].FrameTargetBits != wantTargetBits[i] {
+			t.Fatalf("result[%d] temporal = id:%d count:%d tl0:%d sync:%t target:%d, want %d/2/%d/%t/%d", i, results[i].TemporalLayerID, results[i].TemporalLayerCount, results[i].TL0PICIDX, results[i].TemporalLayerSync, results[i].FrameTargetBits, wantLayerID[i], wantTL0[i], wantLayerSync[i], wantTargetBits[i])
+		}
+	}
+	if !results[0].KeyFrame || results[1].KeyFrame || results[2].KeyFrame || results[3].KeyFrame {
+		t.Fatalf("keyframe flags = %t/%t/%t/%t, want only first keyframe", results[0].KeyFrame, results[1].KeyFrame, results[2].KeyFrame, results[3].KeyFrame)
+	}
+
+	enhancement := packetState(t, results[1].Data)
+	if enhancement.Refresh.RefreshLast || !enhancement.Refresh.RefreshGolden || enhancement.Refresh.RefreshAltRef {
+		t.Fatalf("enhancement refresh = %+v, want golden-only refresh", enhancement.Refresh)
+	}
+	base := packetState(t, results[2].Data)
+	if !base.Refresh.RefreshLast || base.Refresh.RefreshGolden || base.Refresh.RefreshAltRef {
+		t.Fatalf("base refresh = %+v, want last-only refresh", base.Refresh)
+	}
+	secondEnhancement := packetState(t, results[3].Data)
+	if secondEnhancement.Refresh.RefreshLast || !secondEnhancement.Refresh.RefreshGolden || secondEnhancement.Refresh.RefreshAltRef {
+		t.Fatalf("second enhancement refresh = %+v, want golden-only refresh", secondEnhancement.Refresh)
+	}
+}
+
+func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.TemporalLayerID != 0 || inter.TemporalLayerCount != 1 {
+		t.Fatalf("temporal = id:%d count:%d, want 0/1", inter.TemporalLayerID, inter.TemporalLayerCount)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
+		t.Fatalf("one-layer refresh = %+v, want last-only default refresh", state.Refresh)
+	}
+}
+
+func TestEncodeIntoTemporalBaseLayerIsDecodableWithoutEnhancementFrames(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	dst := make([]byte, 8192)
+	basePackets := make([][]byte, 0, 3)
+
+	for i := 0; i < 6; i++ {
+		src := rateControlTestFrame(16, 16, i)
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		if result.TemporalLayerID == 0 {
+			basePackets = append(basePackets, append([]byte(nil), result.Data...))
+		}
+	}
+	if len(basePackets) != 3 {
+		t.Fatalf("base packet count = %d, want 3", len(basePackets))
+	}
+	decoded := decodeFrameSequence(t, basePackets...)
+	if len(decoded) != len(basePackets) {
+		t.Fatalf("decoded base frame count = %d, want %d", len(decoded), len(basePackets))
+	}
+}
+
+func TestSetTemporalScalabilityControlsNextFrames(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	plain, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("plain EncodeInto returned error: %v", err)
+	}
+	if plain.TemporalLayerID != 0 || plain.TemporalLayerCount != 1 {
+		t.Fatalf("plain temporal = id:%d count:%d, want 0/1", plain.TemporalLayerID, plain.TemporalLayerCount)
+	}
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}); err != nil {
+		t.Fatalf("SetTemporalScalability returned error: %v", err)
+	}
+
+	key, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("temporal key EncodeInto returned error: %v", err)
+	}
+	enhancement, err := e.EncodeInto(dst, src, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("temporal enhancement EncodeInto returned error: %v", err)
+	}
+	if !key.KeyFrame || key.TemporalLayerID != 0 || key.TL0PICIDX != 0 {
+		t.Fatalf("first temporal result = key:%t id:%d tl0:%d, want key/0/0", key.KeyFrame, key.TemporalLayerID, key.TL0PICIDX)
+	}
+	if enhancement.KeyFrame || enhancement.TemporalLayerID != 1 || enhancement.TL0PICIDX != 0 || !enhancement.TemporalLayerSync {
+		t.Fatalf("second temporal result = key:%t id:%d tl0:%d sync:%t, want inter/1/0/sync", enhancement.KeyFrame, enhancement.TemporalLayerID, enhancement.TL0PICIDX, enhancement.TemporalLayerSync)
+	}
+}
+
 func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
@@ -1327,6 +1449,32 @@ func newSizedTestEncoder(tb testing.TB, width int, height int) *VP8Encoder {
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+func newTemporalTestEncoder(tb testing.TB, temporal TemporalScalabilityConfig) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		DropFrameAllowed:    true,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
+		ErrorResilient:      true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		TemporalScalability: temporal,
 	})
 	if err != nil {
 		tb.Fatalf("NewVP8Encoder returned error: %v", err)

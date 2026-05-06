@@ -64,6 +64,8 @@ type EncoderOptions struct {
 
 	DropFrameAllowed bool
 
+	TemporalScalability TemporalScalabilityConfig
+
 	// Realtime/performance behavior.
 	Deadline Deadline
 	CpuUsed  int
@@ -98,14 +100,21 @@ type EncodeResult struct {
 	FrameTargetBits   int
 	BufferLevelBits   int
 
+	TemporalLayerID                int
+	TemporalLayerCount             int
+	TemporalLayerSync              bool
+	TL0PICIDX                      uint8
+	TemporalLayerTargetBitrateKbps int
+
 	PSNRHint float64
 }
 
 type VP8Encoder struct {
 	opts EncoderOptions
 
-	timing timingState
-	rc     rateControlState
+	timing   timingState
+	rc       rateControlState
+	temporal temporalState
 
 	closed        bool
 	forceKeyFrame bool
@@ -166,6 +175,10 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.rc.currentQuantizer = e.rc.minQuantizer
 	e.rc.lastQuantizer = e.rc.currentQuantizer
+	if err := e.temporal.configure(normalized.TemporalScalability, e.rc.targetBitrateKbps); err != nil {
+		return nil, err
+	}
+	e.opts.TemporalScalability = e.temporal.config
 	return e, nil
 }
 
@@ -180,17 +193,29 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 
+	temporalFrame := e.temporal.nextFrame(e.timing)
+	flags |= temporalFrame.Flags
 	keyFrame := e.shouldEncodeKeyFrame(src, flags)
-	e.rc.beginFrame(keyFrame)
+	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
+	if temporalFrame.Enabled && !keyFrame {
+		e.rc.beginFrameWithTarget(false, temporalFrame.LayerFrameTargetBits)
+	} else {
+		e.rc.beginFrame(keyFrame)
+	}
 
 	result := EncodeResult{
-		KeyFrame:          keyFrame,
-		PTS:               pts,
-		Duration:          duration,
-		Quantizer:         e.rc.currentQuantizer,
-		TargetBitrateKbps: e.rc.targetBitrateKbps,
-		FrameTargetBits:   e.rc.frameTargetBits,
-		BufferLevelBits:   e.rc.bufferLevelBits,
+		KeyFrame:                       keyFrame,
+		PTS:                            pts,
+		Duration:                       duration,
+		Quantizer:                      e.rc.currentQuantizer,
+		TargetBitrateKbps:              e.rc.targetBitrateKbps,
+		FrameTargetBits:                e.rc.frameTargetBits,
+		BufferLevelBits:                e.rc.bufferLevelBits,
+		TemporalLayerID:                temporalFrame.LayerID,
+		TemporalLayerCount:             temporalFrame.LayerCount,
+		TemporalLayerSync:              temporalFrame.LayerSync,
+		TL0PICIDX:                      temporalFrame.TL0PICIDX,
+		TemporalLayerTargetBitrateKbps: temporalFrame.LayerTargetBitrateKbps,
 	}
 	invisible := flags&EncodeInvisibleFrame != 0
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
@@ -198,6 +223,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
+		e.temporal.finishDroppedFrame()
 		e.frameCount++
 		return result, nil
 	}
@@ -216,7 +242,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		VStride: src.VStride,
 	}
 	if !keyFrame {
-		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -228,6 +254,11 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		e.rc.postEncodeFrame(attempt.Size, false)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
+		e.temporal.finishFrame(temporalFrame, false, temporalReferenceRefresh{
+			Last:   attempt.Config.RefreshLast,
+			Golden: attempt.Config.RefreshGolden,
+			AltRef: attempt.Config.RefreshAltRef,
+		})
 		e.frameCount++
 		return result, nil
 	}
@@ -244,12 +275,13 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.rc.postEncodeFrame(n, true)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
+	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true})
 	e.frameCount++
 	return result, nil
 }
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
-	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags)
+	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false)
 	if err != nil {
 		return 0, err
 	}
@@ -296,9 +328,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	return n, nil
 }
 
-func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool) (interFrameEncodeAttempt, error) {
 	for attempt := 0; ; attempt++ {
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -308,7 +340,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	}
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -318,6 +350,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// golden/altref remain long-lived references unless a future policy updates them.
 	cfg.RefreshGolden = false
 	cfg.RefreshAltRef = false
+	if temporalActive {
+		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
+		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
+	}
 	segmentation := e.staticSegmentationConfig()
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
@@ -416,14 +452,49 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	return e.rc.setBitrateKbps(kbps, e.timing)
+	nextRC := e.rc
+	if err := nextRC.setBitrateKbps(kbps, e.timing); err != nil {
+		return err
+	}
+	nextTemporal := e.temporal
+	if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.temporal = nextTemporal
+	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
+	e.opts.TemporalScalability = nextTemporal.config
+	return nil
 }
 
 func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	return e.rc.applyConfig(cfg, e.timing)
+	nextRC := e.rc
+	if err := nextRC.applyConfig(cfg, e.timing); err != nil {
+		return err
+	}
+	nextTemporal := e.temporal
+	if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.temporal = nextTemporal
+	e.opts.RateControlMode = cfg.Mode
+	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
+	e.opts.MinBitrateKbps = cfg.MinBitrateKbps
+	e.opts.MaxBitrateKbps = cfg.MaxBitrateKbps
+	e.opts.MinQuantizer = cfg.MinQuantizer
+	e.opts.MaxQuantizer = cfg.MaxQuantizer
+	e.opts.UndershootPct = cfg.UndershootPct
+	e.opts.OvershootPct = cfg.OvershootPct
+	e.opts.BufferSizeMs = cfg.BufferSizeMs
+	e.opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
+	e.opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
+	e.opts.DropFrameAllowed = cfg.DropFrameAllowed
+	e.opts.TemporalScalability = nextTemporal.config
+	return nil
 }
 
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
@@ -466,10 +537,45 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	e.rc.clampQuantizer()
 	e.rc.dropFrameAllowed = target.AllowFrameDrop
+	nextTemporal := e.temporal
 	if target.BitrateKbps > 0 {
-		return e.rc.setBitrateKbps(target.BitrateKbps, e.timing)
+		nextRC := e.rc
+		if err := nextRC.setBitrateKbps(target.BitrateKbps, e.timing); err != nil {
+			return err
+		}
+		if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
+			return err
+		}
+		e.rc = nextRC
+		e.temporal = nextTemporal
+		e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
+		e.opts.TemporalScalability = nextTemporal.config
+		return nil
 	}
-	return e.rc.setBitrateKbps(e.rc.targetBitrateKbps, e.timing)
+	nextRC := e.rc
+	if err := nextRC.setBitrateKbps(e.rc.targetBitrateKbps, e.timing); err != nil {
+		return err
+	}
+	if err := nextTemporal.refreshBitrate(nextRC.targetBitrateKbps); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.temporal = nextTemporal
+	e.opts.TemporalScalability = nextTemporal.config
+	return nil
+}
+
+func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	nextTemporal := temporalState{}
+	if err := nextTemporal.configure(cfg, e.rc.targetBitrateKbps); err != nil {
+		return err
+	}
+	e.temporal = nextTemporal
+	e.opts.TemporalScalability = nextTemporal.config
+	return nil
 }
 
 func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
@@ -523,6 +629,10 @@ func (e *VP8Encoder) Reset() {
 	e.rc.rollingTargetBits = 0
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0
+	e.temporal.frameIndex = 0
+	e.temporal.tl0PicIdx = 0
+	e.temporal.tl0Valid = false
+	e.temporal.refLayer = [temporalReferenceCount]int{}
 	e.current.Reset()
 	e.analysis.Reset()
 	e.lastRef.Reset()

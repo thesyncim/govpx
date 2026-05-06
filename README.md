@@ -13,8 +13,9 @@ golden/altref preservation, invisible frame handling, libvpx-style RD costs for
 intra analysis, segment-aware
 quant/dequant reconstruction feedback, bounded pre-commit quantizer feedback,
 StaticThreshold encode-breakout with cyclic-refresh-style segmentation data,
-plus opt-in reconstructed-frame loop
-filtering. Decoder paths include libvpx-authored smoke vectors, generated
+libvpx temporal scalability patterns and per-frame temporal metadata, plus
+opt-in reconstructed-frame loop filtering. Decoder paths include
+libvpx-authored smoke vectors, generated
 libvpx corpus checks, narrow error-resilient inter-frame concealment, default
 deblock/demacroblock postprocess, MFQE, and optional luma ADDNOISE. Broad
 external VP8 corpus conformance is still opt-in and not complete as a production

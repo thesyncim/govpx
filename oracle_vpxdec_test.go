@@ -221,6 +221,40 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	packet := make([]byte, 8192)
+	basePackets := make([][]byte, 0, 3)
+	for i := 0; i < 6; i++ {
+		src := rateControlTestFrame(16, 16, i)
+		result, err := e.EncodeInto(packet, src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		if result.TemporalLayerID == 0 {
+			basePackets = append(basePackets, append([]byte(nil), result.Data...))
+		}
+	}
+
+	gopvxFrames := decodeFrameSequence(t, basePackets...)
+	ivf := makeIVF(16, 16, 30, 1, basePackets)
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
+	}
+	for i := range gopvxFrames {
+		want := checksumFrame(i, i == 0, true, gopvxFrames[i])
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
 	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
 		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")

@@ -154,7 +154,14 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 }
 
 func (rc *rateControlState) beginFrame(keyFrame bool) {
-	targetBits := rc.bitsPerFrame
+	rc.beginFrameWithTarget(keyFrame, rc.bitsPerFrame)
+}
+
+func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits int) {
+	targetBits := baseTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
 	if keyFrame {
 		if targetBits > maxInt()/keyFrameTargetBoost {
 			targetBits = maxInt()
