@@ -630,17 +630,17 @@ func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 boo
 	}
 	dst.EOB = [25]uint8{}
 	if !is4x4 {
-		dst.EOB[24] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[24], 0))
+		dst.EOB[24] = uint8(src.BlockEOB(24, 0))
 		for i := 0; i < 16; i++ {
-			dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 1))
+			dst.EOB[i] = uint8(src.BlockEOB(i, 1))
 		}
 	} else {
 		for i := 0; i < 16; i++ {
-			dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 0))
+			dst.EOB[i] = uint8(src.BlockEOB(i, 0))
 		}
 	}
 	for i := 16; i < 24; i++ {
-		dst.EOB[i] = uint8(vp8enc.BlockCoeffEOB(&src.QCoeff[i], 0))
+		dst.EOB[i] = uint8(src.BlockEOB(i, 0))
 	}
 }
 

@@ -461,10 +461,10 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		y2Input[block] = dct[0]
 		dct[0] = 0
-		vp8enc.FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
+		coeffs.SetBlockEOB(block, vp8enc.FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq))
 	}
 	vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-	vp8enc.FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
+	coeffs.SetBlockEOB(24, vp8enc.FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq))
 
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
@@ -475,25 +475,25 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		var dct [16]int16
 		fillPredictedResidual4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		coeffs.SetBlockEOB(16+block, vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq))
 
 		fillPredictedResidual4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		coeffs.SetBlockEOB(20+block, vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq))
 	}
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients) bool {
-	if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[24], 0) > 0 {
+	if coeffs.BlockEOB(24, 0) > 0 {
 		return false
 	}
 	for i := 0; i < 16; i++ {
-		if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[i], 1) > 1 {
+		if coeffs.BlockEOB(i, 1) > 1 {
 			return false
 		}
 	}
 	for i := 16; i < 24; i++ {
-		if vp8enc.BlockCoeffEOB(&coeffs.QCoeff[i], 0) > 0 {
+		if coeffs.BlockEOB(i, 0) > 0 {
 			return false
 		}
 	}

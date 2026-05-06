@@ -184,6 +184,23 @@ func TestBlockCoeffEOB(t *testing.T) {
 	}
 }
 
+func TestMacroblockCoefficientsBlockEOBUsesCache(t *testing.T) {
+	var coeffs MacroblockCoefficients
+	coeffs.QCoeff[0][tables.DefaultZigZag1D[15]] = 7
+	coeffs.SetBlockEOB(0, 2)
+
+	if got := coeffs.BlockEOB(0, 0); got != 2 {
+		t.Fatalf("cached EOB = %d, want 2", got)
+	}
+	if got := coeffs.BlockEOB(1, 1); got != 1 {
+		t.Fatalf("uncached skip-DC EOB = %d, want fallback 1", got)
+	}
+	coeffs.SetBlockEOB(1, 0)
+	if got := coeffs.BlockEOB(1, 1); got != 1 {
+		t.Fatalf("cached zero skip-DC EOB = %d, want 1", got)
+	}
+}
+
 func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 1
@@ -232,6 +249,7 @@ func BenchmarkWriteCoefficientMacroblockTokens(b *testing.B) {
 	coeffs.QCoeff[1][1] = -2
 	coeffs.QCoeff[16][0] = 3
 	coeffs.QCoeff[24][0] = -4
+	setAllMacroblockEOBs(&coeffs, false)
 	buf := make([]byte, 4096)
 	var w BoolWriter
 	var above, left TokenContextPlanes
@@ -252,6 +270,7 @@ func BenchmarkWriteCoefficientTokenGrid(b *testing.B) {
 	for i := range modes {
 		modes[i] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
 		coeffs[i].QCoeff[0][1] = int16((i % 4) + 1)
+		setAllMacroblockEOBs(&coeffs[i], false)
 	}
 	above := make([]TokenContextPlanes, 4)
 	buf := make([]byte, 8192)
@@ -262,6 +281,22 @@ func BenchmarkWriteCoefficientTokenGrid(b *testing.B) {
 		w.Init(buf)
 		_ = WriteCoefficientTokenGrid(&w, 4, 4, modes, coeffs, above, &tables.DefaultCoefProbs)
 		w.Finish()
+	}
+}
+
+func setAllMacroblockEOBs(coeffs *MacroblockCoefficients, is4x4 bool) {
+	if !is4x4 {
+		coeffs.SetBlockEOB(24, BlockCoeffEOB(&coeffs.QCoeff[24], 0))
+		for i := 0; i < 16; i++ {
+			coeffs.SetBlockEOB(i, BlockCoeffEOB(&coeffs.QCoeff[i], 1))
+		}
+	} else {
+		for i := 0; i < 16; i++ {
+			coeffs.SetBlockEOB(i, BlockCoeffEOB(&coeffs.QCoeff[i], 0))
+		}
+	}
+	for i := 16; i < 24; i++ {
+		coeffs.SetBlockEOB(i, BlockCoeffEOB(&coeffs.QCoeff[i], 0))
 	}
 }
 

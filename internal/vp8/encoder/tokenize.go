@@ -17,6 +17,9 @@ type TokenContextPlanes struct {
 
 type MacroblockCoefficients struct {
 	QCoeff [25][16]int16
+	EOB    [25]uint8
+
+	eobMask uint32
 }
 
 func WriteBlockTokens(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16) error {
@@ -82,7 +85,7 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 	blockType := 0
 	skipDC := 0
 	if !is4x4 {
-		eob := BlockCoeffEOB(&coeffs.QCoeff[24], 0)
+		eob := coeffs.BlockEOB(24, 0)
 		ctx := int(above.Y2 + left.Y2)
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig
@@ -104,7 +107,7 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 	}
 
 	for block := 0; block < 16; block++ {
-		eob := BlockCoeffEOB(&coeffs.QCoeff[block], skipDC)
+		eob := coeffs.BlockEOB(block, skipDC)
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(above.Y1[a] + left.Y1[l])
@@ -123,7 +126,7 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 	}
 
 	for block := 16; block < 24; block++ {
-		eob := BlockCoeffEOB(&coeffs.QCoeff[block], 0)
+		eob := coeffs.BlockEOB(block, 0)
 		a, l := tokenUVContextIndex(block)
 		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
 		if ctx >= tables.PrevCoefContexts {
@@ -184,6 +187,34 @@ func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
 		}
 	}
 	return skipDC
+}
+
+func (coeffs *MacroblockCoefficients) SetBlockEOB(block int, eob int) {
+	if coeffs == nil || block < 0 || block >= len(coeffs.EOB) {
+		return
+	}
+	if eob < 0 {
+		eob = 0
+	}
+	if eob > 16 {
+		eob = 16
+	}
+	coeffs.EOB[block] = uint8(eob)
+	coeffs.eobMask |= 1 << uint(block)
+}
+
+func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
+	if coeffs == nil || block < 0 || block >= len(coeffs.QCoeff) {
+		return skipDC
+	}
+	if coeffs.eobMask&(1<<uint(block)) != 0 {
+		eob := int(coeffs.EOB[block])
+		if eob < skipDC {
+			return skipDC
+		}
+		return eob
+	}
+	return BlockCoeffEOB(&coeffs.QCoeff[block], skipDC)
 }
 
 func coeffToken(coeff int) (int, int, bool) {

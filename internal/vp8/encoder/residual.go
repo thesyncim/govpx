@@ -62,10 +62,10 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 		ForwardDCT4x4(input[:], 4, &dct)
 		y2Input[block] = dct[0]
 		dct[0] = 0
-		FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
+		coeffs.SetBlockEOB(block, FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq))
 	}
 	ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-	FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
+	coeffs.SetBlockEOB(24, FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq))
 
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
@@ -76,11 +76,11 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 		var dct [16]int16
 		fillResidual4x4(src.U, src.UStride, uvWidth, uvHeight, x, y, &input)
 		ForwardDCT4x4(input[:], 4, &dct)
-		FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		coeffs.SetBlockEOB(16+block, FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq))
 
 		fillResidual4x4(src.V, src.VStride, uvWidth, uvHeight, x, y, &input)
 		ForwardDCT4x4(input[:], 4, &dct)
-		FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		coeffs.SetBlockEOB(20+block, FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq))
 	}
 }
 
