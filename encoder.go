@@ -57,6 +57,9 @@ type EncoderOptions struct {
 
 	MinQuantizer int
 	MaxQuantizer int
+	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. In RateControlCQ mode,
+	// zero uses libvpx's default level unless MinQuantizer is also zero.
+	CQLevel int
 
 	UndershootPct int
 	OvershootPct  int
@@ -64,6 +67,8 @@ type EncoderOptions struct {
 	BufferSizeMs        int
 	BufferInitialSizeMs int
 	BufferOptimalSizeMs int
+	MaxIntraBitratePct  int
+	GFCBRBoostPct       int
 
 	DropFrameAllowed bool
 
@@ -122,6 +127,8 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+
+	cyclicRefreshIndex int
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
@@ -182,8 +189,13 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
-	e.rc.currentQuantizer = e.rc.minQuantizer
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = e.rc.cqLevel
+	} else {
+		e.rc.currentQuantizer = e.rc.minQuantizer
+	}
 	e.rc.lastQuantizer = e.rc.currentQuantizer
+	e.opts.CQLevel = e.rc.cqLevel
 	if err := e.temporal.configure(normalized.TemporalScalability, e.rc.targetBitrateKbps); err != nil {
 		return nil, err
 	}
@@ -206,10 +218,17 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	flags |= temporalFrame.Flags
 	keyFrame := e.shouldEncodeKeyFrame(src, flags)
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	required := rows * cols
+	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTarget(false, temporalFrame.LayerFrameTargetBits)
 	} else {
 		e.rc.beginFrame(keyFrame)
+	}
+	if goldenCBRRefresh {
+		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
 
 	result := EncodeResult{
@@ -237,9 +256,6 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return result, nil
 	}
 
-	rows := encoderMacroblockRows(e.opts.Height)
-	cols := encoderMacroblockCols(e.opts.Width)
-	required := rows * cols
 	source := vp8enc.SourceImage{
 		Width:   src.Width,
 		Height:  src.Height,
@@ -251,7 +267,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		VStride: src.VStride,
 	}
 	if !keyFrame {
-		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -263,6 +279,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		e.rc.postEncodeFrame(attempt.Size, false)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
+		if attempt.Config.Segmentation.Enabled {
+			e.advanceCyclicRefresh(rows, cols)
+		}
 		e.temporal.finishFrame(temporalFrame, false, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -284,13 +303,14 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.rc.postEncodeFrame(n, true)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
+	e.cyclicRefreshIndex = 0
 	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true})
 	e.frameCount++
 	return result, nil
 }
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
-	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false)
+	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false)
 	if err != nil {
 		return 0, err
 	}
@@ -325,7 +345,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return 0, translateEncoderError(err)
 	}
-	lfLevel, lfSharpness := e.encoderLoopFilter()
+	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
 	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
 		return 0, err
 	}
@@ -351,9 +371,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	return n, nil
 }
 
-func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool) (interFrameEncodeAttempt, error) {
 	for attempt := 0; ; attempt++ {
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -363,11 +383,11 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	}
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
-	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
+	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
@@ -377,6 +397,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if temporalActive {
 		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
+	} else if goldenCBRRefresh {
+		cfg.RefreshGolden = true
 	}
 	segmentation := e.staticSegmentationConfig()
 	if segmentation.Enabled {
@@ -401,7 +423,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	var err error
 	if segmentation.Enabled {
-		assignInterFrameStaticSegments(rows, cols, e.interFrameModes[:required])
+		assignInterFrameStaticSegments(rows, cols, e.cyclicRefreshIndex, e.interFrameModes[:required])
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
@@ -481,6 +503,36 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	return false
 }
 
+func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+	if keyFrame ||
+		temporalActive ||
+		e.opts.ErrorResilient ||
+		e.rc.mode != RateControlCBR ||
+		e.rc.gfCBRBoostPct <= 0 ||
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
+		return false
+	}
+	interval := e.goldenFrameCBRInterval(rows, cols)
+	return interval > 0 && e.rc.framesSinceKeyframe > 0 && e.rc.framesSinceKeyframe%interval == 0
+}
+
+func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
+	interval := 10
+	if e.opts.StaticThreshold > 0 {
+		refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
+		if refreshCount > 0 {
+			interval = (2 * rows * cols) / refreshCount
+		}
+	}
+	if interval < 6 {
+		return 6
+	}
+	if interval > 40 {
+		return 40
+	}
+	return interval
+}
+
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -520,13 +572,92 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.MaxBitrateKbps = cfg.MaxBitrateKbps
 	e.opts.MinQuantizer = cfg.MinQuantizer
 	e.opts.MaxQuantizer = cfg.MaxQuantizer
+	e.opts.CQLevel = nextRC.cqLevel
 	e.opts.UndershootPct = cfg.UndershootPct
 	e.opts.OvershootPct = cfg.OvershootPct
 	e.opts.BufferSizeMs = cfg.BufferSizeMs
 	e.opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
 	e.opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
 	e.opts.DropFrameAllowed = cfg.DropFrameAllowed
+	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
+	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
+	return nil
+}
+
+func (e *VP8Encoder) SetCQLevel(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if level < 0 || level > maxQuantizer {
+		return ErrInvalidQuantizer
+	}
+	if e.rc.mode == RateControlCQ && (level < e.rc.minQuantizer || level > e.rc.maxQuantizer) {
+		return ErrInvalidQuantizer
+	}
+	e.rc.cqLevel = level
+	e.opts.CQLevel = level
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = level
+		e.rc.lastQuantizer = level
+	}
+	return nil
+}
+
+func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if pct < 0 {
+		return ErrInvalidConfig
+	}
+	e.rc.maxIntraBitratePct = pct
+	e.opts.MaxIntraBitratePct = pct
+	return nil
+}
+
+func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if pct < 0 {
+		return ErrInvalidConfig
+	}
+	e.rc.gfCBRBoostPct = pct
+	e.opts.GFCBRBoostPct = pct
+	return nil
+}
+
+func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if partitions < int(vp8common.OnePartition) || partitions > int(vp8common.EightPartition) {
+		return ErrInvalidConfig
+	}
+	e.opts.TokenPartitions = partitions
+	return nil
+}
+
+func (e *VP8Encoder) SetSharpness(sharpness int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if sharpness < 0 || sharpness > 7 {
+		return ErrInvalidConfig
+	}
+	e.opts.Sharpness = sharpness
+	return nil
+}
+
+func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if threshold < 0 {
+		return ErrInvalidConfig
+	}
+	e.opts.StaticThreshold = threshold
 	return nil
 }
 
@@ -559,16 +690,27 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.TimebaseDen = target.FPS
 		e.timing = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
 	}
+	nextMinQuantizer := e.rc.minQuantizer
+	nextMaxQuantizer := e.rc.maxQuantizer
 	if target.MinQuantizer != 0 {
-		e.rc.minQuantizer = target.MinQuantizer
+		nextMinQuantizer = target.MinQuantizer
 	}
 	if target.MaxQuantizer != 0 {
-		e.rc.maxQuantizer = target.MaxQuantizer
+		nextMaxQuantizer = target.MaxQuantizer
 	}
-	if e.rc.minQuantizer > e.rc.maxQuantizer {
+	if nextMinQuantizer > nextMaxQuantizer {
 		return ErrInvalidQuantizer
 	}
+	if e.rc.mode == RateControlCQ && (e.rc.cqLevel < nextMinQuantizer || e.rc.cqLevel > nextMaxQuantizer) {
+		return ErrInvalidQuantizer
+	}
+	e.rc.minQuantizer = nextMinQuantizer
+	e.rc.maxQuantizer = nextMaxQuantizer
 	e.rc.clampQuantizer()
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = e.rc.cqLevel
+		e.rc.lastQuantizer = e.rc.cqLevel
+	}
 	e.rc.dropFrameAllowed = target.AllowFrameDrop
 	nextTemporal := e.temporal
 	if target.BitrateKbps > 0 {
@@ -657,6 +799,7 @@ func (e *VP8Encoder) Reset() {
 	}
 	e.forceKeyFrame = false
 	e.frameCount = 0
+	e.cyclicRefreshIndex = 0
 	e.rc.framesSinceKeyframe = 0
 	e.rc.rollingActualBits = 0
 	e.rc.rollingTargetBits = 0
@@ -706,10 +849,19 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.TargetBitrateKbps <= 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidBitrate
 	}
+	if opts.MaxIntraBitratePct < 0 {
+		return EncoderOptions{}, timingState{}, ErrInvalidConfig
+	}
+	if opts.GFCBRBoostPct < 0 {
+		return EncoderOptions{}, timingState{}, ErrInvalidConfig
+	}
 	if opts.MinQuantizer < 0 || opts.MaxQuantizer < 0 || opts.MinQuantizer > maxQuantizer || opts.MaxQuantizer > maxQuantizer {
 		return EncoderOptions{}, timingState{}, ErrInvalidQuantizer
 	}
 	if opts.MinQuantizer > opts.MaxQuantizer && opts.MaxQuantizer != 0 {
+		return EncoderOptions{}, timingState{}, ErrInvalidQuantizer
+	}
+	if opts.CQLevel < 0 || opts.CQLevel > maxQuantizer {
 		return EncoderOptions{}, timingState{}, ErrInvalidQuantizer
 	}
 	if opts.Deadline < DeadlineBestQuality || opts.Deadline > DeadlineRealtime {
@@ -778,18 +930,27 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	return nil
 }
 
-func (e *VP8Encoder) encoderLoopFilter() (uint8, uint8) {
-	if e.opts.Sharpness == 0 {
-		return 0, 0
-	}
-	level := e.rc.currentQuantizer / 4
-	if level < 1 {
-		level = 1
-	}
+func (e *VP8Encoder) encoderLoopFilter(frameType vp8common.FrameType) (uint8, uint8) {
+	level := libvpxInitialLoopFilterLevel(e.rc.currentQuantizer)
 	if level > 63 {
 		level = 63
 	}
-	return uint8(level), uint8(e.opts.Sharpness)
+	sharpness := e.opts.Sharpness
+	if frameType == vp8common.KeyFrame {
+		sharpness = 0
+	}
+	return uint8(level), uint8(sharpness)
+}
+
+func libvpxInitialLoopFilterLevel(qIndex int) int {
+	if qIndex <= 0 {
+		return 0
+	}
+	level := qIndex * 3 / 8
+	if level > 63 {
+		return 63
+	}
+	return level
 }
 
 func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, level uint8, sharpness uint8, rows int, cols int, required int) error {
@@ -869,10 +1030,14 @@ func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.Mac
 		RefFrame:    convertInterFrameReference(src),
 		Mode:        src.Mode,
 		UVMode:      src.UVMode,
-		Is4x4:       src.Mode == vp8common.BPred,
+		Is4x4:       interFrameModeUses4x4Tokens(src.Mode),
 		BModes:      src.BModes,
 		MV:          vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col},
 		MBSkipCoeff: src.MBSkipCoeff,
+		Partition:   src.Partition,
+	}
+	for i := range src.BlockMV {
+		dst.BlockMV[i] = vp8dec.MotionVector{Row: src.BlockMV[i].Row, Col: src.BlockMV[i].Col}
 	}
 }
 
@@ -912,6 +1077,10 @@ func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 boo
 		dst.EOB[i] = eob
 		copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 	}
+}
+
+func interFrameModeUses4x4Tokens(mode vp8common.MBPredictionMode) bool {
+	return mode == vp8common.BPred || mode == vp8common.SplitMV
 }
 
 func copyQCoeffForEOB(src *[16]int16, eob uint8, dst *[16]int16) {

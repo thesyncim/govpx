@@ -194,11 +194,13 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
-				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, interZbinModeBoost(&modes[index]), modes[index].Mode == vp8common.BPred, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
+				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
 			}
-			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
+			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
-			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
+			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				continue
 			}
@@ -212,12 +214,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 				if !modes[index].MBSkipCoeff {
 					codedDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
-					tokenRate := macroblockCoefficientTokenRate(&vp8tables.DefaultCoefProbs, modes[index].Mode == vp8common.BPred, &coeffs[index])
+					tokenRate := macroblockCoefficientTokenRate(&vp8tables.DefaultCoefProbs, is4x4, &coeffs[index])
 					if shouldSkipInterResidual(segmentQIndex, tokenRate, predictionDist, codedDist) {
 						clearMacroblockCoefficients(&coeffs[index])
 						modes[index].MBSkipCoeff = true
 						convertInterFrameMode(&modes[index], &e.reconstructModes[index])
-						convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
+						convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 						if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 							return ErrInvalidConfig
 						}
@@ -315,6 +317,7 @@ const interFrameFullPixelSearchRadius = 8
 const interFrameMVSearchRange = interFrameFullPixelSearchRadius * 8
 const interFrameMVFullPixelStep = 8
 const interFrameSubpixelSearchMaxCandidates = 31
+const interFrameMotionCandidateMax = 15
 
 func interFrameFullPixelSearchCandidateCount() int {
 	axis := (2*interFrameMVSearchRange)/interFrameMVFullPixelStep + 1
@@ -353,8 +356,8 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	quant *vp8enc.MacroblockQuant,
 ) (interAnalysisReference, vp8enc.InterFrameMacroblockMode, int, bool) {
-	var candidates [6]interAnalysisMotionCandidate
-	candidateCount := collectInterFrameMotionCandidates(src, refs, refCount, mbRow, mbCol, qIndex, &candidates)
+	var candidates [interFrameMotionCandidateMax]interAnalysisMotionCandidate
+	candidateCount := collectInterFrameMotionCandidates(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &candidates)
 	if candidateCount == 0 {
 		return interAnalysisReference{}, vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -378,39 +381,126 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 			bestScore = score
 		}
 	}
+	for refIndex := 0; refIndex < refCount && refIndex < len(refs); refIndex++ {
+		ref := refs[refIndex]
+		for partition := 0; partition < vp8tables.NumMBSplits; partition++ {
+			mode, ok := selectInterFrameSplitMotionMode(src, ref.Img, ref.Frame, mbRow, mbCol, qIndex, partition)
+			if !ok {
+				continue
+			}
+			mode.SegmentID = segmentID
+			score, ok := e.estimateInterResidualRDScore(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, quant, qIndex, segmentID)
+			if !ok {
+				continue
+			}
+			if !bestSet || score < bestScore {
+				bestSet = true
+				bestRef = ref
+				bestMode = mode
+				bestScore = score
+			}
+		}
+	}
 	if !bestSet {
 		return interAnalysisReference{}, vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
 	return bestRef, bestMode, bestScore, true
 }
 
+func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, qIndex int, partition int) (vp8enc.InterFrameMacroblockMode, bool) {
+	if ref == nil || refFrame == vp8common.IntraFrame || partition < 0 || partition >= vp8tables.NumMBSplits {
+		return vp8enc.InterFrameMacroblockMode{}, false
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  refFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: uint8(partition),
+	}
+	first := vp8enc.MotionVector{}
+	allSame := true
+	width, height := splitMotionPartitionBlockSize(partition)
+	for subset := 0; subset < int(vp8tables.MBSplitCount[mode.Partition]); subset++ {
+		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+		mv, _ := selectInterFrameSplitBlockFullPixelMotionVector(src, ref, mbRow, mbCol, block, width, height, qIndex)
+		if subset == 0 {
+			first = mv
+		} else if mv != first {
+			allSame = false
+		}
+		fillInterFrameSplitSubset(&mode, subset, mv)
+	}
+	mode.MV = mode.BlockMV[15]
+	if allSame {
+		return vp8enc.InterFrameMacroblockMode{}, false
+	}
+	return mode, true
+}
+
+func splitMotionPartitionBlockSize(partition int) (int, int) {
+	switch partition {
+	case 0:
+		return 16, 8
+	case 1:
+		return 8, 16
+	case 2:
+		return 8, 8
+	default:
+		return 4, 4
+	}
+}
+
+func fillInterFrameSplitSubset(mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector) {
+	fillCount := int(vp8tables.MBSplitFillCount[mode.Partition])
+	fillStart := subset * fillCount
+	for i := 0; i < fillCount; i++ {
+		mode.BlockMV[vp8tables.MBSplitFillOffset[mode.Partition][fillStart+i]] = mv
+	}
+}
+
 func collectInterFrameMotionCandidates(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
-	mbRow int, mbCol int, qIndex int,
-	candidates *[6]interAnalysisMotionCandidate,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
 ) int {
 	if candidates == nil {
 		return 0
 	}
 	count := 0
 	for refIndex := 0; refIndex < refCount && refIndex < len(refs); refIndex++ {
-		if count >= len(candidates) {
-			break
-		}
 		ref := refs[refIndex]
+		count = appendInterAnalysisMotionCandidate(candidates, count, ref, vp8enc.MotionVector{})
+		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		count = appendInterAnalysisMotionCandidate(candidates, count, ref, nearest)
+		count = appendInterAnalysisMotionCandidate(candidates, count, ref, near)
 		fullMV, fullCost := selectInterFrameFullPixelMotionVector(src, ref.Img, mbRow, mbCol, qIndex)
-		candidates[count] = interAnalysisMotionCandidate{Ref: ref, MV: fullMV}
-		count++
+		count = appendInterAnalysisMotionCandidate(candidates, count, ref, fullMV)
 		if fullCost == 0 {
 			continue
 		}
 		refinedMV, _, ok := iterativeInterFrameSubpixelMotionVector(src, ref.Img, mbRow, mbCol, fullMV, qIndex)
-		if ok && refinedMV != fullMV && count < len(candidates) {
-			candidates[count] = interAnalysisMotionCandidate{Ref: ref, MV: refinedMV}
-			count++
+		if ok && refinedMV != fullMV {
+			count = appendInterAnalysisMotionCandidate(candidates, count, ref, refinedMV)
 		}
 	}
 	return count
+}
+
+func interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
+	return vp8enc.InterFrameNearMotionVectorsAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols)
+}
+
+func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate, count int, ref interAnalysisReference, mv vp8enc.MotionVector) int {
+	if candidates == nil || count >= len(candidates) {
+		return count
+	}
+	for i := 0; i < count; i++ {
+		if candidates[i].Ref.Frame == ref.Frame && candidates[i].Ref.Img == ref.Img && candidates[i].MV == mv {
+			return count
+		}
+	}
+	candidates[count] = interAnalysisMotionCandidate{Ref: ref, MV: mv}
+	return count + 1
 }
 
 func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, bool) {
@@ -444,6 +534,7 @@ func predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
+	wholeCost += rdRateOnly(qIndex, interIntraMacroblockModeRate())
 	best := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: wholeY, UVMode: wholeUV}
 	bestCost := wholeCost
 	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, qIndex, false, mbRow, mbCol, nil, nil, quant, pred, scratch)
@@ -455,7 +546,7 @@ func predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
 	bPredRate := intraYModeRate(false, vp8common.BPred)
-	bPredTotal := bPredCost + bPredUVCost + rdRateOnly(qIndex, bPredRate)
+	bPredTotal := bPredCost + bPredUVCost + rdRateOnly(qIndex, bPredRate+interIntraMacroblockModeRate())
 	if bPredTotal < bestCost {
 		best = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: bPredUV, BModes: bModes}
 		bestCost = bPredTotal
@@ -837,31 +928,32 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 		return 0, false
 	}
 
-	mvRate := interMotionModeVectorCost(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	modeRate := interMotionModeRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	skipScore := rdModeScore(qIndex, mvRate, predictionDist)
+	skipScore := rdModeScore(qIndex, modeRate+interMacroblockSkipRate(true), predictionDist)
 	if staticInterEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
 		return skipScore, true
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
-	buildPredictedMacroblockCoefficients(src, mbRow, mbCol, &e.analysis.Img, quant, qIndex, interZbinModeBoost(mode), false, false, &coeffs)
-	if macroblockCoefficientsEmpty(&coeffs, false) {
+	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
+	buildPredictedMacroblockCoefficients(src, mbRow, mbCol, &e.analysis.Img, quant, qIndex, interZbinModeBoost(mode), is4x4, false, &coeffs)
+	if macroblockCoefficientsEmpty(&coeffs, is4x4) {
 		return skipScore, true
 	}
 
 	var tokens vp8dec.MacroblockTokens
-	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	convertMacroblockCoefficients(&coeffs, is4x4, &tokens)
 	decMode.MBSkipCoeff = false
 	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref, mbRow, mbCol, &decMode, &tokens, &e.dequants[segmentID], &e.reconstructScratch) {
 		return 0, false
 	}
 	codedDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	tokenRate := macroblockCoefficientTokenRate(&vp8tables.DefaultCoefProbs, false, &coeffs)
+	tokenRate := macroblockCoefficientTokenRate(&vp8tables.DefaultCoefProbs, is4x4, &coeffs)
 	if shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist) {
 		return skipScore, true
 	}
-	return rdModeScore(qIndex, mvRate+tokenRate, codedDist), true
+	return rdModeScore(qIndex, modeRate+interMacroblockSkipRate(false)+tokenRate, codedDist), true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, qIndex int) (vp8enc.MotionVector, int) {
@@ -887,6 +979,31 @@ func selectInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8commo
 		return best, bestCost
 	}
 	return exhaustiveInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestCost, qIndex)
+}
+
+func selectInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, qIndex int) (vp8enc.MotionVector, int) {
+	best := vp8enc.MotionVector{}
+	bestCost := interMotionSplitBlockSearchCost(src, ref, mbRow, mbCol, block, width, height, best, qIndex)
+	if bestCost == 0 {
+		return best, bestCost
+	}
+	for row := -interFrameMVSearchRange; row <= interFrameMVSearchRange; row += interFrameMVFullPixelStep {
+		for col := -interFrameMVSearchRange; col <= interFrameMVSearchRange; col += interFrameMVFullPixelStep {
+			mv := vp8enc.MotionVector{Row: int16(row), Col: int16(col)}
+			if mv == best {
+				continue
+			}
+			cost := interMotionSplitBlockSearchCost(src, ref, mbRow, mbCol, block, width, height, mv, qIndex)
+			if cost < bestCost {
+				best = mv
+				bestCost = cost
+				if bestCost == 0 {
+					return best, bestCost
+				}
+			}
+		}
+	}
+	return best, bestCost
 }
 
 func exhaustiveInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int, qIndex int) (vp8enc.MotionVector, int) {
@@ -1013,6 +1130,10 @@ func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 	return macroblockSAD(src, ref, mbRow, mbCol, mv) + interMotionSearchVectorCost(mv, qIndex)
 }
 
+func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector, qIndex int) int {
+	return splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + interMotionSearchVectorCost(mv, qIndex)
+}
+
 func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, qIndex int) int {
 	mvCost := interMotionSearchVectorCost(mv, qIndex)
 	sadLimit := limit - mvCost
@@ -1032,12 +1153,164 @@ func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, qIndex int) int {
 }
 
 func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) int {
-	if mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode != vp8common.NewMV {
+	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
 	}
 	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols)
+	if mode.Mode == vp8common.SplitMV {
+		return splitMotionModeVectorCost(mode, left, above, best)
+	}
+	if mode.Mode != vp8common.NewMV {
+		return 0
+	}
 	delta := vp8enc.MotionVector{Row: int16(int(mode.MV.Row) - int(best.Row)), Col: int16(int(mode.MV.Col) - int(best.Col))}
 	return interMotionVectorCost(delta)
+}
+
+func interMacroblockSkipRate(skip bool) int {
+	if skip {
+		return boolBitCost(128, 1)
+	}
+	return boolBitCost(128, 0)
+}
+
+func interIntraMacroblockModeRate() int {
+	return interMacroblockSkipRate(false) + boolBitCost(128, 0)
+}
+
+func interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) int {
+	if mode == nil {
+		return 1 << 30
+	}
+	if mode.RefFrame == vp8common.IntraFrame {
+		return boolBitCost(128, 0)
+	}
+	return boolBitCost(128, 1) +
+		interReferenceFrameRate(mode.RefFrame) +
+		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame)) +
+		interMotionModeVectorCost(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+}
+
+func interReferenceFrameRate(refFrame vp8common.MVReferenceFrame) int {
+	switch refFrame {
+	case vp8common.LastFrame:
+		return boolBitCost(128, 0)
+	case vp8common.GoldenFrame:
+		return boolBitCost(128, 1) + boolBitCost(128, 0)
+	case vp8common.AltRefFrame:
+		return boolBitCost(128, 1) + boolBitCost(128, 1)
+	default:
+		return 1 << 30
+	}
+}
+
+func interPredictionModeRate(mode vp8common.MBPredictionMode, counts vp8enc.InterModeCounts) int {
+	probs := vp8tables.InterModeContexts
+	switch mode {
+	case vp8common.ZeroMV:
+		return boolBitCost(probs[counts.Intra][0], 0)
+	case vp8common.NearestMV:
+		return boolBitCost(probs[counts.Intra][0], 1) +
+			boolBitCost(probs[counts.Nearest][1], 0)
+	case vp8common.NearMV:
+		return boolBitCost(probs[counts.Intra][0], 1) +
+			boolBitCost(probs[counts.Nearest][1], 1) +
+			boolBitCost(probs[counts.Near][2], 0)
+	case vp8common.NewMV:
+		return boolBitCost(probs[counts.Intra][0], 1) +
+			boolBitCost(probs[counts.Nearest][1], 1) +
+			boolBitCost(probs[counts.Near][2], 1) +
+			boolBitCost(probs[counts.Split][3], 0)
+	case vp8common.SplitMV:
+		return boolBitCost(probs[counts.Intra][0], 1) +
+			boolBitCost(probs[counts.Nearest][1], 1) +
+			boolBitCost(probs[counts.Near][2], 1) +
+			boolBitCost(probs[counts.Split][3], 1)
+	default:
+		return 1 << 30
+	}
+}
+
+func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, best vp8enc.MotionVector) int {
+	if mode.Partition >= vp8tables.NumMBSplits {
+		return 1 << 30
+	}
+	cost := 0
+	partitions := int(vp8tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := analysisSplitLeftMV(mode, left, block)
+		aboveMV := analysisSplitAboveMV(mode, above, block)
+		target := mode.BlockMV[block]
+		probs := analysisSubMVRefProbs(leftMV, aboveMV)
+		if target == leftMV {
+			cost += analysisBoolBitCost(probs[0], 0)
+			continue
+		}
+		cost += analysisBoolBitCost(probs[0], 1)
+		if target == aboveMV {
+			cost += analysisBoolBitCost(probs[1], 0)
+			continue
+		}
+		cost += analysisBoolBitCost(probs[1], 1)
+		if target.IsZero() {
+			cost += analysisBoolBitCost(probs[2], 0)
+			continue
+		}
+		cost += analysisBoolBitCost(probs[2], 1)
+		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
+		cost += interMotionVectorCost(delta)
+	}
+	return cost
+}
+
+func analysisSplitLeftMV(cur *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {
+	if block&3 == 0 {
+		if left == nil {
+			return vp8enc.MotionVector{}
+		}
+		if left.Mode == vp8common.SplitMV {
+			return left.BlockMV[block+3]
+		}
+		return left.MV
+	}
+	return cur.BlockMV[block-1]
+}
+
+func analysisSplitAboveMV(cur *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {
+	if block>>2 == 0 {
+		if above == nil {
+			return vp8enc.MotionVector{}
+		}
+		if above.Mode == vp8common.SplitMV {
+			return above.BlockMV[block+12]
+		}
+		return above.MV
+	}
+	return cur.BlockMV[block-4]
+}
+
+func analysisSubMVRefProbs(left vp8enc.MotionVector, above vp8enc.MotionVector) [3]uint8 {
+	lez := 0
+	if left.IsZero() {
+		lez = 1
+	}
+	aez := 0
+	if above.IsZero() {
+		aez = 1
+	}
+	lea := 0
+	if left == above {
+		lea = 1
+	}
+	return vp8tables.SubMVRefProb3[(aez<<2)|(lez<<1)|lea]
+}
+
+func analysisBoolBitCost(prob uint8, bit int) int {
+	if bit == 0 {
+		return vp8tables.ProbCost[prob]
+	}
+	return vp8tables.ProbCost[255-int(prob)]
 }
 
 func interMotionVectorCost(mv vp8enc.MotionVector) int {
@@ -1125,6 +1398,48 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 		}
 		if sad > limit {
 			return sad
+		}
+	}
+	return sad
+}
+
+func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector) int {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	mvY := int(mv.Row >> 3)
+	mvX := int(mv.Col >> 3)
+	refBaseY := baseY + mvY
+	refBaseX := baseX + mvX
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+height <= src.Height && baseX+width <= src.Width &&
+		refBaseY >= 0 && refBaseX >= 0 &&
+		refBaseY+height <= ref.CodedHeight && refBaseX+width <= ref.CodedWidth {
+		srcBlock := src.Y[baseY*src.YStride+baseX:]
+		refBlock := ref.Y[refBaseY*ref.YStride+refBaseX:]
+		switch {
+		case width == 16 && height == 8:
+			return dsp.SAD16x8(srcBlock, src.YStride, refBlock, ref.YStride)
+		case width == 8 && height == 16:
+			return dsp.SAD8x16(srcBlock, src.YStride, refBlock, ref.YStride)
+		case width == 8 && height == 8:
+			return dsp.SAD8x8(srcBlock, src.YStride, refBlock, ref.YStride)
+		case width == 4 && height == 4:
+			return dsp.SAD4x4(srcBlock, src.YStride, refBlock, ref.YStride)
+		}
+	}
+
+	sad := 0
+	for row := 0; row < height; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		for col := 0; col < width; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
 		}
 	}
 	return sad
@@ -1838,6 +2153,9 @@ func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Im
 	yOff := row*16*img.YStride + col*16
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
+	if mode.Mode == vp8common.SplitMV {
+		return vp8dec.ReconstructSplitMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
+	}
 	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
 }
 

@@ -22,11 +22,44 @@ func TestNewVP8DecoderRejectsInvalidPostProcessNoise(t *testing.T) {
 		{PostProcess: true, PostProcessNoiseLevel: -1},
 		{PostProcess: true, PostProcessNoiseLevel: 17},
 		{PostProcessNoiseLevel: 4},
+		{PostProcessFlags: PostProcessDeblock, PostProcessNoiseLevel: 4},
 	}
 	for _, opts := range tests {
 		_, err := NewVP8Decoder(opts)
 		if !errors.Is(err, ErrInvalidConfig) {
 			t.Fatalf("NewVP8Decoder(%+v) error = %v, want ErrInvalidConfig", opts, err)
+		}
+	}
+}
+
+func TestNewVP8DecoderAcceptsPostProcessNoiseFlag(t *testing.T) {
+	_, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 4})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v, want nil", err)
+	}
+}
+
+func TestNewVP8DecoderRejectsUnknownPostProcessFlags(t *testing.T) {
+	_, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessFlag(1 << 12)})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewVP8Decoder error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestDecoderOptionsEffectivePostProcessFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		opts DecoderOptions
+		want PostProcessFlag
+	}{
+		{name: "off", opts: DecoderOptions{}, want: 0},
+		{name: "legacy", opts: DecoderOptions{PostProcess: true}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE},
+		{name: "legacy-noise", opts: DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4}, want: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE},
+		{name: "flags", opts: DecoderOptions{PostProcessFlags: PostProcessDeblock}, want: PostProcessDeblock},
+	}
+	for _, tc := range tests {
+		if got := tc.opts.effectivePostProcessFlags(); got != tc.want {
+			t.Fatalf("%s flags = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
@@ -133,6 +166,50 @@ func TestDecodePostProcessOutputsPostFrame(t *testing.T) {
 	}
 }
 
+func TestDecodePostProcessFlagsOutputPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessDeblock})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.current.Img.Y) == 0 {
+		t.Fatalf("decoded frame buffers are empty")
+	}
+	if &frame.Y[0] != &d.post.Img.Y[0] {
+		t.Fatalf("NextFrame did not return decoder postprocess buffer")
+	}
+	if &frame.Y[0] == &d.current.Img.Y[0] {
+		t.Fatalf("postprocessed output aliases reconstruction buffer")
+	}
+}
+
+func TestDecodePostProcessFlagsMFQEOnlyOutputPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessMFQE})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || &frame.Y[0] != &d.post.Img.Y[0] {
+		t.Fatalf("NextFrame did not return decoder postprocess buffer")
+	}
+}
+
 func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
 	if err != nil {
@@ -153,6 +230,43 @@ func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); ok {
 		t.Fatalf("DecodeInto queued a frame for NextFrame")
+	}
+}
+
+func TestDecodePostProcessFlagAddNoiseChangesOnlyLuma(t *testing.T) {
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	plain, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder plain returned error: %v", err)
+	}
+	noisy, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 4})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder noisy returned error: %v", err)
+	}
+
+	if err := plain.Decode(packet); err != nil {
+		t.Fatalf("plain Decode returned error: %v", err)
+	}
+	if err := noisy.Decode(packet); err != nil {
+		t.Fatalf("noisy Decode returned error: %v", err)
+	}
+	plainFrame, ok := plain.NextFrame()
+	if !ok {
+		t.Fatalf("plain NextFrame returned no frame")
+	}
+	noisyFrame, ok := noisy.NextFrame()
+	if !ok {
+		t.Fatalf("noisy NextFrame returned no frame")
+	}
+
+	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
+		t.Fatalf("postprocess noise flag left luma unchanged")
+	}
+	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
+		t.Fatalf("postprocess noise flag changed U plane")
+	}
+	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
+		t.Fatalf("postprocess noise flag changed V plane")
 	}
 }
 

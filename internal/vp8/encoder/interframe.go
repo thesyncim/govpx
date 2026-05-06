@@ -174,6 +174,8 @@ type InterFrameMacroblockMode struct {
 	UVMode      common.MBPredictionMode
 	BModes      [16]common.BPredictionMode
 	MV          MotionVector
+	Partition   uint8
+	BlockMV     [16]MotionVector
 }
 
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
@@ -353,10 +355,16 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame), mode.Mode) {
 				return ErrInvalidPacketConfig
 			}
-			if mode.Mode == common.NewMV {
+			switch mode.Mode {
+			case common.NewMV:
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := WriteMotionVector(w, &mvProbs, delta); err != nil {
+					return err
+				}
+			case common.SplitMV:
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				if err := WriteSplitMotionVectors(w, &mvProbs, mode, left, above, best); err != nil {
 					return err
 				}
 			}
@@ -403,10 +411,77 @@ func WriteInterPredictionMode(w *BoolWriter, counts InterModeCounts, mode common
 		w.WriteBool(1, tables.InterModeContexts[counts.Nearest][1])
 		w.WriteBool(1, tables.InterModeContexts[counts.Near][2])
 		w.WriteBool(0, tables.InterModeContexts[counts.Split][3])
+	case common.SplitMV:
+		w.WriteBool(1, tables.InterModeContexts[counts.Intra][0])
+		w.WriteBool(1, tables.InterModeContexts[counts.Nearest][1])
+		w.WriteBool(1, tables.InterModeContexts[counts.Near][2])
+		w.WriteBool(1, tables.InterModeContexts[counts.Split][3])
 	default:
 		return false
 	}
 	return w.Err() == nil
+}
+
+func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode, best MotionVector) error {
+	if w == nil || probs == nil || !validSplitMVMode(mode) {
+		return ErrInvalidPacketConfig
+	}
+	if !writeMBSplit(w, int(mode.Partition)) {
+		return ErrInvalidPacketConfig
+	}
+	partitions := int(tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := splitLeftMV(mode, left, block)
+		aboveMV := splitAboveMV(mode, above, block)
+		target := mode.BlockMV[block]
+		if err := writeSubMotionVector(w, probs, target, leftMV, aboveMV, best); err != nil {
+			return err
+		}
+	}
+	return w.Err()
+}
+
+func writeMBSplit(w *BoolWriter, partition int) bool {
+	switch partition {
+	case 3:
+		w.WriteBool(0, tables.MBSplitProbs[0])
+	case 2:
+		w.WriteBool(1, tables.MBSplitProbs[0])
+		w.WriteBool(0, tables.MBSplitProbs[1])
+	case 0:
+		w.WriteBool(1, tables.MBSplitProbs[0])
+		w.WriteBool(1, tables.MBSplitProbs[1])
+		w.WriteBool(0, tables.MBSplitProbs[2])
+	case 1:
+		w.WriteBool(1, tables.MBSplitProbs[0])
+		w.WriteBool(1, tables.MBSplitProbs[1])
+		w.WriteBool(1, tables.MBSplitProbs[2])
+	default:
+		return false
+	}
+	return w.Err() == nil
+}
+
+func writeSubMotionVector(w *BoolWriter, probs *[2][tables.MVPCount]uint8, target MotionVector, left MotionVector, above MotionVector, best MotionVector) error {
+	subProbs := subMVRefProbs(left, above)
+	if target == left {
+		w.WriteBool(0, subProbs[0])
+		return w.Err()
+	}
+	w.WriteBool(1, subProbs[0])
+	if target == above {
+		w.WriteBool(0, subProbs[1])
+		return w.Err()
+	}
+	w.WriteBool(1, subProbs[1])
+	if target.IsZero() {
+		w.WriteBool(0, subProbs[2])
+		return w.Err()
+	}
+	w.WriteBool(1, subProbs[2])
+	delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
+	return WriteMotionVector(w, probs, delta)
 }
 
 func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) bool {
@@ -520,10 +595,16 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 			default:
 				return [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 			}
-			if mode.Mode == common.NewMV {
+			switch mode.Mode {
+			case common.NewMV:
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := countMotionVectorBranches(&mvCounts, delta); err != nil {
+					return [2][tables.MVPCount]uint8{}, err
+				}
+			case common.SplitMV:
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				if err := countSplitMotionVectorBranches(&mvCounts, mode, left, above, best); err != nil {
 					return [2][tables.MVPCount]uint8{}, err
 				}
 			}
@@ -712,6 +793,10 @@ func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblock
 	return counts
 }
 
+func InterFrameModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) InterModeCounts {
+	return interModeCounts(above, left, aboveLeft, refFrame)
+}
+
 func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) MotionVector {
 	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
 	return best
@@ -723,6 +808,13 @@ func interBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMa
 
 func InterFrameBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
 	return interBestMotionVectorAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols)
+}
+
+func InterFrameNearMotionVectorsAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) (MotionVector, MotionVector) {
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
+	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
+	return nearest, near
 }
 
 func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
@@ -787,6 +879,7 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 	if counts[3] != 0 && nearMVs[mvIndex] == nearMVs[1] {
 		counts[1]++
 	}
+	counts[3] = splitModeCount(above)*2 + splitModeCount(left)*2 + splitModeCount(aboveLeft)
 	if counts[2] > counts[1] {
 		counts[1], counts[2] = counts[2], counts[1]
 		nearMVs[1], nearMVs[2] = nearMVs[2], nearMVs[1]
@@ -799,7 +892,7 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 		Intra:   counts[0],
 		Nearest: counts[1],
 		Near:    counts[2],
-		Split:   0,
+		Split:   counts[3],
 	}
 }
 
@@ -834,9 +927,33 @@ func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *Inte
 		return mode.MV == near
 	case common.NewMV:
 		return true
+	case common.SplitMV:
+		return validSplitMVMode(mode)
 	default:
 		return false
 	}
+}
+
+func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
+	if mode == nil || mode.Mode != common.SplitMV || mode.Partition >= tables.NumMBSplits {
+		return false
+	}
+	partitions := int(tables.MBSplitCount[mode.Partition])
+	fillCount := int(tables.MBSplitFillCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		mv := mode.BlockMV[block]
+		if mv.Row&1 != 0 || mv.Col&1 != 0 {
+			return false
+		}
+		fillStart := subset * fillCount
+		for i := 0; i < fillCount; i++ {
+			if mode.BlockMV[tables.MBSplitFillOffset[mode.Partition][fillStart+i]] != mv {
+				return false
+			}
+		}
+	}
+	return mode.MV == mode.BlockMV[15]
 }
 
 func clampInterMotionVectorToModeEdges(mv MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
@@ -874,6 +991,76 @@ func interFrameReference(mode *InterFrameMacroblockMode) common.MVReferenceFrame
 		return common.LastFrame
 	}
 	return mode.RefFrame
+}
+
+func splitModeCount(mode *InterFrameMacroblockMode) uint8 {
+	if mode != nil && mode.Mode == common.SplitMV {
+		return 1
+	}
+	return 0
+}
+
+func splitLeftMV(cur *InterFrameMacroblockMode, left *InterFrameMacroblockMode, block int) MotionVector {
+	if block&3 == 0 {
+		if left == nil {
+			return MotionVector{}
+		}
+		if left.Mode == common.SplitMV {
+			return left.BlockMV[block+3]
+		}
+		return left.MV
+	}
+	return cur.BlockMV[block-1]
+}
+
+func splitAboveMV(cur *InterFrameMacroblockMode, above *InterFrameMacroblockMode, block int) MotionVector {
+	if block>>2 == 0 {
+		if above == nil {
+			return MotionVector{}
+		}
+		if above.Mode == common.SplitMV {
+			return above.BlockMV[block+12]
+		}
+		return above.MV
+	}
+	return cur.BlockMV[block-4]
+}
+
+func subMVRefProbs(left MotionVector, above MotionVector) [3]uint8 {
+	lez := 0
+	if left.IsZero() {
+		lez = 1
+	}
+	aez := 0
+	if above.IsZero() {
+		aez = 1
+	}
+	lea := 0
+	if left == above {
+		lea = 1
+	}
+	return tables.SubMVRefProb3[(aez<<2)|(lez<<1)|lea]
+}
+
+func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode, best MotionVector) error {
+	if counts == nil || !validSplitMVMode(mode) {
+		return ErrInvalidPacketConfig
+	}
+	partitions := int(tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := splitLeftMV(mode, left, block)
+		aboveMV := splitAboveMV(mode, above, block)
+		target := mode.BlockMV[block]
+		if target == leftMV || target == aboveMV || target.IsZero() {
+			continue
+		}
+		delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
+		if err := countMotionVectorBranches(counts, delta); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validInterIntraMacroblockMode(mode *InterFrameMacroblockMode) bool {
@@ -922,14 +1109,15 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 		left := TokenContextPlanes{}
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
-				resetTokenContext(&above[col], &left, modes[index].Mode == common.BPred)
+				resetTokenContext(&above[col], &left, is4x4)
 				continue
 			}
 			if !validInterCoefficientTokenMode(&modes[index]) {
 				return ErrInvalidPacketConfig
 			}
-			if err := WriteCoefficientMacroblockTokens(w, probs, modes[index].Mode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+			if err := WriteCoefficientMacroblockTokens(w, probs, is4x4, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -960,14 +1148,15 @@ func WriteInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partition
 		left := TokenContextPlanes{}
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
-				resetTokenContext(&above[col], &left, modes[index].Mode == common.BPred)
+				resetTokenContext(&above[col], &left, is4x4)
 				continue
 			}
 			if !validInterCoefficientTokenMode(&modes[index]) {
 				return ErrInvalidPacketConfig
 			}
-			if err := WriteCoefficientMacroblockTokens(w, probs, modes[index].Mode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+			if err := WriteCoefficientMacroblockTokens(w, probs, is4x4, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -1000,7 +1189,7 @@ func validInterCoefficientTokenMode(mode *InterFrameMacroblockMode) bool {
 	default:
 		return false
 	}
-	return isWholeInterMacroblockMode(mode.Mode)
+	return isWholeInterMacroblockMode(mode.Mode) || validSplitMVMode(mode)
 }
 
 func isWholeInterMacroblockMode(mode common.MBPredictionMode) bool {
@@ -1010,6 +1199,10 @@ func isWholeInterMacroblockMode(mode common.MBPredictionMode) bool {
 	default:
 		return false
 	}
+}
+
+func interModeUses4x4Tokens(mode common.MBPredictionMode) bool {
+	return mode == common.BPred || mode == common.SplitMV
 }
 
 func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {

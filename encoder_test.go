@@ -30,6 +30,21 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("token partition error = %v, want ErrInvalidConfig", err)
 	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, RateControlMode: RateControlCQ, TargetBitrateKbps: 1200, MinQuantizer: 4, MaxQuantizer: 56, CQLevel: 64})
+	if !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("CQ level error = %v, want ErrInvalidQuantizer", err)
+	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, MaxIntraBitratePct: -1})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("max intra bitrate error = %v, want ErrInvalidConfig", err)
+	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, GFCBRBoostPct: -1})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("GF CBR boost error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
@@ -71,6 +86,209 @@ func TestEncodeIntoUsesKeyFrameBoostedTargetBits(t *testing.T) {
 	}
 	if inter.KeyFrame || inter.FrameTargetBits != e.rc.bitsPerFrame {
 		t.Fatalf("inter target = key:%t bits:%d, want inter target %d", inter.KeyFrame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+	}
+}
+
+func TestEncodeIntoCapsKeyFrameTargetBitsWithMaxIntraBitrate(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxIntraBitratePct:  200,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if result.FrameTargetBits != e.rc.bitsPerFrame*2 {
+		t.Fatalf("key target bits = %d, want max intra cap %d", result.FrameTargetBits, e.rc.bitsPerFrame*2)
+	}
+}
+
+func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		GFCBRBoostPct:       100,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	for frame := 1; frame <= 11; frame++ {
+		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		state := packetState(t, inter.Data)
+		if frame < 11 {
+			if state.Refresh.RefreshGolden {
+				t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
+			}
+			if inter.FrameTargetBits != e.rc.bitsPerFrame {
+				t.Fatalf("inter %d target = %d, want base %d", frame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+			}
+			continue
+		}
+		if !state.Refresh.RefreshGolden {
+			t.Fatalf("inter %d refresh golden = false, want true at GF CBR interval", frame)
+		}
+		if inter.FrameTargetBits != e.rc.bitsPerFrame*2 {
+			t.Fatalf("inter %d target = %d, want boosted %d", frame, inter.FrameTargetBits, e.rc.bitsPerFrame*2)
+		}
+	}
+}
+
+func TestEncodeIntoGFCBRBoostDisabledForErrorResilient(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		GFCBRBoostPct:       100,
+		ErrorResilient:      true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	for frame := 1; frame <= 11; frame++ {
+		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		state := packetState(t, inter.Data)
+		if state.Refresh.RefreshGolden {
+			t.Fatalf("inter %d refresh golden = true, want disabled for error resilient", frame)
+		}
+	}
+}
+
+func TestEncodeIntoCQLevelSelectsQuantizer(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             32,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 4096)
+	key, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if key.Quantizer != 32 || packetBaseQIndex(t, key.Data) != 32 {
+		t.Fatalf("key quantizer = result:%d packet:%d, want CQ level 32", key.Quantizer, packetBaseQIndex(t, key.Data))
+	}
+	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.Quantizer != 32 || packetBaseQIndex(t, inter.Data) != 32 {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want CQ level 32", inter.Quantizer, packetBaseQIndex(t, inter.Data))
+	}
+}
+
+func TestEncodeIntoCQDefaultLevelMirrorsLibvpx(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if e.opts.CQLevel != defaultCQLevel || e.rc.currentQuantizer != defaultCQLevel {
+		t.Fatalf("default CQ = opts:%d q:%d, want %d", e.opts.CQLevel, e.rc.currentQuantizer, defaultCQLevel)
+	}
+}
+
+func TestEncodeIntoCQOutputBitrateAdaptsToContent(t *testing.T) {
+	newCQEncoder := func(t *testing.T) *VP8Encoder {
+		t.Helper()
+		e, err := NewVP8Encoder(EncoderOptions{
+			Width:               32,
+			Height:              32,
+			FPS:                 30,
+			RateControlMode:     RateControlCQ,
+			TargetBitrateKbps:   1200,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			CQLevel:             24,
+			BufferSizeMs:        600,
+			BufferInitialSizeMs: 400,
+			BufferOptimalSizeMs: 500,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder returned error: %v", err)
+		}
+		return e
+	}
+	flat := testImage(32, 32)
+	fillImage(flat, 90, 90, 170)
+	detailed := rateControlTestFrame(32, 32, 3)
+	dst := make([]byte, 16384)
+
+	flatResult, err := newCQEncoder(t).EncodeInto(dst, flat, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("flat EncodeInto returned error: %v", err)
+	}
+	detailedResult, err := newCQEncoder(t).EncodeInto(dst, detailed, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("detailed EncodeInto returned error: %v", err)
+	}
+	if detailedResult.SizeBytes <= flatResult.SizeBytes {
+		t.Fatalf("CQ sizes = detailed:%d flat:%d, want detailed content to use more bits", detailedResult.SizeBytes, flatResult.SizeBytes)
 	}
 }
 
@@ -289,13 +507,88 @@ func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
 func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
 	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
 
-	assignInterFrameStaticSegments(4, 10, modes)
+	assignInterFrameStaticSegments(4, 10, 0, modes)
 
 	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID {
 		t.Fatalf("first cyclic segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[1].SegmentID)
 	}
 	if modes[2].SegmentID != 0 || modes[len(modes)-1].SegmentID != 0 {
 		t.Fatalf("later cyclic segment IDs = %d/%d, want zero", modes[2].SegmentID, modes[len(modes)-1].SegmentID)
+	}
+
+	assignInterFrameStaticSegments(4, 10, 2, modes)
+	if modes[0].SegmentID != 0 || modes[1].SegmentID != 0 {
+		t.Fatalf("previous cyclic segment IDs = %d/%d, want cleared", modes[0].SegmentID, modes[1].SegmentID)
+	}
+	if modes[2].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
+		t.Fatalf("rotated cyclic segment IDs = %d/%d, want refreshed", modes[2].SegmentID, modes[3].SegmentID)
+	}
+
+	assignInterFrameStaticSegments(4, 10, 39, modes)
+	if modes[39].SegmentID != staticSegmentID || modes[0].SegmentID != staticSegmentID {
+		t.Fatalf("wrapped cyclic segment IDs = %d/%d, want refreshed", modes[39].SegmentID, modes[0].SegmentID)
+	}
+	if modes[1].SegmentID != 0 || modes[38].SegmentID != 0 {
+		t.Fatalf("wrapped neighbor segment IDs = %d/%d, want zero", modes[1].SegmentID, modes[38].SegmentID)
+	}
+}
+
+func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               80,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, 65536)
+	key, err := e.EncodeInto(packet, rateControlTestFrame(80, 64, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+
+	for frame := 0; frame < 3; frame++ {
+		src := publicImageFromVP8(&e.lastRef.Img)
+		inter, err := e.EncodeInto(packet, src, uint64(frame+1), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		if err := d.Decode(inter.Data); err != nil {
+			t.Fatalf("inter %d Decode returned error: %v", frame, err)
+		}
+		if d.modes[frame].SegmentID != staticSegmentID {
+			t.Fatalf("inter %d segment[%d] = %d, want cyclic refresh", frame, frame, d.modes[frame].SegmentID)
+		}
+		for i := 0; i <= frame+1 && i < len(d.modes); i++ {
+			if i == frame {
+				continue
+			}
+			if d.modes[i].SegmentID != 0 {
+				t.Fatalf("inter %d segment[%d] = %d, want zero", frame, i, d.modes[i].SegmentID)
+			}
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("inter %d NextFrame returned no frame", frame)
+		}
 	}
 }
 
@@ -438,6 +731,203 @@ func TestSetRateControlValidation(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("error = %v, want ErrInvalidQuantizer", err)
+	}
+}
+
+func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
+	e := newTestEncoder(t)
+	err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             28,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("SetRateControl returned error: %v", err)
+	}
+	dst := make([]byte, 4096)
+	result, err := e.EncodeInto(dst, testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != 28 {
+		t.Fatalf("quantizer = result:%d packet:%d, want CQ level 28", result.Quantizer, packetBaseQIndex(t, result.Data))
+	}
+}
+
+func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             24,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetCQLevel(64); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("out-of-range SetCQLevel error = %v, want ErrInvalidQuantizer", err)
+	}
+	if err := e.SetCQLevel(3); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("below-min SetCQLevel error = %v, want ErrInvalidQuantizer", err)
+	}
+	if e.rc.cqLevel != 24 {
+		t.Fatalf("CQ level after rejected updates = %d, want 24", e.rc.cqLevel)
+	}
+	if err := e.SetCQLevel(40); err != nil {
+		t.Fatalf("SetCQLevel returned error: %v", err)
+	}
+	dst := make([]byte, 4096)
+	result, err := e.EncodeInto(dst, testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != 40 {
+		t.Fatalf("quantizer = result:%d packet:%d, want CQ level 40", result.Quantizer, packetBaseQIndex(t, result.Data))
+	}
+}
+
+func TestSetMaxIntraBitratePctAffectsNextKeyFrame(t *testing.T) {
+	e := newTestEncoder(t)
+	if err := e.SetMaxIntraBitratePct(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetMaxIntraBitratePct error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetMaxIntraBitratePct(150); err != nil {
+		t.Fatalf("SetMaxIntraBitratePct returned error: %v", err)
+	}
+	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	want := (e.rc.bitsPerFrame * 150) / 100
+	if result.FrameTargetBits != want {
+		t.Fatalf("key target bits = %d, want %d", result.FrameTargetBits, want)
+	}
+}
+
+func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetGFCBRBoostPct(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetGFCBRBoostPct error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetGFCBRBoostPct(50); err != nil {
+		t.Fatalf("SetGFCBRBoostPct returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	for frame := 1; frame <= 11; frame++ {
+		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		if frame == 11 && inter.FrameTargetBits != e.rc.bitsPerFrame*3/2 {
+			t.Fatalf("boosted target = %d, want %d", inter.FrameTargetBits, e.rc.bitsPerFrame*3/2)
+		}
+	}
+}
+
+func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
+	e := newTestEncoder(t)
+	if err := e.SetTokenPartitions(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTokenPartitions negative error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetTokenPartitions(4); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTokenPartitions out-of-range error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetSharpness(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetSharpness negative error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetSharpness(8); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetSharpness out-of-range error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetStaticThreshold(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetStaticThreshold negative error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetTokenPartitions(int(vp8common.EightPartition)); err != nil {
+		t.Fatalf("SetTokenPartitions returned error: %v", err)
+	}
+	if err := e.SetSharpness(3); err != nil {
+		t.Fatalf("SetSharpness returned error: %v", err)
+	}
+	if err := e.SetStaticThreshold(1); err != nil {
+		t.Fatalf("SetStaticThreshold returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(make([]byte, 8192), testImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	state := packetState(t, result.Data)
+	if state.TokenPartition != vp8common.EightPartition {
+		t.Fatalf("token partition = %d, want eight", state.TokenPartition)
+	}
+	if state.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("key sharpness = %d, want libvpx keyframe sharpness 0", state.LoopFilter.SharpnessLevel)
+	}
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("segmentation = %+v, want static-threshold map/data update", state.Segmentation)
+	}
+	inter, err := e.EncodeInto(make([]byte, 8192), publicImageFromVP8(&e.lastRef.Img), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	interState := packetState(t, inter.Data)
+	if interState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("inter sharpness = %d, want runtime sharpness 3", interState.LoopFilter.SharpnessLevel)
+	}
+}
+
+func TestSetRealtimeTargetRejectsCQBoundsWithoutMutation(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             24,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 30}); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("SetRealtimeTarget error = %v, want ErrInvalidQuantizer", err)
+	}
+	if e.rc.minQuantizer != 4 || e.rc.maxQuantizer != 56 || e.rc.cqLevel != 24 {
+		t.Fatalf("rate control after rejected target = min:%d max:%d cq:%d, want 4/56/24", e.rc.minQuantizer, e.rc.maxQuantizer, e.rc.cqLevel)
 	}
 }
 
@@ -685,8 +1175,8 @@ func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	keyState := parseEncoderStateHeader(t, key.Data)
-	if keyState.LoopFilter.Level != 5 || keyState.LoopFilter.SharpnessLevel != 3 {
-		t.Fatalf("key loop filter = %+v, want level 5 sharpness 3", keyState.LoopFilter)
+	if keyState.LoopFilter.Level != 7 || keyState.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("key loop filter = %+v, want level 7 sharpness 0", keyState.LoopFilter)
 	}
 	keyFrame := decodeSingleFrame(t, key.Data)
 	assertImagesEqual(t, "filtered key current", keyFrame, publicImageFromVP8(&e.current.Img))
@@ -707,12 +1197,67 @@ func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
 	interState := parseEncoderStateHeader(t, inter.Data)
-	if interState.LoopFilter.Level != 5 || interState.LoopFilter.SharpnessLevel != 3 {
-		t.Fatalf("inter loop filter = %+v, want level 5 sharpness 3", interState.LoopFilter)
+	if interState.LoopFilter.Level != 7 || interState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("inter loop filter = %+v, want level 7 sharpness 3", interState.LoopFilter)
 	}
 	decoded := decodeFrameSequence(t, key.Data, inter.Data)
 	assertImagesEqual(t, "filtered inter current", decoded[1], publicImageFromVP8(&e.current.Img))
 	assertImagesEqual(t, "filtered inter last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
+}
+
+func TestEncodeIntoDefaultSharpnessStillAppliesLoopFilter(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        20,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := testImage(32, 16)
+	fillImage(src, 220, 90, 170)
+	for row := 0; row < src.Height; row++ {
+		for col := 16; col < src.Width; col++ {
+			src.Y[row*src.YStride+col] = 40
+		}
+	}
+
+	result, err := e.EncodeInto(make([]byte, 8192), src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	state := parseEncoderStateHeader(t, result.Data)
+	if state.LoopFilter.Level != 7 || state.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("loop filter = %+v, want level 7 sharpness 0", state.LoopFilter)
+	}
+	decoded := decodeSingleFrame(t, result.Data)
+	assertImagesEqual(t, "default filtered current", decoded, publicImageFromVP8(&e.current.Img))
+}
+
+func TestLibvpxInitialLoopFilterLevelUsesBaseQThreeEighths(t *testing.T) {
+	tests := []struct {
+		qIndex int
+		want   int
+	}{
+		{qIndex: 0, want: 0},
+		{qIndex: 6, want: 2},
+		{qIndex: 16, want: 6},
+		{qIndex: 20, want: 7},
+		{qIndex: 127, want: 47},
+		{qIndex: 1000, want: 63},
+	}
+	for _, tt := range tests {
+		if got := libvpxInitialLoopFilterLevel(tt.qIndex); got != tt.want {
+			t.Fatalf("q=%d loop filter level = %d, want %d", tt.qIndex, got, tt.want)
+		}
+	}
 }
 
 func TestEncodeIntoUsesSourcePixels(t *testing.T) {
@@ -951,6 +1496,60 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	if e.interFrameModes[1].Mode != vp8common.NearestMV || e.interFrameModes[1].MV != (vp8enc.MotionVector{Col: -8}) {
 		t.Fatalf("mode[1] = %+v, want NEARESTMV col -8", e.interFrameModes[1])
 	}
+}
+
+func TestEncodeIntoCanEmitSplitMVForQuadrantMotion(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	fillImage(first, 0, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 0; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = byte((row*37 + col*13) & 255)
+		}
+	}
+	keyPacket := make([]byte, 32768)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	second := testImage(32, 32)
+	fillImage(second, 13, 90, 170)
+	copyShifted8x8FromImage(second, reconstructed, 0, 0, 0, 1)
+	copyShifted8x8FromImage(second, reconstructed, 0, 8, 1, 0)
+	copyShifted8x8FromImage(second, reconstructed, 8, 0, 0, 2)
+	copyShifted8x8FromImage(second, reconstructed, 8, 8, 2, 0)
+	interPacket := make([]byte, 32768)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	mode := e.interFrameModes[0]
+	if mode.Mode != vp8common.SplitMV || mode.Partition != 2 {
+		t.Fatalf("mode[0] = %+v, want SPLITMV partition 2", mode)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(inter.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	decoded, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("inter NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "splitmv encoder current", decoded, publicImageFromVP8(&e.current.Img))
 }
 
 func TestEncodeIntoKeyFrameSelectsBPredLumaAndVerticalChroma(t *testing.T) {
@@ -1462,6 +2061,12 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "EncodeInto", fn: func() { _, _ = e.EncodeInto(dst, src, 0, 1, 0) }},
 		{name: "SetBitrateKbps", fn: func() { _ = e.SetBitrateKbps(1200) }},
 		{name: "SetRateControl", fn: func() { _ = e.SetRateControl(cfg) }},
+		{name: "SetCQLevel", fn: func() { _ = e.SetCQLevel(10) }},
+		{name: "SetMaxIntraBitratePct", fn: func() { _ = e.SetMaxIntraBitratePct(200) }},
+		{name: "SetGFCBRBoostPct", fn: func() { _ = e.SetGFCBRBoostPct(100) }},
+		{name: "SetTokenPartitions", fn: func() { _ = e.SetTokenPartitions(int(vp8common.EightPartition)) }},
+		{name: "SetSharpness", fn: func() { _ = e.SetSharpness(3) }},
+		{name: "SetStaticThreshold", fn: func() { _ = e.SetStaticThreshold(1) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
 		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},
 		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
@@ -1743,6 +2348,14 @@ func shiftImageRightOne(src Image) Image {
 	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
 	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 	return dst
+}
+
+func copyShifted8x8FromImage(dst Image, src Image, y int, x int, dy int, dx int) {
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			dst.Y[(y+row)*dst.YStride+x+col] = src.Y[(y+row+dy)*src.YStride+x+col+dx]
+		}
+	}
 }
 
 func decodeSingleFrame(tb testing.TB, packet []byte) Image {

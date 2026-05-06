@@ -94,14 +94,15 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 		left := TokenContextPlanes{}
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
-				resetTokenContext(&above[col], &left, modes[index].Mode == common.BPred)
+				resetTokenContext(&above[col], &left, is4x4)
 				continue
 			}
 			if !validInterCoefficientTokenMode(&modes[index]) {
 				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
 			}
-			if err := countCoefficientMacroblockBranches(modes[index].Mode == common.BPred, &above[col], &left, &coeffs[index], &counts); err != nil {
+			if err := countCoefficientMacroblockBranches(is4x4, &above[col], &left, &coeffs[index], &counts); err != nil {
 				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 			}
 		}

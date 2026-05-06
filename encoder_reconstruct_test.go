@@ -121,6 +121,100 @@ func TestSelectInterFrameReferenceMotionVectorFindsExhaustiveCornerCandidate(t *
 	}
 }
 
+func TestSelectInterFrameSplitMotionModeFindsQuadrantMotion(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < 32; row++ {
+		for col := 0; col < 32; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*37 + col*13) & 255)
+		}
+	}
+	copyShifted8x8FromReference(src, &ref.Img, 0, 0, 0, 1)
+	copyShifted8x8FromReference(src, &ref.Img, 0, 8, 1, 0)
+	copyShifted8x8FromReference(src, &ref.Img, 8, 0, 0, 2)
+	copyShifted8x8FromReference(src, &ref.Img, 8, 8, 2, 0)
+	ref.ExtendBorders()
+
+	mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 2)
+
+	if !ok {
+		t.Fatalf("split mode selection returned false")
+	}
+	if mode.Mode != vp8common.SplitMV || mode.RefFrame != vp8common.LastFrame || mode.Partition != 2 {
+		t.Fatalf("mode = %+v, want LAST/SPLITMV partition 2", mode)
+	}
+	want := [4]vp8enc.MotionVector{
+		{Col: 8},
+		{Row: 8},
+		{Col: 16},
+		{Row: 16},
+	}
+	for subset, mv := range want {
+		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+		if mode.BlockMV[block] != mv {
+			t.Fatalf("subset %d block %d MV = %+v, want %+v", subset, block, mode.BlockMV[block], mv)
+		}
+	}
+	if mode.MV != mode.BlockMV[15] {
+		t.Fatalf("mode MV = %+v, want last block %+v", mode.MV, mode.BlockMV[15])
+	}
+}
+
+func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
+	t.Run("horizontal", func(t *testing.T) {
+		src, ref := splitMotionSourceAndReference(t)
+		copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
+		copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 2, 0)
+
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 0)
+
+		if !ok || mode.Partition != 0 {
+			t.Fatalf("mode = %+v ok=%t, want partition 0", mode, ok)
+		}
+		if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 8}) || mode.BlockMV[8] != (vp8enc.MotionVector{Row: 16}) {
+			t.Fatalf("partition 0 MVs = %+v/%+v, want col +8 and row +16", mode.BlockMV[0], mode.BlockMV[8])
+		}
+	})
+	t.Run("vertical", func(t *testing.T) {
+		src, ref := splitMotionSourceAndReference(t)
+		copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 1, 0)
+		copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 2)
+
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 1)
+
+		if !ok || mode.Partition != 1 {
+			t.Fatalf("mode = %+v ok=%t, want partition 1", mode, ok)
+		}
+		if mode.BlockMV[0] != (vp8enc.MotionVector{Row: 8}) || mode.BlockMV[2] != (vp8enc.MotionVector{Col: 16}) {
+			t.Fatalf("partition 1 MVs = %+v/%+v, want row +8 and col +16", mode.BlockMV[0], mode.BlockMV[2])
+		}
+	})
+	t.Run("four-by-four", func(t *testing.T) {
+		src, ref := splitMotionSourceAndReference(t)
+		var want [16]vp8enc.MotionVector
+		for block := 0; block < 16; block++ {
+			y := (block >> 2) * 4
+			x := (block & 3) * 4
+			dy := block >> 2
+			dx := block & 3
+			copyShiftedBlockFromReference(src, &ref.Img, y, x, 4, 4, dy, dx)
+			want[block] = vp8enc.MotionVector{Row: int16(dy * 8), Col: int16(dx * 8)}
+		}
+
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 3)
+
+		if !ok || mode.Partition != 3 {
+			t.Fatalf("mode = %+v ok=%t, want partition 3", mode, ok)
+		}
+		for block := range want {
+			if mode.BlockMV[block] != want[block] {
+				t.Fatalf("partition 3 block %d MV = %+v, want %+v", block, mode.BlockMV[block], want[block])
+			}
+		}
+	})
+}
+
 func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
 	src := testImage(48, 48)
 	fillImage(src, 13, 90, 170)
@@ -236,9 +330,9 @@ func TestCollectInterFrameMotionCandidatesIncludesSubpixelCandidate(t *testing.T
 	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
 	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
 	refs := []interAnalysisReference{{Frame: vp8common.LastFrame, Img: &ref.Img}}
-	var candidates [6]interAnalysisMotionCandidate
+	var candidates [interFrameMotionCandidateMax]interAnalysisMotionCandidate
 
-	count := collectInterFrameMotionCandidates(sourceImageFromPublic(src), refs, len(refs), 1, 1, testInterSearchQIndex, &candidates)
+	count := collectInterFrameMotionCandidates(sourceImageFromPublic(src), refs, len(refs), 1, 1, 3, 3, testInterSearchQIndex, nil, nil, nil, &candidates)
 
 	if count != 2 {
 		t.Fatalf("candidate count = %d, want full-pixel plus subpixel", count)
@@ -248,6 +342,29 @@ func TestCollectInterFrameMotionCandidatesIncludesSubpixelCandidate(t *testing.T
 	}
 	if candidates[1].MV != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("subpixel candidate = %+v, want +2,+2", candidates[1].MV)
+	}
+}
+
+func TestCollectInterFrameMotionCandidatesIncludesNearestAndNear(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 80, 90, 170)
+	ref := testVP8Frame(t, 16, 16, 80, 90, 170)
+	refs := []interAnalysisReference{{Frame: vp8common.LastFrame, Img: &ref.Img}}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 8}}
+	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 8}}
+	aboveLeft := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	var candidates [interFrameMotionCandidateMax]interAnalysisMotionCandidate
+
+	count := collectInterFrameMotionCandidates(sourceImageFromPublic(src), refs, len(refs), 0, 0, 1, 1, testInterSearchQIndex, &above, &left, &aboveLeft, &candidates)
+
+	if count != 3 {
+		t.Fatalf("candidate count = %d, want zero, nearest, near", count)
+	}
+	want := [...]vp8enc.MotionVector{{}, {Col: 8}, {Row: 8}}
+	for i := range want {
+		if candidates[i].MV != want[i] {
+			t.Fatalf("candidate[%d] MV = %+v, want %+v", i, candidates[i].MV, want[i])
+		}
 	}
 }
 
@@ -521,6 +638,50 @@ func TestInterMotionModeVectorCostOnlyChargesNewMVDelta(t *testing.T) {
 	nearest := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NearestMV, MV: above.MV}
 	if got := interMotionModeVectorCost(&nearest, &above, nil, nil, 0, 0, 1, 1); got != 0 {
 		t.Fatalf("NEARESTMV vector cost = %d, want 0", got)
+	}
+}
+
+func TestInterPredictionModeRateMirrorsWriterBranches(t *testing.T) {
+	counts := vp8enc.InterModeCounts{Intra: 3, Nearest: 4, Near: 2, Split: 1}
+	probs := vp8tables.InterModeContexts
+	tests := []struct {
+		name string
+		mode vp8common.MBPredictionMode
+		want int
+	}{
+		{name: "zero", mode: vp8common.ZeroMV, want: boolBitCost(probs[3][0], 0)},
+		{name: "nearest", mode: vp8common.NearestMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 0)},
+		{name: "near", mode: vp8common.NearMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 0)},
+		{name: "new", mode: vp8common.NewMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 1) + boolBitCost(probs[1][3], 0)},
+		{name: "split", mode: vp8common.SplitMV, want: boolBitCost(probs[3][0], 1) + boolBitCost(probs[4][1], 1) + boolBitCost(probs[2][2], 1) + boolBitCost(probs[1][3], 1)},
+	}
+	for _, tt := range tests {
+		if got := interPredictionModeRate(tt.mode, counts); got != tt.want {
+			t.Fatalf("%s mode rate = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+	want := boolBitCost(128, 1) +
+		interReferenceFrameRate(vp8common.GoldenFrame) +
+		interPredictionModeRate(vp8common.NewMV, counts) +
+		interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1)
+
+	if got := interMotionModeRate(&mode, &above, nil, nil, 0, 0, 1, 1); got != want {
+		t.Fatalf("inter mode rate = %d, want %d", got, want)
+	}
+	if got := interMacroblockSkipRate(false); got != boolBitCost(128, 0) {
+		t.Fatalf("coded skip rate = %d, want prob-128 false cost", got)
+	}
+	if got := interMacroblockSkipRate(true); got != boolBitCost(128, 1) {
+		t.Fatalf("skipped rate = %d, want prob-128 true cost", got)
+	}
+	if got, want := interIntraMacroblockModeRate(), boolBitCost(128, 0)+boolBitCost(128, 0); got != want {
+		t.Fatalf("inter-intra mode rate = %d, want skip plus intra-reference rate %d", got, want)
 	}
 }
 
@@ -1054,5 +1215,30 @@ func fillBenchmarkVP8Image(img *vp8common.Image, y byte, u byte, v byte) {
 	}
 	for i := range img.V {
 		img.V[i] = v
+	}
+}
+
+func copyShifted8x8FromReference(dst Image, ref *vp8common.Image, y int, x int, dy int, dx int) {
+	copyShiftedBlockFromReference(dst, ref, y, x, 8, 8, dy, dx)
+}
+
+func splitMotionSourceAndReference(tb testing.TB) (Image, vp8common.FrameBuffer) {
+	tb.Helper()
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	ref := testVP8Frame(tb, 32, 32, 0, 90, 170)
+	for row := 0; row < 32; row++ {
+		for col := 0; col < 32; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*37 + col*13) & 255)
+		}
+	}
+	return src, ref
+}
+
+func copyShiftedBlockFromReference(dst Image, ref *vp8common.Image, y int, x int, width int, height int, dy int, dx int) {
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			dst.Y[(y+row)*dst.YStride+x+col] = ref.Y[(y+row+dy)*ref.YStride+x+col+dx]
+		}
 	}
 }

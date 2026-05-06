@@ -14,10 +14,13 @@ replacement.
 
 - Raw VP8 frame parsing through `PeekVP8StreamInfo`
 - VP8 decode APIs with borrowed-frame and caller-owned-buffer paths
-- VP8 encode APIs with realtime-oriented rate control, temporal metadata, and
+- VP8 encode APIs with realtime-oriented CBR/CQ rate control, temporal metadata, and
   keyframe/interframe support
-- Token partitions, loop filtering, postprocess options, error-resilient decode
-  handling, LAST/GOLDEN/ALTREF reference selection, and entropy update controls
+- Whole-block, B_PRED, NEWMV, and SPLITMV encoder mode paths, including VP8
+  split partition-shape selection
+- Token partitions, loop filtering, granular postprocess flags, runtime token
+  partition/sharpness/static-threshold controls, error-resilient decode handling,
+  LAST/GOLDEN/ALTREF reference selection, and entropy update controls
 - Checked-in smoke vectors plus an exhaustive libvpx-backed parity gate
 
 ## Scope

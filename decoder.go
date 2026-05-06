@@ -7,13 +7,31 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+type PostProcessFlag uint32
+
+const (
+	PostProcessDeblock PostProcessFlag = 1 << iota
+	PostProcessDemacroblock
+	PostProcessAddNoise
+	PostProcessMFQE
+
+	allPostProcessFlags    = PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE
+	legacyPostProcessFlags = PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE
+)
+
 type DecoderOptions struct {
 	Threads int
 
 	ErrorResilient bool
-	PostProcess    bool
+	// PostProcess enables the legacy libvpx-style postprocess chain:
+	// deblock, demacroblock, and MFQE. Prefer PostProcessFlags for new code.
+	PostProcess bool
+	// PostProcessFlags selects individual libvpx-style postprocess filters.
+	// Zero disables postprocessing unless PostProcess is set.
+	PostProcessFlags PostProcessFlag
 	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
-	// PostProcess is true. Zero disables additive noise; valid range is [0, 16].
+	// PostProcess is true or PostProcessAddNoise is set. Zero disables
+	// additive noise; valid range is [0, 16].
 	PostProcessNoiseLevel int
 
 	MaxWidth  int
@@ -261,19 +279,33 @@ func validateDecoderOptions(opts DecoderOptions) error {
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
 	}
+	if opts.PostProcessFlags&^allPostProcessFlags != 0 {
+		return ErrInvalidConfig
+	}
 	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
 		return ErrInvalidConfig
 	}
 	if opts.PostProcessNoiseLevel < 0 || opts.PostProcessNoiseLevel > 16 {
 		return ErrInvalidConfig
 	}
-	if opts.PostProcessNoiseLevel > 0 && !opts.PostProcess {
+	if opts.PostProcessNoiseLevel > 0 && opts.effectivePostProcessFlags()&PostProcessAddNoise == 0 {
 		return ErrInvalidConfig
 	}
 	if opts.MaxWidth > maxVP8Dimension || opts.MaxHeight > maxVP8Dimension {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func (opts DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
+	flags := opts.PostProcessFlags
+	if flags == 0 && opts.PostProcess {
+		flags = legacyPostProcessFlags
+		if opts.PostProcessNoiseLevel > 0 {
+			flags |= PostProcessAddNoise
+		}
+	}
+	return flags
 }
 
 func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
@@ -351,15 +383,16 @@ func (d *VP8Decoder) outputFrameImage(info StreamInfo) (*vp8common.Image, error)
 }
 
 func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.Image) (*vp8common.Image, error) {
-	if !d.opts.PostProcess {
+	flags := d.opts.effectivePostProcessFlags()
+	if flags == 0 {
 		return src, nil
 	}
 	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
 	opts := vp8dec.PostProcessOptions{
-		Deblock:         true,
-		Demacroblock:    true,
-		MFQE:            true,
-		AddNoise:        d.opts.PostProcessNoiseLevel > 0,
+		Deblock:         flags&PostProcessDeblock != 0,
+		Demacroblock:    flags&PostProcessDemacroblock != 0,
+		MFQE:            flags&PostProcessMFQE != 0,
+		AddNoise:        flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0,
 		DeblockingLevel: vp8dec.DefaultPostProcessDeblockingLevel,
 		NoiseLevel:      d.opts.PostProcessNoiseLevel,
 		BaseQIndex:      int(d.state.Quant.BaseQIndex),
@@ -401,7 +434,8 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
 	}
-	if d.opts.PostProcess {
+	flags := d.opts.effectivePostProcessFlags()
+	if flags&PostProcessMFQE != 0 {
 		if err := d.postprocState.EnsureMFQE(info.Width, info.Height); err != nil {
 			return ErrInvalidData
 		}
@@ -626,7 +660,8 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	} else {
 		d.postprocScratch = d.postprocScratch[:scratchLen]
 	}
-	if d.opts.PostProcess && d.opts.PostProcessNoiseLevel > 0 {
+	flags := d.opts.effectivePostProcessFlags()
+	if flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0 {
 		d.postprocState.EnsureNoise(width)
 	}
 	d.mbRows = rows

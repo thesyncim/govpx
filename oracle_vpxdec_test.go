@@ -149,6 +149,8 @@ func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
 	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true})
 	assertFrameChecksumsEqual(t, "postprocess Decode", got, want)
+	gotFlags := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE})
+	assertFrameChecksumsEqual(t, "postprocess flags Decode", gotFlags, want)
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
@@ -539,6 +541,64 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		GFCBRBoostPct:       100,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	packet := make([]byte, 8192)
+	key, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	packets := [][]byte{append([]byte(nil), key.Data...)}
+	for frame := 1; frame <= 11; frame++ {
+		inter, err := e.EncodeInto(packet, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		if frame == 11 {
+			state := packetState(t, inter.Data)
+			if !state.Refresh.RefreshGolden || inter.FrameTargetBits != e.rc.bitsPerFrame*2 {
+				t.Fatalf("inter %d refresh/target = %t/%d, want golden refresh and boosted target %d", frame, state.Refresh.RefreshGolden, inter.FrameTargetBits, e.rc.bitsPerFrame*2)
+			}
+		}
+		packets = append(packets, append([]byte(nil), inter.Data...))
+	}
+
+	ivf := makeIVF(16, 16, 30, 1, packets)
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	govpxFrames := decodeFrameSequence(t, packets...)
+	if len(oracleFrames) != len(govpxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
+	}
+	for i, frame := range govpxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngovpx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
@@ -712,6 +772,116 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
 			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngovpx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
+}
+
+func TestOracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             36,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, rateControlTestFrame(32, 16, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if key.Quantizer != 36 || packetBaseQIndex(t, key.Data) != 36 {
+		t.Fatalf("key quantizer = result:%d packet:%d, want CQ level 36", key.Quantizer, packetBaseQIndex(t, key.Data))
+	}
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, rateControlTestFrame(32, 16, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want CQ interframe")
+	}
+	if inter.Quantizer != 36 || packetBaseQIndex(t, inter.Data) != 36 {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want CQ level 36", inter.Quantizer, packetBaseQIndex(t, inter.Data))
+	}
+
+	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	got := decodeIVFChecksums(t, ivf)
+	assertFrameChecksumsEqual(t, "CQLevel interframe", got, oracleFrames)
+}
+
+func TestOracleLibvpxChecksumMatchesEncodeIntoSplitMVInterFrame(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	fillImage(first, 0, 90, 170)
+	for row := 0; row < first.Height; row++ {
+		for col := 0; col < first.Width; col++ {
+			first.Y[row*first.YStride+col] = byte((row*37 + col*13) & 255)
+		}
+	}
+	keyPacket := make([]byte, 32768)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(t, key.Data)
+	second := testImage(32, 32)
+	fillImage(second, 13, 90, 170)
+	copyShifted8x8FromImage(second, reconstructed, 0, 0, 0, 1)
+	copyShifted8x8FromImage(second, reconstructed, 0, 8, 1, 0)
+	copyShifted8x8FromImage(second, reconstructed, 8, 0, 0, 2)
+	copyShifted8x8FromImage(second, reconstructed, 8, 8, 2, 0)
+
+	interPacket := make([]byte, 32768)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want SPLITMV interframe")
+	}
+	mode := e.interFrameModes[0]
+	if mode.Mode != vp8common.SplitMV || mode.Partition != 2 {
+		t.Fatalf("mode[0] = %+v, want SPLITMV partition 2", mode)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(inter.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	if d.modes[0].Mode != vp8common.SplitMV || d.modes[0].Partition != 2 {
+		t.Fatalf("decoded mode[0] = %+v, want SPLITMV partition 2", d.modes[0])
+	}
+
+	ivf := makeIVF(32, 32, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	got := decodeIVFChecksums(t, ivf)
+	assertFrameChecksumsEqual(t, "SPLITMV interframe", got, oracleFrames)
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing.T) {

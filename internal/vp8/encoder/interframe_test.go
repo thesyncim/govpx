@@ -601,6 +601,54 @@ func TestWriteCoefficientInterFrameDecodesNearestAndNearMV(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesSplitMV(t *testing.T) {
+	mode := InterFrameMacroblockMode{
+		RefFrame:    common.LastFrame,
+		Mode:        common.SplitMV,
+		Partition:   2,
+		MBSkipCoeff: true,
+	}
+	fillEncoderSplitSubset(&mode, 0, MotionVector{Col: 8})
+	fillEncoderSplitSubset(&mode, 1, MotionVector{Row: 8})
+	fillEncoderSplitSubset(&mode, 2, MotionVector{Col: -8})
+	fillEncoderSplitSubset(&mode, 3, MotionVector{Row: -8, Col: -8})
+	mode.MV = mode.BlockMV[15]
+
+	coeffs := make([]MacroblockCoefficients, 1)
+	packet := make([]byte, 2048)
+	above := make([]TokenContextPlanes, 1)
+	n, err := WriteCoefficientInterFrame(packet, 16, 16, DefaultInterFrameStateConfig(20), []InterFrameMacroblockMode{mode}, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, 1)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 1, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+
+	decoded := decodedModes[0]
+	if decoded.RefFrame != common.LastFrame || decoded.Mode != common.SplitMV || !decoded.Is4x4 || !decoded.MBSkipCoeff || decoded.Partition != 2 {
+		t.Fatalf("decoded mode = %+v, want LAST/SPLITMV partition 2 skipped", decoded)
+	}
+	for block, want := range mode.BlockMV {
+		got := decoded.BlockMV[block]
+		if got.Row != want.Row || got.Col != want.Col {
+			t.Fatalf("block mv[%d] = %+v, want %+v", block, got, want)
+		}
+	}
+	if decoded.MV != (vp8dec.MotionVector{Row: mode.MV.Row, Col: mode.MV.Col}) {
+		t.Fatalf("mode MV = %+v, want last block %+v", decoded.MV, mode.MV)
+	}
+}
+
 func TestWriteCoefficientInterFrameClampsNewMVBestPredictor(t *testing.T) {
 	modes := []InterFrameMacroblockMode{
 		{Mode: common.ZeroMV, MBSkipCoeff: true},
@@ -631,6 +679,14 @@ func TestWriteCoefficientInterFrameClampsNewMVBestPredictor(t *testing.T) {
 	}
 	if decodedModes[5].Mode != common.NewMV || decodedModes[5].MV != (vp8dec.MotionVector{Col: -6}) {
 		t.Fatalf("mode[5] = %+v, want NEWMV col -6", decodedModes[5])
+	}
+}
+
+func fillEncoderSplitSubset(mode *InterFrameMacroblockMode, subset int, mv MotionVector) {
+	fillCount := int(tables.MBSplitFillCount[mode.Partition])
+	fillStart := subset * fillCount
+	for i := 0; i < fillCount; i++ {
+		mode.BlockMV[tables.MBSplitFillOffset[mode.Partition][fillStart+i]] = mv
 	}
 }
 

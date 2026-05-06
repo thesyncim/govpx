@@ -50,18 +50,34 @@ func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMac
 	}
 }
 
-func assignInterFrameStaticSegments(rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) {
+func assignInterFrameStaticSegments(rows int, cols int, start int, modes []vp8enc.InterFrameMacroblockMode) {
 	refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
+	count := rows * cols
+	if count <= 0 {
+		return
+	}
+	start %= count
+	if start < 0 {
+		start += count
+	}
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			if index < refreshCount {
-				modes[index].SegmentID = staticSegmentID
-			} else {
-				modes[index].SegmentID = 0
-			}
+			modes[index].SegmentID = 0
 		}
 	}
+	for refreshed := 0; refreshed < refreshCount && refreshed < count; refreshed++ {
+		modes[(start+refreshed)%count].SegmentID = staticSegmentID
+	}
+}
+
+func (e *VP8Encoder) advanceCyclicRefresh(rows int, cols int) {
+	count := rows * cols
+	if count <= 0 {
+		e.cyclicRefreshIndex = 0
+		return
+	}
+	e.cyclicRefreshIndex = (e.cyclicRefreshIndex + cyclicRefreshMaxMBsPerFrame(rows, cols)) % count
 }
 
 func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {

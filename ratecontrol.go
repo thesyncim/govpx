@@ -17,6 +17,7 @@ type RateControlConfig struct {
 
 	MinQuantizer int
 	MaxQuantizer int
+	CQLevel      int
 
 	UndershootPct int
 	OvershootPct  int
@@ -26,6 +27,9 @@ type RateControlConfig struct {
 	BufferOptimalSizeMs int
 
 	DropFrameAllowed bool
+
+	MaxIntraBitratePct int
+	GFCBRBoostPct      int
 }
 
 type RealtimeTarget struct {
@@ -57,6 +61,7 @@ type rateControlState struct {
 
 	minQuantizer     int
 	maxQuantizer     int
+	cqLevel          int
 	currentQuantizer int
 	lastQuantizer    int
 
@@ -82,12 +87,16 @@ type rateControlState struct {
 	framesSinceKeyframe int
 	rollingActualBits   int
 	rollingTargetBits   int
+
+	maxIntraBitratePct int
+	gfCBRBoostPct      int
 }
 
 const (
 	keyFrameTargetBoost             = 4
 	defaultRateControlUndershootPct = 50
 	defaultRateControlOvershootPct  = 100
+	defaultCQLevel                  = 10
 )
 
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
@@ -99,13 +108,23 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
 	rc.minQuantizer = cfg.MinQuantizer
 	rc.maxQuantizer = cfg.MaxQuantizer
+	rc.cqLevel = normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
 	rc.undershootPct = normalizeRateControlPct(cfg.UndershootPct, defaultRateControlUndershootPct)
 	rc.overshootPct = normalizeRateControlPct(cfg.OvershootPct, defaultRateControlOvershootPct)
 	rc.bufferSizeMs = cfg.BufferSizeMs
 	rc.bufferInitialSizeMs = cfg.BufferInitialSizeMs
 	rc.bufferOptimalSizeMs = cfg.BufferOptimalSizeMs
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
-	return rc.setBitrateKbps(cfg.TargetBitrateKbps, timing)
+	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
+	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
+	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
+		return err
+	}
+	if rc.mode == RateControlCQ {
+		rc.currentQuantizer = rc.cqLevel
+		rc.lastQuantizer = rc.cqLevel
+	}
+	return nil
 }
 
 func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
@@ -162,16 +181,30 @@ func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits i
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
+	baseFrameTargetBits := targetBits
 	if keyFrame {
 		if targetBits > maxInt()/keyFrameTargetBoost {
 			targetBits = maxInt()
 		} else {
 			targetBits *= keyFrameTargetBoost
 		}
+		if rc.maxIntraBitratePct > 0 {
+			maxIntraBits := percentOf(baseFrameTargetBits, rc.maxIntraBitratePct)
+			if maxIntraBits <= 0 {
+				maxIntraBits = 1
+			}
+			if targetBits > maxIntraBits {
+				targetBits = maxIntraBits
+			}
+		}
 	}
 	if rc.mode == RateControlCBR && rc.rollingTargetBits > 0 {
 		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 		rc.adjustQuantizerForBuffer()
+	} else if rc.mode == RateControlCQ {
+		if rc.currentQuantizer < rc.cqLevel {
+			rc.currentQuantizer = rc.cqLevel
+		}
 	}
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
@@ -214,7 +247,9 @@ func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 	rc.clampBuffer()
 
 	rc.lastQuantizer = rc.currentQuantizer
-	if rc.mode != RateControlCQ {
+	if rc.mode == RateControlCQ {
+		rc.adjustCQQuantizer(actualBits, targetBits)
+	} else {
 		rc.adjustQuantizer(actualBits, targetBits)
 	}
 	rc.clampQuantizer()
@@ -257,7 +292,7 @@ func (rc *rateControlState) postDropFrame() {
 func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
 	q := rc.currentQuantizer
 	if rc.mode == RateControlCQ {
-		return q
+		return rc.cqFrameSizeFeedbackQuantizer(sizeBytes)
 	}
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
@@ -291,6 +326,40 @@ func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
 	return rc.clampedQuantizerValue(q)
 }
 
+func (rc *rateControlState) cqFrameSizeFeedbackQuantizer(sizeBytes int) int {
+	q := rc.currentQuantizer
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	if targetBits <= 0 {
+		return rc.clampedCQQuantizerValue(q)
+	}
+	actualBits := encodedSizeBits(sizeBytes)
+	projectedBuffer := saturatingSub(saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame), actualBits)
+	if rc.maximumBufferBits > 0 && projectedBuffer > rc.maximumBufferBits {
+		projectedBuffer = rc.maximumBufferBits
+	}
+	if projectedBuffer < 0 {
+		projectedBuffer = 0
+	}
+	lowBuffer := rc.bufferOptimalBits > 0 && projectedBuffer < rc.bufferOptimalBits/2
+	highBuffer := rc.bufferOptimalBits > 0 && projectedBuffer > rc.bufferOptimalBits
+	overshootLimit := rc.overshootLimitBits(targetBits)
+	undershootLimit := rc.undershootLimitBits(targetBits)
+	switch {
+	case actualBits > overshootLimit || lowBuffer:
+		step := 1
+		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+			step = 2
+		}
+		q += step
+	case actualBits < undershootLimit && highBuffer:
+		q--
+	}
+	return rc.clampedCQQuantizerValue(q)
+}
+
 func (rc *rateControlState) clampedQuantizerValue(q int) int {
 	if q < rc.minQuantizer {
 		return rc.minQuantizer
@@ -299,6 +368,13 @@ func (rc *rateControlState) clampedQuantizerValue(q int) int {
 		return rc.maxQuantizer
 	}
 	return q
+}
+
+func (rc *rateControlState) clampedCQQuantizerValue(q int) int {
+	if q < rc.cqLevel {
+		return rc.cqLevel
+	}
+	return rc.clampedQuantizerValue(q)
 }
 
 func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
@@ -319,6 +395,27 @@ func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
 	case actualBits < undershootLimit && highBuffer:
 		rc.currentQuantizer--
 	}
+}
+
+func (rc *rateControlState) adjustCQQuantizer(actualBits int, targetBits int) {
+	if targetBits <= 0 {
+		return
+	}
+	lowBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits < rc.bufferOptimalBits/2
+	highBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits > rc.bufferOptimalBits
+	overshootLimit := rc.overshootLimitBits(targetBits)
+	undershootLimit := rc.undershootLimitBits(targetBits)
+	switch {
+	case actualBits > overshootLimit || lowBuffer:
+		step := 1
+		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+			step = 2
+		}
+		rc.currentQuantizer += step
+	case actualBits < undershootLimit && highBuffer:
+		rc.currentQuantizer--
+	}
+	rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
 }
 
 func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
@@ -437,10 +534,23 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if cfg.MinQuantizer > cfg.MaxQuantizer {
 		return ErrInvalidQuantizer
 	}
+	if cfg.CQLevel < 0 || cfg.CQLevel > maxQuantizer {
+		return ErrInvalidQuantizer
+	}
+	cqLevel := normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
+	if cfg.Mode == RateControlCQ && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
+		return ErrInvalidQuantizer
+	}
 	if cfg.UndershootPct < 0 || cfg.OvershootPct < 0 {
 		return ErrInvalidConfig
 	}
 	if cfg.BufferSizeMs <= 0 || cfg.BufferInitialSizeMs < 0 || cfg.BufferOptimalSizeMs < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.MaxIntraBitratePct < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.GFCBRBoostPct < 0 {
 		return ErrInvalidConfig
 	}
 	return nil
@@ -483,13 +593,33 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 		MaxBitrateKbps:      opts.MaxBitrateKbps,
 		MinQuantizer:        minQ,
 		MaxQuantizer:        maxQ,
+		CQLevel:             opts.CQLevel,
 		UndershootPct:       undershoot,
 		OvershootPct:        overshoot,
 		BufferSizeMs:        bufferSize,
 		BufferInitialSizeMs: bufferInitial,
 		BufferOptimalSizeMs: bufferOptimal,
 		DropFrameAllowed:    opts.DropFrameAllowed,
+		MaxIntraBitratePct:  opts.MaxIntraBitratePct,
+		GFCBRBoostPct:       opts.GFCBRBoostPct,
 	}
+}
+
+func boostedFrameTargetBits(baseTargetBits int, boostPct int) int {
+	if baseTargetBits <= 0 || boostPct <= 0 {
+		return baseTargetBits
+	}
+	if boostPct > (maxInt()/baseTargetBits)-100 {
+		return maxInt()
+	}
+	return baseTargetBits * (100 + boostPct) / 100
+}
+
+func normalizedCQLevel(level int, minQuantizer int) int {
+	if level == 0 && minQuantizer > 0 {
+		return defaultCQLevel
+	}
+	return level
 }
 
 func normalizeRateControlPct(value int, fallback int) int {

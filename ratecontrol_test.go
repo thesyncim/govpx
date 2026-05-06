@@ -78,8 +78,14 @@ func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.
 
 	rc.mode = RateControlCQ
 	rc.currentQuantizer = 20
-	if got := rc.frameSizeFeedbackQuantizer(38); got != 20 {
-		t.Fatalf("CQ frame feedback q = %d, want unchanged 20", got)
+	rc.cqLevel = 20
+	if got := rc.frameSizeFeedbackQuantizer(38); got != 22 {
+		t.Fatalf("CQ oversized frame feedback q = %d, want constrained increase to 22", got)
+	}
+	rc.currentQuantizer = 21
+	rc.bufferLevelBits = 2000
+	if got := rc.frameSizeFeedbackQuantizer(4); got != 20 {
+		t.Fatalf("CQ undersized frame feedback q = %d, want floor at CQ level 20", got)
 	}
 }
 
@@ -99,6 +105,112 @@ func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	}
 	if rc.undershootPct != defaultRateControlUndershootPct || rc.overshootPct != defaultRateControlOvershootPct {
 		t.Fatalf("thresholds = under:%d over:%d, want %d/%d", rc.undershootPct, rc.overshootPct, defaultRateControlUndershootPct, defaultRateControlOvershootPct)
+	}
+}
+
+func TestRateControlCQUsesCQLevel(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             32,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	rc.bufferOptimalBits = 2000
+	rc.bufferLevelBits = 0
+
+	rc.beginFrame(false)
+	if rc.currentQuantizer != 32 {
+		t.Fatalf("beginFrame CQ quantizer = %d, want CQ level 32", rc.currentQuantizer)
+	}
+	rc.postEncodeFrame(1<<20, false)
+	if rc.currentQuantizer <= 32 {
+		t.Fatalf("postEncodeFrame CQ quantizer = %d, want constrained increase above CQ level 32", rc.currentQuantizer)
+	}
+	rc.currentQuantizer = 33
+	rc.bufferLevelBits = 3000
+	rc.postEncodeFrame(1, false)
+	if rc.currentQuantizer != 32 {
+		t.Fatalf("undersized CQ quantizer = %d, want floor at CQ level 32", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlCQDefaultLevelMirrorsLibvpx(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	if rc.cqLevel != defaultCQLevel || rc.currentQuantizer != defaultCQLevel {
+		t.Fatalf("CQ default = level:%d q:%d, want %d", rc.cqLevel, rc.currentQuantizer, defaultCQLevel)
+	}
+}
+
+func TestRateControlCQValidatesLevelAgainstBounds(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  RateControlConfig
+	}{
+		{
+			name: "outside cq range",
+			cfg: RateControlConfig{
+				Mode:                RateControlCQ,
+				TargetBitrateKbps:   1200,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				CQLevel:             64,
+				BufferSizeMs:        600,
+				BufferInitialSizeMs: 400,
+				BufferOptimalSizeMs: 500,
+			},
+		},
+		{
+			name: "below min",
+			cfg: RateControlConfig{
+				Mode:                RateControlCQ,
+				TargetBitrateKbps:   1200,
+				MinQuantizer:        20,
+				MaxQuantizer:        56,
+				CQLevel:             16,
+				BufferSizeMs:        600,
+				BufferInitialSizeMs: 400,
+				BufferOptimalSizeMs: 500,
+			},
+		},
+		{
+			name: "default below min",
+			cfg: RateControlConfig{
+				Mode:                RateControlCQ,
+				TargetBitrateKbps:   1200,
+				MinQuantizer:        20,
+				MaxQuantizer:        56,
+				BufferSizeMs:        600,
+				BufferInitialSizeMs: 400,
+				BufferOptimalSizeMs: 500,
+			},
+		},
+	}
+	for _, tc := range tests {
+		var rc rateControlState
+		err := rc.applyConfig(tc.cfg, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+		if err != ErrInvalidQuantizer {
+			t.Fatalf("%s error = %v, want ErrInvalidQuantizer", tc.name, err)
+		}
 	}
 }
 
@@ -164,5 +276,74 @@ func TestRateControlBeginFrameKeepsFirstFrameTargetStable(t *testing.T) {
 	}
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("currentQuantizer = %d, want unchanged 20 before feedback", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlBeginFrameCapsKeyFrameTargetWithMaxIntraBitrate(t *testing.T) {
+	rc := rateControlState{
+		mode:                RateControlCBR,
+		minQuantizer:        4,
+		maxQuantizer:        56,
+		currentQuantizer:    20,
+		bitsPerFrame:        1000,
+		maxIntraBitratePct:  250,
+		bufferOptimalBits:   2000,
+		bufferLevelBits:     2000,
+		rollingTargetBits:   0,
+		rollingActualBits:   0,
+		frameDropPressure:   0,
+		framesSinceKeyframe: 0,
+	}
+
+	rc.beginFrame(true)
+
+	if rc.frameTargetBits != 2500 {
+		t.Fatalf("keyframe target = %d, want capped 2500", rc.frameTargetBits)
+	}
+}
+
+func TestRateControlRejectsInvalidMaxIntraBitrate(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MaxIntraBitratePct:  -1,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != ErrInvalidConfig {
+		t.Fatalf("applyConfig error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestRateControlRejectsInvalidGFCBRBoost(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		GFCBRBoostPct:       -1,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != ErrInvalidConfig {
+		t.Fatalf("applyConfig error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestBoostedFrameTargetBits(t *testing.T) {
+	if got := boostedFrameTargetBits(1000, 100); got != 2000 {
+		t.Fatalf("boosted target = %d, want 2000", got)
+	}
+	if got := boostedFrameTargetBits(1000, 0); got != 1000 {
+		t.Fatalf("zero-boost target = %d, want 1000", got)
+	}
+	if got := boostedFrameTargetBits(maxInt(), 100); got != maxInt() {
+		t.Fatalf("overflow-boost target = %d, want maxInt", got)
 	}
 }
