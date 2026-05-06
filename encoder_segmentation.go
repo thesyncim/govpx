@@ -52,9 +52,13 @@ func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMac
 }
 
 func assignInterFrameStaticSegments(rows int, cols int, start int, refreshCount int, modes []vp8enc.InterFrameMacroblockMode) {
+	assignInterFrameStaticSegmentsWithMap(rows, cols, start, refreshCount, nil, modes)
+}
+
+func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refreshCount int, refreshMap []int8, modes []vp8enc.InterFrameMacroblockMode) int {
 	count := rows * cols
 	if count <= 0 {
-		return
+		return 0
 	}
 	start %= count
 	if start < 0 {
@@ -66,8 +70,83 @@ func assignInterFrameStaticSegments(rows int, cols int, start int, refreshCount 
 			modes[index].SegmentID = 0
 		}
 	}
-	for refreshed := 0; refreshed < refreshCount && refreshed < count; refreshed++ {
-		modes[(start+refreshed)%count].SegmentID = staticSegmentID
+	if refreshCount <= 0 {
+		return start
+	}
+	if len(refreshMap) < count {
+		for refreshed := 0; refreshed < refreshCount && refreshed < count; refreshed++ {
+			modes[(start+refreshed)%count].SegmentID = staticSegmentID
+		}
+		return (start + min(refreshCount, count)) % count
+	}
+	i := start
+	blockCount := refreshCount
+	for {
+		if refreshMap[i] == 0 {
+			modes[i].SegmentID = staticSegmentID
+			blockCount--
+		} else if refreshMap[i] < 0 {
+			refreshMap[i]++
+		}
+		i++
+		if i == count {
+			i = 0
+		}
+		if blockCount == 0 || i == start {
+			break
+		}
+	}
+	return i
+}
+
+func (e *VP8Encoder) assignInterFrameStaticSegments(rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
+	count := rows * cols
+	if count <= 0 {
+		return 0
+	}
+	if len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count {
+		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), nil, modes)
+	}
+	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
+	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.cyclicRefreshAttemptMap[:count], modes)
+}
+
+func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, modes []vp8enc.InterFrameMacroblockMode) {
+	count := rows * cols
+	if count <= 0 {
+		e.cyclicRefreshIndex = 0
+		return
+	}
+	if len(e.cyclicRefreshMap) >= count && len(e.cyclicRefreshAttemptMap) >= count && len(modes) >= count {
+		copy(e.cyclicRefreshMap[:count], e.cyclicRefreshAttemptMap[:count])
+		updateCyclicRefreshMapFromInterFrame(modes[:count], e.cyclicRefreshMap[:count])
+	}
+	nextIndex %= count
+	if nextIndex < 0 {
+		nextIndex += count
+	}
+	e.cyclicRefreshIndex = nextIndex
+}
+
+func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMode, refreshMap []int8) {
+	count := min(len(modes), len(refreshMap))
+	for index := 0; index < count; index++ {
+		mode := modes[index]
+		if mode.SegmentID != 0 {
+			refreshMap[index] = -1
+		} else if mode.Mode == vp8common.ZeroMV && mode.RefFrame == vp8common.LastFrame {
+			if refreshMap[index] == 1 {
+				refreshMap[index] = 0
+			}
+		} else {
+			refreshMap[index] = 1
+		}
+	}
+}
+
+func clearCyclicRefreshMap(refreshMap []int8) {
+	for i := range refreshMap {
+		refreshMap[i] = 0
 	}
 }
 

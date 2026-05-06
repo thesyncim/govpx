@@ -616,6 +616,48 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
 	}
 }
 
+func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testing.T) {
+	modes := make([]vp8enc.InterFrameMacroblockMode, 5)
+	refreshMap := []int8{0, -1, 1, 0, 0}
+
+	next := assignInterFrameStaticSegmentsWithMap(1, 5, 0, 2, refreshMap, modes)
+
+	if next != 4 {
+		t.Fatalf("next cyclic refresh index = %d, want 4 after skipped cooldown/dirty blocks", next)
+	}
+	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
+		t.Fatalf("eligible segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[3].SegmentID)
+	}
+	if modes[1].SegmentID != 0 || modes[2].SegmentID != 0 || modes[4].SegmentID != 0 {
+		t.Fatalf("ineligible segment IDs = %d/%d/%d, want zero", modes[1].SegmentID, modes[2].SegmentID, modes[4].SegmentID)
+	}
+	if refreshMap[1] != 0 {
+		t.Fatalf("cooldown map[1] = %d, want incremented to candidate 0", refreshMap[1])
+	}
+	if refreshMap[2] != 1 {
+		t.Fatalf("dirty map[2] = %d, want unchanged", refreshMap[2])
+	}
+}
+
+func TestUpdateCyclicRefreshMapFromInterFrameMirrorsLibvpxStates(t *testing.T) {
+	refreshMap := []int8{0, 1, 0, 0}
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+	}
+
+	updateCyclicRefreshMapFromInterFrame(modes, refreshMap)
+
+	want := []int8{-1, 0, 1, 1}
+	for i := range want {
+		if refreshMap[i] != want[i] {
+			t.Fatalf("refreshMap[%d] = %d, want %d", i, refreshMap[i], want[i])
+		}
+	}
+}
+
 func TestCyclicRefreshMaxMBsPerFrameMirrorsLibvpxLayerCadence(t *testing.T) {
 	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 1); got != 3 {
 		t.Fatalf("one-layer cyclic refresh MBs = %d, want libvpx MBs/20", got)

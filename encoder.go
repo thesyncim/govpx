@@ -137,8 +137,10 @@ type VP8Encoder struct {
 	forceKeyFrame bool
 	frameCount    uint64
 
-	cyclicRefreshIndex   int
-	lastInterZeroMVCount int
+	cyclicRefreshIndex      int
+	cyclicRefreshMap        []int8
+	cyclicRefreshAttemptMap []int8
+	lastInterZeroMVCount    int
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
@@ -164,13 +166,15 @@ type VP8Encoder struct {
 const encoderQuantizerFeedbackMaxAttempts = 2
 
 type interFrameEncodeAttempt struct {
-	Config         vp8enc.InterFrameStateConfig
-	FrameCoefProbs vp8tables.CoefficientProbs
-	FrameMVProbs   [2][vp8tables.MVPCount]uint8
-	RefFrame       vp8common.MVReferenceFrame
-	Ref            *vp8common.Image
-	Size           int
-	ZeroReference  bool
+	Config                 vp8enc.InterFrameStateConfig
+	FrameCoefProbs         vp8tables.CoefficientProbs
+	FrameMVProbs           [2][vp8tables.MVPCount]uint8
+	RefFrame               vp8common.MVReferenceFrame
+	Ref                    *vp8common.Image
+	Size                   int
+	ZeroReference          bool
+	CyclicRefresh          bool
+	CyclicRefreshNextIndex int
 }
 
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
@@ -181,12 +185,14 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
-		opts:            normalized,
-		timing:          timing,
-		keyFrameModes:   make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		interFrameModes: make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		keyFrameCoeffs:  make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		tokenAbove:      make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
+		opts:                    normalized,
+		timing:                  timing,
+		cyclicRefreshMap:        make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		cyclicRefreshAttemptMap: make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
 		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
@@ -299,8 +305,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		e.rc.postEncodeFrameWithContext(attempt.Size, false, goldenCBRRefresh, required)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
-		if attempt.Config.Segmentation.Enabled {
-			e.advanceCyclicRefresh(rows, cols)
+		if attempt.CyclicRefresh {
+			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
 		}
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 		e.temporal.finishFrame(temporalFrame, false, temporalReferenceRefresh{
@@ -357,6 +363,9 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 		return 0, err
 	}
 	e.commitInterFrameAttempt(attempt)
+	if attempt.CyclicRefresh {
+		e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+	}
 	return attempt.Size, nil
 }
 
@@ -464,8 +473,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
 	var err error
+	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	if segmentation.Enabled {
-		assignInterFrameStaticSegments(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.interFrameModes[:required])
+		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(rows, cols, e.interFrameModes[:required])
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
@@ -480,7 +490,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool) bool {
@@ -872,6 +882,8 @@ func (e *VP8Encoder) Reset() {
 	e.forceKeyFrame = false
 	e.frameCount = 0
 	e.cyclicRefreshIndex = 0
+	clearCyclicRefreshMap(e.cyclicRefreshMap)
+	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	e.lastInterZeroMVCount = 0
 	e.rc.framesSinceKeyframe = 0
 	e.rc.rollingActualBits = 0

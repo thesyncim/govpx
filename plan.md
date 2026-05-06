@@ -163,7 +163,8 @@ Remaining work:
 
 - Complete exact libvpx cyclic/background refresh segmentation policy; rotating
   cyclic-refresh-style segment maps exist with libvpx temporal-layer MB cadence
-  and libvpx Q/2-Q ALT_Q boost.
+  and libvpx Q/2-Q ALT_Q boost, eligibility map, and one-frame clean-block
+  cooldown.
 - Make quantizer selection segment-aware.
 - Implement libvpx CBR feedback more completely.
 - Complete exact libvpx constrained-quality bitrate behavior for
