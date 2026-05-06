@@ -41,6 +41,43 @@ func TestInitFastMacroblockQuant(t *testing.T) {
 	}
 }
 
+func TestInitSegmentMacroblockQuantsUsesDeltaSegmentation(t *testing.T) {
+	segmentation := SegmentationConfig{Enabled: true, UpdateData: true}
+	segmentation.FeatureEnabled[common.MBLvlAltQ][1] = true
+	segmentation.FeatureData[common.MBLvlAltQ][1] = 10
+	segmentation.FeatureEnabled[common.MBLvlAltQ][2] = true
+	segmentation.FeatureData[common.MBLvlAltQ][2] = -30
+	var quants [common.MaxMBSegments]MacroblockQuant
+
+	if err := InitSegmentMacroblockQuants(20, common.QuantDeltas{}, segmentation, &quants); err != nil {
+		t.Fatalf("InitSegmentMacroblockQuants returned error: %v", err)
+	}
+
+	wantSeg0AC := int16(common.ACYQuant(20))
+	wantSeg1AC := int16(common.ACYQuant(30))
+	wantSeg2AC := int16(common.ACYQuant(0))
+	if quants[0].Y1.Dequant[1] != wantSeg0AC || quants[1].Y1.Dequant[1] != wantSeg1AC || quants[2].Y1.Dequant[1] != wantSeg2AC {
+		t.Fatalf("segment AC dequants = %d/%d/%d, want %d/%d/%d", quants[0].Y1.Dequant[1], quants[1].Y1.Dequant[1], quants[2].Y1.Dequant[1], wantSeg0AC, wantSeg1AC, wantSeg2AC)
+	}
+}
+
+func TestInitSegmentMacroblockQuantsUsesAbsSegmentation(t *testing.T) {
+	segmentation := SegmentationConfig{Enabled: true, UpdateData: true, AbsDelta: true}
+	segmentation.FeatureEnabled[common.MBLvlAltQ][3] = true
+	segmentation.FeatureData[common.MBLvlAltQ][3] = 7
+	var quants [common.MaxMBSegments]MacroblockQuant
+
+	if err := InitSegmentMacroblockQuants(20, common.QuantDeltas{UVDC: 5}, segmentation, &quants); err != nil {
+		t.Fatalf("InitSegmentMacroblockQuants returned error: %v", err)
+	}
+
+	wantSeg3YAC := int16(common.ACYQuant(7))
+	wantSeg3UVDC := int16(common.DCUVQuant(7, 5))
+	if quants[3].Y1.Dequant[1] != wantSeg3YAC || quants[3].UV.Dequant[0] != wantSeg3UVDC {
+		t.Fatalf("segment 3 dequants = YAC %d UVDC %d, want %d/%d", quants[3].Y1.Dequant[1], quants[3].UV.Dequant[0], wantSeg3YAC, wantSeg3UVDC)
+	}
+}
+
 func TestFastQuantizeBlockSentinel(t *testing.T) {
 	var dequant [16]int16
 	for i := range dequant {

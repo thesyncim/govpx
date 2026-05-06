@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	libgopx "github.com/thesyncim/libgopx"
+	"github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
@@ -65,6 +66,28 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsClearsNeutralBlocks(t *testing
 	}
 }
 
+func TestBuildNeutralPredictorKeyFrameCoefficientsWithSegmentationQuantizesPerSegment(t *testing.T) {
+	src := solidSourceImage(32, 16, 255, 128, 128)
+	modes := []vp8enc.KeyFrameMacroblockMode{
+		{SegmentID: 0},
+		{SegmentID: 1},
+	}
+	coeffs := make([]vp8enc.MacroblockCoefficients, 2)
+	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true, AbsDelta: true}
+	segmentation.FeatureEnabled[common.MBLvlAltQ][1] = true
+	segmentation.FeatureData[common.MBLvlAltQ][1] = 100
+
+	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficientsWithSegmentation(src, 0, segmentation, modes, coeffs); err != nil {
+		t.Fatalf("BuildNeutralPredictorKeyFrameCoefficientsWithSegmentation returned error: %v", err)
+	}
+	if modes[0].SegmentID != 0 || modes[1].SegmentID != 1 {
+		t.Fatalf("segment IDs = %d/%d, want preserved 0/1", modes[0].SegmentID, modes[1].SegmentID)
+	}
+	if coeffs[0].QCoeff[24][0] == coeffs[1].QCoeff[24][0] {
+		t.Fatalf("Y2 DC qcoeffs = %d/%d, want segment-specific quantization", coeffs[0].QCoeff[24][0], coeffs[1].QCoeff[24][0])
+	}
+}
+
 func TestBuildNeutralPredictorKeyFrameCoefficientsRejectsInvalidInput(t *testing.T) {
 	src := solidSourceImage(16, 16, 128, 128, 128)
 	modes := make([]vp8enc.KeyFrameMacroblockMode, 1)
@@ -75,6 +98,10 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsRejectsInvalidInput(t *testing
 	}
 	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(src, 20, nil, coeffs); !errors.Is(err, vp8enc.ErrModeBufferTooSmall) {
 		t.Fatalf("short modes error = %v, want ErrModeBufferTooSmall", err)
+	}
+	modes[0].SegmentID = common.MaxMBSegments
+	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficientsWithSegmentation(src, 20, vp8enc.SegmentationConfig{Enabled: true}, modes, coeffs); !errors.Is(err, vp8enc.ErrInvalidPacketConfig) {
+		t.Fatalf("bad segment error = %v, want ErrInvalidPacketConfig", err)
 	}
 	src.Y = src.Y[:4]
 	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(src, 20, modes, coeffs); !errors.Is(err, vp8enc.ErrInvalidPacketConfig) {

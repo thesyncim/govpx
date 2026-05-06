@@ -39,6 +39,29 @@ func InitFastMacroblockQuant(dequant *common.MacroblockDequant, out *MacroblockQ
 	InitFastBlockQuant(&dequant.UV, &out.UV)
 }
 
+func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segmentation SegmentationConfig, out *[common.MaxMBSegments]MacroblockQuant) error {
+	if baseQIndex < common.MinQ || baseQIndex > common.MaxQ || out == nil || !validSegmentationConfig(segmentation) {
+		return ErrInvalidPacketConfig
+	}
+	var tables common.FrameDequantTables
+	var dequant common.MacroblockDequant
+	common.BuildFrameDequantTables(deltas, &tables)
+	for segment := 0; segment < common.MaxMBSegments; segment++ {
+		qIndex := baseQIndex
+		if segmentation.Enabled && segmentation.FeatureEnabled[common.MBLvlAltQ][segment] {
+			altQ := int(segmentation.FeatureData[common.MBLvlAltQ][segment])
+			if segmentation.AbsDelta {
+				qIndex = altQ
+			} else {
+				qIndex = baseQIndex + altQ
+			}
+		}
+		common.InitMacroblockDequant(&tables, qIndex, &dequant)
+		InitFastMacroblockQuant(&dequant, &out[segment])
+	}
+	return nil
+}
+
 func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := -1
 	for i := 0; i < 16; i++ {

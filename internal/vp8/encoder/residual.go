@@ -20,6 +20,14 @@ type SourceImage struct {
 }
 
 func BuildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
+	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, SegmentationConfig{}, false, modes, coeffs)
+}
+
+func BuildNeutralPredictorKeyFrameCoefficientsWithSegmentation(src SourceImage, qIndex int, segmentation SegmentationConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
+	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, segmentation, true, modes, coeffs)
+}
+
+func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, segmentation SegmentationConfig, preserveSegmentID bool, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
 	if !validSourceImage(src) || qIndex < common.MinQ || qIndex > common.MaxQ {
 		return ErrInvalidPacketConfig
 	}
@@ -30,18 +38,23 @@ func BuildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, mode
 		return ErrModeBufferTooSmall
 	}
 
-	var dequantTables common.FrameDequantTables
-	var dequant common.MacroblockDequant
-	var quant MacroblockQuant
-	common.BuildFrameDequantTables(common.QuantDeltas{}, &dequantTables)
-	common.InitMacroblockDequant(&dequantTables, qIndex, &dequant)
-	InitFastMacroblockQuant(&dequant, &quant)
+	var quants [common.MaxMBSegments]MacroblockQuant
+	if err := InitSegmentMacroblockQuants(qIndex, common.QuantDeltas{}, segmentation, &quants); err != nil {
+		return err
+	}
 
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			modes[index] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
-			buildNeutralPredictorMacroblockCoefficients(src, row, col, &quant, &coeffs[index])
+			segmentID := uint8(0)
+			if preserveSegmentID {
+				segmentID = modes[index].SegmentID
+				if segmentID >= common.MaxMBSegments {
+					return ErrInvalidPacketConfig
+				}
+			}
+			modes[index] = KeyFrameMacroblockMode{SegmentID: segmentID, YMode: common.DCPred, UVMode: common.DCPred}
+			buildNeutralPredictorMacroblockCoefficients(src, row, col, &quants[segmentID], &coeffs[index])
 		}
 	}
 	return nil
