@@ -131,7 +131,8 @@ type VP8Encoder struct {
 	forceKeyFrame bool
 	frameCount    uint64
 
-	cyclicRefreshIndex int
+	cyclicRefreshIndex   int
+	lastInterZeroMVCount int
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
@@ -293,6 +294,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		if attempt.Config.Segmentation.Enabled {
 			e.advanceCyclicRefresh(rows, cols)
 		}
+		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 		e.temporal.finishFrame(temporalFrame, false, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -315,6 +317,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
+	e.lastInterZeroMVCount = 0
 	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true})
 	e.frameCount++
 	return result, nil
@@ -513,6 +516,16 @@ func fillZeroInterFrameModes(modes []vp8enc.InterFrameMacroblockMode, refFrame v
 	}
 }
 
+func countLastZeroMVInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int {
+	count := 0
+	for _, mode := range modes {
+		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+			count++
+		}
+	}
+	return count
+}
+
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
@@ -540,6 +553,9 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 		e.rc.mode != RateControlCBR ||
 		e.rc.gfCBRBoostPct <= 0 ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
+		return false
+	}
+	if required := rows * cols; required <= 0 || e.lastInterZeroMVCount <= required/2 {
 		return false
 	}
 	interval := e.goldenFrameCBRInterval(rows, cols)
@@ -830,6 +846,7 @@ func (e *VP8Encoder) Reset() {
 	e.forceKeyFrame = false
 	e.frameCount = 0
 	e.cyclicRefreshIndex = 0
+	e.lastInterZeroMVCount = 0
 	e.rc.framesSinceKeyframe = 0
 	e.rc.rollingActualBits = 0
 	e.rc.rollingTargetBits = 0

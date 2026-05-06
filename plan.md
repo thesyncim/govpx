@@ -169,7 +169,8 @@ Remaining work:
   production requirements; one-pass first and later keyframe target sizing now
   mirrors libvpx's buffer, framerate, Q-adjustment, and separation rules.
 - Complete exact libvpx golden-frame CBR boost heuristics; opt-in
-  GF-CBR boost target/refresh control exists.
+  GF-CBR boost target/refresh control exists and now uses libvpx's prior
+  LAST/ZEROMV majority gate.
 - Implement VBR/two-pass planning if production parity requires VBR.
 - Add adaptive keyframe/scene-cut behavior.
 - Add screen-content controls and complete static-background segmentation policy;

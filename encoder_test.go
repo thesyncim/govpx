@@ -187,6 +187,37 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	}
 }
 
+func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              32,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		GFCBRBoostPct:       100,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	e.rc.framesSinceKeyframe = e.goldenFrameCBRInterval(rows, cols)
+
+	e.lastInterZeroMVCount = rows * cols / 2
+	if e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
+		t.Fatalf("shouldRefreshGoldenFrameCBR = true, want false without LAST/ZEROMV majority")
+	}
+	e.lastInterZeroMVCount = rows*cols/2 + 1
+	if !e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
+		t.Fatalf("shouldRefreshGoldenFrameCBR = false, want true with LAST/ZEROMV majority")
+	}
+}
+
 func TestEncodeIntoGFCBRBoostDisabledForErrorResilient(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
