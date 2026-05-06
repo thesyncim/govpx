@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
 	"time"
@@ -15,12 +17,14 @@ import (
 )
 
 type benchConfig struct {
-	Width       int
-	Height      int
-	Frames      int
-	FPS         int
-	BitrateKbps int
-	Mode        string
+	Width        int
+	Height       int
+	Frames       int
+	FPS          int
+	BitrateKbps  int
+	Mode         string
+	LibvpxVpxenc string
+	LibvpxArgs   []string
 }
 
 type benchReport struct {
@@ -45,7 +49,22 @@ type benchReport struct {
 	EncodedFrames     int                `json:"encoded_frames"`
 	DroppedFrames     int                `json:"dropped_frames"`
 	QuantizerHist     map[string]int     `json:"quantizer_histogram"`
+	Reference         *referenceReport   `json:"reference,omitempty"`
 	Options           benchConfigSummary `json:"options"`
+}
+
+type referenceReport struct {
+	Encoder           string        `json:"encoder"`
+	Mode              string        `json:"mode"`
+	OutputBitrateKbps float64       `json:"output_bitrate_kbps"`
+	BitrateErrorPct   float64       `json:"bitrate_error_pct"`
+	NSPerFrame        int64         `json:"ns_per_frame"`
+	EncodeFPS         float64       `json:"encode_fps"`
+	KeyframeBytes     int           `json:"keyframe_bytes"`
+	AvgInterBytes     float64       `json:"avg_interframe_bytes"`
+	LatencyNS         latencyReport `json:"latency_ns"`
+	OutputBytes       int           `json:"output_bytes"`
+	EncodedFrames     int           `json:"encoded_frames"`
 }
 
 type quantizerReport struct {
@@ -72,6 +91,7 @@ func main() {
 	flag.IntVar(&cfg.FPS, "fps", 30, "frame rate")
 	flag.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	flag.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
+	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("LIBGOPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	flag.Parse()
 
 	report, err := runBenchmark(cfg)
@@ -208,7 +228,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		quantMean = float64(quantSum) / float64(encodedFrames)
 	}
 
-	return benchReport{
+	report := benchReport{
 		Encoder:           "libgopx",
 		Mode:              deadlineName,
 		Width:             cfg.Width,
@@ -239,7 +259,15 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		DroppedFrames: droppedFrames,
 		QuantizerHist: quantHist,
 		Options:       benchConfigSummary{Deadline: deadlineName},
-	}, nil
+	}
+	if cfg.LibvpxVpxenc != "" {
+		reference, err := runLibvpxBenchmark(cfg, frames, deadlineName)
+		if err != nil {
+			return benchReport{}, err
+		}
+		report.Reference = &reference
+	}
+	return report, nil
 }
 
 func benchmarkDeadline(mode string) (libgopx.Deadline, string, error) {
@@ -278,6 +306,147 @@ func makeBenchmarkFrame(width int, height int, index int) libgopx.Image {
 		}
 	}
 	return img
+}
+
+func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName string) (referenceReport, error) {
+	tempDir, err := os.MkdirTemp("", "libgopx-bench-*")
+	if err != nil {
+		return referenceReport{}, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	rawPath := tempDir + string(os.PathSeparator) + "input.i420"
+	outPath := tempDir + string(os.PathSeparator) + "output.ivf"
+	raw, err := os.Create(rawPath)
+	if err != nil {
+		return referenceReport{}, err
+	}
+	for _, frame := range frames {
+		if err := writeI420Frame(raw, frame); err != nil {
+			raw.Close()
+			return referenceReport{}, err
+		}
+	}
+	if err := raw.Close(); err != nil {
+		return referenceReport{}, err
+	}
+
+	vpxDeadline := "rt"
+	if deadlineName == "good" {
+		vpxDeadline = "good"
+	}
+	args := append([]string{}, cfg.LibvpxArgs...)
+	args = append(args,
+		"--codec=vp8",
+		"--ivf",
+		"--i420",
+		fmt.Sprintf("--width=%d", cfg.Width),
+		fmt.Sprintf("--height=%d", cfg.Height),
+		fmt.Sprintf("--fps=%d/1", cfg.FPS),
+		fmt.Sprintf("--limit=%d", cfg.Frames),
+		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
+		fmt.Sprintf("--deadline=%s", vpxDeadline),
+		"--cpu-used=8",
+		fmt.Sprintf("--output=%s", outPath),
+		rawPath,
+	)
+	start := time.Now()
+	cmd := exec.Command(cfg.LibvpxVpxenc, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return referenceReport{}, fmt.Errorf("libvpx vpxenc failed: %w\n%s", err, out)
+	}
+	elapsed := time.Since(start)
+
+	ivf, err := os.ReadFile(outPath)
+	if err != nil {
+		return referenceReport{}, err
+	}
+	sizes, err := parseIVFFrameSizes(ivf)
+	if err != nil {
+		return referenceReport{}, err
+	}
+	outputBytes := 0
+	for _, size := range sizes {
+		outputBytes += size
+	}
+	nsPerFrame := elapsed.Nanoseconds() / int64(len(frames))
+	outputBitrate := float64(outputBytes*8*cfg.FPS) / float64(cfg.Frames*1000)
+	bitrateError := (outputBitrate - float64(cfg.BitrateKbps)) * 100 / float64(cfg.BitrateKbps)
+	keyframeBytes := 0
+	interBytes := 0
+	if len(sizes) > 0 {
+		keyframeBytes = sizes[0]
+		for _, size := range sizes[1:] {
+			interBytes += size
+		}
+	}
+	avgInter := 0.0
+	if len(sizes) > 1 {
+		avgInter = float64(interBytes) / float64(len(sizes)-1)
+	}
+	return referenceReport{
+		Encoder:           "libvpx-vp8",
+		Mode:              deadlineName,
+		OutputBitrateKbps: outputBitrate,
+		BitrateErrorPct:   bitrateError,
+		NSPerFrame:        nsPerFrame,
+		EncodeFPS:         1e9 / float64(nsPerFrame),
+		KeyframeBytes:     keyframeBytes,
+		AvgInterBytes:     avgInter,
+		LatencyNS: latencyReport{
+			P50: nsPerFrame,
+			P95: nsPerFrame,
+			P99: nsPerFrame,
+		},
+		OutputBytes:   outputBytes,
+		EncodedFrames: len(sizes),
+	}, nil
+}
+
+func writeI420Frame(dst *os.File, frame libgopx.Image) error {
+	if err := writePlane(dst, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
+		return err
+	}
+	uvWidth := (frame.Width + 1) >> 1
+	uvHeight := (frame.Height + 1) >> 1
+	if err := writePlane(dst, frame.U, frame.UStride, uvWidth, uvHeight); err != nil {
+		return err
+	}
+	return writePlane(dst, frame.V, frame.VStride, uvWidth, uvHeight)
+}
+
+func writePlane(dst *os.File, plane []byte, stride int, width int, height int) error {
+	for row := 0; row < height; row++ {
+		if _, err := dst.Write(plane[row*stride : row*stride+width]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseIVFFrameSizes(ivf []byte) ([]int, error) {
+	const (
+		fileHeaderSize  = 32
+		frameHeaderSize = 12
+	)
+	if len(ivf) < fileHeaderSize || string(ivf[:4]) != "DKIF" {
+		return nil, errors.New("invalid IVF header")
+	}
+	offset := fileHeaderSize
+	var sizes []int
+	for offset < len(ivf) {
+		if offset+frameHeaderSize > len(ivf) {
+			return nil, errors.New("truncated IVF frame header")
+		}
+		size := int(binary.LittleEndian.Uint32(ivf[offset:]))
+		offset += frameHeaderSize
+		if size < 0 || offset+size > len(ivf) {
+			return nil, errors.New("truncated IVF frame payload")
+		}
+		sizes = append(sizes, size)
+		offset += size
+	}
+	return sizes, nil
 }
 
 func imagePSNR(src libgopx.Image, dst libgopx.Image) float64 {
