@@ -112,6 +112,12 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	if kbps <= 0 {
 		return ErrInvalidBitrate
 	}
+	if rc.minBitrateKbps > 0 && kbps < rc.minBitrateKbps {
+		return ErrInvalidBitrate
+	}
+	if rc.maxBitrateKbps > 0 && kbps > rc.maxBitrateKbps {
+		return ErrInvalidBitrate
+	}
 	targetBits := kbps * 1000
 	if targetBits/1000 != kbps {
 		return ErrInvalidBitrate

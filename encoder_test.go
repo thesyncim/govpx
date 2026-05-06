@@ -184,6 +184,45 @@ func TestSetRateControlValidation(t *testing.T) {
 	}
 }
 
+func TestSetBitrateKbpsHonorsConfiguredBounds(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1000,
+		MinBitrateKbps:      500,
+		MaxBitrateKbps:      1500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+
+	if err := e.SetBitrateKbps(499); !errors.Is(err, ErrInvalidBitrate) {
+		t.Fatalf("below min error = %v, want ErrInvalidBitrate", err)
+	}
+	if e.rc.targetBitrateKbps != 1000 {
+		t.Fatalf("target after below-min update = %d, want unchanged 1000", e.rc.targetBitrateKbps)
+	}
+	if err := e.SetBitrateKbps(1501); !errors.Is(err, ErrInvalidBitrate) {
+		t.Fatalf("above max error = %v, want ErrInvalidBitrate", err)
+	}
+	if e.rc.targetBitrateKbps != 1000 {
+		t.Fatalf("target after above-max update = %d, want unchanged 1000", e.rc.targetBitrateKbps)
+	}
+	if err := e.SetBitrateKbps(1200); err != nil {
+		t.Fatalf("in-range SetBitrateKbps returned error: %v", err)
+	}
+	if e.rc.targetBitrateKbps != 1200 {
+		t.Fatalf("target after in-range update = %d, want 1200", e.rc.targetBitrateKbps)
+	}
+}
+
 func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
 	e := newTestEncoder(t)
 
