@@ -256,6 +256,19 @@ func TestApplyPostProcessWithOptionsMFQECopiesHighMotionInterBlock(t *testing.T)
 	}
 }
 
+func TestQualifyInterMFQESplitMVChecksEachSubblock(t *testing.T) {
+	mode := MacroblockMode{Mode: common.SplitMV}
+	mode.BlockMV[0] = MotionVector{Row: 3}
+	mode.BlockMV[2] = MotionVector{Col: 3}
+	mode.BlockMV[8] = MotionVector{Row: 4}
+	mode.BlockMV[10] = MotionVector{Col: 4}
+
+	var got [4]int
+	if total := qualifyInterMFQEMacroblock(&mode, &got); total != 0 {
+		t.Fatalf("split-MV MFQE map = %v total=%d, want all rejected", got, total)
+	}
+}
+
 func newPostProcessFrame(t testing.TB, width int, height int) *common.FrameBuffer {
 	t.Helper()
 	fb, err := common.NewFrameBuffer(width, height, 32, 32)

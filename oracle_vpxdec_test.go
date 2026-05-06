@@ -139,6 +139,18 @@ func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
 	assertFrameChecksumsEqual(t, "error-concealment clean decode", concealment, normal)
 }
 
+func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true})
+	assertFrameChecksumsEqual(t, "postprocess Decode", got, want)
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
@@ -1135,6 +1147,11 @@ func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameC
 
 func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
+	return decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{})
+}
+
+func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions) []testutil.FrameChecksum {
+	t.Helper()
 	if _, err := testutil.ParseIVFHeader(ivf); err != nil {
 		t.Fatalf("ParseIVFHeader returned error: %v", err)
 	}
@@ -1142,7 +1159,7 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 	if err != nil {
 		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
 	}
-	d, err := NewVP8Decoder(DecoderOptions{})
+	d, err := NewVP8Decoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}

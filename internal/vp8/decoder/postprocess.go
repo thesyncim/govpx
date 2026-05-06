@@ -271,7 +271,7 @@ func qualifyInterMFQEMacroblock(mode *MacroblockMode, out *[4]int) int {
 		}
 		for i := 0; i < 4; i++ {
 			out[i] = 1
-			for j := 0; j < 4 && out[j] != 0; j++ {
+			for j := 0; j < 4 && out[i] != 0; j++ {
 				mv := mode.BlockMV[ndx[i][j]]
 				if mv.Row > 2 || mv.Col > 2 {
 					out[i] = 0
