@@ -66,6 +66,46 @@ func TestDecodeInterMacroblockNewMV(t *testing.T) {
 	}
 }
 
+func TestDecodeInterMacroblockAtClampsNearestMV(t *testing.T) {
+	var probs ModeProbs
+	ResetModeProbs(&probs)
+	header := ModeHeader{ProbIntra: 128, ProbLast: 128, ProbGolden: 128}
+	above := MacroblockMode{RefFrame: common.LastFrame, MV: MotionVector{Col: 136}}
+	payload := encodeInterMacroblockInter(t, header, &probs, &above, nil, nil, common.LastFrame, common.NearestMV, mvComponent{})
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	var out MacroblockMode
+
+	if err := decodeInterMacroblockAt(&br, 1, 2, 2, 3, nil, header, &probs, &above, nil, nil, [common.MaxRefFrames]bool{}, &out); err != nil {
+		t.Fatalf("DecodeInterMacroblock returned error: %v", err)
+	}
+	if out.RefFrame != common.LastFrame || out.Mode != common.NearestMV || out.MV != (MotionVector{Col: 128}) {
+		t.Fatalf("mode = %+v, want LAST/NEARESTMV {0,128}", out)
+	}
+}
+
+func TestDecodeInterMacroblockAtClampsNewMVBestPredictor(t *testing.T) {
+	var probs ModeProbs
+	ResetModeProbs(&probs)
+	header := ModeHeader{ProbIntra: 128, ProbLast: 128, ProbGolden: 128}
+	above := MacroblockMode{RefFrame: common.LastFrame, MV: MotionVector{Col: 136}}
+	payload := encodeInterMacroblockInterMV(t, header, &probs, &above, nil, nil, common.LastFrame, common.NewMV, mvComponent{}, mvComponent{value: 67, negative: true, large: true})
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	var out MacroblockMode
+
+	if err := decodeInterMacroblockAt(&br, 1, 2, 2, 3, nil, header, &probs, &above, nil, nil, [common.MaxRefFrames]bool{}, &out); err != nil {
+		t.Fatalf("DecodeInterMacroblock returned error: %v", err)
+	}
+	if out.RefFrame != common.LastFrame || out.Mode != common.NewMV || out.MV != (MotionVector{Col: -6}) {
+		t.Fatalf("mode = %+v, want LAST/NEWMV {0,-6}", out)
+	}
+}
+
 func TestDecodeInterMacroblockSplitMV(t *testing.T) {
 	var probs ModeProbs
 	ResetModeProbs(&probs)
@@ -111,6 +151,10 @@ func encodeInterMacroblockIntra(t *testing.T, header ModeHeader, probs *ModeProb
 }
 
 func encodeInterMacroblockInter(t *testing.T, header ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, refFrame common.MVReferenceFrame, mode common.MBPredictionMode, rowDelta mvComponent) []byte {
+	return encodeInterMacroblockInterMV(t, header, probs, above, left, aboveLeft, refFrame, mode, rowDelta, mvComponent{})
+}
+
+func encodeInterMacroblockInterMV(t *testing.T, header ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, refFrame common.MVReferenceFrame, mode common.MBPredictionMode, rowDelta mvComponent, colDelta mvComponent) []byte {
 	var w testBoolWriter
 	w.init()
 	writeInterReference(&w, header, refFrame)
@@ -118,7 +162,7 @@ func encodeInterMacroblockInter(t *testing.T, header ModeHeader, probs *ModeProb
 	writeInterPredictionMode(&w, counts, mode)
 	if mode == common.NewMV {
 		writeMVComponent(t, &w, probs.MV[0][:], rowDelta)
-		writeMVComponent(t, &w, probs.MV[1][:], mvComponent{})
+		writeMVComponent(t, &w, probs.MV[1][:], colDelta)
 	}
 	return w.finish()
 }

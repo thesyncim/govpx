@@ -156,7 +156,7 @@ func DecodeInterModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if err := DecodeInterMacroblock(br, segmentation, modeHeader, probs, above, left, aboveLeft, signBias, &modes[index]); err != nil {
+			if err := decodeInterMacroblockAt(br, row, col, rows, cols, segmentation, modeHeader, probs, above, left, aboveLeft, signBias, &modes[index]); err != nil {
 				return err
 			}
 		}
@@ -175,6 +175,10 @@ func DecodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out
 }
 
 func DecodeInterMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, signBias [common.MaxRefFrames]bool, out *MacroblockMode) error {
+	return decodeInterMacroblockAt(br, 0, 0, 1, 1, segmentation, modeHeader, probs, above, left, aboveLeft, signBias, out)
+}
+
+func decodeInterMacroblockAt(br *boolcoder.Decoder, mbRow int, mbCol int, mbRows int, mbCols int, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, signBias [common.MaxRefFrames]bool, out *MacroblockMode) error {
 	*out = MacroblockMode{}
 	if segmentation != nil && segmentation.Enabled && segmentation.UpdateMap {
 		out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
@@ -196,12 +200,14 @@ func DecodeInterMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHead
 	case common.ZeroMV:
 		out.MV = MotionVector{}
 	case common.NearestMV:
-		out.MV = nearest
+		out.MV = clampMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
 	case common.NearMV:
-		out.MV = near
+		out.MV = clampMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	case common.NewMV:
+		best = clampMotionVectorToModeEdges(best, mbRow, mbCol, mbRows, mbCols)
 		out.MV = addMotionVectors(best, DecodeMotionVector(br, &probs.MV))
 	case common.SplitMV:
+		best = clampMotionVectorToModeEdges(best, mbRow, mbCol, mbRows, mbCols)
 		decodeSplitMotionVectors(br, probs, left, above, best, out)
 	}
 	return nil

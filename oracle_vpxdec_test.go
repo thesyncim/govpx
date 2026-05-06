@@ -733,6 +733,7 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 
 	cases := []generatedLibvpxCorpusCase{
 		{name: "baseline", width: 32, height: 32, frames: 6},
+		{name: "narrow", width: 48, height: 24, frames: 6},
 		{name: "narrow-profile2", width: 48, height: 24, frames: 6, args: []string{"--profile=2"}},
 		{name: "token-two", width: 32, height: 32, frames: 6, args: []string{"--token-parts=1"}},
 		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}},

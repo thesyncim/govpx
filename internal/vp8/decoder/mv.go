@@ -127,6 +127,27 @@ func biasMotionVector(mv MotionVector, refFrame common.MVReferenceFrame, target 
 	return MotionVector{Row: -mv.Row, Col: -mv.Col}
 }
 
+func clampMotionVectorToModeEdges(mv MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
+	if mbRows <= 0 || mbCols <= 0 {
+		return mv
+	}
+	top, bottom, left, right := macroblockMotionVectorEdges(mbRow, mbCol, mbCols<<4, mbRows<<4)
+	return MotionVector{
+		Row: int16(clampModeMVComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampModeMVComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampModeMVComponent(v int, lowEdge int, highEdge int) int {
+	if v < lowEdge-(16<<3) {
+		return lowEdge - (16 << 3)
+	}
+	if v > highEdge+(16<<3) {
+		return highEdge + (16 << 3)
+	}
+	return v
+}
+
 func splitModeCount(mode *MacroblockMode) uint8 {
 	if mode != nil && mode.Mode == common.SplitMV {
 		return 1
