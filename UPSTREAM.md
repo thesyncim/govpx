@@ -49,7 +49,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Upstream manifest | scaffolded |
 | Oracle harness | optional vpxdec smoke and libvpx checksum oracle scaffolded, including postprocess and error-concealment decode modes for targeted parity tests |
 | Benchmark harness | synthetic libgopx encoder JSON benchmark scaffolded with optional external libvpx vpxenc comparison, including reference output size, latency, bitrate, and decodable PSNR/SSIM metrics; decoder CLI and `benchmarks/` package cover libgopx Decode/DecodeInto on the libvpx-authored smoke stream with optional libvpx checksum-oracle reference timing |
-| IVF/test vectors | IVF parser and oracle checksum parser scaffolded; normal-test VP8/IVF smoke vectors, including libvpx-authored reference, token-partition, profile, loop-filter sharpness, and error-resilient streams plus NEWMV, subpixel NEWMV, luma/chroma intra-mode keyframe, and intra-macroblock interframe coverage, checksummed against libvpx v1.16.0; opt-in encoder oracle coverage includes B_PRED keyframes, intra B_PRED interframes, libvpx decode-acceptance/checksum agreement for libgopx-encoded corpus clips, token-partition and segmentation feature assertions, PSNR/SSIM floors, bitrate windows, and loose libvpx-vpxenc quality-gap guards; opt-in generated libvpx corpus covers profile 0/1/2/3, one/two/four/eight token partitions, active eight-partition row cycling, error-resilient cyclic-refresh segmentation, sharpness, and static-threshold streams with feature assertions; opt-in external VP8 IVF conformance via `LIBGOPX_TEST_DATA_PATH` with required/minimum-count controls for CI corpus runs |
+| IVF/test vectors | IVF parser and oracle checksum parser scaffolded; normal-test VP8/IVF smoke vectors, including libvpx-authored reference, token-partition, profile, loop-filter sharpness, and error-resilient streams plus NEWMV, subpixel NEWMV, luma/chroma intra-mode keyframe, and intra-macroblock interframe coverage, checksummed against libvpx v1.16.0; opt-in encoder oracle coverage includes B_PRED keyframes, intra B_PRED interframes, libvpx decode-acceptance/checksum agreement for both libgopx-encoded and libvpx-encoded corpus clips, token-partition and segmentation feature assertions, aggregate and per-frame PSNR/SSIM floors, bitrate windows, and libvpx-vpxenc quality-gap guards; opt-in generated libvpx corpus covers profile 0/1/2/3, one/two/four/eight token partitions, active eight-partition row cycling, error-resilient cyclic-refresh segmentation, sharpness, and static-threshold streams with feature assertions; opt-in external VP8 IVF conformance via `LIBGOPX_TEST_DATA_PATH` with required/minimum-count controls for CI corpus runs |
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
@@ -78,6 +78,7 @@ grant. This repository keeps libvpx license and patent notices in
   refresh control, invisible-frame handling, plus opt-in reconstructed-frame
   loop filtering, but full libvpx cyclic/background segment selection and full
   libvpx rate-control heuristic parity are not complete yet. Encoder corpus
-  validation currently acts as a regression guard; its loose libvpx-vpxenc
-  PSNR-gap gates document that quality parity is still an open correctness goal.
+  validation currently acts as a regression guard; its libvpx-vpxenc aggregate
+  and per-frame quality-gap gates document that quality parity is still an open
+  correctness goal.
 - The package exposes a small Go API, not the libvpx C API.
