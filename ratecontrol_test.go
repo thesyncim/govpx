@@ -2,8 +2,9 @@ package govpx
 
 import "testing"
 
-func TestRateControlAdjustQuantizerUsesOvershootPct(t *testing.T) {
+func TestRateControlAdjustQuantizerUsesLibvpxOvershootBound(t *testing.T) {
 	rc := rateControlState{
+		mode:              RateControlCBR,
 		minQuantizer:      4,
 		maxQuantizer:      56,
 		currentQuantizer:  20,
@@ -11,42 +12,45 @@ func TestRateControlAdjustQuantizerUsesOvershootPct(t *testing.T) {
 		overshootPct:      100,
 		bufferOptimalBits: 1000,
 		bufferLevelBits:   800,
+		maximumBufferBits: 2000,
 	}
 
-	rc.adjustQuantizer(200, 100)
+	rc.adjustQuantizer(1575, 1000)
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("quantizer after tolerated overshoot = %d, want 20", rc.currentQuantizer)
 	}
 
-	rc.adjustQuantizer(201, 100)
+	rc.adjustQuantizer(1576, 1000)
 	if rc.currentQuantizer != 21 {
 		t.Fatalf("quantizer after overshoot = %d, want 21", rc.currentQuantizer)
 	}
 
 	rc.currentQuantizer = 20
-	rc.adjustQuantizer(301, 100)
+	rc.adjustQuantizer(2576, 1000)
 	if rc.currentQuantizer != 22 {
 		t.Fatalf("quantizer after large overshoot = %d, want 22", rc.currentQuantizer)
 	}
 }
 
-func TestRateControlAdjustQuantizerUsesUndershootPct(t *testing.T) {
+func TestRateControlAdjustQuantizerUsesLibvpxUndershootBound(t *testing.T) {
 	rc := rateControlState{
+		mode:              RateControlCBR,
 		minQuantizer:      4,
 		maxQuantizer:      56,
 		currentQuantizer:  20,
 		undershootPct:     50,
 		overshootPct:      defaultRateControlOvershootPct,
 		bufferOptimalBits: 1000,
-		bufferLevelBits:   1200,
+		bufferLevelBits:   800,
+		maximumBufferBits: 2000,
 	}
 
-	rc.adjustQuantizer(50, 100)
+	rc.adjustQuantizer(425, 1000)
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("quantizer after tolerated undershoot = %d, want 20", rc.currentQuantizer)
 	}
 
-	rc.adjustQuantizer(49, 100)
+	rc.adjustQuantizer(424, 1000)
 	if rc.currentQuantizer != 19 {
 		t.Fatalf("quantizer after undershoot = %d, want 19", rc.currentQuantizer)
 	}
@@ -62,30 +66,92 @@ func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.
 		overshootPct:      100,
 		bufferOptimalBits: 1000,
 		bufferLevelBits:   800,
-		bitsPerFrame:      100,
-		frameTargetBits:   100,
+		maximumBufferBits: 2000,
+		bitsPerFrame:      1000,
+		frameTargetBits:   1000,
 	}
 
-	if got := rc.frameSizeFeedbackQuantizer(38); got != 22 {
-		t.Fatalf("oversized frame feedback q = %d, want 22", got)
+	if got := rc.frameSizeFeedbackQuantizer(197); got != 21 {
+		t.Fatalf("oversized frame feedback q = %d, want 21", got)
 	}
 
 	rc.currentQuantizer = 20
-	rc.bufferLevelBits = 2000
-	if got := rc.frameSizeFeedbackQuantizer(4); got != 19 {
+	if got := rc.frameSizeFeedbackQuantizer(53); got != 19 {
 		t.Fatalf("undersized frame feedback q = %d, want 19", got)
 	}
 
 	rc.mode = RateControlCQ
 	rc.currentQuantizer = 20
 	rc.cqLevel = 20
-	if got := rc.frameSizeFeedbackQuantizer(38); got != 22 {
-		t.Fatalf("CQ oversized frame feedback q = %d, want constrained increase to 22", got)
+	if got := rc.frameSizeFeedbackQuantizer(197); got != 21 {
+		t.Fatalf("CQ oversized frame feedback q = %d, want constrained increase to 21", got)
 	}
 	rc.currentQuantizer = 21
-	rc.bufferLevelBits = 2000
-	if got := rc.frameSizeFeedbackQuantizer(4); got != 20 {
+	if got := rc.frameSizeFeedbackQuantizer(1); got != 20 {
 		t.Fatalf("CQ undersized frame feedback q = %d, want floor at CQ level 20", got)
+	}
+}
+
+func TestRateControlFrameSizeBoundsMirrorLibvpx(t *testing.T) {
+	tests := []struct {
+		name        string
+		rc          rateControlState
+		keyFrame    bool
+		goldenFrame bool
+		wantUnder   int
+		wantOver    int
+	}{
+		{
+			name:      "key",
+			rc:        rateControlState{mode: RateControlCBR, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 800},
+			keyFrame:  true,
+			wantUnder: 675,
+			wantOver:  1325,
+		},
+		{
+			name:        "golden",
+			rc:          rateControlState{mode: RateControlCBR, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 800},
+			goldenFrame: true,
+			wantUnder:   675,
+			wantOver:    1325,
+		},
+		{
+			name:      "cbr low buffer",
+			rc:        rateControlState{mode: RateControlCBR, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 500},
+			wantUnder: 300,
+			wantOver:  1450,
+		},
+		{
+			name:      "cbr mid buffer",
+			rc:        rateControlState{mode: RateControlCBR, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 800},
+			wantUnder: 425,
+			wantOver:  1575,
+		},
+		{
+			name:      "cbr high buffer",
+			rc:        rateControlState{mode: RateControlCBR, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 1500},
+			wantUnder: 550,
+			wantOver:  1700,
+		},
+		{
+			name:      "cq",
+			rc:        rateControlState{mode: RateControlCQ},
+			wantUnder: 50,
+			wantOver:  1575,
+		},
+		{
+			name:      "vbr",
+			rc:        rateControlState{mode: RateControlVBR},
+			wantUnder: 425,
+			wantOver:  1575,
+		},
+	}
+
+	for _, tc := range tests {
+		gotUnder, gotOver := tc.rc.frameSizeBoundsBits(tc.keyFrame, tc.goldenFrame, 1000)
+		if gotUnder != tc.wantUnder || gotOver != tc.wantOver {
+			t.Fatalf("%s bounds = %d/%d, want %d/%d", tc.name, gotUnder, gotOver, tc.wantUnder, tc.wantOver)
+		}
 	}
 }
 

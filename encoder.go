@@ -325,7 +325,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if err != nil {
 			return 0, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(n) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(n, true, false) {
 			return n, nil
 		}
 	}
@@ -378,7 +378,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, goldenCBRRefresh) {
 			return result, nil
 		}
 	}
@@ -442,8 +442,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n}, nil
 }
 
-func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int) bool {
-	next := e.rc.frameSizeFeedbackQuantizer(sizeBytes)
+func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool) bool {
+	next := e.rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, keyFrame, goldenFrame)
 	if next == e.rc.currentQuantizer {
 		return false
 	}

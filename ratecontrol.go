@@ -281,9 +281,9 @@ func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame b
 
 	rc.lastQuantizer = rc.currentQuantizer
 	if rc.mode == RateControlCQ {
-		rc.adjustCQQuantizer(actualBits, targetBits)
+		rc.adjustCQQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
 	} else {
-		rc.adjustQuantizer(actualBits, targetBits)
+		rc.adjustQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
 	}
 	rc.clampQuantizer()
 
@@ -388,74 +388,41 @@ func (rc *rateControlState) postDropFrame() {
 }
 
 func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
+	return rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, false, false)
+}
+
+func (rc *rateControlState) frameSizeFeedbackQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool) int {
 	q := rc.currentQuantizer
-	if rc.mode == RateControlCQ {
-		return rc.cqFrameSizeFeedbackQuantizer(sizeBytes)
-	}
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
 	if targetBits <= 0 {
+		if rc.mode == RateControlCQ {
+			return rc.clampedCQQuantizerValue(q)
+		}
 		return q
 	}
 	actualBits := encodedSizeBits(sizeBytes)
-	projectedBuffer := saturatingSub(saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame), actualBits)
-	if rc.maximumBufferBits > 0 && projectedBuffer > rc.maximumBufferBits {
-		projectedBuffer = rc.maximumBufferBits
-	}
-	if projectedBuffer < 0 {
-		projectedBuffer = 0
-	}
-	lowBuffer := rc.bufferOptimalBits > 0 && projectedBuffer < rc.bufferOptimalBits/2
-	highBuffer := rc.bufferOptimalBits > 0 && projectedBuffer > rc.bufferOptimalBits
-	overshootLimit := rc.overshootLimitBits(targetBits)
-	undershootLimit := rc.undershootLimitBits(targetBits)
+	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	switch {
-	case actualBits > overshootLimit || lowBuffer:
+	case actualBits > overshootLimit:
 		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+		if actualBits > saturatingAdd(overshootLimit, targetBits) {
 			step = 2
 		}
 		q += step
-	case actualBits < undershootLimit && highBuffer:
+	case actualBits < undershootLimit:
 		q--
+	}
+	if rc.mode == RateControlCQ {
+		return rc.clampedCQQuantizerValue(q)
 	}
 	return rc.clampedQuantizerValue(q)
 }
 
 func (rc *rateControlState) cqFrameSizeFeedbackQuantizer(sizeBytes int) int {
-	q := rc.currentQuantizer
-	targetBits := rc.frameTargetBits
-	if targetBits <= 0 {
-		targetBits = rc.bitsPerFrame
-	}
-	if targetBits <= 0 {
-		return rc.clampedCQQuantizerValue(q)
-	}
-	actualBits := encodedSizeBits(sizeBytes)
-	projectedBuffer := saturatingSub(saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame), actualBits)
-	if rc.maximumBufferBits > 0 && projectedBuffer > rc.maximumBufferBits {
-		projectedBuffer = rc.maximumBufferBits
-	}
-	if projectedBuffer < 0 {
-		projectedBuffer = 0
-	}
-	lowBuffer := rc.bufferOptimalBits > 0 && projectedBuffer < rc.bufferOptimalBits/2
-	highBuffer := rc.bufferOptimalBits > 0 && projectedBuffer > rc.bufferOptimalBits
-	overshootLimit := rc.overshootLimitBits(targetBits)
-	undershootLimit := rc.undershootLimitBits(targetBits)
-	switch {
-	case actualBits > overshootLimit || lowBuffer:
-		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
-			step = 2
-		}
-		q += step
-	case actualBits < undershootLimit && highBuffer:
-		q--
-	}
-	return rc.clampedCQQuantizerValue(q)
+	return rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, false, false)
 }
 
 func (rc *rateControlState) clampedQuantizerValue(q int) int {
@@ -476,44 +443,98 @@ func (rc *rateControlState) clampedCQQuantizerValue(q int) int {
 }
 
 func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
+	rc.adjustQuantizerWithContext(actualBits, targetBits, false, false)
+}
+
+func (rc *rateControlState) adjustQuantizerWithContext(actualBits int, targetBits int, keyFrame bool, goldenFrame bool) {
 	if targetBits <= 0 {
 		return
 	}
-	lowBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits < rc.bufferOptimalBits/2
-	highBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits > rc.bufferOptimalBits
-	overshootLimit := rc.overshootLimitBits(targetBits)
-	undershootLimit := rc.undershootLimitBits(targetBits)
+	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	switch {
-	case actualBits > overshootLimit || lowBuffer:
+	case actualBits > overshootLimit:
 		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+		if actualBits > saturatingAdd(overshootLimit, targetBits) {
 			step = 2
 		}
 		rc.currentQuantizer += step
-	case actualBits < undershootLimit && highBuffer:
+	case actualBits < undershootLimit:
 		rc.currentQuantizer--
 	}
 }
 
 func (rc *rateControlState) adjustCQQuantizer(actualBits int, targetBits int) {
+	rc.adjustCQQuantizerWithContext(actualBits, targetBits, false, false)
+}
+
+func (rc *rateControlState) adjustCQQuantizerWithContext(actualBits int, targetBits int, keyFrame bool, goldenFrame bool) {
 	if targetBits <= 0 {
 		return
 	}
-	lowBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits < rc.bufferOptimalBits/2
-	highBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits > rc.bufferOptimalBits
-	overshootLimit := rc.overshootLimitBits(targetBits)
-	undershootLimit := rc.undershootLimitBits(targetBits)
+	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	switch {
-	case actualBits > overshootLimit || lowBuffer:
+	case actualBits > overshootLimit:
 		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+		if actualBits > saturatingAdd(overshootLimit, targetBits) {
 			step = 2
 		}
 		rc.currentQuantizer += step
-	case actualBits < undershootLimit && highBuffer:
+	case actualBits < undershootLimit:
 		rc.currentQuantizer--
 	}
 	rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
+}
+
+func (rc *rateControlState) frameSizeBoundsBits(keyFrame bool, goldenFrame bool, targetBits int) (int, int) {
+	if targetBits <= 0 {
+		return 0, 0
+	}
+	target := int64(targetBits)
+	if target > libvpxIntMax {
+		target = libvpxIntMax
+	}
+
+	var undershootLimit int64
+	var overshootLimit int64
+	switch {
+	case keyFrame || goldenFrame:
+		overshootLimit = target * 9 / 8
+		undershootLimit = target * 7 / 8
+	case rc.mode == RateControlCBR:
+		bufferLevel := int64(rc.bufferLevelBits)
+		optimalBuffer := int64(rc.bufferOptimalBits)
+		maximumBuffer := int64(rc.maximumBufferBits)
+		switch {
+		case bufferLevel >= (optimalBuffer+maximumBuffer)/2:
+			overshootLimit = target * 12 / 8
+			undershootLimit = target * 6 / 8
+		case bufferLevel <= optimalBuffer/2:
+			overshootLimit = target * 10 / 8
+			undershootLimit = target * 4 / 8
+		default:
+			overshootLimit = target * 11 / 8
+			undershootLimit = target * 5 / 8
+		}
+	case rc.mode == RateControlCQ:
+		overshootLimit = target * 11 / 8
+		undershootLimit = target * 2 / 8
+	default:
+		overshootLimit = target * 11 / 8
+		undershootLimit = target * 5 / 8
+	}
+
+	overshootLimit += 200
+	undershootLimit -= 200
+	if undershootLimit < 0 {
+		undershootLimit = 0
+	}
+	if undershootLimit > libvpxIntMax {
+		undershootLimit = libvpxIntMax
+	}
+	if overshootLimit > libvpxIntMax {
+		overshootLimit = libvpxIntMax
+	}
+	return int(undershootLimit), int(overshootLimit)
 }
 
 func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {

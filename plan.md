@@ -159,7 +159,8 @@ Remaining work:
   `RateControlCQ`; initial CQLevel quantizer floor/control and bounded
   overshoot feedback exist.
 - Finish remaining one-pass CBR/golden-frame correction-factor branching; initial
-  bits-per-macroblock quantizer regulation and bounded feedback exist.
+  bits-per-macroblock quantizer regulation, libvpx frame-size bounds, and
+  bounded feedback exist.
 - Complete exact libvpx golden-frame CBR boost heuristics; opt-in
   GF-CBR boost target/refresh control exists.
 - Implement VBR/two-pass planning if production parity requires VBR.
