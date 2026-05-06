@@ -134,6 +134,17 @@ func TestResetMacroblockTokenContext(t *testing.T) {
 	}
 }
 
+func TestResetMacroblockTokenContext4x4PreservesY2(t *testing.T) {
+	above := EntropyContextPlanes{Y1: [4]uint8{1, 1, 1, 1}, U: [2]uint8{1, 1}, V: [2]uint8{1, 1}, Y2: 1}
+	left := EntropyContextPlanes{Y1: [4]uint8{1, 1, 1, 1}, U: [2]uint8{1, 1}, V: [2]uint8{1, 1}, Y2: 2}
+
+	ResetMacroblockTokenContext(&above, &left, true)
+
+	if above != (EntropyContextPlanes{Y2: 1}) || left != (EntropyContextPlanes{Y2: 2}) {
+		t.Fatalf("contexts = %+v/%+v, want only Y2 preserved", above, left)
+	}
+}
+
 func TestDecodeMacroblockTokensNoCoefficients4x4(t *testing.T) {
 	probs := uniformCoefficientProbs(128)
 	payload := encodeMacroblockTokens(&probs, true, -1)

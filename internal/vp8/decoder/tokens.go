@@ -24,16 +24,15 @@ type MacroblockTokens struct {
 }
 
 func ResetMacroblockTokenContext(above *EntropyContextPlanes, left *EntropyContextPlanes, is4x4 bool) {
-	above.Y1 = [4]uint8{}
-	above.U = [2]uint8{}
-	above.V = [2]uint8{}
-	left.Y1 = [4]uint8{}
-	left.U = [2]uint8{}
-	left.V = [2]uint8{}
 	if !is4x4 {
-		above.Y2 = 0
-		left.Y2 = 0
+		*above = EntropyContextPlanes{}
+		*left = EntropyContextPlanes{}
+		return
 	}
+
+	aboveY2, leftY2 := above.Y2, left.Y2
+	*above = EntropyContextPlanes{Y2: aboveY2}
+	*left = EntropyContextPlanes{Y2: leftY2}
 }
 
 func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProbs, is4x4 bool, above *EntropyContextPlanes, left *EntropyContextPlanes, out *MacroblockTokens) int {
@@ -116,16 +115,9 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 		above[col] = EntropyContextPlanes{}
 	}
 
-	partition := 0
 	total := 0
 	for row := 0; row < rows; row++ {
-		rowPartition := partition
-		if partitions > 1 {
-			partition++
-			if partition == partitions {
-				partition = 0
-			}
-		}
+		rowPartition := row & (partitions - 1)
 		left := EntropyContextPlanes{}
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
