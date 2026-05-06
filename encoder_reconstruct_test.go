@@ -352,6 +352,79 @@ func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 	}
 }
 
+func TestShouldSkipInterResidualUsesRDTokenCost(t *testing.T) {
+	if !shouldSkipInterResidual(40, 512, 100, 100) {
+		t.Fatalf("skip decision = false, want skip when residual has no distortion gain")
+	}
+	if !shouldSkipInterResidual(40, 512, 100, 110) {
+		t.Fatalf("skip decision = false, want skip when residual worsens distortion")
+	}
+	if shouldSkipInterResidual(40, 512, 1000, 0) {
+		t.Fatalf("skip decision = true, want coded residual when distortion gain dominates token cost")
+	}
+}
+
+func TestMacroblockCoefficientTokenRateChargesNonZeroResiduals(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var zero vp8enc.MacroblockCoefficients
+	zeroRate := macroblockCoefficientTokenRate(&probs, false, &zero)
+
+	nonzero := zero
+	nonzero.QCoeff[24][0] = 2
+	nonzero.SetBlockEOB(24, 1)
+	nonzero.QCoeff[0][1] = -1
+	nonzero.SetBlockEOB(0, 2)
+	nonzero.QCoeff[16][0] = 1
+	nonzero.SetBlockEOB(16, 1)
+	nonzeroRate := macroblockCoefficientTokenRate(&probs, false, &nonzero)
+
+	if zeroRate <= 0 {
+		t.Fatalf("zero residual token rate = %d, want positive EOB signalling cost", zeroRate)
+	}
+	if nonzeroRate <= zeroRate {
+		t.Fatalf("nonzero residual token rate = %d, zero = %d, want higher rate", nonzeroRate, zeroRate)
+	}
+
+	clearMacroblockCoefficients(&nonzero)
+	if clearedRate := macroblockCoefficientTokenRate(&probs, false, &nonzero); clearedRate != zeroRate {
+		t.Fatalf("cleared residual rate = %d, want zero residual rate %d", clearedRate, zeroRate)
+	}
+}
+
+func TestOptimizeQuantizedBlockDropsTrailingCoefficientWhenRateWins(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	coeff[1] = 9
+	qcoeff[1] = 1
+
+	eob := optimizeQuantizedBlock(127, 0, 0, 1, &coeff, &quant, &qcoeff, 2)
+
+	if eob != 1 || qcoeff[1] != 0 {
+		t.Fatalf("optimized eob/qcoeff = %d/%d, want trailing coefficient dropped", eob, qcoeff[1])
+	}
+}
+
+func TestOptimizeQuantizedBlockKeepsCoefficientWhenDistortionDominates(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 100
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	coeff[1] = 100
+	qcoeff[1] = 1
+
+	eob := optimizeQuantizedBlock(4, 0, 0, 1, &coeff, &quant, &qcoeff, 2)
+
+	if eob != 2 || qcoeff[1] != 1 {
+		t.Fatalf("optimized eob/qcoeff = %d/%d, want coefficient preserved", eob, qcoeff[1])
+	}
+}
+
 func TestEncoderSegmentQIndex(t *testing.T) {
 	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
 	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][1] = true
