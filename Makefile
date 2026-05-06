@@ -22,9 +22,9 @@ VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
 # conformance subset is 58 VP80 IVF vectors.
 VP8_DECODER_IVF_MIN ?= 58
 VP8_INVALID_IVF_MIN ?= 2
-VP8_ENCODER_SOURCE_MIN ?= 1
+VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
-VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m
+VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
 .PHONY: all ci fmtcheck test verify verify-production oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data
 

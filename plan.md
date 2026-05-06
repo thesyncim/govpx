@@ -65,7 +65,8 @@ Goal: prove current behavior against libvpx before widening features.
 - Keep invalid-stream rejection parity required in CI/oracle runs.
 - Add generated streams for every feature edge before claiming support.
 - For encoder validation, compare govpx and libvpx outputs through the same
-  libvpx decode/checksum/PSNR/SSIM/bitrate gates.
+  libvpx decode/checksum/PSNR/SSIM/bitrate gates; the production gate requires
+  at least two external VP8 encoder source clips.
 
 Useful references:
 
