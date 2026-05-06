@@ -15,6 +15,12 @@ func TestSADBlocks(t *testing.T) {
 	if got, want := SAD16x16(src, 32, ref, 32), scalarSAD(src, 32, ref, 32, 16, 16); got != want {
 		t.Fatalf("SAD16x16 = %d, want %d", got, want)
 	}
+	if got, want := SAD16x8(src[2*32+3:], 32, ref[5*32+1:], 32), scalarSAD(src[2*32+3:], 32, ref[5*32+1:], 32, 16, 8); got != want {
+		t.Fatalf("SAD16x8 = %d, want %d", got, want)
+	}
+	if got, want := SAD8x16(src[1*32+9:], 32, ref[6*32+4:], 32), scalarSAD(src[1*32+9:], 32, ref[6*32+4:], 32, 8, 16); got != want {
+		t.Fatalf("SAD8x16 = %d, want %d", got, want)
+	}
 	if got, want := SAD8x8(src[3*32+5:], 32, ref[4*32+7:], 32), scalarSAD(src[3*32+5:], 32, ref[4*32+7:], 32, 8, 8); got != want {
 		t.Fatalf("SAD8x8 = %d, want %d", got, want)
 	}
@@ -28,6 +34,8 @@ func TestSADAllocatesZero(t *testing.T) {
 	ref := make([]byte, 32*32)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_ = SAD16x16(src, 32, ref, 32)
+		_ = SAD16x8(src, 32, ref, 32)
+		_ = SAD8x16(src, 32, ref, 32)
 		_ = SAD8x8(src, 32, ref, 32)
 		_ = SAD4x4(src, 32, ref, 32)
 	})
@@ -43,6 +51,26 @@ func BenchmarkSAD16x16(b *testing.B) {
 	b.SetBytes(16 * 16)
 	for i := 0; i < b.N; i++ {
 		_ = SAD16x16(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSAD16x8(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	b.ReportAllocs()
+	b.SetBytes(16 * 8)
+	for i := 0; i < b.N; i++ {
+		_ = SAD16x8(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSAD8x16(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	b.ReportAllocs()
+	b.SetBytes(8 * 16)
+	for i := 0; i < b.N; i++ {
+		_ = SAD8x16(src, 32, ref, 32)
 	}
 }
 

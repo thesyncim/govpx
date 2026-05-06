@@ -8,6 +8,16 @@ func SSE16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sse
 }
 
+func SSE16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	_, sse := varianceBlock(src, srcStride, ref, refStride, 16, 8)
+	return sse
+}
+
+func SSE8x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	_, sse := varianceBlock(src, srcStride, ref, refStride, 8, 16)
+	return sse
+}
+
 func SSE8x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	_, sse := varianceBlock(src, srcStride, ref, refStride, 8, 8)
 	return sse
@@ -21,6 +31,16 @@ func SSE4x4(src []byte, srcStride int, ref []byte, refStride int) int {
 func Variance16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 16)
 	return sse - (sum * sum >> 8)
+}
+
+func Variance16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 8)
+	return sse - (sum * sum >> 7)
+}
+
+func Variance8x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	sum, sse := varianceBlock(src, srcStride, ref, refStride, 8, 16)
+	return sse - (sum * sum >> 7)
 }
 
 func Variance8x8(src []byte, srcStride int, ref []byte, refStride int) int {

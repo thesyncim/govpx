@@ -6,6 +6,14 @@ func SAD16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sadBlock(src, srcStride, ref, refStride, 16, 16)
 }
 
+func SAD16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	return sadBlock(src, srcStride, ref, refStride, 16, 8)
+}
+
+func SAD8x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	return sadBlock(src, srcStride, ref, refStride, 8, 16)
+}
+
 func SAD8x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sadBlock(src, srcStride, ref, refStride, 8, 8)
 }
