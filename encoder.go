@@ -316,7 +316,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	if cfg.LoopFilterLevel == 0 {
+	segmentation := e.staticSegmentationConfig()
+	if segmentation.Enabled {
+		cfg.Segmentation = segmentation
+	}
+	if cfg.LoopFilterLevel == 0 && !segmentation.Enabled {
 		refFrame, ref, ok := e.matchingZeroInterFrameReference(source, flags)
 		if ok {
 			if len(e.interFrameModes) < required {
@@ -333,11 +337,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
-	segmentation := e.staticSegmentationConfig()
 	var err error
 	if segmentation.Enabled {
 		assignInterFrameStaticSegments(source, rows, cols, e.opts.StaticThreshold, e.interFrameModes[:required])
-		cfg.Segmentation = segmentation
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)

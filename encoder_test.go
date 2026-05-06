@@ -266,6 +266,67 @@ func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
 	assertImagesEqual(t, "static inter current", interFrame, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeIntoStaticThresholdWritesSegmentMapForMatchingReference(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := segmentedQuantizationTestImage()
+	keyPacket := make([]byte, 16384)
+	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := publicImageFromVP8(&e.lastRef.Img)
+	interPacket := make([]byte, 16384)
+
+	inter, err := e.EncodeInto(interPacket, reconstructed, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want matching-reference interframe")
+	}
+	state := packetState(t, inter.Data)
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation = %+v, want map and data update for matching reference", state.Segmentation)
+	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(inter.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
+		t.Fatalf("inter segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("inter NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "matching-reference segmented inter", frame, publicImageFromVP8(&e.current.Img))
+}
+
 func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	e := newLowBitrateDropTestEncoder(t, true)
 	src := testImage(16, 16)
