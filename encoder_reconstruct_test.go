@@ -425,6 +425,37 @@ func TestOptimizeQuantizedBlockKeepsCoefficientWhenDistortionDominates(t *testin
 	}
 }
 
+func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 100
+		quant.Round[i] = 37
+		quant.QuantFast[i] = (1 << 16) / 100
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	boostedRC := int(vp8tables.DefaultZigZag1D[7])
+	coeff[boostedRC] = 75
+
+	eob := quantizeBlockWithZbin(&coeff, &quant, 80, &qcoeff, &dqcoeff)
+
+	if eob != 0 || qcoeff[boostedRC] != 0 || dqcoeff[boostedRC] != 0 {
+		t.Fatalf("boosted coefficient eob/q/dq = %d/%d/%d, want suppressed", eob, qcoeff[boostedRC], dqcoeff[boostedRC])
+	}
+
+	coeff = [16]int16{}
+	qcoeff = [16]int16{}
+	dqcoeff = [16]int16{}
+	earlyRC := int(vp8tables.DefaultZigZag1D[1])
+	coeff[earlyRC] = 80
+	eob = quantizeBlockWithZbin(&coeff, &quant, 80, &qcoeff, &dqcoeff)
+
+	if eob != 2 || qcoeff[earlyRC] == 0 || dqcoeff[earlyRC] == 0 {
+		t.Fatalf("early coefficient eob/q/dq = %d/%d/%d, want quantized", eob, qcoeff[earlyRC], dqcoeff[earlyRC])
+	}
+}
+
 func TestEncoderSegmentQIndex(t *testing.T) {
 	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
 	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][1] = true
