@@ -59,18 +59,19 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | target bits, buffer model, quantizer feedback, and bounded CBR frame dropping scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, keyframe state, and interframe intra/inter mode primitives scaffolded |
-| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, whole-block luma/chroma intra mode selection, keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with intra macroblock selection, last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired NEWMV interframes with near-MV reuse, hex-ring motion candidates, bounded full-pixel and subpixel refinement with SAD early-out, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |
+| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, whole-block luma/chroma intra mode selection with libvpx-style RD rate costs, keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with intra macroblock selection, last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired NEWMV interframes with near-MV reuse, exhaustive full-pixel and even-subpixel search with SAD early-out, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations
 
-- `Decode` and `DecodeInto` can expose narrow supported-version keyframe and
-  inter-frame scaffolds, but error concealment, post-processing, and many VP8
-  features still return `ErrUnsupportedFeature`.
+- `Decode` and `DecodeInto` can expose supported-version keyframe and
+  inter-frame scaffolds with narrow error-resilient inter-frame concealment, but
+  post-processing and some VP8 feature edges are still incomplete.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes, and
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,
-  near-MV reuse, bounded full-pixel and subpixel refinement, and reference refresh
-  control, invisible-frame handling, plus opt-in reconstructed-frame loop filtering,
-  but full prediction mode analysis and rate-control feedback are not complete yet.
+  near-MV reuse, exhaustive motion search, and reference refresh control,
+  invisible-frame handling, plus opt-in reconstructed-frame loop filtering, but
+  segment-aware quantizer decisions and full rate-control parity are not
+  complete yet.
 - The package exposes a small Go API, not the libvpx C API.

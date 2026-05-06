@@ -7,10 +7,12 @@ Current status: active VP8 scalar port in progress. Decoder and encoder paths
 support a growing subset of VP8, including source-dependent DCPred keyframes,
 whole-block luma/chroma intra mode selection, LAST/ZEROMV residual interframes,
 intra macroblocks inside interframes, and libvpx-inspired NEWMV interframes with
-last/golden/altref reference selection, near-MV reuse, bounded full-pixel and
-subpixel refinement, reference refresh control, invisible-frame handling, plus
-opt-in reconstructed-frame loop filtering, but production conformance is not
-complete yet.
+last/golden/altref reference selection, near-MV reuse, exhaustive full-pixel and
+even-subpixel search, reference refresh control, invisible-frame handling,
+libvpx-style RD costs for intra analysis, plus opt-in reconstructed-frame loop
+filtering. Decoder paths include libvpx-authored smoke vectors, generated
+libvpx corpus checks, and narrow error-resilient inter-frame concealment, but
+production conformance is not complete yet.
 
 Out of scope:
 
