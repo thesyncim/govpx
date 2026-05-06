@@ -165,6 +165,25 @@ func TestWriteCoefficientTokenGridRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestBlockCoeffEOB(t *testing.T) {
+	if got := BlockCoeffEOB(&[16]int16{}, 0); got != 0 {
+		t.Fatalf("zero EOB = %d, want 0", got)
+	}
+	if got := BlockCoeffEOB(&[16]int16{}, 1); got != 1 {
+		t.Fatalf("skip-DC zero EOB = %d, want 1", got)
+	}
+	var coeff [16]int16
+	coeff[tables.DefaultZigZag1D[1]] = 2
+	coeff[tables.DefaultZigZag1D[15]] = -3
+	if got := BlockCoeffEOB(&coeff, 0); got != 16 {
+		t.Fatalf("high coefficient EOB = %d, want 16", got)
+	}
+	coeff[tables.DefaultZigZag1D[15]] = 0
+	if got := BlockCoeffEOB(&coeff, 1); got != 2 {
+		t.Fatalf("skip-DC EOB = %d, want 2", got)
+	}
+}
+
 func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 1
@@ -195,6 +214,15 @@ func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("grid allocs = %v, want 0", allocs)
+	}
+}
+
+func BenchmarkBlockCoeffEOBHighCoefficient(b *testing.B) {
+	var coeff [16]int16
+	coeff[tables.DefaultZigZag1D[15]] = 1
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = BlockCoeffEOB(&coeff, 0)
 	}
 }
 

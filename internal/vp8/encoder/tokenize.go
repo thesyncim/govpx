@@ -177,14 +177,13 @@ func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFra
 }
 
 func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
-	eob := skipDC
-	for pos := skipDC; pos < 16; pos++ {
+	for pos := 15; pos >= skipDC; pos-- {
 		rc := int(tables.DefaultZigZag1D[pos])
 		if qcoeff[rc] != 0 {
-			eob = pos + 1
+			return pos + 1
 		}
 	}
-	return eob
+	return skipDC
 }
 
 func coeffToken(coeff int) (int, int, bool) {
