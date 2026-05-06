@@ -297,6 +297,32 @@ func TestRateControlPostEncodeTracksLibvpxRollingBitAverages(t *testing.T) {
 	}
 }
 
+func TestRateControlPostDropFrameDoesNotUpdateLibvpxRollingBitAverages(t *testing.T) {
+	rc := rateControlState{
+		mode:                  RateControlCBR,
+		bitsPerFrame:          1000,
+		frameTargetBits:       3000,
+		bufferLevelBits:       2000,
+		maximumBufferBits:     6000,
+		rollingActualBits:     2000,
+		rollingTargetBits:     1000,
+		longRollingActualBits: 1600,
+		longRollingTargetBits: 3200,
+	}
+
+	rc.postDropFrame()
+
+	if rc.rollingActualBits != 2000 || rc.rollingTargetBits != 1000 {
+		t.Fatalf("short rolling bits after drop = actual:%d target:%d, want unchanged 2000/1000", rc.rollingActualBits, rc.rollingTargetBits)
+	}
+	if rc.longRollingActualBits != 1600 || rc.longRollingTargetBits != 3200 {
+		t.Fatalf("long rolling bits after drop = actual:%d target:%d, want unchanged 1600/3200", rc.longRollingActualBits, rc.longRollingTargetBits)
+	}
+	if rc.bufferLevelBits != 3000 || rc.framesSinceKeyframe != 1 {
+		t.Fatalf("drop accounting = buffer:%d frames:%d, want 3000/1", rc.bufferLevelBits, rc.framesSinceKeyframe)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{
