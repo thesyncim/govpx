@@ -911,6 +911,17 @@ func (e *VP8Encoder) Reset() {
 	e.rc.normalInterQuantizerTotal = 0
 	e.rc.normalInterFrames = 0
 	e.rc.normalInterAvgQuantizer = e.rc.maxQuantizer
+	e.rc.rateCorrectionFactor = 1.0
+	e.rc.keyFrameCorrectionFactor = 1.0
+	e.rc.goldenCorrectionFactor = 1.0
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = e.rc.cqLevel
+		e.rc.lastQuantizer = e.rc.cqLevel
+	} else {
+		e.rc.currentQuantizer = e.rc.minQuantizer
+		e.rc.lastQuantizer = e.rc.minQuantizer
+	}
+	e.rc.frameTargetBits = e.rc.bitsPerFrame
 	e.temporal.frameIndex = 0
 	e.temporal.tl0PicIdx = 0
 	e.temporal.tl0Valid = false
