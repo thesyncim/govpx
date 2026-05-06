@@ -517,6 +517,9 @@ func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
 
 func BenchmarkEncodeIntoMatchingReferenceInterFrame(b *testing.B) {
 	e := newTestEncoder(b)
+	if err := e.SetKeyFrameInterval(0); err != nil {
+		b.Fatalf("SetKeyFrameInterval returned error: %v", err)
+	}
 	src := testImage(16, 16)
 	fillImage(src, 220, 90, 170)
 	keyPacket := make([]byte, 4096)
@@ -532,6 +535,35 @@ func BenchmarkEncodeIntoMatchingReferenceInterFrame(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := e.EncodeInto(interPacket, reconstructed, uint64(i+1), 1, 0); err != nil {
 			b.Fatalf("inter EncodeInto returned error: %v", err)
+		}
+	}
+}
+
+func BenchmarkEncodeIntoGoldenReferenceInterFrame(b *testing.B) {
+	e := newTestEncoder(b)
+	if err := e.SetKeyFrameInterval(0); err != nil {
+		b.Fatalf("SetKeyFrameInterval returned error: %v", err)
+	}
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		b.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(b, key.Data)
+	interPacket := make([]byte, 4096)
+	if _, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef); err != nil {
+		b.Fatalf("second EncodeInto returned error: %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := e.EncodeInto(interPacket, keyFrame, uint64(i+2), 1, EncodeNoReferenceLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef); err != nil {
+			b.Fatalf("golden EncodeInto returned error: %v", err)
 		}
 	}
 }
@@ -827,14 +859,43 @@ func TestEncodeIntoNoReferenceLastCanUseGoldenReference(t *testing.T) {
 	if result.KeyFrame {
 		t.Fatalf("KeyFrame = true, want interframe using golden when last reference is disallowed")
 	}
-	if e.interFrameModes[0].RefFrame != vp8common.GoldenFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
-		t.Fatalf("mode[0] = %+v, want GOLDEN/ZEROMV", e.interFrameModes[0])
+	if e.interFrameModes[0].RefFrame != vp8common.GoldenFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV || !e.interFrameModes[0].MBSkipCoeff {
+		t.Fatalf("mode[0] = %+v, want skipped GOLDEN/ZEROMV", e.interFrameModes[0])
 	}
 	decoded := decodeFrameSequence(t, key.Data, secondInter.Data, result.Data)
 	if len(decoded) != 3 {
 		t.Fatalf("decoded frame count = %d, want 3", len(decoded))
 	}
 	assertImagesEqual(t, "golden interframe", keyFrame, decoded[2])
+}
+
+func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+
+	result, err := e.EncodeInto(interPacket, keyFrame, 1, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if result.KeyFrame {
+		t.Fatalf("KeyFrame = true, want interframe using altref")
+	}
+	if e.interFrameModes[0].RefFrame != vp8common.AltRefFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV || !e.interFrameModes[0].MBSkipCoeff {
+		t.Fatalf("mode[0] = %+v, want skipped ALTREF/ZEROMV", e.interFrameModes[0])
+	}
+	decoded := decodeFrameSequence(t, key.Data, result.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertImagesEqual(t, "altref interframe", keyFrame, decoded[1])
 }
 
 func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {

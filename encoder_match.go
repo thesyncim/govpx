@@ -1,8 +1,26 @@
 package libgopx
 
-import vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+import (
+	"bytes"
+
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+)
 
 func sourceMatchesReference(src Image, ref *vp8common.Image) bool {
+	return sourceImageMatchesReference(vp8enc.SourceImage{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       src.Y,
+		U:       src.U,
+		V:       src.V,
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}, ref)
+}
+
+func sourceImageMatchesReference(src vp8enc.SourceImage, ref *vp8common.Image) bool {
 	if ref == nil || src.Width != ref.Width || src.Height != ref.Height {
 		return false
 	}
@@ -19,10 +37,8 @@ func planeMatches(a []byte, aStride int, b []byte, bStride int, width int, heigh
 	for row := 0; row < height; row++ {
 		aRow := a[row*aStride : row*aStride+width]
 		bRow := b[row*bStride : row*bStride+width]
-		for col := 0; col < width; col++ {
-			if aRow[col] != bRow[col] {
-				return false
-			}
+		if !bytes.Equal(aRow, bRow) {
+			return false
 		}
 	}
 	return true

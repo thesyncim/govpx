@@ -250,22 +250,20 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	if cfg.LoopFilterLevel == 0 && flags&EncodeNoReferenceLast == 0 && sourceMatchesReference(Image{
-		Width:   source.Width,
-		Height:  source.Height,
-		Y:       source.Y,
-		U:       source.U,
-		V:       source.V,
-		YStride: source.YStride,
-		UStride: source.UStride,
-		VStride: source.VStride,
-	}, &e.lastRef.Img) {
-		n, err := vp8enc.WriteZeroInterFrame(dst, e.opts.Width, e.opts.Height, cfg)
-		if err != nil {
-			return 0, translateEncoderError(err)
+	if cfg.LoopFilterLevel == 0 {
+		refFrame, ref, ok := e.matchingZeroInterFrameReference(source, flags)
+		if ok {
+			if len(e.interFrameModes) < required {
+				return 0, ErrInvalidConfig
+			}
+			fillZeroInterFrameModes(e.interFrameModes[:required], refFrame)
+			n, err := vp8enc.WriteZeroReferenceInterFrame(dst, e.opts.Width, e.opts.Height, cfg, refFrame)
+			if err != nil {
+				return 0, translateEncoderError(err)
+			}
+			e.refreshZeroInterFrameReferences(cfg, ref, refFrame)
+			return n, nil
 		}
-		e.refreshZeroInterFrameReferences(cfg)
-		return n, nil
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return 0, ErrInvalidConfig
@@ -282,6 +280,29 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	}
 	e.refreshInterFrameReferencesFromAnalysis(cfg)
 	return n, nil
+}
+
+func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {
+	if flags&EncodeNoReferenceLast == 0 && sourceImageMatchesReference(source, &e.lastRef.Img) {
+		return vp8common.LastFrame, &e.lastRef.Img, true
+	}
+	if flags&EncodeNoReferenceGolden == 0 && sourceImageMatchesReference(source, &e.goldenRef.Img) {
+		return vp8common.GoldenFrame, &e.goldenRef.Img, true
+	}
+	if flags&EncodeNoReferenceAltRef == 0 && sourceImageMatchesReference(source, &e.altRef.Img) {
+		return vp8common.AltRefFrame, &e.altRef.Img, true
+	}
+	return vp8common.IntraFrame, nil, false
+}
+
+func fillZeroInterFrameModes(modes []vp8enc.InterFrameMacroblockMode, refFrame vp8common.MVReferenceFrame) {
+	for i := range modes {
+		modes[i] = vp8enc.InterFrameMacroblockMode{
+			MBSkipCoeff: true,
+			RefFrame:    refFrame,
+			Mode:        vp8common.ZeroMV,
+		}
+	}
 }
 
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
@@ -558,18 +579,18 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.altRef.ExtendBorders()
 }
 
-func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig) {
-	copyFrameImage(&e.current.Img, &e.lastRef.Img)
+func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame) {
+	copyFrameImage(&e.current.Img, ref)
 	e.current.ExtendBorders()
-	if cfg.RefreshLast {
+	if cfg.RefreshLast && refFrame != vp8common.LastFrame {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
 	}
-	if cfg.RefreshGolden {
+	if cfg.RefreshGolden && refFrame != vp8common.GoldenFrame {
 		copyFrameImage(&e.goldenRef.Img, &e.current.Img)
 		e.goldenRef.ExtendBorders()
 	}
-	if cfg.RefreshAltRef {
+	if cfg.RefreshAltRef && refFrame != vp8common.AltRefFrame {
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
 	}

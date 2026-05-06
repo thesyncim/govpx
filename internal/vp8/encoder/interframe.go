@@ -84,6 +84,10 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error 
 }
 
 func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig) (int, error) {
+	return WriteZeroReferenceInterFrame(dst, width, height, cfg, common.LastFrame)
+}
+
+func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) (int, error) {
 	if len(dst) < FrameTagSize {
 		return 0, ErrBufferTooSmall
 	}
@@ -91,6 +95,9 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 		return 0, ErrInvalidPacketConfig
 	}
 	if cfg.TokenPartition != common.OnePartition || !cfg.MBNoCoeffSkip {
+		return 0, ErrInvalidPacketConfig
+	}
+	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return 0, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
@@ -102,7 +109,7 @@ func WriteZeroInterFrame(dst []byte, width int, height int, cfg InterFrameStateC
 	if err := WriteInterFrameStateHeader(&first, cfg); err != nil {
 		return 0, err
 	}
-	if err := WriteLastFrameZeroMVModeGrid(&first, rows, cols, cfg); err != nil {
+	if err := WriteReferenceFrameZeroMVModeGrid(&first, rows, cols, cfg, refFrame); err != nil {
 		return 0, err
 	}
 	first.Finish()
@@ -190,14 +197,23 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 }
 
 func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig) error {
+	return WriteReferenceFrameZeroMVModeGrid(w, rows, cols, cfg, common.LastFrame)
+}
+
+func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) error {
 	if w == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip {
+		return ErrInvalidPacketConfig
+	}
+	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return ErrInvalidPacketConfig
 	}
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			w.WriteBool(1, cfg.ProbSkipFalse)
 			w.WriteBool(1, cfg.ProbIntra)
-			w.WriteBool(0, cfg.ProbLast)
+			if !WriteInterReferenceFrame(w, cfg, refFrame) {
+				return ErrInvalidPacketConfig
+			}
 			counts := zeroMVInterModeCounts(row, col)
 			w.WriteBool(0, tables.InterModeContexts[counts][0])
 		}

@@ -114,6 +114,41 @@ func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 	}
 }
 
+func TestWriteZeroReferenceInterFrameDecodesReferenceZeroMVSkipGrid(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  common.MVReferenceFrame
+	}{
+		{name: "golden", ref: common.GoldenFrame},
+		{name: "altref", ref: common.AltRefFrame},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			packet := make([]byte, 512)
+			n, err := WriteZeroReferenceInterFrame(packet, 32, 16, DefaultInterFrameStateConfig(20), tt.ref)
+			if err != nil {
+				t.Fatalf("WriteZeroReferenceInterFrame returned error: %v", err)
+			}
+			var coefProbs = tables.DefaultCoefProbs
+			var modeProbs vp8dec.ModeProbs
+			vp8dec.ResetModeProbs(&modeProbs)
+			_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+			if err != nil {
+				t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+			}
+			modes := make([]vp8dec.MacroblockMode, 2)
+			if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 2, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, modes); err != nil {
+				t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+			}
+			for i, mode := range modes {
+				if !mode.MBSkipCoeff || mode.RefFrame != tt.ref || mode.Mode != common.ZeroMV || !mode.MV.IsZero() {
+					t.Fatalf("mode[%d] = %+v, want skipped %v/ZEROMV", i, mode, tt.ref)
+				}
+			}
+		})
+	}
+}
+
 func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
 	modes := []InterFrameMacroblockMode{
 		{Mode: common.ZeroMV, MBSkipCoeff: false},
@@ -324,6 +359,11 @@ func TestWriteZeroInterFrameRejectsUnsupportedConfig(t *testing.T) {
 	_, err := WriteZeroInterFrame(make([]byte, 256), 16, 16, cfg)
 	if !errors.Is(err, ErrInvalidPacketConfig) {
 		t.Fatalf("error = %v, want ErrInvalidPacketConfig", err)
+	}
+	cfg.MBNoCoeffSkip = true
+	_, err = WriteZeroReferenceInterFrame(make([]byte, 256), 16, 16, cfg, common.IntraFrame)
+	if !errors.Is(err, ErrInvalidPacketConfig) {
+		t.Fatalf("invalid reference error = %v, want ErrInvalidPacketConfig", err)
 	}
 }
 
