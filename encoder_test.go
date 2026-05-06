@@ -294,6 +294,24 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
+	low := encodeRateControlTestClip(t, 40)
+	high := encodeRateControlTestClip(t, 80)
+
+	if low.BitrateErrorPct < -35 || low.BitrateErrorPct > 35 {
+		t.Fatalf("40kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
+	}
+	if high.BitrateErrorPct < -35 || high.BitrateErrorPct > 35 {
+		t.Fatalf("80kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
+	}
+	if high.OutputBytes <= low.OutputBytes {
+		t.Fatalf("output bytes = low:%d high:%d, want higher target to emit more bits", low.OutputBytes, high.OutputBytes)
+	}
+	if high.MeanQuantizer >= low.MeanQuantizer {
+		t.Fatalf("mean quantizers = low:%.2f high:%.2f, want higher target to use lower quantizer", low.MeanQuantizer, high.MeanQuantizer)
+	}
+}
+
 func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
 	e := newTestEncoder(t)
 
@@ -1126,6 +1144,86 @@ func newLowBitrateDropTestEncoder(t *testing.T, dropFrameAllowed bool) *VP8Encod
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	return e
+}
+
+type rateControlClipResult struct {
+	OutputBytes     int
+	BitrateErrorPct float64
+	MeanQuantizer   float64
+}
+
+func encodeRateControlTestClip(t testing.TB, targetKbps int) rateControlClipResult {
+	t.Helper()
+	const (
+		width  = 32
+		height = 32
+		fps    = 30
+		frames = 20
+	)
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 fps,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   targetKbps,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+
+	dst := make([]byte, 4096)
+	outputBytes := 0
+	quantSum := 0
+	encodedFrames := 0
+	for i := 0; i < frames; i++ {
+		result, err := e.EncodeInto(dst, rateControlTestFrame(width, height, i), uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			continue
+		}
+		outputBytes += result.SizeBytes
+		quantSum += result.Quantizer
+		encodedFrames++
+	}
+	if encodedFrames != frames {
+		t.Fatalf("encoded frames = %d, want %d", encodedFrames, frames)
+	}
+
+	outputKbps := float64(outputBytes*8*fps) / float64(frames*1000)
+	errorPct := (outputKbps - float64(targetKbps)) * 100 / float64(targetKbps)
+	return rateControlClipResult{
+		OutputBytes:     outputBytes,
+		BitrateErrorPct: errorPct,
+		MeanQuantizer:   float64(quantSum) / float64(encodedFrames),
+	}
+}
+
+func rateControlTestFrame(width int, height int, index int) Image {
+	img := testImage(width, height)
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
+			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
+		}
+	}
+	return img
 }
 
 func testImage(width int, height int) Image {
