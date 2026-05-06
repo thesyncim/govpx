@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -198,6 +199,48 @@ func TestMacroblockCoefficientsBlockEOBUsesCache(t *testing.T) {
 	coeffs.SetBlockEOB(1, 0)
 	if got := coeffs.BlockEOB(1, 1); got != 1 {
 		t.Fatalf("cached zero skip-DC EOB = %d, want 1", got)
+	}
+}
+
+func TestWriteCoefficientMacroblockTokensCachedMatchesFallback(t *testing.T) {
+	tests := []struct {
+		name  string
+		is4x4 bool
+		init  func(*MacroblockCoefficients)
+	}{
+		{
+			name: "whole",
+			init: func(coeffs *MacroblockCoefficients) {
+				coeffs.QCoeff[24][0] = 1
+				coeffs.QCoeff[0][1] = 2
+				coeffs.QCoeff[16][0] = -3
+			},
+		},
+		{
+			name:  "bpred",
+			is4x4: true,
+			init: func(coeffs *MacroblockCoefficients) {
+				coeffs.QCoeff[0][0] = 4
+				coeffs.QCoeff[23][15] = -5
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fallback MacroblockCoefficients
+			tt.init(&fallback)
+			cached := fallback
+			setAllMacroblockEOBs(&cached, tt.is4x4)
+			if !cached.eobCacheComplete(tt.is4x4) {
+				t.Fatalf("cached EOB mask = %#x, want complete", cached.eobMask)
+			}
+
+			want := macroblockTokenPayload(t, tt.is4x4, &fallback)
+			got := macroblockTokenPayload(t, tt.is4x4, &cached)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("cached payload = %x, want fallback %x", got, want)
+			}
+		})
 	}
 }
 
