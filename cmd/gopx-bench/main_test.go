@@ -90,6 +90,17 @@ func TestImageSSIM(t *testing.T) {
 	}
 }
 
+func TestQuantizerHistogramMap(t *testing.T) {
+	var hist [quantizerHistogramBins]int
+	hist[4] = 3
+	hist[56] = 2
+
+	got := quantizerHistogramMap(&hist)
+	if len(got) != 2 || got["4"] != 3 || got["56"] != 2 {
+		t.Fatalf("histogram = %v, want q4=3 q56=2", got)
+	}
+}
+
 func TestReferenceQualityMetricsFallsBackToFrameOrder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fake.ivf")
 	if err := writeFakeIVF(path, 16, 16, 30, 1200, 3); err != nil {

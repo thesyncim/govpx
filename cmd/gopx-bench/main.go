@@ -11,10 +11,13 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
 	"time"
 
 	libgopx "github.com/thesyncim/libgopx"
 )
+
+const quantizerHistogramBins = 128
 
 type benchConfig struct {
 	Width        int
@@ -154,7 +157,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 
 	packet := make([]byte, max(4096, cfg.Width*cfg.Height*6))
 	latencies := make([]int64, 0, cfg.Frames)
-	quantHist := make(map[string]int)
+	var quantHist [quantizerHistogramBins]int
 	quantMin := 0
 	quantMax := 0
 	quantSum := 0
@@ -193,7 +196,9 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		if result.Quantizer > quantMax {
 			quantMax = result.Quantizer
 		}
-		quantHist[fmt.Sprintf("%d", result.Quantizer)]++
+		if result.Quantizer >= 0 && result.Quantizer < len(quantHist) {
+			quantHist[result.Quantizer]++
+		}
 		if result.KeyFrame {
 			keyframeBytes = result.SizeBytes
 		} else {
@@ -269,7 +274,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		OutputBytes:   outputBytes,
 		EncodedFrames: encodedFrames,
 		DroppedFrames: droppedFrames,
-		QuantizerHist: quantHist,
+		QuantizerHist: quantizerHistogramMap(&quantHist),
 		Options:       benchConfigSummary{Deadline: deadlineName},
 	}
 	if cfg.LibvpxVpxenc != "" {
@@ -280,6 +285,22 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		report.Reference = &reference
 	}
 	return report, nil
+}
+
+func quantizerHistogramMap(hist *[quantizerHistogramBins]int) map[string]int {
+	count := 0
+	for _, frames := range hist {
+		if frames > 0 {
+			count++
+		}
+	}
+	out := make(map[string]int, count)
+	for q, frames := range hist {
+		if frames > 0 {
+			out[strconv.Itoa(q)] = frames
+		}
+	}
+	return out
 }
 
 func benchmarkDeadline(mode string) (libgopx.Deadline, string, error) {
