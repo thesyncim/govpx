@@ -904,6 +904,7 @@ func (e *VP8Encoder) Reset() {
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	e.lastInterZeroMVCount = 0
 	e.rc.framesSinceKeyframe = 0
+	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0

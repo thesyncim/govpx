@@ -134,6 +134,12 @@ func TestRateControlFrameSizeBoundsMirrorLibvpx(t *testing.T) {
 			wantOver:  1700,
 		},
 		{
+			name:      "temporal layer",
+			rc:        rateControlState{mode: RateControlCBR, currentTemporalLayers: 2, bufferOptimalBits: 1000, maximumBufferBits: 2000, bufferLevelBits: 1500},
+			wantUnder: 675,
+			wantOver:  1325,
+		},
+		{
 			name:      "cq",
 			rc:        rateControlState{mode: RateControlCQ},
 			wantUnder: 50,

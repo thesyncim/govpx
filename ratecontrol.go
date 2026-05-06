@@ -87,6 +87,7 @@ type rateControlState struct {
 	frameDropPressure int
 
 	framesSinceKeyframe   int
+	currentTemporalLayers int
 	rollingActualBits     int
 	rollingTargetBits     int
 	longRollingActualBits int
@@ -212,6 +213,7 @@ type rateControlFrameContext struct {
 }
 
 func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
+	rc.currentTemporalLayers = ctx.temporalLayerCount
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
@@ -642,7 +644,7 @@ func (rc *rateControlState) frameSizeBoundsBits(keyFrame bool, goldenFrame bool,
 	var undershootLimit int64
 	var overshootLimit int64
 	switch {
-	case keyFrame || goldenFrame:
+	case keyFrame || goldenFrame || rc.currentTemporalLayers > 1:
 		overshootLimit = target * 9 / 8
 		undershootLimit = target * 7 / 8
 	case rc.mode == RateControlCBR:
