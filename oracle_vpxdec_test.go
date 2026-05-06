@@ -942,6 +942,7 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 		{name: "token-two", width: 32, height: 32, frames: 6, args: []string{"--token-parts=1"}, checkTokenPartition: true, wantTokenPartition: vp8common.TwoPartition},
 		{name: "token-four", width: 32, height: 32, frames: 6, args: []string{"--token-parts=2"}, checkTokenPartition: true, wantTokenPartition: vp8common.FourPartition},
 		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}, checkTokenPartition: true, wantTokenPartition: vp8common.EightPartition},
+		{name: "token-eight-tall", width: 32, height: 128, frames: 6, args: []string{"--token-parts=3"}, checkTokenPartition: true, wantTokenPartition: vp8common.EightPartition, checkAllTokenPartitionsActive: true},
 		{name: "error-resilient", width: 32, height: 32, frames: 6, args: []string{"--error-resilient=1"}},
 		{name: "cyclic-refresh-error-resilient", width: 80, height: 80, frames: 8, args: []string{"--error-resilient=1"}, checkSegmentationMap: true},
 		{name: "sharpness7", width: 32, height: 32, frames: 6, args: []string{"--sharpness=7"}},
@@ -1140,21 +1141,22 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 }
 
 type generatedLibvpxCorpusCase struct {
-	name                 string
-	width                int
-	height               int
-	frames               int
-	args                 []string
-	checkProfile         bool
-	wantProfile          int
-	checkTokenPartition  bool
-	wantTokenPartition   vp8common.TokenPartition
-	checkSegmentationMap bool
+	name                          string
+	width                         int
+	height                        int
+	frames                        int
+	args                          []string
+	checkProfile                  bool
+	wantProfile                   int
+	checkTokenPartition           bool
+	wantTokenPartition            vp8common.TokenPartition
+	checkSegmentationMap          bool
+	checkAllTokenPartitionsActive bool
 }
 
 func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedLibvpxCorpusCase) {
 	t.Helper()
-	if !tc.checkProfile && !tc.checkTokenPartition && !tc.checkSegmentationMap {
+	if !tc.checkProfile && !tc.checkTokenPartition && !tc.checkSegmentationMap && !tc.checkAllTokenPartitionsActive {
 		return
 	}
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -1165,6 +1167,7 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 	sawProfile := !tc.checkProfile
 	sawTokenPartition := !tc.checkTokenPartition
 	sawSegmentationMap := !tc.checkSegmentationMap
+	sawAllTokenPartitionsActive := !tc.checkAllTokenPartitionsActive
 	decoder, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
@@ -1188,6 +1191,26 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 		if tc.checkTokenPartition && state.TokenPartition == tc.wantTokenPartition {
 			sawTokenPartition = true
 		}
+		if tc.checkAllTokenPartitionsActive {
+			header, err := vp8dec.ParseFrameHeader(frame.Data)
+			if err != nil {
+				t.Fatalf("ParseFrameHeader returned error: %v", err)
+			}
+			var layout vp8dec.PartitionLayout
+			if err := vp8dec.ParsePartitionLayout(frame.Data, header, state.TokenPartition, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayout returned error: %v", err)
+			}
+			allActive := layout.TokenCount == int(1<<uint(tc.wantTokenPartition))
+			for i := 0; i < layout.TokenCount; i++ {
+				if len(layout.Tokens[i]) <= 1 {
+					allActive = false
+					break
+				}
+			}
+			if allActive {
+				sawAllTokenPartitionsActive = true
+			}
+		}
 		if tc.checkSegmentationMap {
 			if err := decoder.Decode(frame.Data); err != nil {
 				t.Fatalf("Decode frame %d returned error while checking generated features: %v", frameIndex, err)
@@ -1210,6 +1233,9 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 	}
 	if !sawSegmentationMap {
 		t.Fatalf("generated corpus did not contain a nonzero segmentation map")
+	}
+	if !sawAllTokenPartitionsActive {
+		t.Fatalf("generated corpus did not exercise all token partitions with active payload")
 	}
 }
 
