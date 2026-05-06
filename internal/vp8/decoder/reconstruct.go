@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/libgopx/internal/vp8/common"
 	"github.com/thesyncim/libgopx/internal/vp8/dsp"
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0:
@@ -697,8 +698,13 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, eob uint8, out *[16]i
 		out[0] += qcoeff[0] * dequant[0]
 		return
 	}
-	for i := 0; i < 16; i++ {
-		out[i] += qcoeff[i] * dequant[i]
+	limit := int(eob)
+	if limit > 16 {
+		limit = 16
+	}
+	for i := 0; i < limit; i++ {
+		index := int(tables.DefaultZigZag1D[i])
+		out[index] += qcoeff[index] * dequant[index]
 	}
 }
 

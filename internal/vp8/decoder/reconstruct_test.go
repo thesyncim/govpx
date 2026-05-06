@@ -177,6 +177,38 @@ func TestTransformMacroblockTokensAddsY1ACToY2DC(t *testing.T) {
 	}
 }
 
+func TestTransformMacroblockTokensIgnoresCoefficientsPastEOB(t *testing.T) {
+	var tokens MacroblockTokens
+	tokens.QCoeff[0][1] = 2
+	tokens.QCoeff[0][4] = 99
+	tokens.EOB[0] = 2
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+
+	TransformMacroblockTokens(&tokens, &dequant, true, &residual)
+
+	if got := residual.Block(0)[1]; got != 12 {
+		t.Fatalf("Y block 0 AC = %d, want active coefficient", got)
+	}
+	if got := residual.Block(0)[4]; got != 0 {
+		t.Fatalf("Y block 0 coefficient past EOB = %d, want ignored", got)
+	}
+}
+
+func TestTransformMacroblockTokensHandlesSkipDCEOB(t *testing.T) {
+	var tokens MacroblockTokens
+	tokens.QCoeff[0][15] = 2
+	tokens.EOB[0] = 17
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+
+	TransformMacroblockTokens(&tokens, &dequant, false, &residual)
+
+	if got := residual.Block(0)[15]; got != 42 {
+		t.Fatalf("Y block 0 last AC = %d, want transformed skip-DC coefficient", got)
+	}
+}
+
 func TestTransformMacroblockTokensClearsActiveResidualBlocks(t *testing.T) {
 	var tokens MacroblockTokens
 	tokens.QCoeff[0][1] = 3
