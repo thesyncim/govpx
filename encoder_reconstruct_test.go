@@ -112,6 +112,25 @@ func TestSelectInterFrameReferenceMotionVectorPrefersCheaperMotionOnTie(t *testi
 	}
 }
 
+func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 255, 90, 170)
+	ref := testVP8Frame(t, 16, 16, 0, 90, 170)
+	source := sourceImageFromPublic(src)
+
+	full, ok := macroblockSubpixelSAD(source, &ref.Img, 0, 0, 0, 0, 2, 2, maxInt())
+	if !ok {
+		t.Fatalf("macroblockSubpixelSAD returned ok=false")
+	}
+	limited, ok := macroblockSubpixelSAD(source, &ref.Img, 0, 0, 0, 0, 2, 2, 1024)
+	if !ok {
+		t.Fatalf("limited macroblockSubpixelSAD returned ok=false")
+	}
+	if limited <= 1024 || limited >= full {
+		t.Fatalf("limited SAD = %d, full = %d, want early result above limit and below full", limited, full)
+	}
+}
+
 func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 	src := testImage(64, 64)
 	for row := 0; row < src.Height; row++ {
@@ -139,6 +158,32 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 		row := (i >> 2) & 3
 		col := i & 3
 		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col)
+	}
+}
+
+func BenchmarkMacroblockSubpixelSADLimit(b *testing.B) {
+	src := testImage(16, 16)
+	fillImage(src, 255, 90, 170)
+	ref := testVP8Frame(b, 16, 16, 0, 90, 170)
+	source := sourceImageFromPublic(src)
+
+	b.ReportAllocs()
+	b.SetBytes(16 * 16)
+	for i := 0; i < b.N; i++ {
+		_, _ = macroblockSubpixelSAD(source, &ref.Img, 0, 0, 0, 0, 2, 2, 1024)
+	}
+}
+
+func BenchmarkMacroblockSubpixelSADFull(b *testing.B) {
+	src := testImage(16, 16)
+	fillImage(src, 255, 90, 170)
+	ref := testVP8Frame(b, 16, 16, 0, 90, 170)
+	source := sourceImageFromPublic(src)
+
+	b.ReportAllocs()
+	b.SetBytes(16 * 16)
+	for i := 0; i < b.N; i++ {
+		_, _ = macroblockSubpixelSAD(source, &ref.Img, 0, 0, 0, 0, 2, 2, maxInt())
 	}
 }
 

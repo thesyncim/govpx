@@ -360,7 +360,7 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	if xOffset|yOffset != 0 {
 		if baseY >= 0 && baseX >= 0 &&
 			baseY+16 <= src.Height && baseX+16 <= src.Width {
-			if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
+			if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset, limit); ok {
 				return sad
 			}
 		}
@@ -392,7 +392,7 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	return sad
 }
 
-func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int) (int, bool) {
+func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int, limit int) (int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, false
 	}
@@ -407,7 +407,7 @@ func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY i
 	}
 	var pred [16 * 16]byte
 	dsp.SixTapPredict16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
-	return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16), true
+	return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16, limit), true
 }
 
 func macroblockChromaSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) int {
