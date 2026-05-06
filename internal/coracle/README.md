@@ -10,6 +10,12 @@ Build the helper:
 internal/coracle/build_libvpx.sh
 ```
 
+Build the optional pinned `vpxenc` reference binary for encoder benchmarks:
+
+```sh
+internal/coracle/build_vpxenc.sh
+```
+
 Run opt-in oracle tests:
 
 ```sh
@@ -26,4 +32,10 @@ Output is newline-delimited JSON:
 
 ```json
 {"frame":0,"width":16,"height":16,"keyframe":true,"show_frame":true,"y_md5":"...","u_md5":"...","v_md5":"...","full_md5":"..."}
+```
+
+Run the libgopx encoder benchmark with the optional libvpx comparison:
+
+```sh
+LIBGOPX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/gopx-bench
 ```

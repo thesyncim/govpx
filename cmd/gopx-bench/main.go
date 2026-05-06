@@ -331,9 +331,9 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		return referenceReport{}, err
 	}
 
-	vpxDeadline := "rt"
+	vpxDeadlineFlag := "--rt"
 	if deadlineName == "good" {
-		vpxDeadline = "good"
+		vpxDeadlineFlag = "--good"
 	}
 	args := append([]string{}, cfg.LibvpxArgs...)
 	args = append(args,
@@ -345,7 +345,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		fmt.Sprintf("--fps=%d/1", cfg.FPS),
 		fmt.Sprintf("--limit=%d", cfg.Frames),
 		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
-		fmt.Sprintf("--deadline=%s", vpxDeadline),
+		vpxDeadlineFlag,
 		"--cpu-used=8",
 		fmt.Sprintf("--output=%s", outPath),
 		rawPath,

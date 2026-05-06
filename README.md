@@ -29,4 +29,5 @@ Optional live libvpx tests are enabled with `LIBGOPX_WITH_ORACLE=1`; set
 
 `go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
 prints JSON metrics for CI/local tracking. Set `LIBGOPX_VPXENC` or pass
-`-libvpx-vpxenc` to include an optional libvpx `vpxenc` reference comparison.
+`-libvpx-vpxenc` to include an optional libvpx `vpxenc` reference comparison;
+`internal/coracle/build_vpxenc.sh` builds the pinned reference binary.
