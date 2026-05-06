@@ -1773,6 +1773,36 @@ func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoReportsLibvpxTemporalDroppableFrames(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersWithSync})
+	src := testImage(16, 16)
+	fillImage(src, 96, 120, 150)
+	dst := make([]byte, 4096)
+
+	results := make([]EncodeResult, 8)
+	for i := range results {
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		results[i] = result
+		results[i].Data = append([]byte(nil), result.Data...)
+	}
+
+	for i, result := range results[:7] {
+		if result.Droppable {
+			t.Fatalf("result[%d].Droppable = true, want false for reference/entropy-updating temporal frame", i)
+		}
+	}
+	if !results[7].Droppable {
+		t.Fatalf("result[7].Droppable = false, want libvpx droppable temporal frame")
+	}
+	state := packetState(t, results[7].Data)
+	if state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef || state.Refresh.RefreshEntropyProbs {
+		t.Fatalf("droppable refresh = %+v, want no reference or entropy refresh", state.Refresh)
+	}
+}
+
 func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, false)
 	first := testImage(16, 16)

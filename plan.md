@@ -108,8 +108,9 @@ Remaining work:
 
 - Expose missing libvpx-style temporal controls where they map cleanly to Go.
 - Keep temporal pattern flags aligned with `vpx_temporal_svc_encoder.c`.
-- Test layer sync, TL0PICIDX, droppable frames, reference refreshes, and entropy
-  refresh/no-refresh per layer pattern.
+- Test layer sync, TL0PICIDX, reference refreshes, and entropy
+  refresh/no-refresh per layer pattern; libvpx-style droppable encoded-frame
+  metadata is now reported.
 - Add oracle-backed realtime/SVC encode validation clips; generated temporal
   streams now cover base-layer and full-sequence decode parity.
 - Verify per-layer bitrate accounting and buffer behavior.

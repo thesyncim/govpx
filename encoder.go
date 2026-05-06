@@ -96,6 +96,9 @@ type EncodeResult struct {
 
 	KeyFrame bool
 	Dropped  bool
+	// Droppable reports libvpx's encoded-frame discardability signal: true
+	// when the frame updates no reference, entropy, or segmentation state.
+	Droppable bool
 
 	PTS      uint64
 	Duration uint64
@@ -277,6 +280,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Data = dst[:attempt.Size]
 		result.SizeBytes = attempt.Size
 		result.Quantizer = finalQuantizer
+		result.Droppable = interFrameDroppable(attempt.Config)
 		e.rc.postEncodeFrameWithContext(attempt.Size, false, goldenCBRRefresh, required)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
@@ -466,6 +470,18 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	}
 	e.coefProbs = attempt.FrameCoefProbs
 	e.modeProbs.MV = attempt.FrameMVProbs
+}
+
+func interFrameDroppable(cfg vp8enc.InterFrameStateConfig) bool {
+	if cfg.RefreshLast || cfg.RefreshGolden || cfg.RefreshAltRef ||
+		cfg.CopyBufferToGolden != 0 || cfg.CopyBufferToAltRef != 0 ||
+		cfg.RefreshEntropyProbs {
+		return false
+	}
+	if cfg.Segmentation.Enabled && (cfg.Segmentation.UpdateMap || cfg.Segmentation.UpdateData) {
+		return false
+	}
+	return true
 }
 
 func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {
