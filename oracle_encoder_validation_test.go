@@ -41,6 +41,7 @@ type encoderValidationCase struct {
 	checkTokenPartition           bool
 	checkAllTokenPartitionsActive bool
 	checkSegmentationMap          bool
+	checkBPredModes               bool
 	checkInterFrames              bool
 }
 
@@ -87,6 +88,7 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			wantTokenPartition:            vp8common.EightPartition,
 			checkTokenPartition:           true,
 			checkAllTokenPartitionsActive: true,
+			checkBPredModes:               true,
 			checkInterFrames:              true,
 		},
 		{
@@ -349,6 +351,7 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 	sawTokenPartition := !tc.checkTokenPartition
 	sawAllTokenPartitionsActive := !tc.checkAllTokenPartitionsActive
 	sawSegmentation := !tc.checkSegmentationMap
+	sawBPred := !tc.checkBPredModes
 	sawInter := !tc.checkInterFrames
 	for frameIndex := 0; offset < len(ivf); frameIndex++ {
 		frame, next, err := testutil.NextIVFFrame(ivf, offset, frameIndex)
@@ -385,14 +388,24 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 				sawAllTokenPartitionsActive = true
 			}
 		}
-		if tc.checkSegmentationMap {
+		if tc.checkSegmentationMap || tc.checkBPredModes {
 			if err := dec.Decode(frame.Data); err != nil {
 				t.Fatalf("Decode frame %d returned error while checking encoder features: %v", frameIndex, err)
 			}
-			for _, segmentID := range dec.segmentMap {
-				if segmentID != 0 {
-					sawSegmentation = true
-					break
+			if tc.checkSegmentationMap {
+				for _, segmentID := range dec.segmentMap {
+					if segmentID != 0 {
+						sawSegmentation = true
+						break
+					}
+				}
+			}
+			if tc.checkBPredModes {
+				for _, mode := range dec.modes {
+					if mode.Mode == vp8common.BPred || mode.Is4x4 {
+						sawBPred = true
+						break
+					}
 				}
 			}
 		}
@@ -407,6 +420,9 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 	}
 	if !sawSegmentation {
 		t.Fatalf("encoded corpus did not contain a nonzero segmentation map")
+	}
+	if !sawBPred {
+		t.Fatalf("encoded corpus did not contain B_PRED macroblocks")
 	}
 	if !sawInter {
 		t.Fatalf("encoded corpus did not contain interframes")
