@@ -10,7 +10,7 @@ import (
 var benchmarkInterReference interAnalysisReference
 var benchmarkInterMV vp8enc.MotionVector
 
-func TestSelectInterFrameReferenceMotionVectorChoosesLowestSADReference(t *testing.T) {
+func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 40, 90, 170)
 	last := testVP8Frame(t, 16, 16, 220, 90, 170)
@@ -21,21 +21,49 @@ func TestSelectInterFrameReferenceMotionVectorChoosesLowestSADReference(t *testi
 		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
 		{Frame: vp8common.AltRefFrame, Img: &alt.Img},
 	}
-	source := vp8enc.SourceImage{
-		Width:   src.Width,
-		Height:  src.Height,
-		Y:       src.Y,
-		U:       src.U,
-		V:       src.V,
-		YStride: src.YStride,
-		UStride: src.UStride,
-		VStride: src.VStride,
-	}
+	source := sourceImageFromPublic(src)
 
 	ref, mv := selectInterFrameReferenceMotionVector(source, refs[:], len(refs), 0, 0)
 
 	if ref.Frame != vp8common.GoldenFrame || mv != (vp8enc.MotionVector{}) {
 		t.Fatalf("selection = %v %+v, want golden zero MV", ref.Frame, mv)
+	}
+}
+
+func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte(17 + ((row*19 + col*11) & 127))
+		}
+	}
+
+	last := testVP8Frame(t, 32, 32, 220, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+2)*last.Img.YStride+col] = src.Y[row*src.YStride+col]
+		}
+	}
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
+
+	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 16}) {
+		t.Fatalf("selection = %v %+v, want last row +16 from libvpx hex ring", ref.Frame, mv)
+	}
+}
+
+func TestSelectInterFrameReferenceMotionVectorPrefersCheaperMotionOnTie(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 40, 90, 170)
+	last := testVP8Frame(t, 32, 32, 40, 90, 170)
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	_, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
+
+	if mv != (vp8enc.MotionVector{}) {
+		t.Fatalf("mv = %+v, want zero MV for equal-SAD candidates", mv)
 	}
 }
 
@@ -58,16 +86,7 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
 		{Frame: vp8common.AltRefFrame, Img: &alt.Img},
 	}
-	source := vp8enc.SourceImage{
-		Width:   src.Width,
-		Height:  src.Height,
-		Y:       src.Y,
-		U:       src.U,
-		V:       src.V,
-		YStride: src.YStride,
-		UStride: src.UStride,
-		VStride: src.VStride,
-	}
+	source := sourceImageFromPublic(src)
 	b.ReportAllocs()
 	b.SetBytes(16 * 16 * int64(len(refs)) * int64(len(interFrameMVCandidates)))
 	b.ResetTimer()
@@ -75,6 +94,19 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 		row := (i >> 2) & 3
 		col := i & 3
 		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col)
+	}
+}
+
+func sourceImageFromPublic(img Image) vp8enc.SourceImage {
+	return vp8enc.SourceImage{
+		Width:   img.Width,
+		Height:  img.Height,
+		Y:       img.Y,
+		U:       img.U,
+		V:       img.V,
+		YStride: img.YStride,
+		UStride: img.UStride,
+		VStride: img.VStride,
 	}
 }
 

@@ -126,28 +126,51 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 var interFrameMVCandidates = [...]vp8enc.MotionVector{
 	{},
 	{Col: -8},
-	{Col: 8},
 	{Row: -8},
 	{Row: 8},
+	{Col: 8},
+	// First full-pixel hex ring from libvpx v1.16.0 vp8/encoder/mcomp.c.
+	{Row: -8, Col: -16},
+	{Row: 8, Col: -16},
+	{Row: 16},
+	{Row: 8, Col: 16},
+	{Row: -8, Col: 16},
+	{Row: -16},
 }
 
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int) (interAnalysisReference, vp8enc.MotionVector) {
 	bestRef := refs[0]
 	best := vp8enc.MotionVector{}
-	bestSAD := macroblockSAD(src, bestRef.Img, mbRow, mbCol, best)
+	bestCost := interMotionSearchCost(src, bestRef.Img, mbRow, mbCol, best)
 	for refIndex := 0; refIndex < refCount; refIndex++ {
 		ref := refs[refIndex]
 		for i := 0; i < len(interFrameMVCandidates); i++ {
 			mv := interFrameMVCandidates[i]
-			sad := macroblockSAD(src, ref.Img, mbRow, mbCol, mv)
-			if sad < bestSAD {
+			cost := interMotionSearchCost(src, ref.Img, mbRow, mbCol, mv)
+			if cost < bestCost {
 				bestRef = ref
 				best = mv
-				bestSAD = sad
+				bestCost = cost
 			}
 		}
 	}
 	return bestRef, best
+}
+
+func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
+	return macroblockSAD(src, ref, mbRow, mbCol, mv) + interMotionVectorCost(mv)
+}
+
+func interMotionVectorCost(mv vp8enc.MotionVector) int {
+	row := int(mv.Row)
+	if row < 0 {
+		row = -row
+	}
+	col := int(mv.Col)
+	if col < 0 {
+		col = -col
+	}
+	return (row + col) >> 3
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
