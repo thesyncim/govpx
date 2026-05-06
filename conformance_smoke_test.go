@@ -20,6 +20,10 @@ func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
 }
 
+func TestLibvpxEncodedSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
+}
+
 func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -120,6 +124,55 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 		got := checksumFrame(i, want.KeyFrame, want.ShowFrame, img)
 		if !testutil.SameFrameChecksum(got, want) {
 			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want), formatChecksum(got))
+		}
+		offset = next
+	}
+	if offset != len(ivf) {
+		t.Fatalf("final IVF offset = %d, want %d", offset, len(ivf))
+	}
+}
+
+func assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
+	t.Helper()
+	if len(checksums) == 0 {
+		t.Fatalf("checksums must not be empty")
+	}
+	ivf := mustDecodeHex(t, ivfHex)
+	header, err := testutil.ParseIVFHeader(ivf)
+	if err != nil {
+		t.Fatalf("ParseIVFHeader returned error: %v", err)
+	}
+	if header.Width != checksums[0].Width || header.Height != checksums[0].Height || header.FrameCount != uint32(len(checksums)) {
+		t.Fatalf("header = %+v, want %dx%d with %d frames", header, checksums[0].Width, checksums[0].Height, len(checksums))
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := testImage(int(header.Width), int(header.Height))
+
+	for i, want := range checksums {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		info, err := d.DecodeInto(frame.Data, &dst)
+		if err != nil {
+			t.Fatalf("DecodeInto frame %d returned error: %v", i, err)
+		}
+		if info.Width != want.Width || info.Height != want.Height || info.KeyFrame != want.KeyFrame || info.ShowFrame != want.ShowFrame {
+			t.Fatalf("FrameInfo[%d] = %+v, want %dx%d key=%t show=%t", i, info, want.Width, want.Height, want.KeyFrame, want.ShowFrame)
+		}
+		if _, ok := d.NextFrame(); ok {
+			t.Fatalf("DecodeInto frame %d queued a NextFrame output", i)
+		}
+		got := checksumFrame(i, want.KeyFrame, want.ShowFrame, dst)
+		if !testutil.SameFrameChecksum(got, want) {
+			t.Fatalf("DecodeInto frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want), formatChecksum(got))
 		}
 		offset = next
 	}
