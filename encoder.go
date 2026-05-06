@@ -852,6 +852,10 @@ func (e *VP8Encoder) Reset() {
 	e.rc.rollingTargetBits = 0
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0
+	e.rc.avgFrameQuantizer = e.rc.maxQuantizer
+	e.rc.normalInterQuantizerTotal = 0
+	e.rc.normalInterFrames = 0
+	e.rc.normalInterAvgQuantizer = e.rc.maxQuantizer
 	e.temporal.frameIndex = 0
 	e.temporal.tl0PicIdx = 0
 	e.temporal.tl0Valid = false

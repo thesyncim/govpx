@@ -1114,6 +1114,25 @@ func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	}
 }
 
+func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
+	e := newTestEncoder(t)
+	dst := make([]byte, 4096)
+	for i := 0; i < 4; i++ {
+		if _, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, i), uint64(i), 1, 0); err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+	}
+	if e.rc.normalInterFrames == 0 {
+		t.Fatalf("normalInterFrames = 0, want precondition inter history before reset")
+	}
+
+	e.Reset()
+
+	if e.rc.avgFrameQuantizer != e.rc.maxQuantizer || e.rc.normalInterFrames != 0 || e.rc.normalInterQuantizerTotal != 0 || e.rc.normalInterAvgQuantizer != e.rc.maxQuantizer {
+		t.Fatalf("quantizer averages after reset = avg:%d frames:%d total:%d normal:%d, want max/0/0/max", e.rc.avgFrameQuantizer, e.rc.normalInterFrames, e.rc.normalInterQuantizerTotal, e.rc.normalInterAvgQuantizer)
+	}
+}
+
 func TestEncodeIntoBufferTooSmall(t *testing.T) {
 	e := newTestEncoder(t)
 
