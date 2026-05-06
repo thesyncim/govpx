@@ -66,8 +66,9 @@ grant. This repository keeps libvpx license and patent notices in
 
 - `Decode` and `DecodeInto` can expose supported-version keyframe and
   inter-frame scaffolds with narrow error-resilient inter-frame concealment and
-  default deblock/demacroblock post-processing, but MFQE/noise post-processing
-  and some VP8 feature edges are still incomplete.
+  default deblock/demacroblock post-processing. Reserved VP8 versions and
+  caller-configured size/resolution limits return `ErrUnsupportedFeature`;
+  MFQE/noise post-processing remains incomplete.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes, and
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,

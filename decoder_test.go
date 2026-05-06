@@ -195,6 +195,44 @@ func TestDecodeRejectsReservedVersion(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsConfiguredSizeLimits(t *testing.T) {
+	tests := []struct {
+		name string
+		opts DecoderOptions
+	}{
+		{name: "width", opts: DecoderOptions{MaxWidth: 15}},
+		{name: "height", opts: DecoderOptions{MaxHeight: 15}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := NewVP8Decoder(tt.opts)
+			if err != nil {
+				t.Fatalf("NewVP8Decoder returned error: %v", err)
+			}
+
+			err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
+			if !errors.Is(err, ErrUnsupportedFeature) {
+				t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+			}
+		})
+	}
+}
+
+func TestDecodeRejectsConfiguredResolutionChange(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{RejectResolutionChange: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("initial Decode returned error: %v", err)
+	}
+
+	err = d.Decode(vp8KeyFramePacketWithPayload(32, 16, 200, 0, true))
+	if !errors.Is(err, ErrUnsupportedFeature) {
+		t.Fatalf("resolution-change Decode error = %v, want ErrUnsupportedFeature", err)
+	}
+}
+
 func TestDecodeOutputsMacroblockSkipKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
