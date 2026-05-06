@@ -438,7 +438,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	boostedRC := int(vp8tables.DefaultZigZag1D[7])
 	coeff[boostedRC] = 75
 
-	eob := quantizeBlockWithZbin(&coeff, &quant, 80, &qcoeff, &dqcoeff)
+	eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff)
 
 	if eob != 0 || qcoeff[boostedRC] != 0 || dqcoeff[boostedRC] != 0 {
 		t.Fatalf("boosted coefficient eob/q/dq = %d/%d/%d, want suppressed", eob, qcoeff[boostedRC], dqcoeff[boostedRC])
@@ -449,10 +449,53 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	dqcoeff = [16]int16{}
 	earlyRC := int(vp8tables.DefaultZigZag1D[1])
 	coeff[earlyRC] = 80
-	eob = quantizeBlockWithZbin(&coeff, &quant, 80, &qcoeff, &dqcoeff)
+	eob = quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff)
 
 	if eob != 2 || qcoeff[earlyRC] == 0 || dqcoeff[earlyRC] == 0 {
 		t.Fatalf("early coefficient eob/q/dq = %d/%d/%d, want quantized", eob, qcoeff[earlyRC], dqcoeff[earlyRC])
+	}
+}
+
+func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 100
+		quant.Round[i] = 37
+		quant.QuantFast[i] = (1 << 16) / 100
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	coeff[rc] = 66
+
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
+	}
+	qcoeff = [16]int16{}
+	dqcoeff = [16]int16{}
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
+		t.Fatalf("boosted eob/q = %d/%d, want coefficient suppressed", eob, qcoeff[rc])
+	}
+}
+
+func TestInterZbinModeBoostMatchesLibvpxClasses(t *testing.T) {
+	tests := []struct {
+		name string
+		mode vp8enc.InterFrameMacroblockMode
+		want int
+	}{
+		{name: "last zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}, want: lastFrameZeroMVZbinBoost},
+		{name: "golden zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV}, want: goldenAltZeroMVZbinBoost},
+		{name: "alt zeromv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.AltRefFrame, Mode: vp8common.ZeroMV}, want: goldenAltZeroMVZbinBoost},
+		{name: "newmv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV}, want: nonZeroInterModeZbinBoost},
+		{name: "splitmv", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV}, want: splitInterModeZbinBoost},
+		{name: "intra", mode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred}, want: intraInterFrameZbinBoost},
+	}
+	for _, tt := range tests {
+		if got := interZbinModeBoost(&tt.mode); got != tt.want {
+			t.Fatalf("%s boost = %d, want %d", tt.name, got, tt.want)
+		}
 	}
 }
 

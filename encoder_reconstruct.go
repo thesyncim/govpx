@@ -88,7 +88,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, modes[index].YMode == vp8common.BPred, &coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, 0, modes[index].YMode == vp8common.BPred, &coeffs[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].YMode == vp8common.BPred, &e.reconstructTokens[index])
 			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 				return ErrInvalidConfig
@@ -183,7 +183,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			predictionDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
 			if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
-				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, modes[index].Mode == vp8common.BPred, &coeffs[index])
+				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, interZbinModeBoost(&modes[index]), modes[index].Mode == vp8common.BPred, &coeffs[index])
 			}
 			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
@@ -916,7 +916,7 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	return sse
 }
 
-func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, qIndex int, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients) {
+func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, qIndex int, zbinModeBoost int, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients) {
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
@@ -933,7 +933,7 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		if is4x4 {
-			eob := quantizeBlockWithZbin(&dct, &quant.Y1, qIndex, &coeffs.QCoeff[block], &dq)
+			eob := quantizeBlockWithZbin(&dct, &quant.Y1, qIndex, zbinModeBoost, &coeffs.QCoeff[block], &dq)
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
@@ -948,7 +948,7 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		} else {
 			y2Input[block] = dct[0]
 			dct[0] = 0
-			eob := quantizeBlockWithZbin(&dct, &quant.Y1DC, qIndex, &coeffs.QCoeff[block], &dq)
+			eob := quantizeBlockWithZbin(&dct, &quant.Y1DC, qIndex, zbinModeBoost, &coeffs.QCoeff[block], &dq)
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
@@ -964,7 +964,7 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 	}
 	if !is4x4 {
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-		eob := quantizeBlockWithZbin(&y2Coeff, &quant.Y2, qIndex, &coeffs.QCoeff[24], &dq)
+		eob := quantizeBlockWithZbin(&y2Coeff, &quant.Y2, qIndex, zbinModeBoost, &coeffs.QCoeff[24], &dq)
 		eob = optimizeQuantizedBlock(qIndex, 1, 0, 0, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], eob)
 		coeffs.SetBlockEOB(24, eob)
 	} else {
@@ -978,7 +978,7 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		y := mbRow*8 + (block>>1)*4
 		fillPredictedResidual4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		eob := quantizeBlockWithZbin(&dct, &quant.UV, qIndex, &coeffs.QCoeff[16+block], &dq)
+		eob := quantizeBlockWithZbin(&dct, &quant.UV, qIndex, zbinModeBoost, &coeffs.QCoeff[16+block], &dq)
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob = optimizeQuantizedBlock(qIndex, 2, ctx, 0, &dct, &quant.UV, &coeffs.QCoeff[16+block], eob)
@@ -992,7 +992,7 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 
 		fillPredictedResidual4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		eob = quantizeBlockWithZbin(&dct, &quant.UV, qIndex, &coeffs.QCoeff[20+block], &dq)
+		eob = quantizeBlockWithZbin(&dct, &quant.UV, qIndex, zbinModeBoost, &coeffs.QCoeff[20+block], &dq)
 		a, l = macroblockCoefficientUVContextIndex(20 + block)
 		ctx = int(uvAbove[a] + uvLeft[l])
 		eob = optimizeQuantizedBlock(qIndex, 2, ctx, 0, &dct, &quant.UV, &coeffs.QCoeff[20+block], eob)
@@ -1038,7 +1038,32 @@ func shouldSkipInterResidual(qIndex int, tokenRate int, predictionDist int, code
 
 var quantZbinBoost = [...]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
 
-func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+const (
+	lastFrameZeroMVZbinBoost  = 6
+	goldenAltZeroMVZbinBoost  = 12
+	nonZeroInterModeZbinBoost = 4
+	splitInterModeZbinBoost   = 0
+	intraInterFrameZbinBoost  = 0
+)
+
+func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
+	if mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode >= vp8common.DCPred && mode.Mode <= vp8common.BPred {
+		return intraInterFrameZbinBoost
+	}
+	switch mode.Mode {
+	case vp8common.ZeroMV:
+		if mode.RefFrame == vp8common.LastFrame {
+			return lastFrameZeroMVZbinBoost
+		}
+		return goldenAltZeroMVZbinBoost
+	case vp8common.SplitMV:
+		return splitInterModeZbinBoost
+	default:
+		return nonZeroInterModeZbinBoost
+	}
+}
+
+func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0
 	}
@@ -1062,6 +1087,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex in
 		}
 		zbin := quantZbinThreshold(qIndex, int(quant.Dequant[rc]))
 		zbin += (int(quant.Dequant[rc]) * quantZbinBoost[zeroRun]) >> 7
+		zbin += (int(quant.Dequant[1]) * zbinModeBoost) >> 7
 		if x < zbin {
 			qcoeff[rc] = 0
 			dqcoeff[rc] = 0
