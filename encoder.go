@@ -648,23 +648,26 @@ func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common
 func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {
 	dst.EOB = [25]uint8{}
 	if !is4x4 {
-		eob := uint8(src.BlockEOB(24, 0))
+		eob := src.EOB[24]
 		dst.EOB[24] = eob
 		copyQCoeffForEOB(&src.QCoeff[24], eob, &dst.QCoeff[24])
 		for i := 0; i < 16; i++ {
-			eob := uint8(src.BlockEOB(i, 1))
+			eob := src.EOB[i]
+			if eob < 1 {
+				eob = 1
+			}
 			dst.EOB[i] = eob
 			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	} else {
 		for i := 0; i < 16; i++ {
-			eob := uint8(src.BlockEOB(i, 0))
+			eob := src.EOB[i]
 			dst.EOB[i] = eob
 			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	}
 	for i := 16; i < 24; i++ {
-		eob := uint8(src.BlockEOB(i, 0))
+		eob := src.EOB[i]
 		dst.EOB[i] = eob
 		copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 	}
