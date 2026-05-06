@@ -1869,6 +1869,59 @@ func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoTemporalPacketRefreshFlagsMatchLibvpxPatterns(t *testing.T) {
+	tests := []struct {
+		name   string
+		cfg    TemporalScalabilityConfig
+		frames int
+	}{
+		{name: "one-layer", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer}, frames: 4},
+		{name: "two-layers", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}, frames: 4},
+		{name: "two-layers-three-frame", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayersThreeFrame}, frames: 5},
+		{name: "three-layers-six-frame", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersSixFrame}, frames: 7},
+		{name: "three-layers-no-inter-layer-prediction", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersNoInterLayerPrediction}, frames: 5},
+		{name: "three-layers-layer-one-prediction", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersLayerOnePrediction}, frames: 5},
+		{name: "three-layers", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayers}, frames: 5},
+		{name: "five-layers", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringFiveLayers, LayerTargetBitrateKbps: [MaxTemporalLayers]int{200, 400, 700, 950, 1200}}, frames: 8},
+		{name: "two-layers-with-sync", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayersWithSync}, frames: 9},
+		{name: "three-layers-with-sync", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersWithSync}, frames: 9},
+		{name: "three-layers-altref-with-sync", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersAltRefWithSync}, frames: 9},
+		{name: "three-layers-one-reference", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersOneReference}, frames: 5},
+		{name: "three-layers-no-sync", cfg: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersNoSync}, frames: 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTemporalRefreshFlagTestEncoder(t, tt.cfg)
+			pattern, ok := temporalLayeringPattern(tt.cfg.Mode)
+			if !ok {
+				t.Fatalf("temporalLayeringPattern returned false")
+			}
+			dst := make([]byte, 8192)
+			for frame := 0; frame < tt.frames; frame++ {
+				result, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, frame), uint64(frame), 1, 0)
+				if err != nil {
+					t.Fatalf("EncodeInto %d returned error: %v", frame, err)
+				}
+				if result.KeyFrame {
+					continue
+				}
+				flags := pattern.Flags[frame%pattern.FlagPeriodicity]
+				if tt.cfg.Mode != TemporalLayeringFiveLayers && frame > 0 && frame%pattern.FlagPeriodicity == 0 {
+					flags &^= EncodeForceKeyFrame
+				}
+				state := packetState(t, result.Data)
+				wantLast := flags&EncodeNoUpdateLast == 0
+				wantGolden := pattern.Layers > 1 && flags&EncodeNoUpdateGolden == 0
+				wantAltRef := pattern.Layers > 1 && flags&EncodeNoUpdateAltRef == 0
+				wantEntropy := flags&EncodeNoUpdateEntropy == 0
+				if state.Refresh.RefreshLast != wantLast || state.Refresh.RefreshGolden != wantGolden || state.Refresh.RefreshAltRef != wantAltRef || state.Refresh.RefreshEntropyProbs != wantEntropy {
+					t.Fatalf("frame %d refresh = %+v, want last:%t golden:%t alt:%t entropy:%t", frame, state.Refresh, wantLast, wantGolden, wantAltRef, wantEntropy)
+				}
+			}
+		})
+	}
+}
+
 func TestEncodeIntoReportsLibvpxTemporalDroppableFrames(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayersWithSync})
 	src := testImage(16, 16)
@@ -2289,6 +2342,31 @@ func newTemporalTestEncoder(tb testing.TB, temporal TemporalScalabilityConfig) *
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
 		ErrorResilient:      true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		TemporalScalability: temporal,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+func newTemporalRefreshFlagTestEncoder(tb testing.TB, temporal TemporalScalabilityConfig) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		DropFrameAllowed:    true,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
