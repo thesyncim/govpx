@@ -7,11 +7,13 @@ build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxenc"
 vpxenc_bin=${GOVPX_VPXENC_BIN:-"$build_dir/vpxenc"}
 vpxdec_bin=${GOVPX_VPXDEC_BIN:-"$build_dir/vpxdec"}
+temporal_svc_bin=${GOVPX_VPX_TEMPORAL_SVC_ENCODER_BIN:-"$build_dir/vpx_temporal_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxenc-config"
-want_config="v1.16.0-vp8-tools-postproc-error-concealment-optimized
+want_config="v1.16.0-vp8-tools-postproc-error-concealment-temporal-svc-optimized
 src_dir=$src_dir
 vpxenc_bin=$vpxenc_bin
-vpxdec_bin=$vpxdec_bin"
+vpxdec_bin=$vpxdec_bin
+temporal_svc_bin=$temporal_svc_bin"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -71,4 +73,6 @@ cp "$src_dir/vpxenc" "$vpxenc_bin"
 chmod +x "$vpxenc_bin"
 cp "$src_dir/vpxdec" "$vpxdec_bin"
 chmod +x "$vpxdec_bin"
+cp "$src_dir/examples/vpx_temporal_svc_encoder" "$temporal_svc_bin"
+chmod +x "$temporal_svc_bin"
 printf '%s\n' "$vpxenc_bin"

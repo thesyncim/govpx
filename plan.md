@@ -116,7 +116,8 @@ Remaining work:
   input/encoded/cumulative bit counters are tracked internally with cumulative
   buffer updates for encoded and dropped frames.
 - Add oracle-backed realtime/SVC encode validation clips; generated temporal
-  streams now cover base-layer and full-sequence decode parity.
+  streams now cover base-layer and full-sequence decode parity, and external
+  libvpx temporal SVC example layer streams are decoded through the oracle gate.
 - Verify per-layer buffer behavior against external libvpx oracle streams.
 
 Useful references:

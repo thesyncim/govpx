@@ -322,6 +322,165 @@ func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx temporal SVC oracle tests")
+	}
+	oracle := findChecksumOracle(t)
+	svcEncoder := findVpxTemporalSVCEncoder(t)
+
+	const (
+		width      = 64
+		height     = 64
+		fps        = 30
+		frameCount = 8
+	)
+	sources := make([]Image, frameCount)
+	for i := range sources {
+		sources[i] = rateControlTestFrame(width, height, i)
+	}
+	dir := t.TempDir()
+	yuvPath := filepath.Join(dir, "temporal-svc.yuv")
+	writeEncoderValidationI420(t, yuvPath, sources)
+	outputBase := filepath.Join(dir, "temporal-svc")
+	cmd := exec.Command(svcEncoder,
+		yuvPath, outputBase, "vp8",
+		strconv.Itoa(width), strconv.Itoa(height),
+		"1", strconv.Itoa(fps),
+		"8", "0", "1", "1", "1",
+		"720", "1200",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, out)
+	}
+	stats := parseTemporalSVCExampleLayerStats(t, string(out), 2)
+	assertGovpxTemporalAccountingMatchesLibvpxExample(t, sources, stats)
+
+	for layer := 0; layer < 2; layer++ {
+		ivfPath := fmt.Sprintf("%s_%d.ivf", outputBase, layer)
+		ivf, err := os.ReadFile(ivfPath)
+		if err != nil {
+			t.Fatalf("ReadFile %s returned error: %v", ivfPath, err)
+		}
+		govpxChecksums := decodeIVFChecksums(t, ivf)
+		libvpxChecksums := runLibvpxChecksumOracle(t, oracle, ivf)
+		assertFrameChecksumsEqual(t, fmt.Sprintf("libvpx temporal SVC layer %d decoded by govpx", layer), govpxChecksums, libvpxChecksums)
+		if layer == 0 && len(govpxChecksums) != frameCount/2 {
+			t.Fatalf("base layer checksum count = %d, want %d", len(govpxChecksums), frameCount/2)
+		}
+		if layer == 1 && len(govpxChecksums) != frameCount {
+			t.Fatalf("full layer checksum count = %d, want %d", len(govpxChecksums), frameCount)
+		}
+	}
+}
+
+type temporalSVCExampleLayerStats struct {
+	InputFrames   int
+	EncodedFrames int
+	DroppedPct    float64
+}
+
+func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) []temporalSVCExampleLayerStats {
+	t.Helper()
+	stats := make([]temporalSVCExampleLayerStats, layers)
+	seen := make([]bool, layers)
+	currentLayer := -1
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		var layer int
+		if _, err := fmt.Sscanf(line, "For layer#: %d", &layer); err == nil {
+			currentLayer = layer
+			continue
+		}
+		if currentLayer < 0 || currentLayer >= layers || !strings.HasPrefix(line, "Number of input frames, encoded") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			t.Fatalf("malformed temporal SVC stats line: %q", line)
+		}
+		inputFrames, err := strconv.Atoi(fields[len(fields)-3])
+		if err != nil {
+			t.Fatalf("parse input frames from %q returned error: %v", line, err)
+		}
+		encodedFrames, err := strconv.Atoi(fields[len(fields)-2])
+		if err != nil {
+			t.Fatalf("parse encoded frames from %q returned error: %v", line, err)
+		}
+		droppedPct, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil {
+			t.Fatalf("parse dropped pct from %q returned error: %v", line, err)
+		}
+		stats[currentLayer] = temporalSVCExampleLayerStats{InputFrames: inputFrames, EncodedFrames: encodedFrames, DroppedPct: droppedPct}
+		seen[currentLayer] = true
+	}
+	for layer := 0; layer < layers; layer++ {
+		if !seen[layer] {
+			t.Fatalf("temporal SVC output did not include layer %d stats:\n%s", layer, output)
+		}
+	}
+	return stats
+}
+
+func assertGovpxTemporalAccountingMatchesLibvpxExample(t *testing.T, sources []Image, stats []temporalSVCExampleLayerStats) {
+	t.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               sources[0].Width,
+		Height:              sources[0].Height,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        2,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             -8,
+		KeyFrameInterval:    3000,
+		ErrorResilient:      true,
+		TokenPartitions:     int(vp8common.TwoPartition),
+		StaticThreshold:     1,
+		MaxIntraBitratePct:  1000,
+		BufferSizeMs:        1000,
+		BufferInitialSizeMs: 600,
+		BufferOptimalSizeMs: 600,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled:                true,
+			Mode:                   TemporalLayeringTwoLayers,
+			LayerTargetBitrateKbps: [MaxTemporalLayers]int{720, 1200},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, sources[0].Width*sources[0].Height*3)
+	for i, source := range sources {
+		result, err := e.EncodeInto(packet, source, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeInto %d dropped, want full temporal SVC accounting sequence", i)
+		}
+	}
+	cumulativeTotal := 0
+	for layer := range stats {
+		cumulativeTotal += stats[layer].InputFrames
+		accounting := e.temporal.accounting[layer]
+		if accounting.InputFrames != stats[layer].InputFrames {
+			t.Fatalf("layer %d input frames = %d, want libvpx example %d", layer, accounting.InputFrames, stats[layer].InputFrames)
+		}
+		if accounting.EncodedFrames != stats[layer].EncodedFrames {
+			t.Fatalf("layer %d encoded non-key frames = %d, want libvpx example %d", layer, accounting.EncodedFrames, stats[layer].EncodedFrames)
+		}
+		if accounting.TotalEncodedFrames != cumulativeTotal {
+			t.Fatalf("layer %d cumulative encoded frames = %d, want %d", layer, accounting.TotalEncodedFrames, cumulativeTotal)
+		}
+		if stats[layer].DroppedPct != 0 {
+			t.Fatalf("layer %d libvpx example dropped pct = %.2f, want 0", layer, stats[layer].DroppedPct)
+		}
+	}
+}
+
 type temporalOracleCase struct {
 	name       string
 	mode       TemporalLayeringMode
@@ -1394,6 +1553,23 @@ func findVpxenc(t *testing.T) string {
 		return local
 	}
 	t.Skip("set GOVPX_VPXENC to a libvpx v1.16.0 vpxenc binary")
+	return ""
+}
+
+func findVpxTemporalSVCEncoder(t *testing.T) string {
+	t.Helper()
+	if svcEncoder := os.Getenv("GOVPX_VPX_TEMPORAL_SVC_ENCODER"); svcEncoder != "" {
+		return svcEncoder
+	}
+	if path, err := exec.LookPath("vpx_temporal_svc_encoder"); err == nil {
+		return path
+	}
+	local := filepath.Join("internal", "coracle", "build", "vpx_temporal_svc_encoder")
+	info, err := os.Stat(local)
+	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		return local
+	}
+	t.Skip("set GOVPX_VPX_TEMPORAL_SVC_ENCODER to a libvpx v1.16.0 vpx_temporal_svc_encoder binary")
 	return ""
 }
 

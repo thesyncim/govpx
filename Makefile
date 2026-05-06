@@ -14,6 +14,7 @@ LIBVPX_TEST_DATA_MK := $(CORACLE_BUILD)/libvpx-v1.16.0/test/test-data.mk
 ORACLE := $(CORACLE_BUILD)/govpx-vpx-oracle
 VPXENC := $(CORACLE_BUILD)/vpxenc
 VPXDEC := $(CORACLE_BUILD)/vpxdec
+VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
 
@@ -53,6 +54,7 @@ oracle-test: oracle-tools fetch-test-data
 	GOVPX_ORACLE="$(ORACLE)" \
 	GOVPX_VPXDEC="$(VPXDEC)" \
 	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_TEST_DATA_REQUIRED=1 \
 	GOVPX_TEST_DATA_MIN="$(VP8_DECODER_IVF_MIN)" \
@@ -68,6 +70,7 @@ oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null
 	test -x "$(VPXENC)"
 	test -x "$(VPXDEC)"
+	test -x "$(VPX_TEMPORAL_SVC_ENCODER)"
 
 $(ORACLE): internal/coracle/build_libvpx.sh internal/coracle/vpx_oracle.c
 	internal/coracle/build_libvpx.sh >/dev/null
