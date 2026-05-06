@@ -188,6 +188,84 @@ func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
 	assertImagesEqual(t, "retried current", decoded, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := segmentedQuantizationTestImage()
+	packet := make([]byte, 16384)
+
+	key, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
+		t.Fatalf("key segmentation = %+v, want map and data update", keyState.Segmentation)
+	}
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != 16 {
+		t.Fatalf("key static segment alt-q = %d, want 16", got)
+	}
+
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key.Data); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
+		t.Fatalf("key segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	}
+	keyFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "static key current", keyFrame, publicImageFromVP8(&e.current.Img))
+
+	second := segmentedQuantizationTestImage()
+	for row := 0; row < second.Height; row++ {
+		for col := 0; col < 16; col++ {
+			second.Y[row*second.YStride+col] = 96
+		}
+	}
+	inter, err := e.EncodeInto(packet, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	interState := packetState(t, inter.Data)
+	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation = %+v, want map and data update", interState.Segmentation)
+	}
+	if err := d.Decode(inter.Data); err != nil {
+		t.Fatalf("inter Decode returned error: %v", err)
+	}
+	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
+		t.Fatalf("inter segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	}
+	interFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("inter NextFrame returned no frame")
+	}
+	assertImagesEqual(t, "static inter current", interFrame, publicImageFromVP8(&e.current.Img))
+}
+
 func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	e := newLowBitrateDropTestEncoder(t, true)
 	src := testImage(16, 16)
@@ -1292,17 +1370,15 @@ func fillImage(img Image, y byte, u byte, v byte) {
 
 func packetTokenPartition(t *testing.T, packet []byte) vp8common.TokenPartition {
 	t.Helper()
-	var coefProbs = vp8tables.DefaultCoefProbs
-	var modeProbs vp8dec.ModeProbs
-	vp8dec.ResetModeProbs(&modeProbs)
-	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
-	if err != nil {
-		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
-	}
-	return state.TokenPartition
+	return packetState(t, packet).TokenPartition
 }
 
 func packetBaseQIndex(t *testing.T, packet []byte) int {
+	t.Helper()
+	return int(packetState(t, packet).Quant.BaseQIndex)
+}
+
+func packetState(t *testing.T, packet []byte) vp8dec.StateHeader {
 	t.Helper()
 	var coefProbs = vp8tables.DefaultCoefProbs
 	var modeProbs vp8dec.ModeProbs
@@ -1311,7 +1387,7 @@ func packetBaseQIndex(t *testing.T, packet []byte) int {
 	if err != nil {
 		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
 	}
-	return int(state.Quant.BaseQIndex)
+	return state
 }
 
 func shiftImageRightOne(src Image) Image {

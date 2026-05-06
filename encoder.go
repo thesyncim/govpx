@@ -273,7 +273,15 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return 0, ErrInvalidConfig
 	}
-	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
+	segmentation := e.staticSegmentationConfig()
+	var err error
+	if segmentation.Enabled {
+		assignKeyFrameStaticSegments(source, rows, cols, e.opts.StaticThreshold, e.keyFrameModes[:required])
+		err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
+	} else {
+		err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
+	}
+	if err != nil {
 		return 0, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter()
@@ -281,7 +289,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return 0, err
 	}
 
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, Segmentation: segmentation}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
 		return 0, translateEncoderError(err)
 	}
@@ -325,7 +333,16 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
-	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags); err != nil {
+	segmentation := e.staticSegmentationConfig()
+	var err error
+	if segmentation.Enabled {
+		assignInterFrameStaticSegments(source, rows, cols, e.opts.StaticThreshold, e.interFrameModes[:required])
+		cfg.Segmentation = segmentation
+		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+	} else {
+		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+	}
+	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
