@@ -646,23 +646,39 @@ func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common
 }
 
 func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {
-	for i := range dst.QCoeff {
-		dst.QCoeff[i] = src.QCoeff[i]
-	}
 	dst.EOB = [25]uint8{}
 	if !is4x4 {
-		dst.EOB[24] = uint8(src.BlockEOB(24, 0))
+		eob := uint8(src.BlockEOB(24, 0))
+		dst.EOB[24] = eob
+		copyQCoeffForEOB(&src.QCoeff[24], eob, &dst.QCoeff[24])
 		for i := 0; i < 16; i++ {
-			dst.EOB[i] = uint8(src.BlockEOB(i, 1))
+			eob := uint8(src.BlockEOB(i, 1))
+			dst.EOB[i] = eob
+			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	} else {
 		for i := 0; i < 16; i++ {
-			dst.EOB[i] = uint8(src.BlockEOB(i, 0))
+			eob := uint8(src.BlockEOB(i, 0))
+			dst.EOB[i] = eob
+			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	}
 	for i := 16; i < 24; i++ {
-		dst.EOB[i] = uint8(src.BlockEOB(i, 0))
+		eob := uint8(src.BlockEOB(i, 0))
+		dst.EOB[i] = eob
+		copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 	}
+}
+
+func copyQCoeffForEOB(src *[16]int16, eob uint8, dst *[16]int16) {
+	if eob == 0 {
+		return
+	}
+	if eob == 1 {
+		dst[0] = src[0]
+		return
+	}
+	*dst = *src
 }
 
 func encoderMacroblockCount(width int, height int) int {
