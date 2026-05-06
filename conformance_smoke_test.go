@@ -107,6 +107,29 @@ func TestChromaModeSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxChromaModeIVFHex, libvpxChromaModeChecksums[:])
 }
 
+func BenchmarkLibvpxEncodedSmokeDecode(b *testing.B) {
+	frames := mustDecodeSmokeIVFFrames(b, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		b.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	decodeSmokeFrames(b, d, frames)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		d.Reset()
+		for j := range frames {
+			if err := d.Decode(frames[j]); err != nil {
+				b.Fatalf("Decode frame %d returned error: %v", j, err)
+			}
+			if _, ok := d.NextFrame(); !ok {
+				b.Fatalf("NextFrame frame %d returned no frame", j)
+			}
+		}
+	}
+}
+
 func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
 	t.Helper()
 	if len(checksums) == 0 {
@@ -152,7 +175,7 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 	}
 }
 
-func mustDecodeSmokeIVFFrames(t *testing.T, ivfHex string, want int) [][]byte {
+func mustDecodeSmokeIVFFrames(t testing.TB, ivfHex string, want int) [][]byte {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -174,7 +197,7 @@ func mustDecodeSmokeIVFFrames(t *testing.T, ivfHex string, want int) [][]byte {
 	return frames
 }
 
-func decodeSmokeFrames(t *testing.T, d *VP8Decoder, frames [][]byte) {
+func decodeSmokeFrames(t testing.TB, d *VP8Decoder, frames [][]byte) {
 	t.Helper()
 	d.Reset()
 	for i := range frames {
@@ -360,7 +383,7 @@ func assertSmokeIVFHasMacroblockMode(t *testing.T, ivfHex string, frameType vp8c
 	t.Fatalf("IVF has no frame type %d macroblock mode %d", frameType, mode)
 }
 
-func mustDecodeHex(t *testing.T, s string) []byte {
+func mustDecodeHex(t testing.TB, s string) []byte {
 	t.Helper()
 	out, err := hex.DecodeString(s)
 	if err != nil {
