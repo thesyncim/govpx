@@ -261,6 +261,32 @@ func TestDecodeKeepsTransientCoefficientProbabilityUpdatesFrameLocal(t *testing.
 	}
 }
 
+func TestDecodeMalformedFrameDoesNotCommitProbabilityUpdates(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	good := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+	if err := d.Decode(good); err != nil {
+		t.Fatalf("good Decode returned error: %v", err)
+	}
+	badFirst := vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
+	bad := vp8KeyFramePacket(16, 16, len(badFirst), 0, true)
+	bad = append(bad, badFirst...)
+	bad = append(bad, 0)
+
+	if err := d.Decode(bad); err == nil {
+		t.Fatalf("malformed Decode returned nil error")
+	}
+
+	if got := d.coefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("persistent coefficient probability = %d, want previous successful value 77", got)
+	}
+	if got := d.previousQuant.BaseQIndex; got != 0 {
+		t.Fatalf("previous quant base = %d, want previous successful value 0", got)
+	}
+}
+
 func TestDecodeParsesPartitionLayout(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {

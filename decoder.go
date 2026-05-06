@@ -112,6 +112,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return err
 	}
 	d.refreshReferences()
+	d.commitParsedState(info)
 
 	d.finishFrame(info, pts)
 	if !info.ShowFrame {
@@ -176,6 +177,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	d.refreshReferences()
+	d.commitParsedState(info)
 	frameInfo := d.finishFrame(info, pts)
 	d.frameReady = false
 	if !info.ShowFrame {
@@ -332,16 +334,19 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	d.modeReader = modeReader
 	d.frameCoefProbs = frameProbs
 	d.frameModeProbs = frameModeProbs
-	if state.Refresh.RefreshEntropyProbs {
-		d.coefProbs = frameProbs
-	} else if frame.KeyFrame() {
-		d.coefProbs = vp8tables.DefaultCoefProbs
-	}
-	d.modeProbs = frameModeProbs
-	d.previousQuant = state.Quant
-	d.previousLoopFilter = state.LoopFilter
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
+}
+
+func (d *VP8Decoder) commitParsedState(info StreamInfo) {
+	if d.state.Refresh.RefreshEntropyProbs {
+		d.coefProbs = d.frameCoefProbs
+	} else if info.KeyFrame {
+		d.coefProbs = vp8tables.DefaultCoefProbs
+	}
+	d.modeProbs = d.frameModeProbs
+	d.previousQuant = d.state.Quant
+	d.previousLoopFilter = d.state.LoopFilter
 }
 
 func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
