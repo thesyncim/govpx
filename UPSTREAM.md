@@ -58,7 +58,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, and keyframe state primitives scaffolded |
-| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired full-pixel NEWMV interframes with near-MV reuse, hex-ring motion candidates, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |
+| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, DCPred keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired full-pixel NEWMV interframes with near-MV reuse, hex-ring motion candidates, bounded diamond refinement, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations
@@ -70,6 +70,6 @@ grant. This repository keeps libvpx license and patent notices in
   residual interframes, and libvpx-inspired full-pixel NEWMV interframes with
   last/golden/altref reference selection, near-MV reuse, and reference refresh
   control, invisible-frame handling, plus opt-in reconstructed-frame loop
-  filtering, but full prediction mode analysis, subpixel/refining motion search, and
+  filtering, but full prediction mode analysis, subpixel motion search, and
   rate-control feedback are not complete yet.
 - The package exposes a small Go API, not the libvpx C API.

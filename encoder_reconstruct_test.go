@@ -54,6 +54,30 @@ func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.
 	}
 }
 
+func TestSelectInterFrameReferenceMotionVectorRefinesDiamondCandidate(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte(21 + ((row*23 + col*7) & 127))
+		}
+	}
+
+	last := testVP8Frame(t, 32, 32, 220, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+3)*last.Img.YStride+col] = src.Y[row*src.YStride+col]
+		}
+	}
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
+
+	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 24}) {
+		t.Fatalf("selection = %v %+v, want last row +24 after diamond refinement", ref.Frame, mv)
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorPrefersCheaperMotionOnTie(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 40, 90, 170)

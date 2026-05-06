@@ -138,23 +138,80 @@ var interFrameMVCandidates = [...]vp8enc.MotionVector{
 	{Row: -16},
 }
 
+var interFrameMVRefineDeltas = [...]vp8enc.MotionVector{
+	{Col: -8},
+	{Row: -8},
+	{Row: 8},
+	{Col: 8},
+}
+
+const interFrameMVSearchRange = 4 * 8
+
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int) (interAnalysisReference, vp8enc.MotionVector) {
 	bestRef := refs[0]
-	best := vp8enc.MotionVector{}
-	bestCost := interMotionSearchCost(src, bestRef.Img, mbRow, mbCol, best)
-	for refIndex := 0; refIndex < refCount; refIndex++ {
+	best, bestCost := selectInterFrameMotionVector(src, bestRef.Img, mbRow, mbCol)
+	for refIndex := 1; refIndex < refCount; refIndex++ {
 		ref := refs[refIndex]
-		for i := 0; i < len(interFrameMVCandidates); i++ {
-			mv := interFrameMVCandidates[i]
-			cost := interMotionSearchCost(src, ref.Img, mbRow, mbCol, mv)
-			if cost < bestCost {
-				bestRef = ref
-				best = mv
-				bestCost = cost
-			}
+		mv, cost := selectInterFrameMotionVector(src, ref.Img, mbRow, mbCol)
+		if cost < bestCost {
+			bestRef = ref
+			best = mv
+			bestCost = cost
 		}
 	}
 	return bestRef, best
+}
+
+func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
+	best := vp8enc.MotionVector{}
+	bestCost := interMotionSearchCost(src, ref, mbRow, mbCol, best)
+	for i := 1; i < len(interFrameMVCandidates); i++ {
+		mv := interFrameMVCandidates[i]
+		cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+		if cost < bestCost {
+			best = mv
+			bestCost = cost
+		}
+	}
+	return refineInterFrameMotionVector(src, ref, mbRow, mbCol, best, bestCost)
+}
+
+func refineInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
+	for {
+		improved := false
+		for i := 0; i < len(interFrameMVRefineDeltas); i++ {
+			mv := addInterMotionVector(best, interFrameMVRefineDeltas[i])
+			if !interMotionVectorInSearchRange(mv) {
+				continue
+			}
+			cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+			if cost < bestCost {
+				best = mv
+				bestCost = cost
+				improved = true
+			}
+		}
+		if !improved {
+			return best, bestCost
+		}
+	}
+}
+
+func addInterMotionVector(a vp8enc.MotionVector, b vp8enc.MotionVector) vp8enc.MotionVector {
+	return vp8enc.MotionVector{Row: a.Row + b.Row, Col: a.Col + b.Col}
+}
+
+func interMotionVectorInSearchRange(mv vp8enc.MotionVector) bool {
+	return absInterMotionVectorComponent(mv.Row) <= interFrameMVSearchRange &&
+		absInterMotionVectorComponent(mv.Col) <= interFrameMVSearchRange
+}
+
+func absInterMotionVectorComponent(v int16) int {
+	n := int(v)
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
