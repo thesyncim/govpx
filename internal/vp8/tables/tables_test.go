@@ -30,6 +30,9 @@ func TestEntropyTableSentinels(t *testing.T) {
 	if CoefEncodings[ZeroToken] != (Token{Value: 2, Len: 2}) || CoefEncodings[DCTEOBToken] != (Token{Value: 0, Len: 1}) {
 		t.Fatalf("CoefEncodings sentinels changed")
 	}
+	if ProbCost[0] != 2047 || ProbCost[128] != 255 || ProbCost[255] != 1 {
+		t.Fatalf("ProbCost sentinels changed")
+	}
 	if ExtraBitsTable[DCTValCategory6].BaseVal != 67 || ExtraBitsTable[DCTValCategory6].Len != 11 {
 		t.Fatalf("category 6 extra bits changed")
 	}

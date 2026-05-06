@@ -193,7 +193,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 
 	var scratch vp8dec.IntraReconstructionScratch
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 1, 1, &pred.Img, &scratch)
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, &pred.Img, &scratch)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
