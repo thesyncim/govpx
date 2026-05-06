@@ -1874,6 +1874,11 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 		for layer := result.TemporalLayerID; layer < result.TemporalLayerCount; layer++ {
 			layerBuffer[layer] = temporalTestBufferAfterFrame(layerBuffer[layer], layerFrameBandwidth[layer], layerMaximumBuffer[layer], sizes[i])
 		}
+		if result.TemporalLayerFrameBandwidthBits != layerFrameBandwidth[result.TemporalLayerID] ||
+			result.TemporalLayerMaximumBufferBits != layerMaximumBuffer[result.TemporalLayerID] ||
+			result.TemporalLayerBufferLevelBits != layerBuffer[result.TemporalLayerID] {
+			t.Fatalf("result[%d] temporal buffer = frame:%d level:%d max:%d, want %d/%d/%d", i, result.TemporalLayerFrameBandwidthBits, result.TemporalLayerBufferLevelBits, result.TemporalLayerMaximumBufferBits, layerFrameBandwidth[result.TemporalLayerID], layerBuffer[result.TemporalLayerID], layerMaximumBuffer[result.TemporalLayerID])
+		}
 	}
 
 	wantLayer0 := temporalLayerAccounting{
@@ -1930,6 +1935,9 @@ func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 		t.Fatalf("dropped result = dropped:%t layer:%d, want dropped layer 1", dropped.Dropped, dropped.TemporalLayerID)
 	}
 	layer1Buffer = temporalTestBufferAfterFrame(layer1Buffer, 40000, 720000, 0)
+	if dropped.TemporalLayerFrameBandwidthBits != 40000 || dropped.TemporalLayerMaximumBufferBits != 720000 || dropped.TemporalLayerBufferLevelBits != layer1Buffer {
+		t.Fatalf("dropped temporal buffer = frame:%d level:%d max:%d, want 40000/%d/720000", dropped.TemporalLayerFrameBandwidthBits, dropped.TemporalLayerBufferLevelBits, dropped.TemporalLayerMaximumBufferBits, layer1Buffer)
+	}
 
 	wantLayer0 := temporalLayerAccounting{
 		InputFrames:        1,

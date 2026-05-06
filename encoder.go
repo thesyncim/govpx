@@ -119,6 +119,9 @@ type EncodeResult struct {
 	// TemporalLayerCumulativeBitrateKbps reports the cumulative libvpx
 	// ts_target_bitrate[] entry for TemporalLayerID.
 	TemporalLayerCumulativeBitrateKbps int
+	TemporalLayerFrameBandwidthBits    int
+	TemporalLayerBufferLevelBits       int
+	TemporalLayerMaximumBufferBits     int
 
 	PSNRHint float64
 }
@@ -267,6 +270,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
+		e.populateTemporalLayerBufferResult(&result, temporalFrame)
 		e.frameCount++
 		return result, nil
 	}
@@ -304,6 +308,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 			Golden: attempt.Config.RefreshGolden,
 			AltRef: attempt.Config.RefreshAltRef,
 		}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
+		e.populateTemporalLayerBufferResult(&result, temporalFrame)
 		e.frameCount++
 		return result, nil
 	}
@@ -323,8 +328,19 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.cyclicRefreshIndex = 0
 	e.lastInterZeroMVCount = 0
 	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
+	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.frameCount++
 	return result, nil
+}
+
+func (e *VP8Encoder) populateTemporalLayerBufferResult(result *EncodeResult, meta temporalFrame) {
+	if result == nil || !meta.Enabled || meta.LayerID < 0 || meta.LayerID >= meta.LayerCount || meta.LayerID >= MaxTemporalLayers {
+		return
+	}
+	accounting := e.temporal.accounting[meta.LayerID]
+	result.TemporalLayerFrameBandwidthBits = accounting.FrameBandwidthBits
+	result.TemporalLayerBufferLevelBits = accounting.BufferLevelBits
+	result.TemporalLayerMaximumBufferBits = accounting.MaximumBufferBits
 }
 
 func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
