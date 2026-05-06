@@ -216,8 +216,8 @@ func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("key segmentation = %+v, want map and data update", keyState.Segmentation)
 	}
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != 16 {
-		t.Fatalf("key static segment alt-q = %d, want 16", got)
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -10 {
+		t.Fatalf("key static segment alt-q = %d, want -10", got)
 	}
 
 	d, err := NewVP8Decoder(DecoderOptions{})
@@ -264,6 +264,26 @@ func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
 		t.Fatalf("inter NextFrame returned no frame")
 	}
 	assertImagesEqual(t, "static inter current", interFrame, publicImageFromVP8(&e.current.Img))
+}
+
+func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
+	e := VP8Encoder{}
+	e.opts.StaticThreshold = 1
+	e.rc.currentQuantizer = 20
+
+	cfg := e.staticSegmentationConfig()
+
+	if !cfg.Enabled || !cfg.UpdateMap || !cfg.UpdateData {
+		t.Fatalf("static segmentation = %+v, want enabled map/data update", cfg)
+	}
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -10 {
+		t.Fatalf("static segment alt-q = %d, want cyclic background delta -10", got)
+	}
+
+	e.rc.currentQuantizer = 1
+	if cfg := e.staticSegmentationConfig(); cfg.Enabled {
+		t.Fatalf("q=1 static segmentation = %+v, want disabled when cyclic delta is zero", cfg)
+	}
 }
 
 func TestEncodeIntoStaticThresholdWritesSegmentMapForMatchingReference(t *testing.T) {

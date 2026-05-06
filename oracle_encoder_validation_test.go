@@ -102,12 +102,12 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.MaxQuantizer = 56
 			}),
 			libvpxArgs: []string{"--static-thresh=1"},
-			// Static segmentation still trails libvpx, but this keeps the
-			// current reconstruction quality from regressing.
-			minPSNR:              45.0,
-			minSSIM:              0.998,
-			maxPSNRGap:           6.0,
-			maxSSIMGap:           0.005,
+			// Static segmentation should now stay close to libvpx quality.
+			// Rate parity remains open.
+			minPSNR:              49.5,
+			minSSIM:              0.999,
+			maxPSNRGap:           1.0,
+			maxSSIMGap:           0.001,
 			maxRateHigh:          250.0,
 			maxRateLow:           95.0,
 			checkSegmentationMap: true,

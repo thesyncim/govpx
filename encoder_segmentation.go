@@ -34,12 +34,8 @@ func (e *VP8Encoder) staticSegmentationConfig() vp8enc.SegmentationConfig {
 }
 
 func (e *VP8Encoder) staticSegmentationQuantizerDelta() int8 {
-	delta := 16
-	remaining := e.rc.maxQuantizer - e.rc.currentQuantizer
-	if remaining < delta {
-		delta = remaining
-	}
-	if delta < 0 {
+	delta := -(e.rc.currentQuantizer / 2)
+	if delta == 0 {
 		return 0
 	}
 	return int8(delta)
