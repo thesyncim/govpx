@@ -162,7 +162,12 @@ func (rc *rateControlState) beginFrame(keyFrame bool) {
 			targetBits *= keyFrameTargetBoost
 		}
 	}
+	if rc.mode == RateControlCBR && rc.rollingTargetBits > 0 {
+		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
+		rc.adjustQuantizerForBuffer()
+	}
 	rc.frameTargetBits = targetBits
+	rc.clampQuantizer()
 }
 
 func (rc *rateControlState) clampBuffer() {
@@ -222,6 +227,9 @@ func (rc *rateControlState) shouldDropInterFrame() bool {
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
+	if targetBits < rc.bitsPerFrame {
+		targetBits = rc.bitsPerFrame
+	}
 	return targetBits > 0 && rc.bufferLevelBits <= targetBits
 }
 
@@ -255,6 +263,42 @@ func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
 		}
 		rc.currentQuantizer += step
 	case actualBits < undershootLimit && highBuffer:
+		rc.currentQuantizer--
+	}
+}
+
+func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
+	if targetBits <= 0 || rc.bufferOptimalBits <= 0 {
+		return targetBits
+	}
+	lowWater := rc.bufferOptimalBits / 2
+	highWater := saturatingAdd(rc.bufferOptimalBits, rc.bufferOptimalBits/2)
+	switch {
+	case rc.bufferLevelBits <= lowWater:
+		adjusted := targetBits / 2
+		if adjusted <= 0 {
+			return 1
+		}
+		return adjusted
+	case rc.bufferLevelBits > highWater:
+		return saturatingAdd(targetBits, targetBits/2)
+	default:
+		return targetBits
+	}
+}
+
+func (rc *rateControlState) adjustQuantizerForBuffer() {
+	if rc.bufferOptimalBits <= 0 {
+		return
+	}
+	lowWater := rc.bufferOptimalBits / 2
+	highWater := saturatingAdd(rc.bufferOptimalBits, rc.bufferOptimalBits/2)
+	switch {
+	case rc.bufferLevelBits <= lowWater:
+		rc.currentQuantizer += 2
+	case rc.bufferLevelBits > highWater:
+		rc.currentQuantizer -= 2
+	case rc.bufferLevelBits > rc.bufferOptimalBits:
 		rc.currentQuantizer--
 	}
 }

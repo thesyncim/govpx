@@ -70,3 +70,68 @@ func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 		t.Fatalf("thresholds = under:%d over:%d, want %d/%d", rc.undershootPct, rc.overshootPct, defaultRateControlUndershootPct, defaultRateControlOvershootPct)
 	}
 }
+
+func TestRateControlBeginFrameAdjustsTargetAndQuantizerForLowBuffer(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   900,
+		rollingTargetBits: 1000,
+	}
+
+	rc.beginFrame(false)
+
+	if rc.frameTargetBits != 500 {
+		t.Fatalf("frameTargetBits = %d, want 500 for low buffer", rc.frameTargetBits)
+	}
+	if rc.currentQuantizer != 22 {
+		t.Fatalf("currentQuantizer = %d, want 22 for low buffer", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlBeginFrameAdjustsTargetAndQuantizerForHighBuffer(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   3200,
+		rollingTargetBits: 1000,
+	}
+
+	rc.beginFrame(false)
+
+	if rc.frameTargetBits != 1500 {
+		t.Fatalf("frameTargetBits = %d, want 1500 for high buffer", rc.frameTargetBits)
+	}
+	if rc.currentQuantizer != 18 {
+		t.Fatalf("currentQuantizer = %d, want 18 for high buffer", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlBeginFrameKeepsFirstFrameTargetStable(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   900,
+	}
+
+	rc.beginFrame(true)
+
+	if rc.frameTargetBits != 4000 {
+		t.Fatalf("keyframe target = %d, want unadjusted boosted 4000", rc.frameTargetBits)
+	}
+	if rc.currentQuantizer != 20 {
+		t.Fatalf("currentQuantizer = %d, want unchanged 20 before feedback", rc.currentQuantizer)
+	}
+}
