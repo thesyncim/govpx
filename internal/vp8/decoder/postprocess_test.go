@@ -83,6 +83,115 @@ func TestApplyPostProcessAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestApplyPostProcessWithOptionsAddsDeterministicLumaNoise(t *testing.T) {
+	src := newPostProcessFrame(t, 32, 16)
+	fillPostProcessPattern(&src.Img)
+	src.ExtendBorders()
+	var dstA common.FrameBuffer
+	if err := dstA.Resize(32, 16, 32, 32); err != nil {
+		t.Fatalf("Resize A returned error: %v", err)
+	}
+	var dstB common.FrameBuffer
+	if err := dstB.Resize(32, 16, 32, 32); err != nil {
+		t.Fatalf("Resize B returned error: %v", err)
+	}
+	modes := postProcessModes(1, 2)
+	scratch := make([]byte, 2*24)
+	opts := PostProcessOptions{AddNoise: true, NoiseLevel: 4}
+	var stateA PostProcessState
+	var stateB PostProcessState
+	stateA.EnsureNoise(src.Img.Width)
+	stateB.EnsureNoise(src.Img.Width)
+	beforeY := append([]byte(nil), src.Img.Y...)
+	beforeU := append([]byte(nil), src.Img.U...)
+	beforeV := append([]byte(nil), src.Img.V...)
+
+	if err := ApplyPostProcessWithOptions(&src.Img, &dstA, 1, 2, modes, 63, scratch, opts, &stateA); err != nil {
+		t.Fatalf("ApplyPostProcessWithOptions A returned error: %v", err)
+	}
+	if err := ApplyPostProcessWithOptions(&src.Img, &dstB, 1, 2, modes, 63, scratch, opts, &stateB); err != nil {
+		t.Fatalf("ApplyPostProcessWithOptions B returned error: %v", err)
+	}
+
+	if !bytes.Equal(src.Img.Y, beforeY) {
+		t.Fatalf("ApplyPostProcessWithOptions changed source Y plane")
+	}
+	if bytes.Equal(dstA.Img.Y, beforeY) {
+		t.Fatalf("noise postprocess left Y unchanged")
+	}
+	if !bytes.Equal(dstA.Img.Y, dstB.Img.Y) {
+		t.Fatalf("fresh postprocess noise states produced different output")
+	}
+	if !bytes.Equal(dstA.Img.U, beforeU) || !bytes.Equal(dstA.Img.V, beforeV) {
+		t.Fatalf("noise postprocess changed chroma planes")
+	}
+}
+
+func TestApplyPostProcessWithOptionsRejectsMissingNoiseState(t *testing.T) {
+	src := newPostProcessFrame(t, 16, 16)
+	fillPostProcessPattern(&src.Img)
+	var dst common.FrameBuffer
+	if err := dst.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	err := ApplyPostProcessWithOptions(&src.Img, &dst, 1, 1, []MacroblockMode{{}}, 63, make([]byte, 24), PostProcessOptions{AddNoise: true}, nil)
+
+	if !errors.Is(err, ErrPostProcessBufferTooSmall) {
+		t.Fatalf("error = %v, want ErrPostProcessBufferTooSmall", err)
+	}
+}
+
+func TestPostProcessNoiseClampsAtLumaExtremes(t *testing.T) {
+	src := newPostProcessFrame(t, 16, 16)
+	for row := 0; row < src.Img.CodedHeight; row++ {
+		for col := 0; col < src.Img.CodedWidth; col++ {
+			src.Img.Y[row*src.Img.YStride+col] = 0
+		}
+	}
+	src.ExtendBorders()
+	var dst common.FrameBuffer
+	if err := dst.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	var state PostProcessState
+	state.EnsureNoise(src.Img.Width)
+
+	err := ApplyPostProcessWithOptions(&src.Img, &dst, 1, 1, []MacroblockMode{{}}, 63, make([]byte, 24), PostProcessOptions{AddNoise: true, NoiseLevel: 16}, &state)
+	if err != nil {
+		t.Fatalf("ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	maxAllowed := byte(state.clamp * 2)
+	for row := 0; row < dst.Img.Height; row++ {
+		for col := 0; col < dst.Img.Width; col++ {
+			if got := dst.Img.Y[row*dst.Img.YStride+col]; got > maxAllowed {
+				t.Fatalf("Y[%d,%d] = %d, want <= %d after black clamp", row, col, got, maxAllowed)
+			}
+		}
+	}
+}
+
+func TestApplyPostProcessWithOptionsAddNoiseAllocatesZero(t *testing.T) {
+	src := newPostProcessFrame(t, 32, 16)
+	fillPostProcessPattern(&src.Img)
+	src.ExtendBorders()
+	var dst common.FrameBuffer
+	if err := dst.Resize(32, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	var state PostProcessState
+	state.EnsureNoise(src.Img.Width)
+	modes := postProcessModes(1, 2)
+	scratch := make([]byte, 2*24)
+	opts := PostProcessOptions{AddNoise: true, NoiseLevel: 4}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = ApplyPostProcessWithOptions(&src.Img, &dst, 1, 2, modes, 63, scratch, opts, &state)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
 func newPostProcessFrame(t testing.TB, width int, height int) *common.FrameBuffer {
 	t.Helper()
 	fb, err := common.NewFrameBuffer(width, height, 32, 32)

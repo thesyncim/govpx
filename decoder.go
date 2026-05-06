@@ -12,6 +12,9 @@ type DecoderOptions struct {
 
 	ErrorResilient bool
 	PostProcess    bool
+	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
+	// PostProcess is true. Zero disables additive noise; valid range is [0, 16].
+	PostProcessNoiseLevel int
 
 	MaxWidth  int
 	MaxHeight int
@@ -62,6 +65,7 @@ type VP8Decoder struct {
 	segmentationState  vp8dec.SegmentationHeader
 	segmentMap         []uint8
 	postprocScratch    []byte
+	postprocState      vp8dec.PostProcessState
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
@@ -211,6 +215,7 @@ func (d *VP8Decoder) Reset() {
 	d.lastRef.Reset()
 	d.goldenRef.Reset()
 	d.altRef.Reset()
+	d.postprocState.Reset()
 	d.coefProbs = vp8tables.DefaultCoefProbs
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
 	for i := range d.segmentMap {
@@ -255,6 +260,12 @@ func validateDecoderOptions(opts DecoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
+		return ErrInvalidConfig
+	}
+	if opts.PostProcessNoiseLevel < 0 || opts.PostProcessNoiseLevel > 16 {
+		return ErrInvalidConfig
+	}
+	if opts.PostProcessNoiseLevel > 0 && !opts.PostProcess {
 		return ErrInvalidConfig
 	}
 	if opts.MaxWidth > maxVP8Dimension || opts.MaxHeight > maxVP8Dimension {
@@ -336,7 +347,14 @@ func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.I
 		return src, nil
 	}
 	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
-	if err := vp8dec.ApplyPostProcess(src, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch); err != nil {
+	opts := vp8dec.PostProcessOptions{
+		Deblock:         true,
+		Demacroblock:    true,
+		AddNoise:        d.opts.PostProcessNoiseLevel > 0,
+		DeblockingLevel: vp8dec.DefaultPostProcessDeblockingLevel,
+		NoiseLevel:      d.opts.PostProcessNoiseLevel,
+	}
+	if err := vp8dec.ApplyPostProcessWithOptions(src, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch, opts, &d.postprocState); err != nil {
 		return nil, ErrInvalidData
 	}
 	return &d.post.Img, nil
@@ -586,6 +604,9 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 		d.postprocScratch = make([]byte, scratchLen)
 	} else {
 		d.postprocScratch = d.postprocScratch[:scratchLen]
+	}
+	if d.opts.PostProcess && d.opts.PostProcessNoiseLevel > 0 {
+		d.postprocState.EnsureNoise(width)
 	}
 	d.mbRows = rows
 	d.mbCols = cols

@@ -2,6 +2,7 @@ package decoder
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/libgopx/internal/vp8/common"
 )
@@ -9,8 +10,76 @@ import (
 // Ported from libvpx v1.16.0:
 // - vp8/common/postproc.c
 // - vpx_dsp/deblock.c
+// - vpx_dsp/add_noise.c
 
 var ErrPostProcessBufferTooSmall = errors.New("libgopx: VP8 postprocess buffer too small")
+
+const (
+	DefaultPostProcessDeblockingLevel = 4
+
+	postProcessNoiseSeed = 1
+)
+
+type PostProcessOptions struct {
+	Deblock         bool
+	Demacroblock    bool
+	AddNoise        bool
+	DeblockingLevel int
+	NoiseLevel      int
+}
+
+type PostProcessState struct {
+	generatedNoise []int8
+	noiseWidth     int
+	lastQ          int
+	lastNoise      int
+	clamp          int
+	noiseReady     bool
+	rand           postProcessRand
+}
+
+func (s *PostProcessState) EnsureNoise(width int) {
+	if s == nil || width <= 0 {
+		return
+	}
+	required := width + 256
+	if cap(s.generatedNoise) < required {
+		s.generatedNoise = make([]int8, required)
+		s.noiseReady = false
+	} else {
+		s.generatedNoise = s.generatedNoise[:required]
+	}
+	if s.noiseWidth != width {
+		s.noiseWidth = width
+		s.noiseReady = false
+	}
+	if s.rand.state == 0 {
+		s.rand.state = postProcessNoiseSeed
+	}
+}
+
+func (s *PostProcessState) Reset() {
+	if s == nil {
+		return
+	}
+	s.noiseReady = false
+	s.lastQ = 0
+	s.lastNoise = 0
+	s.clamp = 0
+	s.rand.state = postProcessNoiseSeed
+}
+
+type postProcessRand struct {
+	state uint32
+}
+
+func (r *postProcessRand) next() int {
+	if r.state == 0 {
+		r.state = postProcessNoiseSeed
+	}
+	r.state = r.state*1103515245 + 12345
+	return int((r.state >> 16) & 0x7fff)
+}
 
 var postProcessRV = [...]int16{
 	8, 5, 2, 2, 8, 12, 4, 9, 8, 3, 0, 3, 9, 0, 0, 0, 8, 3, 14,
@@ -40,10 +109,21 @@ var postProcessRV = [...]int16{
 }
 
 func ApplyPostProcess(src *common.Image, dst *common.FrameBuffer, rows int, cols int, modes []MacroblockMode, filterLevel uint8, scratch []byte) error {
+	return ApplyPostProcessWithOptions(src, dst, rows, cols, modes, filterLevel, scratch, PostProcessOptions{
+		Deblock:         true,
+		Demacroblock:    true,
+		DeblockingLevel: DefaultPostProcessDeblockingLevel,
+	}, nil)
+}
+
+func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, rows int, cols int, modes []MacroblockMode, filterLevel uint8, scratch []byte, opts PostProcessOptions, state *PostProcessState) error {
 	if src == nil || dst == nil || rows <= 0 || cols <= 0 || len(modes) < rows*cols || len(scratch) < cols*24 {
 		return ErrPostProcessBufferTooSmall
 	}
 	if !validPostProcessImage(src) || !validPostProcessImage(&dst.Img) {
+		return ErrPostProcessBufferTooSmall
+	}
+	if opts.AddNoise && (state == nil || len(state.generatedNoise) < src.Width+256) {
 		return ErrPostProcessBufferTooSmall
 	}
 	copyPostProcessImage(&dst.Img, src)
@@ -53,12 +133,19 @@ func ApplyPostProcess(src *common.Image, dst *common.FrameBuffer, rows int, cols
 	if q > 63 {
 		q = 63
 	}
-	q += (4 - 5) * 10
 
 	yLimits := scratch[:cols*16]
 	uvLimits := scratch[cols*16 : cols*24]
-	deblockPostProcess(src, &dst.Img, rows, cols, modes, q, yLimits, uvLimits)
-	demacroblockPostProcess(&dst.Img, q)
+	if opts.Demacroblock {
+		filterQ := q + (opts.DeblockingLevel-5)*10
+		deblockPostProcess(src, &dst.Img, rows, cols, modes, filterQ, yLimits, uvLimits)
+		demacroblockPostProcess(&dst.Img, filterQ)
+	} else if opts.Deblock {
+		deblockPostProcess(src, &dst.Img, rows, cols, modes, q, yLimits, uvLimits)
+	}
+	if opts.AddNoise {
+		applyPostProcessNoise(&dst.Img, q, opts.NoiseLevel, state)
+	}
 	return nil
 }
 
@@ -148,6 +235,74 @@ func fillBytes(dst []byte, value byte) {
 	for i := range dst {
 		dst[i] = value
 	}
+}
+
+func applyPostProcessNoise(img *common.Image, q int, noiseLevel int, state *PostProcessState) {
+	if !state.noiseReady || state.lastQ != q || state.lastNoise != noiseLevel {
+		sigma := float64(noiseLevel) + 0.5 + 0.6*float64(q)/63.0
+		state.clamp = setupPostProcessNoise(sigma, state.generatedNoise, &state.rand)
+		state.lastQ = q
+		state.lastNoise = noiseLevel
+		state.noiseReady = true
+	}
+	planeAddNoise(img.Y, state.generatedNoise, state.clamp, state.clamp, img.Width, img.Height, img.YStride, &state.rand)
+}
+
+func setupPostProcessNoise(sigma float64, noise []int8, rand *postProcessRand) int {
+	var charDist [256]int8
+	next := 0
+	for i := -32; i < 32; i++ {
+		a := int(0.5 + 256*gaussian(sigma, 0, float64(i)))
+		if a == 0 {
+			continue
+		}
+		for j := 0; j < a; j++ {
+			if next+j >= len(charDist) {
+				goto setNoise
+			}
+			charDist[next+j] = int8(i)
+		}
+		next += a
+	}
+	for ; next < len(charDist); next++ {
+		charDist[next] = 0
+	}
+
+setNoise:
+	for i := range noise {
+		noise[i] = charDist[rand.next()&0xff]
+	}
+	return -int(charDist[0])
+}
+
+func gaussian(sigma float64, mu float64, x float64) float64 {
+	return 1 / (sigma * math.Sqrt(2.0*3.14159265)) *
+		math.Exp(-(x-mu)*(x-mu)/(2*sigma*sigma))
+}
+
+func planeAddNoise(start []byte, noise []int8, blackClamp int, whiteClamp int, width int, height int, pitch int, rand *postProcessRand) {
+	bothClamp := blackClamp + whiteClamp
+	for row := 0; row < height; row++ {
+		rowStart := row * pitch
+		refStart := rand.next() & 0xff
+		for col := 0; col < width; col++ {
+			v := int(start[rowStart+col])
+			v = clampPostProcessByte(v - blackClamp)
+			v = clampPostProcessByte(v + bothClamp)
+			v = clampPostProcessByte(v - whiteClamp)
+			start[rowStart+col] = byte(v + int(noise[refStart+col]))
+		}
+	}
+}
+
+func clampPostProcessByte(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return v
 }
 
 func postProcDownAndAcrossMBRow(src []byte, srcStart int, dst []byte, dstStart int, srcPitch int, dstPitch int, cols int, flimits []byte, size int) {

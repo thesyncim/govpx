@@ -17,6 +17,20 @@ func TestNewVP8DecoderValidation(t *testing.T) {
 	}
 }
 
+func TestNewVP8DecoderRejectsInvalidPostProcessNoise(t *testing.T) {
+	tests := []DecoderOptions{
+		{PostProcess: true, PostProcessNoiseLevel: -1},
+		{PostProcess: true, PostProcessNoiseLevel: 17},
+		{PostProcessNoiseLevel: 4},
+	}
+	for _, opts := range tests {
+		_, err := NewVP8Decoder(opts)
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("NewVP8Decoder(%+v) error = %v, want ErrInvalidConfig", opts, err)
+		}
+	}
+}
+
 func TestDecodeRequiresInitialKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
@@ -139,6 +153,43 @@ func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); ok {
 		t.Fatalf("DecodeInto queued a frame for NextFrame")
+	}
+}
+
+func TestDecodePostProcessNoiseChangesOnlyLuma(t *testing.T) {
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	plain, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder plain returned error: %v", err)
+	}
+	noisy, err := NewVP8Decoder(DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder noisy returned error: %v", err)
+	}
+
+	if err := plain.Decode(packet); err != nil {
+		t.Fatalf("plain Decode returned error: %v", err)
+	}
+	if err := noisy.Decode(packet); err != nil {
+		t.Fatalf("noisy Decode returned error: %v", err)
+	}
+	plainFrame, ok := plain.NextFrame()
+	if !ok {
+		t.Fatalf("plain NextFrame returned no frame")
+	}
+	noisyFrame, ok := noisy.NextFrame()
+	if !ok {
+		t.Fatalf("noisy NextFrame returned no frame")
+	}
+
+	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
+		t.Fatalf("postprocess noise left luma unchanged")
+	}
+	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
+		t.Fatalf("postprocess noise changed U plane")
+	}
+	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
+		t.Fatalf("postprocess noise changed V plane")
 	}
 }
 
