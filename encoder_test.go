@@ -444,6 +444,54 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoKeyFrameSelectsVerticalIntraMode(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 32)
+	src := testImage(16, 32)
+	fillImage(src, 0, 90, 170)
+	for row := 0; row < src.Height; row++ {
+		for col := 0; col < src.Width; col++ {
+			src.Y[row*src.YStride+col] = byte(32 + col*7)
+		}
+	}
+
+	if _, err := e.EncodeInto(make([]byte, 8192), src, 0, 1, 0); err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+
+	if e.keyFrameModes[1].YMode != vp8common.VPred {
+		t.Fatalf("key mode[1] = %+v, want vertical prediction for repeated rows", e.keyFrameModes[1])
+	}
+}
+
+func TestEncodeIntoInterFrameIntraMacroblockSelectsVerticalMode(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 32)
+	first := testImage(16, 32)
+	second := testImage(16, 32)
+	fillImage(first, 0, 90, 170)
+	fillImage(second, 0, 90, 170)
+	for row := 0; row < second.Height; row++ {
+		for col := 0; col < second.Width; col++ {
+			second.Y[row*second.YStride+col] = byte(40 + col*6)
+		}
+	}
+	keyPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 8192)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.VPred {
+		t.Fatalf("inter mode[1] = %+v, want intra vertical prediction for repeated rows", e.interFrameModes[1])
+	}
+}
+
 func TestEncodeIntoInterFrameCanUseIntraMacroblock(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)

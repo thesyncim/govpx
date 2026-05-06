@@ -7,6 +7,13 @@ import (
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
+var wholeBlockIntraYModeCandidates = [...]vp8common.MBPredictionMode{
+	vp8common.DCPred,
+	vp8common.VPred,
+	vp8common.HPred,
+	vp8common.TMPred,
+}
+
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
@@ -26,13 +33,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			modes[index] = vp8enc.KeyFrameMacroblockMode{YMode: vp8common.DCPred, UVMode: vp8common.DCPred}
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
+			yMode, ok := predictBestWholeBlockIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+			if !ok {
+				return ErrInvalidConfig
+			}
+			modes[index] = vp8enc.KeyFrameMacroblockMode{YMode: yMode, UVMode: vp8common.DCPred}
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
-			buildDCPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
 			convertMacroblockCoefficients(&coeffs[index], false, &e.reconstructTokens[index])
 			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
 				return ErrInvalidConfig
@@ -70,7 +81,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
-			intraCost, ok := predictInterFrameIntraDCPredCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+			intraMode, intraCost, ok := predictBestWholeBlockIntraModeCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
@@ -88,7 +99,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			}
 
 			if intraCost < interCost {
-				modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
+				modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: intraMode, UVMode: vp8common.DCPred}
+				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
+					return ErrInvalidConfig
+				}
 			} else {
 				modes[index] = vp8enc.InterFrameMotionModeForVector(ref.Frame, mv, above, left, aboveLeft)
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
@@ -98,7 +113,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 					return ErrInvalidConfig
 				}
 			}
-			buildDCPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
 			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index])
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
@@ -176,12 +191,26 @@ func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interA
 	return bestRef, best
 }
 
-func predictInterFrameIntraDCPredCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (int, bool) {
-	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
-	if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
-		return 0, false
+func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, bool) {
+	mode, _, ok := predictBestWholeBlockIntraModeCost(src, mbRow, mbCol, pred, scratch)
+	return mode, ok
+}
+
+func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, bool) {
+	bestMode := vp8common.DCPred
+	bestCost := 0
+	for i, yMode := range wholeBlockIntraYModeCandidates {
+		mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: yMode, UVMode: vp8common.DCPred}
+		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
+			return 0, 0, false
+		}
+		cost := macroblockSAD(src, pred, mbRow, mbCol, vp8enc.MotionVector{})
+		if i == 0 || cost < bestCost {
+			bestMode = yMode
+			bestCost = cost
+		}
 	}
-	return macroblockSAD(src, pred, mbRow, mbCol, vp8enc.MotionVector{}), true
+	return bestMode, bestCost, true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
@@ -283,7 +312,7 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	return sad
 }
 
-func buildDCPredMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients) {
+func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients) {
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
