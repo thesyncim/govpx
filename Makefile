@@ -1,6 +1,8 @@
 SHELL := /bin/sh
 
 GO ?= go
+GOFMT ?= gofmt
+GIT ?= git
 CURL ?= curl
 AWK ?= awk
 GOTOOLCHAIN ?= go1.26.1
@@ -21,13 +23,22 @@ VP8_ENCODER_SOURCE_MIN ?= 1
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m
 
-.PHONY: all test verify verify-production oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data
+.PHONY: all ci fmtcheck test verify verify-production oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data
 
-all: verify-production
+all: ci
 
-verify: verify-production
+ci: fmtcheck test
 
-verify-production: test oracle-test
+fmtcheck:
+	files="$$($(GOFMT) -l $$($(GIT) ls-files '*.go'))"; \
+	if [ -n "$$files" ]; then \
+		printf 'gofmt needed:\n%s\n' "$$files"; \
+		exit 1; \
+	fi
+
+verify: ci
+
+verify-production: ci oracle-test
 
 test:
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test ./... -count=1
