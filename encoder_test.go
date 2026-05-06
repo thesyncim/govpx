@@ -790,6 +790,37 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentationForMatchingRefe
 	assertImagesEqual(t, "matching-reference segmented inter", frame, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeIntoStaticThresholdSkipsTemporalEnhancementLayerSegmentation(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	if err := e.SetStaticThreshold(1); err != nil {
+		t.Fatalf("SetStaticThreshold returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	packet := make([]byte, 4096)
+
+	key, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if !keyState.Segmentation.Enabled {
+		t.Fatalf("key segmentation disabled, want base-layer cyclic refresh enabled")
+	}
+
+	enhancement, err := e.EncodeInto(packet, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("enhancement EncodeInto returned error: %v", err)
+	}
+	if enhancement.TemporalLayerID != 1 {
+		t.Fatalf("enhancement temporal layer = %d, want 1", enhancement.TemporalLayerID)
+	}
+	enhancementState := packetState(t, enhancement.Data)
+	if enhancementState.Segmentation.Enabled || enhancementState.Segmentation.UpdateMap || enhancementState.Segmentation.UpdateData {
+		t.Fatalf("enhancement segmentation = %+v, want disabled like libvpx non-base temporal layer", enhancementState.Segmentation)
+	}
+}
+
 func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	e := newLowBitrateDropTestEncoder(t, true)
 	src := testImage(16, 16)

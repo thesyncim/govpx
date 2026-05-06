@@ -291,8 +291,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		UStride: src.UStride,
 		VStride: src.VStride,
 	}
+	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
 	if !keyFrame {
-		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, staticSegmentationAllowed)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -319,7 +320,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return result, nil
 	}
 
-	n, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible)
+	n, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
 		return EncodeResult{}, err
 	}
@@ -358,7 +359,7 @@ func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
 }
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
-	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false)
+	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false, true)
 	if err != nil {
 		return 0, err
 	}
@@ -369,9 +370,9 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	return attempt.Size, nil
 }
 
-func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool) (int, error) {
+func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (int, error) {
 	for attempt := 0; ; attempt++ {
-		n, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible)
+		n, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 		if err != nil {
 			return 0, err
 		}
@@ -381,11 +382,14 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	}
 }
 
-func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool) (int, error) {
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (int, error) {
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return 0, ErrInvalidConfig
 	}
-	segmentation := e.staticSegmentationConfig()
+	segmentation := vp8enc.SegmentationConfig{}
+	if staticSegmentationAllowed {
+		segmentation = e.staticSegmentationConfig()
+	}
 	var err error
 	if segmentation.Enabled {
 		assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
@@ -422,9 +426,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	return n, nil
 }
 
-func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
 	for attempt := 0; ; attempt++ {
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -434,7 +438,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	}
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -451,7 +455,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	} else if goldenCBRRefresh {
 		cfg.RefreshGolden = true
 	}
-	segmentation := e.staticSegmentationConfig()
+	segmentation := vp8enc.SegmentationConfig{}
+	if staticSegmentationAllowed {
+		segmentation = e.staticSegmentationConfig()
+	}
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
 	}
