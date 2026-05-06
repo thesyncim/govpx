@@ -130,6 +130,31 @@ func BenchmarkLibvpxEncodedSmokeDecode(b *testing.B) {
 	}
 }
 
+func BenchmarkLibvpxEncodedSmokeDecodeInto(b *testing.B) {
+	frames := mustDecodeSmokeIVFFrames(b, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		b.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := testImage(libvpxEncodedSmokeChecksums[0].Width, libvpxEncodedSmokeChecksums[0].Height)
+	for i := range frames {
+		if _, err := d.DecodeInto(frames[i], &dst); err != nil {
+			b.Fatalf("warm DecodeInto frame %d returned error: %v", i, err)
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		d.Reset()
+		for j := range frames {
+			if _, err := d.DecodeInto(frames[j], &dst); err != nil {
+				b.Fatalf("DecodeInto frame %d returned error: %v", j, err)
+			}
+		}
+	}
+}
+
 func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums []testutil.FrameChecksum) {
 	t.Helper()
 	if len(checksums) == 0 {
