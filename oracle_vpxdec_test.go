@@ -943,6 +943,7 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 		{name: "token-four", width: 32, height: 32, frames: 6, args: []string{"--token-parts=2"}, checkTokenPartition: true, wantTokenPartition: vp8common.FourPartition},
 		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}, checkTokenPartition: true, wantTokenPartition: vp8common.EightPartition},
 		{name: "error-resilient", width: 32, height: 32, frames: 6, args: []string{"--error-resilient=1"}},
+		{name: "cyclic-refresh-error-resilient", width: 80, height: 80, frames: 8, args: []string{"--error-resilient=1"}, checkSegmentationMap: true},
 		{name: "sharpness7", width: 32, height: 32, frames: 6, args: []string{"--sharpness=7"}},
 		{name: "static-threshold", width: 64, height: 64, frames: 8, args: []string{"--static-thresh=1000"}},
 	}
@@ -1139,20 +1140,21 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 }
 
 type generatedLibvpxCorpusCase struct {
-	name                string
-	width               int
-	height              int
-	frames              int
-	args                []string
-	checkProfile        bool
-	wantProfile         int
-	checkTokenPartition bool
-	wantTokenPartition  vp8common.TokenPartition
+	name                 string
+	width                int
+	height               int
+	frames               int
+	args                 []string
+	checkProfile         bool
+	wantProfile          int
+	checkTokenPartition  bool
+	wantTokenPartition   vp8common.TokenPartition
+	checkSegmentationMap bool
 }
 
 func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedLibvpxCorpusCase) {
 	t.Helper()
-	if !tc.checkProfile && !tc.checkTokenPartition {
+	if !tc.checkProfile && !tc.checkTokenPartition && !tc.checkSegmentationMap {
 		return
 	}
 	offset, err := testutil.FirstIVFFrameOffset(ivf)
@@ -1162,6 +1164,11 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 	previousQuant := vp8dec.QuantHeader{}
 	sawProfile := !tc.checkProfile
 	sawTokenPartition := !tc.checkTokenPartition
+	sawSegmentationMap := !tc.checkSegmentationMap
+	decoder, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
 	for frameIndex := 0; offset < len(ivf); frameIndex++ {
 		frame, next, err := testutil.NextIVFFrame(ivf, offset, frameIndex)
 		if err != nil {
@@ -1181,6 +1188,17 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 		if tc.checkTokenPartition && state.TokenPartition == tc.wantTokenPartition {
 			sawTokenPartition = true
 		}
+		if tc.checkSegmentationMap {
+			if err := decoder.Decode(frame.Data); err != nil {
+				t.Fatalf("Decode frame %d returned error while checking generated features: %v", frameIndex, err)
+			}
+			for _, segmentID := range decoder.segmentMap {
+				if segmentID != 0 {
+					sawSegmentationMap = true
+					break
+				}
+			}
+		}
 		previousQuant = state.Quant
 		offset = next
 	}
@@ -1189,6 +1207,9 @@ func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedL
 	}
 	if !sawTokenPartition {
 		t.Fatalf("generated corpus token partition = no frame with partition %d", tc.wantTokenPartition)
+	}
+	if !sawSegmentationMap {
+		t.Fatalf("generated corpus did not contain a nonzero segmentation map")
 	}
 }
 

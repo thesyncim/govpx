@@ -1108,6 +1108,37 @@ func TestDecodeErrorResilientConcealmentDoesNotCommitProbabilityUpdates(t *testi
 	}
 }
 
+func TestCommitParsedStateHonorsModeProbabilityRefreshFlag(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	defaultYModeProb := d.modeProbs.YMode[0]
+	updatedYModeProb := defaultYModeProb + 1
+
+	d.frameModeProbs = d.modeProbs
+	d.frameModeProbs.YMode[0] = updatedYModeProb
+	d.state.Refresh.RefreshEntropyProbs = false
+	d.commitParsedState(StreamInfo{})
+	if got := d.modeProbs.YMode[0]; got != defaultYModeProb {
+		t.Fatalf("inter no-refresh mode prob = %d, want previous %d", got, defaultYModeProb)
+	}
+
+	d.state.Refresh.RefreshEntropyProbs = true
+	d.commitParsedState(StreamInfo{})
+	if got := d.modeProbs.YMode[0]; got != updatedYModeProb {
+		t.Fatalf("inter refreshed mode prob = %d, want updated %d", got, updatedYModeProb)
+	}
+
+	d.modeProbs.YMode[0] = updatedYModeProb
+	d.frameModeProbs.YMode[0] = updatedYModeProb + 1
+	d.state.Refresh.RefreshEntropyProbs = false
+	d.commitParsedState(StreamInfo{KeyFrame: true})
+	if got := d.modeProbs.YMode[0]; got != vp8tables.DefaultYModeProbs[0] {
+		t.Fatalf("key no-refresh mode prob = %d, want default %d", got, vp8tables.DefaultYModeProbs[0])
+	}
+}
+
 func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
 	if err != nil {

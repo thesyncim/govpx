@@ -449,7 +449,11 @@ func (d *VP8Decoder) commitParsedState(info StreamInfo) {
 	} else if info.KeyFrame {
 		d.coefProbs = vp8tables.DefaultCoefProbs
 	}
-	d.modeProbs = d.frameModeProbs
+	if d.state.Refresh.RefreshEntropyProbs {
+		d.modeProbs = d.frameModeProbs
+	} else if info.KeyFrame {
+		vp8dec.ResetModeProbs(&d.modeProbs)
+	}
 	d.previousQuant = d.state.Quant
 	d.previousLoopFilter = d.state.LoopFilter
 	if info.KeyFrame {

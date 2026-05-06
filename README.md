@@ -34,8 +34,9 @@ Optional live libvpx tests are enabled with `LIBGOPX_WITH_ORACLE=1`; set
 `LIBGOPX_VPXDEC` to a vpxdec binary for decode smoke tests,
 `LIBGOPX_VPXENC` to a vpxenc binary for generated corpus tests, and
 `LIBGOPX_ORACLE` to the checksum oracle built from `internal/coracle/`.
-The generated corpus asserts the intended profile and token-partition features
-before comparing Decode and DecodeInto checksums against libvpx.
+The generated corpus asserts the intended profile, token-partition, and
+segmentation-map features before comparing Decode and DecodeInto checksums
+against libvpx.
 Set `LIBGOPX_TEST_DATA_PATH` to a VP8 IVF file or directory to run extended
 opt-in conformance against external libvpx test data; `LIBGOPX_TEST_DATA_LIMIT`
 can cap the number of IVF files. CI jobs that must fail instead of skipping can
