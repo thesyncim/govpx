@@ -6,6 +6,8 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 build_dir=${LIBGOPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxenc"
 vpxenc_bin=${LIBGOPX_VPXENC_BIN:-"$build_dir/vpxenc"}
+config_stamp="$src_dir/.libgopx-vpxenc-config"
+want_config="v1.16.0-vp8-tools-postproc-error-concealment"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -27,17 +29,30 @@ if [ ! -d "$src_dir" ]; then
 	tar -xzf "$archive" -C "$src_dir"
 fi
 
-if [ ! -x "$src_dir/vpxenc" ]; then
+current_config=
+if [ -f "$config_stamp" ]; then
+	current_config=$(cat "$config_stamp")
+fi
+
+if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
 	(
 		cd "$src_dir"
+		if [ -f config.mk ]; then
+			make distclean
+		fi
 		./configure \
 			--disable-docs \
 			--disable-unit-tests \
 			--disable-vp9 \
 			--disable-vp9-highbitdepth \
+			--enable-vp8_encoder \
+			--enable-vp8_decoder \
+			--enable-postproc \
+			--enable-error-concealment \
 			--enable-vp8
 		make -j"$jobs"
 	)
+	printf '%s\n' "$want_config" > "$config_stamp"
 fi
 
 cp "$src_dir/vpxenc" "$vpxenc_bin"

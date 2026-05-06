@@ -117,6 +117,28 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle capability tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
+
+	normal := runLibvpxChecksumOracle(t, oracle, ivf)
+	postproc := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
+	if len(postproc) != len(normal) {
+		t.Fatalf("postprocess oracle frame count = %d, want %d", len(postproc), len(normal))
+	}
+	for i := range normal {
+		if postproc[i].Index != normal[i].Index || postproc[i].Width != normal[i].Width || postproc[i].Height != normal[i].Height || postproc[i].KeyFrame != normal[i].KeyFrame || postproc[i].ShowFrame != normal[i].ShowFrame {
+			t.Fatalf("postprocess oracle metadata[%d] = %+v, want %+v", i, postproc[i], normal[i])
+		}
+	}
+
+	concealment := runLibvpxChecksumOracleMode(t, oracle, "decode-error-concealment", ivf)
+	assertFrameChecksumsEqual(t, "error-concealment clean decode", concealment, normal)
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
@@ -1068,9 +1090,23 @@ func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil
 	return runLibvpxChecksumOracleFile(t, oracle, path)
 }
 
+func runLibvpxChecksumOracleMode(t *testing.T, oracle string, mode string, ivf []byte) []testutil.FrameChecksum {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "libgopx-"+mode+".ivf")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	return runLibvpxChecksumOracleFileMode(t, oracle, mode, path)
+}
+
 func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []testutil.FrameChecksum {
 	t.Helper()
-	cmd := exec.Command(oracle, "decode", path)
+	return runLibvpxChecksumOracleFileMode(t, oracle, "decode", path)
+}
+
+func runLibvpxChecksumOracleFileMode(t *testing.T, oracle string, mode string, path string) []testutil.FrameChecksum {
+	t.Helper()
+	cmd := exec.Command(oracle, mode, path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("libvpx oracle failed: %v\n%s", err, out)

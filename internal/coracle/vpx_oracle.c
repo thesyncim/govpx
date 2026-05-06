@@ -287,7 +287,7 @@ static int emit_frame_json(unsigned int frame_index, int keyframe, int show_fram
 	return 0;
 }
 
-static int decode_ivf(const char *path) {
+static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cfg_t *postproc) {
 	unsigned char *data = NULL;
 	size_t len = 0;
 	size_t offset = 32;
@@ -304,9 +304,16 @@ static int decode_ivf(const char *path) {
 		return 1;
 	}
 
+	memset(&codec, 0, sizeof(codec));
 	memset(&cfg, 0, sizeof(cfg));
-	if (vpx_codec_dec_init(&codec, vpx_codec_vp8_dx(), &cfg, 0) != VPX_CODEC_OK) {
-		fprintf(stderr, "vpx_codec_dec_init failed\n");
+	if (vpx_codec_dec_init(&codec, vpx_codec_vp8_dx(), &cfg, flags) != VPX_CODEC_OK) {
+		fprintf(stderr, "vpx_codec_dec_init failed: %s\n", vpx_codec_error(&codec));
+		free(data);
+		return 1;
+	}
+	if (postproc != NULL && vpx_codec_control(&codec, VP8_SET_POSTPROC, postproc) != VPX_CODEC_OK) {
+		fprintf(stderr, "VP8_SET_POSTPROC failed: %s\n", vpx_codec_error(&codec));
+		vpx_codec_destroy(&codec);
 		free(data);
 		return 1;
 	}
@@ -361,15 +368,22 @@ static int decode_ivf(const char *path) {
 }
 
 static void usage(const char *argv0) {
-	fprintf(stderr, "usage: %s decode input.ivf\n", argv0);
+	fprintf(stderr, "usage: %s decode|decode-postproc|decode-error-concealment input.ivf\n", argv0);
 }
 
 int main(int argc, char **argv) {
 	if (argc == 2) {
-		return decode_ivf(argv[1]);
+		return decode_ivf(argv[1], 0, NULL);
 	}
 	if (argc == 3 && strcmp(argv[1], "decode") == 0) {
-		return decode_ivf(argv[2]);
+		return decode_ivf(argv[2], 0, NULL);
+	}
+	if (argc == 3 && strcmp(argv[1], "decode-postproc") == 0) {
+		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };
+		return decode_ivf(argv[2], VPX_CODEC_USE_POSTPROC, &postproc);
+	}
+	if (argc == 3 && strcmp(argv[1], "decode-error-concealment") == 0) {
+		return decode_ivf(argv[2], VPX_CODEC_USE_ERROR_CONCEALMENT, NULL);
 	}
 	usage(argv[0]);
 	return 2;

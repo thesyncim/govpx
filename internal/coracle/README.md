@@ -1,8 +1,9 @@
 # libvpx oracle
 
 This directory contains an optional checksum oracle for tests. It builds against
-the pinned libvpx v1.16.0 decoder and emits one JSON object per decoded frame.
-The Go package does not import cgo or link libvpx.
+the pinned libvpx v1.16.0 decoder with VP8 postprocess and error-concealment
+support enabled, then emits one JSON object per decoded frame. The Go package
+does not import cgo or link libvpx.
 
 Build the helper:
 
@@ -39,6 +40,10 @@ The helper accepts IVF VP8 input:
 ```sh
 internal/coracle/build/gopx-vpx-oracle decode input.ivf
 ```
+
+Use `decode-postproc` to enable libvpx VP8 deblock/demacroblock/MFQE
+postprocessing, and `decode-error-concealment` to initialize libvpx with VP8
+error concealment.
 
 Output is newline-delimited JSON:
 

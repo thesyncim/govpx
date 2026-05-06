@@ -7,6 +7,8 @@ build_dir=${LIBGOPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag"
 prefix=${LIBGOPX_LIBVPX_PREFIX:-"$build_dir/libvpx-$tag-install"}
 oracle_bin=${LIBGOPX_ORACLE_BIN:-"$build_dir/gopx-vpx-oracle"}
+config_stamp="$prefix/.libgopx-libvpx-config"
+want_config="v1.16.0-vp8-decoder-postproc-error-concealment"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -26,9 +28,17 @@ if [ ! -d "$src_dir" ]; then
 	tar -xzf "$archive" -C "$src_dir"
 fi
 
-if [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [ ! -f "$prefix/lib/libvpx.so" ]; then
+current_config=
+if [ -f "$config_stamp" ]; then
+	current_config=$(cat "$config_stamp")
+fi
+
+if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [ ! -f "$prefix/lib/libvpx.so" ]; } || [ "$current_config" != "$want_config" ]; then
 	(
 		cd "$src_dir"
+		if [ -f config.mk ]; then
+			make distclean
+		fi
 		./configure \
 			--prefix="$prefix" \
 			--disable-examples \
@@ -38,11 +48,14 @@ if [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [ !
 			--disable-vp9 \
 			--disable-vp9-highbitdepth \
 			--enable-vp8 \
-			--enable-decoder \
-			--disable-encoder
+			--disable-vp8_encoder \
+			--enable-vp8_decoder \
+			--enable-postproc \
+			--enable-error-concealment
 		make -j"$jobs"
 		make install
 	)
+	printf '%s\n' "$want_config" > "$config_stamp"
 fi
 
 cc=${CC:-cc}
