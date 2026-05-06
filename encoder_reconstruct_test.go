@@ -364,6 +364,70 @@ func TestShouldSkipInterResidualUsesRDTokenCost(t *testing.T) {
 	}
 }
 
+func TestStaticInterEncodeBreakoutUsesStrictLibvpxThreshold(t *testing.T) {
+	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	quant := testMacroblockQuant(20)
+
+	src.Y[0] = 133
+	if !staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+		t.Fatalf("static breakout = false, want skip below AC threshold")
+	}
+
+	src.Y[0] = 134
+	if staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+		t.Fatalf("static breakout = true, want no skip at strict AC threshold")
+	}
+}
+
+func TestStaticInterEncodeBreakoutUsesChromaGate(t *testing.T) {
+	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
+	src := testImage(16, 16)
+	fillImage(src, 129, 90, 170)
+	quant := testMacroblockQuant(80)
+
+	if !staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+		t.Fatalf("static breakout = false, want uniform low-luma residual skipped")
+	}
+
+	src.U[0] = 110
+	if staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+		t.Fatalf("static breakout = true, want chroma SSE to prevent skip")
+	}
+}
+
+func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	src.Y[0] = 208
+
+	noBreakout := newSizedTestEncoder(t, 16, 16)
+	fillBenchmarkVP8Image(&noBreakout.lastRef.Img, 128, 90, 170)
+	noBreakout.lastRef.ExtendBorders()
+	noBreakoutModes := make([]vp8enc.InterFrameMacroblockMode, 1)
+	noBreakoutCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := noBreakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, noBreakoutModes, noBreakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+		t.Fatalf("no-breakout inter reconstruction returned error: %v", err)
+	}
+	if noBreakoutModes[0].MBSkipCoeff || macroblockCoeffAbsSum(&noBreakoutCoeffs[0]) == 0 {
+		t.Fatalf("no-breakout mode skip=%t coeff sum=%d, want coded residual", noBreakoutModes[0].MBSkipCoeff, macroblockCoeffAbsSum(&noBreakoutCoeffs[0]))
+	}
+
+	breakout := newSizedTestEncoder(t, 16, 16)
+	breakout.opts.StaticThreshold = 7000
+	fillBenchmarkVP8Image(&breakout.lastRef.Img, 128, 90, 170)
+	breakout.lastRef.ExtendBorders()
+	breakoutModes := make([]vp8enc.InterFrameMacroblockMode, 1)
+	breakoutCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := breakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, breakoutModes, breakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+		t.Fatalf("breakout inter reconstruction returned error: %v", err)
+	}
+	if !breakoutModes[0].MBSkipCoeff || macroblockCoeffAbsSum(&breakoutCoeffs[0]) != 0 {
+		t.Fatalf("breakout mode skip=%t coeff sum=%d, want forced skip", breakoutModes[0].MBSkipCoeff, macroblockCoeffAbsSum(&breakoutCoeffs[0]))
+	}
+}
+
 func TestMacroblockCoefficientTokenRateChargesNonZeroResiduals(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var zero vp8enc.MacroblockCoefficients

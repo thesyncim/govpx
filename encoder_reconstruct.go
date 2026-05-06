@@ -182,10 +182,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			predictionDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
-			if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
+			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
+				staticInterEncodeBreakout(src, &e.analysis.Img, row, col, &quants[segmentID], e.opts.StaticThreshold)
+			if breakoutSkip {
+				clearMacroblockCoefficients(&coeffs[index])
+			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, interZbinModeBoost(&modes[index]), modes[index].Mode == vp8common.BPred, &coeffs[index])
 			}
-			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
+			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
@@ -916,6 +920,34 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	return sse
 }
 
+func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (int, int) {
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+16 <= src.Height && baseX+16 <= src.Width &&
+		baseY+16 <= ref.CodedHeight && baseX+16 <= ref.CodedWidth {
+		srcStart := src.Y[baseY*src.YStride+baseX:]
+		refStart := ref.Y[baseY*ref.YStride+baseX:]
+		return dsp.Variance16x16(srcStart, src.YStride, refStart, ref.YStride),
+			dsp.SSE16x16(srcStart, src.YStride, refStart, ref.YStride)
+	}
+
+	sum := 0
+	sse := 0
+	for row := 0; row < 16; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)
+		for col := 0; col < 16; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(baseX+col, ref.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
+			sum += diff
+			sse += diff * diff
+		}
+	}
+	return sse - ((sum * sum) >> 8), sse
+}
+
 func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, qIndex int, zbinModeBoost int, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients) {
 	var y2Input [16]int16
 	var y2Coeff [16]int16
@@ -1034,6 +1066,27 @@ func shouldSkipInterResidual(qIndex int, tokenRate int, predictionDist int, code
 	skipCost := rdModeScore(qIndex, 0, predictionDist)
 	codedCost := rdModeScore(qIndex, tokenRate, codedDist)
 	return skipCost <= codedCost
+}
+
+func staticInterEncodeBreakout(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, encodeBreakout int) bool {
+	if encodeBreakout <= 0 || pred == nil || quant == nil {
+		return false
+	}
+	yAC := int(quant.Y1.Dequant[1])
+	threshold := (yAC * yAC) >> 4
+	if threshold < encodeBreakout {
+		threshold = encodeBreakout
+	}
+	lumaVar, lumaSSE := macroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
+	if lumaSSE >= threshold {
+		return false
+	}
+	y2DC := int(quant.Y2.Dequant[0])
+	dcError := lumaSSE - lumaVar
+	if dcError >= (y2DC*y2DC)>>4 && (lumaSSE/2 <= lumaVar || dcError >= 64) {
+		return false
+	}
+	return macroblockChromaSSE(src, pred, mbRow, mbCol)*2 < threshold
 }
 
 var quantZbinBoost = [...]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
