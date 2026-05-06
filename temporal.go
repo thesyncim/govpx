@@ -51,6 +51,7 @@ type temporalState struct {
 	tl0Valid    bool
 	refLayer    [temporalReferenceCount]int
 	accounting  [MaxTemporalLayers]temporalLayerAccounting
+	buffersSet  bool
 }
 
 type temporalFrame struct {
@@ -70,6 +71,15 @@ type temporalLayerAccounting struct {
 	EncodedFrames      int
 	TotalEncodedFrames int
 	EncodedBits        int
+	FrameBandwidthBits int
+	MaximumBufferBits  int
+	BufferLevelBits    int
+}
+
+type temporalBufferConfig struct {
+	timing              timingState
+	bufferInitialSizeMs int
+	bufferSizeMs        int
 }
 
 const (
@@ -101,6 +111,7 @@ func (t *temporalState) configure(cfg TemporalScalabilityConfig, totalBitrateKbp
 	t.tl0Valid = false
 	t.refLayer = [temporalReferenceCount]int{}
 	t.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
+	t.buffersSet = false
 	return nil
 }
 
@@ -155,11 +166,11 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	return meta
 }
 
-func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh temporalReferenceRefresh, encodedBits int) {
+func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
 	if !t.enabled {
 		return
 	}
-	t.accountEncodedFrame(meta, keyFrame, encodedBits)
+	t.accountEncodedFrame(meta, keyFrame, encodedBits, buffers)
 	if keyFrame {
 		t.refLayer = [temporalReferenceCount]int{}
 	} else {
@@ -180,21 +191,26 @@ func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh t
 	t.frameIndex++
 }
 
-func (t *temporalState) finishDroppedFrame(meta temporalFrame) {
+func (t *temporalState) finishDroppedFrame(meta temporalFrame, buffers temporalBufferConfig) {
 	if t.enabled {
+		t.updateLayerBufferConfig(buffers)
 		t.accountInputFrame(meta)
+		t.accountDroppedFrameBuffer(meta)
 		t.frameIndex++
 	}
 }
 
-func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, encodedBits int) {
+func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, encodedBits int, buffers temporalBufferConfig) {
+	t.updateLayerBufferConfig(buffers)
 	t.accountInputFrame(meta)
 	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
 		return
 	}
 	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
-		t.accounting[layer].TotalEncodedFrames++
-		t.accounting[layer].EncodedBits = saturatingAdd(t.accounting[layer].EncodedBits, encodedBits)
+		accounting := &t.accounting[layer]
+		accounting.TotalEncodedFrames++
+		accounting.EncodedBits = saturatingAdd(accounting.EncodedBits, encodedBits)
+		t.updateLayerBuffer(accounting, encodedBits)
 	}
 	if !keyFrame {
 		t.accounting[meta.LayerID].EncodedFrames++
@@ -206,6 +222,48 @@ func (t *temporalState) accountInputFrame(meta temporalFrame) {
 		return
 	}
 	t.accounting[meta.LayerID].InputFrames++
+}
+
+func (t *temporalState) accountDroppedFrameBuffer(meta temporalFrame) {
+	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+		return
+	}
+	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
+		t.updateLayerBuffer(&t.accounting[layer], 0)
+	}
+}
+
+func (t *temporalState) updateLayerBufferConfig(cfg temporalBufferConfig) {
+	for layer := 0; layer < t.pattern.Layers; layer++ {
+		targetKbps := t.config.LayerTargetBitrateKbps[layer]
+		targetBits, ok := checkedMul(targetKbps, 1000)
+		if !ok {
+			targetBits = maxInt()
+		}
+		accounting := &t.accounting[layer]
+		accounting.FrameBandwidthBits = computeLayerBitsPerFrame(targetBits, cfg.timing, t.pattern.RateDecimator[layer], 1)
+		accounting.MaximumBufferBits = temporalLayerBufferBits(targetKbps, cfg.bufferSizeMs)
+		if !t.buffersSet {
+			accounting.BufferLevelBits = temporalLayerBufferBits(targetKbps, cfg.bufferInitialSizeMs)
+		}
+	}
+	t.buffersSet = true
+}
+
+func (t *temporalState) updateLayerBuffer(accounting *temporalLayerAccounting, encodedBits int) {
+	accounting.BufferLevelBits = saturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
+	accounting.BufferLevelBits = saturatingSub(accounting.BufferLevelBits, encodedBits)
+	if accounting.BufferLevelBits > accounting.MaximumBufferBits {
+		accounting.BufferLevelBits = accounting.MaximumBufferBits
+	}
+}
+
+func temporalLayerBufferBits(targetKbps int, bufferMs int) int {
+	value, ok := checkedMul(targetKbps, bufferMs)
+	if !ok {
+		return maxInt()
+	}
+	return value
 }
 
 func (t *temporalState) layerSync(meta temporalFrame) bool {

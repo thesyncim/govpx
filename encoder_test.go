@@ -1862,12 +1862,18 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 	dst := make([]byte, 4096)
 
 	var sizes [4]int
+	layerBuffer := [2]int{288000, 480000}
+	layerFrameBandwidth := [2]int{48000, 40000}
+	layerMaximumBuffer := [2]int{432000, 720000}
 	for i := range sizes {
 		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
 		if err != nil {
 			t.Fatalf("EncodeInto %d returned error: %v", i, err)
 		}
 		sizes[i] = encodedSizeBits(result.SizeBytes)
+		for layer := result.TemporalLayerID; layer < result.TemporalLayerCount; layer++ {
+			layerBuffer[layer] = temporalTestBufferAfterFrame(layerBuffer[layer], layerFrameBandwidth[layer], layerMaximumBuffer[layer], sizes[i])
+		}
 	}
 
 	wantLayer0 := temporalLayerAccounting{
@@ -1875,12 +1881,18 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 		EncodedFrames:      1,
 		TotalEncodedFrames: 2,
 		EncodedBits:        sizes[0] + sizes[2],
+		FrameBandwidthBits: layerFrameBandwidth[0],
+		MaximumBufferBits:  layerMaximumBuffer[0],
+		BufferLevelBits:    layerBuffer[0],
 	}
 	wantLayer1 := temporalLayerAccounting{
 		InputFrames:        2,
 		EncodedFrames:      2,
 		TotalEncodedFrames: 4,
 		EncodedBits:        sizes[0] + sizes[1] + sizes[2] + sizes[3],
+		FrameBandwidthBits: layerFrameBandwidth[1],
+		MaximumBufferBits:  layerMaximumBuffer[1],
+		BufferLevelBits:    layerBuffer[1],
 	}
 	if got := e.temporal.accounting[0]; got != wantLayer0 {
 		t.Fatalf("layer0 accounting = %+v, want %+v", got, wantLayer0)
@@ -1893,6 +1905,63 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 	if got := e.temporal.accounting; got != ([MaxTemporalLayers]temporalLayerAccounting{}) {
 		t.Fatalf("accounting after reset = %+v, want zero", got)
 	}
+}
+
+func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyBits := encodedSizeBits(key.SizeBytes)
+	layer0Buffer := temporalTestBufferAfterFrame(288000, 48000, 432000, keyBits)
+	layer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, keyBits)
+
+	e.rc.bufferLevelBits = 0
+	dropped, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("dropped EncodeInto returned error: %v", err)
+	}
+	if !dropped.Dropped || dropped.TemporalLayerID != 1 {
+		t.Fatalf("dropped result = dropped:%t layer:%d, want dropped layer 1", dropped.Dropped, dropped.TemporalLayerID)
+	}
+	layer1Buffer = temporalTestBufferAfterFrame(layer1Buffer, 40000, 720000, 0)
+
+	wantLayer0 := temporalLayerAccounting{
+		InputFrames:        1,
+		TotalEncodedFrames: 1,
+		EncodedBits:        keyBits,
+		FrameBandwidthBits: 48000,
+		MaximumBufferBits:  432000,
+		BufferLevelBits:    layer0Buffer,
+	}
+	wantLayer1 := temporalLayerAccounting{
+		InputFrames:        1,
+		TotalEncodedFrames: 1,
+		EncodedBits:        keyBits,
+		FrameBandwidthBits: 40000,
+		MaximumBufferBits:  720000,
+		BufferLevelBits:    layer1Buffer,
+	}
+	if got := e.temporal.accounting[0]; got != wantLayer0 {
+		t.Fatalf("layer0 accounting after drop = %+v, want %+v", got, wantLayer0)
+	}
+	if got := e.temporal.accounting[1]; got != wantLayer1 {
+		t.Fatalf("layer1 accounting after drop = %+v, want %+v", got, wantLayer1)
+	}
+}
+
+func temporalTestBufferAfterFrame(level int, frameBandwidth int, maximum int, encodedBits int) int {
+	level = saturatingAdd(level, frameBandwidth)
+	level = saturatingSub(level, encodedBits)
+	if level > maximum {
+		return maximum
+	}
+	return level
 }
 
 func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
