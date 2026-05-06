@@ -10,7 +10,7 @@ import (
 )
 
 func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSmokeIVFHex, libvpxSmokeChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxSmokeIVFHex, libgopxSmokeChecksums[:])
 }
 
 func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
@@ -88,23 +88,23 @@ func TestLoopFilterSharpnessSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 }
 
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxNewMVIVFHex, libvpxNewMVChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxNewMVIVFHex, libgopxNewMVChecksums[:])
 }
 
 func TestSubpixelNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSubpixelNewMVIVFHex, libvpxSubpixelNewMVChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxSubpixelNewMVIVFHex, libgopxSubpixelNewMVChecksums[:])
 }
 
 func TestIntraInterSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxIntraInterIVFHex, libvpxIntraInterChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxIntraInterIVFHex, libgopxIntraInterChecksums[:])
 }
 
 func TestIntraModeSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxIntraModeIVFHex, libvpxIntraModeChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxIntraModeIVFHex, libgopxIntraModeChecksums[:])
 }
 
 func TestChromaModeSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxChromaModeIVFHex, libvpxChromaModeChecksums[:])
+	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxChromaModeIVFHex, libgopxChromaModeChecksums[:])
 }
 
 func BenchmarkLibvpxEncodedSmokeDecode(b *testing.B) {
@@ -438,9 +438,9 @@ func md5Hex(s string) [16]byte {
 
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle.
-const libvpxSmokeIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000005f00000000000000000000001001009d012a2000100000002800000f0400fef6507ffdfa69ff39ffff26c9725c9724e2c6abb51e9788e49c58d57ffff295ffc6eff765c16ffff99a3ff49bfec37901fe81f697ffbf4d3fe73ff4fd3f4fd3c43cb5ada69e9788796b5b1e00120000000100000000000000d101000000a03100048981818043a46b0000"
+const libgopxSmokeIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000005f00000000000000000000001001009d012a2000100000002800000f0400fef6507ffdfa69ff39ffff26c9725c9724e2c6abb51e9788e49c58d57ffff295ffc6eff765c16ffff99a3ff49bfec37901fe81f697ffbf4d3fe73ff4fd3f4fd3c43cb5ada69e9788796b5b1e00120000000100000000000000d101000000a03100048981818043a46b0000"
 
-var libvpxSmokeChecksums = [...]testutil.FrameChecksum{
+var libgopxSmokeChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     32,
@@ -505,9 +505,9 @@ var libvpxEncodedSmokeChecksums = [...]testutil.FrameChecksum{
 
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle. This vector exercises a NEWMV interframe.
-const libvpxNewMVIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000008300000000000000000000001001009d012a2000100000000800000f0400fefe6ebffff80d0bff6281fffe337feb0ffac3feb0ffac3f19fc67f19ffac3f19fc67f19ffac3f19fc67f19fffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff32f3ff39effff80d0bff6281ff587fd61ff587fd61f8cfe33f8cfe33f8cfe33f8cfe33f8cfe33f8cfdec00120000000100000000000000d101000000203100048981818043a41a0000"
+const libgopxNewMVIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000008300000000000000000000001001009d012a2000100000000800000f0400fefe6ebffff80d0bff6281fffe337feb0ffac3feb0ffac3f19fc67f19ffac3f19fc67f19ffac3f19fc67f19fffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff32f3ff39effff80d0bff6281ff587fd61ff587fd61f8cfe33f8cfe33f8cfe33f8cfe33f8cfe33f8cfdec00120000000100000000000000d101000000203100048981818043a41a0000"
 
-var libvpxNewMVChecksums = [...]testutil.FrameChecksum{
+var libgopxNewMVChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     32,
@@ -539,9 +539,9 @@ var libvpxNewMVChecksums = [...]testutil.FrameChecksum{
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle. This vector exercises a subpixel NEWMV
 // interframe.
-const libvpxSubpixelNewMVIVFHex = "444b49460000200056503830100010001e000000010000000200000000000000830100000000000000000000f000009d012a10001000000008000011d0fefa9fa07ffd455c3cf6ffe3b7f929fd3fa1bffffcabfff453b569f4fcdc7fa2ebff533ff9727e973ecbfff601f3bca7ffffc1afa57d807ecc6ff40359cbf37aff3fff68ff277effff7fff75ffffe55fffa29dacdfffc1affea34fb47fd69ffd00d67dfffdffbaffe4dbf5ffdfdebfdff7fff3ff99fd807e4dbfe8058bef5ff7af4df33bf601f33bbff07c7fe7ff4ffb47fcabffd47b17debfef5e9be7ffed1fe7ff7fe0f9ffffc1affea34fb00fd5e9fd47d67dfffdffbaffe55ff68aafdebfdff7affffe55fffa29dacdffc1afa57da3fed08ff51f59cbf37aff33bf601f33bf7fffbfffb6c547e68bfd081ffa99ffcb93f4b9f5d1ffb47f9de57ffff2afffd14ed66fffea34ff9c4bff9adddff319fe61c97fccdbff33bf33bf371fff957ffe8a76a5347e6e3fd175ffa99ffcb93f4b9f65fffb00f9de53ffff06be95f601fb31bfd00d672fcdebfcfffda3fc9dfbfffdfffdd7fffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff31300750000000100000000000000b101000000203100048981818017fe809bffffacdbffee827fd611c7ff0eb7fff336fffba09ff58471ffc3adfffe8a3bffe5fbaa7fcde9ffe8a3bffe5fbaa7fcde9fffff3633ffed5c7fe6976bff5b0bfffcd8cfffb571ff9a5daffd6c2ffffa6677ffcd00b97fbe51fff4ccefff9a0172ff7c7000"
+const libgopxSubpixelNewMVIVFHex = "444b49460000200056503830100010001e000000010000000200000000000000830100000000000000000000f000009d012a10001000000008000011d0fefa9fa07ffd455c3cf6ffe3b7f929fd3fa1bffffcabfff453b569f4fcdc7fa2ebff533ff9727e973ecbfff601f3bca7ffffc1afa57d807ecc6ff40359cbf37aff3fff68ff277effff7fff75ffffe55fffa29dacdfffc1affea34fb47fd69ffd00d67dfffdffbaffe4dbf5ffdfdebfdff7fff3ff99fd807e4dbfe8058bef5ff7af4df33bf601f33bbff07c7fe7ff4ffb47fcabffd47b17debfef5e9be7ffed1fe7ff7fe0f9ffffc1affea34fb00fd5e9fd47d67dfffdffbaffe55ff68aafdebfdff7affffe55fffa29dacdffc1afa57da3fed08ff51f59cbf37aff33bf601f33bf7fffbfffb6c547e68bfd081ffa99ffcb93f4b9f5d1ffb47f9de57ffff2afffd14ed66fffea34ff9c4bff9adddff319fe61c97fccdbff33bf33bf371fff957ffe8a76a5347e6e3fd175ffa99ffcb93f4b9f65fffb00f9de53ffff06be95f601fb31bfd00d672fcdebfcfffda3fc9dfbfffdfffdd7fffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff31300750000000100000000000000b101000000203100048981818017fe809bffffacdbffee827fd611c7ff0eb7fff336fffba09ff58471ffc3adfffe8a3bffe5fbaa7fcde9ffe8a3bffe5fbaa7fcde9fffff3633ffed5c7fe6976bff5b0bfffcd8cfffb571ff9a5daffd6c2ffffa6677ffcd00b97fbe51fff4ccefff9a0172ff7c7000"
 
-var libvpxSubpixelNewMVChecksums = [...]testutil.FrameChecksum{
+var libgopxSubpixelNewMVChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     16,
@@ -573,9 +573,9 @@ var libvpxSubpixelNewMVChecksums = [...]testutil.FrameChecksum{
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle. This vector exercises an intra
 // macroblock inside an interframe.
-const libvpxIntraInterIVFHex = "444b49460000200056503830100010001e000000010000000200000000000000320000000000000000000000f000009d012a1000100000000800000dc0feffbb029ffffe39b7ffe39b7ffe39b7fc736ffffccbcfffe65e7fff32f3fe62602d00000001000000000000009101000000203100048981818000009bffffc736fffc736fffc736ff8e6dffff9979fffccbcfffe65e7fcc4c00"
+const libgopxIntraInterIVFHex = "444b49460000200056503830100010001e000000010000000200000000000000320000000000000000000000f000009d012a1000100000000800000dc0feffbb029ffffe39b7ffe39b7ffe39b7fc736ffffccbcfffe65e7fff32f3fe62602d00000001000000000000009101000000203100048981818000009bffffc736fffc736fffc736ff8e6dffff9979fffccbcfffe65e7fcc4c00"
 
-var libvpxIntraInterChecksums = [...]testutil.FrameChecksum{
+var libgopxIntraInterChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     16,
@@ -607,9 +607,9 @@ var libvpxIntraInterChecksums = [...]testutil.FrameChecksum{
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle. This vector exercises non-DC whole-block
 // intra mode selection in a keyframe.
-const libvpxIntraModeIVFHex = "444b49460000200056503830100020001e0000000100000001000000000000007c00000000000000000000001001009d012a10002000000008000012c080fefcf3ffffeec5dfff233bfffd8b3ffda5fff697ffda5fff697ffb167ffa2cfff459ffed2fff62cfff459ffe8b3ffda5ffec59ffe8b3ffd167ffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff31dcdadd64ca40c7ed6eb3042a6e9a5a365f1d374b3000"
+const libgopxIntraModeIVFHex = "444b49460000200056503830100020001e0000000100000001000000000000007c00000000000000000000001001009d012a10002000000008000012c080fefcf3ffffeec5dfff233bfffd8b3ffda5fff697ffda5fff697ffb167ffa2cfff459ffed2fff62cfff459ffe8b3ffda5ffec59ffe8b3ffd167ffff1cdbfff1cdbfff1cdbfe39b7fffe65e7fff32f3fff9979ff31dcdadd64ca40c7ed6eb3042a6e9a5a365f1d374b3000"
 
-var libvpxIntraModeChecksums = [...]testutil.FrameChecksum{
+var libgopxIntraModeChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     16,
@@ -628,9 +628,9 @@ var libvpxIntraModeChecksums = [...]testutil.FrameChecksum{
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle. This vector exercises non-DC chroma
 // intra mode selection in a keyframe.
-const libvpxChromaModeIVFHex = "444b49460000200056503830100020001e0000000100000001000000000000008d00000000000000000000001001009d012a100020000000080000137500fefcf3ffffeec5dfff233bfffd8b3ffda5fff697ffda5fff697ffb167ffa2cfff459ffed2fff62cfff459ffe8b3ffda5ffec59ffe8b3ffd167ffff7b23fef8b8e6fffd7bffef8b8e6fffef647fdf171cdfbe5ffbc5c737fffd98de50e45e50fffd98de4f5feb99023ff52d6485011ffb9ab93a809181bb2f8e98a0"
+const libgopxChromaModeIVFHex = "444b49460000200056503830100020001e0000000100000001000000000000008d00000000000000000000001001009d012a100020000000080000137500fefcf3ffffeec5dfff233bfffd8b3ffda5fff697ffda5fff697ffb167ffa2cfff459ffed2fff62cfff459ffe8b3ffda5ffec59ffe8b3ffd167ffff7b23fef8b8e6fffd7bffef8b8e6fffef647fdf171cdfbe5ffbc5c737fffd98de50e45e50fffd98de4f5feb99023ff52d6485011ffb9ab93a809181bb2f8e98a0"
 
-var libvpxChromaModeChecksums = [...]testutil.FrameChecksum{
+var libgopxChromaModeChecksums = [...]testutil.FrameChecksum{
 	{
 		Index:     0,
 		Width:     16,
