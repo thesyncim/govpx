@@ -109,7 +109,8 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 }
 
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
-	if !is4x4 && tokens.EOB[24] > 0 {
+	hasY2 := !is4x4 && tokens.EOB[24] > 0
+	if hasY2 {
 		clearYResidualBlocks(out)
 		var y2 [16]int16
 		if tokens.EOB[24] > 1 {
@@ -126,20 +127,32 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 		yDequant = &dequant.Y1DC
 	}
 	for i := 0; i < 16; i++ {
-		if tokens.EOB[i] == 0 {
+		eob := tokens.EOB[i]
+		if eob == 0 {
 			continue
 		}
-		if is4x4 || tokens.EOB[24] == 0 {
-			clearResidualBlock(out.Block(i))
+		block := out.Block(i)
+		if !hasY2 {
+			if eob == 1 {
+				block[0] = 0
+			} else {
+				clearResidualBlock(block)
+			}
 		}
-		dequantizeInto(&tokens.QCoeff[i], yDequant, tokens.EOB[i], out.Block(i))
+		dequantizeInto(&tokens.QCoeff[i], yDequant, eob, block)
 	}
 	for i := 16; i < 24; i++ {
-		if tokens.EOB[i] == 0 {
+		eob := tokens.EOB[i]
+		if eob == 0 {
 			continue
 		}
-		clearResidualBlock(out.Block(i))
-		dequantizeInto(&tokens.QCoeff[i], &dequant.UV, tokens.EOB[i], out.Block(i))
+		block := out.Block(i)
+		if eob == 1 {
+			block[0] = 0
+		} else {
+			clearResidualBlock(block)
+		}
+		dequantizeInto(&tokens.QCoeff[i], &dequant.UV, eob, block)
 	}
 }
 

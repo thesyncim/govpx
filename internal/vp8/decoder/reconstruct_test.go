@@ -288,6 +288,7 @@ func TestAddMacroblockResidualYDCOnly(t *testing.T) {
 	var residual MacroblockResidual
 	tokens.EOB[5] = 1
 	residual.Block(5)[0] = 16
+	residual.Block(5)[1] = 512
 
 	AddMacroblockResidual(&tokens, &residual, y, 16, u, 8, v, 8)
 
