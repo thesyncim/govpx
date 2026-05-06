@@ -47,6 +47,28 @@ func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoUsesKeyFrameBoostedTargetBits(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	dst := make([]byte, 4096)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if !key.KeyFrame || key.FrameTargetBits != e.rc.bitsPerFrame*keyFrameTargetBoost {
+		t.Fatalf("key target = key:%t bits:%d, want boosted %d", key.KeyFrame, key.FrameTargetBits, e.rc.bitsPerFrame*keyFrameTargetBoost)
+	}
+
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame || inter.FrameTargetBits != e.rc.bitsPerFrame {
+		t.Fatalf("inter target = key:%t bits:%d, want inter target %d", inter.KeyFrame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+	}
+}
+
 func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,

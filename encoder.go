@@ -170,6 +170,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	}
 
 	keyFrame := e.shouldEncodeKeyFrame(src, flags)
+	e.rc.beginFrame(keyFrame)
 
 	result := EncodeResult{
 		KeyFrame:          keyFrame,

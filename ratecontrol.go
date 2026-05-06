@@ -84,6 +84,8 @@ type rateControlState struct {
 	rollingTargetBits   int
 }
 
+const keyFrameTargetBoost = 4
+
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
@@ -139,6 +141,18 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	rc.clampBuffer()
 	rc.clampQuantizer()
 	return nil
+}
+
+func (rc *rateControlState) beginFrame(keyFrame bool) {
+	targetBits := rc.bitsPerFrame
+	if keyFrame {
+		if targetBits > maxInt()/keyFrameTargetBoost {
+			targetBits = maxInt()
+		} else {
+			targetBits *= keyFrameTargetBoost
+		}
+	}
+	rc.frameTargetBits = targetBits
 }
 
 func (rc *rateControlState) clampBuffer() {
