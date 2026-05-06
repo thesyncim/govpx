@@ -26,7 +26,7 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidConfig", err)
 	}
 
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, TokenPartitions: 2})
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, TokenPartitions: 4})
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("token partition error = %v, want ErrInvalidConfig", err)
 	}
@@ -71,6 +71,47 @@ func TestEncodeIntoUsesKeyFrameBoostedTargetBits(t *testing.T) {
 	}
 	if inter.KeyFrame || inter.FrameTargetBits != e.rc.bitsPerFrame {
 		t.Fatalf("inter target = key:%t bits:%d, want inter target %d", inter.KeyFrame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+	}
+}
+
+func TestEncodeIntoWritesConfiguredTokenPartitions(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		TokenPartitions:     int(vp8common.EightPartition),
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 8192)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if got := packetTokenPartition(t, key.Data); got != vp8common.EightPartition {
+		t.Fatalf("key token partition = %d, want eight", got)
+	}
+
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want inter frame")
+	}
+	if got := packetTokenPartition(t, inter.Data); got != vp8common.EightPartition {
+		t.Fatalf("inter token partition = %d, want eight", got)
 	}
 }
 
@@ -1112,6 +1153,18 @@ func fillImage(img Image, y byte, u byte, v byte) {
 	for i := range img.V {
 		img.V[i] = v
 	}
+}
+
+func packetTokenPartition(t *testing.T, packet []byte) vp8common.TokenPartition {
+	t.Helper()
+	var coefProbs = vp8tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	return state.TokenPartition
 }
 
 func shiftImageRightOne(src Image) Image {

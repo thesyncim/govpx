@@ -94,7 +94,8 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
 		return 0, ErrInvalidPacketConfig
 	}
-	if cfg.TokenPartition != common.OnePartition || !cfg.MBNoCoeffSkip {
+	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
+	if !ok || !cfg.MBNoCoeffSkip {
 		return 0, ErrInvalidPacketConfig
 	}
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
@@ -122,17 +123,29 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 	}
 
 	tokenStart := firstStart + firstSize
-	tokens := BoolWriter{}
-	tokens.Init(dst[tokenStart:])
-	tokens.Finish()
-	if err := tokens.Err(); err != nil {
-		return 0, err
+	n := 0
+	if partitionCount == 1 {
+		tokens := BoolWriter{}
+		tokens.Init(dst[tokenStart:])
+		tokens.Finish()
+		if err := tokens.Err(); err != nil {
+			return 0, err
+		}
+		n = tokenStart + tokens.BytesWritten()
+	} else {
+		var err error
+		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
+			return nil
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
-	return tokenStart + tokens.BytesWritten(), nil
+	return n, nil
 }
 
 type InterFrameMacroblockMode struct {
@@ -151,7 +164,8 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
 		return 0, ErrInvalidPacketConfig
 	}
-	if cfg.TokenPartition != common.OnePartition || !cfg.MBNoCoeffSkip {
+	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
+	if !ok || !cfg.MBNoCoeffSkip {
 		return 0, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
@@ -180,20 +194,32 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 	}
 
 	tokenStart := firstStart + firstSize
-	tokens := BoolWriter{}
-	tokens.Init(dst[tokenStart:])
-	if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
-		return 0, err
-	}
-	tokens.Finish()
-	if err := tokens.Err(); err != nil {
-		return 0, err
+	n := 0
+	if partitionCount == 1 {
+		tokens := BoolWriter{}
+		tokens.Init(dst[tokenStart:])
+		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+			return 0, err
+		}
+		tokens.Finish()
+		if err := tokens.Err(); err != nil {
+			return 0, err
+		}
+		n = tokenStart + tokens.BytesWritten()
+	} else {
+		var err error
+		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
+			return WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
-	return tokenStart + tokens.BytesWritten(), nil
+	return n, nil
 }
 
 func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig) error {
@@ -538,6 +564,41 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 	}
 	if w.Err() != nil {
 		return w.Err()
+	}
+	return nil
+}
+
+func WriteInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if writers == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols || partitions != 2 && partitions != 4 && partitions != 8 {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := 0; col < cols; col++ {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := 0; row < rows; row++ {
+		w := &writers[row&(partitions-1)]
+		left := TokenContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			if modes[index].MBSkipCoeff {
+				resetTokenContext(&above[col], &left, modes[index].Mode == common.BPred)
+				continue
+			}
+			if !validInterCoefficientTokenMode(&modes[index]) {
+				return ErrInvalidPacketConfig
+			}
+			if err := WriteCoefficientMacroblockTokens(w, probs, modes[index].Mode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

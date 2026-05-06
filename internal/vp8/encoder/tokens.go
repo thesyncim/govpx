@@ -61,6 +61,33 @@ func WriteZeroTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMacro
 	return nil
 }
 
+func WriteZeroTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, cols int, modes []KeyFrameMacroblockMode, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if writers == nil || probs == nil || len(modes) < required || partitions != 2 && partitions != 4 && partitions != 8 {
+		return ErrModeBufferTooSmall
+	}
+
+	for row := 0; row < rows; row++ {
+		w := &writers[row&(partitions-1)]
+		for col := 0; col < cols; col++ {
+			mode := &modes[row*cols+col]
+			if !validKeyFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
+			if err := WriteZeroMacroblockTokens(w, probs, mode.YMode == common.BPred); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writeImmediateEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, coefBand int, ctx int) {
 	w.WriteBool(0, (*probs)[blockType][coefBand][ctx][0])
 }

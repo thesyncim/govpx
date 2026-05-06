@@ -12,7 +12,8 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
 		return 0, ErrInvalidPacketConfig
 	}
-	if cfg.TokenPartition != 0 || cfg.MBNoCoeffSkip {
+	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
+	if !ok || cfg.MBNoCoeffSkip {
 		return 0, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
@@ -45,18 +46,34 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	}
 
 	tokenStart := firstStart + firstSize
-	tokens := BoolWriter{}
-	tokens.Init(dst[tokenStart:])
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
-			if err := WriteZeroMacroblockTokens(&tokens, &tables.DefaultCoefProbs, false); err != nil {
-				return 0, err
+	n := 0
+	if partitionCount == 1 {
+		tokens := BoolWriter{}
+		tokens.Init(dst[tokenStart:])
+		for row := 0; row < rows; row++ {
+			for col := 0; col < cols; col++ {
+				if err := WriteZeroMacroblockTokens(&tokens, &tables.DefaultCoefProbs, false); err != nil {
+					return 0, err
+				}
 			}
 		}
-	}
-	tokens.Finish()
-	if err := tokens.Err(); err != nil {
-		return 0, err
+		tokens.Finish()
+		if err := tokens.Err(); err != nil {
+			return 0, err
+		}
+		n = tokenStart + tokens.BytesWritten()
+	} else {
+		var err error
+		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
+			modeGrid := make([]KeyFrameMacroblockMode, rows*cols)
+			for i := range modeGrid {
+				modeGrid[i] = mode
+			}
+			return WriteZeroTokenGridPartitioned(writers, partitions, rows, cols, modeGrid, &tables.DefaultCoefProbs)
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
@@ -65,7 +82,7 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
 		return 0, err
 	}
-	return tokenStart + tokens.BytesWritten(), nil
+	return n, nil
 }
 
 func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode) (int, error) {
@@ -75,7 +92,8 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
 		return 0, ErrInvalidPacketConfig
 	}
-	if cfg.TokenPartition != 0 || cfg.MBNoCoeffSkip {
+	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
+	if !ok || cfg.MBNoCoeffSkip {
 		return 0, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
@@ -104,14 +122,26 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 	}
 
 	tokenStart := firstStart + firstSize
-	tokens := BoolWriter{}
-	tokens.Init(dst[tokenStart:])
-	if err := WriteZeroTokenGrid(&tokens, rows, cols, modes, &tables.DefaultCoefProbs); err != nil {
-		return 0, err
-	}
-	tokens.Finish()
-	if err := tokens.Err(); err != nil {
-		return 0, err
+	n := 0
+	if partitionCount == 1 {
+		tokens := BoolWriter{}
+		tokens.Init(dst[tokenStart:])
+		if err := WriteZeroTokenGrid(&tokens, rows, cols, modes, &tables.DefaultCoefProbs); err != nil {
+			return 0, err
+		}
+		tokens.Finish()
+		if err := tokens.Err(); err != nil {
+			return 0, err
+		}
+		n = tokenStart + tokens.BytesWritten()
+	} else {
+		var err error
+		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
+			return WriteZeroTokenGridPartitioned(writers, partitions, rows, cols, modes, &tables.DefaultCoefProbs)
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
@@ -120,7 +150,7 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
 		return 0, err
 	}
-	return tokenStart + tokens.BytesWritten(), nil
+	return n, nil
 }
 
 func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
@@ -130,7 +160,8 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
 		return 0, ErrInvalidPacketConfig
 	}
-	if cfg.TokenPartition != 0 || cfg.MBNoCoeffSkip {
+	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
+	if !ok || cfg.MBNoCoeffSkip {
 		return 0, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
@@ -159,14 +190,26 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	}
 
 	tokenStart := firstStart + firstSize
-	tokens := BoolWriter{}
-	tokens.Init(dst[tokenStart:])
-	if err := WriteCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
-		return 0, err
-	}
-	tokens.Finish()
-	if err := tokens.Err(); err != nil {
-		return 0, err
+	n := 0
+	if partitionCount == 1 {
+		tokens := BoolWriter{}
+		tokens.Init(dst[tokenStart:])
+		if err := WriteCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs); err != nil {
+			return 0, err
+		}
+		tokens.Finish()
+		if err := tokens.Err(); err != nil {
+			return 0, err
+		}
+		n = tokenStart + tokens.BytesWritten()
+	} else {
+		var err error
+		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
+			return WriteCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
@@ -175,5 +218,5 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
 		return 0, err
 	}
-	return tokenStart + tokens.BytesWritten(), nil
+	return n, nil
 }

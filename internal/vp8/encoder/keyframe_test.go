@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	libgopx "github.com/thesyncim/libgopx"
+	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	"github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 func TestWriteZeroKeyFrameDecodesWithPublicDecoder(t *testing.T) {
@@ -92,6 +95,79 @@ func TestWriteCoefficientKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientKeyFrameDecodesTokenPartitions(t *testing.T) {
+	const (
+		width  = 16
+		height = 128
+		rows   = 8
+		cols   = 1
+	)
+	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
+	coeffs := make([]vp8enc.MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+		coeffs[i].QCoeff[24][0] = 1
+	}
+
+	tests := []struct {
+		name      string
+		partition common.TokenPartition
+		count     int
+	}{
+		{name: "two", partition: common.TwoPartition, count: 2},
+		{name: "four", partition: common.FourPartition, count: 4},
+		{name: "eight", partition: common.EightPartition, count: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			packet := make([]byte, 8192)
+			above := make([]vp8enc.TokenContextPlanes, cols)
+			n, err := vp8enc.WriteCoefficientKeyFrame(packet, width, height, vp8enc.KeyFrameStateConfig{TokenPartition: tt.partition, BaseQIndex: 20}, modes, coeffs, above)
+			if err != nil {
+				t.Fatalf("WriteCoefficientKeyFrame returned error: %v", err)
+			}
+
+			var coefProbs = tables.DefaultCoefProbs
+			var modeProbs vp8dec.ModeProbs
+			vp8dec.ResetModeProbs(&modeProbs)
+			frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+			if err != nil {
+				t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+			}
+			if state.TokenPartition != tt.partition {
+				t.Fatalf("token partition = %d, want %d", state.TokenPartition, tt.partition)
+			}
+			var layout vp8dec.PartitionLayout
+			if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayout returned error: %v", err)
+			}
+			if layout.TokenCount != tt.count {
+				t.Fatalf("token count = %d, want %d", layout.TokenCount, tt.count)
+			}
+
+			decodedModes := make([]vp8dec.MacroblockMode, rows*cols)
+			if err := vp8dec.DecodeKeyFrameModeGrid(&modeReader, rows, cols, &state.Segmentation, state.Mode, decodedModes); err != nil {
+				t.Fatalf("DecodeKeyFrameModeGrid returned error: %v", err)
+			}
+			var readers [8]boolcoder.Decoder
+			for i := 0; i < layout.TokenCount; i++ {
+				if err := readers[i].Init(layout.Tokens[i]); err != nil {
+					t.Fatalf("token reader %d Init returned error: %v", i, err)
+				}
+			}
+			tokens := make([]vp8dec.MacroblockTokens, rows*cols)
+			decoderAbove := make([]vp8dec.EntropyContextPlanes, cols)
+			total, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], rows, cols, &coefProbs, decodedModes, decoderAbove, tokens)
+			if err != nil {
+				t.Fatalf("DecodeTokenGrid returned error: %v", err)
+			}
+			if total == 0 || tokens[0].QCoeff[24][0] != 1 || tokens[len(tokens)-1].QCoeff[24][0] != 1 {
+				t.Fatalf("decoded tokens total=%d firstY2=%d lastY2=%d, want partitioned residuals", total, tokens[0].QCoeff[24][0], tokens[len(tokens)-1].QCoeff[24][0])
+			}
+		})
+	}
+}
+
 func TestWriteZeroKeyFrameHandlesMacroblockPadding(t *testing.T) {
 	packet := make([]byte, 8192)
 	modes := []vp8enc.KeyFrameMacroblockMode{
@@ -130,7 +206,7 @@ func TestWriteZeroKeyFrameRejectsInvalidInput(t *testing.T) {
 	if !errors.Is(err, vp8enc.ErrBufferTooSmall) {
 		t.Fatalf("small buffer error = %v, want ErrBufferTooSmall", err)
 	}
-	_, err = vp8enc.WriteZeroKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{TokenPartition: common.TwoPartition}, modes)
+	_, err = vp8enc.WriteZeroKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{TokenPartition: common.TokenPartition(4)}, modes)
 	if !errors.Is(err, vp8enc.ErrInvalidPacketConfig) {
 		t.Fatalf("token partition error = %v, want ErrInvalidPacketConfig", err)
 	}
@@ -150,7 +226,7 @@ func TestWriteCoefficientKeyFrameRejectsInvalidInput(t *testing.T) {
 	if !errors.Is(err, vp8enc.ErrBufferTooSmall) {
 		t.Fatalf("small buffer error = %v, want ErrBufferTooSmall", err)
 	}
-	_, err = vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{TokenPartition: common.TwoPartition}, modes, coeffs, above)
+	_, err = vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{TokenPartition: common.TokenPartition(4)}, modes, coeffs, above)
 	if !errors.Is(err, vp8enc.ErrInvalidPacketConfig) {
 		t.Fatalf("token partition error = %v, want ErrInvalidPacketConfig", err)
 	}

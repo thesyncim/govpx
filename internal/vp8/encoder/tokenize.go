@@ -254,6 +254,38 @@ func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFra
 	return nil
 }
 
+func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if writers == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols || partitions != 2 && partitions != 4 && partitions != 8 {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := 0; col < cols; col++ {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := 0; row < rows; row++ {
+		w := &writers[row&(partitions-1)]
+		left := TokenContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if !validKeyFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
+			if err := WriteCoefficientMacroblockTokens(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
 	for pos := 15; pos >= skipDC; pos-- {
 		rc := int(tables.DefaultZigZag1D[pos])

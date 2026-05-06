@@ -73,7 +73,7 @@ type EncoderOptions struct {
 
 	// VP8 behavior.
 	ErrorResilient bool
-	// TokenPartitions currently supports only 0, VP8's one-token-partition mode.
+	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
 	// Quality knobs.
@@ -230,7 +230,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, err
 	}
 
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
 		return EncodeResult{}, translateEncoderError(err)
 	}
@@ -247,6 +247,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
+	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
@@ -480,7 +481,7 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.CpuUsed < -16 || opts.CpuUsed > 16 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.KeyFrameInterval < 0 || opts.TokenPartitions != 0 {
+	if opts.KeyFrameInterval < 0 || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 	if opts.Sharpness < 0 || opts.Sharpness > 7 || opts.StaticThreshold < 0 {
