@@ -376,9 +376,10 @@ func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 }
 
 type temporalSVCExampleLayerStats struct {
-	InputFrames   int
-	EncodedFrames int
-	DroppedPct    float64
+	InputFrames         int
+	EncodedFrames       int
+	TargetFrameSizeBits float64
+	DroppedPct          float64
 }
 
 func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) []temporalSVCExampleLayerStats {
@@ -394,6 +395,17 @@ func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) 
 			continue
 		}
 		if currentLayer < 0 || currentLayer >= layers || !strings.HasPrefix(line, "Number of input frames, encoded") {
+			if currentLayer >= 0 && currentLayer < layers && strings.HasPrefix(line, "Average frame size") {
+				fields := strings.Fields(line)
+				if len(fields) < 2 {
+					t.Fatalf("malformed temporal SVC frame-size line: %q", line)
+				}
+				targetFrameSize, err := strconv.ParseFloat(fields[len(fields)-2], 64)
+				if err != nil {
+					t.Fatalf("parse target frame size from %q returned error: %v", line, err)
+				}
+				stats[currentLayer].TargetFrameSizeBits = targetFrameSize
+			}
 			continue
 		}
 		fields := strings.Fields(line)
@@ -412,7 +424,9 @@ func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) 
 		if err != nil {
 			t.Fatalf("parse dropped pct from %q returned error: %v", line, err)
 		}
-		stats[currentLayer] = temporalSVCExampleLayerStats{InputFrames: inputFrames, EncodedFrames: encodedFrames, DroppedPct: droppedPct}
+		stats[currentLayer].InputFrames = inputFrames
+		stats[currentLayer].EncodedFrames = encodedFrames
+		stats[currentLayer].DroppedPct = droppedPct
 		seen[currentLayer] = true
 	}
 	for layer := 0; layer < layers; layer++ {
@@ -453,6 +467,7 @@ func assertGovpxTemporalAccountingMatchesLibvpxExample(t *testing.T, sources []I
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	packet := make([]byte, sources[0].Width*sources[0].Height*3)
+	sawLayerTarget := make([]bool, len(stats))
 	for i, source := range sources {
 		result, err := e.EncodeInto(packet, source, uint64(i), 1, 0)
 		if err != nil {
@@ -460,6 +475,13 @@ func assertGovpxTemporalAccountingMatchesLibvpxExample(t *testing.T, sources []I
 		}
 		if result.Dropped {
 			t.Fatalf("EncodeInto %d dropped, want full temporal SVC accounting sequence", i)
+		}
+		if !result.KeyFrame && result.TemporalLayerID >= 0 && result.TemporalLayerID < len(stats) {
+			wantTarget := int(stats[result.TemporalLayerID].TargetFrameSizeBits + 0.5)
+			if result.FrameTargetBits != wantTarget {
+				t.Fatalf("frame %d layer %d target bits = %d, want libvpx example %.0f", i, result.TemporalLayerID, result.FrameTargetBits, stats[result.TemporalLayerID].TargetFrameSizeBits)
+			}
+			sawLayerTarget[result.TemporalLayerID] = true
 		}
 	}
 	cumulativeTotal := 0
@@ -477,6 +499,9 @@ func assertGovpxTemporalAccountingMatchesLibvpxExample(t *testing.T, sources []I
 		}
 		if stats[layer].DroppedPct != 0 {
 			t.Fatalf("layer %d libvpx example dropped pct = %.2f, want 0", layer, stats[layer].DroppedPct)
+		}
+		if stats[layer].EncodedFrames > 0 && !sawLayerTarget[layer] {
+			t.Fatalf("layer %d had encoded frames but no govpx temporal target was checked", layer)
 		}
 	}
 }
