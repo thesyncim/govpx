@@ -177,3 +177,46 @@ func TestExtendBordersAllocatesZero(t *testing.T) {
 		t.Fatalf("ExtendBorders allocs = %v, want 0", allocs)
 	}
 }
+
+func BenchmarkExtendBorders(b *testing.B) {
+	cases := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "smoke32", width: 32, height: 32},
+		{name: "sd640x360", width: 640, height: 360},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			fb, err := NewFrameBuffer(tc.width, tc.height, 32, 32)
+			if err != nil {
+				b.Fatalf("NewFrameBuffer returned error: %v", err)
+			}
+			fillBenchmarkFrameBuffer(fb)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(len(fb.buf)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				fb.ExtendBorders()
+			}
+		})
+	}
+}
+
+func fillBenchmarkFrameBuffer(fb *FrameBuffer) {
+	for y := 0; y < fb.Img.Height; y++ {
+		for x := 0; x < fb.Img.Width; x++ {
+			fb.Img.Y[y*fb.Img.YStride+x] = byte(x + y)
+		}
+	}
+	uvWidth := (fb.Img.Width + 1) >> 1
+	uvHeight := (fb.Img.Height + 1) >> 1
+	for y := 0; y < uvHeight; y++ {
+		for x := 0; x < uvWidth; x++ {
+			fb.Img.U[y*fb.Img.UStride+x] = byte(85 + x + y)
+			fb.Img.V[y*fb.Img.VStride+x] = byte(170 + x + y)
+		}
+	}
+}
