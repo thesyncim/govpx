@@ -267,6 +267,20 @@ func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
 	}
 }
 
+func TestEncoderRuntimeControlValidation(t *testing.T) {
+	e := newTestEncoder(t)
+
+	if err := e.SetDeadline(Deadline(-1)); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("deadline error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetCPUUsed(17); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("cpu-used error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetKeyFrameInterval(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("keyframe interval error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	e := newTestEncoder(t)
 	e.frameCount = 7
@@ -985,6 +999,9 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetBitrateKbps", fn: func() { _ = e.SetBitrateKbps(1200) }},
 		{name: "SetRateControl", fn: func() { _ = e.SetRateControl(cfg) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
+		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},
+		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
+		{name: "SetKeyFrameInterval", fn: func() { _ = e.SetKeyFrameInterval(120) }},
 		{name: "ForceKeyFrame", fn: func() { e.ForceKeyFrame() }},
 		{name: "Reset", fn: func() { e.Reset() }},
 	}
@@ -994,6 +1011,15 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		if allocs != 0 {
 			t.Fatalf("%s allocs = %v, want 0", tt.name, allocs)
 		}
+	}
+
+	e.closed = false
+	allocs := testing.AllocsPerRun(1000, func() {
+		e.closed = false
+		_ = e.Close()
+	})
+	if allocs != 0 {
+		t.Fatalf("Close allocs = %v, want 0", allocs)
 	}
 }
 
