@@ -2,7 +2,7 @@ package common
 
 // Ported from libvpx v1.16.0 vpx_scale/generic/yv12extend.c.
 
-// ExtendBorders replicates visible edge samples into the frame border.
+// ExtendBorders replicates coded edge samples into the frame border.
 func (fb *FrameBuffer) ExtendBorders() {
 	if fb == nil {
 		return
@@ -10,38 +10,36 @@ func (fb *FrameBuffer) ExtendBorders() {
 	extendPlane(
 		fb.buf[fb.yPlaneOff:fb.uPlaneOff],
 		fb.Img.YStride,
-		fb.Img.Width,
-		fb.Img.Height,
+		fb.Img.CodedWidth,
+		fb.Img.CodedHeight,
 		fb.border,
-		fb.border+fb.Img.CodedWidth-fb.Img.Width,
 		fb.border,
-		fb.border+fb.Img.CodedHeight-fb.Img.Height,
+		fb.border,
+		fb.border,
 	)
 
 	uvBorder := (fb.border + 1) >> 1
-	uvWidth := (fb.Img.Width + 1) >> 1
-	uvHeight := (fb.Img.Height + 1) >> 1
 	codedUVWidth := (fb.Img.CodedWidth + 1) >> 1
 	codedUVHeight := (fb.Img.CodedHeight + 1) >> 1
 	extendPlane(
 		fb.buf[fb.uPlaneOff:fb.vPlaneOff],
 		fb.Img.UStride,
-		uvWidth,
-		uvHeight,
+		codedUVWidth,
+		codedUVHeight,
 		uvBorder,
-		uvBorder+codedUVWidth-uvWidth,
 		uvBorder,
-		uvBorder+codedUVHeight-uvHeight,
+		uvBorder,
+		uvBorder,
 	)
 	extendPlane(
 		fb.buf[fb.vPlaneOff:],
 		fb.Img.VStride,
-		uvWidth,
-		uvHeight,
+		codedUVWidth,
+		codedUVHeight,
 		uvBorder,
-		uvBorder+codedUVWidth-uvWidth,
 		uvBorder,
-		uvBorder+codedUVHeight-uvHeight,
+		uvBorder,
+		uvBorder,
 	)
 }
 

@@ -533,42 +533,37 @@ func (w *vp8TestBoolWriter) writeBool(bit uint8, probability uint8) {
 	w.count = count
 }
 
-func assertCodedPaddingExtended(t *testing.T, img *vp8common.Image) {
+func assertCodedBordersExtended(t *testing.T, img *vp8common.Image) {
 	t.Helper()
 
-	yRightEdge := img.Y[img.Width-1]
-	if got := img.Y[img.Width]; got != yRightEdge {
-		t.Fatalf("first Y coded padding = %d, want edge %d", got, yRightEdge)
-	}
-	if got := img.Y[img.CodedWidth-1]; got != yRightEdge {
-		t.Fatalf("far Y coded padding = %d, want edge %d", got, yRightEdge)
-	}
-	yBottomEdge := img.Y[(img.Height-1)*img.YStride+img.Width-1]
-	if got := img.Y[(img.CodedHeight-1)*img.YStride+img.CodedWidth-1]; got != yBottomEdge {
-		t.Fatalf("bottom Y coded padding = %d, want edge %d", got, yBottomEdge)
-	}
-
-	uvWidth := (img.Width + 1) >> 1
-	uvHeight := (img.Height + 1) >> 1
 	codedUVWidth := (img.CodedWidth + 1) >> 1
 	codedUVHeight := (img.CodedHeight + 1) >> 1
 
-	uRightEdge := img.U[uvWidth-1]
-	if got := img.U[uvWidth]; got != uRightEdge {
-		t.Fatalf("first U coded padding = %d, want edge %d", got, uRightEdge)
+	yRightEdge := img.Y[img.CodedWidth-1]
+	if got := img.Y[img.CodedWidth]; got != yRightEdge {
+		t.Fatalf("first Y right border = %d, want coded edge %d", got, yRightEdge)
 	}
-	uBottomEdge := img.U[(uvHeight-1)*img.UStride+uvWidth-1]
-	if got := img.U[(codedUVHeight-1)*img.UStride+codedUVWidth-1]; got != uBottomEdge {
-		t.Fatalf("bottom U coded padding = %d, want edge %d", got, uBottomEdge)
+	yBottomEdge := img.Y[(img.CodedHeight-1)*img.YStride+img.CodedWidth-1]
+	if got := img.YFull[img.YOrigin+img.CodedHeight*img.YStride+img.CodedWidth-1]; got != yBottomEdge {
+		t.Fatalf("first Y bottom border = %d, want coded edge %d", got, yBottomEdge)
 	}
 
-	vRightEdge := img.V[uvWidth-1]
-	if got := img.V[uvWidth]; got != vRightEdge {
-		t.Fatalf("first V coded padding = %d, want edge %d", got, vRightEdge)
+	uRightEdge := img.U[codedUVWidth-1]
+	if got := img.U[codedUVWidth]; got != uRightEdge {
+		t.Fatalf("first U right border = %d, want coded edge %d", got, uRightEdge)
 	}
-	vBottomEdge := img.V[(uvHeight-1)*img.VStride+uvWidth-1]
-	if got := img.V[(codedUVHeight-1)*img.VStride+codedUVWidth-1]; got != vBottomEdge {
-		t.Fatalf("bottom V coded padding = %d, want edge %d", got, vBottomEdge)
+	uBottomEdge := img.U[(codedUVHeight-1)*img.UStride+codedUVWidth-1]
+	if got := img.UFull[img.UOrigin+codedUVHeight*img.UStride+codedUVWidth-1]; got != uBottomEdge {
+		t.Fatalf("first U bottom border = %d, want coded edge %d", got, uBottomEdge)
+	}
+
+	vRightEdge := img.V[codedUVWidth-1]
+	if got := img.V[codedUVWidth]; got != vRightEdge {
+		t.Fatalf("first V right border = %d, want coded edge %d", got, vRightEdge)
+	}
+	vBottomEdge := img.V[(codedUVHeight-1)*img.VStride+codedUVWidth-1]
+	if got := img.VFull[img.VOrigin+codedUVHeight*img.VStride+codedUVWidth-1]; got != vBottomEdge {
+		t.Fatalf("first V bottom border = %d, want coded edge %d", got, vBottomEdge)
 	}
 }
 
@@ -722,7 +717,7 @@ func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
 	}
 }
 
-func TestDecodeExtendsKeyFrameCodedPadding(t *testing.T) {
+func TestDecodeExtendsKeyFrameCodedBorders(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
@@ -733,10 +728,10 @@ func TestDecodeExtendsKeyFrameCodedPadding(t *testing.T) {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
-	assertCodedPaddingExtended(t, &d.current.Img)
-	assertCodedPaddingExtended(t, &d.lastRef.Img)
-	assertCodedPaddingExtended(t, &d.goldenRef.Img)
-	assertCodedPaddingExtended(t, &d.altRef.Img)
+	assertCodedBordersExtended(t, &d.current.Img)
+	assertCodedBordersExtended(t, &d.lastRef.Img)
+	assertCodedBordersExtended(t, &d.goldenRef.Img)
+	assertCodedBordersExtended(t, &d.altRef.Img)
 }
 
 func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {

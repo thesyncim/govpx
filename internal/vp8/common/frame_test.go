@@ -67,13 +67,13 @@ func TestExtendBorders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFrameBuffer returned error: %v", err)
 	}
-	for y := 0; y < fb.Img.Height; y++ {
-		for x := 0; x < fb.Img.Width; x++ {
+	for y := 0; y < fb.Img.CodedHeight; y++ {
+		for x := 0; x < fb.Img.CodedWidth; x++ {
 			fb.Img.Y[y*fb.Img.YStride+x] = byte(10*y + x + 1)
 		}
 	}
-	uvWidth := (fb.Img.Width + 1) >> 1
-	uvHeight := (fb.Img.Height + 1) >> 1
+	uvWidth := (fb.Img.CodedWidth + 1) >> 1
+	uvHeight := (fb.Img.CodedHeight + 1) >> 1
 	for y := 0; y < uvHeight; y++ {
 		for x := 0; x < uvWidth; x++ {
 			fb.Img.U[y*fb.Img.UStride+x] = byte(40 + 10*y + x)
@@ -90,14 +90,14 @@ func TestExtendBorders(t *testing.T) {
 	if yPlane[top*stride+left-1] != 1 {
 		t.Fatalf("left Y border = %d, want 1", yPlane[top*stride+left-1])
 	}
-	if yPlane[top*stride+left+fb.Img.Width] != 3 {
-		t.Fatalf("right Y border = %d, want 3", yPlane[top*stride+left+fb.Img.Width])
+	if yPlane[top*stride+left+fb.Img.CodedWidth] != 16 {
+		t.Fatalf("right Y border = %d, want 16", yPlane[top*stride+left+fb.Img.CodedWidth])
 	}
 	if yPlane[(top-1)*stride+left] != 1 {
 		t.Fatalf("top Y border = %d, want 1", yPlane[(top-1)*stride+left])
 	}
-	if yPlane[(top+fb.Img.Height)*stride+left+2] != 23 {
-		t.Fatalf("bottom Y border = %d, want 23", yPlane[(top+fb.Img.Height)*stride+left+2])
+	if yPlane[(top+fb.Img.CodedHeight)*stride+left+2] != 153 {
+		t.Fatalf("bottom Y border = %d, want 153", yPlane[(top+fb.Img.CodedHeight)*stride+left+2])
 	}
 
 	uPlane := fb.buf[fb.uPlaneOff:fb.vPlaneOff]
@@ -105,28 +105,25 @@ func TestExtendBorders(t *testing.T) {
 	if uPlane[uvBorder*fb.Img.UStride+uvBorder-1] != 40 {
 		t.Fatalf("left U border = %d, want 40", uPlane[uvBorder*fb.Img.UStride+uvBorder-1])
 	}
-	if uPlane[(uvBorder+uvHeight)*fb.Img.UStride+uvBorder+uvWidth-1] != 51 {
-		t.Fatalf("bottom U border = %d, want 51", uPlane[(uvBorder+uvHeight)*fb.Img.UStride+uvBorder+uvWidth-1])
+	if uPlane[(uvBorder+uvHeight)*fb.Img.UStride+uvBorder+uvWidth-1] != 117 {
+		t.Fatalf("bottom U border = %d, want 117", uPlane[(uvBorder+uvHeight)*fb.Img.UStride+uvBorder+uvWidth-1])
 	}
 }
 
-func TestExtendBordersFillsCodedPadding(t *testing.T) {
+func TestExtendBordersPreservesCodedPadding(t *testing.T) {
 	fb, err := NewFrameBuffer(5, 3, 2, 8)
 	if err != nil {
 		t.Fatalf("NewFrameBuffer returned error: %v", err)
 	}
-	for y := 0; y < fb.Img.Height; y++ {
-		for x := 0; x < fb.Img.Width; x++ {
-			fb.Img.Y[y*fb.Img.YStride+x] = byte(10*y + x + 1)
-		}
-	}
 	uvWidth := (fb.Img.Width + 1) >> 1
-	uvHeight := (fb.Img.Height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
-			fb.Img.U[y*fb.Img.UStride+x] = byte(40 + 10*y + x)
-		}
-	}
+	codedUVWidth := (fb.Img.CodedWidth + 1) >> 1
+	codedUVHeight := (fb.Img.CodedHeight + 1) >> 1
+	fb.Img.Y[fb.Img.Width] = 91
+	fb.Img.Y[fb.Img.CodedWidth-1] = 92
+	fb.Img.Y[(fb.Img.CodedHeight-1)*fb.Img.YStride+fb.Img.CodedWidth-1] = 93
+	fb.Img.U[uvWidth] = 61
+	fb.Img.U[codedUVWidth-1] = 62
+	fb.Img.U[(codedUVHeight-1)*fb.Img.UStride+codedUVWidth-1] = 63
 
 	fb.ExtendBorders()
 
@@ -135,32 +132,29 @@ func TestExtendBordersFillsCodedPadding(t *testing.T) {
 	left := fb.border
 	stride := fb.Img.YStride
 	row0 := top * stride
-	row0Edge := yPlane[row0+left+fb.Img.Width-1]
-	if got := yPlane[row0+left+fb.Img.Width]; got != row0Edge {
-		t.Fatalf("first Y coded padding = %d, want edge %d", got, row0Edge)
+	if got := yPlane[row0+left+fb.Img.Width]; got != 91 {
+		t.Fatalf("first Y coded padding = %d, want preserved 91", got)
 	}
-	if got := yPlane[row0+left+fb.Img.CodedWidth+fb.border-1]; got != row0Edge {
-		t.Fatalf("far right Y border = %d, want edge %d", got, row0Edge)
+	if got := yPlane[row0+left+fb.Img.CodedWidth]; got != 92 {
+		t.Fatalf("first right Y border = %d, want coded edge 92", got)
 	}
-	bottomEdge := yPlane[(top+fb.Img.Height-1)*stride+left+fb.Img.Width-1]
 	bottomRow := top + fb.Img.CodedHeight + fb.border - 1
-	if got := yPlane[bottomRow*stride+left+fb.Img.CodedWidth+fb.border-1]; got != bottomEdge {
-		t.Fatalf("far bottom Y border = %d, want edge %d", got, bottomEdge)
+	if got := yPlane[bottomRow*stride+left+fb.Img.CodedWidth+fb.border-1]; got != 93 {
+		t.Fatalf("far bottom Y border = %d, want coded edge 93", got)
 	}
 
 	uPlane := fb.buf[fb.uPlaneOff:fb.vPlaneOff]
 	uvBorder := (fb.border + 1) >> 1
-	codedUVWidth := (fb.Img.CodedWidth + 1) >> 1
-	codedUVHeight := (fb.Img.CodedHeight + 1) >> 1
 	uvRow0 := uvBorder * fb.Img.UStride
-	uvEdge := uPlane[uvRow0+uvBorder+uvWidth-1]
-	if got := uPlane[uvRow0+uvBorder+uvWidth]; got != uvEdge {
-		t.Fatalf("first U coded padding = %d, want edge %d", got, uvEdge)
+	if got := uPlane[uvRow0+uvBorder+uvWidth]; got != 61 {
+		t.Fatalf("first U coded padding = %d, want preserved 61", got)
 	}
-	uvBottomEdge := uPlane[(uvBorder+uvHeight-1)*fb.Img.UStride+uvBorder+uvWidth-1]
+	if got := uPlane[uvRow0+uvBorder+codedUVWidth]; got != 62 {
+		t.Fatalf("first right U border = %d, want coded edge 62", got)
+	}
 	uvBottomRow := uvBorder + codedUVHeight + uvBorder - 1
-	if got := uPlane[uvBottomRow*fb.Img.UStride+uvBorder+codedUVWidth+uvBorder-1]; got != uvBottomEdge {
-		t.Fatalf("far bottom U border = %d, want edge %d", got, uvBottomEdge)
+	if got := uPlane[uvBottomRow*fb.Img.UStride+uvBorder+codedUVWidth+uvBorder-1]; got != 63 {
+		t.Fatalf("far bottom U border = %d, want coded edge 63", got)
 	}
 }
 
