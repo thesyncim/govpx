@@ -227,31 +227,70 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	}
 	oracle := findChecksumOracle(t)
 
-	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
-	packet := make([]byte, 8192)
-	basePackets := make([][]byte, 0, 3)
-	for i := 0; i < 6; i++ {
-		src := rateControlTestFrame(16, 16, i)
-		result, err := e.EncodeInto(packet, src, uint64(i), 1, 0)
-		if err != nil {
-			t.Fatalf("EncodeInto %d returned error: %v", i, err)
-		}
-		if result.TemporalLayerID == 0 {
-			basePackets = append(basePackets, append([]byte(nil), result.Data...))
-		}
+	cases := []struct {
+		name       string
+		mode       TemporalLayeringMode
+		bitrates   [MaxTemporalLayers]int
+		frameCount int
+	}{
+		{name: "one-layer", mode: TemporalLayeringOneLayer, frameCount: 6},
+		{name: "two-layers", mode: TemporalLayeringTwoLayers, frameCount: 6},
+		{name: "two-layers-three-frame", mode: TemporalLayeringTwoLayersThreeFrame, frameCount: 7},
+		{name: "three-layers-six-frame", mode: TemporalLayeringThreeLayersSixFrame, frameCount: 13},
+		{name: "three-layers-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction, frameCount: 9},
+		{name: "three-layers-layer-one-prediction", mode: TemporalLayeringThreeLayersLayerOnePrediction, frameCount: 9},
+		{name: "three-layers", mode: TemporalLayeringThreeLayers, frameCount: 9},
+		{name: "five-layers", mode: TemporalLayeringFiveLayers, bitrates: [MaxTemporalLayers]int{200, 400, 700, 950, 1200}, frameCount: 18},
+		{name: "two-layers-with-sync", mode: TemporalLayeringTwoLayersWithSync, frameCount: 9},
+		{name: "three-layers-with-sync", mode: TemporalLayeringThreeLayersWithSync, frameCount: 9},
+		{name: "three-layers-altref-with-sync", mode: TemporalLayeringThreeLayersAltRefWithSync, frameCount: 9},
+		{name: "three-layers-one-reference", mode: TemporalLayeringThreeLayersOneReference, frameCount: 9},
+		{name: "three-layers-no-sync", mode: TemporalLayeringThreeLayersNoSync, frameCount: 9},
 	}
 
-	gopvxFrames := decodeFrameSequence(t, basePackets...)
-	ivf := makeIVF(16, 16, 30, 1, basePackets)
-	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(gopvxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
-	}
-	for i := range gopvxFrames {
-		want := checksumFrame(i, i == 0, true, gopvxFrames[i])
-		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
-		}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := TemporalScalabilityConfig{
+				Enabled:                true,
+				Mode:                   tc.mode,
+				LayerTargetBitrateKbps: tc.bitrates,
+			}
+			e := newTemporalTestEncoder(t, cfg)
+			packet := make([]byte, 8192)
+			basePackets := make([][]byte, 0, tc.frameCount)
+			baseKeyFrames := make([]bool, 0, tc.frameCount)
+			for i := 0; i < tc.frameCount; i++ {
+				src := rateControlTestFrame(16, 16, i)
+				result, err := e.EncodeInto(packet, src, uint64(i), 1, 0)
+				if err != nil {
+					t.Fatalf("EncodeInto %d returned error: %v", i, err)
+				}
+				if result.Dropped {
+					t.Fatalf("EncodeInto %d dropped, want full temporal oracle sequence", i)
+				}
+				if result.TemporalLayerID == 0 {
+					basePackets = append(basePackets, append([]byte(nil), result.Data...))
+					baseKeyFrames = append(baseKeyFrames, result.KeyFrame)
+				}
+			}
+			if len(basePackets) < 2 {
+				t.Fatalf("base packet count = %d, want at least 2", len(basePackets))
+			}
+
+			gopvxFrames := decodeFrameSequence(t, basePackets...)
+			ivf := makeIVF(16, 16, 30, 1, basePackets)
+			oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+			if len(oracleFrames) != len(gopvxFrames) {
+				t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
+			}
+			for i := range gopvxFrames {
+				want := checksumFrame(i, baseKeyFrames[i], true, gopvxFrames[i])
+				if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+					t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+				}
+			}
+		})
 	}
 }
 
