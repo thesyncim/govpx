@@ -223,6 +223,31 @@ func TestSetBitrateKbpsHonorsConfiguredBounds(t *testing.T) {
 	}
 }
 
+func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	dst := make([]byte, 4096)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if key.TargetBitrateKbps != 1200 || key.FrameTargetBits != 160000 {
+		t.Fatalf("key target = kbps:%d bits:%d, want 1200/160000", key.TargetBitrateKbps, key.FrameTargetBits)
+	}
+
+	if err := e.SetBitrateKbps(600); err != nil {
+		t.Fatalf("SetBitrateKbps returned error: %v", err)
+	}
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.TargetBitrateKbps != 600 || inter.FrameTargetBits != 20000 {
+		t.Fatalf("inter target = kbps:%d bits:%d, want 600/20000", inter.TargetBitrateKbps, inter.FrameTargetBits)
+	}
+}
+
 func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
 	e := newTestEncoder(t)
 
