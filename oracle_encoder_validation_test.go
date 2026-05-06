@@ -76,13 +76,12 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.TokenPartitions = int(vp8common.EightPartition)
 			}),
 			libvpxArgs: []string{"--token-parts=3"},
-			// These quality thresholds are current-regression guards. The
-			// remaining libvpx gap documents that encoder quality parity is
-			// not complete yet.
-			minPSNR:                       20.0,
-			minSSIM:                       0.94,
-			maxPSNRGap:                    30.0,
-			maxSSIMGap:                    0.06,
+			// The motion corpus should now reconstruct at libvpx-equivalent
+			// quality. Rate and static-segmentation parity remain open.
+			minPSNR:                       48.0,
+			minSSIM:                       0.999,
+			maxPSNRGap:                    1.0,
+			maxSSIMGap:                    0.001,
 			maxRateHigh:                   250.0,
 			maxRateLow:                    95.0,
 			wantTokenPartition:            vp8common.EightPartition,
@@ -103,13 +102,12 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.MaxQuantizer = 56
 			}),
 			libvpxArgs: []string{"--static-thresh=1"},
-			// These quality thresholds are current-regression guards. The
-			// remaining libvpx gap documents that encoder quality parity is
-			// not complete yet.
-			minPSNR:              40.0,
-			minSSIM:              0.99,
-			maxPSNRGap:           10.0,
-			maxSSIMGap:           0.02,
+			// Static segmentation still trails libvpx, but this keeps the
+			// current reconstruction quality from regressing.
+			minPSNR:              45.0,
+			minSSIM:              0.998,
+			maxPSNRGap:           6.0,
+			maxSSIMGap:           0.005,
 			maxRateHigh:          250.0,
 			maxRateLow:           95.0,
 			checkSegmentationMap: true,

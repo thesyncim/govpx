@@ -94,6 +94,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				return ErrInvalidConfig
 			}
 		}
+		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
 	e.analysis.ExtendBorders()
 	return nil
@@ -197,6 +198,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				return ErrInvalidConfig
 			}
 		}
+		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
 	e.analysis.ExtendBorders()
 	return nil

@@ -706,6 +706,12 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, eob uint8, out *[16]i
 	}
 }
 
+// ExtendIntraRightEdgeForRow replicates the right-edge predictor samples after
+// reconstructing one macroblock row.
+func ExtendIntraRightEdgeForRow(img *common.Image, mbRow int) {
+	extendIntraRightEdgeForRow(img, mbRow)
+}
+
 func extendIntraRightEdgeForRow(img *common.Image, mbRow int) {
 	if img == nil {
 		return

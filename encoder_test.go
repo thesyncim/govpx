@@ -957,8 +957,9 @@ func TestEncodeIntoBPredKeyFrameUsesInterleavedReconstruction(t *testing.T) {
 		t.Fatalf("B_PRED macroblocks = 0, want regression frame to exercise 4x4 intra reconstruction")
 	}
 	decoded := decodeSingleFrame(t, result.Data)
-	if psnr := encoderValidationImagePSNR(src, decoded); psnr < 20 {
-		t.Fatalf("B_PRED keyframe PSNR = %.2f dB, want >= 20 dB", psnr)
+	assertImagesEqual(t, "B_PRED keyframe current", decoded, publicImageFromVP8(&e.current.Img))
+	if psnr := encoderValidationImagePSNR(src, decoded); psnr < 45 {
+		t.Fatalf("B_PRED keyframe PSNR = %.2f dB, want >= 45 dB", psnr)
 	}
 }
 
