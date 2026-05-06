@@ -441,6 +441,26 @@ func TestRateControlBeginFrameKeepsFirstFrameTargetStable(t *testing.T) {
 	}
 }
 
+func TestRateControlBeginInitialKeyFrameUsesLibvpxStartingBufferTarget(t *testing.T) {
+	rc := rateControlState{
+		mode:                RateControlCBR,
+		minQuantizer:        4,
+		maxQuantizer:        56,
+		currentQuantizer:    20,
+		targetBandwidthBits: 1200000,
+		bitsPerFrame:        40000,
+		bufferInitialBits:   480000,
+		bufferOptimalBits:   600000,
+		bufferLevelBits:     480000,
+	}
+
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, true)
+
+	if rc.frameTargetBits != 240000 {
+		t.Fatalf("initial keyframe target = %d, want libvpx starting-buffer half 240000", rc.frameTargetBits)
+	}
+}
+
 func TestRateControlBeginFrameCapsKeyFrameTargetWithMaxIntraBitrate(t *testing.T) {
 	rc := rateControlState{
 		mode:                RateControlCBR,

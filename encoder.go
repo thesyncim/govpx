@@ -225,7 +225,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTarget(false, temporalFrame.LayerFrameTargetBits)
 	} else {
-		e.rc.beginFrame(keyFrame)
+		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.bitsPerFrame, e.frameCount == 0)
 	}
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)

@@ -67,7 +67,7 @@ func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoUsesKeyFrameBoostedTargetBits(t *testing.T) {
+func TestEncodeIntoUsesLibvpxInitialKeyFrameTargetBits(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)
 	dst := make([]byte, 4096)
@@ -76,8 +76,8 @@ func TestEncodeIntoUsesKeyFrameBoostedTargetBits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if !key.KeyFrame || key.FrameTargetBits != e.rc.bitsPerFrame*keyFrameTargetBoost {
-		t.Fatalf("key target = key:%t bits:%d, want boosted %d", key.KeyFrame, key.FrameTargetBits, e.rc.bitsPerFrame*keyFrameTargetBoost)
+	if !key.KeyFrame || key.FrameTargetBits != e.rc.bufferInitialBits/2 {
+		t.Fatalf("key target = key:%t bits:%d, want initial buffer half %d", key.KeyFrame, key.FrameTargetBits, e.rc.bufferInitialBits/2)
 	}
 
 	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
@@ -979,8 +979,8 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if key.TargetBitrateKbps != 1200 || key.FrameTargetBits != 160000 {
-		t.Fatalf("key target = kbps:%d bits:%d, want 1200/160000", key.TargetBitrateKbps, key.FrameTargetBits)
+	if key.TargetBitrateKbps != 1200 || key.FrameTargetBits != 240000 {
+		t.Fatalf("key target = kbps:%d bits:%d, want 1200/240000", key.TargetBitrateKbps, key.FrameTargetBits)
 	}
 
 	if err := e.SetBitrateKbps(600); err != nil {
@@ -1727,7 +1727,7 @@ func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	wantLayerID := []int{0, 1, 0, 1}
 	wantTL0 := []uint8{0, 0, 1, 1}
 	wantLayerSync := []bool{false, true, false, false}
-	wantTargetBits := []int{160000, 32000, 48000, 32000}
+	wantTargetBits := []int{240000, 32000, 48000, 32000}
 	for i := range results {
 		if results[i].TemporalLayerID != wantLayerID[i] || results[i].TemporalLayerCount != 2 || results[i].TL0PICIDX != wantTL0[i] || results[i].TemporalLayerSync != wantLayerSync[i] || results[i].FrameTargetBits != wantTargetBits[i] {
 			t.Fatalf("result[%d] temporal = id:%d count:%d tl0:%d sync:%t target:%d, want %d/2/%d/%t/%d", i, results[i].TemporalLayerID, results[i].TemporalLayerCount, results[i].TL0PICIDX, results[i].TemporalLayerSync, results[i].FrameTargetBits, wantLayerID[i], wantTL0[i], wantLayerSync[i], wantTargetBits[i])

@@ -184,17 +184,23 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 }
 
 func (rc *rateControlState) beginFrame(keyFrame bool) {
-	rc.beginFrameWithTarget(keyFrame, rc.bitsPerFrame)
+	rc.beginFrameWithTargetAndContext(keyFrame, rc.bitsPerFrame, false)
 }
 
 func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits int) {
+	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, false)
+}
+
+func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, firstFrame bool) {
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
 	baseFrameTargetBits := targetBits
 	if keyFrame {
-		if targetBits > maxInt()/keyFrameTargetBoost {
+		if firstFrame && rc.bufferInitialBits > 0 {
+			targetBits = rc.initialKeyFrameTargetBits()
+		} else if targetBits > maxInt()/keyFrameTargetBoost {
 			targetBits = maxInt()
 		} else {
 			targetBits *= keyFrameTargetBoost
@@ -219,6 +225,24 @@ func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits i
 	}
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
+}
+
+func (rc *rateControlState) initialKeyFrameTargetBits() int {
+	target := int64(rc.bufferInitialBits) / 2
+	maxTarget := int64(maxInt())
+	if rc.targetBandwidthBits <= maxInt()/3 {
+		maxTarget = int64(rc.targetBandwidthBits) * 3 / 2
+	}
+	if target > maxTarget {
+		target = maxTarget
+	}
+	if target > int64(maxInt()) {
+		return maxInt()
+	}
+	if target < 1 {
+		return 1
+	}
+	return int(target)
 }
 
 func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
