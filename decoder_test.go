@@ -967,7 +967,9 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 		fn   func()
 	}{
 		{name: "Decode", fn: func() { _ = d.Decode(packet) }},
+		{name: "DecodeWithPTS", fn: func() { _ = d.DecodeWithPTS(packet, 123) }},
 		{name: "DecodeInto", fn: func() { _, _ = d.DecodeInto(packet, &dst) }},
+		{name: "DecodeIntoWithPTS", fn: func() { _, _ = d.DecodeIntoWithPTS(packet, &dst, 123) }},
 		{name: "NextFrame", fn: func() { _, _ = d.NextFrame() }},
 		{name: "Reset", fn: func() { d.Reset() }},
 	}
@@ -977,5 +979,14 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 		if allocs != 0 {
 			t.Fatalf("%s allocs = %v, want 0", tt.name, allocs)
 		}
+	}
+
+	d.closed = false
+	allocs := testing.AllocsPerRun(1000, func() {
+		d.closed = false
+		_ = d.Close()
+	})
+	if allocs != 0 {
+		t.Fatalf("Close allocs = %v, want 0", allocs)
 	}
 }
