@@ -181,6 +181,13 @@ var interFrameMVRefineDeltas = [...]vp8enc.MotionVector{
 	{Col: 8},
 }
 
+var interFrameMVSubpixelDeltas = [...]vp8enc.MotionVector{
+	{Col: -2},
+	{Row: -2},
+	{Row: 2},
+	{Col: 2},
+}
+
 const interFrameMVSearchRange = 4 * 8
 
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int) (interAnalysisReference, vp8enc.MotionVector) {
@@ -245,7 +252,8 @@ func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 			bestCost = cost
 		}
 	}
-	return refineInterFrameMotionVector(src, ref, mbRow, mbCol, best, bestCost)
+	best, bestCost = refineInterFrameMotionVector(src, ref, mbRow, mbCol, best, bestCost)
+	return refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestCost)
 }
 
 func refineInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
@@ -254,6 +262,27 @@ func refineInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 		for i := 0; i < len(interFrameMVRefineDeltas); i++ {
 			mv := addInterMotionVector(best, interFrameMVRefineDeltas[i])
 			if !interMotionVectorInSearchRange(mv) {
+				continue
+			}
+			cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+			if cost < bestCost {
+				best = mv
+				bestCost = cost
+				improved = true
+			}
+		}
+		if !improved {
+			return best, bestCost
+		}
+	}
+}
+
+func refineInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
+	for {
+		improved := false
+		for i := 0; i < len(interFrameMVSubpixelDeltas); i++ {
+			mv := addInterMotionVector(best, interFrameMVSubpixelDeltas[i])
+			if !interMotionVectorInSearchRange(mv) || !interMotionVectorEven(mv) {
 				continue
 			}
 			cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
@@ -286,6 +315,10 @@ func absInterMotionVectorComponent(v int16) int {
 	return n
 }
 
+func interMotionVectorEven(mv vp8enc.MotionVector) bool {
+	return mv.Row&1 == 0 && mv.Col&1 == 0
+}
+
 func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
 	return macroblockSAD(src, ref, mbRow, mbCol, mv) + interMotionVectorCost(mv)
 }
@@ -309,6 +342,16 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	mvX := int(mv.Col >> 3)
 	refBaseY := baseY + mvY
 	refBaseX := baseX + mvX
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	if xOffset|yOffset != 0 {
+		if baseY >= 0 && baseX >= 0 &&
+			baseY+16 <= src.Height && baseX+16 <= src.Width {
+			if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
+				return sad
+			}
+		}
+	}
 	if baseY >= 0 && baseX >= 0 &&
 		baseY+16 <= src.Height && baseX+16 <= src.Width &&
 		refBaseY >= 0 && refBaseX >= 0 &&
@@ -331,6 +374,24 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 		}
 	}
 	return sad
+}
+
+func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int) (int, bool) {
+	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
+		return 0, false
+	}
+	if refBaseY < -ref.YBorder+2 || refBaseX < -ref.YBorder+2 ||
+		refBaseY+16+3 > ref.CodedHeight+ref.YBorder ||
+		refBaseX+16+3 > ref.CodedWidth+ref.YBorder {
+		return 0, false
+	}
+	start := ref.YOrigin + (refBaseY-2)*ref.YStride + refBaseX - 2
+	if start < 0 || start+20*ref.YStride+21 > len(ref.YFull) {
+		return 0, false
+	}
+	var pred [16 * 16]byte
+	dsp.SixTapPredict16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
+	return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16), true
 }
 
 func macroblockChromaSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) int {

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
@@ -75,6 +76,26 @@ func TestSelectInterFrameReferenceMotionVectorRefinesDiamondCandidate(t *testing
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 24}) {
 		t.Fatalf("selection = %v %+v, want last row +24 after diamond refinement", ref.Frame, mv)
+	}
+}
+
+func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	last := testVP8Frame(t, 32, 32, 40, 90, 170)
+	for row := 0; row < last.Img.CodedHeight; row++ {
+		for col := 0; col < last.Img.CodedWidth; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte(19 + ((row*17 + col*13) & 127))
+		}
+	}
+	last.ExtendBorders()
+	dsp.SixTapPredict16x16(last.Img.YFull[last.Img.YOrigin-2*last.Img.YStride-2:], last.Img.YStride, 2, 2, src.Y, src.YStride)
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
+
+	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("selection = %v %+v, want last subpixel +2,+2", ref.Frame, mv)
 	}
 }
 
