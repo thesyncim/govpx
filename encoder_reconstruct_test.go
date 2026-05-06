@@ -10,6 +10,7 @@ import (
 
 var benchmarkInterReference interAnalysisReference
 var benchmarkInterMV vp8enc.MotionVector
+var benchmarkBool bool
 
 func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *testing.T) {
 	src := testImage(16, 16)
@@ -128,6 +129,42 @@ func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
 	}
 	if limited <= 1024 || limited >= full {
 		t.Fatalf("limited SAD = %d, full = %d, want early result above limit and below full", limited, full)
+	}
+}
+
+func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
+	var coeffs vp8enc.MacroblockCoefficients
+	for block := 0; block < 16; block++ {
+		coeffs.SetBlockEOB(block, 0)
+	}
+	coeffs.SetBlockEOB(24, 0)
+	for block := 16; block < 24; block++ {
+		coeffs.SetBlockEOB(block, 0)
+	}
+
+	if !macroblockCoefficientsEmpty(&coeffs) {
+		t.Fatalf("empty = false, want true for skipped-DC luma blocks")
+	}
+
+	coeffs.SetBlockEOB(0, 2)
+	if macroblockCoefficientsEmpty(&coeffs) {
+		t.Fatalf("empty = true, want false for luma AC EOB")
+	}
+}
+
+func BenchmarkMacroblockCoefficientsEmpty(b *testing.B) {
+	var coeffs vp8enc.MacroblockCoefficients
+	for block := 0; block < 16; block++ {
+		coeffs.SetBlockEOB(block, 0)
+	}
+	coeffs.SetBlockEOB(24, 0)
+	for block := 16; block < 24; block++ {
+		coeffs.SetBlockEOB(block, 0)
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		benchmarkBool = macroblockCoefficientsEmpty(&coeffs)
 	}
 }
 

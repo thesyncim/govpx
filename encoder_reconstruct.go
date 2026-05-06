@@ -499,16 +499,16 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients) bool {
-	if coeffs.BlockEOB(24, 0) > 0 {
+	if coeffs.EOB[24] != 0 {
 		return false
 	}
 	for i := 0; i < 16; i++ {
-		if coeffs.BlockEOB(i, 1) > 1 {
+		if coeffs.EOB[i] > 1 {
 			return false
 		}
 	}
 	for i := 16; i < 24; i++ {
-		if coeffs.BlockEOB(i, 0) > 0 {
+		if coeffs.EOB[i] != 0 {
 			return false
 		}
 	}
