@@ -562,9 +562,27 @@ func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
 		t.Fatalf("static segment alt-q = %d, want cyclic background delta -10", got)
 	}
 
+	e.rc.currentQuantizer = 21
+	cfg = e.staticSegmentationConfig()
+	if !cfg.Enabled {
+		t.Fatalf("q=21 static segmentation disabled, want cyclic background boost")
+	}
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -11 {
+		t.Fatalf("q=21 static segment alt-q = %d, want libvpx Q/2-Q delta -11", got)
+	}
+
 	e.rc.currentQuantizer = 1
+	cfg = e.staticSegmentationConfig()
+	if !cfg.Enabled {
+		t.Fatalf("q=1 static segmentation disabled, want libvpx Q/2-Q delta enabled")
+	}
+	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -1 {
+		t.Fatalf("q=1 static segment alt-q = %d, want libvpx Q/2-Q delta -1", got)
+	}
+
+	e.rc.currentQuantizer = 0
 	if cfg := e.staticSegmentationConfig(); cfg.Enabled {
-		t.Fatalf("q=1 static segmentation = %+v, want disabled when cyclic delta is zero", cfg)
+		t.Fatalf("q=0 static segmentation = %+v, want disabled when cyclic delta is zero", cfg)
 	}
 }
 

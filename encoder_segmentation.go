@@ -34,7 +34,8 @@ func (e *VP8Encoder) staticSegmentationConfig() vp8enc.SegmentationConfig {
 }
 
 func (e *VP8Encoder) staticSegmentationQuantizerDelta() int8 {
-	delta := -(e.rc.currentQuantizer / 2)
+	q := e.rc.currentQuantizer
+	delta := q/2 - q
 	if delta == 0 {
 		return 0
 	}
