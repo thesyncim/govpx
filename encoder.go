@@ -607,7 +607,6 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 		temporalActive ||
 		e.opts.ErrorResilient ||
 		e.rc.mode != RateControlCBR ||
-		e.rc.gfCBRBoostPct <= 0 ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
 		return false
 	}

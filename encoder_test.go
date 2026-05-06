@@ -195,6 +195,48 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	for frame := 1; frame <= 11; frame++ {
+		wantRC := e.rc
+		wantRC.beginFrame(false)
+		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+		state := packetState(t, inter.Data)
+		if frame < 11 && state.Refresh.RefreshGolden {
+			t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
+		}
+		if frame == 11 && !state.Refresh.RefreshGolden {
+			t.Fatalf("inter %d refresh golden = false, want default libvpx CBR GF refresh", frame)
+		}
+		if inter.FrameTargetBits != wantRC.frameTargetBits {
+			t.Fatalf("inter %d target = %d, want unboosted libvpx CBR target %d", frame, inter.FrameTargetBits, wantRC.frameTargetBits)
+		}
+	}
+}
+
 func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
