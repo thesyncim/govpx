@@ -688,6 +688,41 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
+	}
+	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	if root == "" {
+		t.Skip("set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	}
+	oracle := findChecksumOracle(t)
+	paths := findVP8IVFTestData(t, root)
+	if len(paths) == 0 {
+		t.Fatalf("no VP8 IVF files found under %s", root)
+	}
+
+	for _, path := range paths {
+		path := path
+		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
+			ivf, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			want := runLibvpxChecksumOracleFile(t, oracle, path)
+			got := decodeIVFIntoChecksums(t, ivf)
+			if len(got) != len(want) {
+				t.Fatalf("DecodeInto frame count = %d, want %d from libvpx", len(got), len(want))
+			}
+			for i := range want {
+				if !testutil.SameFrameChecksum(got[i], want[i]) {
+					t.Fatalf("DecodeInto frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
+				}
+			}
+		})
+	}
+}
+
 func TestFindVP8IVFTestData(t *testing.T) {
 	dir := t.TempDir()
 	vp8Path := filepath.Join(dir, "vp8.ivf")
@@ -819,6 +854,52 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 			outputIndex++
 		} else if ok {
 			t.Fatalf("NextFrame frame %d returned an invisible frame", inputIndex)
+		}
+		offset = next
+	}
+	return frames
+}
+
+func decodeIVFIntoChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
+	t.Helper()
+	header, err := testutil.ParseIVFHeader(ivf)
+	if err != nil {
+		t.Fatalf("ParseIVFHeader returned error: %v", err)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := testImage(header.Width, header.Height)
+
+	var frames []testutil.FrameChecksum
+	outputIndex := 0
+	for inputIndex := 0; offset < len(ivf); inputIndex++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", inputIndex, err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", inputIndex, err)
+		}
+		if info.KeyFrame && (dst.Width != info.Width || dst.Height != info.Height) {
+			dst = testImage(info.Width, info.Height)
+		}
+		frameInfo, err := d.DecodeInto(frame.Data, &dst)
+		if err != nil {
+			t.Fatalf("DecodeInto frame %d returned error: %v", inputIndex, err)
+		}
+		if _, ok := d.NextFrame(); ok {
+			t.Fatalf("DecodeInto frame %d queued a NextFrame output", inputIndex)
+		}
+		if frameInfo.ShowFrame {
+			frames = append(frames, checksumFrame(outputIndex, frameInfo.KeyFrame, frameInfo.ShowFrame, dst))
+			outputIndex++
 		}
 		offset = next
 	}
