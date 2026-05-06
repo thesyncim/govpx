@@ -60,6 +60,8 @@ Use `UPSTREAM.md` for detailed subsystem status and known deviations.
 Goal: prove current behavior against libvpx before widening features.
 
 - Expand required libvpx VP8 decoder corpus coverage.
+- Require the full current libvpx v1.16.0 VP8 decoder IVF subset in the
+  production oracle gate: 58 VP80 vectors plus 2 invalid rejection vectors.
 - Keep invalid-stream rejection parity required in CI/oracle runs.
 - Add generated streams for every feature edge before claiming support.
 - For encoder validation, compare govpx and libvpx outputs through the same

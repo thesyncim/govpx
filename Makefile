@@ -17,6 +17,9 @@ VPXDEC := $(CORACLE_BUILD)/vpxdec
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
 
+# The pinned libvpx manifest currently lists 62 non-invalid vp80*.ivf names;
+# four segmentation fixtures carry I420 IVF FourCCs, so the VP8 decoder
+# conformance subset is 58 VP80 IVF vectors.
 VP8_DECODER_IVF_MIN ?= 58
 VP8_INVALID_IVF_MIN ?= 2
 VP8_ENCODER_SOURCE_MIN ?= 1
