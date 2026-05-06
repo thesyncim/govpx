@@ -57,7 +57,7 @@ func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.
 	}
 }
 
-func TestSelectInterFrameReferenceMotionVectorRefinesDiamondCandidate(t *testing.T) {
+func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
 	for row := 0; row < 16; row++ {
@@ -81,20 +81,45 @@ func TestSelectInterFrameReferenceMotionVectorRefinesDiamondCandidate(t *testing
 	}
 }
 
-func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
-	src := testImage(32, 32)
+func TestSelectInterFrameReferenceMotionVectorFindsExhaustiveCornerCandidate(t *testing.T) {
+	src := testImage(64, 64)
 	fillImage(src, 13, 90, 170)
-	last := testVP8Frame(t, 32, 32, 40, 90, 170)
-	for row := 0; row < last.Img.CodedHeight; row++ {
-		for col := 0; col < last.Img.CodedWidth; col++ {
-			last.Img.Y[row*last.Img.YStride+col] = byte(19 + ((row*17 + col*13) & 127))
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte(31 + ((row*29 + col*5) & 127))
 		}
 	}
-	last.ExtendBorders()
-	dsp.SixTapPredict16x16(last.Img.YFull[last.Img.YOrigin-2*last.Img.YStride-2:], last.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	last := testVP8Frame(t, 64, 64, 220, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+4)*last.Img.YStride+col+4] = src.Y[row*src.YStride+col]
+		}
+	}
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
 	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0)
+
+	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 32, Col: 32}) {
+		t.Fatalf("selection = %v %+v, want last +32,+32 exhaustive candidate", ref.Frame, mv)
+	}
+}
+
+func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
+	src := testImage(48, 48)
+	fillImage(src, 13, 90, 170)
+	last := testVP8Frame(t, 48, 48, 40, 90, 170)
+	for row := 0; row < last.Img.CodedHeight; row++ {
+		for col := 0; col < last.Img.CodedWidth; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((19 + row*17 + col*13 + row*col*3) & 0xff)
+		}
+	}
+	last.ExtendBorders()
+	refStart := last.Img.YFull[last.Img.YOrigin+(16-2)*last.Img.YStride+16-2:]
+	dsp.SixTapPredict16x16(refStart, last.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 1, 1)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("selection = %v %+v, want last subpixel +2,+2", ref.Frame, mv)
@@ -247,7 +272,7 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 	}
 	source := sourceImageFromPublic(src)
 	b.ReportAllocs()
-	b.SetBytes(16 * 16 * int64(len(refs)) * int64(len(interFrameMVCandidates)))
+	b.SetBytes(16 * 16 * int64(len(refs)) * int64(interFrameFullPixelSearchCandidateCount()))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		row := (i >> 2) & 3
