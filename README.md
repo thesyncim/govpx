@@ -44,6 +44,14 @@ opt-in conformance against external libvpx test data; `LIBGOPX_TEST_DATA_LIMIT`
 can cap the number of IVF files. CI jobs that must fail instead of skipping can
 set `LIBGOPX_TEST_DATA_REQUIRED=1`; set `LIBGOPX_TEST_DATA_MIN` to require a
 minimum number of IVF files for broad corpus runs.
+Set `LIBGOPX_ENCODER_TEST_DATA_PATH` to an external 8-bit 4:2:0 Y4M/YUV source
+file or directory to run the opt-in encoder corpus parity gate. That test
+encodes each source with libgopx and pinned libvpx `vpxenc`, verifies both
+streams against the pinned libvpx checksum oracle, and checks aggregate and
+per-frame PSNR/SSIM, bitrate, and libvpx quality-gap guards. Use
+`LIBGOPX_ENCODER_TEST_DATA_LIMIT`, `LIBGOPX_ENCODER_TEST_DATA_FRAMES`,
+`LIBGOPX_ENCODER_TEST_DATA_REQUIRED`, and `LIBGOPX_ENCODER_TEST_DATA_MIN` to
+size and enforce corpus runs.
 
 `go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
 prints JSON metrics for CI/local tracking; `allocs_per_frame` is measured over

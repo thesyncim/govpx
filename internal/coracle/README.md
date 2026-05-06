@@ -35,6 +35,22 @@ go test .
 Use `LIBGOPX_TEST_DATA_LIMIT=N` to cap the number of IVF files discovered from
 the external data path.
 
+Run opt-in encoder source-corpus validation against external 8-bit 4:2:0 Y4M/YUV
+data:
+
+```sh
+LIBGOPX_WITH_ORACLE=1 \
+LIBGOPX_ORACLE=internal/coracle/build/gopx-vpx-oracle \
+LIBGOPX_VPXENC=internal/coracle/build/vpxenc \
+LIBGOPX_ENCODER_TEST_DATA_PATH=/path/to/y4m-or-yuv-data \
+go test . -run TestOracleExternalEncoderTestDataValidation
+```
+
+Use `LIBGOPX_ENCODER_TEST_DATA_LIMIT=N` to cap the number of source files,
+`LIBGOPX_ENCODER_TEST_DATA_FRAMES=N` to cap frames per source, and
+`LIBGOPX_ENCODER_TEST_DATA_REQUIRED=1` plus
+`LIBGOPX_ENCODER_TEST_DATA_MIN=N` for enforced CI corpus runs.
+
 The helper accepts IVF VP8 input:
 
 ```sh
