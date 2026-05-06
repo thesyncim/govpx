@@ -1075,6 +1075,39 @@ func TestDecodeErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeErrorResilientConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	good := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 77))
+	if err := d.Decode(good); err != nil {
+		t.Fatalf("good Decode error = %v, want nil", err)
+	}
+	if got := d.coefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("persistent coefficient probability = %d, want 77 after good frame", got)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("good NextFrame returned no frame")
+	}
+
+	badFirst := vp8FirstPartitionWithSingleCoefProbabilityUpdate(true, 99)
+	bad := vp8InterFramePacket(len(badFirst), 0, true)
+	bad = append(bad, badFirst...)
+	if err := d.Decode(bad); err != nil {
+		t.Fatalf("corrupt inter Decode error = %v, want nil concealment", err)
+	}
+	if !d.lastInfo.Corrupted {
+		t.Fatalf("lastInfo = %+v, want concealed corrupted frame", d.lastInfo)
+	}
+	if got := d.coefProbs[0][0][0][0]; got != 77 {
+		t.Fatalf("persistent coefficient probability = %d, want previous successful value 77", got)
+	}
+	if got := d.previousQuant.BaseQIndex; got != 0 {
+		t.Fatalf("previous quant base = %d, want previous successful value 0", got)
+	}
+}
+
 func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
 	if err != nil {
