@@ -133,7 +133,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				return ErrInvalidConfig
 			}
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
-			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			var above *vp8enc.InterFrameMacroblockMode
 			var left *vp8enc.InterFrameMacroblockMode
 			var aboveLeft *vp8enc.InterFrameMacroblockMode
@@ -146,6 +145,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
+			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interMode := vp8enc.InterFrameMotionModeForVectorAt(ref.Frame, mv, above, left, aboveLeft, row, col, rows, cols)
 			interMode.SegmentID = segmentID
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)

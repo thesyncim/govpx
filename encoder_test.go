@@ -1078,7 +1078,7 @@ func TestEncodeIntoInterFrameCanSkipLastRefresh(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoInterFrameRefreshesGoldenAndAltRef(t *testing.T) {
+func TestEncodeIntoInterFramePreservesGoldenAndAltRefByDefault(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
@@ -1089,6 +1089,7 @@ func TestEncodeIntoInterFrameRefreshesGoldenAndAltRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
+	keyFrame := decodeSingleFrame(t, key.Data)
 	interPacket := make([]byte, 4096)
 
 	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
@@ -1104,8 +1105,8 @@ func TestEncodeIntoInterFrameRefreshesGoldenAndAltRef(t *testing.T) {
 	}
 	assertImagesEqual(t, "current", decoded[1], publicImageFromVP8(&e.current.Img))
 	assertImagesEqual(t, "last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
-	assertImagesEqual(t, "golden", decoded[1], publicImageFromVP8(&e.goldenRef.Img))
-	assertImagesEqual(t, "alt", decoded[1], publicImageFromVP8(&e.altRef.Img))
+	assertImagesEqual(t, "golden", keyFrame, publicImageFromVP8(&e.goldenRef.Img))
+	assertImagesEqual(t, "alt", keyFrame, publicImageFromVP8(&e.altRef.Img))
 }
 
 func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {

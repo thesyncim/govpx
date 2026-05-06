@@ -8,8 +8,9 @@ support a growing subset of VP8, including source-dependent keyframes with
 whole-block and B_PRED intra mode analysis, LAST/ZEROMV residual interframes,
 intra macroblocks inside interframes, and libvpx-inspired NEWMV interframes with
 last/golden/altref reference selection, near-MV reuse, exhaustive full-pixel and
-even-subpixel search, token partitions, reference refresh control, invisible
-frame handling, libvpx-style RD costs for intra analysis, segment-aware
+even-subpixel search, token partitions, LAST-only default inter refresh with
+golden/altref preservation, invisible frame handling, libvpx-style RD costs for
+intra analysis, segment-aware
 quant/dequant reconstruction feedback, bounded pre-commit quantizer feedback,
 StaticThreshold encode-breakout with cyclic-refresh-style segmentation data,
 plus opt-in reconstructed-frame loop

@@ -60,7 +60,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Encoder rate-control API | target bits, buffer model, bounded pre-commit quantizer feedback, post-frame quantizer feedback, bounded CBR frame dropping, and deterministic clip-level bitrate tracking tests scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, keyframe state, and interframe intra/inter mode primitives scaffolded |
-| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, whole-block luma/chroma intra mode selection with libvpx-style RD rate costs, keyframe B_PRED 4x4 luma selection with context-aware mode costs, quantized residual token-rate RD scoring, keyframe/inter residual analysis with segment-aware quant/dequant reconstruction feedback, StaticThreshold encode-breakout with cyclic-refresh-style segmentation data, LAST/ZEROMV residual interframes with intra macroblock selection, last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired NEWMV interframes with near-MV reuse, exhaustive full-pixel and even-subpixel search with SAD early-out, opt-in reconstructed-frame loop filtering, forward transforms, segment-aware coefficient-builder quant setup, and fast block quantization scaffolded |
+| Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, whole-block luma/chroma intra mode selection with libvpx-style RD rate costs, keyframe B_PRED 4x4 luma selection with context-aware mode costs, quantized residual token-rate RD scoring, keyframe/inter residual analysis with segment-aware quant/dequant reconstruction feedback, StaticThreshold encode-breakout with cyclic-refresh-style segmentation data, LAST/ZEROMV residual interframes with intra macroblock selection, last/golden/altref reference selection, LAST-only default inter refresh with golden/altref preservation, invisible-frame handling, libvpx-inspired NEWMV interframes with near-MV reuse, exhaustive full-pixel and even-subpixel search with SAD early-out, opt-in reconstructed-frame loop filtering, forward transforms, segment-aware coefficient-builder quant setup, and fast block quantization scaffolded |
 | SIMD/assembly | not started |
 
 ## Known Deviations
@@ -74,8 +74,8 @@ grant. This repository keeps libvpx license and patent notices in
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes, and
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,
-  near-MV reuse, exhaustive motion search, token partitions, and reference
-  refresh control, invisible-frame handling, plus opt-in reconstructed-frame
+  near-MV reuse, exhaustive motion search, token partitions, LAST-only default
+  inter refresh with golden/altref preservation, invisible-frame handling, plus opt-in reconstructed-frame
   loop filtering, but full libvpx cyclic/background segment selection and full
   libvpx rate-control heuristic parity are not complete yet. Encoder corpus
   validation currently acts as a regression guard; its libvpx-vpxenc aggregate

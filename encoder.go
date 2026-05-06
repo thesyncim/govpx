@@ -314,8 +314,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
-	cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
-	cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
+	// Match libvpx's normal interframe shape: LAST advances by default while
+	// golden/altref remain long-lived references unless a future policy updates them.
+	cfg.RefreshGolden = false
+	cfg.RefreshAltRef = false
 	segmentation := e.staticSegmentationConfig()
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation

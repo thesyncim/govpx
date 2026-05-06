@@ -507,7 +507,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoRefreshedAltReferenceInterFrame(t *testing.T) {
+func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -529,7 +529,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoRefreshedAltReferenceInterFrame(t 
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
 	if inter.KeyFrame {
-		t.Fatalf("inter KeyFrame = true, want interframe refreshing altref")
+		t.Fatalf("inter KeyFrame = true, want interframe preserving altref")
 	}
 
 	altPacket := make([]byte, 4096)
@@ -538,10 +538,10 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoRefreshedAltReferenceInterFrame(t 
 		t.Fatalf("alt EncodeInto returned error: %v", err)
 	}
 	if altInter.KeyFrame {
-		t.Fatalf("alt KeyFrame = true, want interframe using refreshed ALTREF")
+		t.Fatalf("alt KeyFrame = true, want interframe using preserved ALTREF")
 	}
 	if e.interFrameModes[0].RefFrame != vp8common.AltRefFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV || !e.interFrameModes[0].MBSkipCoeff {
-		t.Fatalf("mode[0] = %+v, want skipped refreshed ALTREF/ZEROMV", e.interFrameModes[0])
+		t.Fatalf("mode[0] = %+v, want skipped preserved ALTREF/ZEROMV", e.interFrameModes[0])
 	}
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, altInter.Data})
