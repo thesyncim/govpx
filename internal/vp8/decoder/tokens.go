@@ -118,15 +118,19 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 	total := 0
 	for row := 0; row < rows; row++ {
 		rowPartition := row & (partitions - 1)
+		rowStart := row * cols
+		rowModes := modes[rowStart : rowStart+cols]
+		rowTokens := tokens[rowStart : rowStart+cols]
 		left := EntropyContextPlanes{}
 		for col := 0; col < cols; col++ {
-			index := row*cols + col
-			if modes[index].MBSkipCoeff {
-				clearMacroblockTokens(&tokens[index])
-				ResetMacroblockTokenContext(&above[col], &left, modes[index].Is4x4)
+			mode := &rowModes[col]
+			token := &rowTokens[col]
+			if mode.MBSkipCoeff {
+				clearMacroblockTokens(token)
+				ResetMacroblockTokenContext(&above[col], &left, mode.Is4x4)
 				continue
 			}
-			total += DecodeMacroblockTokens(&readers[rowPartition], probs, modes[index].Is4x4, &above[col], &left, &tokens[index])
+			total += DecodeMacroblockTokens(&readers[rowPartition], probs, mode.Is4x4, &above[col], &left, token)
 		}
 	}
 	return total, nil
