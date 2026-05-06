@@ -320,6 +320,27 @@ func TestDecodeTokenGridAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestDecodeTokenGridSkippedClearsPreviousEOBBlocks(t *testing.T) {
+	modes := []MacroblockMode{{MBSkipCoeff: true}}
+	above := make([]EntropyContextPlanes, 1)
+	tokens := make([]MacroblockTokens, 1)
+	tokens[0].QCoeff[3][5] = 17
+	tokens[0].QCoeff[24][0] = 9
+	tokens[0].EOB[3] = 6
+	tokens[0].EOB[24] = 1
+	var readers [1]boolcoder.Decoder
+	_ = readers[0].Init([]byte{0})
+	probs := uniformCoefficientProbs(128)
+
+	if _, err := DecodeTokenGrid(readers[:], 1, 1, &probs, modes, above, tokens); err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
+
+	if tokens[0].QCoeff[3] != ([16]int16{}) || tokens[0].QCoeff[24] != ([16]int16{}) || tokens[0].EOB != ([25]uint8{}) {
+		t.Fatalf("tokens = %+v, want previous EOB-backed coefficients cleared", tokens[0])
+	}
+}
+
 func BenchmarkDecodeBlockCoeffs(b *testing.B) {
 	probs := uniformCoefficientProbs(128)
 	payload := encodeCoeffBits(&probs, 0, 0, 0, []coefEvent{{token: tables.OneToken, value: 1, sign: 0, eob: true}})
@@ -330,6 +351,26 @@ func BenchmarkDecodeBlockCoeffs(b *testing.B) {
 		_ = br.Init(payload)
 		coeffs = [16]int16{}
 		DecodeBlockCoeffs(&br, &probs, 0, 0, 0, &coeffs)
+	}
+}
+
+func BenchmarkDecodeTokenGridSkipped(b *testing.B) {
+	probs := uniformCoefficientProbs(128)
+	modes := make([]MacroblockMode, 16)
+	for i := range modes {
+		modes[i].MBSkipCoeff = true
+	}
+	above := make([]EntropyContextPlanes, 4)
+	tokens := make([]MacroblockTokens, 16)
+	for i := range tokens {
+		tokens[i].QCoeff[24][0] = int16(i + 1)
+		tokens[i].EOB[24] = 1
+	}
+	var readers [1]boolcoder.Decoder
+	_ = readers[0].Init([]byte{0})
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = DecodeTokenGrid(readers[:], 4, 4, &probs, modes, above, tokens)
 	}
 }
 

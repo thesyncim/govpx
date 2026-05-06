@@ -200,8 +200,10 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 }
 
 func clearMacroblockTokens(out *MacroblockTokens) {
-	for i := range out.QCoeff {
-		out.QCoeff[i] = [16]int16{}
+	for i, eob := range out.EOB {
+		if eob != 0 {
+			out.QCoeff[i] = [16]int16{}
+		}
 	}
 	out.EOB = [25]uint8{}
 }
