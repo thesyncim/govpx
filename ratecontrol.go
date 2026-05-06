@@ -247,6 +247,53 @@ func (rc *rateControlState) postDropFrame() {
 	rc.framesSinceKeyframe++
 }
 
+func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
+	q := rc.currentQuantizer
+	if rc.mode == RateControlCQ {
+		return q
+	}
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	if targetBits <= 0 {
+		return q
+	}
+	actualBits := encodedSizeBits(sizeBytes)
+	projectedBuffer := saturatingSub(saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame), actualBits)
+	if rc.maximumBufferBits > 0 && projectedBuffer > rc.maximumBufferBits {
+		projectedBuffer = rc.maximumBufferBits
+	}
+	if projectedBuffer < 0 {
+		projectedBuffer = 0
+	}
+	lowBuffer := rc.bufferOptimalBits > 0 && projectedBuffer < rc.bufferOptimalBits/2
+	highBuffer := rc.bufferOptimalBits > 0 && projectedBuffer > rc.bufferOptimalBits
+	overshootLimit := rc.overshootLimitBits(targetBits)
+	undershootLimit := rc.undershootLimitBits(targetBits)
+	switch {
+	case actualBits > overshootLimit || lowBuffer:
+		step := 1
+		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
+			step = 2
+		}
+		q += step
+	case actualBits < undershootLimit && highBuffer:
+		q--
+	}
+	return rc.clampedQuantizerValue(q)
+}
+
+func (rc *rateControlState) clampedQuantizerValue(q int) int {
+	if q < rc.minQuantizer {
+		return rc.minQuantizer
+	}
+	if q > rc.maxQuantizer {
+		return rc.maxQuantizer
+	}
+	return q
+}
+
 func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
 	if targetBits <= 0 {
 		return

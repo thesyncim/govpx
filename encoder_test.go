@@ -151,6 +151,43 @@ func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              32,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := rateControlTestFrame(32, 32, 0)
+	packet := make([]byte, 16384)
+
+	result, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+
+	if result.Quantizer <= 4 {
+		t.Fatalf("result quantizer = %d, want retry above initial 4", result.Quantizer)
+	}
+	if got := packetBaseQIndex(t, result.Data); got != result.Quantizer {
+		t.Fatalf("packet base q = %d, want result quantizer %d", got, result.Quantizer)
+	}
+	if e.rc.lastQuantizer != result.Quantizer {
+		t.Fatalf("last quantizer = %d, want committed frame quantizer %d", e.rc.lastQuantizer, result.Quantizer)
+	}
+	decoded := decodeSingleFrame(t, result.Data)
+	assertImagesEqual(t, "retried current", decoded, publicImageFromVP8(&e.current.Img))
+}
+
 func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	e := newLowBitrateDropTestEncoder(t, true)
 	src := testImage(16, 16)
@@ -1263,6 +1300,18 @@ func packetTokenPartition(t *testing.T, packet []byte) vp8common.TokenPartition 
 		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
 	}
 	return state.TokenPartition
+}
+
+func packetBaseQIndex(t *testing.T, packet []byte) int {
+	t.Helper()
+	var coefProbs = vp8tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	return int(state.Quant.BaseQIndex)
 }
 
 func shiftImageRightOne(src Image) Image {

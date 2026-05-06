@@ -10,12 +10,12 @@ intra macroblocks inside interframes, and libvpx-inspired NEWMV interframes with
 last/golden/altref reference selection, near-MV reuse, exhaustive full-pixel and
 even-subpixel search, token partitions, reference refresh control, invisible
 frame handling, libvpx-style RD costs for intra analysis, segment-aware
-quant/dequant reconstruction feedback, plus opt-in reconstructed-frame loop
-filtering. Decoder paths include libvpx-authored smoke vectors, generated
-libvpx corpus checks, narrow error-resilient inter-frame concealment, default
-deblock/demacroblock postprocess, MFQE, and optional luma ADDNOISE. Broad
-external VP8 corpus conformance is still opt-in and not complete as a production
-release gate.
+quant/dequant reconstruction feedback, bounded pre-commit quantizer feedback,
+plus opt-in reconstructed-frame loop filtering. Decoder paths include
+libvpx-authored smoke vectors, generated libvpx corpus checks, narrow
+error-resilient inter-frame concealment, default deblock/demacroblock
+postprocess, MFQE, and optional luma ADDNOISE. Broad external VP8 corpus
+conformance is still opt-in and not complete as a production release gate.
 
 Out of scope:
 

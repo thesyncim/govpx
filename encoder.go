@@ -130,6 +130,16 @@ type VP8Encoder struct {
 	loopInfo           vp8common.LoopFilterInfo
 }
 
+const encoderQuantizerFeedbackMaxAttempts = 2
+
+type interFrameEncodeAttempt struct {
+	Config        vp8enc.InterFrameStateConfig
+	RefFrame      vp8common.MVReferenceFrame
+	Ref           *vp8common.Image
+	Size          int
+	ZeroReference bool
+}
+
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	normalized, timing, err := normalizeEncoderOptions(opts)
 	if err != nil {
@@ -206,37 +216,31 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		VStride: src.VStride,
 	}
 	if !keyFrame {
-		n, err := e.encodeInterFrame(dst, source, rows, cols, required, flags)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags)
 		if err != nil {
 			return EncodeResult{}, err
 		}
-		result.Data = dst[:n]
-		result.SizeBytes = n
-		e.rc.postEncodeFrame(n, false)
+		finalQuantizer := e.rc.currentQuantizer
+		e.commitInterFrameAttempt(attempt)
+		result.Data = dst[:attempt.Size]
+		result.SizeBytes = attempt.Size
+		result.Quantizer = finalQuantizer
+		e.rc.postEncodeFrame(attempt.Size, false)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		e.frameCount++
 		return result, nil
 	}
 
-	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
-		return EncodeResult{}, ErrInvalidConfig
-	}
-	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
-		return EncodeResult{}, translateEncoderError(err)
-	}
-	lfLevel, lfSharpness := e.encoderLoopFilter()
-	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
+	n, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible)
+	if err != nil {
 		return EncodeResult{}, err
 	}
-
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
-	if err != nil {
-		return EncodeResult{}, translateEncoderError(err)
-	}
+	finalQuantizer := e.rc.currentQuantizer
 	e.refreshKeyFrameReferencesFromAnalysis()
 	result.Data = dst[:n]
 	result.SizeBytes = n
+	result.Quantizer = finalQuantizer
 	e.rc.postEncodeFrame(n, true)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
@@ -245,6 +249,58 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 }
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
+	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags)
+	if err != nil {
+		return 0, err
+	}
+	e.commitInterFrameAttempt(attempt)
+	return attempt.Size, nil
+}
+
+func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool) (int, error) {
+	for attempt := 0; ; attempt++ {
+		n, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible)
+		if err != nil {
+			return 0, err
+		}
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(n) {
+			return n, nil
+		}
+	}
+}
+
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool) (int, error) {
+	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
+		return 0, ErrInvalidConfig
+	}
+	if err := e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols); err != nil {
+		return 0, translateEncoderError(err)
+	}
+	lfLevel, lfSharpness := e.encoderLoopFilter()
+	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
+		return 0, err
+	}
+
+	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	if err != nil {
+		return 0, translateEncoderError(err)
+	}
+	return n, nil
+}
+
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (interFrameEncodeAttempt, error) {
+	for attempt := 0; ; attempt++ {
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags)
+		if err != nil {
+			return interFrameEncodeAttempt{}, err
+		}
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size) {
+			return result, nil
+		}
+	}
+}
+
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -256,32 +312,47 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 		refFrame, ref, ok := e.matchingZeroInterFrameReference(source, flags)
 		if ok {
 			if len(e.interFrameModes) < required {
-				return 0, ErrInvalidConfig
+				return interFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 			fillZeroInterFrameModes(e.interFrameModes[:required], refFrame)
 			n, err := vp8enc.WriteZeroReferenceInterFrame(dst, e.opts.Width, e.opts.Height, cfg, refFrame)
 			if err != nil {
-				return 0, translateEncoderError(err)
+				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			e.refreshZeroInterFrameReferences(cfg, ref, refFrame)
-			return n, nil
+			return interFrameEncodeAttempt{Config: cfg, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
-		return 0, ErrInvalidConfig
+		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
 	if err := e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags); err != nil {
-		return 0, translateEncoderError(err)
+		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
-		return 0, err
+		return interFrameEncodeAttempt{}, err
 	}
 	n, err := vp8enc.WriteCoefficientInterFrame(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
 	if err != nil {
-		return 0, translateEncoderError(err)
+		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	e.refreshInterFrameReferencesFromAnalysis(cfg)
-	return n, nil
+	return interFrameEncodeAttempt{Config: cfg, Size: n}, nil
+}
+
+func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int) bool {
+	next := e.rc.frameSizeFeedbackQuantizer(sizeBytes)
+	if next == e.rc.currentQuantizer {
+		return false
+	}
+	e.rc.currentQuantizer = next
+	return true
+}
+
+func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
+	if attempt.ZeroReference {
+		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
+		return
+	}
+	e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
 }
 
 func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {

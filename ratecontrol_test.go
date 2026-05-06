@@ -52,6 +52,37 @@ func TestRateControlAdjustQuantizerUsesUndershootPct(t *testing.T) {
 	}
 }
 
+func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		undershootPct:     50,
+		overshootPct:      100,
+		bufferOptimalBits: 1000,
+		bufferLevelBits:   800,
+		bitsPerFrame:      100,
+		frameTargetBits:   100,
+	}
+
+	if got := rc.frameSizeFeedbackQuantizer(38); got != 22 {
+		t.Fatalf("oversized frame feedback q = %d, want 22", got)
+	}
+
+	rc.currentQuantizer = 20
+	rc.bufferLevelBits = 2000
+	if got := rc.frameSizeFeedbackQuantizer(4); got != 19 {
+		t.Fatalf("undersized frame feedback q = %d, want 19", got)
+	}
+
+	rc.mode = RateControlCQ
+	rc.currentQuantizer = 20
+	if got := rc.frameSizeFeedbackQuantizer(38); got != 20 {
+		t.Fatalf("CQ frame feedback q = %d, want unchanged 20", got)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{
