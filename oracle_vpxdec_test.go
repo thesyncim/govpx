@@ -16,6 +16,7 @@ import (
 
 	"github.com/thesyncim/libgopx/internal/testutil"
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
@@ -841,14 +842,17 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 	dir := t.TempDir()
 
 	cases := []generatedLibvpxCorpusCase{
-		{name: "baseline", width: 32, height: 32, frames: 6},
+		{name: "baseline", width: 32, height: 32, frames: 6, checkProfile: true, wantProfile: 0, checkTokenPartition: true, wantTokenPartition: vp8common.OnePartition},
 		{name: "narrow", width: 48, height: 24, frames: 6},
-		{name: "narrow-profile2", width: 48, height: 24, frames: 6, args: []string{"--profile=2"}},
-		{name: "token-two", width: 32, height: 32, frames: 6, args: []string{"--token-parts=1"}},
-		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}},
-		{name: "profile3", width: 32, height: 32, frames: 3, args: []string{"--profile=3"}},
+		{name: "profile1", width: 32, height: 32, frames: 6, args: []string{"--profile=1"}, checkProfile: true, wantProfile: 1},
+		{name: "narrow-profile2", width: 48, height: 24, frames: 6, args: []string{"--profile=2"}, checkProfile: true, wantProfile: 2},
+		{name: "profile3", width: 32, height: 32, frames: 3, args: []string{"--profile=3"}, checkProfile: true, wantProfile: 3},
+		{name: "token-two", width: 32, height: 32, frames: 6, args: []string{"--token-parts=1"}, checkTokenPartition: true, wantTokenPartition: vp8common.TwoPartition},
+		{name: "token-four", width: 32, height: 32, frames: 6, args: []string{"--token-parts=2"}, checkTokenPartition: true, wantTokenPartition: vp8common.FourPartition},
+		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}, checkTokenPartition: true, wantTokenPartition: vp8common.EightPartition},
 		{name: "error-resilient", width: 32, height: 32, frames: 6, args: []string{"--error-resilient=1"}},
 		{name: "sharpness7", width: 32, height: 32, frames: 6, args: []string{"--sharpness=7"}},
+		{name: "static-threshold", width: 64, height: 64, frames: 8, args: []string{"--static-thresh=1000"}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -858,6 +862,7 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
+			assertGeneratedLibvpxCorpusFeatures(t, ivf, tc)
 			want := runLibvpxChecksumOracleFile(t, oracle, ivfPath)
 			got := decodeIVFChecksums(t, ivf)
 			gotInto := decodeIVFIntoChecksums(t, ivf)
@@ -1042,11 +1047,57 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 }
 
 type generatedLibvpxCorpusCase struct {
-	name   string
-	width  int
-	height int
-	frames int
-	args   []string
+	name                string
+	width               int
+	height              int
+	frames              int
+	args                []string
+	checkProfile        bool
+	wantProfile         int
+	checkTokenPartition bool
+	wantTokenPartition  vp8common.TokenPartition
+}
+
+func assertGeneratedLibvpxCorpusFeatures(t *testing.T, ivf []byte, tc generatedLibvpxCorpusCase) {
+	t.Helper()
+	if !tc.checkProfile && !tc.checkTokenPartition {
+		return
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	previousQuant := vp8dec.QuantHeader{}
+	sawProfile := !tc.checkProfile
+	sawTokenPartition := !tc.checkTokenPartition
+	for frameIndex := 0; offset < len(ivf); frameIndex++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, frameIndex)
+		if err != nil {
+			t.Fatalf("NextIVFFrame returned error: %v", err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
+		}
+		if tc.checkProfile && info.Profile == tc.wantProfile {
+			sawProfile = true
+		}
+		_, state, err := vp8dec.ParseStateHeader(frame.Data, previousQuant)
+		if err != nil {
+			t.Fatalf("ParseStateHeader returned error: %v", err)
+		}
+		if tc.checkTokenPartition && state.TokenPartition == tc.wantTokenPartition {
+			sawTokenPartition = true
+		}
+		previousQuant = state.Quant
+		offset = next
+	}
+	if !sawProfile {
+		t.Fatalf("generated corpus profile = no frame with profile %d", tc.wantProfile)
+	}
+	if !sawTokenPartition {
+		t.Fatalf("generated corpus token partition = no frame with partition %d", tc.wantTokenPartition)
+	}
 }
 
 func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generatedLibvpxCorpusCase) string {
