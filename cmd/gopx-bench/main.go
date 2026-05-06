@@ -41,6 +41,7 @@ type benchReport struct {
 	EncodeFPS         float64            `json:"encode_fps"`
 	AllocsPerFrame    float64            `json:"allocs_per_frame"`
 	PSNR              float64            `json:"psnr"`
+	SSIM              float64            `json:"ssim"`
 	KeyframeBytes     int                `json:"keyframe_bytes"`
 	AvgInterBytes     float64            `json:"avg_interframe_bytes"`
 	Quantizers        quantizerReport    `json:"quantizers"`
@@ -160,6 +161,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	interBytes := 0
 	interCount := 0
 	psnrSum := 0.0
+	ssimSum := 0.0
 	psnrCount := 0
 
 	runtime.GC()
@@ -200,6 +202,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		decoded, ok := dec.NextFrame()
 		if ok {
 			psnrSum += imagePSNR(frame, decoded)
+			ssimSum += imageSSIM(frame, decoded)
 			psnrCount++
 		}
 	}
@@ -223,6 +226,10 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	if psnrCount > 0 {
 		psnr = psnrSum / float64(psnrCount)
 	}
+	ssim := 0.0
+	if psnrCount > 0 {
+		ssim = ssimSum / float64(psnrCount)
+	}
 	quantMean := 0.0
 	if encodedFrames > 0 {
 		quantMean = float64(quantSum) / float64(encodedFrames)
@@ -242,6 +249,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		EncodeFPS:         1e9 / float64(nsPerFrame),
 		AllocsPerFrame:    float64(memAfter.Mallocs-memBefore.Mallocs) / float64(cfg.Frames),
 		PSNR:              psnr,
+		SSIM:              ssim,
 		KeyframeBytes:     keyframeBytes,
 		AvgInterBytes:     avgInter,
 		Quantizers: quantizerReport{
@@ -462,6 +470,60 @@ func imagePSNR(src libgopx.Image, dst libgopx.Image) float64 {
 	}
 	mse := float64(sse) / float64(count)
 	return 10 * math.Log10((255*255)/mse)
+}
+
+func imageSSIM(src libgopx.Image, dst libgopx.Image) float64 {
+	ssim, count := planeSSIM(src.Y, src.YStride, dst.Y, dst.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	uSSIM, uCount := planeSSIM(src.U, src.UStride, dst.U, dst.UStride, uvWidth, uvHeight)
+	vSSIM, vCount := planeSSIM(src.V, src.VStride, dst.V, dst.VStride, uvWidth, uvHeight)
+	total := count + uCount + vCount
+	if total == 0 {
+		return 0
+	}
+	return (ssim*float64(count) + uSSIM*float64(uCount) + vSSIM*float64(vCount)) / float64(total)
+}
+
+func planeSSIM(a []byte, aStride int, b []byte, bStride int, width int, height int) (float64, int) {
+	count := width * height
+	if count <= 0 {
+		return 0, 0
+	}
+	sumA := 0.0
+	sumB := 0.0
+	sumAA := 0.0
+	sumBB := 0.0
+	sumAB := 0.0
+	for row := 0; row < height; row++ {
+		aRow := a[row*aStride:]
+		bRow := b[row*bStride:]
+		for col := 0; col < width; col++ {
+			x := float64(aRow[col])
+			y := float64(bRow[col])
+			sumA += x
+			sumB += y
+			sumAA += x * x
+			sumBB += y * y
+			sumAB += x * y
+		}
+	}
+	n := float64(count)
+	meanA := sumA / n
+	meanB := sumB / n
+	varA := sumAA/n - meanA*meanA
+	varB := sumBB/n - meanB*meanB
+	cov := sumAB/n - meanA*meanB
+	const (
+		c1 = 6.5025
+		c2 = 58.5225
+	)
+	num := (2*meanA*meanB + c1) * (2*cov + c2)
+	den := (meanA*meanA + meanB*meanB + c1) * (varA + varB + c2)
+	if den == 0 {
+		return 1, count
+	}
+	return num / den, count
 }
 
 func planeSSE(a []byte, aStride int, b []byte, bStride int, width int, height int) (uint64, int) {
