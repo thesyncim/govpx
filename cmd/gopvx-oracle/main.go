@@ -16,14 +16,14 @@ func main() {
 		args = args[2:]
 	}
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: gopx-oracle [-oracle path] decode input.ivf\n")
+		fmt.Fprintf(os.Stderr, "usage: gopvx-oracle [-oracle path] decode input.ivf\n")
 		os.Exit(2)
 	}
 	if helper == "" {
 		helper = findHelper()
 	}
 	if helper == "" {
-		fmt.Fprintf(os.Stderr, "gopx-oracle: set LIBGOPX_VPX_ORACLE or pass -oracle path\n")
+		fmt.Fprintf(os.Stderr, "gopvx-oracle: set GOPVX_VPX_ORACLE or pass -oracle path\n")
 		os.Exit(2)
 	}
 
@@ -35,23 +35,23 @@ func main() {
 		if errors.As(err, &exit) {
 			os.Exit(exit.ExitCode())
 		}
-		fmt.Fprintf(os.Stderr, "gopx-oracle: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gopvx-oracle: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func findHelper() string {
-	if helper := os.Getenv("LIBGOPX_VPX_ORACLE"); helper != "" {
+	if helper := os.Getenv("GOPVX_VPX_ORACLE"); helper != "" {
 		return helper
 	}
-	if helper, err := exec.LookPath("gopx-vpx-oracle"); err == nil {
+	if helper, err := exec.LookPath("gopvx-vpx-oracle"); err == nil {
 		return helper
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
-	helper := filepath.Join(filepath.Dir(exe), "gopx-vpx-oracle")
+	helper := filepath.Join(filepath.Dir(exe), "gopvx-vpx-oracle")
 	if info, err := os.Stat(helper); err == nil && !info.IsDir() {
 		return helper
 	}

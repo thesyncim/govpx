@@ -3,9 +3,9 @@ package decoder
 import (
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 func TestReadInterPredictionMode(t *testing.T) {

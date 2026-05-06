@@ -1,6 +1,6 @@
-package libgopx
+package gopvx
 
-import vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+import vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
 
 type StreamInfo struct {
 	Width   int

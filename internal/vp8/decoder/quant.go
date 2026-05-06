@@ -1,6 +1,6 @@
 package decoder
 
-import "github.com/thesyncim/libgopx/internal/vp8/boolcoder"
+import "github.com/thesyncim/gopvx/internal/vp8/boolcoder"
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodeframe.c quantizer header
 // parsing.

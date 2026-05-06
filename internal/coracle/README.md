@@ -11,18 +11,18 @@ Run the full correctness/parity gate from the repository root:
 make verify-production
 ```
 
-That target builds `gopx-vpx-oracle`, pinned `vpxenc`, and pinned `vpxdec` with
+That target builds `gopvx-vpx-oracle`, pinned `vpxenc`, and pinned `vpxdec` with
 libvpx optimizations enabled; fetches the libvpx VP8 IVF corpus plus supported
 encoder source data under ignored `internal/coracle/build/test-data/`; and runs
 all root `TestOracle*` tests with the required/minimum-count corpus checks
 enabled. The raw
-`LIBGOPX_*` switches remain available inside the Makefile for targeted
+`GOPVX_*` switches remain available inside the Makefile for targeted
 debugging, but the supported parity workflow is the make target.
 
 The helper accepts IVF VP8 input:
 
 ```sh
-internal/coracle/build/gopx-vpx-oracle decode input.ivf
+internal/coracle/build/gopvx-vpx-oracle decode input.ivf
 ```
 
 Use `decode-postproc` to enable libvpx VP8 deblock/demacroblock/MFQE
@@ -35,9 +35,9 @@ Output is newline-delimited JSON:
 {"frame":0,"width":16,"height":16,"keyframe":true,"show_frame":true,"y_md5":"...","u_md5":"...","v_md5":"...","full_md5":"..."}
 ```
 
-Run the libgopx encoder benchmark with the optional libvpx comparison:
+Run the gopvx encoder benchmark with the optional libvpx comparison:
 
 ```sh
 make oracle-tools
-LIBGOPX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/gopx-bench
+GOPVX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/gopvx-bench
 ```

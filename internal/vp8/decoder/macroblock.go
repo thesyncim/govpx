@@ -1,6 +1,6 @@
 package decoder
 
-import "github.com/thesyncim/libgopx/internal/vp8/common"
+import "github.com/thesyncim/gopvx/internal/vp8/common"
 
 // Ported macroblock mode metadata from libvpx v1.16.0 vp8/common/blockd.h.
 

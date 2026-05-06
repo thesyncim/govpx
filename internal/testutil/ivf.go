@@ -8,8 +8,8 @@ const (
 )
 
 var (
-	ErrInvalidIVF        = errString("libgopx: invalid IVF data")
-	ErrUnsupportedFourCC = errString("libgopx: unsupported IVF fourcc")
+	ErrInvalidIVF        = errString("gopvx: invalid IVF data")
+	ErrUnsupportedFourCC = errString("gopvx: unsupported IVF fourcc")
 )
 
 type IVFHeader struct {

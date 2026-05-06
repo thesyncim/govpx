@@ -3,7 +3,7 @@ package boolcoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0:
@@ -11,8 +11,8 @@ import (
 // - vp8/decoder/dboolhuff.h
 
 var (
-	ErrInvalidInput = errors.New("libgopx: invalid VP8 boolcoder input")
-	ErrTruncated    = errors.New("libgopx: truncated VP8 boolcoder input")
+	ErrInvalidInput = errors.New("gopvx: invalid VP8 boolcoder input")
+	ErrTruncated    = errors.New("gopvx: truncated VP8 boolcoder input")
 )
 
 const (

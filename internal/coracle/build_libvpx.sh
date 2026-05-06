@@ -3,11 +3,11 @@ set -eu
 
 tag="v1.16.0"
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-build_dir=${LIBGOPX_CORACLE_BUILD_DIR:-"$root/build"}
+build_dir=${GOPVX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag"
-prefix=${LIBGOPX_LIBVPX_PREFIX:-"$build_dir/libvpx-$tag-install"}
-oracle_bin=${LIBGOPX_ORACLE_BIN:-"$build_dir/gopx-vpx-oracle"}
-config_stamp="$prefix/.libgopx-libvpx-config"
+prefix=${GOPVX_LIBVPX_PREFIX:-"$build_dir/libvpx-$tag-install"}
+oracle_bin=${GOPVX_ORACLE_BIN:-"$build_dir/gopvx-vpx-oracle"}
+config_stamp="$prefix/.gopvx-libvpx-config"
 want_config="v1.16.0-vp8-decoder-postproc-error-concealment-optimized"
 jobs=${JOBS:-}
 
@@ -62,7 +62,7 @@ if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [
 fi
 
 cc=${CC:-cc}
-libs=${LIBGOPX_LIBVPX_LIBS:-"-lvpx -lm -pthread"}
+libs=${GOPVX_LIBVPX_LIBS:-"-lvpx -lm -pthread"}
 
 "$cc" -std=c99 -O2 -Wall -Wextra -I"$prefix/include" "$root/vpx_oracle.c" -L"$prefix/lib" $libs -o "$oracle_bin"
 printf '%s\n' "$oracle_bin"

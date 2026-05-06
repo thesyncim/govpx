@@ -1,4 +1,4 @@
-package libgopx
+package gopvx
 
 import (
 	"encoding/binary"
@@ -14,22 +14,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/testutil"
-	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
-	"github.com/thesyncim/libgopx/internal/vp8/dsp"
-	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+	"github.com/thesyncim/gopvx/internal/testutil"
+	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
+	"github.com/thesyncim/gopvx/internal/vp8/dsp"
+	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
 )
 
 func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle smoke tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle smoke tests")
 	}
-	vpxdec := os.Getenv("LIBGOPX_VPXDEC")
+	vpxdec := os.Getenv("GOPVX_VPXDEC")
 	if vpxdec == "" {
 		path, err := exec.LookPath("vpxdec")
 		if err != nil {
-			t.Skip("vpxdec not found; set LIBGOPX_VPXDEC to a libvpx v1.16.0 vpxdec binary")
+			t.Skip("vpxdec not found; set GOPVX_VPXDEC to a libvpx v1.16.0 vpxdec binary")
 		}
 		vpxdec = path
 	}
@@ -58,7 +58,7 @@ func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 	}
 
 	ivf := makeSingleFrameIVF(16, 16, 30, 1, result.Data)
-	path := filepath.Join(t.TempDir(), "libgopx-keyframe.ivf")
+	path := filepath.Join(t.TempDir(), "gopvx-keyframe.ivf")
 	if err := os.WriteFile(path, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -71,8 +71,8 @@ func TestOracleVpxdecDecodesEncodeIntoKeyFrame(t *testing.T) {
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -111,15 +111,15 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	}
 
 	decoded := decodeSingleFrame(t, result.Data)
-	libgopxFrame := checksumFrame(0, true, true, decoded)
-	if !testutil.SameFrameChecksum(oracleFrames[0], libgopxFrame) {
-		t.Fatalf("checksum mismatch\nlibvpx:  %s\nlibgopx: %s", formatChecksum(oracleFrames[0]), formatChecksum(libgopxFrame))
+	gopvxFrame := checksumFrame(0, true, true, decoded)
+	if !testutil.SameFrameChecksum(oracleFrames[0], gopvxFrame) {
+		t.Fatalf("checksum mismatch\nlibvpx:  %s\ngopvx: %s", formatChecksum(oracleFrames[0]), formatChecksum(gopvxFrame))
 	}
 }
 
 func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle capability tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle capability tests")
 	}
 	oracle := findChecksumOracle(t)
 	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
@@ -140,8 +140,8 @@ func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
 }
 
 func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
 	}
 	oracle := findChecksumOracle(t)
 	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
@@ -152,8 +152,8 @@ func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -177,13 +177,13 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	decoded := decodeSingleFrame(t, result.Data)
 	want := checksumFrame(0, true, true, decoded)
 	if !testutil.SameFrameChecksum(oracleFrames[0], want) {
-		t.Fatalf("checksum mismatch\nlibvpx:  %s\nlibgopx: %s", formatChecksum(oracleFrames[0]), formatChecksum(want))
+		t.Fatalf("checksum mismatch\nlibvpx:  %s\ngopvx: %s", formatChecksum(oracleFrames[0]), formatChecksum(want))
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -216,14 +216,14 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 	for i := range want {
 		if !testutil.SameFrameChecksum(oracleFrames[i], want[i]) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want[i]))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want[i]))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -256,8 +256,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -306,8 +306,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T)
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -349,7 +349,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	if err := d.Decode(visible.Data); err != nil {
 		t.Fatalf("Decode visible returned error: %v", err)
 	}
-	libgopxFrame, ok := d.NextFrame()
+	gopvxFrame, ok := d.NextFrame()
 	if !ok {
 		t.Fatalf("NextFrame returned no visible frame")
 	}
@@ -359,15 +359,15 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	if len(oracleFrames) != 1 {
 		t.Fatalf("oracle frame count = %d, want one visible frame", len(oracleFrames))
 	}
-	want := checksumFrame(0, false, true, libgopxFrame)
+	want := checksumFrame(0, false, true, gopvxFrame)
 	if !testutil.SameFrameChecksum(oracleFrames[0], want) {
-		t.Fatalf("checksum mismatch\nlibvpx:  %s\nlibgopx: %s", formatChecksum(oracleFrames[0]), formatChecksum(want))
+		t.Fatalf("checksum mismatch\nlibvpx:  %s\ngopvx: %s", formatChecksum(oracleFrames[0]), formatChecksum(want))
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -406,21 +406,21 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, lastInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data, lastInter.Data)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data, lastInter.Data)
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -454,21 +454,21 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, secondInter.Data, goldenInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	libgopxFrames := decodeFrameSequence(t, key.Data, secondInter.Data, goldenInter.Data)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	gopvxFrames := decodeFrameSequence(t, key.Data, secondInter.Data, goldenInter.Data)
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -495,21 +495,21 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	libgopxFrames := decodeFrameSequence(t, key.Data, altInter.Data)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	gopvxFrames := decodeFrameSequence(t, key.Data, altInter.Data)
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -546,21 +546,21 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, altInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data, altInter.Data)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data, altInter.Data)
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -583,23 +583,23 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want residual interframe")
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -627,23 +627,23 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNewMVInterFrame(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want NEWMV interframe")
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -682,23 +682,23 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing
 		t.Fatalf("mode[0] = %+v, want subpixel NEWMV +2,+2", e.interFrameModes[0])
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -724,23 +724,23 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing
 		t.Fatalf("mode[0] = %+v, want LAST/ZEROMV residual macroblock", e.interFrameModes[0])
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoLoopFilteredInterFrame(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -788,23 +788,23 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLoopFilteredInterFrame(t *testing.
 		t.Fatalf("inter KeyFrame = true, want loop-filtered interframe")
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoStaticThresholdSegmentation(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
 	oracle := findChecksumOracle(t)
 
@@ -845,25 +845,25 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoStaticThresholdSegmentation(t *tes
 		t.Fatalf("inter KeyFrame = true, want segmented interframe")
 	}
 
-	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	gopvxFrames := decodeFrameSequence(t, key.Data, inter.Data)
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	if len(oracleFrames) != len(libgopxFrames) {
-		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	if len(oracleFrames) != len(gopvxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(gopvxFrames))
 	}
-	for i, frame := range libgopxFrames {
+	for i, frame := range gopvxFrames {
 		want := checksumFrame(i, i == 0, true, frame)
 		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
-			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
 		}
 	}
 }
 
 func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx conformance tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run external libvpx conformance tests")
 	}
-	root, ok := externalIVFTestDataRoot(t, "set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := externalIVFTestDataRoot(t, "set GOPVX_TEST_DATA_PATH to a VP8 IVF file or directory")
 	if !ok {
 		return
 	}
@@ -888,7 +888,7 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 			}
 			for i := range want {
 				if !testutil.SameFrameChecksum(got[i], want[i]) {
-					t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
+					t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
 				}
 			}
 		})
@@ -896,10 +896,10 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 }
 
 func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
 	}
-	root, ok := externalIVFTestDataRoot(t, "set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := externalIVFTestDataRoot(t, "set GOPVX_TEST_DATA_PATH to a VP8 IVF file or directory")
 	if !ok {
 		return
 	}
@@ -924,7 +924,7 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 			}
 			for i := range want {
 				if !testutil.SameFrameChecksum(got[i], want[i]) {
-					t.Fatalf("DecodeInto frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
+					t.Fatalf("DecodeInto frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", i, formatChecksum(want[i]), formatChecksum(got[i]))
 				}
 			}
 		})
@@ -932,8 +932,8 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 }
 
 func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
 	}
 	root, ok := externalInvalidIVFTestDataRoot(t)
 	if !ok {
@@ -942,7 +942,7 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	oracle := findChecksumOracle(t)
 	paths := findInvalidVP8IVFTestData(t, root)
 	if len(paths) == 0 {
-		if os.Getenv("LIBGOPX_INVALID_TEST_DATA_REQUIRED") == "1" || externalInvalidIVFTestMinimum(t) > 0 {
+		if os.Getenv("GOPVX_INVALID_TEST_DATA_REQUIRED") == "1" || externalInvalidIVFTestMinimum(t) > 0 {
 			t.Fatalf("no invalid VP8 IVF files found under %s", root)
 		}
 		t.Skipf("no invalid VP8 IVF files found under %s", root)
@@ -970,8 +970,8 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 }
 
 func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run generated libvpx conformance tests")
 	}
 	oracle := findChecksumOracle(t)
 	vpxenc := findVpxenc(t)
@@ -1033,7 +1033,7 @@ func TestFindVP8IVFTestData(t *testing.T) {
 }
 
 func TestExternalIVFTestMinimum(t *testing.T) {
-	t.Setenv("LIBGOPX_TEST_DATA_MIN", "3")
+	t.Setenv("GOPVX_TEST_DATA_MIN", "3")
 
 	if got := externalIVFTestMinimum(t); got != 3 {
 		t.Fatalf("minimum = %d, want 3", got)
@@ -1075,20 +1075,20 @@ func makeIVF(width int, height int, den uint32, num uint32, frames [][]byte) []b
 
 func findChecksumOracle(t *testing.T) string {
 	t.Helper()
-	oracle := os.Getenv("LIBGOPX_ORACLE")
+	oracle := os.Getenv("GOPVX_ORACLE")
 	if oracle != "" {
 		return oracle
 	}
-	path, err := exec.LookPath("gopx-vpx-oracle")
+	path, err := exec.LookPath("gopvx-vpx-oracle")
 	if err != nil {
-		t.Skip("set LIBGOPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
+		t.Skip("set GOPVX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
 	}
 	return path
 }
 
 func findVpxenc(t *testing.T) string {
 	t.Helper()
-	if vpxenc := os.Getenv("LIBGOPX_VPXENC"); vpxenc != "" {
+	if vpxenc := os.Getenv("GOPVX_VPXENC"); vpxenc != "" {
 		return vpxenc
 	}
 	if path, err := exec.LookPath("vpxenc"); err == nil {
@@ -1099,13 +1099,13 @@ func findVpxenc(t *testing.T) string {
 	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
 		return local
 	}
-	t.Skip("set LIBGOPX_VPXENC to a libvpx v1.16.0 vpxenc binary")
+	t.Skip("set GOPVX_VPXENC to a libvpx v1.16.0 vpxenc binary")
 	return ""
 }
 
 func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "libgopx-keyframe.ivf")
+	path := filepath.Join(t.TempDir(), "gopvx-keyframe.ivf")
 	if err := os.WriteFile(path, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -1114,7 +1114,7 @@ func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil
 
 func runLibvpxChecksumOracleMode(t *testing.T, oracle string, mode string, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "libgopx-"+mode+".ivf")
+	path := filepath.Join(t.TempDir(), "gopvx-"+mode+".ivf")
 	if err := os.WriteFile(path, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -1161,7 +1161,7 @@ func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameC
 	}
 	for i := range want {
 		if !testutil.SameFrameChecksum(got[i], want[i]) {
-			t.Fatalf("%s frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", label, i, formatChecksum(want[i]), formatChecksum(got[i]))
+			t.Fatalf("%s frame %d checksum mismatch\nlibvpx:  %s\ngopvx: %s", label, i, formatChecksum(want[i]), formatChecksum(got[i]))
 		}
 	}
 }
@@ -1573,12 +1573,12 @@ func isInvalidVP8IVFTestDataName(path string) bool {
 
 func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
 	t.Helper()
-	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	root := os.Getenv("GOPVX_TEST_DATA_PATH")
 	if root != "" {
 		return root, true
 	}
-	if os.Getenv("LIBGOPX_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("LIBGOPX_TEST_DATA_REQUIRED=1 but LIBGOPX_TEST_DATA_PATH is not set")
+	if os.Getenv("GOPVX_TEST_DATA_REQUIRED") == "1" {
+		t.Fatalf("GOPVX_TEST_DATA_REQUIRED=1 but GOPVX_TEST_DATA_PATH is not set")
 	}
 	t.Skip(skipMessage)
 	return "", false
@@ -1586,69 +1586,69 @@ func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
 
 func externalInvalidIVFTestDataRoot(t *testing.T) (string, bool) {
 	t.Helper()
-	root := os.Getenv("LIBGOPX_INVALID_TEST_DATA_PATH")
+	root := os.Getenv("GOPVX_INVALID_TEST_DATA_PATH")
 	if root != "" {
 		return root, true
 	}
-	root = os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	root = os.Getenv("GOPVX_TEST_DATA_PATH")
 	if root != "" {
 		return root, true
 	}
-	if os.Getenv("LIBGOPX_INVALID_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_REQUIRED=1 but neither LIBGOPX_INVALID_TEST_DATA_PATH nor LIBGOPX_TEST_DATA_PATH is set")
+	if os.Getenv("GOPVX_INVALID_TEST_DATA_REQUIRED") == "1" {
+		t.Fatalf("GOPVX_INVALID_TEST_DATA_REQUIRED=1 but neither GOPVX_INVALID_TEST_DATA_PATH nor GOPVX_TEST_DATA_PATH is set")
 	}
-	t.Skip("set LIBGOPX_INVALID_TEST_DATA_PATH to invalid VP8 IVF data or point LIBGOPX_TEST_DATA_PATH at a full libvpx test-data directory")
+	t.Skip("set GOPVX_INVALID_TEST_DATA_PATH to invalid VP8 IVF data or point GOPVX_TEST_DATA_PATH at a full libvpx test-data directory")
 	return "", false
 }
 
 func externalIVFTestLimit(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("LIBGOPX_TEST_DATA_LIMIT")
+	raw := os.Getenv("GOPVX_TEST_DATA_LIMIT")
 	if raw == "" {
 		return 0
 	}
 	limit, err := strconv.Atoi(raw)
 	if err != nil || limit < 0 {
-		t.Fatalf("LIBGOPX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
+		t.Fatalf("GOPVX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
 	}
 	return limit
 }
 
 func externalInvalidIVFTestLimit(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("LIBGOPX_INVALID_TEST_DATA_LIMIT")
+	raw := os.Getenv("GOPVX_INVALID_TEST_DATA_LIMIT")
 	if raw == "" {
 		return 0
 	}
 	limit, err := strconv.Atoi(raw)
 	if err != nil || limit < 0 {
-		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
+		t.Fatalf("GOPVX_INVALID_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
 	}
 	return limit
 }
 
 func externalIVFTestMinimum(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("LIBGOPX_TEST_DATA_MIN")
+	raw := os.Getenv("GOPVX_TEST_DATA_MIN")
 	if raw == "" {
 		return 0
 	}
 	minimum, err := strconv.Atoi(raw)
 	if err != nil || minimum < 0 {
-		t.Fatalf("LIBGOPX_TEST_DATA_MIN = %q, want a non-negative integer", raw)
+		t.Fatalf("GOPVX_TEST_DATA_MIN = %q, want a non-negative integer", raw)
 	}
 	return minimum
 }
 
 func externalInvalidIVFTestMinimum(t *testing.T) int {
 	t.Helper()
-	raw := os.Getenv("LIBGOPX_INVALID_TEST_DATA_MIN")
+	raw := os.Getenv("GOPVX_INVALID_TEST_DATA_MIN")
 	if raw == "" {
 		return 0
 	}
 	minimum, err := strconv.Atoi(raw)
 	if err != nil || minimum < 0 {
-		t.Fatalf("LIBGOPX_INVALID_TEST_DATA_MIN = %q, want a non-negative integer", raw)
+		t.Fatalf("GOPVX_INVALID_TEST_DATA_MIN = %q, want a non-negative integer", raw)
 	}
 	return minimum
 }
@@ -1657,7 +1657,7 @@ func assertExternalIVFTestDataMinimum(t *testing.T, paths []string) {
 	t.Helper()
 	minimum := externalIVFTestMinimum(t)
 	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("VP8 IVF test data count = %d, want at least %d from LIBGOPX_TEST_DATA_MIN", len(paths), minimum)
+		t.Fatalf("VP8 IVF test data count = %d, want at least %d from GOPVX_TEST_DATA_MIN", len(paths), minimum)
 	}
 }
 
@@ -1665,7 +1665,7 @@ func assertExternalInvalidIVFTestDataMinimum(t *testing.T, paths []string) {
 	t.Helper()
 	minimum := externalInvalidIVFTestMinimum(t)
 	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("invalid VP8 IVF test data count = %d, want at least %d from LIBGOPX_INVALID_TEST_DATA_MIN", len(paths), minimum)
+		t.Fatalf("invalid VP8 IVF test data count = %d, want at least %d from GOPVX_INVALID_TEST_DATA_MIN", len(paths), minimum)
 	}
 }
 

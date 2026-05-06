@@ -1,4 +1,4 @@
-package libgopx
+package gopvx
 
 import "testing"
 

@@ -1,4 +1,4 @@
-package libgopx
+package gopvx
 
 type RateControlMode int
 

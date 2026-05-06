@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-var ErrInvalidOracleOutput = errString("libgopx: invalid oracle output")
+var ErrInvalidOracleOutput = errString("gopvx: invalid oracle output")
 
 type FrameChecksum struct {
 	Index int

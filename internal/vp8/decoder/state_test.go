@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 func TestParseStateHeaderKeyFrameZeroPayload(t *testing.T) {

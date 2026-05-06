@@ -3,8 +3,8 @@ package encoder
 import (
 	"math/bits"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/vp8_quantize.c block

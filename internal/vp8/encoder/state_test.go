@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
 )
 
 func TestWriteKeyFrameStateHeaderParsesInDecoder(t *testing.T) {

@@ -3,13 +3,13 @@ package encoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/boolhuff.c and
 // vp8/encoder/boolhuff.h.
 
-var ErrBufferTooSmall = errors.New("libgopx: VP8 encoder buffer too small")
+var ErrBufferTooSmall = errors.New("gopvx: VP8 encoder buffer too small")
 
 type BoolWriter struct {
 	low   uint32

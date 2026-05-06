@@ -1,6 +1,6 @@
 package dsp
 
-import "github.com/thesyncim/libgopx/internal/vp8/common"
+import "github.com/thesyncim/gopvx/internal/vp8/common"
 
 // Ported from libvpx v1.16.0 vpx_dsp/intrapred.c and
 // vp8/common/reconintra4x4.c.

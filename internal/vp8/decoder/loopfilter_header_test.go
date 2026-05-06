@@ -3,7 +3,7 @@ package decoder
 import (
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
 )
 
 func TestParseLoopFilterHeaderCarriesPreviousDeltasWithoutUpdate(t *testing.T) {

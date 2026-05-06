@@ -1,3 +1,3 @@
-module github.com/thesyncim/libgopx
+module github.com/thesyncim/gopvx
 
 go 1.26

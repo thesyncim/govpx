@@ -1,8 +1,8 @@
 package decoder
 
 import (
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
-	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodeframe.c reference refresh

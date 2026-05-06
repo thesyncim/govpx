@@ -1,7 +1,7 @@
 package common
 
 import (
-	"github.com/thesyncim/libgopx/internal/vp8/mem"
+	"github.com/thesyncim/gopvx/internal/vp8/mem"
 )
 
 // Ported frame-buffer layout concepts from libvpx v1.16.0

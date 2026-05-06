@@ -3,8 +3,8 @@ package decoder
 import (
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
-	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
 )
 
 func TestReadInterReferenceFrame(t *testing.T) {

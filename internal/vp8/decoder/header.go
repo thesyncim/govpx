@@ -3,14 +3,14 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
 )
 
 // Ported from libvpx v1.16.0:
 // - vp8/decoder/decodeframe.c
 // - vp8/vp8_dx_iface.c
 
-var ErrInvalidFrameHeader = errors.New("libgopx: invalid VP8 frame header")
+var ErrInvalidFrameHeader = errors.New("gopvx: invalid VP8 frame header")
 
 var KeyFrameStartCode = [3]byte{0x9d, 0x01, 0x2a}
 

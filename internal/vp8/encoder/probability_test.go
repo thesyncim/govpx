@@ -3,9 +3,9 @@ package encoder
 import (
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 func TestBuildKeyFrameCoefficientProbabilityUpdates(t *testing.T) {

@@ -1,8 +1,8 @@
 package decoder
 
 import (
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0:

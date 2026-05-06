@@ -3,8 +3,8 @@ package decoder
 import (
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/dsp"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/dsp"
 )
 
 func TestTransformMacroblockTokens4x4YAndUV(t *testing.T) {

@@ -1,7 +1,7 @@
-package libgopx
+package gopvx
 
 const (
-	Version               = "libgopx-v0"
+	Version               = "gopvx-v0"
 	UpstreamLibvpxVersion = "v1.16.0"
 )
 

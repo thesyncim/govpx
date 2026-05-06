@@ -3,9 +3,9 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/tables"
+	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodemv.c mode probability
@@ -13,7 +13,7 @@ import (
 // context helpers mirror vp8/common/findnearmv.h.
 
 var (
-	ErrModeBufferTooSmall = errors.New("libgopx: VP8 mode buffer too small")
+	ErrModeBufferTooSmall = errors.New("gopvx: VP8 mode buffer too small")
 )
 
 type ModeProbs struct {

@@ -1,6 +1,6 @@
-package libgopx
+package gopvx
 
-import "github.com/thesyncim/libgopx/internal/testutil"
+import "github.com/thesyncim/gopvx/internal/testutil"
 
 // Generated with libvpx v1.16.0 vpxenc --error-resilient=1 from a
 // deterministic 32x32 12-frame I420 clip.

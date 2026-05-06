@@ -1,10 +1,10 @@
-package libgopx
+package gopvx
 
 import (
 	"bytes"
 
-	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
-	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
 )
 
 func sourceMatchesReference(src Image, ref *vp8common.Image) bool {

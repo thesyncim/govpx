@@ -3,14 +3,14 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
-	"github.com/thesyncim/libgopx/internal/vp8/dsp"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/dsp"
 )
 
 // Ported from libvpx v1.16.0 vp8/common/vp8_loopfilter.c frame traversal and
 // vp8/common/loopfilter_filters.c filter wrappers.
 
-var ErrLoopFilterBufferTooSmall = errors.New("libgopx: VP8 loop filter buffer too small")
+var ErrLoopFilterBufferTooSmall = errors.New("gopvx: VP8 loop filter buffer too small")
 
 func ApplyLoopFilter(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
 	if header.Level == 0 {

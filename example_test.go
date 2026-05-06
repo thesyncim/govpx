@@ -1,9 +1,9 @@
-package libgopx_test
+package gopvx_test
 
 import (
 	"fmt"
 
-	"github.com/thesyncim/libgopx"
+	"github.com/thesyncim/gopvx"
 )
 
 func ExamplePeekVP8StreamInfo() {
@@ -14,7 +14,7 @@ func ExamplePeekVP8StreamInfo() {
 		0xf0, 0x00,
 	}
 
-	info, err := libgopx.PeekVP8StreamInfo(packet)
+	info, err := gopvx.PeekVP8StreamInfo(packet)
 	if err != nil {
 		fmt.Println(err)
 		return

@@ -1,5 +1,5 @@
-// libgopx WebRTC demo: generate synthetic frames in Go, encode VP8 with
-// libgopx, stream to a browser over WebRTC. Run with `go run .` and open
+// gopvx WebRTC demo: generate synthetic frames in Go, encode VP8 with
+// gopvx, stream to a browser over WebRTC. Run with `go run .` and open
 // http://localhost:8080.
 package main
 
@@ -17,7 +17,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 
-	"github.com/thesyncim/libgopx"
+	"github.com/thesyncim/gopvx"
 )
 
 const (
@@ -28,15 +28,15 @@ const (
 
 const indexHTML = `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>libgopx VP8 over WebRTC</title>
+<head><meta charset="utf-8"><title>gopvx VP8 over WebRTC</title>
 <style>
 body{font-family:system-ui,sans-serif;margin:24px;max-width:720px}
 video{width:100%;background:#111;border-radius:6px}
 pre{background:#f4f4f4;padding:8px;border-radius:4px}
 </style></head>
 <body>
-<h1>libgopx VP8 over WebRTC</h1>
-<p>Frames are generated in Go, encoded with libgopx (pure-Go VP8), and decoded by your browser's VP8 decoder.</p>
+<h1>gopvx VP8 over WebRTC</h1>
+<p>Frames are generated in Go, encoded with gopvx (pure-Go VP8), and decoded by your browser's VP8 decoder.</p>
 <video id="v" autoplay playsinline muted controls></video>
 <pre id="status">connecting…</pre>
 <script>
@@ -102,7 +102,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request) {
 
 	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
-		"libgopx-video", "libgopx",
+		"gopvx-video", "gopvx",
 	)
 	if err != nil {
 		_ = pc.Close()
@@ -179,11 +179,11 @@ func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, forceKey *atomic.B
 }
 
 func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, forceKey *atomic.Bool) {
-	enc, err := libgopx.NewVP8Encoder(libgopx.EncoderOptions{
+	enc, err := gopvx.NewVP8Encoder(gopvx.EncoderOptions{
 		Width:               frameWidth,
 		Height:              frameHeight,
 		FPS:                 framerate,
-		RateControlMode:     libgopx.RateControlCBR,
+		RateControlMode:     gopvx.RateControlCBR,
 		TargetBitrateKbps:   600,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
@@ -191,7 +191,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
 		KeyFrameInterval:    framerate * 2,
-		Deadline:            libgopx.DeadlineRealtime,
+		Deadline:            gopvx.DeadlineRealtime,
 		ErrorResilient:      true,
 	})
 	if err != nil {
@@ -220,9 +220,9 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 		drawFrame(img, t)
 		t++
 
-		var flags libgopx.EncodeFlags
+		var flags gopvx.EncodeFlags
 		if forceKey.Swap(false) {
-			flags |= libgopx.EncodeForceKeyFrame
+			flags |= gopvx.EncodeForceKeyFrame
 		}
 
 		result, err := enc.EncodeInto(packet, img, pts, duration, flags)
@@ -246,10 +246,10 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, force
 	}
 }
 
-func newImage(w, h int) libgopx.Image {
+func newImage(w, h int) gopvx.Image {
 	uvW := (w + 1) / 2
 	uvH := (h + 1) / 2
-	return libgopx.Image{
+	return gopvx.Image{
 		Width:   w,
 		Height:  h,
 		Y:       make([]byte, w*h),
@@ -264,7 +264,7 @@ func newImage(w, h int) libgopx.Image {
 // drawFrame writes a deterministic animated pattern: a slow Y-plane gradient
 // scrolling horizontally with a moving bright square, and a chroma plane that
 // drifts over time. The motion is purely Go code — there's no input device.
-func drawFrame(img libgopx.Image, t int) {
+func drawFrame(img gopvx.Image, t int) {
 	w, h := img.Width, img.Height
 
 	cx := (t * 4) % (w + 64)

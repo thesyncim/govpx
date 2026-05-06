@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	libgopx "github.com/thesyncim/libgopx"
+	gopvx "github.com/thesyncim/gopvx"
 )
 
 func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
@@ -25,8 +25,8 @@ func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runBenchmark returned error: %v", err)
 	}
-	if report.Encoder != "libgopx" || report.Mode != "realtime" {
-		t.Fatalf("identity = %s/%s, want libgopx/realtime", report.Encoder, report.Mode)
+	if report.Encoder != "gopvx" || report.Mode != "realtime" {
+		t.Fatalf("identity = %s/%s, want gopvx/realtime", report.Encoder, report.Mode)
 	}
 	if report.Width != 16 || report.Height != 16 || report.Frames != 3 || report.EncodedFrames == 0 {
 		t.Fatalf("dimensions/counts = %+v", report)
@@ -84,8 +84,8 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runDecodeBenchmark returned error: %v", err)
 	}
-	if report.Decoder != "libgopx" || report.Operation != "decode" || report.Mode != "realtime" {
-		t.Fatalf("identity = %s/%s/%s, want libgopx/decode/realtime", report.Decoder, report.Operation, report.Mode)
+	if report.Decoder != "gopvx" || report.Operation != "decode" || report.Mode != "realtime" {
+		t.Fatalf("identity = %s/%s/%s, want gopvx/decode/realtime", report.Decoder, report.Operation, report.Mode)
 	}
 	if report.Width != 16 || report.Height != 16 || report.Frames != 3 || report.DecodedFrames != 3 || report.InputBytes <= 0 {
 		t.Fatalf("dimensions/counts = %+v", report)
@@ -189,7 +189,7 @@ func TestReferenceQualityMetricsFallsBackToFrameOrder(t *testing.T) {
 		binary.LittleEndian.PutUint64(ivf[offset+4:], uint64(9000+i))
 		offset += 12 + size
 	}
-	frames := []libgopx.Image{
+	frames := []gopvx.Image{
 		makeBenchmarkFrame(16, 16, 0),
 		makeBenchmarkFrame(16, 16, 1),
 		makeBenchmarkFrame(16, 16, 2),
@@ -205,7 +205,7 @@ func TestReferenceQualityMetricsFallsBackToFrameOrder(t *testing.T) {
 }
 
 func TestFakeVpxencHelper(t *testing.T) {
-	if os.Getenv("LIBGOPX_FAKE_VPXENC") != "1" {
+	if os.Getenv("GOPVX_FAKE_VPXENC") != "1" {
 		return
 	}
 	output := ""
@@ -249,7 +249,7 @@ func TestFakeVpxencHelper(t *testing.T) {
 }
 
 func TestFakeLibvpxOracleHelper(t *testing.T) {
-	if os.Getenv("LIBGOPX_FAKE_LIBVPX_ORACLE") != "1" {
+	if os.Getenv("GOPVX_FAKE_LIBVPX_ORACLE") != "1" {
 		return
 	}
 	input := ""
@@ -289,7 +289,7 @@ func atoiPositive(raw string, fallback int) int {
 func fakeVpxencPath(t *testing.T) string {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "fake-vpxenc")
-	body := fmt.Sprintf("#!/bin/sh\nLIBGOPX_FAKE_VPXENC=1 exec %s -test.run=TestFakeVpxencHelper -- \"$@\"\n", shellQuote(os.Args[0]))
+	body := fmt.Sprintf("#!/bin/sh\nGOPVX_FAKE_VPXENC=1 exec %s -test.run=TestFakeVpxencHelper -- \"$@\"\n", shellQuote(os.Args[0]))
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -299,7 +299,7 @@ func fakeVpxencPath(t *testing.T) string {
 func fakeLibvpxOraclePath(t *testing.T) string {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "fake-libvpx-oracle")
-	body := fmt.Sprintf("#!/bin/sh\nLIBGOPX_FAKE_LIBVPX_ORACLE=1 exec %s -test.run=TestFakeLibvpxOracleHelper -- \"$@\"\n", shellQuote(os.Args[0]))
+	body := fmt.Sprintf("#!/bin/sh\nGOPVX_FAKE_LIBVPX_ORACLE=1 exec %s -test.run=TestFakeLibvpxOracleHelper -- \"$@\"\n", shellQuote(os.Args[0]))
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -311,15 +311,15 @@ func shellQuote(s string) string {
 }
 
 func writeFakeIVF(path string, width int, height int, fps int, bitrate int, frames int) error {
-	enc, err := libgopx.NewVP8Encoder(libgopx.EncoderOptions{
+	enc, err := gopvx.NewVP8Encoder(gopvx.EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 fps,
-		RateControlMode:     libgopx.RateControlCBR,
+		RateControlMode:     gopvx.RateControlCBR,
 		TargetBitrateKbps:   bitrate,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		Deadline:            libgopx.DeadlineRealtime,
+		Deadline:            gopvx.DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    fps,
 		BufferSizeMs:        600,

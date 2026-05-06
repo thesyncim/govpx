@@ -1,6 +1,6 @@
 package encoder
 
-import "github.com/thesyncim/libgopx/internal/vp8/common"
+import "github.com/thesyncim/gopvx/internal/vp8/common"
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c segmentation header and
 // macroblock segment-id packing.

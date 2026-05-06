@@ -3,13 +3,13 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/gopvx/internal/vp8/common"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodeframe.c token partition
 // sizing and validation.
 
-var ErrInvalidPartitionLayout = errors.New("libgopx: invalid VP8 partition layout")
+var ErrInvalidPartitionLayout = errors.New("gopvx: invalid VP8 partition layout")
 
 type PartitionLayout struct {
 	First      []byte

@@ -1,4 +1,4 @@
-package libgopx
+package gopvx
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/libgopx/internal/testutil"
+	"github.com/thesyncim/gopvx/internal/testutil"
 )
 
 type externalEncoderClip struct {
@@ -25,8 +25,8 @@ type externalEncoderClip struct {
 }
 
 func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
-	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
-		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external encoder source tests")
+	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
+		t.Skip("set GOPVX_WITH_ORACLE=1 to run external encoder source tests")
 	}
 	root, ok := externalEncoderTestDataRoot(t)
 	if !ok {
@@ -71,18 +71,18 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 				checkInterFrames: len(clip.frames) > 1,
 			}
 
-			got := encodeLibgopxValidationCorpus(t, tc, clip.frames)
+			got := encodeGopvxValidationCorpus(t, tc, clip.frames)
 			gotChecksums := decodeIVFChecksums(t, got.ivf)
 			wantChecksums := runLibvpxChecksumOracle(t, oracle, got.ivf)
-			assertFrameChecksumsEqual(t, "external libgopx encode decoded by libvpx", gotChecksums, wantChecksums)
-			assertLibgopxEncoderValidationFeatures(t, got.ivf, tc)
-			assertEncoderValidationQuality(t, "external libgopx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
-			assertEncoderValidationRate(t, "external libgopx", got.outputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
+			assertFrameChecksumsEqual(t, "external gopvx encode decoded by libvpx", gotChecksums, wantChecksums)
+			assertGopvxEncoderValidationFeatures(t, got.ivf, tc)
+			assertEncoderValidationQuality(t, "external gopvx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
+			assertEncoderValidationRate(t, "external gopvx", got.outputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
 
 			libvpxIVF := encodeLibvpxValidationCorpus(t, vpxenc, tc, clip.frames)
 			libvpxGotChecksums := decodeIVFChecksums(t, libvpxIVF)
 			libvpxWantChecksums := runLibvpxChecksumOracle(t, oracle, libvpxIVF)
-			assertFrameChecksumsEqual(t, "external libvpx encode decoded by libgopx", libvpxGotChecksums, libvpxWantChecksums)
+			assertFrameChecksumsEqual(t, "external libvpx encode decoded by gopvx", libvpxGotChecksums, libvpxWantChecksums)
 			libvpxQuality := qualityMetricsForIVF(t, libvpxIVF, clip.frames)
 			libvpxOutputKbps := encoderValidationOutputKbps(len(libvpxIVF)-testutil.IVFFileHeaderSize-len(clip.frames)*testutil.IVFFrameHeaderSize, tc.fps, len(clip.frames))
 			logEncoderValidationQuality(t, got.quality, got.outputKbps, libvpxQuality, libvpxOutputKbps)
@@ -123,14 +123,14 @@ func TestReadExternalEncoderY4MClip(t *testing.T) {
 
 func externalEncoderTestDataRoot(t *testing.T) (string, bool) {
 	t.Helper()
-	root := os.Getenv("LIBGOPX_ENCODER_TEST_DATA_PATH")
+	root := os.Getenv("GOPVX_ENCODER_TEST_DATA_PATH")
 	if root != "" {
 		return root, true
 	}
-	if os.Getenv("LIBGOPX_ENCODER_TEST_DATA_REQUIRED") == "1" {
-		t.Fatalf("LIBGOPX_ENCODER_TEST_DATA_REQUIRED=1 but LIBGOPX_ENCODER_TEST_DATA_PATH is not set")
+	if os.Getenv("GOPVX_ENCODER_TEST_DATA_REQUIRED") == "1" {
+		t.Fatalf("GOPVX_ENCODER_TEST_DATA_REQUIRED=1 but GOPVX_ENCODER_TEST_DATA_PATH is not set")
 	}
-	t.Skip("set LIBGOPX_ENCODER_TEST_DATA_PATH to a Y4M/YUV source file or directory")
+	t.Skip("set GOPVX_ENCODER_TEST_DATA_PATH to a Y4M/YUV source file or directory")
 	return "", false
 }
 
@@ -178,28 +178,28 @@ func isExternalEncoderSourcePath(path string) bool {
 
 func externalEncoderTestDataLimit(t *testing.T) int {
 	t.Helper()
-	return nonNegativeEnvInt(t, "LIBGOPX_ENCODER_TEST_DATA_LIMIT", 0)
+	return nonNegativeEnvInt(t, "GOPVX_ENCODER_TEST_DATA_LIMIT", 0)
 }
 
 func externalEncoderTestFrameLimit(t *testing.T) int {
 	t.Helper()
-	limit := nonNegativeEnvInt(t, "LIBGOPX_ENCODER_TEST_DATA_FRAMES", 6)
+	limit := nonNegativeEnvInt(t, "GOPVX_ENCODER_TEST_DATA_FRAMES", 6)
 	if limit == 0 {
-		t.Fatalf("LIBGOPX_ENCODER_TEST_DATA_FRAMES must be positive")
+		t.Fatalf("GOPVX_ENCODER_TEST_DATA_FRAMES must be positive")
 	}
 	return limit
 }
 
 func externalEncoderTestDataMinimum(t *testing.T) int {
 	t.Helper()
-	return nonNegativeEnvInt(t, "LIBGOPX_ENCODER_TEST_DATA_MIN", 0)
+	return nonNegativeEnvInt(t, "GOPVX_ENCODER_TEST_DATA_MIN", 0)
 }
 
 func assertExternalEncoderTestDataMinimum(t *testing.T, paths []string) {
 	t.Helper()
 	minimum := externalEncoderTestDataMinimum(t)
 	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("encoder source test data count = %d, want at least %d from LIBGOPX_ENCODER_TEST_DATA_MIN", len(paths), minimum)
+		t.Fatalf("encoder source test data count = %d, want at least %d from GOPVX_ENCODER_TEST_DATA_MIN", len(paths), minimum)
 	}
 }
 

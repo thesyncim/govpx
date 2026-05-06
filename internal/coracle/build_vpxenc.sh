@@ -3,11 +3,11 @@ set -eu
 
 tag="v1.16.0"
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-build_dir=${LIBGOPX_CORACLE_BUILD_DIR:-"$root/build"}
+build_dir=${GOPVX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxenc"
-vpxenc_bin=${LIBGOPX_VPXENC_BIN:-"$build_dir/vpxenc"}
-vpxdec_bin=${LIBGOPX_VPXDEC_BIN:-"$build_dir/vpxdec"}
-config_stamp="$src_dir/.libgopx-vpxenc-config"
+vpxenc_bin=${GOPVX_VPXENC_BIN:-"$build_dir/vpxenc"}
+vpxdec_bin=${GOPVX_VPXDEC_BIN:-"$build_dir/vpxdec"}
+config_stamp="$src_dir/.gopvx-vpxenc-config"
 want_config="v1.16.0-vp8-tools-postproc-error-concealment-optimized"
 jobs=${JOBS:-}
 

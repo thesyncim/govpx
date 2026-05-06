@@ -1,13 +1,13 @@
-package libgopx
+package gopvx
 
 import (
 	"errors"
 	"testing"
 
-	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
-	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
-	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
+	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/gopvx/internal/vp8/tables"
 )
 
 func TestNewVP8DecoderValidation(t *testing.T) {
