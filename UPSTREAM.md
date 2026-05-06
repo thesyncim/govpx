@@ -24,7 +24,8 @@ The intended VP8-only porting scope is:
 - `vpx_util/`
 
 The current repository contains public API scaffolding, upstream metadata,
-internal parser/state scaffolding, and initial scalar VP8 algorithm ports.
+internal parser/state ports, scalar VP8 decoder paths, encoder packet writers,
+and initial encoder analysis paths.
 
 ## Excluded Scope
 
@@ -64,15 +65,17 @@ grant. This repository keeps libvpx license and patent notices in
 
 ## Known Deviations
 
-- `Decode` and `DecodeInto` can expose supported-version keyframe and
-  inter-frame scaffolds with narrow error-resilient inter-frame concealment and
-  default deblock/demacroblock post-processing, libvpx-style MFQE, and optional
-  luma ADDNOISE using deterministic Go-side noise state. Reserved VP8 versions
-  and caller-configured size/resolution limits return `ErrUnsupportedFeature`.
+- `Decode` and `DecodeInto` cover supported VP8 versions, token partitions,
+  keyframes, interframes, SplitMV, narrow error-resilient inter-frame
+  concealment, default deblock/demacroblock post-processing, libvpx-style MFQE,
+  and optional luma ADDNOISE using deterministic Go-side noise state. Reserved
+  VP8 versions and caller-configured size/resolution limits return
+  `ErrUnsupportedFeature`.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes, and
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,
-  near-MV reuse, exhaustive motion search, and reference refresh control,
-  invisible-frame handling, plus opt-in reconstructed-frame loop filtering, but
-  automatic segment selection and full rate-control parity are not complete yet.
+  near-MV reuse, exhaustive motion search, token partitions, and reference
+  refresh control, invisible-frame handling, plus opt-in reconstructed-frame
+  loop filtering, but automatic segment selection and full rate-control parity
+  are not complete yet.
 - The package exposes a small Go API, not the libvpx C API.

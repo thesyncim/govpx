@@ -75,5 +75,5 @@
     "vp8/encoder/segmentation.c",
     "vp8/encoder/tokenize.c"
   ],
-  "status": "metadata and public API scaffold only; no C algorithms ported"
+  "status": "active pure-Go VP8 scalar port in progress; decoder, packet writer, DSP, postprocess, and initial encoder analysis paths are ported against libvpx v1.16.0 references"
 }
