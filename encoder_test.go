@@ -79,13 +79,15 @@ func TestEncodeIntoUsesLibvpxInitialKeyFrameTargetBits(t *testing.T) {
 	if !key.KeyFrame || key.FrameTargetBits != e.rc.bufferInitialBits/2 {
 		t.Fatalf("key target = key:%t bits:%d, want initial buffer half %d", key.KeyFrame, key.FrameTargetBits, e.rc.bufferInitialBits/2)
 	}
+	wantRC := e.rc
+	wantRC.beginFrame(false)
 
 	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if inter.KeyFrame || inter.FrameTargetBits != e.rc.bitsPerFrame {
-		t.Fatalf("inter target = key:%t bits:%d, want inter target %d", inter.KeyFrame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+	if inter.KeyFrame || inter.FrameTargetBits != wantRC.frameTargetBits {
+		t.Fatalf("inter target = key:%t bits:%d, want libvpx CBR buffer target %d", inter.KeyFrame, inter.FrameTargetBits, wantRC.frameTargetBits)
 	}
 }
 
@@ -164,6 +166,12 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	for frame := 1; frame <= 11; frame++ {
+		wantRC := e.rc
+		wantRC.beginFrame(false)
+		wantTarget := wantRC.frameTargetBits
+		if frame == 11 {
+			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
+		}
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
@@ -173,16 +181,16 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 			if state.Refresh.RefreshGolden {
 				t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 			}
-			if inter.FrameTargetBits != e.rc.bitsPerFrame {
-				t.Fatalf("inter %d target = %d, want base %d", frame, inter.FrameTargetBits, e.rc.bitsPerFrame)
+			if inter.FrameTargetBits != wantTarget {
+				t.Fatalf("inter %d target = %d, want libvpx CBR buffer target %d", frame, inter.FrameTargetBits, wantTarget)
 			}
 			continue
 		}
 		if !state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = false, want true at GF CBR interval", frame)
 		}
-		if inter.FrameTargetBits != e.rc.bitsPerFrame*2 {
-			t.Fatalf("inter %d target = %d, want boosted %d", frame, inter.FrameTargetBits, e.rc.bitsPerFrame*2)
+		if inter.FrameTargetBits != wantTarget {
+			t.Fatalf("inter %d target = %d, want boosted libvpx CBR target %d", frame, inter.FrameTargetBits, wantTarget)
 		}
 	}
 }
@@ -1013,12 +1021,18 @@ func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	for frame := 1; frame <= 11; frame++ {
+		wantRC := e.rc
+		wantRC.beginFrame(false)
+		wantTarget := wantRC.frameTargetBits
+		if frame == 11 {
+			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
+		}
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
-		if frame == 11 && inter.FrameTargetBits != e.rc.bitsPerFrame*3/2 {
-			t.Fatalf("boosted target = %d, want %d", inter.FrameTargetBits, e.rc.bitsPerFrame*3/2)
+		if frame == 11 && inter.FrameTargetBits != wantTarget {
+			t.Fatalf("boosted target = %d, want libvpx CBR target %d", inter.FrameTargetBits, wantTarget)
 		}
 	}
 }
@@ -1154,12 +1168,14 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	if err := e.SetBitrateKbps(600); err != nil {
 		t.Fatalf("SetBitrateKbps returned error: %v", err)
 	}
+	wantRC := e.rc
+	wantRC.beginFrame(false)
 	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if inter.TargetBitrateKbps != 600 || inter.FrameTargetBits != 20000 {
-		t.Fatalf("inter target = kbps:%d bits:%d, want 600/20000", inter.TargetBitrateKbps, inter.FrameTargetBits)
+	if inter.TargetBitrateKbps != 600 || inter.FrameTargetBits != wantRC.frameTargetBits {
+		t.Fatalf("inter target = kbps:%d bits:%d, want 600/%d", inter.TargetBitrateKbps, inter.FrameTargetBits, wantRC.frameTargetBits)
 	}
 }
 

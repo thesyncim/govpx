@@ -398,12 +398,14 @@ func TestRateControlCQValidatesLevelAgainstBounds(t *testing.T) {
 	}
 }
 
-func TestRateControlBeginFrameAdjustsTargetAndQuantizerForLowBuffer(t *testing.T) {
+func TestRateControlBeginFrameAdjustsTargetForLowBuffer(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
 		minQuantizer:      4,
 		maxQuantizer:      56,
 		currentQuantizer:  20,
+		undershootPct:     defaultRateControlUndershootPct,
+		overshootPct:      defaultRateControlOvershootPct,
 		bitsPerFrame:      1000,
 		bufferOptimalBits: 2000,
 		bufferLevelBits:   900,
@@ -412,20 +414,22 @@ func TestRateControlBeginFrameAdjustsTargetAndQuantizerForLowBuffer(t *testing.T
 
 	rc.beginFrame(false)
 
-	if rc.frameTargetBits != 500 {
-		t.Fatalf("frameTargetBits = %d, want 500 for low buffer", rc.frameTargetBits)
+	if rc.frameTargetBits != 750 {
+		t.Fatalf("frameTargetBits = %d, want libvpx low-buffer target 750", rc.frameTargetBits)
 	}
-	if rc.currentQuantizer != 22 {
-		t.Fatalf("currentQuantizer = %d, want 22 for low buffer", rc.currentQuantizer)
+	if rc.currentQuantizer != 20 {
+		t.Fatalf("currentQuantizer = %d, want unchanged before target-based regulation", rc.currentQuantizer)
 	}
 }
 
-func TestRateControlBeginFrameAdjustsTargetAndQuantizerForHighBuffer(t *testing.T) {
+func TestRateControlBeginFrameAdjustsTargetForHighBuffer(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
 		minQuantizer:      4,
 		maxQuantizer:      56,
 		currentQuantizer:  20,
+		undershootPct:     defaultRateControlUndershootPct,
+		overshootPct:      defaultRateControlOvershootPct,
 		bitsPerFrame:      1000,
 		bufferOptimalBits: 2000,
 		bufferLevelBits:   3200,
@@ -434,11 +438,11 @@ func TestRateControlBeginFrameAdjustsTargetAndQuantizerForHighBuffer(t *testing.
 
 	rc.beginFrame(false)
 
-	if rc.frameTargetBits != 1500 {
-		t.Fatalf("frameTargetBits = %d, want 1500 for high buffer", rc.frameTargetBits)
+	if rc.frameTargetBits != 1285 {
+		t.Fatalf("frameTargetBits = %d, want libvpx high-buffer target 1285", rc.frameTargetBits)
 	}
-	if rc.currentQuantizer != 18 {
-		t.Fatalf("currentQuantizer = %d, want 18 for high buffer", rc.currentQuantizer)
+	if rc.currentQuantizer != 20 {
+		t.Fatalf("currentQuantizer = %d, want unchanged before target-based regulation", rc.currentQuantizer)
 	}
 }
 

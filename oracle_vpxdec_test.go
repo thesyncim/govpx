@@ -807,14 +807,20 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 	}
 	packets := [][]byte{append([]byte(nil), key.Data...)}
 	for frame := 1; frame <= 11; frame++ {
+		wantRC := e.rc
+		wantRC.beginFrame(false)
+		wantTarget := wantRC.frameTargetBits
+		if frame == 11 {
+			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
+		}
 		inter, err := e.EncodeInto(packet, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
 		if frame == 11 {
 			state := packetState(t, inter.Data)
-			if !state.Refresh.RefreshGolden || inter.FrameTargetBits != e.rc.bitsPerFrame*2 {
-				t.Fatalf("inter %d refresh/target = %t/%d, want golden refresh and boosted target %d", frame, state.Refresh.RefreshGolden, inter.FrameTargetBits, e.rc.bitsPerFrame*2)
+			if !state.Refresh.RefreshGolden || inter.FrameTargetBits != wantTarget {
+				t.Fatalf("inter %d refresh/target = %t/%d, want golden refresh and boosted libvpx CBR target %d", frame, state.Refresh.RefreshGolden, inter.FrameTargetBits, wantTarget)
 			}
 		}
 		packets = append(packets, append([]byte(nil), inter.Data...))

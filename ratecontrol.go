@@ -230,9 +230,8 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			}
 		}
 	}
-	if rc.mode == RateControlCBR && rc.rollingTargetBits > 0 {
+	if !keyFrame && rc.mode == RateControlCBR && rc.rollingTargetBits > 0 && ctx.temporalLayerCount <= 1 {
 		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
-		rc.adjustQuantizerForBuffer()
 	} else if rc.mode == RateControlCQ {
 		if rc.currentQuantizer < rc.cqLevel {
 			rc.currentQuantizer = rc.cqLevel
@@ -676,36 +675,40 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 	if targetBits <= 0 || rc.bufferOptimalBits <= 0 {
 		return targetBits
 	}
-	lowWater := rc.bufferOptimalBits / 2
-	highWater := saturatingAdd(rc.bufferOptimalBits, rc.bufferOptimalBits/2)
+	onePercentBits := 1 + rc.bufferOptimalBits/100
+	if onePercentBits <= 0 {
+		return targetBits
+	}
+	target := int64(targetBits)
 	switch {
-	case rc.bufferLevelBits <= lowWater:
-		adjusted := targetBits / 2
-		if adjusted <= 0 {
-			return 1
+	case rc.bufferLevelBits < rc.bufferOptimalBits:
+		percentLow := (rc.bufferOptimalBits - rc.bufferLevelBits) / onePercentBits
+		if percentLow > rc.undershootPct {
+			percentLow = rc.undershootPct
 		}
-		return adjusted
-	case rc.bufferLevelBits > highWater:
-		return saturatingAdd(targetBits, targetBits/2)
+		if percentLow < 0 {
+			percentLow = 0
+		}
+		target -= target * int64(percentLow) / 200
+	case rc.bufferLevelBits > rc.bufferOptimalBits:
+		percentHigh := (rc.bufferLevelBits - rc.bufferOptimalBits) / onePercentBits
+		if percentHigh > rc.overshootPct {
+			percentHigh = rc.overshootPct
+		}
+		if percentHigh < 0 {
+			percentHigh = 0
+		}
+		target += target * int64(percentHigh) / 200
 	default:
 		return targetBits
 	}
-}
-
-func (rc *rateControlState) adjustQuantizerForBuffer() {
-	if rc.bufferOptimalBits <= 0 {
-		return
+	if target > int64(maxInt()) {
+		return maxInt()
 	}
-	lowWater := rc.bufferOptimalBits / 2
-	highWater := saturatingAdd(rc.bufferOptimalBits, rc.bufferOptimalBits/2)
-	switch {
-	case rc.bufferLevelBits <= lowWater:
-		rc.currentQuantizer += 2
-	case rc.bufferLevelBits > highWater:
-		rc.currentQuantizer -= 2
-	case rc.bufferLevelBits > rc.bufferOptimalBits:
-		rc.currentQuantizer--
+	if target < 1 {
+		return 1
 	}
+	return int(target)
 }
 
 func (rc *rateControlState) overshootLimitBits(targetBits int) int {

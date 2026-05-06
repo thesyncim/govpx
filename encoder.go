@@ -244,7 +244,10 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	required := rows * cols
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	if temporalFrame.Enabled && !keyFrame {
-		e.rc.beginFrameWithTarget(false, temporalFrame.LayerFrameTargetBits)
+		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
+			temporalLayerCount: temporalFrame.LayerCount,
+			timing:             e.timing,
+		})
 	} else {
 		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.bitsPerFrame, rateControlFrameContext{
 			firstFrame:         e.frameCount == 0,
