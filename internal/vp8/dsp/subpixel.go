@@ -1,6 +1,6 @@
 package dsp
 
-import "github.com/thesyncim/gopvx/internal/vp8/tables"
+import "github.com/thesyncim/govpx/internal/vp8/tables"
 
 // Ported from libvpx v1.16.0 vp8/common/filter.c prediction paths.
 

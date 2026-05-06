@@ -3,14 +3,14 @@ package encoder
 import (
 	"errors"
 
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c keyframe mode writers.
 // Block-mode context derivation mirrors vp8/common/findnearmv.h.
 
-var ErrModeBufferTooSmall = errors.New("gopvx: VP8 encoder mode buffer too small")
+var ErrModeBufferTooSmall = errors.New("govpx: VP8 encoder mode buffer too small")
 
 type KeyFrameMacroblockMode struct {
 	SegmentID uint8

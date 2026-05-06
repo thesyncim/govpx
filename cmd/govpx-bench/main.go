@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	gopvx "github.com/thesyncim/gopvx"
+	govpx "github.com/thesyncim/govpx"
 )
 
 const quantizerHistogramBins = 128
@@ -137,8 +137,8 @@ func main() {
 	flag.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	flag.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
-	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOPVX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
-	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOPVX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
+	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
+	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	flag.Parse()
 
 	var report any
@@ -149,13 +149,13 @@ func main() {
 		report, err = runBenchmark(cfg)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gopvx-bench: %v\n", err)
+		fmt.Fprintf(os.Stderr, "govpx-bench: %v\n", err)
 		os.Exit(2)
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(report); err != nil {
-		fmt.Fprintf(os.Stderr, "gopvx-bench: encode json: %v\n", err)
+		fmt.Fprintf(os.Stderr, "govpx-bench: encode json: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -172,7 +172,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		return benchReport{}, err
 	}
 
-	frames := make([]gopvx.Image, cfg.Frames)
+	frames := make([]govpx.Image, cfg.Frames)
 	for i := range frames {
 		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
 	}
@@ -263,7 +263,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 
 	report := benchReport{
-		Encoder:           "gopvx",
+		Encoder:           "govpx",
 		Mode:              deadlineName,
 		Width:             cfg.Width,
 		Height:            cfg.Height,
@@ -317,7 +317,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
-	frames := make([]gopvx.Image, cfg.Frames)
+	frames := make([]govpx.Image, cfg.Frames)
 	for i := range frames {
 		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
 	}
@@ -326,7 +326,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		return decodeBenchReport{}, err
 	}
 	ivf := makeBenchmarkIVF(cfg.Width, cfg.Height, cfg.FPS, packets)
-	dec, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
@@ -352,7 +352,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	nsPerFrame := totalLatency / int64(len(latencies))
 	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	report := decodeBenchReport{
-		Decoder:              "gopvx",
+		Decoder:              "govpx",
 		Operation:            "decode",
 		Mode:                 deadlineName,
 		Width:                cfg.Width,
@@ -386,7 +386,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	return report, nil
 }
 
-func encodeBenchmarkPackets(cfg benchConfig, deadline gopvx.Deadline, frames []gopvx.Image) ([][]byte, error) {
+func encodeBenchmarkPackets(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image) ([][]byte, error) {
 	enc, err := newBenchmarkEncoder(cfg, deadline)
 	if err != nil {
 		return nil, err
@@ -409,7 +409,7 @@ func encodeBenchmarkPackets(cfg benchConfig, deadline gopvx.Deadline, frames []g
 	return packets, nil
 }
 
-func decodeBenchmarkPackets(dec *gopvx.VP8Decoder, packets [][]byte, latencies []int64) (int, []int64, error) {
+func decodeBenchmarkPackets(dec *govpx.VP8Decoder, packets [][]byte, latencies []int64) (int, []int64, error) {
 	dec.Reset()
 	decodedFrames := 0
 	for i, packet := range packets {
@@ -425,12 +425,12 @@ func decodeBenchmarkPackets(dec *gopvx.VP8Decoder, packets [][]byte, latencies [
 	return decodedFrames, latencies, nil
 }
 
-func newBenchmarkEncoder(cfg benchConfig, deadline gopvx.Deadline) (*gopvx.VP8Encoder, error) {
-	return gopvx.NewVP8Encoder(gopvx.EncoderOptions{
+func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8Encoder, error) {
+	return govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               cfg.Width,
 		Height:              cfg.Height,
 		FPS:                 cfg.FPS,
-		RateControlMode:     gopvx.RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   cfg.BitrateKbps,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
@@ -443,12 +443,12 @@ func newBenchmarkEncoder(cfg benchConfig, deadline gopvx.Deadline) (*gopvx.VP8En
 	})
 }
 
-func benchmarkQualityMetrics(cfg benchConfig, deadline gopvx.Deadline, frames []gopvx.Image) (float64, float64, int, error) {
+func benchmarkQualityMetrics(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image) (float64, float64, int, error) {
 	enc, err := newBenchmarkEncoder(cfg, deadline)
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	dec, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -494,21 +494,21 @@ func quantizerHistogramMap(hist *[quantizerHistogramBins]int) map[string]int {
 	return out
 }
 
-func benchmarkDeadline(mode string) (gopvx.Deadline, string, error) {
+func benchmarkDeadline(mode string) (govpx.Deadline, string, error) {
 	switch mode {
 	case "", "realtime":
-		return gopvx.DeadlineRealtime, "realtime", nil
+		return govpx.DeadlineRealtime, "realtime", nil
 	case "good":
-		return gopvx.DeadlineGoodQuality, "good", nil
+		return govpx.DeadlineGoodQuality, "good", nil
 	default:
 		return 0, "", fmt.Errorf("unsupported mode %q", mode)
 	}
 }
 
-func makeBenchmarkFrame(width int, height int, index int) gopvx.Image {
+func makeBenchmarkFrame(width int, height int, index int) govpx.Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	img := gopvx.Image{
+	img := govpx.Image{
 		Width:   width,
 		Height:  height,
 		Y:       make([]byte, width*height),
@@ -532,8 +532,8 @@ func makeBenchmarkFrame(width int, height int, index int) gopvx.Image {
 	return img
 }
 
-func runLibvpxBenchmark(cfg benchConfig, frames []gopvx.Image, deadlineName string) (referenceReport, error) {
-	tempDir, err := os.MkdirTemp("", "gopvx-bench-*")
+func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName string) (referenceReport, error) {
+	tempDir, err := os.MkdirTemp("", "govpx-bench-*")
 	if err != nil {
 		return referenceReport{}, err
 	}
@@ -639,7 +639,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []gopvx.Image, deadlineName stri
 }
 
 func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
-	tempDir, err := os.MkdirTemp("", "gopvx-decode-bench-*")
+	tempDir, err := os.MkdirTemp("", "govpx-decode-bench-*")
 	if err != nil {
 		return decodeReferenceReport{}, err
 	}
@@ -738,8 +738,8 @@ func makeBenchmarkIVF(width int, height int, fps int, packets [][]byte) []byte {
 	return ivf
 }
 
-func referenceQualityMetrics(ivf []byte, frames []gopvx.Image) (float64, float64, int, error) {
-	dec, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+func referenceQualityMetrics(ivf []byte, frames []govpx.Image) (float64, float64, int, error) {
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -795,7 +795,7 @@ func averageReferenceQuality(psnrSum float64, ssimSum float64, count int, err er
 	return psnrSum / float64(count), ssimSum / float64(count), count, err
 }
 
-func writeI420Frame(dst *os.File, frame gopvx.Image) error {
+func writeI420Frame(dst *os.File, frame govpx.Image) error {
 	if err := writePlane(dst, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
 		return err
 	}
@@ -841,7 +841,7 @@ func parseIVFFrameSizes(ivf []byte) ([]int, error) {
 	return sizes, nil
 }
 
-func imagePSNR(src gopvx.Image, dst gopvx.Image) float64 {
+func imagePSNR(src govpx.Image, dst govpx.Image) float64 {
 	sse, count := planeSSE(src.Y, src.YStride, dst.Y, dst.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
@@ -856,7 +856,7 @@ func imagePSNR(src gopvx.Image, dst gopvx.Image) float64 {
 	return 10 * math.Log10((255*255)/mse)
 }
 
-func imageSSIM(src gopvx.Image, dst gopvx.Image) float64 {
+func imageSSIM(src govpx.Image, dst govpx.Image) float64 {
 	ssim, count := planeSSIM(src.Y, src.YStride, dst.Y, dst.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1

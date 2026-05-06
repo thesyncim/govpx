@@ -1,8 +1,8 @@
 package encoder
 
 import (
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c interframe state-header
@@ -40,6 +40,7 @@ type InterFrameStateConfig struct {
 	ProbGolden uint8
 
 	MVProbs       [2][tables.MVPCount]uint8
+	MVBase        [2][tables.MVPCount]uint8
 	MVUpdate      [2][tables.MVPCount]bool
 	MVUpdateCount int
 }
@@ -57,6 +58,9 @@ func DefaultInterFrameStateConfig(baseQIndex uint8) InterFrameStateConfig {
 		ProbIntra:  128,
 		ProbLast:   128,
 		ProbGolden: 128,
+
+		MVProbs: tables.DefaultMVContext,
+		MVBase:  tables.DefaultMVContext,
 	}
 }
 
@@ -173,47 +177,53 @@ type InterFrameMacroblockMode struct {
 }
 
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
+	n, _, _, err := WriteCoefficientInterFrameWithProbabilityBase(dst, width, height, cfg, modes, coeffs, above, &tables.DefaultCoefProbs, tables.DefaultMVContext)
+	return n, err
+}
+
+func WriteCoefficientInterFrameWithProbabilityBase(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, mvBase [2][tables.MVPCount]uint8) (int, tables.CoefficientProbs, [2][tables.MVPCount]uint8, error) {
 	if len(dst) < FrameTagSize {
-		return 0, ErrBufferTooSmall
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrBufferTooSmall
 	}
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 	}
 	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
 	if !ok || !cfg.MBNoCoeffSkip {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
 	required := rows * cols
-	if len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return 0, ErrModeBufferTooSmall
+	if coefBase == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
-	frameCoefProbs, coefUpdates, err := BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+	frameCoefProbs, coefUpdates, err := BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, coefBase)
 	if err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
 	cfg.CoefficientProbs = coefUpdates
-	if err := adaptInterFrameModeProbabilities(rows, cols, modes, &cfg); err != nil {
-		return 0, err
+	frameMVProbs, err := adaptInterFrameModeProbabilitiesWithMVBase(rows, cols, modes, mvBase, &cfg)
+	if err != nil {
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
 	first.Init(dst[firstStart:])
 	if err := WriteInterFrameStateHeader(&first, cfg); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
 	if err := WriteLastFrameZeroMVModeGridWithSkip(&first, rows, cols, cfg, modes); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
 	first.Finish()
 	if err := first.Err(); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
 	firstSize := first.BytesWritten()
 	if firstSize > MaxFirstPartitionSize {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 	}
 
 	tokenStart := firstStart + firstSize
@@ -222,11 +232,11 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 		tokens := BoolWriter{}
 		tokens.Init(dst[tokenStart:])
 		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 		}
 		tokens.Finish()
 		if err := tokens.Err(); err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
@@ -235,14 +245,14 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 			return WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
 		})
 		if err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 		}
 	}
 
 	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}
-	return n, nil
+	return n, frameCoefProbs, frameMVProbs, nil
 }
 
 func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig) error {
@@ -445,15 +455,20 @@ func adaptZeroReferenceInterFrameModeProbabilities(rows int, cols int, refFrame 
 }
 
 func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacroblockMode, cfg *InterFrameStateConfig) error {
+	_, err := adaptInterFrameModeProbabilitiesWithMVBase(rows, cols, modes, tables.DefaultMVContext, cfg)
+	return err
+}
+
+func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []InterFrameMacroblockMode, mvBase [2][tables.MVPCount]uint8, cfg *InterFrameStateConfig) ([2][tables.MVPCount]uint8, error) {
 	if rows < 0 || cols < 0 {
-		return ErrModeBufferTooSmall
+		return [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
 	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrModeBufferTooSmall
+		return [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
 	required := rows * cols
 	if cfg == nil || len(modes) < required {
-		return ErrModeBufferTooSmall
+		return [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
 	var skipCounts [2]int
 	var intraCounts [2]int
@@ -472,7 +487,7 @@ func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacr
 			refFrame := interFrameReference(mode)
 			if refFrame == common.IntraFrame {
 				if !validInterIntraMacroblockMode(mode) {
-					return ErrInvalidPacketConfig
+					return [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 				}
 				intraCounts[0]++
 				continue
@@ -491,7 +506,7 @@ func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacr
 				aboveLeft = &modes[index-cols-1]
 			}
 			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols) {
-				return ErrInvalidPacketConfig
+				return [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 			}
 			switch refFrame {
 			case common.LastFrame:
@@ -503,13 +518,13 @@ func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacr
 				lastCounts[1]++
 				goldenCounts[1]++
 			default:
-				return ErrInvalidPacketConfig
+				return [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 			}
 			if mode.Mode == common.NewMV {
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := countMotionVectorBranches(&mvCounts, delta); err != nil {
-					return err
+					return [2][tables.MVPCount]uint8{}, err
 				}
 			}
 		}
@@ -518,8 +533,8 @@ func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacr
 	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
 	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
 	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
-	adaptInterFrameMVProbabilities(&mvCounts, cfg)
-	return nil
+	frameMVProbs := adaptInterFrameMVProbabilitiesWithBase(&mvCounts, mvBase, cfg)
+	return frameMVProbs, nil
 }
 
 func interFrameModeProbability(counts [2]int, fallback uint8) uint8 {
@@ -533,19 +548,28 @@ func interFrameModeProbability(counts [2]int, fallback uint8) uint8 {
 }
 
 func adaptInterFrameMVProbabilities(counts *[2][tables.MVPCount][2]int, cfg *InterFrameStateConfig) {
+	adaptInterFrameMVProbabilitiesWithBase(counts, tables.DefaultMVContext, cfg)
+}
+
+func adaptInterFrameMVProbabilitiesWithBase(counts *[2][tables.MVPCount][2]int, base [2][tables.MVPCount]uint8, cfg *InterFrameStateConfig) [2][tables.MVPCount]uint8 {
 	if counts == nil || cfg == nil {
-		return
+		return base
 	}
-	cfg.MVProbs = tables.DefaultMVContext
+	if base == ([2][tables.MVPCount]uint8{}) {
+		base = tables.DefaultMVContext
+	}
+	cfg.MVBase = base
+	cfg.MVProbs = base
 	cfg.MVUpdate = [2][tables.MVPCount]bool{}
 	cfg.MVUpdateCount = 0
+	frameProbs := base
 	for component := 0; component < 2; component++ {
 		for i := 0; i < tables.MVPCount; i++ {
 			ct := (*counts)[component][i]
 			if ct[0]+ct[1] == 0 {
 				continue
 			}
-			oldProb := tables.DefaultMVContext[component][i]
+			oldProb := base[component][i]
 			newProb := motionVectorProbabilityFromBranchCount(ct)
 			if newProb == oldProb {
 				continue
@@ -554,10 +578,12 @@ func adaptInterFrameMVProbabilities(counts *[2][tables.MVPCount][2]int, cfg *Int
 				continue
 			}
 			cfg.MVProbs[component][i] = newProb
+			frameProbs[component][i] = newProb
 			cfg.MVUpdate[component][i] = true
 			cfg.MVUpdateCount++
 		}
 	}
+	return frameProbs
 }
 
 func motionVectorProbabilityFromBranchCount(counts [2]int) uint8 {
@@ -579,7 +605,10 @@ func motionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb 
 }
 
 func interFrameMVProbs(cfg InterFrameStateConfig) [2][tables.MVPCount]uint8 {
-	probs := tables.DefaultMVContext
+	probs := cfg.MVBase
+	if probs == ([2][tables.MVPCount]uint8{}) {
+		probs = tables.DefaultMVContext
+	}
 	for component := 0; component < 2; component++ {
 		for i := 0; i < tables.MVPCount; i++ {
 			if cfg.MVUpdate[component][i] {

@@ -1,10 +1,10 @@
-package gopvx
+package govpx
 
 import (
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
-	vp8tables "github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 type DecoderOptions struct {

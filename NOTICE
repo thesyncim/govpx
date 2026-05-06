@@ -1,4 +1,4 @@
-gopvx
+govpx
 
 This project is a pure-Go VP8 codec implementation scaffold inspired by libvpx.
 

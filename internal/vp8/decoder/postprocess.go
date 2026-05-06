@@ -4,8 +4,8 @@ import (
 	"errors"
 	"math"
 
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/dsp"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 )
 
 // Ported from libvpx v1.16.0:
@@ -14,7 +14,7 @@ import (
 // - vpx_dsp/deblock.c
 // - vpx_dsp/add_noise.c
 
-var ErrPostProcessBufferTooSmall = errors.New("gopvx: VP8 postprocess buffer too small")
+var ErrPostProcessBufferTooSmall = errors.New("govpx: VP8 postprocess buffer too small")
 
 const (
 	DefaultPostProcessDeblockingLevel = 4

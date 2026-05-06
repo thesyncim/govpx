@@ -1,13 +1,13 @@
 Below is the full revised spec with bitrate/rate-control included from the start.
 
-# gopvx spec: VP8-only Go port of libvpx
+# govpx spec: VP8-only Go port of libvpx
 
 ## 1. Project goal
 
 Create:
 /
 ```text
-github.com/thesyncim/gopvx
+github.com/thesyncim/govpx
 ```
 
 A pure-Go VP8 codec library inspired by libvpx and structured similarly to `thesyncim/gopus`.
@@ -47,7 +47,7 @@ This project is not a line-for-line public API clone. It should preserve recogni
 Every Codex/agent task must include these rules:
 
 ```text
-1. No cgo in gopvx.
+1. No cgo in govpx.
 2. No heap allocations in Decode, DecodeInto, NextFrame, EncodeInto, SetBitrateKbps, SetRateControl, SetRealtimeTarget, ForceKeyFrame, Reset, or internal hot paths after initialization.
 3. Every ported file must cite the upstream libvpx v1.16.0 source file in comments.
 4. Do not port VP9.
@@ -129,7 +129,7 @@ known deviations from libvpx behavior
 Recommended layout:
 
 ```text
-gopvx/
+govpx/
   codec.go
   decoder.go
   encoder.go
@@ -164,7 +164,7 @@ gopvx/
     gopxdec/
     gopxenc/
     gopxbench/
-    gopvx-oracle/
+    govpx-oracle/
 
   benchmarks/
     baselines/
@@ -184,9 +184,9 @@ No WebM container logic in the core package. IVF is allowed only in tools/tests.
 ## 5.1 Decoder types
 
 ```go
-package gopvx
+package govpx
 
-const Version = "gopvx-v0"
+const Version = "govpx-v0"
 const UpstreamLibvpxVersion = "v1.16.0"
 
 type Codec int
@@ -542,16 +542,16 @@ Reset must allocate 0 bytes/op.
 
 ```go
 var (
-    ErrInvalidData        = errors.New("gopvx: invalid VP8 data")
-    ErrUnsupportedFeature = errors.New("gopvx: unsupported VP8 feature")
-    ErrNeedKeyFrame      = errors.New("gopvx: need VP8 keyframe")
-    ErrFrameNotReady     = errors.New("gopvx: frame not ready")
-    ErrBufferTooSmall    = errors.New("gopvx: output buffer too small")
+    ErrInvalidData        = errors.New("govpx: invalid VP8 data")
+    ErrUnsupportedFeature = errors.New("govpx: unsupported VP8 feature")
+    ErrNeedKeyFrame      = errors.New("govpx: need VP8 keyframe")
+    ErrFrameNotReady     = errors.New("govpx: frame not ready")
+    ErrBufferTooSmall    = errors.New("govpx: output buffer too small")
 
-    ErrInvalidConfig     = errors.New("gopvx: invalid config")
-    ErrInvalidBitrate    = errors.New("gopvx: invalid bitrate")
-    ErrInvalidQuantizer  = errors.New("gopvx: invalid quantizer")
-    ErrClosed            = errors.New("gopvx: codec is closed")
+    ErrInvalidConfig     = errors.New("govpx: invalid config")
+    ErrInvalidBitrate    = errors.New("govpx: invalid bitrate")
+    ErrInvalidQuantizer  = errors.New("govpx: invalid quantizer")
+    ErrClosed            = errors.New("govpx: codec is closed")
 )
 ```
 
@@ -769,7 +769,7 @@ JSON line example:
 Oracle tests are opt-in:
 
 ```text
-GOPVX_WITH_ORACLE=1 go test ./...
+GOVPX_WITH_ORACLE=1 go test ./...
 ```
 
 Normal CI must not require libvpx.
@@ -780,7 +780,7 @@ Sources:
 
 ```text
 small checked-in smoke vectors
-optional libvpx VP8 test data via GOPVX_TEST_DATA_PATH
+optional libvpx VP8 test data via GOVPX_TEST_DATA_PATH
 generated synthetic IVF clips
 fuzz-generated malformed packets
 encoder roundtrip clips
@@ -807,8 +807,8 @@ all supported VP8 profiles handled
 Encoder conformance requires:
 
 ```text
-libvpx can decode gopvx output
-gopvx can decode gopvx output
+libvpx can decode govpx output
+govpx can decode govpx output
 encoded VP8 bitstream is valid
 keyframes obey VP8 syntax
 interframes obey reference rules
@@ -951,7 +951,7 @@ All SIMD output must match scalar.
 ## Goal 0 — Initialize repository and upstream manifest
 
 ```text
-Create the initial gopvx repository. Freeze upstream to libvpx v1.16.0. Add module layout, license files, UPSTREAM.md, and a machine-readable upstream manifest.
+Create the initial govpx repository. Freeze upstream to libvpx v1.16.0. Add module layout, license files, UPSTREAM.md, and a machine-readable upstream manifest.
 
 Do not port algorithms yet.
 ```
@@ -1024,7 +1024,7 @@ Deliverables:
 internal/coracle/build_libvpx.sh
 internal/coracle/vpx_oracle.c
 internal/coracle/README.md
-cmd/gopvx-oracle/
+cmd/govpx-oracle/
 ```
 
 Acceptance:
@@ -1033,7 +1033,7 @@ Acceptance:
 Oracle decodes VP8 IVF sample.
 Oracle emits deterministic JSON lines with Y/U/V MD5.
 Normal go test does not require oracle.
-GOPVX_WITH_ORACLE=1 enables oracle tests.
+GOVPX_WITH_ORACLE=1 enables oracle tests.
 ```
 
 ---
@@ -1041,7 +1041,7 @@ GOPVX_WITH_ORACLE=1 enables oracle tests.
 ## Goal 3 — IVF/test-vector harness
 
 ```text
-Implement IVF parsing for tests/tools and a conformance harness that compares gopvx output against oracle output.
+Implement IVF parsing for tests/tools and a conformance harness that compares govpx output against oracle output.
 ```
 
 Deliverables:
@@ -1352,7 +1352,7 @@ PeekVP8StreamInfo allocates 0.
 ## Goal 15 — Decoder benchmark harness
 
 ```text
-Create decode benchmarks comparing gopvx against libvpx oracle/binary on identical VP8 clips.
+Create decode benchmarks comparing govpx against libvpx oracle/binary on identical VP8 clips.
 ```
 
 Deliverables:
@@ -1542,8 +1542,8 @@ encoder.go
 Acceptance:
 
 ```text
-libvpx decodes gopvx keyframes.
-gopvx decodes gopvx keyframes.
+libvpx decodes govpx keyframes.
+govpx decodes govpx keyframes.
 EncodeInto allocates 0.
 ErrBufferTooSmall works.
 Basic PSNR threshold passes.
@@ -1578,7 +1578,7 @@ Acceptance:
 
 ```text
 libvpx decodes produced streams.
-gopvx decodes produced streams.
+govpx decodes produced streams.
 Last/golden/altref refresh rules work.
 No allocation.
 ```
@@ -1626,7 +1626,7 @@ No allocation.
 ## Goal 27 — Encoder benchmark harness
 
 ```text
-Benchmark gopvx encoder against libvpx VP8 encoder in realtime/good modes.
+Benchmark govpx encoder against libvpx VP8 encoder in realtime/good modes.
 ```
 
 Metrics:
@@ -1807,7 +1807,7 @@ C-performance path through SIMD
 # 15. Recommended first Codex prompt
 
 ```text
-You are working on github.com/thesyncim/gopvx.
+You are working on github.com/thesyncim/govpx.
 
 Goal:
 Create a pure-Go VP8-only codec library inspired by libvpx v1.16.0 and thesyncim/gopus.
@@ -1828,7 +1828,7 @@ Implement Goal 0 and Goal 1 only:
 Do not implement VP8 algorithms yet.
 
 Non-negotiable rules:
-1. No cgo in gopvx.
+1. No cgo in govpx.
 2. No heap allocations in Decode, DecodeInto, NextFrame, EncodeInto, SetBitrateKbps, SetRateControl, SetRealtimeTarget, ForceKeyFrame, Reset, or internal hot paths after initialization.
 3. Every ported file must cite the upstream libvpx v1.16.0 source file in comments.
 4. Do not port VP9.

@@ -4,12 +4,12 @@ import (
 	"errors"
 	"testing"
 
-	gopvx "github.com/thesyncim/gopvx"
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
-	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestWriteZeroKeyFrameDecodesWithPublicDecoder(t *testing.T) {
@@ -21,7 +21,7 @@ func TestWriteZeroKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 		t.Fatalf("WriteZeroKeyFrame returned error: %v", err)
 	}
 
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestWriteNeutralKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 		t.Fatalf("WriteNeutralKeyFrame returned error: %v", err)
 	}
 
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestWriteCoefficientKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 		t.Fatalf("WriteCoefficientKeyFrame returned error: %v", err)
 	}
 
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestWriteZeroKeyFrameHandlesMacroblockPadding(t *testing.T) {
 		t.Fatalf("WriteZeroKeyFrame returned error: %v", err)
 	}
 
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}

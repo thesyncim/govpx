@@ -1,6 +1,6 @@
 package encoder
 
-import "github.com/thesyncim/gopvx/internal/vp8/tables"
+import "github.com/thesyncim/govpx/internal/vp8/tables"
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c keyframe packet assembly
 // shape for a one-token-partition, zero-coefficient keyframe.
@@ -162,25 +162,30 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 }
 
 func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
+	n, _, err := WriteCoefficientKeyFrameWithProbabilityBase(dst, width, height, cfg, modes, coeffs, above, &tables.DefaultCoefProbs)
+	return n, err
+}
+
+func WriteCoefficientKeyFrameWithProbabilityBase(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, tables.CoefficientProbs, error) {
 	if len(dst) < KeyFrameUncompressedHdrSize {
-		return 0, ErrBufferTooSmall
+		return 0, tables.CoefficientProbs{}, ErrBufferTooSmall
 	}
 	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
 	}
 	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
 	if !ok || cfg.MBNoCoeffSkip {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
 	required := rows * cols
-	if len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return 0, ErrModeBufferTooSmall
+	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return 0, tables.CoefficientProbs{}, ErrModeBufferTooSmall
 	}
-	frameCoefProbs, coefUpdates, err := BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, &tables.DefaultCoefProbs)
+	frameCoefProbs, coefUpdates, err := BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, base)
 	if err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
 	cfg.CoefficientProbs = coefUpdates
 
@@ -188,18 +193,18 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 	first := BoolWriter{}
 	first.Init(dst[firstStart:])
 	if err := WriteKeyFrameStateHeader(&first, cfg); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
 	if err := WriteKeyFrameModeGridWithSegmentation(&first, rows, cols, modes, cfg.Segmentation); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
 	first.Finish()
 	if err := first.Err(); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
 	firstSize := first.BytesWritten()
 	if firstSize > MaxFirstPartitionSize {
-		return 0, ErrInvalidPacketConfig
+		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
 	}
 
 	tokenStart := firstStart + firstSize
@@ -208,11 +213,11 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 		tokens := BoolWriter{}
 		tokens.Init(dst[tokenStart:])
 		if err := WriteCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, err
 		}
 		tokens.Finish()
 		if err := tokens.Err(); err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, err
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
@@ -221,15 +226,15 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 			return WriteCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
 		})
 		if err != nil {
-			return 0, err
+			return 0, tables.CoefficientProbs{}, err
 		}
 	}
 
 	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, 0, 0); err != nil {
-		return 0, err
+		return 0, tables.CoefficientProbs{}, err
 	}
-	return n, nil
+	return n, frameCoefProbs, nil
 }

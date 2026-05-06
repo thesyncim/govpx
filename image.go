@@ -1,4 +1,4 @@
-package gopvx
+package govpx
 
 // Image is an I420/YV12-style planar 8-bit 4:2:0 image.
 //

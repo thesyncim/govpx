@@ -9,11 +9,11 @@ work.
 Measured on May 6, 2026 with:
 
 ```sh
-GOCACHE=/Users/thesyncim/GolandProjects/gopvx/.gocache \
+GOCACHE=/Users/thesyncim/GolandProjects/govpx/.gocache \
   go test ./benchmarks -run '^$' -bench 'BenchmarkDecodeGopvxSmoke$' \
   -benchmem -benchtime=200x
 
-GOCACHE=/Users/thesyncim/GolandProjects/gopvx/.gocache \
+GOCACHE=/Users/thesyncim/GolandProjects/govpx/.gocache \
   go test ./benchmarks -run '^$' -bench 'BenchmarkDecodeIntoGopvxSmoke$' \
   -benchmem -benchtime=200x
 ```
@@ -47,7 +47,7 @@ Results on the checked-in libvpx-authored 32x32 two-frame smoke IVF:
 ## Current Gaps
 
 - Broad external VP8 corpus conformance is still opt-in through
-  `GOPVX_TEST_DATA_PATH` and is not available in this workspace.
+  `GOVPX_TEST_DATA_PATH` and is not available in this workspace.
 - Full libvpx cyclic/background segmentation and rate-control heuristic parity
   are not complete.
 - SIMD/assembly backends have not started; scalar remains the correctness

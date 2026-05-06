@@ -3,14 +3,14 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/decodeframe.c.
 
-var ErrTruncatedStateHeader = errors.New("gopvx: truncated VP8 state header")
+var ErrTruncatedStateHeader = errors.New("govpx: truncated VP8 state header")
 
 type StateHeader struct {
 	ColorSpace int

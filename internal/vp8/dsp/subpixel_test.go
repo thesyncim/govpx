@@ -3,7 +3,7 @@ package dsp
 import (
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestBilinearPredict4x4Horizontal(t *testing.T) {

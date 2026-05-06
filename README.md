@@ -1,6 +1,6 @@
-# gopvx
+# govpx
 
-`gopvx` is a pure-Go, VP8-only codec library scaffold inspired by libvpx
+`govpx` is a pure-Go, VP8-only codec library scaffold inspired by libvpx
 v1.16.0 and structured for a small Go-style API.
 
 Current status: active VP8 scalar port in progress. Decoder and encoder paths
@@ -45,17 +45,17 @@ helpers with libvpx optimizations enabled, fetches the libvpx VP8 IVF corpus and
 supported encoder source clip under ignored `internal/coracle/build/test-data/`,
 then runs all `TestOracle*` tests. The external decoder corpus checks Decode and
 DecodeInto against libvpx, the invalid corpus checks rejection parity for
-`invalid-*.ivf`, and the encoder source corpus compares gopvx and libvpx
+`invalid-*.ivf`, and the encoder source corpus compares govpx and libvpx
 streams through the same libvpx checksum oracle with PSNR/SSIM, bitrate, and
 quality-gap guards.
 
-`go run ./cmd/gopvx-bench` runs a small synthetic VP8 encoder benchmark and
+`go run ./cmd/govpx-bench` runs a small synthetic VP8 encoder benchmark and
 prints JSON metrics for CI/local tracking; `allocs_per_frame` is measured over
-the encode pass. Set `GOPVX_VPXENC` or pass `-libvpx-vpxenc` to include an
-optional libvpx `vpxenc` reference comparison; when gopvx can decode the
+the encode pass. Set `GOVPX_VPXENC` or pass `-libvpx-vpxenc` to include an
+optional libvpx `vpxenc` reference comparison; when govpx can decode the
 reference stream, the reference block includes PSNR/SSIM too.
-Pass `-decode` to benchmark gopvx decoding on the generated IVF clip; set
-`GOPVX_ORACLE` or pass `-libvpx-oracle` to time the pinned libvpx checksum
+Pass `-decode` to benchmark govpx decoding on the generated IVF clip; set
+`GOVPX_ORACLE` or pass `-libvpx-oracle` to time the pinned libvpx checksum
 oracle on the same clip for a local reference comparison.
 `go test ./benchmarks -bench Decode -benchmem -json` runs the checked-in
 libvpx-authored smoke decode benchmarks and can capture JSON output under

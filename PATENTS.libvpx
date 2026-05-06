@@ -6,4 +6,4 @@ implementations. The frozen baseline for this repository is libvpx v1.16.0:
 https://chromium.googlesource.com/webm/libvpx/+/refs/tags/v1.16.0/PATENTS
 
 When source code is ported from libvpx, keep this file with distributions of
-gopvx and review the upstream grant text for exact legal terms.
+govpx and review the upstream grant text for exact legal terms.

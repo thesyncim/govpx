@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	gopvx "github.com/thesyncim/gopvx"
-	"github.com/thesyncim/gopvx/internal/testutil"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 type decodeJSONReport struct {
@@ -34,8 +34,8 @@ func TestDecodeSmokeBenchmarkReportJSON(t *testing.T) {
 	header, packets := splitIVFPackets(t, ivf)
 	report := measureGopvxDecode(t, ivf, header, packets)
 
-	if report.Source != "libvpx-v1.16.0-simple_encoder" || report.Decoder != "gopvx" || report.Operation != "decode" {
-		t.Fatalf("identity = %s/%s/%s, want libvpx-v1.16.0-simple_encoder/gopvx/decode", report.Source, report.Decoder, report.Operation)
+	if report.Source != "libvpx-v1.16.0-simple_encoder" || report.Decoder != "govpx" || report.Operation != "decode" {
+		t.Fatalf("identity = %s/%s/%s, want libvpx-v1.16.0-simple_encoder/govpx/decode", report.Source, report.Decoder, report.Operation)
 	}
 	if report.Width != 32 || report.Height != 32 || report.Frames != 2 || report.DecodedFrames != 2 || report.InputBytes != len(ivf) {
 		t.Fatalf("dimensions/counts = %+v", report)
@@ -54,7 +54,7 @@ func TestDecodeSmokeBenchmarkReportJSON(t *testing.T) {
 func BenchmarkDecodeGopvxSmoke(b *testing.B) {
 	ivf := loadLibvpxSmokeIVF(b)
 	header, packets := splitIVFPackets(b, ivf)
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		b.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -76,7 +76,7 @@ func BenchmarkDecodeGopvxSmoke(b *testing.B) {
 func BenchmarkDecodeIntoGopvxSmoke(b *testing.B) {
 	ivf := loadLibvpxSmokeIVF(b)
 	header, packets := splitIVFPackets(b, ivf)
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		b.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -97,12 +97,12 @@ func BenchmarkDecodeIntoGopvxSmoke(b *testing.B) {
 }
 
 func BenchmarkDecodeLibvpxOracleSmoke(b *testing.B) {
-	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
-		b.Skip("set GOPVX_WITH_ORACLE=1 to run libvpx oracle benchmarks")
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		b.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle benchmarks")
 	}
-	oracle := os.Getenv("GOPVX_ORACLE")
+	oracle := os.Getenv("GOVPX_ORACLE")
 	if oracle == "" {
-		b.Skip("set GOPVX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
+		b.Skip("set GOVPX_ORACLE to the libvpx v1.16.0 checksum oracle binary")
 	}
 	oracle = resolveBenchmarkPath(oracle)
 	ivf := loadLibvpxSmokeIVF(b)
@@ -128,7 +128,7 @@ func BenchmarkDecodeLibvpxOracleSmoke(b *testing.B) {
 
 func measureGopvxDecode(t testing.TB, ivf []byte, header testutil.IVFHeader, packets [][]byte) decodeJSONReport {
 	t.Helper()
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
@@ -144,7 +144,7 @@ func measureGopvxDecode(t testing.TB, ivf []byte, header testutil.IVFHeader, pac
 
 	return decodeJSONReport{
 		Source:               "libvpx-v1.16.0-simple_encoder",
-		Decoder:              "gopvx",
+		Decoder:              "govpx",
 		Operation:            "decode",
 		Width:                header.Width,
 		Height:               header.Height,
@@ -193,7 +193,7 @@ func splitIVFPackets(t testing.TB, ivf []byte) (testutil.IVFHeader, [][]byte) {
 	return header, packets
 }
 
-func decodePackets(t testing.TB, d *gopvx.VP8Decoder, packets [][]byte) int {
+func decodePackets(t testing.TB, d *govpx.VP8Decoder, packets [][]byte) int {
 	t.Helper()
 	d.Reset()
 	decodedFrames := 0
@@ -209,7 +209,7 @@ func decodePackets(t testing.TB, d *gopvx.VP8Decoder, packets [][]byte) int {
 	return decodedFrames
 }
 
-func decodeIntoPackets(t testing.TB, d *gopvx.VP8Decoder, packets [][]byte, dst *gopvx.Image) int {
+func decodeIntoPackets(t testing.TB, d *govpx.VP8Decoder, packets [][]byte, dst *govpx.Image) int {
 	t.Helper()
 	d.Reset()
 	decodedFrames := 0
@@ -259,10 +259,10 @@ func resolveBenchmarkPath(path string) string {
 	return path
 }
 
-func benchmarkImage(width int, height int) gopvx.Image {
+func benchmarkImage(width int, height int) govpx.Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	return gopvx.Image{
+	return govpx.Image{
 		Width:   width,
 		Height:  height,
 		Y:       make([]byte, width*height),

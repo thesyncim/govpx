@@ -1,11 +1,12 @@
-package gopvx
+package govpx
 
 import (
 	"errors"
 
-	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
-	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 type Deadline int
@@ -30,6 +31,8 @@ const (
 	EncodeNoUpdateLast
 	EncodeNoUpdateGolden
 	EncodeNoUpdateAltRef
+
+	EncodeNoUpdateEntropy
 )
 
 type EncoderOptions struct {
@@ -137,16 +140,20 @@ type VP8Encoder struct {
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch vp8dec.IntraReconstructionScratch
 	loopInfo           vp8common.LoopFilterInfo
+	coefProbs          vp8tables.CoefficientProbs
+	modeProbs          vp8dec.ModeProbs
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 2
 
 type interFrameEncodeAttempt struct {
-	Config        vp8enc.InterFrameStateConfig
-	RefFrame      vp8common.MVReferenceFrame
-	Ref           *vp8common.Image
-	Size          int
-	ZeroReference bool
+	Config         vp8enc.InterFrameStateConfig
+	FrameCoefProbs vp8tables.CoefficientProbs
+	FrameMVProbs   [2][vp8tables.MVPCount]uint8
+	RefFrame       vp8common.MVReferenceFrame
+	Ref            *vp8common.Image
+	Size           int
+	ZeroReference  bool
 }
 
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
@@ -166,7 +173,9 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		coefProbs:         vp8tables.DefaultCoefProbs,
 	}
+	vp8dec.ResetModeProbs(&e.modeProbs)
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
 		return nil, err
 	}
@@ -321,9 +330,23 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return 0, err
 	}
 
-	n, err := vp8enc.WriteCoefficientKeyFrame(dst, e.opts.Width, e.opts.Height, vp8enc.KeyFrameStateConfig{InvisibleFrame: invisible, TokenPartition: vp8common.TokenPartition(e.opts.TokenPartitions), BaseQIndex: uint8(e.rc.currentQuantizer), LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, Segmentation: segmentation}, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	cfg := vp8enc.KeyFrameStateConfig{
+		InvisibleFrame:      invisible,
+		TokenPartition:      vp8common.TokenPartition(e.opts.TokenPartitions),
+		BaseQIndex:          uint8(e.rc.currentQuantizer),
+		LoopFilterLevel:     lfLevel,
+		SharpnessLevel:      lfSharpness,
+		Segmentation:        segmentation,
+		RefreshEntropyProbs: !e.opts.ErrorResilient,
+	}
+	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
 		return 0, translateEncoderError(err)
+	}
+	e.coefProbs = vp8tables.DefaultCoefProbs
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	if cfg.RefreshEntropyProbs {
+		e.coefProbs = frameCoefProbs
 	}
 	return n, nil
 }
@@ -345,6 +368,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter()
+	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy updates them.
@@ -369,7 +393,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			return interFrameEncodeAttempt{Config: cfg, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
+			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -388,11 +412,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
-	n, err := vp8enc.WriteCoefficientInterFrame(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols])
+	n, frameCoefProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.MV)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return interFrameEncodeAttempt{Config: cfg, Size: n}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int) bool {
@@ -405,11 +429,20 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int) bool {
 }
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
+	e.commitInterFrameEntropy(attempt)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 		return
 	}
 	e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
+}
+
+func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
+	if !attempt.Config.RefreshEntropyProbs {
+		return
+	}
+	e.coefProbs = attempt.FrameCoefProbs
+	e.modeProbs.MV = attempt.FrameMVProbs
 }
 
 func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {
@@ -633,6 +666,8 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.tl0PicIdx = 0
 	e.temporal.tl0Valid = false
 	e.temporal.refLayer = [temporalReferenceCount]int{}
+	e.coefProbs = vp8tables.DefaultCoefProbs
+	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.current.Reset()
 	e.analysis.Reset()
 	e.lastRef.Reset()

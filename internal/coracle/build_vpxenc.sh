@@ -3,12 +3,15 @@ set -eu
 
 tag="v1.16.0"
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-build_dir=${GOPVX_CORACLE_BUILD_DIR:-"$root/build"}
+build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxenc"
-vpxenc_bin=${GOPVX_VPXENC_BIN:-"$build_dir/vpxenc"}
-vpxdec_bin=${GOPVX_VPXDEC_BIN:-"$build_dir/vpxdec"}
-config_stamp="$src_dir/.gopvx-vpxenc-config"
-want_config="v1.16.0-vp8-tools-postproc-error-concealment-optimized"
+vpxenc_bin=${GOVPX_VPXENC_BIN:-"$build_dir/vpxenc"}
+vpxdec_bin=${GOVPX_VPXDEC_BIN:-"$build_dir/vpxdec"}
+config_stamp="$src_dir/.govpx-vpxenc-config"
+want_config="v1.16.0-vp8-tools-postproc-error-concealment-optimized
+src_dir=$src_dir
+vpxenc_bin=$vpxenc_bin
+vpxdec_bin=$vpxdec_bin"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -20,14 +23,19 @@ if [ -z "$jobs" ]; then
 fi
 
 mkdir -p "$build_dir"
+archive="$build_dir/libvpx-$tag.tar.gz"
 
-if [ ! -d "$src_dir" ]; then
-	archive="$build_dir/libvpx-$tag.tar.gz"
+fetch_source() {
 	if [ ! -f "$archive" ]; then
 		curl -L -o "$archive" "https://chromium.googlesource.com/webm/libvpx/+archive/refs/tags/$tag.tar.gz"
 	fi
+	rm -rf "$src_dir"
 	mkdir -p "$src_dir"
 	tar -xzf "$archive" -C "$src_dir"
+}
+
+if [ ! -d "$src_dir" ]; then
+	fetch_source
 fi
 
 current_config=
@@ -36,11 +44,11 @@ if [ -f "$config_stamp" ]; then
 fi
 
 if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
+	if [ "$current_config" != "$want_config" ]; then
+		fetch_source
+	fi
 	(
 		cd "$src_dir"
-		if [ -f config.mk ]; then
-			make distclean
-		fi
 		./configure \
 			--disable-docs \
 			--disable-unit-tests \

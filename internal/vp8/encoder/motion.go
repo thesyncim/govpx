@@ -3,7 +3,7 @@ package encoder
 import (
 	"math"
 
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0:
