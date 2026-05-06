@@ -246,7 +246,7 @@ func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 	bestCost := interMotionSearchCost(src, ref, mbRow, mbCol, best)
 	for i := 1; i < len(interFrameMVCandidates); i++ {
 		mv := interFrameMVCandidates[i]
-		cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+		cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost)
 		if cost < bestCost {
 			best = mv
 			bestCost = cost
@@ -264,7 +264,7 @@ func refineInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 			if !interMotionVectorInSearchRange(mv) {
 				continue
 			}
-			cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+			cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost)
 			if cost < bestCost {
 				best = mv
 				bestCost = cost
@@ -285,7 +285,7 @@ func refineInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common
 			if !interMotionVectorInSearchRange(mv) || !interMotionVectorEven(mv) {
 				continue
 			}
-			cost := interMotionSearchCost(src, ref, mbRow, mbCol, mv)
+			cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost)
 			if cost < bestCost {
 				best = mv
 				bestCost = cost
@@ -323,6 +323,15 @@ func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 	return macroblockSAD(src, ref, mbRow, mbCol, mv) + interMotionVectorCost(mv)
 }
 
+func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int) int {
+	mvCost := interMotionVectorCost(mv)
+	sadLimit := limit - mvCost
+	if sadLimit < 0 {
+		return limit + 1
+	}
+	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, sadLimit) + mvCost
+}
+
 func interMotionVectorCost(mv vp8enc.MotionVector) int {
 	row := int(mv.Row)
 	if row < 0 {
@@ -336,6 +345,10 @@ func interMotionVectorCost(mv vp8enc.MotionVector) int {
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
+	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, maxInt())
+}
+
+func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int) int {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
 	mvY := int(mv.Row >> 3)
@@ -356,7 +369,7 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 		baseY+16 <= src.Height && baseX+16 <= src.Width &&
 		refBaseY >= 0 && refBaseX >= 0 &&
 		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
-		return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride)
+		return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride, limit)
 	}
 
 	sad := 0
@@ -371,6 +384,9 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 				diff = -diff
 			}
 			sad += diff
+		}
+		if sad > limit {
+			return sad
 		}
 	}
 	return sad

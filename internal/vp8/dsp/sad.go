@@ -6,6 +6,10 @@ func SAD16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sadBlock(src, srcStride, ref, refStride, 16, 16)
 }
 
+func SAD16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
+	return sadBlockLimit(src, srcStride, ref, refStride, 16, 16, limit)
+}
+
 func SAD16x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sadBlock(src, srcStride, ref, refStride, 16, 8)
 }
@@ -33,6 +37,25 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 				diff = -diff
 			}
 			sad += diff
+		}
+	}
+	return sad
+}
+
+func sadBlockLimit(src []byte, srcStride int, ref []byte, refStride int, width int, height int, limit int) int {
+	sad := 0
+	for y := 0; y < height; y++ {
+		srcRow := src[y*srcStride:]
+		refRow := ref[y*refStride:]
+		for x := 0; x < width; x++ {
+			diff := int(srcRow[x]) - int(refRow[x])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+		if sad > limit {
+			return sad
 		}
 	}
 	return sad

@@ -29,11 +29,32 @@ func TestSADBlocks(t *testing.T) {
 	}
 }
 
+func TestSAD16x16Limit(t *testing.T) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	for i := range src {
+		src[i] = byte(i)
+		ref[i] = byte(i * 3)
+	}
+	want := SAD16x16(src, 32, ref, 32)
+	if got := SAD16x16Limit(src, 32, ref, 32, want); got != want {
+		t.Fatalf("SAD16x16Limit at exact limit = %d, want %d", got, want)
+	}
+	if got := SAD16x16Limit(src, 32, ref, 32, want+1); got != want {
+		t.Fatalf("SAD16x16Limit above limit = %d, want %d", got, want)
+	}
+	low := want / 4
+	if got := SAD16x16Limit(src, 32, ref, 32, low); got <= low {
+		t.Fatalf("SAD16x16Limit below limit = %d, want above %d", got, low)
+	}
+}
+
 func TestSADAllocatesZero(t *testing.T) {
 	src := make([]byte, 32*32)
 	ref := make([]byte, 32*32)
 	allocs := testing.AllocsPerRun(1000, func() {
 		_ = SAD16x16(src, 32, ref, 32)
+		_ = SAD16x16Limit(src, 32, ref, 32, 1)
 		_ = SAD16x8(src, 32, ref, 32)
 		_ = SAD8x16(src, 32, ref, 32)
 		_ = SAD8x8(src, 32, ref, 32)
@@ -51,6 +72,19 @@ func BenchmarkSAD16x16(b *testing.B) {
 	b.SetBytes(16 * 16)
 	for i := 0; i < b.N; i++ {
 		_ = SAD16x16(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSAD16x16LimitEarly(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	for i := range ref {
+		ref[i] = 255
+	}
+	b.ReportAllocs()
+	b.SetBytes(16 * 16)
+	for i := 0; i < b.N; i++ {
+		_ = SAD16x16Limit(src, 32, ref, 32, 1024)
 	}
 }
 
