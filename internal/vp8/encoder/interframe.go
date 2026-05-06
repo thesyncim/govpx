@@ -692,6 +692,10 @@ func interBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMa
 	return clampInterMotionVectorToModeEdges(interBestMotionVector(above, left, aboveLeft, refFrame), mbRow, mbCol, mbRows, mbCols)
 }
 
+func InterFrameBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
+	return interBestMotionVectorAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols)
+}
+
 func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
 	return InterFrameMotionModeForVectorAt(refFrame, mv, above, left, aboveLeft, 0, 0, 1, 1)
 }

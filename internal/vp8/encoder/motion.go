@@ -1,17 +1,24 @@
 package encoder
 
-import "github.com/thesyncim/libgopx/internal/vp8/tables"
+import (
+	"math"
 
-// Ported from libvpx v1.16.0 vp8/encoder/mcomp.c and bitstream MV component
-// packing in vp8/encoder/bitstream.c.
+	"github.com/thesyncim/libgopx/internal/vp8/tables"
+)
+
+// Ported from libvpx v1.16.0:
+// - vp8/encoder/encodemv.c motion-vector component packing and costing
+// - vp8/encoder/mcomp.c vp8_mv_bit_cost
 
 const (
-	mvProbIsShort = 0
-	mvProbSign    = 1
-	mvProbShort   = 2
-	mvNumShort    = 8
-	mvProbBits    = mvProbShort + mvNumShort - 1
-	mvLongWidth   = 10
+	mvProbIsShort  = 0
+	mvProbSign     = 1
+	mvProbShort    = 2
+	mvNumShort     = 8
+	mvProbBits     = mvProbShort + mvNumShort - 1
+	mvLongWidth    = 10
+	mvComponentMax = 1023
+	mvFullPixelMax = 255
 )
 
 type MotionVector struct {
@@ -20,6 +27,7 @@ type MotionVector struct {
 }
 
 var smallMVTokens = initSmallMVTokens()
+var motionVectorSADCosts = initMotionVectorSADCosts()
 
 func WriteMotionVector(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mv MotionVector) error {
 	if w == nil || probs == nil || mv.Row&1 != 0 || mv.Col&1 != 0 {
@@ -35,6 +43,132 @@ func WriteMotionVector(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mv Motio
 		return w.Err()
 	}
 	return nil
+}
+
+func MotionVectorCost(mv MotionVector) int {
+	probs := tables.DefaultMVContext
+	return MotionVectorBitCost(mv, MotionVector{}, &probs, 128)
+}
+
+func MotionVectorBitCost(mv MotionVector, ref MotionVector, probs *[2][tables.MVPCount]uint8, weight int) int {
+	if probs == nil {
+		return 1 << 30
+	}
+	row := clampMVMCompCostInput((int(mv.Row) - int(ref.Row)) >> 1)
+	col := clampMVMCompCostInput((int(mv.Col) - int(ref.Col)) >> 1)
+	cost := motionVectorComponentCost(row, probs[0][:]) + motionVectorComponentCost(col, probs[1][:])
+	return (cost * weight) >> 7
+}
+
+func MotionVectorErrorCost(mv MotionVector, ref MotionVector, probs *[2][tables.MVPCount]uint8, errorPerBit int) int {
+	if probs == nil {
+		return 0
+	}
+	row := clampMVMCompCostInput((int(mv.Row) - int(ref.Row)) >> 1)
+	col := clampMVMCompCostInput((int(mv.Col) - int(ref.Col)) >> 1)
+	cost := motionVectorComponentCost(row, probs[0][:]) + motionVectorComponentCost(col, probs[1][:])
+	return (cost*errorPerBit + 128) >> 8
+}
+
+func MotionVectorSADCost(mv MotionVector, ref MotionVector, sadPerBit int) int {
+	row := clampMVFullPixelComponent((int(mv.Row) - int(ref.Row)) >> 3)
+	col := clampMVFullPixelComponent((int(mv.Col) - int(ref.Col)) >> 3)
+	cost := motionVectorSADComponentCost(row) + motionVectorSADComponentCost(col)
+	return (cost*sadPerBit + 128) >> 8
+}
+
+func motionVectorComponentCost(component int, probs []uint8) int {
+	if len(probs) < tables.MVPCount {
+		return 1 << 30
+	}
+	negative := component < 0
+	x := component
+	if negative {
+		x = -x
+	}
+
+	cost := 0
+	if x < mvNumShort {
+		cost += mvBoolCost(probs[mvProbIsShort], 0)
+		cost += mvTreeTokenCost(tables.SmallMVTree[:], probs[mvProbShort:], smallMVTokens[x])
+		if x == 0 {
+			return cost
+		}
+	} else {
+		cost += mvBoolCost(probs[mvProbIsShort], 1)
+		for i := 0; i < 3; i++ {
+			cost += mvBoolCost(probs[mvProbBits+i], (x>>i)&1)
+		}
+		for i := mvLongWidth - 1; i > 3; i-- {
+			cost += mvBoolCost(probs[mvProbBits+i], (x>>i)&1)
+		}
+		if x&0xfff0 != 0 {
+			cost += mvBoolCost(probs[mvProbBits+3], (x>>3)&1)
+		}
+	}
+
+	if negative {
+		cost += mvBoolCost(probs[mvProbSign], 1)
+	} else {
+		cost += mvBoolCost(probs[mvProbSign], 0)
+	}
+	return cost
+}
+
+func clampMVMCompCostInput(component int) int {
+	if component < 0 {
+		return 0
+	}
+	if component > mvComponentMax {
+		return mvComponentMax
+	}
+	return component
+}
+
+func motionVectorSADComponentCost(component int) int {
+	if component < 0 {
+		component = -component
+	}
+	return motionVectorSADCosts[component]
+}
+
+func clampMVFullPixelComponent(component int) int {
+	if component > mvFullPixelMax {
+		return mvFullPixelMax
+	}
+	if component < -mvFullPixelMax {
+		return -mvFullPixelMax
+	}
+	return component
+}
+
+func mvBoolCost(prob uint8, bit int) int {
+	if bit == 0 {
+		return tables.ProbCost[prob]
+	}
+	return tables.ProbCost[255-int(prob)]
+}
+
+func mvTreeTokenCost(tree []int16, probs []uint8, token TreeToken) int {
+	node := int16(0)
+	cost := 0
+	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
+		probIndex := int(node >> 1)
+		if probIndex < 0 || probIndex >= len(probs) || int(node)+1 >= len(tree) {
+			return 1 << 30
+		}
+		bit := int((token.Value >> uint(bitIndex)) & 1)
+		cost += mvBoolCost(probs[probIndex], bit)
+		next := tree[int(node)+bit]
+		if next <= 0 {
+			if bitIndex == 0 {
+				return cost
+			}
+			return 1 << 30
+		}
+		node = next
+	}
+	return 1 << 30
 }
 
 func writeMVComponent(w *BoolWriter, probs []uint8, component int) bool {
@@ -95,6 +229,16 @@ func initSmallMVTokens() [8]TreeToken {
 	var out [8]TreeToken
 	for i := range out {
 		BuildTreeToken(tables.SmallMVTree[:], i, &out[i])
+	}
+	return out
+}
+
+func initMotionVectorSADCosts() [mvFullPixelMax + 1]int {
+	var out [mvFullPixelMax + 1]int
+	out[0] = 300
+	for i := 1; i <= mvFullPixelMax; i++ {
+		z := 256 * (2 * (math.Log2(float64(8*i)) + 0.6))
+		out[i] = int(z)
 	}
 	return out
 }
