@@ -15,6 +15,8 @@ func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 
 func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFTokenPartition(t, libvpxEncodedSmokeIVFHex, vp8common.OnePartition)
+	assertSmokeIVFHasMacroblockMode(t, libvpxEncodedSmokeIVFHex, vp8common.KeyFrame, vp8common.BPred)
+	assertSmokeIVFHasMacroblockMode(t, libvpxEncodedSmokeIVFHex, vp8common.InterFrame, vp8common.NewMV)
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
 }
 
@@ -31,6 +33,7 @@ func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assertSmokeIVFTokenPartition(t, tc.ivfHex, tc.partition)
+			assertSmokeIVFHasMacroblockMode(t, tc.ivfHex, vp8common.InterFrame, vp8common.SplitMV)
 			assertSmokeIVFMatchesLibvpxChecksums(t, tc.ivfHex, libvpxTokenPartitionChecksums[:])
 		})
 	}
@@ -166,6 +169,43 @@ func assertSmokeIVFProfile(t *testing.T, ivfHex string, want int) {
 		}
 		offset = next
 	}
+}
+
+func assertSmokeIVFHasMacroblockMode(t *testing.T, ivfHex string, frameType vp8common.FrameType, mode vp8common.MBPredictionMode) {
+	t.Helper()
+	ivf := mustDecodeHex(t, ivfHex)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	for i := 0; offset < len(ivf); i++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", i, err)
+		}
+		if err := d.Decode(frame.Data); err != nil {
+			t.Fatalf("Decode frame %d returned error: %v", i, err)
+		}
+		if (info.KeyFrame && frameType != vp8common.KeyFrame) || (!info.KeyFrame && frameType != vp8common.InterFrame) {
+			offset = next
+			continue
+		}
+		for j := range d.modes {
+			if d.modes[j].Mode == mode {
+				return
+			}
+		}
+		offset = next
+	}
+	t.Fatalf("IVF has no frame type %d macroblock mode %d", frameType, mode)
 }
 
 func mustDecodeHex(t *testing.T, s string) []byte {
