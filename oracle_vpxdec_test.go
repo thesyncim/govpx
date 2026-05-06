@@ -723,6 +723,39 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
+	}
+	oracle := findChecksumOracle(t)
+	vpxenc := findVpxenc(t)
+	dir := t.TempDir()
+
+	cases := []generatedLibvpxCorpusCase{
+		{name: "baseline", width: 32, height: 32, frames: 6},
+		{name: "token-two", width: 32, height: 32, frames: 6, args: []string{"--token-parts=1"}},
+		{name: "token-eight", width: 32, height: 32, frames: 6, args: []string{"--token-parts=3"}},
+		{name: "profile3", width: 32, height: 32, frames: 3, args: []string{"--profile=3"}},
+		{name: "error-resilient", width: 32, height: 32, frames: 6, args: []string{"--error-resilient=1"}},
+		{name: "sharpness7", width: 32, height: 32, frames: 6, args: []string{"--sharpness=7"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			ivfPath := generateLibvpxCorpusIVF(t, vpxenc, dir, tc)
+			ivf, err := os.ReadFile(ivfPath)
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			want := runLibvpxChecksumOracleFile(t, oracle, ivfPath)
+			got := decodeIVFChecksums(t, ivf)
+			gotInto := decodeIVFIntoChecksums(t, ivf)
+			assertFrameChecksumsEqual(t, "Decode", got, want)
+			assertFrameChecksumsEqual(t, "DecodeInto", gotInto, want)
+		})
+	}
+}
+
 func TestFindVP8IVFTestData(t *testing.T) {
 	dir := t.TempDir()
 	vp8Path := filepath.Join(dir, "vp8.ivf")
@@ -791,6 +824,23 @@ func findChecksumOracle(t *testing.T) string {
 	return path
 }
 
+func findVpxenc(t *testing.T) string {
+	t.Helper()
+	if vpxenc := os.Getenv("LIBGOPX_VPXENC"); vpxenc != "" {
+		return vpxenc
+	}
+	if path, err := exec.LookPath("vpxenc"); err == nil {
+		return path
+	}
+	local := filepath.Join("internal", "coracle", "build", "vpxenc")
+	info, err := os.Stat(local)
+	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		return local
+	}
+	t.Skip("set LIBGOPX_VPXENC to a libvpx v1.16.0 vpxenc binary")
+	return ""
+}
+
 func runLibvpxChecksumOracle(t *testing.T, oracle string, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "libgopx-keyframe.ivf")
@@ -815,6 +865,18 @@ func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []tes
 		t.Fatalf("ParseFrameChecksumJSONLines returned error: %v", err)
 	}
 	return frames
+}
+
+func assertFrameChecksumsEqual(t *testing.T, label string, got []testutil.FrameChecksum, want []testutil.FrameChecksum) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s frame count = %d, want %d from libvpx", label, len(got), len(want))
+	}
+	for i := range want {
+		if !testutil.SameFrameChecksum(got[i], want[i]) {
+			t.Fatalf("%s frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", label, i, formatChecksum(want[i]), formatChecksum(got[i]))
+		}
+	}
 }
 
 func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
@@ -858,6 +920,79 @@ func decodeIVFChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
 		offset = next
 	}
 	return frames
+}
+
+type generatedLibvpxCorpusCase struct {
+	name   string
+	width  int
+	height int
+	frames int
+	args   []string
+}
+
+func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generatedLibvpxCorpusCase) string {
+	t.Helper()
+	yuvPath := filepath.Join(dir, tc.name+".yuv")
+	ivfPath := filepath.Join(dir, tc.name+".ivf")
+	writeDeterministicI420(t, yuvPath, tc.width, tc.height, tc.frames)
+
+	args := []string{
+		"--codec=vp8",
+		"--ivf",
+		"--quiet",
+		"--good",
+		"--cpu-used=0",
+		"--lag-in-frames=0",
+		"--auto-alt-ref=0",
+		"--kf-min-dist=999",
+		"--kf-max-dist=999",
+		"--end-usage=vbr",
+		"--target-bitrate=200",
+		"--i420",
+		"--width=" + strconv.Itoa(tc.width),
+		"--height=" + strconv.Itoa(tc.height),
+		"--fps=30/1",
+		"--limit=" + strconv.Itoa(tc.frames),
+		"--output=" + ivfPath,
+	}
+	args = append(args, tc.args...)
+	args = append(args, yuvPath)
+	cmd := exec.Command(vpxenc, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("vpxenc failed: %v\n%s", err, out)
+	}
+	return ivfPath
+}
+
+func writeDeterministicI420(t *testing.T, path string, width int, height int, frames int) {
+	t.Helper()
+	if width <= 0 || height <= 0 || frames <= 0 || width%2 != 0 || height%2 != 0 {
+		t.Fatalf("invalid I420 corpus dimensions %dx%d frames=%d", width, height, frames)
+	}
+	uvWidth := width / 2
+	uvHeight := height / 2
+	buf := make([]byte, 0, frames*(width*height+2*uvWidth*uvHeight))
+	for frame := 0; frame < frames; frame++ {
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				buf = append(buf, byte((x*5+y*3+frame*17)&0xff))
+			}
+		}
+		for y := 0; y < uvHeight; y++ {
+			for x := 0; x < uvWidth; x++ {
+				buf = append(buf, byte((96+x*3+y+frame*7)&0xff))
+			}
+		}
+		for y := 0; y < uvHeight; y++ {
+			for x := 0; x < uvWidth; x++ {
+				buf = append(buf, byte((160+x+y*5+frame*11)&0xff))
+			}
+		}
+	}
+	if err := os.WriteFile(path, buf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
 }
 
 func decodeIVFIntoChecksums(t *testing.T, ivf []byte) []testutil.FrameChecksum {
