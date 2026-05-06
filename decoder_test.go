@@ -1189,6 +1189,36 @@ func TestDecodeErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeErrorConcealmentOptionConcealsCorruptInterFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	if err := d.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	previous := d.lastRef.Img.Y[0]
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+
+	err = d.DecodeWithPTS(vp8InterFramePacket(0, 0, true), 99)
+	if err != nil {
+		t.Fatalf("corrupt inter DecodeWithPTS error = %v, want nil concealment", err)
+	}
+	if !d.lastInfo.Corrupted || d.lastInfo.PTS != 99 || d.lastInfo.Width != 16 || d.lastInfo.Height != 16 {
+		t.Fatalf("lastInfo = %+v, want corrupted concealed 16x16 PTS 99", d.lastInfo)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("concealed NextFrame returned no frame")
+	}
+	if frame.Y[0] != previous {
+		t.Fatalf("concealed Y[0] = %d, want previous reference %d", frame.Y[0], previous)
+	}
+}
+
 func TestDecodeErrorResilientConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
 	if err != nil {

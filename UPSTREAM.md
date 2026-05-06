@@ -45,7 +45,7 @@ grant. This repository keeps libvpx license and patent notices in
 
 | Subsystem | Status |
 | --- | --- |
-| Public API | scaffolded; runtime controls cover bitrate, rate-control config, CQLevel, max-intra bitrate, GF-CBR boost, token partitions, sharpness, static threshold, realtime targets, temporal scalability, deadline/CPU-used, keyframe interval, force-keyframe, and reset |
+| Public API | scaffolded; decoder options expose libvpx-style error concealment and granular postprocess controls; runtime encoder controls cover bitrate, rate-control config, CQLevel, max-intra bitrate, GF-CBR boost, token partitions, sharpness, static threshold, realtime targets, temporal scalability, deadline/CPU-used, keyframe interval, force-keyframe, and reset |
 | Upstream manifest | scaffolded |
 | Oracle harness | `make verify-production` builds pinned libvpx helpers, fetches required corpora, and runs the full oracle gate; optional vpxdec smoke and libvpx checksum oracle scaffolded, including postprocess and error-concealment decode modes for targeted parity tests |
 | Benchmark harness | synthetic govpx encoder JSON benchmark scaffolded with optional external libvpx vpxenc comparison, including reference output size, latency, bitrate, and decodable PSNR/SSIM metrics; decoder CLI and `benchmarks/` package cover govpx Decode/DecodeInto on the libvpx-authored smoke stream with optional libvpx checksum-oracle reference timing |

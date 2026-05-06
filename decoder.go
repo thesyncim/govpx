@@ -22,6 +22,10 @@ const (
 type DecoderOptions struct {
 	Threads int
 
+	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
+	// after a clean keyframe has initialized references.
+	ErrorConcealment bool
+	// ErrorResilient is kept as a compatibility alias for ErrorConcealment.
 	ErrorResilient bool
 	// PostProcess enables the legacy libvpx-style postprocess chain:
 	// deblock, demacroblock, and MFQE. Prefer PostProcessFlags for new code.
@@ -122,7 +126,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return err
 	}
 	if err := d.decodeFramePacket(packet, info); err != nil {
-		if d.opts.ErrorResilient && d.canConceal(info) {
+		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
 			if frameInfo.ShowFrame {
@@ -186,7 +190,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, ErrInvalidConfig
 	}
 	if err := d.decodeFramePacket(packet, info); err != nil {
-		if d.opts.ErrorResilient && d.canConceal(info) {
+		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
 			if frameInfo.ShowFrame {
@@ -306,6 +310,10 @@ func (opts DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
 		}
 	}
 	return flags
+}
+
+func (opts DecoderOptions) effectiveErrorConcealment() bool {
+	return opts.ErrorConcealment || opts.ErrorResilient
 }
 
 func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {

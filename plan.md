@@ -78,7 +78,8 @@ Goal: remove unsupported-feature exits and match libvpx behavior on valid VP8.
 
 High-priority gaps:
 
-- Full error concealment for corrupt/truncated partitions.
+- Full error concealment for corrupt/truncated partitions; decoder API now has
+  a libvpx-style `ErrorConcealment` option alias for the existing concealment path.
 - Remaining postprocess tuning/corpus edges after granular deblock,
   demacroblock, add-noise, and MFQE controls.
 - Multi-token-partition decode edge cases.
