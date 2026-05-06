@@ -196,6 +196,12 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	interCount := 0
 
 	runtime.GC()
+	for i, frame := range frames {
+		if _, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0); err != nil {
+			return benchReport{}, err
+		}
+	}
+	enc.Reset()
 	var memBefore runtime.MemStats
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
@@ -330,6 +336,10 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 
 	runtime.GC()
 	latencies := make([]int64, 0, len(packets))
+	if _, latencies, err = decodeBenchmarkPackets(dec, packets, latencies); err != nil {
+		return decodeBenchReport{}, err
+	}
+	latencies = latencies[:0]
 	var memBefore runtime.MemStats
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
