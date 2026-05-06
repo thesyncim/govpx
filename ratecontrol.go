@@ -167,6 +167,7 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 		return ErrInvalidBitrate
 	}
 
+	initializing := rc.targetBitrateKbps == 0
 	rc.targetBitrateKbps = kbps
 	rc.targetBandwidthBits = targetBits
 	rc.bitsPerFrame = computeBitsPerFrame(targetBits, timing)
@@ -188,7 +189,7 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 		return ErrInvalidBitrate
 	}
 	rc.maximumBufferBits = rc.bufferSizeBits
-	if rc.bufferLevelBits == 0 {
+	if initializing && rc.bufferLevelBits == 0 {
 		rc.bufferLevelBits = rc.bufferInitialBits
 	}
 	rc.frameTargetBits = rc.bitsPerFrame

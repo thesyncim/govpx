@@ -1195,6 +1195,41 @@ func TestSetBitrateKbpsHonorsConfiguredBounds(t *testing.T) {
 	}
 }
 
+func TestSetBitrateKbpsPreservesLibvpxZeroBufferLevel(t *testing.T) {
+	e := newTestEncoder(t)
+	e.rc.bufferLevelBits = 0
+
+	if err := e.SetBitrateKbps(600); err != nil {
+		t.Fatalf("SetBitrateKbps returned error: %v", err)
+	}
+
+	if e.rc.bufferLevelBits != 0 {
+		t.Fatalf("buffer after bitrate change = %d, want libvpx preserved zero", e.rc.bufferLevelBits)
+	}
+}
+
+func TestSetRateControlPreservesLibvpxZeroBufferLevel(t *testing.T) {
+	e := newTestEncoder(t)
+	e.rc.bufferLevelBits = 0
+
+	err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   900,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("SetRateControl returned error: %v", err)
+	}
+
+	if e.rc.bufferLevelBits != 0 {
+		t.Fatalf("buffer after rate-control change = %d, want libvpx preserved zero", e.rc.bufferLevelBits)
+	}
+}
+
 func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)
