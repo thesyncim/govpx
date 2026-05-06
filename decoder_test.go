@@ -1014,6 +1014,67 @@ func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	}
 }
 
+func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true, PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	if err := d.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+
+	err = d.DecodeWithPTS(vp8InterFramePacket(0, 0, true), 99)
+	if err != nil {
+		t.Fatalf("corrupt inter DecodeWithPTS error = %v, want nil concealment", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("concealed NextFrame returned no frame")
+	}
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.lastRef.Img.Y) == 0 {
+		t.Fatalf("decoded frame buffers are empty")
+	}
+	if &frame.Y[0] != &d.post.Img.Y[0] {
+		t.Fatalf("concealed postprocess output did not use decoder postprocess buffer")
+	}
+	if &frame.Y[0] == &d.lastRef.Img.Y[0] {
+		t.Fatalf("concealed postprocess output aliases reference buffer")
+	}
+}
+
+func TestDecodeIntoPostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true, PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+	if err := d.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	dst := newTestImage(16, 16)
+
+	info, err := d.DecodeIntoWithPTS(vp8InterFramePacket(0, 0, true), &dst, 101)
+	if err != nil {
+		t.Fatalf("corrupt inter DecodeIntoWithPTS error = %v, want nil concealment", err)
+	}
+	if !info.Corrupted || info.PTS != 101 || info.Width != 16 || info.Height != 16 {
+		t.Fatalf("FrameInfo = %+v, want corrupted concealed 16x16 PTS 101", info)
+	}
+	if !publicImageEqualVP8(dst, &d.post.Img) {
+		t.Fatalf("concealed DecodeInto output does not match decoder postprocess buffer")
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("DecodeInto concealment queued a NextFrame output")
+	}
+}
+
 func TestDecodeDoesNotConcealCorruptInterFrameWhenDisabled(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {

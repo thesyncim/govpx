@@ -103,7 +103,11 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
 			if frameInfo.ShowFrame {
-				d.lastFrame = publicImageFromVP8(&d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				if err != nil {
+					return err
+				}
+				d.lastFrame = publicImageFromVP8(output)
 				d.frameReady = true
 			}
 			return nil
@@ -163,7 +167,11 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
 			if frameInfo.ShowFrame {
-				copyVP8ImageToPublic(dst, &d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				if err != nil {
+					return FrameInfo{}, err
+				}
+				copyVP8ImageToPublic(dst, output)
 			}
 			return frameInfo, nil
 		}
@@ -320,11 +328,15 @@ func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo
 }
 
 func (d *VP8Decoder) outputFrameImage(info StreamInfo) (*vp8common.Image, error) {
+	return d.outputReferenceFrameImage(info, &d.current.Img)
+}
+
+func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.Image) (*vp8common.Image, error) {
 	if !d.opts.PostProcess {
-		return &d.current.Img, nil
+		return src, nil
 	}
 	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
-	if err := vp8dec.ApplyPostProcess(&d.current.Img, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch); err != nil {
+	if err := vp8dec.ApplyPostProcess(src, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch); err != nil {
 		return nil, ErrInvalidData
 	}
 	return &d.post.Img, nil
