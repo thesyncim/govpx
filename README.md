@@ -35,4 +35,7 @@ prints JSON metrics for CI/local tracking; `allocs_per_frame` is measured over
 the encode pass. Set `LIBGOPX_VPXENC` or pass `-libvpx-vpxenc` to include an
 optional libvpx `vpxenc` reference comparison; when libgopx can decode the
 reference stream, the reference block includes PSNR/SSIM too.
+Pass `-decode` to benchmark libgopx decoding on the generated IVF clip; set
+`LIBGOPX_ORACLE` or pass `-libvpx-oracle` to time the pinned libvpx checksum
+oracle on the same clip for a local reference comparison.
 `internal/coracle/build_vpxenc.sh` builds the pinned reference binary.

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	libgopx "github.com/thesyncim/libgopx"
@@ -26,7 +27,9 @@ type benchConfig struct {
 	FPS          int
 	BitrateKbps  int
 	Mode         string
+	Decode       bool
 	LibvpxVpxenc string
+	LibvpxOracle string
 	LibvpxArgs   []string
 }
 
@@ -77,6 +80,38 @@ type referenceReport struct {
 	EncodedFrames     int           `json:"encoded_frames"`
 }
 
+type decodeBenchReport struct {
+	Decoder                  string                 `json:"decoder"`
+	Operation                string                 `json:"operation"`
+	Mode                     string                 `json:"mode"`
+	Width                    int                    `json:"width"`
+	Height                   int                    `json:"height"`
+	Frames                   int                    `json:"frames"`
+	FPS                      int                    `json:"fps"`
+	InputBytes               int                    `json:"input_bytes"`
+	DecodedFrames            int                    `json:"decoded_frames"`
+	NSPerFrame               int64                  `json:"ns_per_frame"`
+	DecodeFPS                float64                `json:"decode_fps"`
+	MacroblocksPerSec        float64                `json:"macroblocks_per_second"`
+	CodedMegabytesPerSec     float64                `json:"coded_megabytes_per_second"`
+	AllocsPerFrame           float64                `json:"allocs_per_frame"`
+	LatencyNS                latencyReport          `json:"latency_ns"`
+	Reference                *decodeReferenceReport `json:"reference,omitempty"`
+	RelativeSpeedVsReference float64                `json:"relative_speed_vs_reference,omitempty"`
+	Options                  benchConfigSummary     `json:"options"`
+}
+
+type decodeReferenceReport struct {
+	Decoder              string        `json:"decoder"`
+	Mode                 string        `json:"mode"`
+	DecodedFrames        int           `json:"decoded_frames"`
+	NSPerFrame           int64         `json:"ns_per_frame"`
+	DecodeFPS            float64       `json:"decode_fps"`
+	MacroblocksPerSec    float64       `json:"macroblocks_per_second"`
+	CodedMegabytesPerSec float64       `json:"coded_megabytes_per_second"`
+	LatencyNS            latencyReport `json:"latency_ns"`
+}
+
 type quantizerReport struct {
 	Min  int     `json:"min"`
 	Max  int     `json:"max"`
@@ -101,10 +136,18 @@ func main() {
 	flag.IntVar(&cfg.FPS, "fps", 30, "frame rate")
 	flag.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	flag.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
+	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
 	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("LIBGOPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
+	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("LIBGOPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	flag.Parse()
 
-	report, err := runBenchmark(cfg)
+	var report any
+	var err error
+	if cfg.Decode {
+		report, err = runDecodeBenchmark(cfg)
+	} else {
+		report, err = runBenchmark(cfg)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gopx-bench: %v\n", err)
 		os.Exit(2)
@@ -255,6 +298,121 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		report.Reference = &reference
 	}
 	return report, nil
+}
+
+func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Frames <= 0 || cfg.FPS <= 0 || cfg.BitrateKbps <= 0 {
+		return decodeBenchReport{}, errors.New("width, height, frames, fps, and bitrate must be positive")
+	}
+	if cfg.Width > 16383 || cfg.Height > 16383 {
+		return decodeBenchReport{}, errors.New("dimensions exceed VP8 limits")
+	}
+	deadline, deadlineName, err := benchmarkDeadline(cfg.Mode)
+	if err != nil {
+		return decodeBenchReport{}, err
+	}
+	frames := make([]libgopx.Image, cfg.Frames)
+	for i := range frames {
+		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
+	}
+	packets, err := encodeBenchmarkPackets(cfg, deadline, frames)
+	if err != nil {
+		return decodeBenchReport{}, err
+	}
+	ivf := makeBenchmarkIVF(cfg.Width, cfg.Height, cfg.FPS, packets)
+	dec, err := libgopx.NewVP8Decoder(libgopx.DecoderOptions{})
+	if err != nil {
+		return decodeBenchReport{}, err
+	}
+	if _, _, err := decodeBenchmarkPackets(dec, packets, make([]int64, 0, len(packets))); err != nil {
+		return decodeBenchReport{}, err
+	}
+
+	runtime.GC()
+	latencies := make([]int64, 0, len(packets))
+	var memBefore runtime.MemStats
+	var memAfter runtime.MemStats
+	runtime.ReadMemStats(&memBefore)
+	decodedFrames, latencies, err := decodeBenchmarkPackets(dec, packets, latencies)
+	runtime.ReadMemStats(&memAfter)
+	if err != nil {
+		return decodeBenchReport{}, err
+	}
+	totalLatency := totalLatencyNS(latencies)
+	nsPerFrame := totalLatency / int64(len(latencies))
+	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
+	report := decodeBenchReport{
+		Decoder:              "libgopx",
+		Operation:            "decode",
+		Mode:                 deadlineName,
+		Width:                cfg.Width,
+		Height:               cfg.Height,
+		Frames:               len(packets),
+		FPS:                  cfg.FPS,
+		InputBytes:           len(ivf),
+		DecodedFrames:        decodedFrames,
+		NSPerFrame:           nsPerFrame,
+		DecodeFPS:            1e9 / float64(nsPerFrame),
+		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
+		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), totalLatency),
+		AllocsPerFrame:       float64(memAfter.Mallocs-memBefore.Mallocs) / float64(len(packets)),
+		LatencyNS: latencyReport{
+			P50: percentileLatency(latencies, 50),
+			P95: percentileLatency(latencies, 95),
+			P99: percentileLatency(latencies, 99),
+		},
+		Options: benchConfigSummary{Deadline: deadlineName},
+	}
+	if cfg.LibvpxOracle != "" {
+		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))
+		if err != nil {
+			return decodeBenchReport{}, err
+		}
+		report.Reference = &reference
+		if report.NSPerFrame > 0 {
+			report.RelativeSpeedVsReference = float64(reference.NSPerFrame) / float64(report.NSPerFrame)
+		}
+	}
+	return report, nil
+}
+
+func encodeBenchmarkPackets(cfg benchConfig, deadline libgopx.Deadline, frames []libgopx.Image) ([][]byte, error) {
+	enc, err := newBenchmarkEncoder(cfg, deadline)
+	if err != nil {
+		return nil, err
+	}
+	packet := make([]byte, max(4096, cfg.Width*cfg.Height*6))
+	packets := make([][]byte, 0, len(frames))
+	for i, frame := range frames {
+		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
+		if err != nil {
+			return nil, err
+		}
+		if result.Dropped {
+			continue
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	if len(packets) == 0 {
+		return nil, errors.New("benchmark encoder dropped every frame")
+	}
+	return packets, nil
+}
+
+func decodeBenchmarkPackets(dec *libgopx.VP8Decoder, packets [][]byte, latencies []int64) (int, []int64, error) {
+	dec.Reset()
+	decodedFrames := 0
+	for i, packet := range packets {
+		start := time.Now()
+		if err := dec.Decode(packet); err != nil {
+			return decodedFrames, latencies, fmt.Errorf("decode frame %d: %w", i, err)
+		}
+		if _, ok := dec.NextFrame(); ok {
+			decodedFrames++
+		}
+		latencies = append(latencies, time.Since(start).Nanoseconds())
+	}
+	return decodedFrames, latencies, nil
 }
 
 func newBenchmarkEncoder(cfg benchConfig, deadline libgopx.Deadline) (*libgopx.VP8Encoder, error) {
@@ -470,10 +628,104 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 	}, nil
 }
 
+func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
+	tempDir, err := os.MkdirTemp("", "libgopx-decode-bench-*")
+	if err != nil {
+		return decodeReferenceReport{}, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	path := tempDir + string(os.PathSeparator) + "input.ivf"
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		return decodeReferenceReport{}, err
+	}
+	start := time.Now()
+	cmd := exec.Command(cfg.LibvpxOracle, "decode", path)
+	out, err := cmd.CombinedOutput()
+	elapsed := time.Since(start)
+	if err != nil {
+		return decodeReferenceReport{}, fmt.Errorf("libvpx oracle decode failed: %w\n%s", err, out)
+	}
+	decodedFrames := countJSONLines(out)
+	if decodedFrames == 0 {
+		return decodeReferenceReport{}, errors.New("libvpx oracle decoded zero frames")
+	}
+	nsPerFrame := elapsed.Nanoseconds() / int64(frames)
+	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
+	return decodeReferenceReport{
+		Decoder:              "libvpx-vp8",
+		Mode:                 deadlineName,
+		DecodedFrames:        decodedFrames,
+		NSPerFrame:           nsPerFrame,
+		DecodeFPS:            1e9 / float64(nsPerFrame),
+		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
+		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), elapsed.Nanoseconds()),
+		LatencyNS: latencyReport{
+			P50: nsPerFrame,
+			P95: nsPerFrame,
+			P99: nsPerFrame,
+		},
+	}, nil
+}
+
+func countJSONLines(out []byte) int {
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return 0
+	}
+	return strings.Count(text, "\n") + 1
+}
+
 func benchmarkMacroblocks(width int, height int) float64 {
 	cols := (width + 15) >> 4
 	rows := (height + 15) >> 4
 	return float64(cols * rows)
+}
+
+func totalLatencyNS(latencies []int64) int64 {
+	total := int64(0)
+	for _, ns := range latencies {
+		total += ns
+	}
+	return total
+}
+
+func codedMegabytesPerSecond(bytes int, ns int64) float64 {
+	if ns <= 0 {
+		return 0
+	}
+	const megabyte = 1024 * 1024
+	return (float64(bytes) / megabyte) * 1e9 / float64(ns)
+}
+
+func makeBenchmarkIVF(width int, height int, fps int, packets [][]byte) []byte {
+	const (
+		fileHeaderSize  = 32
+		frameHeaderSize = 12
+	)
+	size := fileHeaderSize
+	for _, packet := range packets {
+		size += frameHeaderSize + len(packet)
+	}
+	ivf := make([]byte, size)
+	copy(ivf[:4], []byte("DKIF"))
+	binary.LittleEndian.PutUint16(ivf[4:], 0)
+	binary.LittleEndian.PutUint16(ivf[6:], fileHeaderSize)
+	copy(ivf[8:12], []byte("VP80"))
+	binary.LittleEndian.PutUint16(ivf[12:], uint16(width))
+	binary.LittleEndian.PutUint16(ivf[14:], uint16(height))
+	binary.LittleEndian.PutUint32(ivf[16:], uint32(fps))
+	binary.LittleEndian.PutUint32(ivf[20:], 1)
+	binary.LittleEndian.PutUint32(ivf[24:], uint32(len(packets)))
+	offset := fileHeaderSize
+	for i, packet := range packets {
+		binary.LittleEndian.PutUint32(ivf[offset:], uint32(len(packet)))
+		binary.LittleEndian.PutUint64(ivf[offset+4:], uint64(i))
+		offset += frameHeaderSize
+		copy(ivf[offset:], packet)
+		offset += len(packet)
+	}
+	return ivf
 }
 
 func referenceQualityMetrics(ivf []byte, frames []libgopx.Image) (float64, float64, int, error) {

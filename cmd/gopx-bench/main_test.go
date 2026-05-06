@@ -72,6 +72,59 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	}
 }
 
+func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
+	report, err := runDecodeBenchmark(benchConfig{
+		Width:       16,
+		Height:      16,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+	})
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark returned error: %v", err)
+	}
+	if report.Decoder != "libgopx" || report.Operation != "decode" || report.Mode != "realtime" {
+		t.Fatalf("identity = %s/%s/%s, want libgopx/decode/realtime", report.Decoder, report.Operation, report.Mode)
+	}
+	if report.Width != 16 || report.Height != 16 || report.Frames != 3 || report.DecodedFrames != 3 || report.InputBytes <= 0 {
+		t.Fatalf("dimensions/counts = %+v", report)
+	}
+	if report.NSPerFrame <= 0 || report.DecodeFPS <= 0 || report.MacroblocksPerSec <= 0 || report.CodedMegabytesPerSec <= 0 || report.LatencyNS.P50 <= 0 {
+		t.Fatalf("decode timing metrics = ns:%d fps:%f mbps:%f coded:%f p50:%d", report.NSPerFrame, report.DecodeFPS, report.MacroblocksPerSec, report.CodedMegabytesPerSec, report.LatencyNS.P50)
+	}
+	if report.AllocsPerFrame != 0 {
+		t.Fatalf("AllocsPerFrame = %f, want 0 for measured decode pass", report.AllocsPerFrame)
+	}
+	if _, err := json.Marshal(report); err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+}
+
+func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
+	report, err := runDecodeBenchmark(benchConfig{
+		Width:        16,
+		Height:       16,
+		Frames:       3,
+		FPS:          30,
+		BitrateKbps:  1200,
+		Mode:         "realtime",
+		LibvpxOracle: fakeLibvpxOraclePath(t),
+	})
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark returned error: %v", err)
+	}
+	if report.Reference == nil {
+		t.Fatalf("reference = nil, want fake libvpx decode report")
+	}
+	if report.Reference.Decoder != "libvpx-vp8" || report.Reference.DecodedFrames != 3 {
+		t.Fatalf("reference = %+v, want libvpx-vp8 with 3 decoded frames", *report.Reference)
+	}
+	if report.Reference.NSPerFrame <= 0 || report.Reference.DecodeFPS <= 0 || report.Reference.MacroblocksPerSec <= 0 || report.RelativeSpeedVsReference <= 0 {
+		t.Fatalf("reference timing = %+v relative=%f, want positive values", *report.Reference, report.RelativeSpeedVsReference)
+	}
+}
+
 func TestRunBenchmarkRejectsBadConfig(t *testing.T) {
 	if _, err := runBenchmark(benchConfig{Width: 16, Height: 16, Frames: 1, FPS: 30, BitrateKbps: 1200, Mode: "slow"}); err == nil {
 		t.Fatalf("runBenchmark accepted unsupported mode")
@@ -195,6 +248,36 @@ func TestFakeVpxencHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestFakeLibvpxOracleHelper(t *testing.T) {
+	if os.Getenv("LIBGOPX_FAKE_LIBVPX_ORACLE") != "1" {
+		return
+	}
+	input := ""
+	for i, arg := range os.Args {
+		if arg == "decode" && i+1 < len(os.Args) {
+			input = os.Args[i+1]
+		}
+	}
+	if input == "" {
+		fmt.Fprintln(os.Stderr, "fake libvpx oracle missing decode input")
+		os.Exit(2)
+	}
+	ivf, err := os.ReadFile(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fake libvpx oracle read input: %v\n", err)
+		os.Exit(1)
+	}
+	sizes, err := parseIVFFrameSizes(ivf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fake libvpx oracle parse input: %v\n", err)
+		os.Exit(1)
+	}
+	for i := range sizes {
+		fmt.Printf("{\"frame\":%d}\n", i)
+	}
+	os.Exit(0)
+}
+
 func atoiPositive(raw string, fallback int) int {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 {
@@ -207,6 +290,16 @@ func fakeVpxencPath(t *testing.T) string {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "fake-vpxenc")
 	body := fmt.Sprintf("#!/bin/sh\nLIBGOPX_FAKE_VPXENC=1 exec %s -test.run=TestFakeVpxencHelper -- \"$@\"\n", shellQuote(os.Args[0]))
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	return script
+}
+
+func fakeLibvpxOraclePath(t *testing.T) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "fake-libvpx-oracle")
+	body := fmt.Sprintf("#!/bin/sh\nLIBGOPX_FAKE_LIBVPX_ORACLE=1 exec %s -test.run=TestFakeLibvpxOracleHelper -- \"$@\"\n", shellQuote(os.Args[0]))
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
