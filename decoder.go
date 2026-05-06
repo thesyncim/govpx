@@ -26,14 +26,15 @@ type DecoderOptions struct {
 }
 
 type VP8Decoder struct {
-	opts        DecoderOptions
-	closed      bool
-	needKey     bool
-	frameReady  bool
-	lastFrame   Image
-	lastInfo    FrameInfo
-	currentPTS  uint64
-	initialized bool
+	opts          DecoderOptions
+	closed        bool
+	needKey       bool
+	frameReady    bool
+	lastFrame     Image
+	lastInfo      FrameInfo
+	currentPTS    uint64
+	visibleFrames int
+	initialized   bool
 
 	frameWidth  int
 	frameHeight int
@@ -203,6 +204,7 @@ func (d *VP8Decoder) Reset() {
 	d.lastFrame = Image{}
 	d.lastInfo = FrameInfo{}
 	d.currentPTS = 0
+	d.visibleFrames = 0
 	d.initialized = false
 	d.previousQuant = vp8dec.QuantHeader{}
 	d.previousLoopFilter = vp8dec.LoopFilterHeader{}
@@ -313,6 +315,9 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 		PTS:       pts,
 	}
 	d.lastInfo = frameInfo
+	if info.ShowFrame {
+		d.visibleFrames++
+	}
 	return frameInfo
 }
 
@@ -335,6 +340,9 @@ func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo
 		PTS:       pts,
 	}
 	d.lastInfo = frameInfo
+	if info.ShowFrame {
+		d.visibleFrames++
+	}
 	return frameInfo
 }
 
@@ -350,9 +358,13 @@ func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.I
 	opts := vp8dec.PostProcessOptions{
 		Deblock:         true,
 		Demacroblock:    true,
+		MFQE:            true,
 		AddNoise:        d.opts.PostProcessNoiseLevel > 0,
 		DeblockingLevel: vp8dec.DefaultPostProcessDeblockingLevel,
 		NoiseLevel:      d.opts.PostProcessNoiseLevel,
+		BaseQIndex:      int(d.state.Quant.BaseQIndex),
+		CurrentFrame:    d.visibleFrames,
+		KeyFrame:        info.KeyFrame,
 	}
 	if err := vp8dec.ApplyPostProcessWithOptions(src, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch, opts, &d.postprocState); err != nil {
 		return nil, ErrInvalidData
@@ -388,6 +400,11 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	}
 	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
+	}
+	if d.opts.PostProcess {
+		if err := d.postprocState.EnsureMFQE(info.Width, info.Height); err != nil {
+			return ErrInvalidData
+		}
 	}
 	d.ensureWorkspace(info.Width, info.Height)
 	d.frameWidth = info.Width

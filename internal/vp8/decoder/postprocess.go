@@ -5,10 +5,12 @@ import (
 	"math"
 
 	"github.com/thesyncim/libgopx/internal/vp8/common"
+	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 )
 
 // Ported from libvpx v1.16.0:
 // - vp8/common/postproc.c
+// - vp8/common/mfqe.c
 // - vpx_dsp/deblock.c
 // - vpx_dsp/add_noise.c
 
@@ -23,18 +25,25 @@ const (
 type PostProcessOptions struct {
 	Deblock         bool
 	Demacroblock    bool
+	MFQE            bool
 	AddNoise        bool
 	DeblockingLevel int
 	NoiseLevel      int
+	BaseQIndex      int
+	CurrentFrame    int
+	KeyFrame        bool
 }
 
 type PostProcessState struct {
 	generatedNoise []int8
+	mfqeScratch    common.FrameBuffer
 	noiseWidth     int
 	lastQ          int
 	lastNoise      int
+	lastBaseQIndex int
 	clamp          int
 	noiseReady     bool
+	lastFrameValid bool
 	rand           postProcessRand
 }
 
@@ -58,15 +67,25 @@ func (s *PostProcessState) EnsureNoise(width int) {
 	}
 }
 
+func (s *PostProcessState) EnsureMFQE(width int, height int) error {
+	if s == nil || width <= 0 || height <= 0 {
+		return nil
+	}
+	return s.mfqeScratch.Resize(width, height, 32, 32)
+}
+
 func (s *PostProcessState) Reset() {
 	if s == nil {
 		return
 	}
 	s.noiseReady = false
+	s.lastFrameValid = false
 	s.lastQ = 0
 	s.lastNoise = 0
+	s.lastBaseQIndex = 0
 	s.clamp = 0
 	s.rand.state = postProcessNoiseSeed
+	s.mfqeScratch.Reset()
 }
 
 type postProcessRand struct {
@@ -126,8 +145,12 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 	if opts.AddNoise && (state == nil || len(state.generatedNoise) < src.Width+256) {
 		return ErrPostProcessBufferTooSmall
 	}
-	copyPostProcessImage(&dst.Img, src)
-	dst.ExtendBorders()
+	if opts.MFQE && state == nil {
+		return ErrPostProcessBufferTooSmall
+	}
+	if opts.MFQE && (opts.Deblock || opts.Demacroblock) && state.mfqeScratch.BufferLen() == 0 {
+		return ErrPostProcessBufferTooSmall
+	}
 
 	q := int(filterLevel) * 10 / 6
 	if q > 63 {
@@ -136,17 +159,251 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 
 	yLimits := scratch[:cols*16]
 	uvLimits := scratch[cols*16 : cols*24]
-	if opts.Demacroblock {
-		filterQ := q + (opts.DeblockingLevel-5)*10
-		deblockPostProcess(src, &dst.Img, rows, cols, modes, filterQ, yLimits, uvLimits)
-		demacroblockPostProcess(&dst.Img, filterQ)
-	} else if opts.Deblock {
-		deblockPostProcess(src, &dst.Img, rows, cols, modes, q, yLimits, uvLimits)
+	if shouldApplyMFQE(opts, state) {
+		multiframeQualityEnhance(src, &dst.Img, rows, cols, modes, opts.KeyFrame, opts.BaseQIndex, state.lastBaseQIndex)
+		if opts.Deblock || opts.Demacroblock {
+			copyPostProcessImage(&state.mfqeScratch.Img, &dst.Img)
+			state.mfqeScratch.ExtendBorders()
+			runPostProcessFilters(&state.mfqeScratch.Img, &dst.Img, rows, cols, modes, q, yLimits, uvLimits, opts)
+		}
+		state.lastBaseQIndex = (3*state.lastBaseQIndex + opts.BaseQIndex) >> 2
+	} else {
+		copyPostProcessImage(&dst.Img, src)
+		dst.ExtendBorders()
+		runPostProcessFilters(src, &dst.Img, rows, cols, modes, q, yLimits, uvLimits, opts)
+		if state != nil {
+			state.lastBaseQIndex = opts.BaseQIndex
+		}
+	}
+	if state != nil {
+		state.lastFrameValid = true
 	}
 	if opts.AddNoise {
 		applyPostProcessNoise(&dst.Img, q, opts.NoiseLevel, state)
 	}
 	return nil
+}
+
+func shouldApplyMFQE(opts PostProcessOptions, state *PostProcessState) bool {
+	return opts.MFQE &&
+		state != nil &&
+		state.lastFrameValid &&
+		opts.CurrentFrame > 10 &&
+		state.lastBaseQIndex < 60 &&
+		opts.BaseQIndex-state.lastBaseQIndex >= 20
+}
+
+func runPostProcessFilters(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, q int, yLimits []byte, uvLimits []byte, opts PostProcessOptions) {
+	if opts.Demacroblock {
+		filterQ := q + (opts.DeblockingLevel-5)*10
+		deblockPostProcess(src, dst, rows, cols, modes, filterQ, yLimits, uvLimits)
+		demacroblockPostProcess(dst, filterQ)
+	} else if opts.Deblock {
+		deblockPostProcess(src, dst, rows, cols, modes, q, yLimits, uvLimits)
+	}
+}
+
+func multiframeQualityEnhance(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, keyFrame bool, qcurr int, qprev int) {
+	for mbRow := 0; mbRow < rows; mbRow++ {
+		for mbCol := 0; mbCol < cols; mbCol++ {
+			index := mbRow*cols + mbCol
+			var mfqeMap [4]int
+			totmap := 0
+			if keyFrame {
+				totmap = 4
+			} else {
+				totmap = qualifyInterMFQEMacroblock(&modes[index], &mfqeMap)
+			}
+
+			yOff := mbRow*16*src.YStride + mbCol*16
+			uOff := mbRow*8*src.UStride + mbCol*8
+			vOff := mbRow*8*src.VStride + mbCol*8
+			ydOff := mbRow*16*dst.YStride + mbCol*16
+			udOff := mbRow*8*dst.UStride + mbCol*8
+			vdOff := mbRow*8*dst.VStride + mbCol*8
+
+			if totmap == 0 {
+				copyBlock(src.Y[yOff:], src.YStride, dst.Y[ydOff:], dst.YStride, 16, 16)
+				copyBlock(src.U[uOff:], src.UStride, dst.U[udOff:], dst.UStride, 8, 8)
+				copyBlock(src.V[vOff:], src.VStride, dst.V[vdOff:], dst.VStride, 8, 8)
+				continue
+			}
+			if totmap == 4 {
+				multiframeQualityEnhanceBlock(16, qcurr, qprev,
+					src.Y[yOff:], src.U[uOff:], src.V[vOff:], src.YStride, src.UStride,
+					dst.Y[ydOff:], dst.U[udOff:], dst.V[vdOff:], dst.YStride, dst.UStride)
+				continue
+			}
+			for i := 0; i < 2; i++ {
+				for j := 0; j < 2; j++ {
+					ySub := yOff + 8*(i*src.YStride+j)
+					uSub := uOff + 4*(i*src.UStride+j)
+					vSub := vOff + 4*(i*src.VStride+j)
+					ydSub := ydOff + 8*(i*dst.YStride+j)
+					udSub := udOff + 4*(i*dst.UStride+j)
+					vdSub := vdOff + 4*(i*dst.VStride+j)
+					if mfqeMap[i*2+j] != 0 {
+						multiframeQualityEnhanceBlock(8, qcurr, qprev,
+							src.Y[ySub:], src.U[uSub:], src.V[vSub:], src.YStride, src.UStride,
+							dst.Y[ydSub:], dst.U[udSub:], dst.V[vdSub:], dst.YStride, dst.UStride)
+					} else {
+						copyBlock(src.Y[ySub:], src.YStride, dst.Y[ydSub:], dst.YStride, 8, 8)
+						copyBlock(src.U[uSub:], src.UStride, dst.U[udSub:], dst.UStride, 4, 4)
+						copyBlock(src.V[vSub:], src.VStride, dst.V[vdSub:], dst.VStride, 4, 4)
+					}
+				}
+			}
+		}
+	}
+}
+
+func qualifyInterMFQEMacroblock(mode *MacroblockMode, out *[4]int) int {
+	if mode.MBSkipCoeff {
+		out[0], out[1], out[2], out[3] = 1, 1, 1, 1
+		return 4
+	}
+	if mode.Mode == common.SplitMV {
+		ndx := [4][4]int{
+			{0, 1, 4, 5},
+			{2, 3, 6, 7},
+			{8, 9, 12, 13},
+			{10, 11, 14, 15},
+		}
+		for i := 0; i < 4; i++ {
+			out[i] = 1
+			for j := 0; j < 4 && out[j] != 0; j++ {
+				mv := mode.BlockMV[ndx[i][j]]
+				if mv.Row > 2 || mv.Col > 2 {
+					out[i] = 0
+				}
+			}
+		}
+		return out[0] + out[1] + out[2] + out[3]
+	}
+	ok := 0
+	if mode.Mode > common.BPred && absInt16(mode.MV.Row) <= 2 && absInt16(mode.MV.Col) <= 2 {
+		ok = 1
+	}
+	out[0], out[1], out[2], out[3] = ok, ok, ok, ok
+	return ok * 4
+}
+
+func multiframeQualityEnhanceBlock(blockSize int, qcurr int, qprev int, y []byte, u []byte, v []byte, yStride int, uvStride int, yd []byte, ud []byte, vd []byte, ydStride int, uvdStride int) {
+	uvBlockSize := blockSize >> 1
+	actd := 0
+	act := 0
+	sad := 0
+	usad := 0
+	vsad := 0
+	if blockSize == 16 {
+		actd = (varianceAgainstZero(yd, ydStride, 16, 16) + 128) >> 8
+		act = (varianceAgainstZero(y, yStride, 16, 16) + 128) >> 8
+		sad = (dsp.SSE16x16(y, yStride, yd, ydStride) + 128) >> 8
+		usad = (dsp.SSE8x8(u, uvStride, ud, uvdStride) + 32) >> 6
+		vsad = (dsp.SSE8x8(v, uvStride, vd, uvdStride) + 32) >> 6
+	} else {
+		actd = (varianceAgainstZero(yd, ydStride, 8, 8) + 32) >> 6
+		act = (varianceAgainstZero(y, yStride, 8, 8) + 32) >> 6
+		sad = (dsp.SSE8x8(y, yStride, yd, ydStride) + 32) >> 6
+		usad = (dsp.SSE4x4(u, uvStride, ud, uvdStride) + 8) >> 4
+		vsad = (dsp.SSE4x4(v, uvStride, vd, uvdStride) + 8) >> 4
+	}
+
+	actRisk := actd > act*5
+	thr := (qcurr - qprev) >> 4
+	for x := actd >> 1; x != 0; x >>= 1 {
+		thr++
+	}
+	for x := qprev >> 2; x != 0; x >>= 2 {
+		thr++
+	}
+	thrSq := thr * thr
+	if sad < thrSq && 4*usad < thrSq && 4*vsad < thrSq && !actRisk {
+		sad = intSqrt(sad)
+		ifactor := (sad << 4) / thr
+		ifactor >>= ((qcurr - qprev) >> 5)
+		if ifactor != 0 {
+			applyMFQEIfactor(y, yStride, yd, ydStride, u, v, uvStride, ud, vd, uvdStride, blockSize, ifactor)
+		}
+		return
+	}
+	copyBlock(y, yStride, yd, ydStride, blockSize, blockSize)
+	copyBlock(u, uvStride, ud, uvdStride, uvBlockSize, uvBlockSize)
+	copyBlock(v, uvStride, vd, uvdStride, uvBlockSize, uvBlockSize)
+}
+
+func applyMFQEIfactor(y []byte, yStride int, yd []byte, ydStride int, u []byte, v []byte, uvStride int, ud []byte, vd []byte, uvdStride int, blockSize int, srcWeight int) {
+	if blockSize == 16 {
+		filterByWeight(y, yStride, yd, ydStride, 16, srcWeight)
+		filterByWeight(u, uvStride, ud, uvdStride, 8, srcWeight)
+		filterByWeight(v, uvStride, vd, uvdStride, 8, srcWeight)
+		return
+	}
+	filterByWeight(y, yStride, yd, ydStride, 8, srcWeight)
+	filterByWeight(u, uvStride, ud, uvdStride, 4, srcWeight)
+	filterByWeight(v, uvStride, vd, uvdStride, 4, srcWeight)
+}
+
+func filterByWeight(src []byte, srcStride int, dst []byte, dstStride int, blockSize int, srcWeight int) {
+	dstWeight := (1 << 4) - srcWeight
+	roundingBit := 1 << 3
+	for row := 0; row < blockSize; row++ {
+		srcRow := src[row*srcStride:]
+		dstRow := dst[row*dstStride:]
+		for col := 0; col < blockSize; col++ {
+			dstRow[col] = byte((int(srcRow[col])*srcWeight + int(dstRow[col])*dstWeight + roundingBit) >> 4)
+		}
+	}
+}
+
+func varianceAgainstZero(src []byte, stride int, width int, height int) int {
+	sum := 0
+	sse := 0
+	for row := 0; row < height; row++ {
+		srcRow := src[row*stride:]
+		for col := 0; col < width; col++ {
+			v := int(srcRow[col])
+			sum += v
+			sse += v * v
+		}
+	}
+	pixels := width * height
+	return sse - (sum*sum)/pixels
+}
+
+func intSqrt(x int) int {
+	y := x
+	p := 1
+	for y >>= 1; y != 0; y >>= 1 {
+		p++
+	}
+	p >>= 1
+	guess := 0
+	for p >= 0 {
+		step := 1 << p
+		guess |= step
+		if x < guess*guess {
+			guess -= step
+		}
+		p--
+	}
+	if guess*guess+guess+1 <= x {
+		return guess + 1
+	}
+	return guess
+}
+
+func copyBlock(src []byte, srcStride int, dst []byte, dstStride int, width int, height int) {
+	for row := 0; row < height; row++ {
+		copy(dst[row*dstStride:row*dstStride+width], src[row*srcStride:row*srcStride+width])
+	}
+}
+
+func absInt16(v int16) int {
+	if v < 0 {
+		return -int(v)
+	}
+	return int(v)
 }
 
 func validPostProcessImage(img *common.Image) bool {

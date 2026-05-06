@@ -52,7 +52,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup with libvpx-style row-edge extension, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, default deblock/demacroblock postprocess output, optional ADDNOISE luma postprocess, and narrow frame output scaffolded |
+| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup with libvpx-style row-edge extension, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, default deblock/demacroblock postprocess output, MFQE postprocess, optional ADDNOISE luma postprocess, and narrow frame output scaffolded |
 | Token and mode parsing | tree reader, partition layout with two/four/eight token-reader row cycling, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, SAD 16x16/16x8/8x16/8x8/4x4 with bounded 16x16 early-out, variance/SSE 16x16/16x8/8x16/8x8/4x4, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
@@ -66,10 +66,9 @@ grant. This repository keeps libvpx license and patent notices in
 
 - `Decode` and `DecodeInto` can expose supported-version keyframe and
   inter-frame scaffolds with narrow error-resilient inter-frame concealment and
-  default deblock/demacroblock post-processing plus optional luma ADDNOISE using
-  deterministic Go-side noise state. Reserved VP8 versions and
-  caller-configured size/resolution limits return `ErrUnsupportedFeature`;
-  MFQE post-processing remains incomplete.
+  default deblock/demacroblock post-processing, libvpx-style MFQE, and optional
+  luma ADDNOISE using deterministic Go-side noise state. Reserved VP8 versions
+  and caller-configured size/resolution limits return `ErrUnsupportedFeature`.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes, and
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,

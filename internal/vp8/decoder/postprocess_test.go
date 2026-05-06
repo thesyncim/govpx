@@ -192,6 +192,70 @@ func TestApplyPostProcessWithOptionsAddNoiseAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestApplyPostProcessWithOptionsMFQEBlendsPreviousFrameOnQJump(t *testing.T) {
+	prev := newPostProcessFrame(t, 16, 16)
+	curr := newPostProcessFrame(t, 16, 16)
+	fillPostProcessConstant(&prev.Img, 100, 80, 90)
+	fillPostProcessConstant(&curr.Img, 103, 80, 90)
+	prev.ExtendBorders()
+	curr.ExtendBorders()
+	var dst common.FrameBuffer
+	if err := dst.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	var state PostProcessState
+	modes := postProcessModes(1, 1)
+	scratch := make([]byte, 24)
+	first := PostProcessOptions{MFQE: true, BaseQIndex: 20, CurrentFrame: 10, KeyFrame: true}
+	second := PostProcessOptions{MFQE: true, BaseQIndex: 60, CurrentFrame: 11, KeyFrame: true}
+
+	if err := ApplyPostProcessWithOptions(&prev.Img, &dst, 1, 1, modes, 0, scratch, first, &state); err != nil {
+		t.Fatalf("first ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if got := dst.Img.Y[0]; got != 100 {
+		t.Fatalf("first Y = %d, want copied previous frame", got)
+	}
+	if err := ApplyPostProcessWithOptions(&curr.Img, &dst, 1, 1, modes, 0, scratch, second, &state); err != nil {
+		t.Fatalf("second ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	got := dst.Img.Y[0]
+	if got <= 100 || got >= 103 {
+		t.Fatalf("MFQE Y = %d, want blend between previous 100 and current 103", got)
+	}
+	if state.lastBaseQIndex != 30 {
+		t.Fatalf("lastBaseQIndex = %d, want partial move to 30", state.lastBaseQIndex)
+	}
+}
+
+func TestApplyPostProcessWithOptionsMFQECopiesHighMotionInterBlock(t *testing.T) {
+	prev := newPostProcessFrame(t, 16, 16)
+	curr := newPostProcessFrame(t, 16, 16)
+	fillPostProcessConstant(&prev.Img, 100, 80, 90)
+	fillPostProcessConstant(&curr.Img, 112, 84, 94)
+	prev.ExtendBorders()
+	curr.ExtendBorders()
+	var dst common.FrameBuffer
+	if err := dst.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("Resize returned error: %v", err)
+	}
+	var state PostProcessState
+	modes := []MacroblockMode{{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 16}}}
+	scratch := make([]byte, 24)
+
+	if err := ApplyPostProcessWithOptions(&prev.Img, &dst, 1, 1, modes, 0, scratch, PostProcessOptions{MFQE: true, BaseQIndex: 20, CurrentFrame: 10}, &state); err != nil {
+		t.Fatalf("first ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if err := ApplyPostProcessWithOptions(&curr.Img, &dst, 1, 1, modes, 0, scratch, PostProcessOptions{MFQE: true, BaseQIndex: 60, CurrentFrame: 11}, &state); err != nil {
+		t.Fatalf("second ApplyPostProcessWithOptions returned error: %v", err)
+	}
+	if got := dst.Img.Y[0]; got != 112 {
+		t.Fatalf("high-motion MFQE Y = %d, want current frame copy", got)
+	}
+	if got := dst.Img.U[0]; got != 84 {
+		t.Fatalf("high-motion MFQE U = %d, want current frame copy", got)
+	}
+}
+
 func newPostProcessFrame(t testing.TB, width int, height int) *common.FrameBuffer {
 	t.Helper()
 	fb, err := common.NewFrameBuffer(width, height, 32, 32)
@@ -213,6 +277,22 @@ func fillPostProcessPattern(img *common.Image) {
 		for col := 0; col < uvWidth; col++ {
 			img.U[row*img.UStride+col] = byte(96 + ((row*5 + col*3) & 15))
 			img.V[row*img.VStride+col] = byte(144 + ((row*3 + col*5) & 15))
+		}
+	}
+}
+
+func fillPostProcessConstant(img *common.Image, y byte, u byte, v byte) {
+	for row := 0; row < img.CodedHeight; row++ {
+		for col := 0; col < img.CodedWidth; col++ {
+			img.Y[row*img.YStride+col] = y
+		}
+	}
+	uvWidth := (img.CodedWidth + 1) >> 1
+	uvHeight := (img.CodedHeight + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			img.U[row*img.UStride+col] = u
+			img.V[row*img.VStride+col] = v
 		}
 	}
 }
