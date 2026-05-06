@@ -177,6 +177,49 @@ func TestTransformMacroblockTokensAddsY1ACToY2DC(t *testing.T) {
 	}
 }
 
+func TestTransformMacroblockTokensClearsActiveResidualBlocks(t *testing.T) {
+	var tokens MacroblockTokens
+	tokens.QCoeff[0][1] = 3
+	tokens.EOB[0] = 2
+	tokens.QCoeff[16][0] = 4
+	tokens.EOB[16] = 1
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+	residual.Block(0)[1] = 99
+	residual.Block(16)[0] = -99
+
+	TransformMacroblockTokens(&tokens, &dequant, false, &residual)
+
+	if got := residual.Block(0)[1]; got != 21 {
+		t.Fatalf("Y block 0 AC = %d, want 21 without stale residual", got)
+	}
+	if got := residual.Block(16)[0]; got != 24 {
+		t.Fatalf("UV block 16 DC = %d, want 24 without stale residual", got)
+	}
+}
+
+func TestTransformMacroblockTokensY2ClearsStaleYACResidual(t *testing.T) {
+	var tokens MacroblockTokens
+	tokens.QCoeff[24][0] = 16
+	tokens.EOB[24] = 1
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+	residual.Block(0)[5] = 99
+	residual.Block(15)[7] = -44
+
+	TransformMacroblockTokens(&tokens, &dequant, false, &residual)
+
+	if got := residual.Block(0)[0]; got != 8 {
+		t.Fatalf("Y block 0 DC = %d, want 8 from Y2", got)
+	}
+	if got := residual.Block(0)[5]; got != 0 {
+		t.Fatalf("Y block 0 AC = %d, want cleared stale residual", got)
+	}
+	if got := residual.Block(15)[7]; got != 0 {
+		t.Fatalf("Y block 15 AC = %d, want cleared stale residual", got)
+	}
+}
+
 func TestTransformMacroblockTokensAllocatesZero(t *testing.T) {
 	var tokens MacroblockTokens
 	tokens.QCoeff[24][0] = 16
@@ -188,6 +231,27 @@ func TestTransformMacroblockTokensAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func BenchmarkTransformMacroblockTokensSparse(b *testing.B) {
+	var tokens MacroblockTokens
+	tokens.QCoeff[3][1] = 2
+	tokens.EOB[3] = 2
+	tokens.QCoeff[20][0] = -4
+	tokens.EOB[20] = 1
+	dequant := testMacroblockDequant()
+	var residual MacroblockResidual
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		TransformMacroblockTokens(&tokens, &dequant, true, &residual)
+	}
+	if got := residual.Block(3)[1]; got != 12 {
+		b.Fatalf("Y block 3 AC = %d, want 12", got)
+	}
+	if got := residual.Block(20)[0]; got != -24 {
+		b.Fatalf("UV block 20 DC = %d, want -24", got)
 	}
 }
 

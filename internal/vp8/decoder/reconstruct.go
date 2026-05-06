@@ -109,9 +109,8 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 }
 
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
-	clearMacroblockResidual(out)
-
 	if !is4x4 && tokens.EOB[24] > 0 {
+		clearYResidualBlocks(out)
 		var y2 [16]int16
 		if tokens.EOB[24] > 1 {
 			dsp.DequantizeBlock(&tokens.QCoeff[24], &dequant.Y2, &y2)
@@ -130,12 +129,16 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 		if tokens.EOB[i] == 0 {
 			continue
 		}
+		if is4x4 || tokens.EOB[24] == 0 {
+			clearResidualBlock(out.Block(i))
+		}
 		dequantizeInto(&tokens.QCoeff[i], yDequant, out.Block(i))
 	}
 	for i := 16; i < 24; i++ {
 		if tokens.EOB[i] == 0 {
 			continue
 		}
+		clearResidualBlock(out.Block(i))
 		dequantizeInto(&tokens.QCoeff[i], &dequant.UV, out.Block(i))
 	}
 }
@@ -666,10 +669,14 @@ func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTok
 	return true
 }
 
-func clearMacroblockResidual(out *MacroblockResidual) {
-	for i := range out.DQCoeff {
+func clearYResidualBlocks(out *MacroblockResidual) {
+	for i := 0; i < 16*16; i++ {
 		out.DQCoeff[i] = 0
 	}
+}
+
+func clearResidualBlock(block *[16]int16) {
+	*block = [16]int16{}
 }
 
 func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
