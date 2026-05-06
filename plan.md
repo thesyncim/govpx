@@ -13,7 +13,8 @@ Frozen reference: libvpx v1.16.0.
 2. No cgo in govpx.
 3. No heap allocations after initialization in hot paths:
    `Decode`, `DecodeInto`, `NextFrame`, `EncodeInto`, runtime controls,
-   `ForceKeyFrame`, `Reset`, and internal per-frame loops.
+   `ForceKeyFrame`, `Reset`, and internal per-frame loops. Normal and temporal
+   encode paths have explicit zero-allocation regression tests.
 4. Port algorithms from libvpx source, but write idiomatic Go.
 5. Every meaningful parity change lands with tests.
 6. Public APIs return stable Go errors instead of panics.

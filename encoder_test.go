@@ -2053,6 +2053,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		BufferOptimalSizeMs: 500,
 		DropFrameAllowed:    true,
 	}
+	temporal := TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
 
 	tests := []struct {
 		name string
@@ -2068,6 +2069,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetSharpness", fn: func() { _ = e.SetSharpness(3) }},
 		{name: "SetStaticThreshold", fn: func() { _ = e.SetStaticThreshold(1) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
+		{name: "SetTemporalScalability", fn: func() { _ = e.SetTemporalScalability(temporal) }},
 		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},
 		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
 		{name: "SetKeyFrameInterval", fn: func() { _ = e.SetKeyFrameInterval(120) }},
@@ -2101,6 +2103,18 @@ func TestEncodeIntoSuccessAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("EncodeInto success allocs = %v, want 0", allocs)
+	}
+}
+
+func TestEncodeIntoTemporalSuccessAllocatesZero(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	dst := make([]byte, 4096)
+	src := testImage(16, 16)
+	allocs := testing.AllocsPerRun(1000, func() {
+		_, _ = e.EncodeInto(dst, src, 0, 1, 0)
+	})
+	if allocs != 0 {
+		t.Fatalf("temporal EncodeInto success allocs = %v, want 0", allocs)
 	}
 }
 
