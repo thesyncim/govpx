@@ -38,4 +38,7 @@ reference stream, the reference block includes PSNR/SSIM too.
 Pass `-decode` to benchmark libgopx decoding on the generated IVF clip; set
 `LIBGOPX_ORACLE` or pass `-libvpx-oracle` to time the pinned libvpx checksum
 oracle on the same clip for a local reference comparison.
+`go test ./benchmarks -bench Decode -benchmem -json` runs the checked-in
+libvpx-authored smoke decode benchmarks and can capture JSON output under
+`benchmarks/baselines/`.
 `internal/coracle/build_vpxenc.sh` builds the pinned reference binary.

@@ -47,7 +47,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Public API | scaffolded |
 | Upstream manifest | scaffolded |
 | Oracle harness | optional vpxdec smoke and libvpx checksum oracle scaffolded |
-| Benchmark harness | synthetic libgopx encoder JSON benchmark scaffolded with optional external libvpx vpxenc comparison, including reference output size, latency, bitrate, and decodable PSNR/SSIM metrics |
+| Benchmark harness | synthetic libgopx encoder JSON benchmark scaffolded with optional external libvpx vpxenc comparison, including reference output size, latency, bitrate, and decodable PSNR/SSIM metrics; decoder CLI and `benchmarks/` package cover libgopx Decode/DecodeInto on the libvpx-authored smoke stream with optional libvpx checksum-oracle reference timing |
 | IVF/test vectors | IVF parser and oracle checksum parser scaffolded; normal-test VP8/IVF smoke vectors, including a libvpx-authored reference stream plus NEWMV, subpixel NEWMV, luma/chroma intra-mode keyframe, and intra-macroblock interframe coverage, checksummed against libvpx v1.16.0; opt-in external VP8 IVF conformance via `LIBGOPX_TEST_DATA_PATH` |
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
