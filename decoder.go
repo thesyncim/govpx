@@ -35,6 +35,7 @@ type VP8Decoder struct {
 	frameWidth  int
 	frameHeight int
 	current     vp8common.FrameBuffer
+	post        vp8common.FrameBuffer
 	lastRef     vp8common.FrameBuffer
 	goldenRef   vp8common.FrameBuffer
 	altRef      vp8common.FrameBuffer
@@ -60,6 +61,7 @@ type VP8Decoder struct {
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	segmentationState  vp8dec.SegmentationHeader
 	segmentMap         []uint8
+	postprocScratch    []byte
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
@@ -114,7 +116,11 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		d.frameReady = false
 		return nil
 	}
-	d.lastFrame = publicImageFromVP8(&d.current.Img)
+	output, err := d.outputFrameImage(info)
+	if err != nil {
+		return err
+	}
+	d.lastFrame = publicImageFromVP8(output)
 	d.frameReady = true
 	return nil
 }
@@ -168,7 +174,11 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if !info.ShowFrame {
 		return frameInfo, nil
 	}
-	copyVP8ImageToPublic(dst, &d.current.Img)
+	output, err := d.outputFrameImage(info)
+	if err != nil {
+		return FrameInfo{}, err
+	}
+	copyVP8ImageToPublic(dst, output)
 	return frameInfo, nil
 }
 
@@ -188,6 +198,11 @@ func (d *VP8Decoder) Reset() {
 	d.segmentationState = vp8dec.SegmentationHeader{}
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
+	d.current.Reset()
+	d.post.Reset()
+	d.lastRef.Reset()
+	d.goldenRef.Reset()
+	d.altRef.Reset()
 	d.coefProbs = vp8tables.DefaultCoefProbs
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
 	for i := range d.segmentMap {
@@ -304,6 +319,17 @@ func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo
 	return frameInfo
 }
 
+func (d *VP8Decoder) outputFrameImage(info StreamInfo) (*vp8common.Image, error) {
+	if !d.opts.PostProcess {
+		return &d.current.Img, nil
+	}
+	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
+	if err := vp8dec.ApplyPostProcess(&d.current.Img, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch); err != nil {
+		return nil, ErrInvalidData
+	}
+	return &d.post.Img, nil
+}
+
 func (d *VP8Decoder) outputDimensions(info StreamInfo) (int, int) {
 	if info.KeyFrame {
 		return info.Width, info.Height
@@ -319,6 +345,9 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 		return nil
 	}
 	if err := d.current.Resize(info.Width, info.Height, 32, 32); err != nil {
+		return ErrInvalidData
+	}
+	if err := d.post.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
 	}
 	if err := d.lastRef.Resize(info.Width, info.Height, 32, 32); err != nil {
@@ -539,6 +568,12 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 		d.segmentMap = make([]uint8, count)
 	} else {
 		d.segmentMap = d.segmentMap[:count]
+	}
+	scratchLen := cols * 24
+	if cap(d.postprocScratch) < scratchLen {
+		d.postprocScratch = make([]byte, scratchLen)
+	} else {
+		d.postprocScratch = d.postprocScratch[:scratchLen]
 	}
 	d.mbRows = rows
 	d.mbCols = cols

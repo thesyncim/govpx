@@ -94,6 +94,54 @@ func TestDecodeOutputsLoopFilteredKeyFrame(t *testing.T) {
 	}
 }
 
+func TestDecodePostProcessOutputsPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode error = %v, want nil", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no frame")
+	}
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.current.Img.Y) == 0 {
+		t.Fatalf("decoded frame buffers are empty")
+	}
+	if &frame.Y[0] != &d.post.Img.Y[0] {
+		t.Fatalf("NextFrame did not return decoder postprocess buffer")
+	}
+	if &frame.Y[0] == &d.current.Img.Y[0] {
+		t.Fatalf("postprocessed output aliases reconstruction buffer")
+	}
+}
+
+func TestDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{PostProcess: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := newTestImage(16, 16)
+	packet := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithLoopFilterLevel(63))
+
+	info, err := d.DecodeInto(packet, &dst)
+	if err != nil {
+		t.Fatalf("DecodeInto error = %v, want nil", err)
+	}
+	if !info.ShowFrame || info.Width != 16 || info.Height != 16 {
+		t.Fatalf("FrameInfo = %+v, want visible 16x16 frame", info)
+	}
+	if !publicImageEqualVP8(dst, &d.post.Img) {
+		t.Fatalf("DecodeInto output does not match decoder postprocess buffer")
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("DecodeInto queued a frame for NextFrame")
+	}
+}
+
 func TestDecodeOutputsSupportedVersionKeyFrames(t *testing.T) {
 	for _, version := range []int{1, 2, 3} {
 		d, err := NewVP8Decoder(DecoderOptions{})
@@ -655,6 +703,28 @@ func newTestImage(width int, height int) Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
+}
+
+func publicImageEqualVP8(got Image, want *vp8common.Image) bool {
+	if want == nil || got.Width != want.Width || got.Height != want.Height {
+		return false
+	}
+	uvWidth := (want.Width + 1) >> 1
+	uvHeight := (want.Height + 1) >> 1
+	return planeEqual(got.Y, got.YStride, want.Y, want.YStride, want.Width, want.Height) &&
+		planeEqual(got.U, got.UStride, want.U, want.UStride, uvWidth, uvHeight) &&
+		planeEqual(got.V, got.VStride, want.V, want.VStride, uvWidth, uvHeight)
+}
+
+func planeEqual(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			if a[row*aStride+col] != b[row*bStride+col] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func TestDecodeParsesKeyFrameModeGrid(t *testing.T) {

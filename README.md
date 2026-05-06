@@ -11,8 +11,9 @@ last/golden/altref reference selection, near-MV reuse, exhaustive full-pixel and
 even-subpixel search, reference refresh control, invisible-frame handling,
 libvpx-style RD costs for intra analysis, plus opt-in reconstructed-frame loop
 filtering. Decoder paths include libvpx-authored smoke vectors, generated
-libvpx corpus checks, and narrow error-resilient inter-frame concealment, but
-production conformance is not complete yet.
+libvpx corpus checks, narrow error-resilient inter-frame concealment, and the
+default deblock/demacroblock postprocess output path, but production
+conformance is not complete yet.
 
 Out of scope:
 
