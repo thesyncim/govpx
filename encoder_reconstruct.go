@@ -118,7 +118,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 					return ErrInvalidConfig
 				}
 			} else {
-				modes[index] = vp8enc.InterFrameMotionModeForVector(ref.Frame, mv, above, left, aboveLeft)
+				modes[index] = vp8enc.InterFrameMotionModeForVectorAt(ref.Frame, mv, above, left, aboveLeft, row, col, rows, cols)
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true

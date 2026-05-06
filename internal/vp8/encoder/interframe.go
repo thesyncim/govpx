@@ -294,14 +294,14 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if !validInterFrameMacroblockMode(mode, above, left, aboveLeft) {
+			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols) {
 				return ErrInvalidPacketConfig
 			}
 			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame), mode.Mode) {
 				return ErrInvalidPacketConfig
 			}
 			if mode.Mode == common.NewMV {
-				best := interBestMotionVector(above, left, aboveLeft, refFrame)
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := WriteMotionVector(w, &tables.DefaultMVContext, delta); err != nil {
 					return err
@@ -389,11 +389,21 @@ func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacr
 	return best
 }
 
+func interBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
+	return clampInterMotionVectorToModeEdges(interBestMotionVector(above, left, aboveLeft, refFrame), mbRow, mbCol, mbRows, mbCols)
+}
+
 func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
+	return InterFrameMotionModeForVectorAt(refFrame, mv, above, left, aboveLeft, 0, 0, 1, 1)
+}
+
+func InterFrameMotionModeForVectorAt(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) InterFrameMacroblockMode {
 	if mv.IsZero() {
 		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.ZeroMV}
 	}
 	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
+	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	switch mv {
 	case nearest:
 		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.NearestMV, MV: mv}
@@ -466,6 +476,10 @@ func (mv MotionVector) IsZero() bool {
 }
 
 func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) bool {
+	return validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, 0, 0, 1, 1)
+}
+
+func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) bool {
 	if mode == nil {
 		return false
 	}
@@ -477,6 +491,8 @@ func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterF
 		return false
 	}
 	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
+	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	switch mode.Mode {
 	case common.ZeroMV:
 		return mode.MV.IsZero()
@@ -489,6 +505,30 @@ func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterF
 	default:
 		return false
 	}
+}
+
+func clampInterMotionVectorToModeEdges(mv MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
+	if mbRows <= 0 || mbCols <= 0 {
+		return mv
+	}
+	top := -(mbRow * 16) << 3
+	bottom := (mbRows - 1 - mbRow) * 16 << 3
+	left := -(mbCol * 16) << 3
+	right := (mbCols - 1 - mbCol) * 16 << 3
+	return MotionVector{
+		Row: int16(clampInterModeMVComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampInterModeMVComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampInterModeMVComponent(v int, lowEdge int, highEdge int) int {
+	if v < lowEdge-(16<<3) {
+		return lowEdge - (16 << 3)
+	}
+	if v > highEdge+(16<<3) {
+		return highEdge + (16 << 3)
+	}
+	return v
 }
 
 func interFrameReference(mode *InterFrameMacroblockMode) common.MVReferenceFrame {
