@@ -156,7 +156,7 @@ segment-aware decisions.
 Remaining work:
 
 - Complete exact libvpx cyclic/background refresh segmentation policy; rotating
-  cyclic-refresh-style segment maps exist.
+  cyclic-refresh-style segment maps exist with libvpx temporal-layer MB cadence.
 - Make quantizer selection segment-aware.
 - Implement libvpx CBR feedback more completely.
 - Complete exact libvpx constrained-quality bitrate behavior for

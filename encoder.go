@@ -437,7 +437,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	var err error
 	if segmentation.Enabled {
-		assignInterFrameStaticSegments(rows, cols, e.cyclicRefreshIndex, e.interFrameModes[:required])
+		assignInterFrameStaticSegments(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.interFrameModes[:required])
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)

@@ -50,8 +50,7 @@ func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMac
 	}
 }
 
-func assignInterFrameStaticSegments(rows int, cols int, start int, modes []vp8enc.InterFrameMacroblockMode) {
-	refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
+func assignInterFrameStaticSegments(rows int, cols int, start int, refreshCount int, modes []vp8enc.InterFrameMacroblockMode) {
 	count := rows * cols
 	if count <= 0 {
 		return
@@ -77,12 +76,32 @@ func (e *VP8Encoder) advanceCyclicRefresh(rows int, cols int) {
 		e.cyclicRefreshIndex = 0
 		return
 	}
-	e.cyclicRefreshIndex = (e.cyclicRefreshIndex + cyclicRefreshMaxMBsPerFrame(rows, cols)) % count
+	e.cyclicRefreshIndex = (e.cyclicRefreshIndex + e.cyclicRefreshMaxMBsPerFrame(rows, cols)) % count
+}
+
+func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
+	layers := 1
+	if e != nil && e.temporal.enabled {
+		layers = e.temporal.pattern.Layers
+	}
+	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, layers)
 }
 
 func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
+	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, 1)
+}
+
+func cyclicRefreshMaxMBsPerFrameForLayers(rows int, cols int, layers int) int {
 	if rows <= 0 || cols <= 0 {
 		return 0
 	}
-	return (rows * cols) / 20
+	count := rows * cols
+	switch layers {
+	case 1:
+		return count / 20
+	case 2:
+		return count / 10
+	default:
+		return count / 7
+	}
 }

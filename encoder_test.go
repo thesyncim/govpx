@@ -570,8 +570,9 @@ func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
 
 func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
 	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
+	refreshCount := cyclicRefreshMaxMBsPerFrameForLayers(4, 10, 1)
 
-	assignInterFrameStaticSegments(4, 10, 0, modes)
+	assignInterFrameStaticSegments(4, 10, 0, refreshCount, modes)
 
 	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID {
 		t.Fatalf("first cyclic segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[1].SegmentID)
@@ -580,7 +581,7 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
 		t.Fatalf("later cyclic segment IDs = %d/%d, want zero", modes[2].SegmentID, modes[len(modes)-1].SegmentID)
 	}
 
-	assignInterFrameStaticSegments(4, 10, 2, modes)
+	assignInterFrameStaticSegments(4, 10, 2, refreshCount, modes)
 	if modes[0].SegmentID != 0 || modes[1].SegmentID != 0 {
 		t.Fatalf("previous cyclic segment IDs = %d/%d, want cleared", modes[0].SegmentID, modes[1].SegmentID)
 	}
@@ -588,12 +589,24 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
 		t.Fatalf("rotated cyclic segment IDs = %d/%d, want refreshed", modes[2].SegmentID, modes[3].SegmentID)
 	}
 
-	assignInterFrameStaticSegments(4, 10, 39, modes)
+	assignInterFrameStaticSegments(4, 10, 39, refreshCount, modes)
 	if modes[39].SegmentID != staticSegmentID || modes[0].SegmentID != staticSegmentID {
 		t.Fatalf("wrapped cyclic segment IDs = %d/%d, want refreshed", modes[39].SegmentID, modes[0].SegmentID)
 	}
 	if modes[1].SegmentID != 0 || modes[38].SegmentID != 0 {
 		t.Fatalf("wrapped neighbor segment IDs = %d/%d, want zero", modes[1].SegmentID, modes[38].SegmentID)
+	}
+}
+
+func TestCyclicRefreshMaxMBsPerFrameMirrorsLibvpxLayerCadence(t *testing.T) {
+	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 1); got != 3 {
+		t.Fatalf("one-layer cyclic refresh MBs = %d, want libvpx MBs/20", got)
+	}
+	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 2); got != 6 {
+		t.Fatalf("two-layer cyclic refresh MBs = %d, want libvpx MBs/10", got)
+	}
+	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 3); got != 9 {
+		t.Fatalf("three-layer cyclic refresh MBs = %d, want libvpx MBs/7", got)
 	}
 }
 
