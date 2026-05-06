@@ -174,7 +174,8 @@ Remaining work:
 - Finish remaining one-pass CBR/golden-frame correction-factor branching; initial
   bits-per-macroblock quantizer regulation, libvpx frame-size bounds, and
   libvpx-style buffer-fullness target scaling, rolling bit monitors,
-  non-show-frame overhead accounting, and bounded feedback exist.
+  non-show-frame overhead accounting, negative CBR buffer-debt/drop threshold
+  handling, and bounded feedback exist.
 - Complete fixed-Q/two-pass keyframe target branches if those modes become
   production requirements; one-pass first and later keyframe target sizing now
   mirrors libvpx's buffer, framerate, Q-adjustment, and separation rules.

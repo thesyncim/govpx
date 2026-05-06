@@ -836,7 +836,7 @@ func TestEncodeIntoStaticThresholdSkipsTemporalEnhancementLayerSegmentation(t *t
 	}
 }
 
-func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
+func TestEncodeIntoDropsInterFrameWhenBufferUnderrunAndAllowed(t *testing.T) {
 	e := newLowBitrateDropTestEncoder(t, true)
 	src := testImage(16, 16)
 	fillImage(src, 180, 90, 170)
@@ -849,7 +849,7 @@ func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	if !key.KeyFrame || key.Dropped {
 		t.Fatalf("key result = key:%t dropped:%t, want encoded keyframe", key.KeyFrame, key.Dropped)
 	}
-	e.rc.bufferLevelBits = 0
+	e.rc.bufferLevelBits = -1
 	drainedBuffer := e.rc.bufferLevelBits
 
 	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
@@ -859,8 +859,8 @@ func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
 	if !inter.Dropped || inter.KeyFrame || len(inter.Data) != 0 || inter.SizeBytes != 0 {
 		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped interframe", inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
 	}
-	if inter.BufferLevelBits <= drainedBuffer {
-		t.Fatalf("buffer after drop = %d, want above drained buffer %d", inter.BufferLevelBits, drainedBuffer)
+	if inter.BufferLevelBits != drainedBuffer+e.rc.bitsPerFrame {
+		t.Fatalf("buffer after drop = %d, want libvpx underrun recovery %d", inter.BufferLevelBits, drainedBuffer+e.rc.bitsPerFrame)
 	}
 }
 
@@ -2091,7 +2091,7 @@ func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	layer0Buffer := temporalTestBufferAfterFrame(288000, 48000, 432000, keyBits)
 	layer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, keyBits)
 
-	e.rc.bufferLevelBits = 0
+	e.rc.bufferLevelBits = -1
 	dropped, err := e.EncodeInto(dst, src, 1, 1, 0)
 	if err != nil {
 		t.Fatalf("dropped EncodeInto returned error: %v", err)

@@ -323,6 +323,43 @@ func TestRateControlPostDropFrameDoesNotUpdateLibvpxRollingBitAverages(t *testin
 	}
 }
 
+func TestRateControlPostEncodeCarriesLibvpxNegativeBufferDebt(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		frameTargetBits:   1000,
+		bufferLevelBits:   500,
+		maximumBufferBits: 6000,
+	}
+
+	rc.postEncodeFrameWithContext(375, false, false, 0)
+
+	if rc.bufferLevelBits != -1500 {
+		t.Fatalf("buffer debt = %d, want libvpx bits_off_target -1500", rc.bufferLevelBits)
+	}
+}
+
+func TestRateControlDropsOnlyOnLibvpxBufferUnderrun(t *testing.T) {
+	rc := rateControlState{
+		mode:             RateControlCBR,
+		dropFrameAllowed: true,
+		bitsPerFrame:     1000,
+		frameTargetBits:  1000,
+	}
+
+	rc.bufferLevelBits = 0
+	if rc.shouldDropInterFrame() {
+		t.Fatalf("drop at zero buffer = true, want false until libvpx buffer underrun")
+	}
+	rc.bufferLevelBits = -1
+	if !rc.shouldDropInterFrame() {
+		t.Fatalf("drop at negative buffer = false, want true")
+	}
+}
+
 func TestRateControlInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,

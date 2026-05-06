@@ -348,9 +348,6 @@ func (rc *rateControlState) clampBuffer() {
 	if rc.bufferLevelBits > rc.maximumBufferBits {
 		rc.bufferLevelBits = rc.maximumBufferBits
 	}
-	if rc.bufferLevelBits < 0 {
-		rc.bufferLevelBits = 0
-	}
 }
 
 func (rc *rateControlState) clampQuantizer() {
@@ -504,14 +501,7 @@ func (rc *rateControlState) shouldDropInterFrame() bool {
 	if !rc.dropFrameAllowed || rc.mode != RateControlCBR {
 		return false
 	}
-	targetBits := rc.frameTargetBits
-	if targetBits <= 0 {
-		targetBits = rc.bitsPerFrame
-	}
-	if targetBits < rc.bitsPerFrame {
-		targetBits = rc.bitsPerFrame
-	}
-	return targetBits > 0 && rc.bufferLevelBits <= targetBits
+	return rc.bufferLevelBits < 0
 }
 
 func (rc *rateControlState) postDropFrame() {
