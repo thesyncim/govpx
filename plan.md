@@ -136,8 +136,9 @@ High-priority gaps:
   inter-mode/MV/token bit costs exist for current scalar analysis paths.
 - Finish exact libvpx inter candidate pruning/costing; explicit ZEROMV,
   NEARESTMV, NEARMV, NEWMV, and SPLITMV RD candidates exist.
-- NEWMV refinement using libvpx motion-search strategy, not local heuristics.
-- Half/quarter-pel refinement with subpixel variance.
+- Finish exact libvpx NEWMV search/pruning strategy; exhaustive full-pixel
+  search plus libvpx-style iterative half/quarter-pel subpixel variance
+  refinement already exists.
 - Remaining SPLITMV libvpx RD/mode-cost parity and oracle coverage.
 - Exact libvpx loop-filter level search; default-on filtering now uses the
   libvpx base-q initial level and keyframe sharpness reset.
