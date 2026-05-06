@@ -33,4 +33,6 @@ can cap the number of IVF files.
 `go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
 prints JSON metrics for CI/local tracking. Set `LIBGOPX_VPXENC` or pass
 `-libvpx-vpxenc` to include an optional libvpx `vpxenc` reference comparison;
-`internal/coracle/build_vpxenc.sh` builds the pinned reference binary.
+when libgopx can decode the reference stream, the reference block includes
+PSNR/SSIM too. `internal/coracle/build_vpxenc.sh` builds the pinned reference
+binary.

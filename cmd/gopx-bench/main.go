@@ -61,6 +61,10 @@ type referenceReport struct {
 	BitrateErrorPct   float64       `json:"bitrate_error_pct"`
 	NSPerFrame        int64         `json:"ns_per_frame"`
 	EncodeFPS         float64       `json:"encode_fps"`
+	PSNR              float64       `json:"psnr"`
+	SSIM              float64       `json:"ssim"`
+	QualityFrames     int           `json:"quality_frames"`
+	QualityError      string        `json:"quality_error,omitempty"`
 	KeyframeBytes     int           `json:"keyframe_bytes"`
 	AvgInterBytes     float64       `json:"avg_interframe_bytes"`
 	LatencyNS         latencyReport `json:"latency_ns"`
@@ -392,6 +396,11 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 	if len(sizes) > 1 {
 		avgInter = float64(interBytes) / float64(len(sizes)-1)
 	}
+	psnr, ssim, qualityFrames, qualityErr := referenceQualityMetrics(ivf, frames)
+	qualityError := ""
+	if qualityErr != nil {
+		qualityError = qualityErr.Error()
+	}
 	return referenceReport{
 		Encoder:           "libvpx-vp8",
 		Mode:              deadlineName,
@@ -399,6 +408,10 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        nsPerFrame,
 		EncodeFPS:         1e9 / float64(nsPerFrame),
+		PSNR:              psnr,
+		SSIM:              ssim,
+		QualityFrames:     qualityFrames,
+		QualityError:      qualityError,
 		KeyframeBytes:     keyframeBytes,
 		AvgInterBytes:     avgInter,
 		LatencyNS: latencyReport{
@@ -409,6 +422,63 @@ func runLibvpxBenchmark(cfg benchConfig, frames []libgopx.Image, deadlineName st
 		OutputBytes:   outputBytes,
 		EncodedFrames: len(sizes),
 	}, nil
+}
+
+func referenceQualityMetrics(ivf []byte, frames []libgopx.Image) (float64, float64, int, error) {
+	dec, err := libgopx.NewVP8Decoder(libgopx.DecoderOptions{})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	const (
+		fileHeaderSize  = 32
+		frameHeaderSize = 12
+	)
+	if len(ivf) < fileHeaderSize || string(ivf[:4]) != "DKIF" {
+		return 0, 0, 0, errors.New("invalid IVF header")
+	}
+	offset := fileHeaderSize
+	psnrSum := 0.0
+	ssimSum := 0.0
+	qualityFrames := 0
+	for frameIndex := 0; offset < len(ivf); frameIndex++ {
+		if offset+frameHeaderSize > len(ivf) {
+			return 0, 0, qualityFrames, errors.New("truncated IVF frame header")
+		}
+		size := int(binary.LittleEndian.Uint32(ivf[offset:]))
+		timestamp := binary.LittleEndian.Uint64(ivf[offset+4:])
+		offset += frameHeaderSize
+		if size < 0 || offset+size > len(ivf) {
+			return 0, 0, qualityFrames, errors.New("truncated IVF frame payload")
+		}
+		packet := ivf[offset : offset+size]
+		offset += size
+		if err := dec.Decode(packet); err != nil {
+			return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, fmt.Errorf("decode reference frame %d: %w", frameIndex, err))
+		}
+		decoded, ok := dec.NextFrame()
+		if !ok {
+			continue
+		}
+		sourceIndex := frameIndex
+		if timestamp < uint64(len(frames)) {
+			sourceIndex = int(timestamp)
+		}
+		if sourceIndex >= len(frames) {
+			continue
+		}
+		source := frames[sourceIndex]
+		psnrSum += imagePSNR(source, decoded)
+		ssimSum += imageSSIM(source, decoded)
+		qualityFrames++
+	}
+	return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, nil)
+}
+
+func averageReferenceQuality(psnrSum float64, ssimSum float64, count int, err error) (float64, float64, int, error) {
+	if count == 0 {
+		return 0, 0, 0, err
+	}
+	return psnrSum / float64(count), ssimSum / float64(count), count, err
 }
 
 func writeI420Frame(dst *os.File, frame libgopx.Image) error {
