@@ -58,6 +58,11 @@ func TestSupportedProfileSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	}
 }
 
+func TestLoopFilterSharpnessSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFLoopFilterSharpness(t, libvpxSharpness7IVFHex, vp8common.InterFrame, 7)
+	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSharpness7IVFHex, libvpxSharpness7Checksums[:])
+}
+
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxNewMVIVFHex, libvpxNewMVChecksums[:])
 }
@@ -168,6 +173,45 @@ func assertSmokeIVFProfile(t *testing.T, ivfHex string, want int) {
 			t.Fatalf("frame %d profile = %d, want %d", i, info.Profile, want)
 		}
 		offset = next
+	}
+}
+
+func assertSmokeIVFLoopFilterSharpness(t *testing.T, ivfHex string, frameType vp8common.FrameType, want uint8) {
+	t.Helper()
+	ivf := mustDecodeHex(t, ivfHex)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	var matched bool
+	for i := 0; offset < len(ivf); i++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		info, err := PeekVP8StreamInfo(frame.Data)
+		if err != nil {
+			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", i, err)
+		}
+		if err := d.Decode(frame.Data); err != nil {
+			t.Fatalf("Decode frame %d returned error: %v", i, err)
+		}
+		if (info.KeyFrame && frameType != vp8common.KeyFrame) || (!info.KeyFrame && frameType != vp8common.InterFrame) {
+			offset = next
+			continue
+		}
+		matched = true
+		if got := d.state.LoopFilter.SharpnessLevel; got != want {
+			t.Fatalf("frame %d sharpness = %d, want %d", i, got, want)
+		}
+		offset = next
+	}
+	if !matched {
+		t.Fatalf("IVF has no frame type %d to check sharpness %d", frameType, want)
 	}
 }
 
@@ -559,6 +603,52 @@ var libvpxProfile3Checksums = [...]testutil.FrameChecksum{
 			"c2f94143306052e11f5943ce20a1cb0d",
 			"ad094a02c4633e1280ca37fea5702871",
 			"c9edf89b38c6d6213d12b33ab343ea7b",
+		),
+	},
+}
+
+// Generated with libvpx v1.16.0 vpxenc --sharpness=7 and verified with the
+// libvpx v1.16.0 checksum oracle in internal/coracle.
+const libvpxSharpness7IVFHex = "444b4946000020005650383020002000e8030000010000000300000000000000360200000000000000000000100e009d012a2000200000c7088585888584880c820275ba24c1bed7c677ad1de2c907e58bf25f657f5673c0f981fd01fd80f792e88cfe03d603e803e595fb57f051fe77fdf7ea4fb3d5605642b8731069e87bb46645fee3b0d7a107ea4fb61b1e4224dc6f78f88c683f39d895f11e309ea0f5e7f3104bc52000fefd6e60365fae3bfa713577fc000dea7323075ac92eade10d0d7dc353fdbbbaf647041544cc2314bf909ae0119a768b157a57995e7bffa71760d7f3427039eae897ca2fa90d6bffea8ac39d80bcfd9d0ecb5a46dcff125fb29f37f4473f01ba4eaab4acd0fc23f8d223cc91340baf5a1fa957fa783da4209a6b3336d374c9c59992de10d0e5c862223ef33edddd85106f6c89ed8d59fab44b939d5ac2a4e329fa66b05a93499fb807a29b9858f971a673dc0011be375149d28f9747245d3aa856fc55caf79331557ba45920c0daea7c90a9a8e0bebf33844660a9faca7b933ae126a219f6bd8fd989bd50b74bf8c563593b3f93773e0d96e69df6a7fbc4fe0432bf218b950a16bfabccc6cf580b193d7d14ffafc0c04bde5cbc4f004b7b84d3b7ba242bedd6ea49e3346fa01765a1e64720d2a758451de65f9bdf1e3fee65773b2245bf2fa4b12e645330ea5fb97ffa20355a9403602fb437e3800a87b367fe093e7f94e4d15c44bca53ebef338ac247b0c4e760f07caa0eb5a3f2b3d80bf80580d3d4d357e1ac032f80052869624c2e8a075ae6a14cad103cb6366afcd0c6d617e7c86b3febc8c8c2a56587886bc250a5b4d4cdd7ff6d7d650f000fb000000210000000000000091050003f06400180530d781b723e5358dc5ebfe38a3f871e145ae562d774b2d5630cbb104f95b12d4c8c2e971e4e0b000e3fae0fcc3c36544b6cee9b3ee28d68393d22c8e3dadce76d0d864fabaebea2272ac1ed6e9dba2ee385b7ea7522d41b447501ff3f2bcdf5086229f7898a7a5966c79e55ffcfa22ad5c96d4103f0343960315cf04a9e87d0de9fa8dcfc8d5643226296a5659b09d8bcfe7c03dc4ff6eecb4edc2f1bb95b1331a33356d0f2529f62931d63b4e9fe78c02e99d4006cf5289616b773099f4d1083eb6b68f30563be5df1f167e5d5ae5536e5a36b66e5d74b9aaecf238f250bb763f4e6f54fb70c9df6e59a90c862800039000f20000004200000000000000d1020003f06400180677e8b0a8afd403d50d68378477cab600bcc5800f6261ebf6302c13602dcc84b7731ad1a44eef5858c338609c5063b6843819fca539eed25785ba59dd2d1e47774f263d6883f35d085fe1e3f49d0c939b25373d62e21a63f3f58a7db399c90c207089c92c58aaac3379bff87ce7997d7cecc88397975902d82cc14df898e6c7e3efde5fc89fd33c076d3c9a98722dd58aa6b096e17439926223c770185f30d7224df951cfeda68e9562789524b7b7d49e9a2d3540f94850504c2b65987af1811aa01e5410b29bfe43f8c57b2060e69e00bbf9d23a5982f689610eaf5df6818416bb5d4b17705520d000"
+
+var libvpxSharpness7Checksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"bb79ef3d12ed9575939fe4cc88a7d9ac",
+			"94490fdfb02e3d91c37abcb5eb009891",
+			"9016fe38506a5e2a8d4180f9302a3b92",
+			"eea937bf8fd1c4398130e3be1b0071e6",
+		),
+	},
+	{
+		Index:     1,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"164fae1ee199b1e445e92c0bebee3f58",
+			"4c757e72901142a18056553dca2edb44",
+			"14f22b6bee5f47fd2d3e36df281e018b",
+			"2af1619374cf372bae0fc34d3f38ac0e",
+		),
+	},
+	{
+		Index:     2,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"2ae01d43db44f3c8a369a1530431f0f6",
+			"e666c4f52e29330b07df6ab7f9d0b807",
+			"f02a75aed0d945c31677c4d8c0f4990d",
+			"51761ea93c0865930cdbac4cdd8f69ed",
 		),
 	},
 }
