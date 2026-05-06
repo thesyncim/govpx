@@ -117,6 +117,10 @@ func TestLoopFilterSharpnessSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSharpness7IVFHex, libvpxSharpness7Checksums[:])
 }
 
+func TestErrorResilientSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxErrorResilientIVFHex, libvpxErrorResilientChecksums[:])
+}
+
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libgopxNewMVIVFHex, libgopxNewMVChecksums[:])
 }
@@ -246,6 +250,7 @@ func libvpxAuthoredSmokeCases() []smokeCase {
 		{name: "profile2", ivfHex: libvpxProfile2IVFHex, checksums: libvpxProfile2Checksums[:]},
 		{name: "profile3", ivfHex: libvpxProfile3IVFHex, checksums: libvpxProfile3Checksums[:]},
 		{name: "sharpness7", ivfHex: libvpxSharpness7IVFHex, checksums: libvpxSharpness7Checksums[:]},
+		{name: "error-resilient", ivfHex: libvpxErrorResilientIVFHex, checksums: libvpxErrorResilientChecksums[:]},
 	}
 }
 
