@@ -1341,6 +1341,46 @@ func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeErrorConcealmentAllocatesZero(t *testing.T) {
+	packet := vp8InterFramePacket(0, 0, true)
+	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	decode, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := decode.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := decode.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = decode.Decode(packet)
+		_, _ = decode.NextFrame()
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode concealment allocs = %v, want 0", allocs)
+	}
+
+	decodeInto, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := decodeInto.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := decodeInto.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	dst := newTestImage(16, 16)
+	allocs = testing.AllocsPerRun(1000, func() {
+		_, _ = decodeInto.DecodeInto(packet, &dst)
+	})
+	if allocs != 0 {
+		t.Fatalf("DecodeInto concealment allocs = %v, want 0", allocs)
+	}
+}
+
 func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true, PostProcess: true})
 	if err != nil {
