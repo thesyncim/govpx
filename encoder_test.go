@@ -2173,6 +2173,31 @@ func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoInvisibleTemporalFrameUsesLibvpxLayerOverheadAccounting(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	result, err := e.EncodeInto(dst, src, 0, 1, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("invisible temporal EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame || result.TemporalLayerID != 0 {
+		t.Fatalf("result = key:%t layer:%d, want invisible base keyframe", result.KeyFrame, result.TemporalLayerID)
+	}
+	bits := encodedSizeBits(result.SizeBytes)
+	wantLayer0Buffer := 288000 - bits
+	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, bits)
+
+	if result.TemporalLayerBufferLevelBits != wantLayer0Buffer || e.temporal.accounting[0].BufferLevelBits != wantLayer0Buffer {
+		t.Fatalf("layer0 invisible buffer = result:%d accounting:%d, want %d", result.TemporalLayerBufferLevelBits, e.temporal.accounting[0].BufferLevelBits, wantLayer0Buffer)
+	}
+	if e.temporal.accounting[1].BufferLevelBits != wantLayer1Buffer {
+		t.Fatalf("layer1 invisible propagated buffer = %d, want %d", e.temporal.accounting[1].BufferLevelBits, wantLayer1Buffer)
+	}
+}
+
 func temporalTestBufferAfterFrame(level int, frameBandwidth int, maximum int, encodedBits int) int {
 	level = saturatingAdd(level, frameBandwidth)
 	level = saturatingSub(level, encodedBits)

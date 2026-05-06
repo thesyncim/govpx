@@ -317,7 +317,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
 		}
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
-		e.temporal.finishFrame(temporalFrame, false, temporalReferenceRefresh{
+		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
 			AltRef: attempt.Config.RefreshAltRef,
@@ -341,7 +341,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
 	e.lastInterZeroMVCount = 0
-	e.temporal.finishFrame(temporalFrame, true, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
+	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.frameCount++
 	return result, nil

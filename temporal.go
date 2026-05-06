@@ -166,11 +166,11 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	return meta
 }
 
-func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
+func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
 	if !t.enabled {
 		return
 	}
-	t.accountEncodedFrame(meta, keyFrame, encodedBits, buffers)
+	t.accountEncodedFrame(meta, keyFrame, showFrame, encodedBits, buffers)
 	if keyFrame {
 		t.refLayer = [temporalReferenceCount]int{}
 	} else {
@@ -200,7 +200,7 @@ func (t *temporalState) finishDroppedFrame(meta temporalFrame, buffers temporalB
 	}
 }
 
-func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, encodedBits int, buffers temporalBufferConfig) {
+func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, showFrame bool, encodedBits int, buffers temporalBufferConfig) {
 	t.updateLayerBufferConfig(buffers)
 	t.accountInputFrame(meta)
 	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
@@ -210,7 +210,7 @@ func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, e
 		accounting := &t.accounting[layer]
 		accounting.TotalEncodedFrames++
 		accounting.EncodedBits = saturatingAdd(accounting.EncodedBits, encodedBits)
-		t.updateLayerBuffer(accounting, encodedBits)
+		t.updateLayerBuffer(accounting, encodedBits, showFrame || layer > meta.LayerID)
 	}
 	if !keyFrame {
 		t.accounting[meta.LayerID].EncodedFrames++
@@ -229,7 +229,7 @@ func (t *temporalState) accountDroppedFrameBuffer(meta temporalFrame) {
 		return
 	}
 	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
-		t.updateLayerBuffer(&t.accounting[layer], 0)
+		t.updateLayerBuffer(&t.accounting[layer], 0, true)
 	}
 }
 
@@ -250,8 +250,10 @@ func (t *temporalState) updateLayerBufferConfig(cfg temporalBufferConfig) {
 	t.buffersSet = true
 }
 
-func (t *temporalState) updateLayerBuffer(accounting *temporalLayerAccounting, encodedBits int) {
-	accounting.BufferLevelBits = saturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
+func (t *temporalState) updateLayerBuffer(accounting *temporalLayerAccounting, encodedBits int, showFrame bool) {
+	if showFrame {
+		accounting.BufferLevelBits = saturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
+	}
 	accounting.BufferLevelBits = saturatingSub(accounting.BufferLevelBits, encodedBits)
 	if accounting.BufferLevelBits > accounting.MaximumBufferBits {
 		accounting.BufferLevelBits = accounting.MaximumBufferBits
