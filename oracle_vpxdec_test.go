@@ -117,6 +117,50 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoKeyFrame(t *testing.T) {
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newSizedTestEncoder(t, 16, 32)
+	src := testImage(16, 32)
+	fillImage(src, 0, 90, 170)
+	for row := 0; row < src.Height; row++ {
+		for col := 0; col < src.Width; col++ {
+			src.Y[row*src.YStride+col] = byte(32 + col*7)
+		}
+	}
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			src.U[row*src.UStride+col] = byte(50 + col*9)
+			src.V[row*src.VStride+col] = byte(160 - col*5)
+		}
+	}
+
+	packet := make([]byte, 8192)
+	result, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if e.keyFrameModes[1].YMode != vp8common.BPred || e.keyFrameModes[1].UVMode != vp8common.VPred {
+		t.Fatalf("key mode[1] = %+v, want B_PRED/V_PRED", e.keyFrameModes[1])
+	}
+
+	ivf := makeSingleFrameIVF(16, 32, 30, 1, result.Data)
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != 1 {
+		t.Fatalf("oracle frame count = %d, want 1", len(oracleFrames))
+	}
+	decoded := decodeSingleFrame(t, result.Data)
+	want := checksumFrame(0, true, true, decoded)
+	if !testutil.SameFrameChecksum(oracleFrames[0], want) {
+		t.Fatalf("checksum mismatch\nlibvpx:  %s\nlibgopx: %s", formatChecksum(oracleFrames[0]), formatChecksum(want))
+	}
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
@@ -155,6 +199,54 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want[i]))
 		}
 	}
+}
+
+func TestOracleLibvpxChecksumMatchesEncodeIntoBPredIntraInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newSizedTestEncoder(t, 16, 32)
+	first := testImage(16, 32)
+	second := testImage(16, 32)
+	fillImage(first, 0, 90, 170)
+	fillImage(second, 0, 90, 170)
+	for row := 0; row < second.Height; row++ {
+		for col := 0; col < second.Width; col++ {
+			second.Y[row*second.YStride+col] = byte(40 + col*6)
+		}
+	}
+	uvWidth := (second.Width + 1) >> 1
+	uvHeight := (second.Height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			second.U[row*second.UStride+col] = byte(60 + col*8)
+			second.V[row*second.VStride+col] = byte(150 - col*4)
+		}
+	}
+
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred || e.interFrameModes[1].UVMode != vp8common.VPred {
+		t.Fatalf("inter mode[1] = %+v, want intra B_PRED/V_PRED", e.interFrameModes[1])
+	}
+
+	ivf := makeIVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	got := decodeIVFChecksums(t, ivf)
+	assertFrameChecksumsEqual(t, "B_PRED intra interframe", got, oracleFrames)
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
