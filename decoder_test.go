@@ -6,6 +6,7 @@ import (
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
@@ -212,6 +213,68 @@ func TestDecodeParsesStateAndInitializesDequants(t *testing.T) {
 	}
 	if d.dequants[0].Y1[0] != 4 || d.dequants[0].Y2[0] != 8 || d.dequants[0].UV[0] != 4 {
 		t.Fatalf("segment 0 dequants = Y1:%d Y2:%d UV:%d, want 4/8/4", d.dequants[0].Y1[0], d.dequants[0].Y2[0], d.dequants[0].UV[0])
+	}
+}
+
+func TestDecodePersistsSegmentationAcrossNoUpdateFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	segmentation := vp8enc.SegmentationConfig{
+		Enabled:    true,
+		UpdateMap:  true,
+		UpdateData: true,
+	}
+	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][1] = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][1] = -8
+	for i := range segmentation.TreeProbs {
+		segmentation.TreeProbUpdated[i] = true
+		segmentation.TreeProbs[i] = 128
+	}
+	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 1, YMode: vp8common.DCPred, UVMode: vp8common.DCPred}}
+	keyPacket := make([]byte, 4096)
+	keyN, err := vp8enc.WriteZeroKeyFrame(keyPacket, 16, 16, vp8enc.KeyFrameStateConfig{
+		TokenPartition: vp8common.OnePartition,
+		BaseQIndex:     20,
+		Segmentation:   segmentation,
+	}, keyModes)
+	if err != nil {
+		t.Fatalf("WriteZeroKeyFrame returned error: %v", err)
+	}
+
+	if err := d.Decode(keyPacket[:keyN]); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	if d.modes[0].SegmentID != 1 {
+		t.Fatalf("key segment ID = %d, want 1", d.modes[0].SegmentID)
+	}
+	if d.state.Segmentation.FeatureData[vp8common.MBLvlAltQ][1] != -8 {
+		t.Fatalf("key alt-q segment 1 = %d, want -8", d.state.Segmentation.FeatureData[vp8common.MBLvlAltQ][1])
+	}
+
+	interCfg := vp8enc.DefaultInterFrameStateConfig(20)
+	interCfg.Segmentation = vp8enc.SegmentationConfig{Enabled: true}
+	interModes := []vp8enc.InterFrameMacroblockMode{{Mode: vp8common.ZeroMV, MBSkipCoeff: true}}
+	interCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	above := make([]vp8enc.TokenContextPlanes, 1)
+	interPacket := make([]byte, 4096)
+	interN, err := vp8enc.WriteCoefficientInterFrame(interPacket, 16, 16, interCfg, interModes, interCoeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	if err := d.Decode(interPacket[:interN]); err != nil {
+		t.Fatalf("inter Decode error = %v, want nil", err)
+	}
+	if d.modes[0].SegmentID != 1 {
+		t.Fatalf("inter segment ID = %d, want persisted 1", d.modes[0].SegmentID)
+	}
+	if d.state.Segmentation.FeatureData[vp8common.MBLvlAltQ][1] != -8 {
+		t.Fatalf("inter alt-q segment 1 = %d, want persisted -8", d.state.Segmentation.FeatureData[vp8common.MBLvlAltQ][1])
+	}
+	if d.state.Segmentation.UpdateMap || d.state.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation update flags = map:%v data:%v, want both false", d.state.Segmentation.UpdateMap, d.state.Segmentation.UpdateData)
 	}
 }
 
@@ -832,6 +895,25 @@ func TestDecodeRejectsTruncatedStateHeader(t *testing.T) {
 	err = d.Decode(vp8KeyFramePacket(16, 16, 200, 0, true))
 	if !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("Decode error = %v, want ErrInvalidData", err)
+	}
+}
+
+func TestReconstructFrameInvalidInterModeReturnsInvalidData(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.ensureFrameBuffers(StreamInfo{Width: 16, Height: 16, KeyFrame: true}); err != nil {
+		t.Fatalf("ensureFrameBuffers returned error: %v", err)
+	}
+	d.modes[0] = vp8dec.MacroblockMode{
+		RefFrame: vp8common.LastFrame,
+		Mode:     vp8common.MBPredictionMode(99),
+	}
+
+	err = d.reconstructFrame(StreamInfo{Profile: 0})
+	if !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("reconstructFrame error = %v, want ErrInvalidData", err)
 	}
 }
 

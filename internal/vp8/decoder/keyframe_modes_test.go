@@ -99,6 +99,25 @@ func TestDecodeKeyFrameMacroblockReadsSegmentAndSkip(t *testing.T) {
 	}
 }
 
+func TestDecodeKeyFrameMacroblockPreservesSegmentWithoutMapUpdate(t *testing.T) {
+	payload := encodeKeyFrameMacroblockMode(t, common.DCPred, common.VPred, common.BDCPred)
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	segmentation := SegmentationHeader{Enabled: true}
+	out := MacroblockMode{SegmentID: 2}
+
+	DecodeKeyFrameMacroblock(&br, &segmentation, ModeHeader{}, nil, nil, &out)
+
+	if out.SegmentID != 2 {
+		t.Fatalf("SegmentID = %d, want preserved 2", out.SegmentID)
+	}
+	if out.Mode != common.DCPred || out.UVMode != common.VPred {
+		t.Fatalf("mode = %+v, want DC/V", out)
+	}
+}
+
 func TestDecodeKeyFrameModeGrid(t *testing.T) {
 	payload := encodeKeyFrameModeGrid(t, 4, common.DCPred, common.TMPred)
 	var br boolcoder.Decoder

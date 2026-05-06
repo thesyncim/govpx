@@ -1,8 +1,6 @@
 package libgopx
 
 import (
-	"errors"
-
 	"github.com/thesyncim/libgopx/internal/vp8/boolcoder"
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
@@ -60,6 +58,8 @@ type VP8Decoder struct {
 	loopInfo           vp8common.LoopFilterInfo
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	segmentationState  vp8dec.SegmentationHeader
+	segmentMap         []uint8
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
@@ -119,13 +119,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		d.frameReady = false
 		return nil
 	}
-	if d.supportsDecodedOutput(info) {
-		d.lastFrame = publicImageFromVP8(&d.current.Img)
-		d.frameReady = true
-		return nil
-	}
-	d.frameReady = false
-	return ErrUnsupportedFeature
+	d.lastFrame = publicImageFromVP8(&d.current.Img)
+	d.frameReady = true
+	return nil
 }
 
 func (d *VP8Decoder) NextFrame() (Image, bool) {
@@ -183,11 +179,8 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if !info.ShowFrame {
 		return frameInfo, nil
 	}
-	if d.supportsDecodedOutput(info) {
-		copyVP8ImageToPublic(dst, &d.current.Img)
-		return frameInfo, nil
-	}
-	return frameInfo, ErrUnsupportedFeature
+	copyVP8ImageToPublic(dst, &d.current.Img)
+	return frameInfo, nil
 }
 
 func (d *VP8Decoder) Reset() {
@@ -203,10 +196,14 @@ func (d *VP8Decoder) Reset() {
 	d.previousQuant = vp8dec.QuantHeader{}
 	d.previousLoopFilter = vp8dec.LoopFilterHeader{}
 	d.state = vp8dec.StateHeader{}
+	d.segmentationState = vp8dec.SegmentationHeader{}
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
 	d.coefProbs = vp8tables.DefaultCoefProbs
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
+	for i := range d.segmentMap {
+		d.segmentMap[i] = 0
+	}
 	vp8dec.ResetModeProbs(&d.modeProbs)
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
 }
@@ -275,11 +272,6 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 	return frameInfo
 }
 
-func (d *VP8Decoder) supportsDecodedOutput(info StreamInfo) bool {
-	return info.ShowFrame &&
-		vp8dec.IsSupportedVersion(info.Profile)
-}
-
 func (d *VP8Decoder) outputDimensions(info StreamInfo) (int, int) {
 	if info.KeyFrame {
 		return info.Width, info.Height
@@ -319,6 +311,11 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	if err != nil {
 		return ErrInvalidData
 	}
+	previousSegmentation := d.segmentationState
+	if frame.KeyFrame() {
+		previousSegmentation = vp8dec.SegmentationHeader{}
+	}
+	state.Segmentation = mergeSegmentationHeader(previousSegmentation, state.Segmentation)
 	var partitions vp8dec.PartitionLayout
 	if err := vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &partitions); err != nil {
 		return ErrInvalidData
@@ -347,9 +344,22 @@ func (d *VP8Decoder) commitParsedState(info StreamInfo) {
 	d.modeProbs = d.frameModeProbs
 	d.previousQuant = d.state.Quant
 	d.previousLoopFilter = d.state.LoopFilter
+	if info.KeyFrame {
+		d.segmentationState = vp8dec.SegmentationHeader{}
+	}
+	if d.state.Segmentation.Enabled {
+		d.segmentationState = d.state.Segmentation
+		d.segmentationState.UpdateMap = false
+		d.segmentationState.UpdateData = false
+	}
+	d.commitSegmentMap()
 }
 
 func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
+	if info.KeyFrame {
+		d.clearSegmentMap()
+	}
+	d.restoreSegmentMap()
 	reader := d.modeReader
 	if info.KeyFrame {
 		if err := vp8dec.DecodeKeyFrameModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, d.modes); err != nil {
@@ -397,9 +407,6 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		frameType = vp8common.InterFrame
 		cfg := vp8dec.InterPredictionConfigForVersion(info.Profile)
 		if err := vp8dec.ReconstructInterFrameGridWithConfig(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg); err != nil {
-			if errors.Is(err, vp8dec.ErrUnsupportedInterReconstructionMode) {
-				return ErrUnsupportedFeature
-			}
 			return ErrInvalidData
 		}
 	}
@@ -496,6 +503,49 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	} else {
 		d.tokenAbove = d.tokenAbove[:cols]
 	}
+	if cap(d.segmentMap) < count {
+		d.segmentMap = make([]uint8, count)
+	} else {
+		d.segmentMap = d.segmentMap[:count]
+	}
 	d.mbRows = rows
 	d.mbCols = cols
+}
+
+func mergeSegmentationHeader(previous vp8dec.SegmentationHeader, current vp8dec.SegmentationHeader) vp8dec.SegmentationHeader {
+	if !current.Enabled {
+		return current
+	}
+	if !current.UpdateData {
+		current.AbsDelta = previous.AbsDelta
+		current.FeatureData = previous.FeatureData
+	}
+	if !current.UpdateMap {
+		current.TreeProbs = previous.TreeProbs
+	}
+	return current
+}
+
+func (d *VP8Decoder) restoreSegmentMap() {
+	if !d.state.Segmentation.Enabled || d.state.Segmentation.UpdateMap {
+		return
+	}
+	for i := range d.modes {
+		d.modes[i].SegmentID = d.segmentMap[i]
+	}
+}
+
+func (d *VP8Decoder) commitSegmentMap() {
+	if !d.state.Segmentation.Enabled {
+		return
+	}
+	for i := range d.modes {
+		d.segmentMap[i] = d.modes[i].SegmentID
+	}
+}
+
+func (d *VP8Decoder) clearSegmentMap() {
+	for i := range d.segmentMap {
+		d.segmentMap[i] = 0
+	}
 }

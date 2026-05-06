@@ -106,9 +106,14 @@ func parseModeHeaderInto(br *boolcoder.Decoder, keyFrame bool, probs *ModeProbs)
 }
 
 func DecodeKeyFrameMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHeader, modeHeader ModeHeader, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
+	segmentID := out.SegmentID
 	*out = MacroblockMode{}
-	if segmentation != nil && segmentation.Enabled && segmentation.UpdateMap {
-		out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+	if segmentation != nil && segmentation.Enabled {
+		if segmentation.UpdateMap {
+			out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+		} else {
+			out.SegmentID = segmentID
+		}
 	}
 	if modeHeader.MBNoCoeffSkip {
 		out.MBSkipCoeff = br.ReadBool(modeHeader.ProbSkipFalse) != 0
@@ -179,9 +184,14 @@ func DecodeInterMacroblock(br *boolcoder.Decoder, segmentation *SegmentationHead
 }
 
 func decodeInterMacroblockAt(br *boolcoder.Decoder, mbRow int, mbCol int, mbRows int, mbCols int, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, signBias [common.MaxRefFrames]bool, out *MacroblockMode) error {
+	segmentID := out.SegmentID
 	*out = MacroblockMode{}
-	if segmentation != nil && segmentation.Enabled && segmentation.UpdateMap {
-		out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+	if segmentation != nil && segmentation.Enabled {
+		if segmentation.UpdateMap {
+			out.SegmentID = readMacroblockSegmentID(br, segmentation.TreeProbs)
+		} else {
+			out.SegmentID = segmentID
+		}
 	}
 	if modeHeader.MBNoCoeffSkip {
 		out.MBSkipCoeff = br.ReadBool(modeHeader.ProbSkipFalse) != 0

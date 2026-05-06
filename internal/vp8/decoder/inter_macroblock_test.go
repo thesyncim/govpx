@@ -46,6 +46,26 @@ func TestDecodeInterMacroblockZeroMV(t *testing.T) {
 	}
 }
 
+func TestDecodeInterMacroblockPreservesSegmentWithoutMapUpdate(t *testing.T) {
+	var probs ModeProbs
+	ResetModeProbs(&probs)
+	header := ModeHeader{ProbIntra: 128, ProbLast: 128, ProbGolden: 128}
+	payload := encodeInterMacroblockInter(t, header, &probs, nil, nil, nil, common.LastFrame, common.ZeroMV, mvComponent{})
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	segmentation := SegmentationHeader{Enabled: true}
+	out := MacroblockMode{SegmentID: 2}
+
+	if err := DecodeInterMacroblock(&br, &segmentation, header, &probs, nil, nil, nil, [common.MaxRefFrames]bool{}, &out); err != nil {
+		t.Fatalf("DecodeInterMacroblock returned error: %v", err)
+	}
+	if out.SegmentID != 2 || out.RefFrame != common.LastFrame || out.Mode != common.ZeroMV {
+		t.Fatalf("mode = %+v, want preserved segment 2 LAST/ZEROMV", out)
+	}
+}
+
 func TestDecodeInterMacroblockNewMV(t *testing.T) {
 	var probs ModeProbs
 	ResetModeProbs(&probs)
