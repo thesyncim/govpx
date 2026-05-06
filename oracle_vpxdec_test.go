@@ -216,6 +216,59 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe without LAST refresh")
+	}
+	assertImagesEqual(t, "last after no-update-last", keyFrame, publicImageFromVP8(&e.lastRef.Img))
+
+	lastPacket := make([]byte, 4096)
+	lastInter, err := e.EncodeInto(lastPacket, keyFrame, 2, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)
+	if err != nil {
+		t.Fatalf("last EncodeInto returned error: %v", err)
+	}
+	if lastInter.KeyFrame {
+		t.Fatalf("last KeyFrame = true, want interframe using preserved LAST")
+	}
+	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV || !e.interFrameModes[0].MBSkipCoeff {
+		t.Fatalf("mode[0] = %+v, want skipped LAST/ZEROMV", e.interFrameModes[0])
+	}
+
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, lastInter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data, lastInter.Data)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
