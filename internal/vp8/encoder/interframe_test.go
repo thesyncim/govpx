@@ -353,6 +353,17 @@ func TestInterFrameMotionModeForVectorClassifiesNeighbors(t *testing.T) {
 	}
 }
 
+func TestResetTokenContext4x4PreservesY2(t *testing.T) {
+	above := TokenContextPlanes{Y1: [4]uint8{1, 1, 1, 1}, U: [2]uint8{1, 1}, V: [2]uint8{1, 1}, Y2: 1}
+	left := TokenContextPlanes{Y1: [4]uint8{1, 1, 1, 1}, U: [2]uint8{1, 1}, V: [2]uint8{1, 1}, Y2: 2}
+
+	resetTokenContext(&above, &left, true)
+
+	if above != (TokenContextPlanes{Y2: 1}) || left != (TokenContextPlanes{Y2: 2}) {
+		t.Fatalf("contexts = %+v/%+v, want only Y2 preserved", above, left)
+	}
+}
+
 func TestWriteZeroInterFrameRejectsUnsupportedConfig(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	cfg.MBNoCoeffSkip = false
@@ -390,6 +401,24 @@ func TestWriteCoefficientInterFrameAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func BenchmarkWriteInterCoefficientTokenGridSkipped(b *testing.B) {
+	modes := make([]InterFrameMacroblockMode, 16)
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV, MBSkipCoeff: true}
+	}
+	coeffs := make([]MacroblockCoefficients, 16)
+	above := make([]TokenContextPlanes, 4)
+	buf := make([]byte, 128)
+	var w BoolWriter
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		w.Init(buf)
+		_ = WriteInterCoefficientTokenGrid(&w, 4, 4, modes, coeffs, above, &tables.DefaultCoefProbs)
+		w.Finish()
 	}
 }
 

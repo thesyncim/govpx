@@ -543,16 +543,15 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 }
 
 func resetTokenContext(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
-	above.Y1 = [4]uint8{}
-	above.U = [2]uint8{}
-	above.V = [2]uint8{}
-	left.Y1 = [4]uint8{}
-	left.U = [2]uint8{}
-	left.V = [2]uint8{}
 	if !is4x4 {
-		above.Y2 = 0
-		left.Y2 = 0
+		*above = TokenContextPlanes{}
+		*left = TokenContextPlanes{}
+		return
 	}
+
+	aboveY2, leftY2 := above.Y2, left.Y2
+	*above = TokenContextPlanes{Y2: aboveY2}
+	*left = TokenContextPlanes{Y2: leftY2}
 }
 
 func validInterCoefficientTokenMode(mode *InterFrameMacroblockMode) bool {
