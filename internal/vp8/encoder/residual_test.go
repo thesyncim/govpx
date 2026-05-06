@@ -49,6 +49,8 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsClearsNeutralBlocks(t *testing
 	coeffs := make([]vp8enc.MacroblockCoefficients, 1)
 	coeffs[0].QCoeff[0][0] = 99
 	coeffs[0].QCoeff[24][0] = 99
+	coeffs[0].SetBlockEOB(0, 1)
+	coeffs[0].SetBlockEOB(24, 1)
 
 	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(src, 20, modes, coeffs); err != nil {
 		t.Fatalf("BuildNeutralPredictorKeyFrameCoefficients returned error: %v", err)
@@ -57,6 +59,9 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsClearsNeutralBlocks(t *testing
 		if qcoeff != ([16]int16{}) {
 			t.Fatalf("QCoeff[%d] = %v, want zero for neutral source", block, qcoeff)
 		}
+	}
+	if coeffs[0].BlockEOB(0, 0) != 0 || coeffs[0].BlockEOB(24, 0) != 0 {
+		t.Fatalf("EOBs = %d/%d, want zero for neutral source", coeffs[0].BlockEOB(0, 0), coeffs[0].BlockEOB(24, 0))
 	}
 }
 

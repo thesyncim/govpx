@@ -41,7 +41,6 @@ func BuildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, mode
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			modes[index] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
-			coeffs[index] = MacroblockCoefficients{}
 			buildNeutralPredictorMacroblockCoefficients(src, row, col, &quant, &coeffs[index])
 		}
 	}

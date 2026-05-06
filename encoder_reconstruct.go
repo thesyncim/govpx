@@ -40,7 +40,6 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			coeffs[index] = vp8enc.MacroblockCoefficients{}
 			yMode, uvMode, ok := predictBestWholeBlockIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
@@ -85,7 +84,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			coeffs[index] = vp8enc.MacroblockCoefficients{}
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
 			useIntra := false
