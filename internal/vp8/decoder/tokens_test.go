@@ -279,26 +279,34 @@ func TestDecodeTokenGridSkipsMacroblockCoefficients(t *testing.T) {
 }
 
 func TestDecodeTokenGridCyclesPartitionsByRow(t *testing.T) {
-	probs := uniformCoefficientProbs(128)
-	payloads := encodeTokenRows(&probs, 2, 3, 1, []int{-1, 24, -1})
-	readers := initTokenReaders(t, payloads)
-	modes := make([]MacroblockMode, 3)
-	above := make([]EntropyContextPlanes, 1)
-	tokens := make([]MacroblockTokens, 3)
+	for _, partitions := range []int{2, 4, 8} {
+		t.Run(testPartitionName(partitions), func(t *testing.T) {
+			probs := uniformCoefficientProbs(128)
+			rows := partitions * 2
+			nonzeroBlocks := make([]int, rows)
+			for i := range nonzeroBlocks {
+				nonzeroBlocks[i] = 24
+			}
+			payloads := encodeTokenRows(&probs, partitions, rows, 1, nonzeroBlocks)
+			readers := initTokenReaders(t, payloads)
+			modes := make([]MacroblockMode, rows)
+			above := make([]EntropyContextPlanes, 1)
+			tokens := make([]MacroblockTokens, rows)
 
-	total, err := DecodeTokenGrid(readers[:], 3, 1, &probs, modes, above, tokens)
+			total, err := DecodeTokenGrid(readers[:], rows, 1, &probs, modes, above, tokens)
 
-	if err != nil {
-		t.Fatalf("DecodeTokenGrid returned error: %v", err)
-	}
-	if total != 1 {
-		t.Fatalf("total = %d, want 1", total)
-	}
-	if tokens[1].QCoeff[24][0] != 1 || tokens[1].EOB[24] != 1 {
-		t.Fatalf("row 1 Y2 coeff/eob = %d/%d, want 1/1", tokens[1].QCoeff[24][0], tokens[1].EOB[24])
-	}
-	if tokens[0].EOB[24] != 0 || tokens[2].EOB[24] != 0 {
-		t.Fatalf("unexpected row 0/2 Y2 EOBs: %d/%d", tokens[0].EOB[24], tokens[2].EOB[24])
+			if err != nil {
+				t.Fatalf("DecodeTokenGrid returned error: %v", err)
+			}
+			if total != rows {
+				t.Fatalf("total = %d, want %d", total, rows)
+			}
+			for row := 0; row < rows; row++ {
+				if tokens[row].QCoeff[24][0] != 1 || tokens[row].EOB[24] != 1 {
+					t.Fatalf("row %d Y2 coeff/eob = %d/%d, want 1/1", row, tokens[row].QCoeff[24][0], tokens[row].EOB[24])
+				}
+			}
+		})
 	}
 }
 
@@ -521,4 +529,17 @@ func initTokenReaders(t *testing.T, payloads [][]byte) []boolcoder.Decoder {
 		}
 	}
 	return readers
+}
+
+func testPartitionName(partitions int) string {
+	switch partitions {
+	case 2:
+		return "two"
+	case 4:
+		return "four"
+	case 8:
+		return "eight"
+	default:
+		return "unknown"
+	}
 }
