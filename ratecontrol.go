@@ -102,6 +102,7 @@ const (
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
 	libvpxBPerMBNormBits            = 9
+	libvpxIntMax                    = 1<<31 - 1
 	libvpxMinBPBFactor              = 0.01
 	libvpxMaxBPBFactor              = 50.0
 )
@@ -802,10 +803,10 @@ func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks
 		correctionFactor = 1.0
 	}
 	targetBitsPerMB := 0
-	if targetBitsPerFrame > maxInt()>>libvpxBPerMBNormBits {
+	if targetBitsPerFrame > libvpxIntMax>>libvpxBPerMBNormBits {
 		temp := targetBitsPerFrame / macroblocks
-		if temp > maxInt()>>libvpxBPerMBNormBits {
-			targetBitsPerMB = maxInt()
+		if temp > libvpxIntMax>>libvpxBPerMBNormBits {
+			targetBitsPerMB = libvpxIntMax
 		} else {
 			targetBitsPerMB = temp << libvpxBPerMBNormBits
 		}
@@ -817,7 +818,7 @@ func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks
 		frameType = 0
 	}
 	q := maxQ
-	lastError := maxInt()
+	lastError := libvpxIntMax
 	for i := minQ; i <= maxQ && i < len(libvpxBitsPerMB[frameType]); i++ {
 		bitsAtQ := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][i]))
 		if bitsAtQ <= targetBitsPerMB {
@@ -840,7 +841,11 @@ func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, corre
 	if correctionFactor <= 0 {
 		correctionFactor = 1.0
 	}
-	return int(((0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q])) * float64(macroblocks)) / float64(1<<libvpxBPerMBNormBits))
+	bitsPerMB := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q]))
+	if macroblocks > 1<<11 {
+		return (bitsPerMB >> libvpxBPerMBNormBits) * macroblocks
+	}
+	return (bitsPerMB * macroblocks) >> libvpxBPerMBNormBits
 }
 
 func clampQuantizerValue(q int, minQ int, maxQ int) int {

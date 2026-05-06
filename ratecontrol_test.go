@@ -113,6 +113,14 @@ func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
 	}
 }
 
+func TestLibvpxEstimatedBitsAtQuantizerUsesLargeMacroblockPath(t *testing.T) {
+	macroblocks := (1 << 11) + 1
+	want := (libvpxBitsPerMB[1][24] >> libvpxBPerMBNormBits) * macroblocks
+	if got := libvpxEstimatedBitsAtQuantizer(1, 24, macroblocks, 1.0); got != want {
+		t.Fatalf("large-macroblock estimate = %d, want %d", got, want)
+	}
+}
+
 func TestRateControlUpdatesLibvpxRateCorrectionFactor(t *testing.T) {
 	rc := rateControlState{
 		mode:                   RateControlCBR,
