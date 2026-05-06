@@ -7,19 +7,22 @@ spec has been retired; frozen upstream and licensing detail belong in
 ## Goal
 
 Build a pure-Go, VP8-only codec library based on libvpx v1.16.0 ideas with a
-small Go API, no cgo dependency, and normal CI that stays fast.
+small Go API, no cgo dependency, and CI that runs the exhaustive VP8 parity
+gate.
 
 ## Current state
 
 - The repo builds with Go 1.26.
-- `make ci` is the fast gate: `gofmt` check plus `go test ./... -count=1`.
-- GitHub Actions runs that same fast gate.
+- `make ci` is the fast local gate: `gofmt` check plus
+  `go test ./... -count=1`.
+- GitHub Actions runs `make verify-production`.
 - The root package has decoder, encoder, stream-info, image, temporal, and
   rate-control APIs.
 - Scalar VP8 decoder/encoder internals live under `internal/vp8`.
 - Normal tests include checked-in smoke vectors and skip libvpx unless
   `GOVPX_WITH_ORACLE=1`.
-- `make verify-production` remains the slower opt-in libvpx parity gate.
+- `make verify-production` builds the pinned libvpx tools, fetches the VP8
+  corpora, and runs the oracle parity suite.
 
 ## Keep true
 
@@ -27,7 +30,7 @@ small Go API, no cgo dependency, and normal CI that stays fast.
 - Keep the codec package pure Go with no cgo or runtime libvpx dependency.
 - Prefer correctness and oracle parity before unsafe, SIMD, or assembly work.
 - Keep hot decode/encode paths allocation-conscious and benchmark visible.
-- Keep CI simple and quick; put slow corpus/oracle work behind explicit targets.
+- Keep local checks quick, but keep hosted CI on the full corpus/oracle gate.
 
 ## Next priorities
 

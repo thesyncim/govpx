@@ -13,8 +13,8 @@ token partitions, loop filtering, postprocess options, error-resilient decode
 handling, interframes with LAST/GOLDEN/ALTREF reference selection, temporal
 metadata, rate-control controls, smoke vectors, and opt-in libvpx parity tests.
 
-The broad external VP8 corpus and encoder quality/parity checks are still
-development gates, not normal CI gates.
+The broad external VP8 corpus and encoder quality/parity checks run in GitHub
+Actions through the full parity gate.
 
 ## Non-goals
 
@@ -38,8 +38,6 @@ make ci
 skip unless explicitly enabled, so this path does not build libvpx or download
 external corpora.
 
-The same target is used by GitHub Actions in `.github/workflows/ci.yml`.
-
 ## Full parity gate
 
 ```sh
@@ -50,6 +48,8 @@ This slower opt-in target builds the pinned libvpx v1.16.0 oracle, `vpxenc`,
 and `vpxdec`; downloads the VP8 IVF/source corpora under
 `internal/coracle/build/test-data/`; and runs the `TestOracle*` suite with the
 required corpus checks enabled.
+
+GitHub Actions runs this full parity gate for pushes and pull requests.
 
 ## Benchmarks
 

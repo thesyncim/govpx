@@ -37,7 +37,7 @@ fmtcheck:
 
 verify: ci
 
-verify-production: test oracle-test
+verify-production: ci oracle-test
 
 test:
 	GOCACHE="$(GOCACHE)" $(GO) test ./... -count=1

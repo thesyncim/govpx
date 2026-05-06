@@ -14,9 +14,9 @@ concurrency:
 
 jobs:
   test:
-    name: Go test
+    name: Exhaustive test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -27,5 +27,5 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Fast CI
-        run: make ci
+      - name: Exhaustive VP8 parity gate
+        run: make verify-production
