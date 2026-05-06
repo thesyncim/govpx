@@ -276,7 +276,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	segmentation := e.staticSegmentationConfig()
 	var err error
 	if segmentation.Enabled {
-		assignKeyFrameStaticSegments(source, rows, cols, e.opts.StaticThreshold, e.keyFrameModes[:required])
+		assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
 		err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	} else {
 		err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
@@ -339,7 +339,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	var err error
 	if segmentation.Enabled {
-		assignInterFrameStaticSegments(source, rows, cols, e.opts.StaticThreshold, e.interFrameModes[:required])
+		assignInterFrameStaticSegments(rows, cols, e.interFrameModes[:required])
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)

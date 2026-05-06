@@ -40,6 +40,7 @@ type encoderValidationCase struct {
 	wantTokenPartition            vp8common.TokenPartition
 	checkTokenPartition           bool
 	checkAllTokenPartitionsActive bool
+	checkSegmentationHeader       bool
 	checkSegmentationMap          bool
 	checkBPredModes               bool
 	checkInterFrames              bool
@@ -104,16 +105,16 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.MaxQuantizer = 56
 			}),
 			libvpxArgs: []string{"--static-thresh=1"},
-			// Static segmentation should now stay close to libvpx quality.
-			// Rate parity remains open.
-			minPSNR:              49.5,
-			minSSIM:              0.999,
-			maxPSNRGap:           1.0,
-			maxSSIMGap:           0.001,
-			maxRateHigh:          250.0,
-			maxRateLow:           95.0,
-			checkSegmentationMap: true,
-			checkInterFrames:     true,
+			// Static-threshold encode-breakout should now stay close to libvpx
+			// quality. Rate parity remains open.
+			minPSNR:                 49.5,
+			minSSIM:                 0.999,
+			maxPSNRGap:              1.0,
+			maxSSIMGap:              0.001,
+			maxRateHigh:             250.0,
+			maxRateLow:              95.0,
+			checkSegmentationHeader: true,
+			checkInterFrames:        true,
 		},
 	}
 
@@ -350,6 +351,7 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 	previousQuant := vp8dec.QuantHeader{}
 	sawTokenPartition := !tc.checkTokenPartition
 	sawAllTokenPartitionsActive := !tc.checkAllTokenPartitionsActive
+	sawSegmentationHeader := !tc.checkSegmentationHeader
 	sawSegmentation := !tc.checkSegmentationMap
 	sawBPred := !tc.checkBPredModes
 	sawInter := !tc.checkInterFrames
@@ -371,6 +373,9 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 		}
 		if tc.checkTokenPartition && state.TokenPartition == tc.wantTokenPartition {
 			sawTokenPartition = true
+		}
+		if tc.checkSegmentationHeader && state.Segmentation.Enabled {
+			sawSegmentationHeader = true
 		}
 		if tc.checkAllTokenPartitionsActive {
 			var layout vp8dec.PartitionLayout
@@ -420,6 +425,9 @@ func assertLibgopxEncoderValidationFeatures(t *testing.T, ivf []byte, tc encoder
 	}
 	if !sawSegmentation {
 		t.Fatalf("encoded corpus did not contain a nonzero segmentation map")
+	}
+	if !sawSegmentationHeader {
+		t.Fatalf("encoded corpus did not contain segmentation headers")
 	}
 	if !sawBPred {
 		t.Fatalf("encoded corpus did not contain B_PRED macroblocks")

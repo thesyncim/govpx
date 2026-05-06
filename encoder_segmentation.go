@@ -5,9 +5,9 @@ import (
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
 
-// Inspired by libvpx v1.16.0 vp8/encoder/segmentation.c cyclic background
-// segmentation setup. This keeps libgopx conservative: segmentation is only
-// enabled when StaticThreshold is set by the caller.
+// Inspired by libvpx v1.16.0 vp8/encoder/onyx_if.c cyclic background
+// refresh setup. StaticThreshold itself feeds encode_breakout; segmentation
+// data here mirrors libvpx's cyclic refresh Q boost shape for small CBR clips.
 
 const staticSegmentID = 1
 
@@ -41,55 +41,32 @@ func (e *VP8Encoder) staticSegmentationQuantizerDelta() int8 {
 	return int8(delta)
 }
 
-func assignKeyFrameStaticSegments(src vp8enc.SourceImage, rows int, cols int, threshold int, modes []vp8enc.KeyFrameMacroblockMode) {
+func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) {
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			modes[index].SegmentID = sourceStaticSegmentID(src, row, col, threshold)
+			modes[index].SegmentID = 0
 		}
 	}
 }
 
-func assignInterFrameStaticSegments(src vp8enc.SourceImage, rows int, cols int, threshold int, modes []vp8enc.InterFrameMacroblockMode) {
+func assignInterFrameStaticSegments(rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) {
+	refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			modes[index].SegmentID = sourceStaticSegmentID(src, row, col, threshold)
-		}
-	}
-}
-
-func sourceStaticSegmentID(src vp8enc.SourceImage, mbRow int, mbCol int, threshold int) uint8 {
-	if sourceMacroblockLumaVariance(src, mbRow, mbCol) <= threshold {
-		return staticSegmentID
-	}
-	return 0
-}
-
-func sourceMacroblockLumaVariance(src vp8enc.SourceImage, mbRow int, mbCol int) int {
-	startY := mbRow * 16
-	startX := mbCol * 16
-	sum := 0
-	sse := 0
-	samples := 0
-	for row := 0; row < 16; row++ {
-		y := startY + row
-		if y >= src.Height {
-			y = src.Height - 1
-		}
-		for col := 0; col < 16; col++ {
-			x := startX + col
-			if x >= src.Width {
-				x = src.Width - 1
+			if index < refreshCount {
+				modes[index].SegmentID = staticSegmentID
+			} else {
+				modes[index].SegmentID = 0
 			}
-			v := int(src.Y[y*src.YStride+x])
-			sum += v
-			sse += v * v
-			samples++
 		}
 	}
-	if samples == 0 {
+}
+
+func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
+	if rows <= 0 || cols <= 0 {
 		return 0
 	}
-	return (sse / samples) - ((sum / samples) * (sum / samples))
+	return (rows * cols) / 20
 }

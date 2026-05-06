@@ -188,7 +188,7 @@ func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
 	assertImagesEqual(t, "retried current", decoded, publicImageFromVP8(&e.current.Img))
 }
 
-func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
+func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
 		Height:              16,
@@ -227,8 +227,8 @@ func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
 	if err := d.Decode(key.Data); err != nil {
 		t.Fatalf("key Decode returned error: %v", err)
 	}
-	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
-		t.Fatalf("key segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	if d.modes[0].SegmentID != 0 || d.modes[1].SegmentID != 0 {
+		t.Fatalf("key segment IDs = %d/%d, want all zero for cyclic refresh keyframe", d.modes[0].SegmentID, d.modes[1].SegmentID)
 	}
 	keyFrame, ok := d.NextFrame()
 	if !ok {
@@ -256,8 +256,8 @@ func TestEncodeIntoStaticThresholdWritesSegmentMap(t *testing.T) {
 	if err := d.Decode(inter.Data); err != nil {
 		t.Fatalf("inter Decode returned error: %v", err)
 	}
-	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
-		t.Fatalf("inter segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	if d.modes[0].SegmentID != 0 || d.modes[1].SegmentID != 0 {
+		t.Fatalf("inter segment IDs = %d/%d, want no cyclic refresh blocks in tiny frame", d.modes[0].SegmentID, d.modes[1].SegmentID)
 	}
 	interFrame, ok := d.NextFrame()
 	if !ok {
@@ -286,7 +286,20 @@ func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoStaticThresholdWritesSegmentMapForMatchingReference(t *testing.T) {
+func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshCadence(t *testing.T) {
+	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
+
+	assignInterFrameStaticSegments(4, 10, modes)
+
+	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID {
+		t.Fatalf("first cyclic segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[1].SegmentID)
+	}
+	if modes[2].SegmentID != 0 || modes[len(modes)-1].SegmentID != 0 {
+		t.Fatalf("later cyclic segment IDs = %d/%d, want zero", modes[2].SegmentID, modes[len(modes)-1].SegmentID)
+	}
+}
+
+func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentationForMatchingReference(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
 		Height:              16,
@@ -337,8 +350,8 @@ func TestEncodeIntoStaticThresholdWritesSegmentMapForMatchingReference(t *testin
 	if err := d.Decode(inter.Data); err != nil {
 		t.Fatalf("inter Decode returned error: %v", err)
 	}
-	if d.modes[0].SegmentID != staticSegmentID || d.modes[1].SegmentID != 0 {
-		t.Fatalf("inter segment IDs = %d/%d, want static/dynamic", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	if d.modes[0].SegmentID != 0 || d.modes[1].SegmentID != 0 {
+		t.Fatalf("inter segment IDs = %d/%d, want no cyclic refresh blocks in tiny frame", d.modes[0].SegmentID, d.modes[1].SegmentID)
 	}
 	frame, ok := d.NextFrame()
 	if !ok {
