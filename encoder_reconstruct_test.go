@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
 )
@@ -132,6 +133,47 @@ func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	pred := testVP8Frame(t, 32, 32, 128, 128, 128)
+	for i := 0; i < 16; i++ {
+		pred.Img.Y[15*pred.Img.YStride+16+i] = byte(40 + i*7)
+		pred.Img.Y[(16+i)*pred.Img.YStride+15] = byte(210 - i*5)
+	}
+	pred.ExtendBorders()
+
+	var genScratch vp8dec.IntraReconstructionScratch
+	refs := vp8dec.BuildIntraPredictorRefs(&pred.Img, 1, 1, &genScratch.Refs)
+	yOff := 16*pred.Img.YStride + 16
+	y := pred.Img.Y[yOff:]
+	for block := 0; block < 16; block++ {
+		var blockPred [16]byte
+		if !predictAnalysisBPredBlock(vp8common.BHEPred, blockPred[:], 4, y, pred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			t.Fatalf("predictAnalysisBPredBlock returned false")
+		}
+		copyBPredBlock(blockPred[:], 4, y, pred.Img.YStride, block)
+		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
+	}
+	for row := 16; row < 32; row++ {
+		for col := 16; col < 32; col++ {
+			pred.Img.Y[row*pred.Img.YStride+col] = 128
+		}
+	}
+
+	var scratch vp8dec.IntraReconstructionScratch
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 1, 1, &pred.Img, &scratch)
+	if !ok {
+		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
+	}
+	if mode.YMode != vp8common.BPred || mode.UVMode != vp8common.DCPred {
+		t.Fatalf("mode = %+v, want B_PRED/DC chroma", mode)
+	}
+	if mode.BModes[0] != vp8common.BHEPred {
+		t.Fatalf("B mode[0] = %v, want B_HE_PRED", mode.BModes[0])
+	}
+}
+
 func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 	var coeffs vp8enc.MacroblockCoefficients
 	for block := 0; block < 16; block++ {
@@ -142,13 +184,29 @@ func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 		coeffs.SetBlockEOB(block, 0)
 	}
 
-	if !macroblockCoefficientsEmpty(&coeffs) {
+	if !macroblockCoefficientsEmpty(&coeffs, false) {
 		t.Fatalf("empty = false, want true for skipped-DC luma blocks")
 	}
 
 	coeffs.SetBlockEOB(0, 2)
-	if macroblockCoefficientsEmpty(&coeffs) {
+	if macroblockCoefficientsEmpty(&coeffs, false) {
 		t.Fatalf("empty = true, want false for luma AC EOB")
+	}
+
+	coeffs.SetBlockEOB(0, 1)
+	if !macroblockCoefficientsEmpty(&coeffs, false) {
+		t.Fatalf("whole-block empty = false, want true for luma DC carried by empty Y2")
+	}
+	if macroblockCoefficientsEmpty(&coeffs, true) {
+		t.Fatalf("4x4 empty = true, want false for luma DC coefficient")
+	}
+}
+
+func copyBPredBlockToSource(block []byte, blockStride int, dst Image, mbRow int, mbCol int, blockIndex int) {
+	baseY := mbRow*16 + (blockIndex>>2)*4
+	baseX := mbCol*16 + (blockIndex&3)*4
+	for row := 0; row < 4; row++ {
+		copy(dst.Y[(baseY+row)*dst.YStride+baseX:], block[row*blockStride:row*blockStride+4])
 	}
 }
 
@@ -164,7 +222,7 @@ func BenchmarkMacroblockCoefficientsEmpty(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		benchmarkBool = macroblockCoefficientsEmpty(&coeffs)
+		benchmarkBool = macroblockCoefficientsEmpty(&coeffs, false)
 	}
 }
 

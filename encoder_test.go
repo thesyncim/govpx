@@ -724,7 +724,7 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoKeyFrameSelectsVerticalIntraMode(t *testing.T) {
+func TestEncodeIntoKeyFrameSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
 	src := testImage(16, 32)
 	fillImage(src, 0, 90, 170)
@@ -746,15 +746,15 @@ func TestEncodeIntoKeyFrameSelectsVerticalIntraMode(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 
-	if e.keyFrameModes[1].YMode != vp8common.VPred {
-		t.Fatalf("key mode[1] = %+v, want vertical prediction for repeated rows", e.keyFrameModes[1])
+	if e.keyFrameModes[1].YMode != vp8common.BPred {
+		t.Fatalf("key mode[1] = %+v, want B_PRED luma for repeated rows", e.keyFrameModes[1])
 	}
 	if e.keyFrameModes[1].UVMode != vp8common.VPred {
 		t.Fatalf("key UV mode[1] = %+v, want vertical prediction for repeated chroma rows", e.keyFrameModes[1])
 	}
 }
 
-func TestEncodeIntoInterFrameIntraMacroblockSelectsVerticalMode(t *testing.T) {
+func TestEncodeIntoInterFrameIntraMacroblockSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
 	first := testImage(16, 32)
 	second := testImage(16, 32)
@@ -786,8 +786,8 @@ func TestEncodeIntoInterFrameIntraMacroblockSelectsVerticalMode(t *testing.T) {
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.VPred {
-		t.Fatalf("inter mode[1] = %+v, want intra vertical prediction for repeated rows", e.interFrameModes[1])
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred {
+		t.Fatalf("inter mode[1] = %+v, want intra B_PRED luma for repeated rows", e.interFrameModes[1])
 	}
 	if e.interFrameModes[1].UVMode != vp8common.VPred {
 		t.Fatalf("inter UV mode[1] = %+v, want intra vertical prediction for repeated chroma rows", e.interFrameModes[1])

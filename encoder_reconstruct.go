@@ -21,6 +21,19 @@ var wholeBlockIntraUVModeCandidates = [...]vp8common.MBPredictionMode{
 	vp8common.TMPred,
 }
 
+var bPredIntraModeCandidates = [...]vp8common.BPredictionMode{
+	vp8common.BDCPred,
+	vp8common.BTMPred,
+	vp8common.BVEPred,
+	vp8common.BHEPred,
+	vp8common.BLDPred,
+	vp8common.BRDPred,
+	vp8common.BVRPred,
+	vp8common.BVLPred,
+	vp8common.BHDPred,
+	vp8common.BHUPred,
+}
+
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
@@ -40,17 +53,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			yMode, uvMode, ok := predictBestWholeBlockIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+			mode, ok := predictBestKeyFrameIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
-			modes[index] = vp8enc.KeyFrameMacroblockMode{YMode: yMode, UVMode: uvMode}
+			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
-			convertMacroblockCoefficients(&coeffs[index], false, &e.reconstructTokens[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, modes[index].YMode == vp8common.BPred, &coeffs[index])
+			convertMacroblockCoefficients(&coeffs[index], modes[index].YMode == vp8common.BPred, &e.reconstructTokens[index])
 			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
@@ -87,12 +100,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
 			useIntra := false
-			intraMode := vp8common.DCPred
-			intraUVMode := vp8common.DCPred
+			intraMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
 			if interCost > 0 {
 				var intraCost int
 				var ok bool
-				intraMode, intraUVMode, intraCost, ok = predictBestWholeBlockIntraModeCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 				if !ok {
 					return ErrInvalidConfig
 				}
@@ -112,7 +124,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			}
 
 			if useIntra {
-				modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: intraMode, UVMode: intraUVMode}
+				modes[index] = intraMode
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return ErrInvalidConfig
@@ -126,8 +138,8 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 					return ErrInvalidConfig
 				}
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, &coeffs[index])
-			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index])
+			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quant, modes[index].Mode == vp8common.BPred, &coeffs[index])
+			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame {
@@ -222,6 +234,48 @@ func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int
 	return yMode, uvMode, ok
 }
 
+func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.KeyFrameMacroblockMode, bool) {
+	wholeY, wholeUV, wholeCost, ok := predictBestWholeBlockIntraModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.KeyFrameMacroblockMode{}, false
+	}
+	best := vp8enc.KeyFrameMacroblockMode{YMode: wholeY, UVMode: wholeUV}
+	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.KeyFrameMacroblockMode{}, false
+	}
+	bPredUV, bPredUVCost, ok := predictBestIntraChromaModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.KeyFrameMacroblockMode{}, false
+	}
+	if bPredCost+bPredUVCost < wholeCost {
+		best = vp8enc.KeyFrameMacroblockMode{YMode: vp8common.BPred, UVMode: bPredUV, BModes: bModes}
+	}
+	return best, true
+}
+
+func predictBestInterIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.InterFrameMacroblockMode, int, bool) {
+	wholeY, wholeUV, wholeCost, ok := predictBestWholeBlockIntraModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.InterFrameMacroblockMode{}, 0, false
+	}
+	best := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: wholeY, UVMode: wholeUV}
+	bestCost := wholeCost
+	bModes, bPredCost, ok := predictBestBPredLumaModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.InterFrameMacroblockMode{}, 0, false
+	}
+	bPredUV, bPredUVCost, ok := predictBestIntraChromaModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return vp8enc.InterFrameMacroblockMode{}, 0, false
+	}
+	if bPredCost+bPredUVCost < bestCost {
+		best = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: bPredUV, BModes: bModes}
+		bestCost = bPredCost + bPredUVCost
+	}
+	return best, bestCost, true
+}
+
 func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, bool) {
 	bestYMode := vp8common.DCPred
 	bestYCost := 0
@@ -237,12 +291,19 @@ func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol
 		}
 	}
 
+	bestUVMode, bestUVCost, ok := predictBestIntraChromaModeCost(src, mbRow, mbCol, pred, scratch)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	return bestYMode, bestUVMode, bestYCost + bestUVCost, true
+}
+
+func predictBestIntraChromaModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, bool) {
 	bestUVMode := vp8common.DCPred
 	bestUVCost := 0
 	for i, uvMode := range wholeBlockIntraUVModeCandidates {
-		mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: uvMode}
-		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
-			return 0, 0, 0, false
+		if !predictAnalysisChroma(pred, mbRow, mbCol, uvMode, scratch) {
+			return 0, 0, false
 		}
 		cost := macroblockChromaSAD(src, pred, mbRow, mbCol)
 		if i == 0 || cost < bestUVCost {
@@ -250,7 +311,36 @@ func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol
 			bestUVCost = cost
 		}
 	}
-	return bestYMode, bestUVMode, bestYCost + bestUVCost, true
+	return bestUVMode, bestUVCost, true
+}
+
+func predictBestBPredLumaModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) ([16]vp8common.BPredictionMode, int, bool) {
+	refs := vp8dec.BuildIntraPredictorRefs(pred, mbRow, mbCol, &scratch.Refs)
+	yOff := mbRow*16*pred.YStride + mbCol*16
+	y := pred.Y[yOff:]
+	var modes [16]vp8common.BPredictionMode
+	totalCost := 0
+	for block := 0; block < 16; block++ {
+		bestMode := vp8common.BDCPred
+		var bestPred [16]byte
+		bestCost := 0
+		for i, candidate := range bPredIntraModeCandidates {
+			var candidatePred [16]byte
+			if !predictAnalysisBPredBlock(candidate, candidatePred[:], 4, y, pred.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+				return [16]vp8common.BPredictionMode{}, 0, false
+			}
+			cost := bPredBlockSAD(src, mbRow, mbCol, block, candidatePred[:], 4)
+			if i == 0 || cost < bestCost {
+				bestMode = candidate
+				bestPred = candidatePred
+				bestCost = cost
+			}
+		}
+		modes[block] = bestMode
+		copyBPredBlock(bestPred[:], 4, y, pred.YStride, block)
+		totalCost += bestCost
+	}
+	return modes, totalCost, true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
@@ -462,7 +552,7 @@ func macroblockChromaSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	return sad
 }
 
-func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients) {
+func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, quant *vp8enc.MacroblockQuant, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients) {
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
@@ -474,12 +564,20 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 		y := mbRow*16 + (block>>2)*4
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		y2Input[block] = dct[0]
-		dct[0] = 0
-		coeffs.SetBlockEOB(block, vp8enc.FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq))
+		if is4x4 {
+			coeffs.SetBlockEOB(block, vp8enc.FastQuantizeBlock(&dct, &quant.Y1, &coeffs.QCoeff[block], &dq))
+		} else {
+			y2Input[block] = dct[0]
+			dct[0] = 0
+			coeffs.SetBlockEOB(block, vp8enc.FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq))
+		}
 	}
-	vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-	coeffs.SetBlockEOB(24, vp8enc.FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq))
+	if !is4x4 {
+		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
+		coeffs.SetBlockEOB(24, vp8enc.FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq))
+	} else {
+		coeffs.SetBlockEOB(24, 0)
+	}
 
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
@@ -496,12 +594,12 @@ func buildPredictedMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbC
 	}
 }
 
-func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients) bool {
+func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {
 	if coeffs.EOB[24] != 0 {
 		return false
 	}
 	for i := 0; i < 16; i++ {
-		if coeffs.EOB[i] > 1 {
+		if (is4x4 && coeffs.EOB[i] != 0) || (!is4x4 && coeffs.EOB[i] > 1) {
 			return false
 		}
 	}
@@ -518,9 +616,91 @@ func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8
 	yOff := row*16*img.YStride + col*16
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
-	return vp8dec.PredictIntraY16x16(mode.Mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
+	yOK := false
+	if mode.Is4x4 || mode.Mode == vp8common.BPred {
+		yOK = vp8dec.PredictIntraY4x4(&mode.BModes, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft)
+	} else {
+		yOK = vp8dec.PredictIntraY16x16(mode.Mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable)
+	}
+	return yOK &&
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.U[uOff:], img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
+func predictAnalysisChroma(img *vp8common.Image, row int, col int, uvMode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
+	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	return vp8dec.PredictIntraUV8x8(uvMode, img.U[uOff:], img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
+		vp8dec.PredictIntraUV8x8(uvMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
+func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, stride int, macroblock []byte, macroblockStride int, above []byte, left []byte, topLeft byte, block int) bool {
+	blockRow := block >> 2
+	blockCol := block & 3
+	y := blockRow * 4
+	x := blockCol * 4
+	var blockAbove [8]byte
+	var blockLeft [4]byte
+
+	if blockRow == 0 {
+		copy(blockAbove[:], above[x:x+8])
+	} else {
+		aboveOff := (y-1)*macroblockStride + x
+		copy(blockAbove[:4], macroblock[aboveOff:aboveOff+4])
+		if blockCol < 3 {
+			copy(blockAbove[4:], macroblock[aboveOff+4:aboveOff+8])
+		} else {
+			copy(blockAbove[4:], above[16:20])
+		}
+	}
+
+	if blockCol == 0 {
+		copy(blockLeft[:], left[y:y+4])
+	} else {
+		for i := 0; i < 4; i++ {
+			blockLeft[i] = macroblock[(y+i)*macroblockStride+x-1]
+		}
+	}
+
+	blockTopLeft := topLeft
+	switch {
+	case blockRow == 0 && blockCol == 0:
+	case blockRow == 0:
+		blockTopLeft = above[x-1]
+	case blockCol == 0:
+		blockTopLeft = left[y-1]
+	default:
+		blockTopLeft = macroblock[(y-1)*macroblockStride+x-1]
+	}
+
+	return dsp.Intra4x4Predict(dst, stride, mode, blockAbove[:], blockLeft[:], blockTopLeft)
+}
+
+func copyBPredBlock(src []byte, srcStride int, dst []byte, dstStride int, block int) {
+	y := (block >> 2) * 4
+	x := (block & 3) * 4
+	for row := 0; row < 4; row++ {
+		copy(dst[(y+row)*dstStride+x:], src[row*srcStride:row*srcStride+4])
+	}
+}
+
+func bPredBlockSAD(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, predStride int) int {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	sad := 0
+	for row := 0; row < 4; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := 0; col < 4; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*predStride+col])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+	}
+	return sad
 }
 
 func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
