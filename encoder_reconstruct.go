@@ -14,6 +14,13 @@ var wholeBlockIntraYModeCandidates = [...]vp8common.MBPredictionMode{
 	vp8common.TMPred,
 }
 
+var wholeBlockIntraUVModeCandidates = [...]vp8common.MBPredictionMode{
+	vp8common.DCPred,
+	vp8common.VPred,
+	vp8common.HPred,
+	vp8common.TMPred,
+}
+
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
@@ -34,11 +41,11 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
-			yMode, ok := predictBestWholeBlockIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+			yMode, uvMode, ok := predictBestWholeBlockIntraMode(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
-			modes[index] = vp8enc.KeyFrameMacroblockMode{YMode: yMode, UVMode: vp8common.DCPred}
+			modes[index] = vp8enc.KeyFrameMacroblockMode{YMode: yMode, UVMode: uvMode}
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
@@ -81,7 +88,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			coeffs[index] = vp8enc.MacroblockCoefficients{}
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
 			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
-			intraMode, intraCost, ok := predictBestWholeBlockIntraModeCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
+			intraMode, intraUVMode, intraCost, ok := predictBestWholeBlockIntraModeCost(src, row, col, &e.analysis.Img, &e.reconstructScratch)
 			if !ok {
 				return ErrInvalidConfig
 			}
@@ -99,7 +106,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 			}
 
 			if intraCost < interCost {
-				modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: intraMode, UVMode: vp8common.DCPred}
+				modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: intraMode, UVMode: intraUVMode}
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return ErrInvalidConfig
@@ -191,26 +198,40 @@ func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interA
 	return bestRef, best
 }
 
-func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, bool) {
-	mode, _, ok := predictBestWholeBlockIntraModeCost(src, mbRow, mbCol, pred, scratch)
-	return mode, ok
+func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, bool) {
+	yMode, uvMode, _, ok := predictBestWholeBlockIntraModeCost(src, mbRow, mbCol, pred, scratch)
+	return yMode, uvMode, ok
 }
 
-func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, bool) {
-	bestMode := vp8common.DCPred
-	bestCost := 0
+func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, bool) {
+	bestYMode := vp8common.DCPred
+	bestYCost := 0
 	for i, yMode := range wholeBlockIntraYModeCandidates {
 		mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: yMode, UVMode: vp8common.DCPred}
 		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
-			return 0, 0, false
+			return 0, 0, 0, false
 		}
 		cost := macroblockSAD(src, pred, mbRow, mbCol, vp8enc.MotionVector{})
-		if i == 0 || cost < bestCost {
-			bestMode = yMode
-			bestCost = cost
+		if i == 0 || cost < bestYCost {
+			bestYMode = yMode
+			bestYCost = cost
 		}
 	}
-	return bestMode, bestCost, true
+
+	bestUVMode := vp8common.DCPred
+	bestUVCost := 0
+	for i, uvMode := range wholeBlockIntraUVModeCandidates {
+		mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: uvMode}
+		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
+			return 0, 0, 0, false
+		}
+		cost := macroblockChromaSAD(src, pred, mbRow, mbCol)
+		if i == 0 || cost < bestUVCost {
+			bestUVMode = uvMode
+			bestUVCost = cost
+		}
+	}
+	return bestYMode, bestUVMode, bestYCost + bestUVCost, true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
@@ -307,6 +328,43 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 				diff = -diff
 			}
 			sad += diff
+		}
+	}
+	return sad
+}
+
+func macroblockChromaSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) int {
+	baseY := mbRow * 8
+	baseX := mbCol * 8
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	refUVWidth := (ref.CodedWidth + 1) >> 1
+	refUVHeight := (ref.CodedHeight + 1) >> 1
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+8 <= uvHeight && baseX+8 <= uvWidth &&
+		baseY+8 <= refUVHeight && baseX+8 <= refUVWidth {
+		srcOffset := baseY*src.UStride + baseX
+		refOffset := baseY*ref.UStride + baseX
+		return dsp.SAD8x8(src.U[srcOffset:], src.UStride, ref.U[refOffset:], ref.UStride) +
+			dsp.SAD8x8(src.V[baseY*src.VStride+baseX:], src.VStride, ref.V[baseY*ref.VStride+baseX:], ref.VStride)
+	}
+
+	sad := 0
+	for row := 0; row < 8; row++ {
+		srcY := clampEncodeCoord(baseY+row, uvHeight)
+		refY := clampEncodeCoord(baseY+row, refUVHeight)
+		for col := 0; col < 8; col++ {
+			srcX := clampEncodeCoord(baseX+col, uvWidth)
+			refX := clampEncodeCoord(baseX+col, refUVWidth)
+			uDiff := int(src.U[srcY*src.UStride+srcX]) - int(ref.U[refY*ref.UStride+refX])
+			if uDiff < 0 {
+				uDiff = -uDiff
+			}
+			vDiff := int(src.V[srcY*src.VStride+srcX]) - int(ref.V[refY*ref.VStride+refX])
+			if vDiff < 0 {
+				vDiff = -vDiff
+			}
+			sad += uDiff + vDiff
 		}
 	}
 	return sad

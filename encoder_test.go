@@ -453,6 +453,14 @@ func TestEncodeIntoKeyFrameSelectsVerticalIntraMode(t *testing.T) {
 			src.Y[row*src.YStride+col] = byte(32 + col*7)
 		}
 	}
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			src.U[row*src.UStride+col] = byte(50 + col*9)
+			src.V[row*src.VStride+col] = byte(160 - col*5)
+		}
+	}
 
 	if _, err := e.EncodeInto(make([]byte, 8192), src, 0, 1, 0); err != nil {
 		t.Fatalf("EncodeInto returned error: %v", err)
@@ -460,6 +468,9 @@ func TestEncodeIntoKeyFrameSelectsVerticalIntraMode(t *testing.T) {
 
 	if e.keyFrameModes[1].YMode != vp8common.VPred {
 		t.Fatalf("key mode[1] = %+v, want vertical prediction for repeated rows", e.keyFrameModes[1])
+	}
+	if e.keyFrameModes[1].UVMode != vp8common.VPred {
+		t.Fatalf("key UV mode[1] = %+v, want vertical prediction for repeated chroma rows", e.keyFrameModes[1])
 	}
 }
 
@@ -472,6 +483,14 @@ func TestEncodeIntoInterFrameIntraMacroblockSelectsVerticalMode(t *testing.T) {
 	for row := 0; row < second.Height; row++ {
 		for col := 0; col < second.Width; col++ {
 			second.Y[row*second.YStride+col] = byte(40 + col*6)
+		}
+	}
+	uvWidth := (second.Width + 1) >> 1
+	uvHeight := (second.Height + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			second.U[row*second.UStride+col] = byte(60 + col*8)
+			second.V[row*second.VStride+col] = byte(150 - col*4)
 		}
 	}
 	keyPacket := make([]byte, 8192)
@@ -489,6 +508,9 @@ func TestEncodeIntoInterFrameIntraMacroblockSelectsVerticalMode(t *testing.T) {
 	}
 	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.VPred {
 		t.Fatalf("inter mode[1] = %+v, want intra vertical prediction for repeated rows", e.interFrameModes[1])
+	}
+	if e.interFrameModes[1].UVMode != vp8common.VPred {
+		t.Fatalf("inter UV mode[1] = %+v, want intra vertical prediction for repeated chroma rows", e.interFrameModes[1])
 	}
 }
 
