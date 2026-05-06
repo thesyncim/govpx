@@ -323,6 +323,28 @@ func TestRateControlPostDropFrameDoesNotUpdateLibvpxRollingBitAverages(t *testin
 	}
 }
 
+func TestRateControlInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		frameTargetBits:   3000,
+		bufferLevelBits:   5000,
+		maximumBufferBits: 8000,
+	}
+
+	rc.postEncodeFrameWithPacketContext(100, false, false, 0, false)
+
+	if rc.bufferLevelBits != 4200 {
+		t.Fatalf("invisible buffer = %d, want previous minus frame size 4200", rc.bufferLevelBits)
+	}
+	if rc.rollingActualBits != 200 || rc.rollingTargetBits != 750 {
+		t.Fatalf("invisible rolling bits = actual:%d target:%d, want libvpx 200/750", rc.rollingActualBits, rc.rollingTargetBits)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{

@@ -373,6 +373,10 @@ func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 }
 
 func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int) {
+	rc.postEncodeFrameWithPacketContext(sizeBytes, keyFrame, goldenFrame, macroblocks, true)
+}
+
+func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, showFrame bool) {
 	actualBits := encodedSizeBits(sizeBytes)
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
@@ -380,7 +384,9 @@ func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame b
 	}
 	rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
 	rc.updateRollingBitAverages(actualBits, targetBits)
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	if showFrame {
+		rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	}
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
 

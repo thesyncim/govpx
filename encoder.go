@@ -310,7 +310,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.SizeBytes = attempt.Size
 		result.Quantizer = finalQuantizer
 		result.Droppable = interFrameDroppable(attempt.Config)
-		e.rc.postEncodeFrameWithContext(attempt.Size, false, goldenCBRRefresh, required)
+		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, goldenCBRRefresh, required, !invisible)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		if attempt.CyclicRefresh {
@@ -336,7 +336,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.Data = dst[:n]
 	result.SizeBytes = n
 	result.Quantizer = finalQuantizer
-	e.rc.postEncodeFrameWithContext(n, true, false, required)
+	e.rc.postEncodeFrameWithPacketContext(n, true, false, required, !invisible)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
