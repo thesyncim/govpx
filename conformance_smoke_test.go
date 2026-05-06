@@ -20,8 +20,13 @@ func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
 }
 
-func TestLibvpxEncodedSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
-	assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
+func TestLibvpxAuthoredSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
+	for _, tc := range libvpxAuthoredSmokeCases() {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
+		})
+	}
 }
 
 func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
@@ -41,6 +46,31 @@ func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("Decode/NextFrame libvpx smoke allocs = %v, want 0", allocs)
+	}
+}
+
+func TestLibvpxAuthoredSmokeDecodeIntoHotPathAllocs(t *testing.T) {
+	for _, tc := range libvpxAuthoredSmokeCases() {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
+			d, err := NewVP8Decoder(DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP8Decoder returned error: %v", err)
+			}
+			dst := testImage(tc.checksums[0].Width, tc.checksums[0].Height)
+			decodeSmokeFramesInto(t, d, frames, &dst)
+
+			allocs := testing.AllocsPerRun(1000, func() {
+				d.Reset()
+				for i := range frames {
+					_, _ = d.DecodeInto(frames[i], &dst)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("DecodeInto libvpx smoke allocs = %v, want 0", allocs)
+			}
+		})
 	}
 }
 
@@ -200,6 +230,25 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 	}
 }
 
+type smokeCase struct {
+	name      string
+	ivfHex    string
+	checksums []testutil.FrameChecksum
+}
+
+func libvpxAuthoredSmokeCases() []smokeCase {
+	return []smokeCase{
+		{name: "base", ivfHex: libvpxEncodedSmokeIVFHex, checksums: libvpxEncodedSmokeChecksums[:]},
+		{name: "token-two", ivfHex: libvpxTwoTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
+		{name: "token-four", ivfHex: libvpxFourTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
+		{name: "token-eight", ivfHex: libvpxEightTokenPartitionIVFHex, checksums: libvpxTokenPartitionChecksums[:]},
+		{name: "profile1", ivfHex: libvpxProfile1IVFHex, checksums: libvpxProfile1Checksums[:]},
+		{name: "profile2", ivfHex: libvpxProfile2IVFHex, checksums: libvpxProfile2Checksums[:]},
+		{name: "profile3", ivfHex: libvpxProfile3IVFHex, checksums: libvpxProfile3Checksums[:]},
+		{name: "sharpness7", ivfHex: libvpxSharpness7IVFHex, checksums: libvpxSharpness7Checksums[:]},
+	}
+}
+
 func mustDecodeSmokeIVFFrames(t testing.TB, ivfHex string, want int) [][]byte {
 	t.Helper()
 	ivf := mustDecodeHex(t, ivfHex)
@@ -231,6 +280,19 @@ func decodeSmokeFrames(t testing.TB, d *VP8Decoder, frames [][]byte) {
 		}
 		if _, ok := d.NextFrame(); !ok {
 			t.Fatalf("NextFrame frame %d returned no frame", i)
+		}
+	}
+}
+
+func decodeSmokeFramesInto(t testing.TB, d *VP8Decoder, frames [][]byte, dst *Image) {
+	t.Helper()
+	d.Reset()
+	for i := range frames {
+		if _, err := d.DecodeInto(frames[i], dst); err != nil {
+			t.Fatalf("DecodeInto frame %d returned error: %v", i, err)
+		}
+		if _, ok := d.NextFrame(); ok {
+			t.Fatalf("DecodeInto frame %d queued a NextFrame output", i)
 		}
 	}
 }
