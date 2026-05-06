@@ -84,7 +84,11 @@ type rateControlState struct {
 	rollingTargetBits   int
 }
 
-const keyFrameTargetBoost = 4
+const (
+	keyFrameTargetBoost             = 4
+	defaultRateControlUndershootPct = 50
+	defaultRateControlOvershootPct  = 100
+)
 
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
@@ -95,8 +99,8 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
 	rc.minQuantizer = cfg.MinQuantizer
 	rc.maxQuantizer = cfg.MaxQuantizer
-	rc.undershootPct = cfg.UndershootPct
-	rc.overshootPct = cfg.OvershootPct
+	rc.undershootPct = normalizeRateControlPct(cfg.UndershootPct, defaultRateControlUndershootPct)
+	rc.overshootPct = normalizeRateControlPct(cfg.OvershootPct, defaultRateControlOvershootPct)
 	rc.bufferSizeMs = cfg.BufferSizeMs
 	rc.bufferInitialSizeMs = cfg.BufferInitialSizeMs
 	rc.bufferOptimalSizeMs = cfg.BufferOptimalSizeMs
@@ -235,16 +239,30 @@ func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
 	}
 	lowBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits < rc.bufferOptimalBits/2
 	highBuffer := rc.bufferOptimalBits > 0 && rc.bufferLevelBits > rc.bufferOptimalBits
+	overshootLimit := rc.overshootLimitBits(targetBits)
+	undershootLimit := rc.undershootLimitBits(targetBits)
 	switch {
-	case actualBits > targetBits || lowBuffer:
+	case actualBits > overshootLimit || lowBuffer:
 		step := 1
-		if int64(actualBits) > int64(targetBits)*2 || lowBuffer {
+		if actualBits > saturatingAdd(overshootLimit, targetBits) || lowBuffer {
 			step = 2
 		}
 		rc.currentQuantizer += step
-	case int64(actualBits)*2 < int64(targetBits) && highBuffer:
+	case actualBits < undershootLimit && highBuffer:
 		rc.currentQuantizer--
 	}
+}
+
+func (rc *rateControlState) overshootLimitBits(targetBits int) int {
+	return saturatingAdd(targetBits, percentOf(targetBits, rc.overshootPct))
+}
+
+func (rc *rateControlState) undershootLimitBits(targetBits int) int {
+	allowed := percentOf(targetBits, rc.undershootPct)
+	if allowed >= targetBits {
+		return 0
+	}
+	return targetBits - allowed
 }
 
 func encodedSizeBits(sizeBytes int) int {
@@ -334,11 +352,11 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 
 	undershoot := opts.UndershootPct
 	if undershoot == 0 {
-		undershoot = 100
+		undershoot = defaultRateControlUndershootPct
 	}
 	overshoot := opts.OvershootPct
 	if overshoot == 0 {
-		overshoot = 100
+		overshoot = defaultRateControlOvershootPct
 	}
 
 	bufferSize := opts.BufferSizeMs
@@ -368,6 +386,23 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 		BufferOptimalSizeMs: bufferOptimal,
 		DropFrameAllowed:    opts.DropFrameAllowed,
 	}
+}
+
+func normalizeRateControlPct(value int, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
+func percentOf(value int, pct int) int {
+	if value <= 0 || pct <= 0 {
+		return 0
+	}
+	if value > maxInt()/pct {
+		return maxInt()
+	}
+	return (value * pct) / 100
 }
 
 func checkedMul(a int, b int) (int, bool) {
