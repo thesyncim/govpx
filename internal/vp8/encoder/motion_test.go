@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestWriteMotionVectorRoundTripsSmall(t *testing.T) {

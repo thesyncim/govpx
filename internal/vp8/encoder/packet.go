@@ -13,7 +13,7 @@ const (
 	MaxPartitionSize            = 1<<24 - 1
 )
 
-var ErrInvalidPacketConfig = errors.New("gopvx: invalid VP8 packet config")
+var ErrInvalidPacketConfig = errors.New("govpx: invalid VP8 packet config")
 
 func PutFrameTag(dst []byte, keyFrame bool, version int, showFrame bool, firstPartitionSize int) error {
 	if len(dst) < FrameTagSize {

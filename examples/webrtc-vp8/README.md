@@ -1,11 +1,11 @@
-# gopvx WebRTC demo
+# govpx WebRTC demo
 
 End-to-end demo: synthetic frames generated in Go, encoded to VP8 by
-`gopvx`, streamed to a browser over WebRTC, and decoded by the browser's
+`govpx`, streamed to a browser over WebRTC, and decoded by the browser's
 native VP8 decoder.
 
 This is a separate Go module (its own `go.mod`) so the `pion/webrtc`
-dependency tree stays out of the core `gopvx` module.
+dependency tree stays out of the core `govpx` module.
 
 ## Run
 
@@ -30,7 +30,7 @@ Flags:
 - The server (`main.go`) creates a pion `PeerConnection`, attaches a
   `TrackLocalStaticSample` advertising `video/VP8` at 90 kHz, and answers.
 - A goroutine ticks at 30 fps. Each tick:
-  1. `drawFrame` writes I420 planes into a reused `gopvx.Image` (zero
+  1. `drawFrame` writes I420 planes into a reused `govpx.Image` (zero
      allocations after warmup).
   2. `enc.EncodeInto(packet, img, pts, duration, flags)` encodes one VP8
      frame into a fixed buffer.
@@ -46,7 +46,7 @@ frame.
 
 ## What this proves
 
-- `gopvx` produces VP8 bitstreams that real-world VP8 decoders (libvpx
+- `govpx` produces VP8 bitstreams that real-world VP8 decoders (libvpx
   inside Chromium / Firefox / Safari) decode without modification.
 - The encoder is fast enough on a single goroutine to sustain 30 fps at
   320x240 in pure Go.

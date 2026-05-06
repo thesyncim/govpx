@@ -1,9 +1,9 @@
-package gopvx
+package govpx
 
 import (
 	"testing"
 
-	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 func TestSourceMatchesReferenceUsesVisiblePlanes(t *testing.T) {

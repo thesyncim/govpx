@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-var ErrInvalidOracleOutput = errString("gopvx: invalid oracle output")
+var ErrInvalidOracleOutput = errString("govpx: invalid oracle output")
 
 type FrameChecksum struct {
 	Index int

@@ -1,4 +1,4 @@
-# gopvx plan
+# govpx plan
 
 This file is the small living plan for the current repo. The historical giant
 spec has been retired; frozen upstream and licensing detail belong in
@@ -18,7 +18,7 @@ small Go API, no cgo dependency, and normal CI that stays fast.
   rate-control APIs.
 - Scalar VP8 decoder/encoder internals live under `internal/vp8`.
 - Normal tests include checked-in smoke vectors and skip libvpx unless
-  `GOPVX_WITH_ORACLE=1`.
+  `GOVPX_WITH_ORACLE=1`.
 - `make verify-production` remains the slower opt-in libvpx parity gate.
 
 ## Keep true

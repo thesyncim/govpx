@@ -3,7 +3,7 @@ package encoder
 import (
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 func TestInitFastBlockQuant(t *testing.T) {

@@ -1,6 +1,6 @@
 package encoder
 
-import "github.com/thesyncim/gopvx/internal/vp8/tables"
+import "github.com/thesyncim/govpx/internal/vp8/tables"
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c keyframe packet assembly
 // shape for a one-token-partition, zero-coefficient keyframe.

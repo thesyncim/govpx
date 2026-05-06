@@ -9,7 +9,7 @@ go test ./benchmarks -run '^$' -bench 'BenchmarkDecode' -benchmem -json > benchm
 Include the opt-in libvpx reference benchmark by setting:
 
 ```sh
-GOPVX_WITH_ORACLE=1 GOPVX_ORACLE=internal/coracle/build/gopvx-vpx-oracle go test ./benchmarks -run '^$' -bench 'BenchmarkDecode' -benchmem -json
+GOVPX_WITH_ORACLE=1 GOVPX_ORACLE=internal/coracle/build/govpx-vpx-oracle go test ./benchmarks -run '^$' -bench 'BenchmarkDecode' -benchmem -json
 ```
 
 The checked-in decode benchmarks use the libvpx v1.16.0 smoke IVF stream from

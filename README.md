@@ -1,6 +1,6 @@
-# gopvx
+# govpx
 
-`gopvx` is a pure-Go VP8 codec library inspired by the frozen libvpx v1.16.0
+`govpx` is a pure-Go VP8 codec library inspired by the frozen libvpx v1.16.0
 baseline. It is VP8-only, has no cgo dependency, and exposes a small Go-style
 API instead of mirroring the libvpx C API.
 
@@ -54,11 +54,11 @@ required corpus checks enabled.
 ## Benchmarks
 
 ```sh
-go run ./cmd/gopvx-bench
+go run ./cmd/govpx-bench
 go test ./benchmarks -bench Decode -benchmem -json
 ```
 
-Set `GOPVX_VPXENC` or `GOPVX_ORACLE` to compare against locally built libvpx
+Set `GOVPX_VPXENC` or `GOVPX_ORACLE` to compare against locally built libvpx
 helpers. `make oracle-tools` builds those helpers without running the full
 parity gate.
 
@@ -68,5 +68,5 @@ parity gate.
 - `internal/vp8`: scalar VP8 port internals
 - `internal/testutil`: IVF, checksum, and conformance helpers
 - `internal/coracle`: optional libvpx oracle build scripts
-- `cmd/gopvx-bench`: synthetic encode/decode benchmark tool
+- `cmd/govpx-bench`: synthetic encode/decode benchmark tool
 - `docs/performance.md`: local scalar performance notes

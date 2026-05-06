@@ -1,8 +1,8 @@
 package encoder
 
 import (
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/tokenize.c coefficient token

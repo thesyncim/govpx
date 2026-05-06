@@ -3,9 +3,9 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	"github.com/thesyncim/gopvx/internal/vp8/dsp"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0:
@@ -17,9 +17,9 @@ import (
 // - vp8/common/extend.c row-edge extension for intra prediction
 
 var (
-	ErrReconstructGridBufferTooSmall      = errors.New("gopvx: VP8 reconstruction grid buffer too small")
-	ErrUnsupportedIntraReconstructionMode = errors.New("gopvx: unsupported VP8 intra reconstruction mode")
-	ErrUnsupportedInterReconstructionMode = errors.New("gopvx: unsupported VP8 inter reconstruction mode")
+	ErrReconstructGridBufferTooSmall      = errors.New("govpx: VP8 reconstruction grid buffer too small")
+	ErrUnsupportedIntraReconstructionMode = errors.New("govpx: unsupported VP8 intra reconstruction mode")
+	ErrUnsupportedInterReconstructionMode = errors.New("govpx: unsupported VP8 inter reconstruction mode")
 )
 
 type interPredictorPlan struct {

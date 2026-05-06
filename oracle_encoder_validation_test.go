@@ -1,4 +1,4 @@
-package gopvx
+package govpx
 
 import (
 	"math"
@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/testutil"
-	vp8common "github.com/thesyncim/gopvx/internal/vp8/common"
-	vp8dec "github.com/thesyncim/gopvx/internal/vp8/decoder"
+	"github.com/thesyncim/govpx/internal/testutil"
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
 type encoderValidationPattern int
@@ -71,8 +71,8 @@ type encoderFrameQualityMetrics struct {
 }
 
 func TestOracleEncoderCorpusValidation(t *testing.T) {
-	if os.Getenv("GOPVX_WITH_ORACLE") != "1" {
-		t.Skip("set GOPVX_WITH_ORACLE=1 to run encoder oracle validation")
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle validation")
 	}
 	oracle := findChecksumOracle(t)
 	vpxenc := findVpxenc(t)
@@ -145,19 +145,19 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			got := encodeGopvxValidationCorpus(t, tc, sources)
 			wantChecksums := runLibvpxChecksumOracle(t, oracle, got.ivf)
 			gotChecksums := decodeIVFChecksums(t, got.ivf)
-			assertFrameChecksumsEqual(t, "gopvx encode decoded by libvpx", gotChecksums, wantChecksums)
+			assertFrameChecksumsEqual(t, "govpx encode decoded by libvpx", gotChecksums, wantChecksums)
 			assertGopvxEncoderValidationFeatures(t, got.ivf, tc)
 
 			libvpxIVF := encodeLibvpxValidationCorpus(t, vpxenc, tc, sources)
 			libvpxWantChecksums := runLibvpxChecksumOracle(t, oracle, libvpxIVF)
 			libvpxGotChecksums := decodeIVFChecksums(t, libvpxIVF)
-			assertFrameChecksumsEqual(t, "libvpx encode decoded by gopvx", libvpxGotChecksums, libvpxWantChecksums)
+			assertFrameChecksumsEqual(t, "libvpx encode decoded by govpx", libvpxGotChecksums, libvpxWantChecksums)
 			libvpxQuality := qualityMetricsForIVF(t, libvpxIVF, sources)
 			libvpxOutputKbps := encoderValidationOutputKbps(len(libvpxIVF)-testutil.IVFFileHeaderSize-len(sources)*testutil.IVFFrameHeaderSize, tc.fps, len(sources))
 			logEncoderValidationQuality(t, got.quality, got.outputKbps, libvpxQuality, libvpxOutputKbps)
 
-			assertEncoderValidationQuality(t, "gopvx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
-			assertEncoderValidationRate(t, "gopvx", got.outputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
+			assertEncoderValidationQuality(t, "govpx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
+			assertEncoderValidationRate(t, "govpx", got.outputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
 			assertEncoderValidationQuality(t, "libvpx", libvpxQuality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
 			assertEncoderValidationRate(t, "libvpx", libvpxOutputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
 			assertEncoderValidationQualityGap(t, got.quality, libvpxQuality, tc)
@@ -510,22 +510,22 @@ func assertEncoderValidationQuality(t *testing.T, label string, q encoderQuality
 func assertEncoderValidationQualityGap(t *testing.T, got encoderQualityMetrics, libvpx encoderQualityMetrics, tc encoderValidationCase) {
 	t.Helper()
 	if got.qualityPSNRGap(libvpx) > tc.maxPSNRGap {
-		t.Fatalf("gopvx PSNR = %.2f dB, libvpx = %.2f dB, allowed gap %.2f dB", got.PSNR, libvpx.PSNR, tc.maxPSNRGap)
+		t.Fatalf("govpx PSNR = %.2f dB, libvpx = %.2f dB, allowed gap %.2f dB", got.PSNR, libvpx.PSNR, tc.maxPSNRGap)
 	}
 	if got.qualitySSIMGap(libvpx) > tc.maxSSIMGap {
-		t.Fatalf("gopvx SSIM = %.4f, libvpx = %.4f, allowed gap %.4f", got.SSIM, libvpx.SSIM, tc.maxSSIMGap)
+		t.Fatalf("govpx SSIM = %.4f, libvpx = %.4f, allowed gap %.4f", got.SSIM, libvpx.SSIM, tc.maxSSIMGap)
 	}
 	if len(got.Frame) != len(libvpx.Frame) {
-		t.Fatalf("gopvx per-frame quality count = %d, libvpx = %d", len(got.Frame), len(libvpx.Frame))
+		t.Fatalf("govpx per-frame quality count = %d, libvpx = %d", len(got.Frame), len(libvpx.Frame))
 	}
 	for i := range got.Frame {
 		psnrGap := libvpx.Frame[i].PSNR - got.Frame[i].PSNR
 		if psnrGap > tc.maxFramePSNRGap {
-			t.Fatalf("frame %d gopvx PSNR = %.2f dB, libvpx = %.2f dB, allowed gap %.2f dB", i, got.Frame[i].PSNR, libvpx.Frame[i].PSNR, tc.maxFramePSNRGap)
+			t.Fatalf("frame %d govpx PSNR = %.2f dB, libvpx = %.2f dB, allowed gap %.2f dB", i, got.Frame[i].PSNR, libvpx.Frame[i].PSNR, tc.maxFramePSNRGap)
 		}
 		ssimGap := libvpx.Frame[i].SSIM - got.Frame[i].SSIM
 		if ssimGap > tc.maxFrameSSIMGap {
-			t.Fatalf("frame %d gopvx SSIM = %.4f, libvpx = %.4f, allowed gap %.4f", i, got.Frame[i].SSIM, libvpx.Frame[i].SSIM, tc.maxFrameSSIMGap)
+			t.Fatalf("frame %d govpx SSIM = %.4f, libvpx = %.4f, allowed gap %.4f", i, got.Frame[i].SSIM, libvpx.Frame[i].SSIM, tc.maxFrameSSIMGap)
 		}
 	}
 }
@@ -544,7 +544,7 @@ func logEncoderValidationQuality(t *testing.T, got encoderQualityMetrics, gotKbp
 	gotWorstSSIM, libvpxWorstSSIM := worstEncoderValidationSSIM(got), worstEncoderValidationSSIM(libvpx)
 	maxPSNRGapIndex, maxPSNRGap := maxEncoderValidationFramePSNRGap(got, libvpx)
 	maxSSIMGapIndex, maxSSIMGap := maxEncoderValidationFrameSSIMGap(got, libvpx)
-	t.Logf("gopvx quality psnr=%.2f ssim=%.4f bitrate=%.1f kbps worst_psnr=f%d/%.2f worst_ssim=f%d/%.4f; libvpx quality psnr=%.2f ssim=%.4f bitrate=%.1f kbps worst_psnr=f%d/%.2f worst_ssim=f%d/%.4f max_frame_gap=psnr:f%d/%.2f ssim:f%d/%.4f",
+	t.Logf("govpx quality psnr=%.2f ssim=%.4f bitrate=%.1f kbps worst_psnr=f%d/%.2f worst_ssim=f%d/%.4f; libvpx quality psnr=%.2f ssim=%.4f bitrate=%.1f kbps worst_psnr=f%d/%.2f worst_ssim=f%d/%.4f max_frame_gap=psnr:f%d/%.2f ssim:f%d/%.4f",
 		got.PSNR, got.SSIM, gotKbps, gotWorstPSNR.Index, gotWorstPSNR.PSNR, gotWorstSSIM.Index, gotWorstSSIM.SSIM,
 		libvpx.PSNR, libvpx.SSIM, libvpxKbps, libvpxWorstPSNR.Index, libvpxWorstPSNR.PSNR, libvpxWorstSSIM.Index, libvpxWorstSSIM.SSIM,
 		maxPSNRGapIndex, maxPSNRGap, maxSSIMGapIndex, maxSSIMGap)

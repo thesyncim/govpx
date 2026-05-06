@@ -3,7 +3,7 @@ package dsp
 import (
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/common"
 )
 
 func TestIntra4x4PredictModes(t *testing.T) {

@@ -3,8 +3,8 @@ package decoder
 import (
 	"testing"
 
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestDecodeMotionVectorSmall(t *testing.T) {

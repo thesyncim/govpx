@@ -1,6 +1,6 @@
 package dsp
 
-import "github.com/thesyncim/gopvx/internal/vp8/tables"
+import "github.com/thesyncim/govpx/internal/vp8/tables"
 
 // Ported from libvpx v1.16.0 vp8/encoder/variance.c scalar variance
 // primitives and vpx_dsp/variance.c sub-pixel variance primitives.

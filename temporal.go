@@ -1,4 +1,4 @@
-package gopvx
+package govpx
 
 const (
 	MaxTemporalLayers     = 5

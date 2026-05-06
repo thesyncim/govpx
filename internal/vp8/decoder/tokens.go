@@ -3,13 +3,13 @@ package decoder
 import (
 	"errors"
 
-	"github.com/thesyncim/gopvx/internal/vp8/boolcoder"
-	"github.com/thesyncim/gopvx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/decoder/detokenize.c GetCoeffs.
 
-var ErrTokenGridBufferTooSmall = errors.New("gopvx: VP8 token grid buffer too small")
+var ErrTokenGridBufferTooSmall = errors.New("govpx: VP8 token grid buffer too small")
 
 type EntropyContextPlanes struct {
 	Y1 [4]uint8

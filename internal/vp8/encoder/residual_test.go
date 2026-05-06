@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	gopvx "github.com/thesyncim/gopvx"
-	"github.com/thesyncim/gopvx/internal/vp8/common"
-	vp8enc "github.com/thesyncim/gopvx/internal/vp8/encoder"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestBuildNeutralPredictorKeyFrameCoefficientsDecodes(t *testing.T) {
@@ -28,7 +28,7 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsDecodes(t *testing.T) {
 		t.Fatalf("WriteCoefficientKeyFrame returned error: %v", err)
 	}
 
-	d, err := gopvx.NewVP8Decoder(gopvx.DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}

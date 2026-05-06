@@ -1,4 +1,4 @@
-package gopvx
+package govpx
 
 type RateControlMode int
 
