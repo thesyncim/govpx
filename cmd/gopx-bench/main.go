@@ -132,25 +132,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
 	}
 
-	enc, err := libgopx.NewVP8Encoder(libgopx.EncoderOptions{
-		Width:               cfg.Width,
-		Height:              cfg.Height,
-		FPS:                 cfg.FPS,
-		RateControlMode:     libgopx.RateControlCBR,
-		TargetBitrateKbps:   cfg.BitrateKbps,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		Deadline:            deadline,
-		CpuUsed:             8,
-		KeyFrameInterval:    cfg.FPS,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-	})
-	if err != nil {
-		return benchReport{}, err
-	}
-	dec, err := libgopx.NewVP8Decoder(libgopx.DecoderOptions{})
+	enc, err := newBenchmarkEncoder(cfg, deadline)
 	if err != nil {
 		return benchReport{}, err
 	}
@@ -167,9 +149,6 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	keyframeBytes := 0
 	interBytes := 0
 	interCount := 0
-	psnrSum := 0.0
-	ssimSum := 0.0
-	psnrCount := 0
 
 	runtime.GC()
 	var memBefore runtime.MemStats
@@ -205,17 +184,12 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 			interBytes += result.SizeBytes
 			interCount++
 		}
-		if err := dec.Decode(result.Data); err != nil {
-			return benchReport{}, err
-		}
-		decoded, ok := dec.NextFrame()
-		if ok {
-			psnrSum += imagePSNR(frame, decoded)
-			ssimSum += imageSSIM(frame, decoded)
-			psnrCount++
-		}
 	}
 	runtime.ReadMemStats(&memAfter)
+	psnr, ssim, _, err := benchmarkQualityMetrics(cfg, deadline, frames)
+	if err != nil {
+		return benchReport{}, err
+	}
 
 	totalLatency := int64(0)
 	for _, ns := range latencies {
@@ -230,14 +204,6 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	avgInter := 0.0
 	if interCount > 0 {
 		avgInter = float64(interBytes) / float64(interCount)
-	}
-	psnr := 0.0
-	if psnrCount > 0 {
-		psnr = psnrSum / float64(psnrCount)
-	}
-	ssim := 0.0
-	if psnrCount > 0 {
-		ssim = ssimSum / float64(psnrCount)
 	}
 	quantMean := 0.0
 	if encodedFrames > 0 {
@@ -285,6 +251,59 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		report.Reference = &reference
 	}
 	return report, nil
+}
+
+func newBenchmarkEncoder(cfg benchConfig, deadline libgopx.Deadline) (*libgopx.VP8Encoder, error) {
+	return libgopx.NewVP8Encoder(libgopx.EncoderOptions{
+		Width:               cfg.Width,
+		Height:              cfg.Height,
+		FPS:                 cfg.FPS,
+		RateControlMode:     libgopx.RateControlCBR,
+		TargetBitrateKbps:   cfg.BitrateKbps,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            deadline,
+		CpuUsed:             8,
+		KeyFrameInterval:    cfg.FPS,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+}
+
+func benchmarkQualityMetrics(cfg benchConfig, deadline libgopx.Deadline, frames []libgopx.Image) (float64, float64, int, error) {
+	enc, err := newBenchmarkEncoder(cfg, deadline)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	dec, err := libgopx.NewVP8Decoder(libgopx.DecoderOptions{})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	packet := make([]byte, max(4096, cfg.Width*cfg.Height*6))
+	psnrSum := 0.0
+	ssimSum := 0.0
+	qualityFrames := 0
+	for i, frame := range frames {
+		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
+		if err != nil {
+			return 0, 0, qualityFrames, err
+		}
+		if result.Dropped {
+			continue
+		}
+		if err := dec.Decode(result.Data); err != nil {
+			return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, err)
+		}
+		decoded, ok := dec.NextFrame()
+		if !ok {
+			continue
+		}
+		psnrSum += imagePSNR(frame, decoded)
+		ssimSum += imageSSIM(frame, decoded)
+		qualityFrames++
+	}
+	return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, nil)
 }
 
 func quantizerHistogramMap(hist *[quantizerHistogramBins]int) map[string]int {

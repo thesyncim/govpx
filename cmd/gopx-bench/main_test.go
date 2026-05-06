@@ -34,6 +34,9 @@ func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.NSPerFrame <= 0 || report.EncodeFPS <= 0 || report.LatencyNS.P50 <= 0 || report.OutputBytes <= 0 {
 		t.Fatalf("timing/output metrics = ns:%d fps:%f p50:%d bytes:%d", report.NSPerFrame, report.EncodeFPS, report.LatencyNS.P50, report.OutputBytes)
 	}
+	if report.AllocsPerFrame != 0 {
+		t.Fatalf("AllocsPerFrame = %f, want 0 for measured encode pass", report.AllocsPerFrame)
+	}
 	if report.PSNR <= 0 || report.SSIM <= 0 || report.SSIM > 1 || report.Quantizers.Min <= 0 || report.Quantizers.Max < report.Quantizers.Min || len(report.QuantizerHist) == 0 {
 		t.Fatalf("quality/quantizer metrics = psnr:%f ssim:%f quant:%+v hist:%v", report.PSNR, report.SSIM, report.Quantizers, report.QuantizerHist)
 	}

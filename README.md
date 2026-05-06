@@ -31,8 +31,8 @@ opt-in conformance against external libvpx test data; `LIBGOPX_TEST_DATA_LIMIT`
 can cap the number of IVF files.
 
 `go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
-prints JSON metrics for CI/local tracking. Set `LIBGOPX_VPXENC` or pass
-`-libvpx-vpxenc` to include an optional libvpx `vpxenc` reference comparison;
-when libgopx can decode the reference stream, the reference block includes
-PSNR/SSIM too. `internal/coracle/build_vpxenc.sh` builds the pinned reference
-binary.
+prints JSON metrics for CI/local tracking; `allocs_per_frame` is measured over
+the encode pass. Set `LIBGOPX_VPXENC` or pass `-libvpx-vpxenc` to include an
+optional libvpx `vpxenc` reference comparison; when libgopx can decode the
+reference stream, the reference block includes PSNR/SSIM too.
+`internal/coracle/build_vpxenc.sh` builds the pinned reference binary.
