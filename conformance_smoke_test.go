@@ -24,6 +24,26 @@ func TestLibvpxEncodedSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
 }
 
+func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
+	frames := mustDecodeSmokeIVFFrames(t, libvpxEncodedSmokeIVFHex, len(libvpxEncodedSmokeChecksums))
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	decodeSmokeFrames(t, d, frames)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		d.Reset()
+		for i := range frames {
+			_ = d.Decode(frames[i])
+			_, _ = d.NextFrame()
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode/NextFrame libvpx smoke allocs = %v, want 0", allocs)
+	}
+}
+
 func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -129,6 +149,41 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 	}
 	if offset != len(ivf) {
 		t.Fatalf("final IVF offset = %d, want %d", offset, len(ivf))
+	}
+}
+
+func mustDecodeSmokeIVFFrames(t *testing.T, ivfHex string, want int) [][]byte {
+	t.Helper()
+	ivf := mustDecodeHex(t, ivfHex)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	frames := make([][]byte, 0, want)
+	for i := 0; offset < len(ivf); i++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		frames = append(frames, frame.Data)
+		offset = next
+	}
+	if len(frames) != want {
+		t.Fatalf("IVF frame count = %d, want %d", len(frames), want)
+	}
+	return frames
+}
+
+func decodeSmokeFrames(t *testing.T, d *VP8Decoder, frames [][]byte) {
+	t.Helper()
+	d.Reset()
+	for i := range frames {
+		if err := d.Decode(frames[i]); err != nil {
+			t.Fatalf("Decode frame %d returned error: %v", i, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("NextFrame frame %d returned no frame", i)
+		}
 	}
 }
 
