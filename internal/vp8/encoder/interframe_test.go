@@ -360,47 +360,60 @@ func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
 }
 
 func TestWriteZeroReferenceInterFrameDecodesTokenPartitions(t *testing.T) {
-	cfg := DefaultInterFrameStateConfig(20)
-	cfg.TokenPartition = common.EightPartition
-	packet := make([]byte, 1024)
-	n, err := WriteZeroReferenceInterFrame(packet, 16, 128, cfg, common.LastFrame)
-	if err != nil {
-		t.Fatalf("WriteZeroReferenceInterFrame returned error: %v", err)
+	tests := []struct {
+		name      string
+		partition common.TokenPartition
+		count     int
+	}{
+		{name: "two", partition: common.TwoPartition, count: 2},
+		{name: "four", partition: common.FourPartition, count: 4},
+		{name: "eight", partition: common.EightPartition, count: 8},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultInterFrameStateConfig(20)
+			cfg.TokenPartition = tt.partition
+			packet := make([]byte, 1024)
+			n, err := WriteZeroReferenceInterFrame(packet, 16, 128, cfg, common.LastFrame)
+			if err != nil {
+				t.Fatalf("WriteZeroReferenceInterFrame returned error: %v", err)
+			}
 
-	var coefProbs = tables.DefaultCoefProbs
-	var modeProbs vp8dec.ModeProbs
-	vp8dec.ResetModeProbs(&modeProbs)
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
-	if err != nil {
-		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
-	}
-	var layout vp8dec.PartitionLayout
-	if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
-		t.Fatalf("ParsePartitionLayout returned error: %v", err)
-	}
-	if layout.TokenCount != 8 {
-		t.Fatalf("token count = %d, want 8", layout.TokenCount)
-	}
+			var coefProbs = tables.DefaultCoefProbs
+			var modeProbs vp8dec.ModeProbs
+			vp8dec.ResetModeProbs(&modeProbs)
+			frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+			if err != nil {
+				t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+			}
+			var layout vp8dec.PartitionLayout
+			if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayout returned error: %v", err)
+			}
+			if layout.TokenCount != tt.count {
+				t.Fatalf("token count = %d, want %d", layout.TokenCount, tt.count)
+			}
 
-	modes := make([]vp8dec.MacroblockMode, 8)
-	if err := vp8dec.DecodeInterModeGrid(&modeReader, 8, 1, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, modes); err != nil {
-		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
-	}
-	var readers [8]boolcoder.Decoder
-	for i := 0; i < layout.TokenCount; i++ {
-		if err := readers[i].Init(layout.Tokens[i]); err != nil {
-			t.Fatalf("token reader %d Init returned error: %v", i, err)
-		}
-	}
-	tokens := make([]vp8dec.MacroblockTokens, 8)
-	above := make([]vp8dec.EntropyContextPlanes, 1)
-	total, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], 8, 1, &coefProbs, modes, above, tokens)
-	if err != nil {
-		t.Fatalf("DecodeTokenGrid returned error: %v", err)
-	}
-	if total != 0 {
-		t.Fatalf("decoded coefficient count = %d, want 0", total)
+			modes := make([]vp8dec.MacroblockMode, 8)
+			if err := vp8dec.DecodeInterModeGrid(&modeReader, 8, 1, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, modes); err != nil {
+				t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+			}
+			var readers [8]boolcoder.Decoder
+			for i := 0; i < layout.TokenCount; i++ {
+				if err := readers[i].Init(layout.Tokens[i]); err != nil {
+					t.Fatalf("token reader %d Init returned error: %v", i, err)
+				}
+			}
+			tokens := make([]vp8dec.MacroblockTokens, 8)
+			above := make([]vp8dec.EntropyContextPlanes, 1)
+			total, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], 8, 1, &coefProbs, modes, above, tokens)
+			if err != nil {
+				t.Fatalf("DecodeTokenGrid returned error: %v", err)
+			}
+			if total != 0 {
+				t.Fatalf("decoded coefficient count = %d, want 0", total)
+			}
+		})
 	}
 }
 
@@ -415,48 +428,61 @@ func TestWriteCoefficientInterFrameDecodesTokenPartitions(t *testing.T) {
 		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV, MBSkipCoeff: false}
 		coeffs[i].QCoeff[24][0] = 1
 	}
-	cfg := DefaultInterFrameStateConfig(20)
-	cfg.TokenPartition = common.EightPartition
-	packet := make([]byte, 8192)
-	above := make([]TokenContextPlanes, cols)
-	n, err := WriteCoefficientInterFrame(packet, 16, 128, cfg, modes, coeffs, above)
-	if err != nil {
-		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	tests := []struct {
+		name      string
+		partition common.TokenPartition
+		count     int
+	}{
+		{name: "two", partition: common.TwoPartition, count: 2},
+		{name: "four", partition: common.FourPartition, count: 4},
+		{name: "eight", partition: common.EightPartition, count: 8},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultInterFrameStateConfig(20)
+			cfg.TokenPartition = tt.partition
+			packet := make([]byte, 8192)
+			above := make([]TokenContextPlanes, cols)
+			n, err := WriteCoefficientInterFrame(packet, 16, 128, cfg, modes, coeffs, above)
+			if err != nil {
+				t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+			}
 
-	var coefProbs = tables.DefaultCoefProbs
-	var modeProbs vp8dec.ModeProbs
-	vp8dec.ResetModeProbs(&modeProbs)
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
-	if err != nil {
-		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
-	}
-	var layout vp8dec.PartitionLayout
-	if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
-		t.Fatalf("ParsePartitionLayout returned error: %v", err)
-	}
-	if layout.TokenCount != 8 {
-		t.Fatalf("token count = %d, want 8", layout.TokenCount)
-	}
+			var coefProbs = tables.DefaultCoefProbs
+			var modeProbs vp8dec.ModeProbs
+			vp8dec.ResetModeProbs(&modeProbs)
+			frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+			if err != nil {
+				t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+			}
+			var layout vp8dec.PartitionLayout
+			if err := vp8dec.ParsePartitionLayout(packet[:n], frame, state.TokenPartition, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayout returned error: %v", err)
+			}
+			if layout.TokenCount != tt.count {
+				t.Fatalf("token count = %d, want %d", layout.TokenCount, tt.count)
+			}
 
-	decodedModes := make([]vp8dec.MacroblockMode, rows*cols)
-	if err := vp8dec.DecodeInterModeGrid(&modeReader, rows, cols, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
-		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
-	}
-	var readers [8]boolcoder.Decoder
-	for i := 0; i < layout.TokenCount; i++ {
-		if err := readers[i].Init(layout.Tokens[i]); err != nil {
-			t.Fatalf("token reader %d Init returned error: %v", i, err)
-		}
-	}
-	tokens := make([]vp8dec.MacroblockTokens, rows*cols)
-	decoderAbove := make([]vp8dec.EntropyContextPlanes, cols)
-	total, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], rows, cols, &coefProbs, decodedModes, decoderAbove, tokens)
-	if err != nil {
-		t.Fatalf("DecodeTokenGrid returned error: %v", err)
-	}
-	if total == 0 || tokens[0].QCoeff[24][0] != 1 || tokens[len(tokens)-1].QCoeff[24][0] != 1 {
-		t.Fatalf("decoded tokens total=%d firstY2=%d lastY2=%d, want partitioned residuals", total, tokens[0].QCoeff[24][0], tokens[len(tokens)-1].QCoeff[24][0])
+			decodedModes := make([]vp8dec.MacroblockMode, rows*cols)
+			if err := vp8dec.DecodeInterModeGrid(&modeReader, rows, cols, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+				t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+			}
+			var readers [8]boolcoder.Decoder
+			for i := 0; i < layout.TokenCount; i++ {
+				if err := readers[i].Init(layout.Tokens[i]); err != nil {
+					t.Fatalf("token reader %d Init returned error: %v", i, err)
+				}
+			}
+			tokens := make([]vp8dec.MacroblockTokens, rows*cols)
+			decoderAbove := make([]vp8dec.EntropyContextPlanes, cols)
+			total, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], rows, cols, &coefProbs, decodedModes, decoderAbove, tokens)
+			if err != nil {
+				t.Fatalf("DecodeTokenGrid returned error: %v", err)
+			}
+			if total == 0 || tokens[0].QCoeff[24][0] != 1 || tokens[len(tokens)-1].QCoeff[24][0] != 1 {
+				t.Fatalf("decoded tokens total=%d firstY2=%d lastY2=%d, want partitioned residuals", total, tokens[0].QCoeff[24][0], tokens[len(tokens)-1].QCoeff[24][0])
+			}
+		})
 	}
 }
 

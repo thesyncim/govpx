@@ -141,7 +141,8 @@ High-priority gaps:
 - Remaining SPLITMV libvpx RD/mode-cost parity and oracle coverage.
 - Exact libvpx loop-filter level search; default-on filtering now uses the
   libvpx base-q initial level and keyframe sharpness reset.
-- Complete token-partition writer coverage.
+- Token-partition writer coverage now spans neutral/zero/coefficient keyframes
+  and zero/coefficient interframes across two/four/eight token partitions.
 
 Useful references:
 

@@ -95,6 +95,57 @@ func TestWriteCoefficientKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteNeutralAndZeroKeyFrameDecodeTokenPartitions(t *testing.T) {
+	const (
+		width  = 16
+		height = 128
+		rows   = 8
+		cols   = 1
+	)
+	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+	}
+	tests := []struct {
+		name  string
+		write func(packet []byte, partition common.TokenPartition) (int, error)
+	}{
+		{
+			name: "neutral",
+			write: func(packet []byte, partition common.TokenPartition) (int, error) {
+				return vp8enc.WriteNeutralKeyFrame(packet, width, height, vp8enc.KeyFrameStateConfig{TokenPartition: partition})
+			},
+		},
+		{
+			name: "zero",
+			write: func(packet []byte, partition common.TokenPartition) (int, error) {
+				return vp8enc.WriteZeroKeyFrame(packet, width, height, vp8enc.KeyFrameStateConfig{TokenPartition: partition}, modes)
+			},
+		},
+	}
+	partitions := []struct {
+		name      string
+		partition common.TokenPartition
+		count     int
+	}{
+		{name: "two", partition: common.TwoPartition, count: 2},
+		{name: "four", partition: common.FourPartition, count: 4},
+		{name: "eight", partition: common.EightPartition, count: 8},
+	}
+	for _, tt := range tests {
+		for _, part := range partitions {
+			t.Run(tt.name+"-"+part.name, func(t *testing.T) {
+				packet := make([]byte, 8192)
+				n, err := tt.write(packet, part.partition)
+				if err != nil {
+					t.Fatalf("write returned error: %v", err)
+				}
+				assertKeyFrameTokenPartitionLayout(t, packet[:n], part.partition, part.count)
+			})
+		}
+	}
+}
+
 func TestWriteCoefficientKeyFrameDecodesTokenPartitions(t *testing.T) {
 	const (
 		width  = 16
@@ -165,6 +216,32 @@ func TestWriteCoefficientKeyFrameDecodesTokenPartitions(t *testing.T) {
 				t.Fatalf("decoded tokens total=%d firstY2=%d lastY2=%d, want partitioned residuals", total, tokens[0].QCoeff[24][0], tokens[len(tokens)-1].QCoeff[24][0])
 			}
 		})
+	}
+}
+
+func assertKeyFrameTokenPartitionLayout(t *testing.T, packet []byte, partition common.TokenPartition, count int) {
+	t.Helper()
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	frame, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.TokenPartition != partition {
+		t.Fatalf("token partition = %d, want %d", state.TokenPartition, partition)
+	}
+	var layout vp8dec.PartitionLayout
+	if err := vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &layout); err != nil {
+		t.Fatalf("ParsePartitionLayout returned error: %v", err)
+	}
+	if layout.TokenCount != count {
+		t.Fatalf("token count = %d, want %d", layout.TokenCount, count)
+	}
+	for i := 0; i < layout.TokenCount; i++ {
+		if len(layout.Tokens[i]) == 0 {
+			t.Fatalf("token partition %d is empty, want active payload", i)
+		}
 	}
 }
 
