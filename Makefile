@@ -5,6 +5,7 @@ GOFMT ?= gofmt
 GIT ?= git
 CURL ?= curl
 AWK ?= awk
+GOTOOLCHAIN ?= go1.26.1
 
 GOCACHE ?= $(CURDIR)/.gocache
 CORACLE_BUILD := internal/coracle/build
@@ -40,10 +41,11 @@ verify: ci
 verify-production: ci oracle-test
 
 test:
-	GOCACHE="$(GOCACHE)" $(GO) test ./... -count=1
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test ./... -count=1
 
 oracle-test: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
 	GOVPX_ORACLE="$(ORACLE)" \
 	GOVPX_VPXDEC="$(VPXDEC)" \

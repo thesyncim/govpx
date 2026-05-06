@@ -506,14 +506,14 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 }
 
 func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
-	low := encodeRateControlTestClip(t, 40)
-	high := encodeRateControlTestClip(t, 80)
+	low := encodeRateControlTestClip(t, 25)
+	high := encodeRateControlTestClip(t, 35)
 
 	if low.BitrateErrorPct < -35 || low.BitrateErrorPct > 35 {
-		t.Fatalf("40kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
+		t.Fatalf("25kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
 	}
 	if high.BitrateErrorPct < -35 || high.BitrateErrorPct > 35 {
-		t.Fatalf("80kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
+		t.Fatalf("35kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
 	}
 	if high.OutputBytes <= low.OutputBytes {
 		t.Fatalf("output bytes = low:%d high:%d, want higher target to emit more bits", low.OutputBytes, high.OutputBytes)
@@ -1174,6 +1174,79 @@ func TestEncodeIntoTemporalOneLayerKeepsDefaultInterRefresh(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
+	e := newEntropyRefreshTestEncoder(t, false)
+	first := testImage(16, 16)
+	second := rateControlTestFrame(16, 16, 1)
+	fillImage(first, 180, 90, 170)
+	dst := make([]byte, 8192)
+
+	key, err := e.EncodeInto(dst, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if !packetState(t, key.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("key refresh entropy = false, want libvpx default true")
+	}
+	keyData := append([]byte(nil), key.Data...)
+	inter, err := e.EncodeInto(dst, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	if !packetState(t, inter.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("inter refresh entropy = false, want libvpx default true")
+	}
+	interData := append([]byte(nil), inter.Data...)
+	decoded := decodeFrameSequence(t, keyData, interData)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+
+	e = newEntropyRefreshTestEncoder(t, false)
+	key, err = e.EncodeInto(dst, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("second key EncodeInto returned error: %v", err)
+	}
+	keyData = append([]byte(nil), key.Data...)
+	inter, err = e.EncodeInto(dst, second, 1, 1, EncodeNoUpdateEntropy)
+	if err != nil {
+		t.Fatalf("no-update-entropy inter EncodeInto returned error: %v", err)
+	}
+	if packetState(t, inter.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("no-update-entropy inter refresh entropy = true, want false")
+	}
+	interData = append([]byte(nil), inter.Data...)
+	decoded = decodeFrameSequence(t, keyData, interData)
+	if len(decoded) != 2 {
+		t.Fatalf("no-update-entropy decoded frame count = %d, want 2", len(decoded))
+	}
+}
+
+func TestEncodeIntoErrorResilientSuppressesEntropyRefresh(t *testing.T) {
+	e := newEntropyRefreshTestEncoder(t, true)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 8192)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if packetState(t, key.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient key refresh entropy = true, want false")
+	}
+	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 2), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if packetState(t, inter.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient inter refresh entropy = true, want false")
+	}
+}
+
 func TestEncodeIntoTemporalBaseLayerIsDecodableWithoutEnhancementFrames(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	dst := make([]byte, 8192)
@@ -1475,6 +1548,30 @@ func newTemporalTestEncoder(tb testing.TB, temporal TemporalScalabilityConfig) *
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
 		TemporalScalability: temporal,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+func newEntropyRefreshTestEncoder(tb testing.TB, errorResilient bool) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
+		ErrorResilient:      errorResilient,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
 	})
 	if err != nil {
 		tb.Fatalf("NewVP8Encoder returned error: %v", err)

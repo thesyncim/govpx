@@ -316,7 +316,7 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 		p.FlagPeriodicity = 1
 		p.RateDecimator[0] = 1
 		p.LayerID[0] = 0
-		p.Flags[0] = 0
+		p.Flags[0] = EncodeForceKeyFrame | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
 	case TemporalLayeringTwoLayers:
 		p.Layers = 2
 		p.Periodicity = 2
@@ -418,7 +418,7 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 		p.Flags[0] = EncodeForceKeyFrame | EncodeNoReferenceGolden | EncodeNoUpdateAltRef
 		p.Flags[1] = EncodeNoReferenceGolden | EncodeNoUpdateLast | EncodeNoUpdateAltRef
 		p.Flags[2] = EncodeNoReferenceGolden | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
-		p.Flags[3] = EncodeNoUpdateAltRef | EncodeNoUpdateLast
+		p.Flags[3] = EncodeNoUpdateAltRef | EncodeNoUpdateLast | EncodeNoUpdateEntropy
 		p.Flags[4] = p.Flags[2]
 		p.Flags[5] = p.Flags[3]
 		p.Flags[6] = p.Flags[4]
@@ -438,7 +438,7 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 		p.Flags[5] = p.Flags[3]
 		p.Flags[4] = EncodeNoReferenceGolden | EncodeNoReferenceAltRef | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
 		p.Flags[6] = EncodeNoReferenceAltRef | EncodeNoUpdateLast | EncodeNoUpdateAltRef
-		p.Flags[7] = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+		p.Flags[7] = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateEntropy
 	case TemporalLayeringThreeLayersAltRefWithSync:
 		p.Layers = 3
 		p.Periodicity = 4
@@ -448,9 +448,9 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 		p.RateDecimator[2] = 1
 		setTemporalLayerIDs(&p, 0, 2, 1, 2)
 		p.Flags[0] = EncodeForceKeyFrame | EncodeNoUpdateAltRef | EncodeNoReferenceGolden
-		p.Flags[1] = EncodeNoReferenceGolden | EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast
+		p.Flags[1] = EncodeNoReferenceGolden | EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast | EncodeNoUpdateEntropy
 		p.Flags[2] = EncodeNoReferenceGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast
-		p.Flags[3] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast
+		p.Flags[3] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast | EncodeNoUpdateEntropy
 		p.Flags[4] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoReferenceGolden
 		p.Flags[5] = p.Flags[3]
 		p.Flags[6] = EncodeNoUpdateAltRef | EncodeNoUpdateLast
@@ -479,7 +479,7 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 		p.Flags[4] = p.Flags[0]
 		p.Flags[2] = EncodeNoUpdateAltRef | EncodeNoUpdateLast
 		p.Flags[6] = p.Flags[2]
-		p.Flags[1] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast
+		p.Flags[1] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoUpdateLast | EncodeNoUpdateEntropy
 		p.Flags[3] = p.Flags[1]
 		p.Flags[5] = p.Flags[1]
 		p.Flags[7] = p.Flags[1]

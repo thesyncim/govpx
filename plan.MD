@@ -1,14 +1,14 @@
 # govpx plan
 
-This file is the small living plan for the current repo. The historical giant
-spec has been retired; frozen upstream and licensing detail belong in
-`UPSTREAM.md`, and performance notes belong in `docs/performance.md`.
+This is the short living plan for the current repo. Frozen upstream and
+licensing detail belong in `UPSTREAM.md`; performance notes belong in
+`docs/performance.md`.
 
 ## Goal
 
 Build a pure-Go, VP8-only codec library based on libvpx v1.16.0 ideas with a
-small Go API, no cgo dependency, and CI that runs the exhaustive VP8 parity
-gate.
+small Go API, no cgo dependency, and hosted CI that runs the exhaustive VP8
+parity gate.
 
 ## Current state
 
@@ -21,8 +21,8 @@ gate.
 - Scalar VP8 decoder/encoder internals live under `internal/vp8`.
 - Normal tests include checked-in smoke vectors and skip libvpx unless
   `GOVPX_WITH_ORACLE=1`.
-- `make verify-production` builds the pinned libvpx tools, fetches the VP8
-  corpora, and runs the oracle parity suite.
+- `make verify-production` builds pinned libvpx tools, fetches VP8 corpora, and
+  runs the oracle parity suite.
 
 ## Keep true
 
@@ -36,7 +36,8 @@ gate.
 
 1. Tighten decoder conformance against the external VP8 corpus.
 2. Improve encoder parity and quality guards against the pinned libvpx oracle.
-3. Continue rate-control and temporal-layer behavior checks with focused tests.
+3. Continue entropy, rate-control, and temporal-layer behavior checks with
+   focused tests.
 4. Add performance work only after scalar correctness is covered by tests.
 5. Keep README, `UPSTREAM.md`, and `docs/performance.md` current as behavior
    changes.

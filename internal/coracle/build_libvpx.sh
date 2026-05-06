@@ -8,7 +8,9 @@ src_dir="$build_dir/libvpx-$tag"
 prefix=${GOVPX_LIBVPX_PREFIX:-"$build_dir/libvpx-$tag-install"}
 oracle_bin=${GOVPX_ORACLE_BIN:-"$build_dir/govpx-vpx-oracle"}
 config_stamp="$prefix/.govpx-libvpx-config"
-want_config="v1.16.0-vp8-decoder-postproc-error-concealment-optimized"
+want_config="v1.16.0-vp8-decoder-postproc-error-concealment-optimized
+src_dir=$src_dir
+prefix=$prefix"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -20,12 +22,19 @@ if [ -z "$jobs" ]; then
 fi
 
 mkdir -p "$build_dir"
+archive="$build_dir/libvpx-$tag.tar.gz"
 
-if [ ! -d "$src_dir" ]; then
-	archive="$build_dir/libvpx-$tag.tar.gz"
-	curl -L -o "$archive" "https://chromium.googlesource.com/webm/libvpx/+archive/refs/tags/$tag.tar.gz"
+fetch_source() {
+	if [ ! -f "$archive" ]; then
+		curl -L -o "$archive" "https://chromium.googlesource.com/webm/libvpx/+archive/refs/tags/$tag.tar.gz"
+	fi
+	rm -rf "$src_dir"
 	mkdir -p "$src_dir"
 	tar -xzf "$archive" -C "$src_dir"
+}
+
+if [ ! -d "$src_dir" ]; then
+	fetch_source
 fi
 
 current_config=
@@ -34,11 +43,12 @@ if [ -f "$config_stamp" ]; then
 fi
 
 if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [ ! -f "$prefix/lib/libvpx.so" ]; } || [ "$current_config" != "$want_config" ]; then
+	if [ "$current_config" != "$want_config" ]; then
+		fetch_source
+		rm -rf "$prefix"
+	fi
 	(
 		cd "$src_dir"
-		if [ -f config.mk ]; then
-			make distclean
-		fi
 		./configure \
 			--prefix="$prefix" \
 			--disable-examples \
