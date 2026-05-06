@@ -515,6 +515,27 @@ func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
 	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
+func BenchmarkEncodeIntoMatchingReferenceInterFrame(b *testing.B) {
+	e := newTestEncoder(b)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	if err != nil {
+		b.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	reconstructed := decodeSingleFrame(b, key.Data)
+	interPacket := make([]byte, 4096)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := e.EncodeInto(interPacket, reconstructed, uint64(i+1), 1, 0); err != nil {
+			b.Fatalf("inter EncodeInto returned error: %v", err)
+		}
+	}
+}
+
 func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
@@ -885,13 +906,13 @@ func TestEncodeIntoSuccessAllocatesZero(t *testing.T) {
 	}
 }
 
-func newTestEncoder(t *testing.T) *VP8Encoder {
-	t.Helper()
-	return newSizedTestEncoder(t, 16, 16)
+func newTestEncoder(tb testing.TB) *VP8Encoder {
+	tb.Helper()
+	return newSizedTestEncoder(tb, 16, 16)
 }
 
-func newSizedTestEncoder(t *testing.T, width int, height int) *VP8Encoder {
-	t.Helper()
+func newSizedTestEncoder(tb testing.TB, width int, height int) *VP8Encoder {
+	tb.Helper()
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               width,
 		Height:              height,
@@ -910,7 +931,7 @@ func newSizedTestEncoder(t *testing.T, width int, height int) *VP8Encoder {
 		BufferOptimalSizeMs: 500,
 	})
 	if err != nil {
-		t.Fatalf("NewVP8Encoder returned error: %v", err)
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	return e
 }
@@ -979,18 +1000,18 @@ func shiftImageRightOne(src Image) Image {
 	return dst
 }
 
-func decodeSingleFrame(t *testing.T, packet []byte) Image {
-	t.Helper()
+func decodeSingleFrame(tb testing.TB, packet []byte) Image {
+	tb.Helper()
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
+		tb.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
 	if err := d.Decode(packet); err != nil {
-		t.Fatalf("Decode returned error: %v", err)
+		tb.Fatalf("Decode returned error: %v", err)
 	}
 	frame, ok := d.NextFrame()
 	if !ok {
-		t.Fatalf("NextFrame returned no frame")
+		tb.Fatalf("NextFrame returned no frame")
 	}
 	return frame
 }
