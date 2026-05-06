@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/libgopx/internal/testutil"
+	vp8common "github.com/thesyncim/libgopx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 )
 
 func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
@@ -13,6 +15,11 @@ func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 
 func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
+}
+
+func TestTokenPartitionSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFTokenPartition(t, libvpxTokenPartitionIVFHex, vp8common.FourPartition)
+	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxTokenPartitionIVFHex, libvpxTokenPartitionChecksums[:])
 }
 
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
@@ -77,6 +84,31 @@ func assertSmokeIVFMatchesLibvpxChecksums(t *testing.T, ivfHex string, checksums
 	}
 	if offset != len(ivf) {
 		t.Fatalf("final IVF offset = %d, want %d", offset, len(ivf))
+	}
+}
+
+func assertSmokeIVFTokenPartition(t *testing.T, ivfHex string, want vp8common.TokenPartition) {
+	t.Helper()
+	ivf := mustDecodeHex(t, ivfHex)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset returned error: %v", err)
+	}
+	var previous vp8dec.QuantHeader
+	for i := 0; offset < len(ivf); i++ {
+		frame, next, err := testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d] returned error: %v", i, err)
+		}
+		_, state, _, err := vp8dec.ParseStateHeaderWithReader(frame.Data, previous)
+		if err != nil {
+			t.Fatalf("ParseStateHeaderWithReader[%d] returned error: %v", i, err)
+		}
+		if state.TokenPartition != want {
+			t.Fatalf("frame %d token partition = %d, want %d", i, state.TokenPartition, want)
+		}
+		previous = state.Quant
+		offset = next
 	}
 }
 
@@ -315,5 +347,52 @@ var libvpxChromaModeChecksums = [...]testutil.FrameChecksum{
 			V:    [16]byte{0xc3, 0x89, 0x48, 0x4a, 0x39, 0x03, 0x3c, 0x63, 0xcb, 0x15, 0xc9, 0x6d, 0x53, 0x06, 0x98, 0x16},
 			Full: [16]byte{0xe4, 0x8b, 0xd8, 0xf7, 0x17, 0x41, 0xbc, 0x03, 0x51, 0x19, 0xec, 0x78, 0x63, 0x59, 0x4b, 0x81},
 		},
+	},
+}
+
+// Generated with libvpx v1.16.0 vpxenc --token-parts=2 and verified with the
+// libvpx v1.16.0 checksum oracle in internal/coracle. This vector exercises
+// four independent token partitions across keyframe and interframes.
+const libvpxTokenPartitionIVFHex = "444b4946000020005650383020002000e8030000010000000300000000000000420200000000000000000000100e009d012a2000200000c7088585888584888c820275ba24c1bed7c677ad1de2c907e58bf25f657f5673c0f981fd01fd80f792e88cfe03d603e803e595fb57f051fe77fdf7ea4fb3d5605642b8731069e87bb46645fee3b0d7a107ea4fb61b1e4224dc6f78f88c683f39d895f11e309ea0f5e7f3104bc52000c70000f60000010000fefd6e60365fae3bfa713577fc000dea7323075ac92eade10d0d7dc353fdbbbaf647041544cc2314bf909ae0119a768b157a57995e7bffa71760d7f3427039eae897ca2fa90d6bffea8ac39d80bcfd9d0ecb5a46dcff125fb29f37f4473f01ba4eaab4acd0fc23f8d223cc91340baf5a1fa957fa783da4209a6b3336d374c9c59992de10d0e5c862223ef33edddd85106f6c89ed8d59fab44b939d5ac2a4e329fa66b05a93499fb807a29b9858f971a673dc0011be375149d28f9747245d3aa856fc55caf79200f34b252c87ab873c609fe5da6f81d539d5fef149f40f63902f22593d16d1e69a02cbb13e35ce3bfc62b1ac9d9fc9bb9f06cb734efb53fde27f02195f90c5ca850b5fd5e66367ac058c9ebe8a7fd7e06025ef2e5e278025bdc269dbdd1215f6eb7524f19a37d00bb2d0f323906953ac228ef32fcdef8f1ff732bb9d9122df97d25897322998752fdcbffd101aad4a01b017da1bf1c00543d9b3ff049f3fca7268ae225e529f5f799c56123d86273b0783e55075ad1f959ec05fc02c069ea69abf0d60197c0029434b126174503ad7350a656881e5b1b357e68636b0bf3e4359ff5e4646152b2c3c435e12852da6a66ebffb6beb287800000007010000210000000000000091050003146400180530d781b723e5358dc5ebfe38a3f871e145ae562d774b2d5630cbb104f95b12d4c8c2e971e4e06100006c0000010000b000e3fae0fcc3c36544b6cee9b3ee28d68393d22c8e3dadce76d0d864fabaebea2272ac1ed6e9dba2ee385b7ea7522d41b447501ff3f2bcdf5086229f7898a7a5966c79e55ffcfa22ad5c96d4103f0343960315cf04a9e87d0de9fa8dcfc8d5000b55dad20f4acb3613b179fcf807b89feddd969db85e3772b626634666ada1e4a53ec5263ac769d3fcf1805d33a800d9ea512c2d6ee6133e9a2107d6d6d1e60ac77cbbe3e2cfcbab5caa6dcb46d6cdcbae97355d9e471e4a176ec7e9cdea9f6e193bedcb352190c5000072000000000100004200000000000000d1020003146400180677e8b0a8afd403d50d68378477cab6006b0000710000010000bcc5800f6261ebf6302c13602dcc84b7731ad1a44eef5858c338609c5063b6843819fca539eed25785ba59dd2d1e47774f263d6883f35d085fe1e3f49d0c939b25373d62e21a63f3f58a7db399c90c207089c92c58aaac3379bff87ce7997d7cecc88397975902d82cbe0008f4b120df47b59aa79f595fa6780efcc28d5da6e953675c654b3f649f9926223c770185f30d7224df951cfeda68e9562789524b7b7d49e9a2d3540f94850504c2b65987af1811aa01e5410b29bfe43f8c57b2060e69e00bbf9d23a5982f689610eaf5df6818416bb5d4b17705520d00000000"
+
+var libvpxTokenPartitionChecksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"bb79ef3d12ed9575939fe4cc88a7d9ac",
+			"94490fdfb02e3d91c37abcb5eb009891",
+			"9016fe38506a5e2a8d4180f9302a3b92",
+			"eea937bf8fd1c4398130e3be1b0071e6",
+		),
+	},
+	{
+		Index:     1,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"8a5ed431495c70dbfd7f1be30c161605",
+			"bd06190306cc2c06bd453f7ee1fe0489",
+			"14f22b6bee5f47fd2d3e36df281e018b",
+			"cf326f763bdc6f7b18bfdf60f52d75db",
+		),
+	},
+	{
+		Index:     2,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"a522fcff14fe5faeb9e5b8632cc239e1",
+			"64c4cbf0f983644a000f6b12f304865d",
+			"f02a75aed0d945c31677c4d8c0f4990d",
+			"fc4719b039d181cdab1026c6c62f0ac8",
+		),
 	},
 }
