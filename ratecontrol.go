@@ -143,6 +143,7 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
+	rc.resetRollingBitAverages()
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.cqLevel
 		rc.lastQuantizer = rc.cqLevel
@@ -522,6 +523,13 @@ func (rc *rateControlState) updateRollingBitAverages(actualBits int, targetBits 
 	rc.rollingTargetBits = libvpxRollingBits(rc.rollingTargetBits, targetBits, 3, 2)
 	rc.longRollingActualBits = libvpxRollingBits(rc.longRollingActualBits, actualBits, 31, 5)
 	rc.longRollingTargetBits = libvpxRollingBits(rc.longRollingTargetBits, targetBits, 31, 5)
+}
+
+func (rc *rateControlState) resetRollingBitAverages() {
+	rc.rollingActualBits = rc.bitsPerFrame
+	rc.rollingTargetBits = rc.bitsPerFrame
+	rc.longRollingActualBits = rc.bitsPerFrame
+	rc.longRollingTargetBits = rc.bitsPerFrame
 }
 
 func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {

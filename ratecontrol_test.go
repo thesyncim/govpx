@@ -401,6 +401,27 @@ func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	}
 }
 
+func TestRateControlConfigInitializesLibvpxRollingBitAverages(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	if rc.rollingActualBits != 40000 || rc.rollingTargetBits != 40000 ||
+		rc.longRollingActualBits != 40000 || rc.longRollingTargetBits != 40000 {
+		t.Fatalf("rolling bits = short:%d/%d long:%d/%d, want libvpx per-frame bandwidth 40000",
+			rc.rollingActualBits, rc.rollingTargetBits, rc.longRollingActualBits, rc.longRollingTargetBits)
+	}
+}
+
 func TestRateControlCQUsesCQLevel(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{

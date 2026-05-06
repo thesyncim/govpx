@@ -422,18 +422,22 @@ func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	initialQuantizer := e.rc.currentQuantizer
+	initialRollingActual := e.rc.rollingActualBits
+	initialRollingTarget := e.rc.rollingTargetBits
+	initialLongRollingActual := e.rc.longRollingActualBits
+	initialLongRollingTarget := e.rc.longRollingTargetBits
 	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 0, 1, 0)
 	if err != nil {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 
-	wantRollingActual := libvpxRollingBits(0, result.SizeBytes*8, 3, 2)
-	wantRollingTarget := libvpxRollingBits(0, result.FrameTargetBits, 3, 2)
+	wantRollingActual := libvpxRollingBits(initialRollingActual, result.SizeBytes*8, 3, 2)
+	wantRollingTarget := libvpxRollingBits(initialRollingTarget, result.FrameTargetBits, 3, 2)
 	if e.rc.rollingActualBits != wantRollingActual || e.rc.rollingTargetBits != wantRollingTarget {
 		t.Fatalf("rolling bits = actual:%d target:%d, want %d/%d", e.rc.rollingActualBits, e.rc.rollingTargetBits, wantRollingActual, wantRollingTarget)
 	}
-	wantLongRollingActual := libvpxRollingBits(0, result.SizeBytes*8, 31, 5)
-	wantLongRollingTarget := libvpxRollingBits(0, result.FrameTargetBits, 31, 5)
+	wantLongRollingActual := libvpxRollingBits(initialLongRollingActual, result.SizeBytes*8, 31, 5)
+	wantLongRollingTarget := libvpxRollingBits(initialLongRollingTarget, result.FrameTargetBits, 31, 5)
 	if e.rc.longRollingActualBits != wantLongRollingActual || e.rc.longRollingTargetBits != wantLongRollingTarget {
 		t.Fatalf("long rolling bits = actual:%d target:%d, want %d/%d", e.rc.longRollingActualBits, e.rc.longRollingTargetBits, wantLongRollingActual, wantLongRollingTarget)
 	}
@@ -1298,8 +1302,10 @@ func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
 	if e.rc.avgFrameQuantizer != e.rc.maxQuantizer || e.rc.normalInterFrames != 0 || e.rc.normalInterQuantizerTotal != 0 || e.rc.normalInterAvgQuantizer != e.rc.maxQuantizer {
 		t.Fatalf("quantizer averages after reset = avg:%d frames:%d total:%d normal:%d, want max/0/0/max", e.rc.avgFrameQuantizer, e.rc.normalInterFrames, e.rc.normalInterQuantizerTotal, e.rc.normalInterAvgQuantizer)
 	}
-	if e.rc.rollingActualBits != 0 || e.rc.rollingTargetBits != 0 || e.rc.longRollingActualBits != 0 || e.rc.longRollingTargetBits != 0 {
-		t.Fatalf("rolling bits after reset = short:%d/%d long:%d/%d, want zeroes", e.rc.rollingActualBits, e.rc.rollingTargetBits, e.rc.longRollingActualBits, e.rc.longRollingTargetBits)
+	if e.rc.rollingActualBits != e.rc.bitsPerFrame || e.rc.rollingTargetBits != e.rc.bitsPerFrame ||
+		e.rc.longRollingActualBits != e.rc.bitsPerFrame || e.rc.longRollingTargetBits != e.rc.bitsPerFrame {
+		t.Fatalf("rolling bits after reset = short:%d/%d long:%d/%d, want libvpx per-frame bandwidth %d",
+			e.rc.rollingActualBits, e.rc.rollingTargetBits, e.rc.longRollingActualBits, e.rc.longRollingTargetBits, e.rc.bitsPerFrame)
 	}
 }
 
