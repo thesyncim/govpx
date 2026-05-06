@@ -230,7 +230,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
-	e.rc.selectQuantizerForFrame(keyFrame, required)
+	e.rc.selectQuantizerForFrameKind(keyFrame, goldenCBRRefresh, required)
 
 	result := EncodeResult{
 		KeyFrame:                       keyFrame,
@@ -277,7 +277,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Data = dst[:attempt.Size]
 		result.SizeBytes = attempt.Size
 		result.Quantizer = finalQuantizer
-		e.rc.postEncodeFrame(attempt.Size, false)
+		e.rc.postEncodeFrameWithContext(attempt.Size, false, goldenCBRRefresh, required)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		if attempt.Config.Segmentation.Enabled {
@@ -301,7 +301,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.Data = dst[:n]
 	result.SizeBytes = n
 	result.Quantizer = finalQuantizer
-	e.rc.postEncodeFrame(n, true)
+	e.rc.postEncodeFrameWithContext(n, true, false, required)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0

@@ -90,6 +90,10 @@ type rateControlState struct {
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
+
+	rateCorrectionFactor     float64
+	keyFrameCorrectionFactor float64
+	goldenCorrectionFactor   float64
 }
 
 const (
@@ -98,6 +102,8 @@ const (
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
 	libvpxBPerMBNormBits            = 9
+	libvpxMinBPBFactor              = 0.01
+	libvpxMaxBPBFactor              = 50.0
 )
 
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
@@ -118,6 +124,9 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
+	rc.rateCorrectionFactor = 1.0
+	rc.keyFrameCorrectionFactor = 1.0
+	rc.goldenCorrectionFactor = 1.0
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
@@ -212,6 +221,10 @@ func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits i
 }
 
 func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
+	rc.selectQuantizerForFrameKind(keyFrame, false, macroblocks)
+}
+
+func (rc *rateControlState) selectQuantizerForFrameKind(keyFrame bool, goldenFrame bool, macroblocks int) {
 	if rc.mode != RateControlCBR || macroblocks <= 0 {
 		return
 	}
@@ -219,7 +232,8 @@ func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks i
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
-	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, 1.0)
+	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
+	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, correctionFactor)
 	rc.clampQuantizer()
 }
 
@@ -248,11 +262,16 @@ func (rc *rateControlState) clampQuantizer() {
 }
 
 func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
+	rc.postEncodeFrameWithContext(sizeBytes, keyFrame, false, 0)
+}
+
+func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int) {
 	actualBits := encodedSizeBits(sizeBytes)
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
+	rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
 	rc.rollingActualBits = saturatingAdd(rc.rollingActualBits, actualBits)
 	rc.rollingTargetBits = saturatingAdd(rc.rollingTargetBits, targetBits)
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
@@ -272,6 +291,71 @@ func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 		return
 	}
 	rc.framesSinceKeyframe++
+}
+
+func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int) {
+	if rc.mode != RateControlCBR || actualBits <= 0 || macroblocks <= 0 {
+		return
+	}
+	q := rc.currentQuantizer
+	frameType := 1
+	if keyFrame {
+		frameType = 0
+	}
+	if q < 0 || q >= len(libvpxBitsPerMB[frameType]) {
+		return
+	}
+	rateCorrectionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
+	if rateCorrectionFactor <= 0 {
+		rateCorrectionFactor = 1.0
+	}
+	projectedBits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, rateCorrectionFactor)
+	if projectedBits <= 0 {
+		return
+	}
+	correctionFactor := int((100 * int64(actualBits)) / int64(projectedBits))
+	const finalPackAdjustmentLimit = 0.25
+	switch {
+	case correctionFactor > 102:
+		correctionFactor = int(100.5 + float64(correctionFactor-100)*finalPackAdjustmentLimit)
+		rateCorrectionFactor *= float64(correctionFactor) / 100
+		if rateCorrectionFactor > libvpxMaxBPBFactor {
+			rateCorrectionFactor = libvpxMaxBPBFactor
+		}
+	case correctionFactor < 99:
+		correctionFactor = int(100.5 - float64(100-correctionFactor)*finalPackAdjustmentLimit)
+		rateCorrectionFactor *= float64(correctionFactor) / 100
+		if rateCorrectionFactor < libvpxMinBPBFactor {
+			rateCorrectionFactor = libvpxMinBPBFactor
+		}
+	}
+	rc.setRateCorrectionFactorForFrame(keyFrame, goldenFrame, rateCorrectionFactor)
+}
+
+func (rc *rateControlState) rateCorrectionFactorForFrame(keyFrame bool, goldenFrame bool) float64 {
+	if keyFrame {
+		return rc.keyFrameCorrectionFactor
+	}
+	if rc.usesGoldenFrameCorrectionFactor(goldenFrame) {
+		return rc.goldenCorrectionFactor
+	}
+	return rc.rateCorrectionFactor
+}
+
+func (rc *rateControlState) setRateCorrectionFactorForFrame(keyFrame bool, goldenFrame bool, factor float64) {
+	if keyFrame {
+		rc.keyFrameCorrectionFactor = factor
+		return
+	}
+	if rc.usesGoldenFrameCorrectionFactor(goldenFrame) {
+		rc.goldenCorrectionFactor = factor
+		return
+	}
+	rc.rateCorrectionFactor = factor
+}
+
+func (rc *rateControlState) usesGoldenFrameCorrectionFactor(goldenFrame bool) bool {
+	return goldenFrame && rc.gfCBRBoostPct > 100
 }
 
 func (rc *rateControlState) shouldDropInterFrame() bool {
@@ -747,6 +831,16 @@ func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks
 		lastError = bitsAtQ - targetBitsPerMB
 	}
 	return clampQuantizerValue(q, minQ, maxQ)
+}
+
+func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, correctionFactor float64) int {
+	if frameType < 0 || frameType >= len(libvpxBitsPerMB) || q < 0 || q >= len(libvpxBitsPerMB[frameType]) || macroblocks <= 0 {
+		return 0
+	}
+	if correctionFactor <= 0 {
+		correctionFactor = 1.0
+	}
+	return int(((0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][q])) * float64(macroblocks)) / float64(1<<libvpxBPerMBNormBits))
 }
 
 func clampQuantizerValue(q int, minQ int, maxQ int) int {

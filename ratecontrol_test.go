@@ -113,6 +113,70 @@ func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
 	}
 }
 
+func TestRateControlUpdatesLibvpxRateCorrectionFactor(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		minQuantizer:           4,
+		maxQuantizer:           56,
+		currentQuantizer:       24,
+		bitsPerFrame:           12000,
+		frameTargetBits:        12000,
+		bufferOptimalBits:      60000,
+		bufferLevelBits:        48000,
+		undershootPct:          defaultRateControlUndershootPct,
+		overshootPct:           defaultRateControlOvershootPct,
+		rateCorrectionFactor:   1.0,
+		goldenCorrectionFactor: 1.0,
+	}
+
+	rc.postEncodeFrameWithContext(3000, false, false, 60)
+	if rc.rateCorrectionFactor != 1.25 {
+		t.Fatalf("rate correction factor after oversize frame = %g, want 1.25", rc.rateCorrectionFactor)
+	}
+
+	rc.currentQuantizer = 24
+	rc.postEncodeFrameWithContext(375, false, false, 60)
+	if rc.rateCorrectionFactor != 1.0 {
+		t.Fatalf("rate correction factor after undersize frame = %g, want 1.0", rc.rateCorrectionFactor)
+	}
+}
+
+func TestRateControlUpdatesSeparateLibvpxCorrectionFactors(t *testing.T) {
+	rc := rateControlState{
+		mode:                     RateControlCBR,
+		minQuantizer:             4,
+		maxQuantizer:             56,
+		currentQuantizer:         24,
+		bitsPerFrame:             12000,
+		frameTargetBits:          12000,
+		bufferOptimalBits:        60000,
+		bufferLevelBits:          48000,
+		undershootPct:            defaultRateControlUndershootPct,
+		overshootPct:             defaultRateControlOvershootPct,
+		gfCBRBoostPct:            150,
+		rateCorrectionFactor:     1.0,
+		keyFrameCorrectionFactor: 1.0,
+		goldenCorrectionFactor:   1.0,
+	}
+
+	rc.postEncodeFrameWithContext(3000, false, true, 60)
+	if rc.goldenCorrectionFactor != 1.25 {
+		t.Fatalf("golden correction factor = %g, want 1.25", rc.goldenCorrectionFactor)
+	}
+	if rc.rateCorrectionFactor != 1.0 {
+		t.Fatalf("inter correction factor changed to %g, want 1.0", rc.rateCorrectionFactor)
+	}
+
+	rc.currentQuantizer = 4
+	rc.postEncodeFrameWithContext(20000, true, false, 60)
+	if rc.keyFrameCorrectionFactor <= 1.0 {
+		t.Fatalf("key correction factor = %g, want increase", rc.keyFrameCorrectionFactor)
+	}
+	if rc.goldenCorrectionFactor != 1.25 {
+		t.Fatalf("golden correction factor changed to %g, want 1.25", rc.goldenCorrectionFactor)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{
