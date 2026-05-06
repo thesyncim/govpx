@@ -86,9 +86,11 @@ type rateControlState struct {
 	dropFrameAllowed  bool
 	frameDropPressure int
 
-	framesSinceKeyframe int
-	rollingActualBits   int
-	rollingTargetBits   int
+	framesSinceKeyframe   int
+	rollingActualBits     int
+	rollingTargetBits     int
+	longRollingActualBits int
+	longRollingTargetBits int
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
@@ -377,8 +379,7 @@ func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame b
 		targetBits = rc.bitsPerFrame
 	}
 	rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
-	rc.rollingActualBits = saturatingAdd(rc.rollingActualBits, actualBits)
-	rc.rollingTargetBits = saturatingAdd(rc.rollingTargetBits, targetBits)
+	rc.updateRollingBitAverages(actualBits, targetBits)
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
@@ -512,13 +513,19 @@ func (rc *rateControlState) postDropFrame() {
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
-	rc.rollingTargetBits = saturatingAdd(rc.rollingTargetBits, targetBits)
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 	if rc.frameDropPressure > 0 {
 		rc.frameDropPressure--
 	}
 	rc.framesSinceKeyframe++
+}
+
+func (rc *rateControlState) updateRollingBitAverages(actualBits int, targetBits int) {
+	rc.rollingActualBits = libvpxRollingBits(rc.rollingActualBits, actualBits, 3, 2)
+	rc.rollingTargetBits = libvpxRollingBits(rc.rollingTargetBits, targetBits, 3, 2)
+	rc.longRollingActualBits = libvpxRollingBits(rc.longRollingActualBits, actualBits, 31, 5)
+	rc.longRollingTargetBits = libvpxRollingBits(rc.longRollingTargetBits, targetBits, 31, 5)
 }
 
 func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
@@ -731,6 +738,31 @@ func encodedSizeBits(sizeBytes int) int {
 		return maxInt()
 	}
 	return sizeBytes * 8
+}
+
+func libvpxRollingBits(previous int, current int, weight int, shift uint) int {
+	if previous < 0 {
+		previous = 0
+	}
+	if current < 0 {
+		current = 0
+	}
+	if weight <= 0 {
+		return current
+	}
+	round := 0
+	if shift > 0 {
+		round = 1 << (shift - 1)
+	}
+	if current > maxInt()-round {
+		return maxInt()
+	}
+	limit := (maxInt() - current - round) / weight
+	if previous > limit {
+		return maxInt()
+	}
+	value := previous*weight + current + round
+	return value >> shift
 }
 
 func saturatingAdd(a int, b int) int {

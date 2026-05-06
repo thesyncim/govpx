@@ -273,6 +273,30 @@ func TestRateControlPostEncodeTracksLibvpxQuantizerAverages(t *testing.T) {
 	}
 }
 
+func TestRateControlPostEncodeTracksLibvpxRollingBitAverages(t *testing.T) {
+	rc := rateControlState{
+		mode:                  RateControlCBR,
+		minQuantizer:          4,
+		maxQuantizer:          56,
+		currentQuantizer:      20,
+		bitsPerFrame:          1000,
+		frameTargetBits:       3000,
+		rollingActualBits:     2000,
+		rollingTargetBits:     1000,
+		longRollingActualBits: 1600,
+		longRollingTargetBits: 3200,
+	}
+
+	rc.postEncodeFrameWithContext(500, false, false, 0)
+
+	if rc.rollingActualBits != 2500 || rc.rollingTargetBits != 1500 {
+		t.Fatalf("short rolling bits = actual:%d target:%d, want libvpx 2500/1500", rc.rollingActualBits, rc.rollingTargetBits)
+	}
+	if rc.longRollingActualBits != 1675 || rc.longRollingTargetBits != 3194 {
+		t.Fatalf("long rolling bits = actual:%d target:%d, want libvpx 1675/3194", rc.longRollingActualBits, rc.longRollingTargetBits)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{

@@ -427,8 +427,15 @@ func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 
-	if e.rc.rollingActualBits != result.SizeBytes*8 || e.rc.rollingTargetBits != result.FrameTargetBits {
-		t.Fatalf("rolling bits = actual:%d target:%d, want %d/%d", e.rc.rollingActualBits, e.rc.rollingTargetBits, result.SizeBytes*8, result.FrameTargetBits)
+	wantRollingActual := libvpxRollingBits(0, result.SizeBytes*8, 3, 2)
+	wantRollingTarget := libvpxRollingBits(0, result.FrameTargetBits, 3, 2)
+	if e.rc.rollingActualBits != wantRollingActual || e.rc.rollingTargetBits != wantRollingTarget {
+		t.Fatalf("rolling bits = actual:%d target:%d, want %d/%d", e.rc.rollingActualBits, e.rc.rollingTargetBits, wantRollingActual, wantRollingTarget)
+	}
+	wantLongRollingActual := libvpxRollingBits(0, result.SizeBytes*8, 31, 5)
+	wantLongRollingTarget := libvpxRollingBits(0, result.FrameTargetBits, 31, 5)
+	if e.rc.longRollingActualBits != wantLongRollingActual || e.rc.longRollingTargetBits != wantLongRollingTarget {
+		t.Fatalf("long rolling bits = actual:%d target:%d, want %d/%d", e.rc.longRollingActualBits, e.rc.longRollingTargetBits, wantLongRollingActual, wantLongRollingTarget)
 	}
 	if result.BufferLevelBits != e.rc.bufferLevelBits {
 		t.Fatalf("result buffer = %d, want rc buffer %d", result.BufferLevelBits, e.rc.bufferLevelBits)
@@ -1258,6 +1265,9 @@ func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
 
 	if e.rc.avgFrameQuantizer != e.rc.maxQuantizer || e.rc.normalInterFrames != 0 || e.rc.normalInterQuantizerTotal != 0 || e.rc.normalInterAvgQuantizer != e.rc.maxQuantizer {
 		t.Fatalf("quantizer averages after reset = avg:%d frames:%d total:%d normal:%d, want max/0/0/max", e.rc.avgFrameQuantizer, e.rc.normalInterFrames, e.rc.normalInterQuantizerTotal, e.rc.normalInterAvgQuantizer)
+	}
+	if e.rc.rollingActualBits != 0 || e.rc.rollingTargetBits != 0 || e.rc.longRollingActualBits != 0 || e.rc.longRollingTargetBits != 0 {
+		t.Fatalf("rolling bits after reset = short:%d/%d long:%d/%d, want zeroes", e.rc.rollingActualBits, e.rc.rollingTargetBits, e.rc.longRollingActualBits, e.rc.longRollingTargetBits)
 	}
 }
 
