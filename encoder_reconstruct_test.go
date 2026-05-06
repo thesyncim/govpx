@@ -161,6 +161,40 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 	}
 }
 
+func BenchmarkSelectInterFrameReferenceMotionVectorZeroCost(b *testing.B) {
+	src := testImage(64, 64)
+	for row := 0; row < src.Height; row++ {
+		for col := 0; col < src.Width; col++ {
+			src.Y[row*src.YStride+col] = byte(32 + ((row + col) & 127))
+		}
+	}
+	for i := range src.U {
+		src.U[i] = 90
+		src.V[i] = 170
+	}
+	last := testVP8Frame(b, 64, 64, 0, 0, 0)
+	copyPlane(last.Img.Y, last.Img.YStride, src.Y, src.YStride, src.Width, src.Height)
+	copyPlane(last.Img.U, last.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	copyPlane(last.Img.V, last.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	last.ExtendBorders()
+	golden := testVP8Frame(b, 64, 64, 40, 90, 170)
+	alt := testVP8Frame(b, 64, 64, 48, 90, 170)
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &last.Img},
+		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
+		{Frame: vp8common.AltRefFrame, Img: &alt.Img},
+	}
+	source := sourceImageFromPublic(src)
+	b.ReportAllocs()
+	b.SetBytes(16 * 16)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		row := (i >> 2) & 3
+		col := i & 3
+		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col)
+	}
+}
+
 func BenchmarkMacroblockSubpixelSADLimit(b *testing.B) {
 	src := testImage(16, 16)
 	fillImage(src, 255, 90, 170)

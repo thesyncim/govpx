@@ -201,6 +201,9 @@ const interFrameMVSearchRange = 4 * 8
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int) (interAnalysisReference, vp8enc.MotionVector) {
 	bestRef := refs[0]
 	best, bestCost := selectInterFrameMotionVector(src, bestRef.Img, mbRow, mbCol)
+	if bestCost == 0 {
+		return bestRef, best
+	}
 	for refIndex := 1; refIndex < refCount; refIndex++ {
 		ref := refs[refIndex]
 		mv, cost := selectInterFrameMotionVector(src, ref.Img, mbRow, mbCol)
@@ -208,6 +211,9 @@ func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interA
 			bestRef = ref
 			best = mv
 			bestCost = cost
+			if bestCost == 0 {
+				return bestRef, best
+			}
 		}
 	}
 	return bestRef, best
@@ -252,6 +258,9 @@ func predictBestWholeBlockIntraModeCost(src vp8enc.SourceImage, mbRow int, mbCol
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
 	best := vp8enc.MotionVector{}
 	bestCost := interMotionSearchCost(src, ref, mbRow, mbCol, best)
+	if bestCost == 0 {
+		return best, bestCost
+	}
 	for i := 1; i < len(interFrameMVCandidates); i++ {
 		mv := interFrameMVCandidates[i]
 		cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost)
