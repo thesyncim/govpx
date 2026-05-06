@@ -1,5 +1,7 @@
 package govpx
 
+import "math"
+
 type RateControlMode int
 
 const (
@@ -91,13 +93,17 @@ type rateControlState struct {
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
 
+	avgFrameQuantizer         int
+	normalInterQuantizerTotal int
+	normalInterFrames         int
+	normalInterAvgQuantizer   int
+
 	rateCorrectionFactor     float64
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64
 }
 
 const (
-	keyFrameTargetBoost             = 4
 	defaultRateControlUndershootPct = 50
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
@@ -125,6 +131,10 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
+	rc.avgFrameQuantizer = cfg.MaxQuantizer
+	rc.normalInterQuantizerTotal = 0
+	rc.normalInterFrames = 0
+	rc.normalInterAvgQuantizer = cfg.MaxQuantizer
 	rc.rateCorrectionFactor = 1.0
 	rc.keyFrameCorrectionFactor = 1.0
 	rc.goldenCorrectionFactor = 1.0
@@ -184,26 +194,31 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 }
 
 func (rc *rateControlState) beginFrame(keyFrame bool) {
-	rc.beginFrameWithTargetAndContext(keyFrame, rc.bitsPerFrame, false)
+	rc.beginFrameWithTargetAndContext(keyFrame, rc.bitsPerFrame, rateControlFrameContext{})
 }
 
 func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits int) {
-	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, false)
+	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, rateControlFrameContext{})
 }
 
-func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, firstFrame bool) {
+type rateControlFrameContext struct {
+	firstFrame         bool
+	forcedKeyFrame     bool
+	temporalLayerCount int
+	timing             timingState
+}
+
+func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
 	baseFrameTargetBits := targetBits
 	if keyFrame {
-		if firstFrame && rc.bufferInitialBits > 0 {
+		if ctx.firstFrame && rc.bufferInitialBits > 0 {
 			targetBits = rc.initialKeyFrameTargetBits()
-		} else if targetBits > maxInt()/keyFrameTargetBoost {
-			targetBits = maxInt()
 		} else {
-			targetBits *= keyFrameTargetBoost
+			targetBits = rc.laterKeyFrameTargetBits(targetBits, ctx)
 		}
 		if rc.maxIntraBitratePct > 0 {
 			maxIntraBits := percentOf(baseFrameTargetBits, rc.maxIntraBitratePct)
@@ -243,6 +258,72 @@ func (rc *rateControlState) initialKeyFrameTargetBits() int {
 		return 1
 	}
 	return int(target)
+}
+
+func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rateControlFrameContext) int {
+	if baseTargetBits <= 0 {
+		return 0
+	}
+	q := rc.normalInterAvgQuantizer
+	if ctx.forcedKeyFrame {
+		q = rc.avgFrameQuantizer
+	}
+	if q < 0 || q >= len(libvpxKeyFrameBoostQAdjustment) {
+		q = rc.clampedQuantizerValue(rc.maxQuantizer)
+	}
+
+	const (
+		initialBoost = 32
+		maxKeyBoost  = 2000
+		minKeyBoost  = 16
+		targetScale  = 16
+	)
+	boost := initialBoost
+	if ctx.temporalLayerCount <= 1 {
+		boost = max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing))
+		if boost > maxKeyBoost {
+			boost = maxKeyBoost
+		}
+	}
+	boost = boost * libvpxKeyFrameBoostQAdjustment[q] / 100
+	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(rc.framesSinceKeyframe) < halfFrameRate {
+		boost = int(float64(boost) * float64(rc.framesSinceKeyframe) / halfFrameRate)
+	}
+	if boost < minKeyBoost {
+		boost = minKeyBoost
+	}
+
+	target := int64(16+boost) * int64(baseTargetBits) / targetScale
+	if target > int64(maxInt()) {
+		return maxInt()
+	}
+	if target < 1 {
+		return 1
+	}
+	return int(target)
+}
+
+func libvpxKeyFrameBoostForFrameRate(timing timingState) int {
+	fps := outputFrameRate(timing)
+	if fps <= 0 {
+		return 0
+	}
+	return int(math.Round(2*fps - 16))
+}
+
+func libvpxHalfFrameRate(timing timingState) float64 {
+	fps := outputFrameRate(timing)
+	if fps <= 0 {
+		return 0
+	}
+	return fps / 2
+}
+
+func outputFrameRate(timing timingState) float64 {
+	if timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+		return 0
+	}
+	return float64(timing.timebaseDen) / (float64(timing.timebaseNum) * float64(timing.frameDuration))
 }
 
 func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
@@ -303,7 +384,8 @@ func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame b
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
 
-	rc.lastQuantizer = rc.currentQuantizer
+	encodedQuantizer := rc.currentQuantizer
+	rc.lastQuantizer = encodedQuantizer
 	if rc.mode == RateControlCQ {
 		rc.adjustCQQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
 	} else {
@@ -311,11 +393,40 @@ func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame b
 	}
 	rc.clampQuantizer()
 
+	rc.updateQuantizerAverages(encodedQuantizer, keyFrame, goldenFrame)
 	if keyFrame {
 		rc.framesSinceKeyframe = 0
 		return
 	}
 	rc.framesSinceKeyframe++
+}
+
+func (rc *rateControlState) updateQuantizerAverages(q int, keyFrame bool, goldenFrame bool) {
+	if q < 0 {
+		return
+	}
+	if !keyFrame {
+		if rc.avgFrameQuantizer <= 0 {
+			rc.avgFrameQuantizer = rc.maxQuantizer
+		}
+		rc.avgFrameQuantizer = (2 + 3*rc.avgFrameQuantizer + q) >> 2
+	}
+	if keyFrame || goldenFrame {
+		return
+	}
+	rc.normalInterFrames++
+	if rc.normalInterFrames <= 0 {
+		rc.normalInterFrames = maxInt()
+	}
+	rc.normalInterQuantizerTotal = saturatingAdd(rc.normalInterQuantizerTotal, q)
+	if rc.normalInterFrames > 150 {
+		rc.normalInterAvgQuantizer = rc.normalInterQuantizerTotal / rc.normalInterFrames
+	} else {
+		rc.normalInterAvgQuantizer = ((rc.normalInterQuantizerTotal / rc.normalInterFrames) + rc.maxQuantizer + 1) / 2
+	}
+	if q > rc.normalInterAvgQuantizer {
+		rc.normalInterAvgQuantizer = q - 1
+	}
 }
 
 func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int) {
@@ -797,6 +908,27 @@ func checkedMul(a int, b int) (int, bool) {
 
 func maxInt() int {
 	return int(^uint(0) >> 1)
+}
+
+// libvpxKeyFrameBoostQAdjustment ports vp8/encoder/ratectrl.c
+// kf_boost_qadjustment.
+var libvpxKeyFrameBoostQAdjustment = [128]int{
+	128, 129, 130, 131, 132, 133, 134, 135,
+	136, 137, 138, 139, 140, 141, 142, 143,
+	144, 145, 146, 147, 148, 149, 150, 151,
+	152, 153, 154, 155, 156, 157, 158, 159,
+	160, 161, 162, 163, 164, 165, 166, 167,
+	168, 169, 170, 171, 172, 173, 174, 175,
+	176, 177, 178, 179, 180, 181, 182, 183,
+	184, 185, 186, 187, 188, 189, 190, 191,
+	192, 193, 194, 195, 196, 197, 198, 199,
+	200, 200, 201, 201, 202, 203, 203, 203,
+	204, 204, 205, 205, 206, 206, 207, 207,
+	208, 208, 209, 209, 210, 210, 211, 211,
+	212, 212, 213, 213, 214, 214, 215, 215,
+	216, 216, 217, 217, 218, 218, 219, 219,
+	220, 220, 220, 220, 220, 220, 220, 220,
+	220, 220, 220, 220, 220, 220, 220, 220,
 }
 
 // libvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are

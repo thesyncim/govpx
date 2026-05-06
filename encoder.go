@@ -219,6 +219,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
+	forcedKeyFrame := e.forceKeyFrameRequested(flags)
 	keyFrame := e.shouldEncodeKeyFrame(src, flags)
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	rows := encoderMacroblockRows(e.opts.Height)
@@ -228,7 +229,12 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTarget(false, temporalFrame.LayerFrameTargetBits)
 	} else {
-		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.bitsPerFrame, e.frameCount == 0)
+		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.bitsPerFrame, rateControlFrameContext{
+			firstFrame:         e.frameCount == 0,
+			forcedKeyFrame:     forcedKeyFrame,
+			temporalLayerCount: temporalFrame.LayerCount,
+			timing:             e.timing,
+		})
 	}
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
@@ -518,6 +524,13 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
 		return true
 	}
 	return false
+}
+
+func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {
+	if e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
+		return true
+	}
+	return flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) == EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef
 }
 
 func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {

@@ -251,6 +251,28 @@ func TestRateControlUpdatesSeparateLibvpxCorrectionFactors(t *testing.T) {
 	}
 }
 
+func TestRateControlPostEncodeTracksLibvpxQuantizerAverages(t *testing.T) {
+	rc := rateControlState{
+		mode:                    RateControlCBR,
+		minQuantizer:            4,
+		maxQuantizer:            56,
+		currentQuantizer:        20,
+		avgFrameQuantizer:       56,
+		normalInterAvgQuantizer: 56,
+		bitsPerFrame:            1000,
+		frameTargetBits:         1000,
+	}
+
+	rc.postEncodeFrameWithContext(125, false, false, 1)
+
+	if rc.avgFrameQuantizer != 47 {
+		t.Fatalf("avgFrameQuantizer = %d, want libvpx average 47", rc.avgFrameQuantizer)
+	}
+	if rc.normalInterFrames != 1 || rc.normalInterAvgQuantizer != 38 {
+		t.Fatalf("normal inter average = frames:%d q:%d, want 1/38", rc.normalInterFrames, rc.normalInterAvgQuantizer)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{
@@ -420,24 +442,81 @@ func TestRateControlBeginFrameAdjustsTargetAndQuantizerForHighBuffer(t *testing.
 	}
 }
 
-func TestRateControlBeginFrameKeepsFirstFrameTargetStable(t *testing.T) {
+func TestRateControlBeginLaterKeyFrameUsesLibvpxBoost(t *testing.T) {
 	rc := rateControlState{
-		mode:              RateControlCBR,
-		minQuantizer:      4,
-		maxQuantizer:      56,
-		currentQuantizer:  20,
-		bitsPerFrame:      1000,
-		bufferOptimalBits: 2000,
-		bufferLevelBits:   900,
+		mode:                    RateControlCBR,
+		minQuantizer:            4,
+		maxQuantizer:            56,
+		currentQuantizer:        20,
+		bitsPerFrame:            40000,
+		bufferOptimalBits:       600000,
+		bufferLevelBits:         600000,
+		framesSinceKeyframe:     60,
+		avgFrameQuantizer:       20,
+		normalInterAvgQuantizer: 20,
 	}
 
-	rc.beginFrame(true)
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame:     true,
+		temporalLayerCount: 1,
+		timing:             timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1},
+	})
 
-	if rc.frameTargetBits != 4000 {
-		t.Fatalf("keyframe target = %d, want unadjusted boosted 4000", rc.frameTargetBits)
+	if rc.frameTargetBits != 202500 {
+		t.Fatalf("later keyframe target = %d, want libvpx boosted 202500", rc.frameTargetBits)
 	}
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("currentQuantizer = %d, want unchanged 20 before feedback", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlBeginLaterKeyFrameDampensShortIntervals(t *testing.T) {
+	rc := rateControlState{
+		mode:                    RateControlCBR,
+		minQuantizer:            4,
+		maxQuantizer:            56,
+		currentQuantizer:        20,
+		bitsPerFrame:            40000,
+		bufferOptimalBits:       600000,
+		bufferLevelBits:         600000,
+		framesSinceKeyframe:     5,
+		avgFrameQuantizer:       20,
+		normalInterAvgQuantizer: 20,
+	}
+
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame:     true,
+		temporalLayerCount: 1,
+		timing:             timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1},
+	})
+
+	if rc.frameTargetBits != 92500 {
+		t.Fatalf("short-interval keyframe target = %d, want libvpx damped 92500", rc.frameTargetBits)
+	}
+}
+
+func TestRateControlBeginLaterTemporalKeyFrameUsesBaseLibvpxBoost(t *testing.T) {
+	rc := rateControlState{
+		mode:                    RateControlCBR,
+		minQuantizer:            4,
+		maxQuantizer:            56,
+		currentQuantizer:        20,
+		bitsPerFrame:            40000,
+		bufferOptimalBits:       600000,
+		bufferLevelBits:         600000,
+		framesSinceKeyframe:     60,
+		avgFrameQuantizer:       20,
+		normalInterAvgQuantizer: 20,
+	}
+
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame:     true,
+		temporalLayerCount: 2,
+		timing:             timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1},
+	})
+
+	if rc.frameTargetBits != 157500 {
+		t.Fatalf("temporal keyframe target = %d, want libvpx base boost 157500", rc.frameTargetBits)
 	}
 }
 
@@ -454,7 +533,7 @@ func TestRateControlBeginInitialKeyFrameUsesLibvpxStartingBufferTarget(t *testin
 		bufferLevelBits:     480000,
 	}
 
-	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, true)
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{firstFrame: true})
 
 	if rc.frameTargetBits != 240000 {
 		t.Fatalf("initial keyframe target = %d, want libvpx starting-buffer half 240000", rc.frameTargetBits)
@@ -463,21 +542,27 @@ func TestRateControlBeginInitialKeyFrameUsesLibvpxStartingBufferTarget(t *testin
 
 func TestRateControlBeginFrameCapsKeyFrameTargetWithMaxIntraBitrate(t *testing.T) {
 	rc := rateControlState{
-		mode:                RateControlCBR,
-		minQuantizer:        4,
-		maxQuantizer:        56,
-		currentQuantizer:    20,
-		bitsPerFrame:        1000,
-		maxIntraBitratePct:  250,
-		bufferOptimalBits:   2000,
-		bufferLevelBits:     2000,
-		rollingTargetBits:   0,
-		rollingActualBits:   0,
-		frameDropPressure:   0,
-		framesSinceKeyframe: 0,
+		mode:                    RateControlCBR,
+		minQuantizer:            4,
+		maxQuantizer:            56,
+		currentQuantizer:        20,
+		bitsPerFrame:            1000,
+		maxIntraBitratePct:      250,
+		bufferOptimalBits:       2000,
+		bufferLevelBits:         2000,
+		rollingTargetBits:       0,
+		rollingActualBits:       0,
+		frameDropPressure:       0,
+		framesSinceKeyframe:     60,
+		avgFrameQuantizer:       20,
+		normalInterAvgQuantizer: 20,
 	}
 
-	rc.beginFrame(true)
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame:     true,
+		temporalLayerCount: 1,
+		timing:             timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1},
+	})
 
 	if rc.frameTargetBits != 2500 {
 		t.Fatalf("keyframe target = %d, want capped 2500", rc.frameTargetBits)

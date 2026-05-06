@@ -165,8 +165,9 @@ Remaining work:
 - Finish remaining one-pass CBR/golden-frame correction-factor branching; initial
   bits-per-macroblock quantizer regulation, libvpx frame-size bounds, and
   bounded feedback exist.
-- Complete later keyframe boost heuristics; first-keyframe target sizing now
-  mirrors libvpx's starting-buffer rule.
+- Complete fixed-Q/two-pass keyframe target branches if those modes become
+  production requirements; one-pass first and later keyframe target sizing now
+  mirrors libvpx's buffer, framerate, Q-adjustment, and separation rules.
 - Complete exact libvpx golden-frame CBR boost heuristics; opt-in
   GF-CBR boost target/refresh control exists.
 - Implement VBR/two-pass planning if production parity requires VBR.

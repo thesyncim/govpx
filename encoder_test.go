@@ -115,6 +115,31 @@ func TestEncodeIntoCapsKeyFrameTargetBitsWithMaxIntraBitrate(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoUsesLibvpxLaterForcedKeyFrameTargetBits(t *testing.T) {
+	e := newTestEncoder(t)
+	dst := make([]byte, 4096)
+	for i := 0; i < 20; i++ {
+		if _, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, i), uint64(i), 1, 0); err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", i, err)
+		}
+	}
+	wantRC := e.rc
+	wantRC.beginFrameWithTargetAndContext(true, wantRC.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame:     true,
+		temporalLayerCount: 1,
+		timing:             e.timing,
+	})
+
+	e.ForceKeyFrame()
+	result, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 20), 20, 1, 0)
+	if err != nil {
+		t.Fatalf("forced key EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame || result.FrameTargetBits != wantRC.frameTargetBits {
+		t.Fatalf("forced key target = key:%t bits:%d, want %d", result.KeyFrame, result.FrameTargetBits, wantRC.frameTargetBits)
+	}
+}
+
 func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
