@@ -78,6 +78,13 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 			mode.SegmentID = segmentID
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
+			if modes[index].YMode == vp8common.BPred {
+				if !buildReconstructingBPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &e.reconstructModes[index], &quants[segmentID], &coeffs[index], &e.reconstructScratch) {
+					return ErrInvalidConfig
+				}
+				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
+				continue
+			}
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 				return ErrInvalidConfig
 			}
@@ -156,7 +163,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index] = intraMode
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
-				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
+				if modes[index].Mode == vp8common.BPred {
+					if !buildReconstructingBPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &e.reconstructModes[index], &quants[segmentID], &coeffs[index], &e.reconstructScratch) {
+						return ErrInvalidConfig
+					}
+				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 			} else {
@@ -169,10 +180,15 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return ErrInvalidConfig
 				}
 			}
-			buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], modes[index].Mode == vp8common.BPred, &coeffs[index])
+			if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
+				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], modes[index].Mode == vp8common.BPred, &coeffs[index])
+			}
 			modes[index].MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs[index], modes[index].Mode == vp8common.BPred)
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], modes[index].Mode == vp8common.BPred, &e.reconstructTokens[index])
+			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
+				continue
+			}
 			if modes[index].RefFrame == vp8common.IntraFrame {
 				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return ErrInvalidConfig
@@ -1049,6 +1065,85 @@ func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
 		err += diff * diff
 	}
 	return err
+}
+
+func buildReconstructingBPredMacroblockCoefficients(src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, quant *vp8enc.MacroblockQuant, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
+	if img == nil || mode == nil || quant == nil || coeffs == nil || scratch == nil || !mode.Is4x4 || mode.Mode != vp8common.BPred {
+		return false
+	}
+
+	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &scratch.Refs)
+	yOff := mbRow*16*img.YStride + mbCol*16
+	uOff := mbRow*8*img.UStride + mbCol*8
+	vOff := mbRow*8*img.VStride + mbCol*8
+	y := img.Y[yOff:]
+	u := img.U[uOff:]
+	v := img.V[vOff:]
+
+	var input [16]int16
+	var dct [16]int16
+	var dq [16]int16
+	for block := 0; block < 16; block++ {
+		blockOffset := analysisYBlockOffset(block, img.YStride)
+		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			return false
+		}
+		x := mbCol*16 + (block&3)*4
+		yCoord := mbRow*16 + (block>>2)*4
+		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		eob := vp8enc.FastQuantizeBlock(&dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		coeffs.SetBlockEOB(block, eob)
+		addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+	}
+	coeffs.QCoeff[24] = [16]int16{}
+	coeffs.SetBlockEOB(24, 0)
+
+	if !vp8dec.PredictIntraUV8x8(mode.UVMode, u, img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if !vp8dec.PredictIntraUV8x8(mode.UVMode, v, img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	for block := 0; block < 4; block++ {
+		x := mbCol*8 + (block&1)*4
+		yCoord := mbRow*8 + (block>>1)*4
+
+		fillPredictedResidual4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, x, yCoord, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		eob := vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		coeffs.SetBlockEOB(16+block, eob)
+		addQuantizedBlockResidual(eob, &dq, u[analysisUVBlockOffset(block, img.UStride):], img.UStride)
+
+		fillPredictedResidual4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, x, yCoord, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		eob = vp8enc.FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		coeffs.SetBlockEOB(20+block, eob)
+		addQuantizedBlockResidual(eob, &dq, v[analysisUVBlockOffset(block, img.VStride):], img.VStride)
+	}
+	return true
+}
+
+func addQuantizedBlockResidual(eob int, dq *[16]int16, dst []byte, stride int) {
+	if eob == 0 {
+		return
+	}
+	if eob == 1 {
+		dsp.DCOnlyIDCT4x4Add(dq[0], dst, stride, dst, stride)
+		return
+	}
+	dsp.IDCT4x4Add(dq, dst, stride, dst, stride)
+}
+
+func analysisYBlockOffset(block int, stride int) int {
+	return (block>>2)*4*stride + (block&3)*4
+}
+
+func analysisUVBlockOffset(block int, stride int) int {
+	return (block>>1)*4*stride + (block&1)*4
 }
 
 func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {

@@ -471,14 +471,14 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 }
 
 func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
-	low := encodeRateControlTestClip(t, 100)
-	high := encodeRateControlTestClip(t, 180)
+	low := encodeRateControlTestClip(t, 60)
+	high := encodeRateControlTestClip(t, 80)
 
 	if low.BitrateErrorPct < -35 || low.BitrateErrorPct > 35 {
-		t.Fatalf("100kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
+		t.Fatalf("60kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
 	}
 	if high.BitrateErrorPct < -35 || high.BitrateErrorPct > 35 {
-		t.Fatalf("180kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
+		t.Fatalf("80kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
 	}
 	if high.OutputBytes <= low.OutputBytes {
 		t.Fatalf("output bytes = low:%d high:%d, want higher target to emit more bits", low.OutputBytes, high.OutputBytes)
@@ -920,21 +920,7 @@ func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 
 func TestEncodeIntoKeyFrameSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
-	src := testImage(16, 32)
-	fillImage(src, 0, 90, 170)
-	for row := 0; row < src.Height; row++ {
-		for col := 0; col < src.Width; col++ {
-			src.Y[row*src.YStride+col] = byte(32 + col*7)
-		}
-	}
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
-			src.U[row*src.UStride+col] = byte(50 + col*9)
-			src.V[row*src.VStride+col] = byte(160 - col*5)
-		}
-	}
+	src := rateControlTestFrame(16, 32, 0)
 
 	if _, err := e.EncodeInto(make([]byte, 8192), src, 0, 1, 0); err != nil {
 		t.Fatalf("EncodeInto returned error: %v", err)
@@ -948,25 +934,39 @@ func TestEncodeIntoKeyFrameSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoBPredKeyFrameUsesInterleavedReconstruction(t *testing.T) {
+	opts := encoderValidationOptions(64, 128, 30, 700, nil)
+	e, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := rateControlTestFrame(64, 128, 0)
+	packet := make([]byte, 64*128*3)
+
+	result, err := e.EncodeInto(packet, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	bpredCount := 0
+	for _, mode := range e.keyFrameModes {
+		if mode.YMode == vp8common.BPred {
+			bpredCount++
+		}
+	}
+	if bpredCount == 0 {
+		t.Fatalf("B_PRED macroblocks = 0, want regression frame to exercise 4x4 intra reconstruction")
+	}
+	decoded := decodeSingleFrame(t, result.Data)
+	if psnr := encoderValidationImagePSNR(src, decoded); psnr < 20 {
+		t.Fatalf("B_PRED keyframe PSNR = %.2f dB, want >= 20 dB", psnr)
+	}
+}
+
 func TestEncodeIntoInterFrameIntraMacroblockSelectsBPredLumaAndVerticalChroma(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
 	first := testImage(16, 32)
-	second := testImage(16, 32)
 	fillImage(first, 0, 90, 170)
-	fillImage(second, 0, 90, 170)
-	for row := 0; row < second.Height; row++ {
-		for col := 0; col < second.Width; col++ {
-			second.Y[row*second.YStride+col] = byte(40 + col*6)
-		}
-	}
-	uvWidth := (second.Width + 1) >> 1
-	uvHeight := (second.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
-			second.U[row*second.UStride+col] = byte(60 + col*8)
-			second.V[row*second.VStride+col] = byte(150 - col*4)
-		}
-	}
+	second := rateControlTestFrame(16, 32, 0)
 	keyPacket := make([]byte, 8192)
 	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)

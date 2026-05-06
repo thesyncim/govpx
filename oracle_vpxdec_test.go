@@ -158,21 +158,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	oracle := findChecksumOracle(t)
 
 	e := newSizedTestEncoder(t, 16, 32)
-	src := testImage(16, 32)
-	fillImage(src, 0, 90, 170)
-	for row := 0; row < src.Height; row++ {
-		for col := 0; col < src.Width; col++ {
-			src.Y[row*src.YStride+col] = byte(32 + col*7)
-		}
-	}
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
-			src.U[row*src.UStride+col] = byte(50 + col*9)
-			src.V[row*src.VStride+col] = byte(160 - col*5)
-		}
-	}
+	src := rateControlTestFrame(16, 32, 0)
 
 	packet := make([]byte, 8192)
 	result, err := e.EncodeInto(packet, src, 0, 1, 0)
@@ -243,22 +229,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredIntraInterFrame(t *testing.T)
 
 	e := newSizedTestEncoder(t, 16, 32)
 	first := testImage(16, 32)
-	second := testImage(16, 32)
 	fillImage(first, 0, 90, 170)
-	fillImage(second, 0, 90, 170)
-	for row := 0; row < second.Height; row++ {
-		for col := 0; col < second.Width; col++ {
-			second.Y[row*second.YStride+col] = byte(40 + col*6)
-		}
-	}
-	uvWidth := (second.Width + 1) >> 1
-	uvHeight := (second.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
-			second.U[row*second.UStride+col] = byte(60 + col*8)
-			second.V[row*second.VStride+col] = byte(150 - col*4)
-		}
-	}
+	second := rateControlTestFrame(16, 32, 0)
 
 	keyPacket := make([]byte, 8192)
 	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)

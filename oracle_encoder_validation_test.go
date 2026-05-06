@@ -75,14 +75,14 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			opts: encoderValidationOptions(64, 128, 30, 700, func(opts *EncoderOptions) {
 				opts.TokenPartitions = int(vp8common.EightPartition)
 			}),
-			libvpxArgs:                    []string{"--token-parts=3"},
+			libvpxArgs: []string{"--token-parts=3"},
 			// These quality thresholds are current-regression guards. The
-			// loose libvpx gap documents that encoder quality parity is not
-			// complete yet.
-			minPSNR:                       11.0,
-			minSSIM:                       0.65,
-			maxPSNRGap:                    40.0,
-			maxSSIMGap:                    0.35,
+			// remaining libvpx gap documents that encoder quality parity is
+			// not complete yet.
+			minPSNR:                       20.0,
+			minSSIM:                       0.94,
+			maxPSNRGap:                    30.0,
+			maxSSIMGap:                    0.06,
 			maxRateHigh:                   250.0,
 			maxRateLow:                    95.0,
 			wantTokenPartition:            vp8common.EightPartition,
@@ -102,14 +102,14 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.StaticThreshold = 1
 				opts.MaxQuantizer = 56
 			}),
-			libvpxArgs:           []string{"--static-thresh=1"},
+			libvpxArgs: []string{"--static-thresh=1"},
 			// These quality thresholds are current-regression guards. The
-			// loose libvpx gap documents that encoder quality parity is not
-			// complete yet.
-			minPSNR:              14.0,
-			minSSIM:              0.75,
-			maxPSNRGap:           40.0,
-			maxSSIMGap:           0.35,
+			// remaining libvpx gap documents that encoder quality parity is
+			// not complete yet.
+			minPSNR:              40.0,
+			minSSIM:              0.99,
+			maxPSNRGap:           10.0,
+			maxSSIMGap:           0.02,
 			maxRateHigh:          250.0,
 			maxRateLow:           95.0,
 			checkSegmentationMap: true,
