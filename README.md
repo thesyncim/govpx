@@ -32,7 +32,9 @@ Optional live libvpx tests are enabled with `LIBGOPX_WITH_ORACLE=1`; set
 `LIBGOPX_ORACLE` to the checksum oracle built from `internal/coracle/`.
 Set `LIBGOPX_TEST_DATA_PATH` to a VP8 IVF file or directory to run extended
 opt-in conformance against external libvpx test data; `LIBGOPX_TEST_DATA_LIMIT`
-can cap the number of IVF files.
+can cap the number of IVF files. CI jobs that must fail instead of skipping can
+set `LIBGOPX_TEST_DATA_REQUIRED=1`; set `LIBGOPX_TEST_DATA_MIN` to require a
+minimum number of IVF files for broad corpus runs.
 
 `go run ./cmd/gopx-bench` runs a small synthetic VP8 encoder benchmark and
 prints JSON metrics for CI/local tracking; `allocs_per_frame` is measured over

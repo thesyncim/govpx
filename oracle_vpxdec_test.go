@@ -707,15 +707,16 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx conformance tests")
 	}
-	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
-	if root == "" {
-		t.Skip("set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := externalIVFTestDataRoot(t, "set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	if !ok {
+		return
 	}
 	oracle := findChecksumOracle(t)
 	paths := findVP8IVFTestData(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
+	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
 		path := path
@@ -742,15 +743,16 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
 	}
-	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
-	if root == "" {
-		t.Skip("set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := externalIVFTestDataRoot(t, "set LIBGOPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	if !ok {
+		return
 	}
 	oracle := findChecksumOracle(t)
 	paths := findVP8IVFTestData(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
+	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
 		path := path
@@ -827,6 +829,14 @@ func TestFindVP8IVFTestData(t *testing.T) {
 	paths := findVP8IVFTestData(t, dir)
 	if len(paths) != 1 || paths[0] != vp8Path {
 		t.Fatalf("paths = %v, want [%s]", paths, vp8Path)
+	}
+}
+
+func TestExternalIVFTestMinimum(t *testing.T) {
+	t.Setenv("LIBGOPX_TEST_DATA_MIN", "3")
+
+	if got := externalIVFTestMinimum(t); got != 3 {
+		t.Fatalf("minimum = %d, want 3", got)
 	}
 }
 
@@ -1132,6 +1142,19 @@ func findVP8IVFTestData(t *testing.T, root string) []string {
 	return paths
 }
 
+func externalIVFTestDataRoot(t *testing.T, skipMessage string) (string, bool) {
+	t.Helper()
+	root := os.Getenv("LIBGOPX_TEST_DATA_PATH")
+	if root != "" {
+		return root, true
+	}
+	if os.Getenv("LIBGOPX_TEST_DATA_REQUIRED") == "1" {
+		t.Fatalf("LIBGOPX_TEST_DATA_REQUIRED=1 but LIBGOPX_TEST_DATA_PATH is not set")
+	}
+	t.Skip(skipMessage)
+	return "", false
+}
+
 func externalIVFTestLimit(t *testing.T) int {
 	t.Helper()
 	raw := os.Getenv("LIBGOPX_TEST_DATA_LIMIT")
@@ -1143,6 +1166,27 @@ func externalIVFTestLimit(t *testing.T) int {
 		t.Fatalf("LIBGOPX_TEST_DATA_LIMIT = %q, want a non-negative integer", raw)
 	}
 	return limit
+}
+
+func externalIVFTestMinimum(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("LIBGOPX_TEST_DATA_MIN")
+	if raw == "" {
+		return 0
+	}
+	minimum, err := strconv.Atoi(raw)
+	if err != nil || minimum < 0 {
+		t.Fatalf("LIBGOPX_TEST_DATA_MIN = %q, want a non-negative integer", raw)
+	}
+	return minimum
+}
+
+func assertExternalIVFTestDataMinimum(t *testing.T, paths []string) {
+	t.Helper()
+	minimum := externalIVFTestMinimum(t)
+	if minimum > 0 && len(paths) < minimum {
+		t.Fatalf("VP8 IVF test data count = %d, want at least %d from LIBGOPX_TEST_DATA_MIN", len(paths), minimum)
+	}
 }
 
 func isVP8IVFTestData(t *testing.T, path string) bool {
