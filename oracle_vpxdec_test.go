@@ -703,6 +703,63 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLoopFilteredInterFrame(t *testing.
 	}
 }
 
+func TestOracleLibvpxChecksumMatchesEncodeIntoStaticThresholdSegmentation(t *testing.T) {
+	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
+		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	first := segmentedQuantizationTestImage()
+	keyPacket := make([]byte, 8192)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	second := segmentedQuantizationTestImage()
+	for row := 0; row < second.Height; row++ {
+		for col := 0; col < 16; col++ {
+			second.Y[row*second.YStride+col] = 96
+		}
+	}
+	interPacket := make([]byte, 8192)
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want segmented interframe")
+	}
+
+	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)
+	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})
+	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
+	if len(oracleFrames) != len(libgopxFrames) {
+		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(libgopxFrames))
+	}
+	for i, frame := range libgopxFrames {
+		want := checksumFrame(i, i == 0, true, frame)
+		if !testutil.SameFrameChecksum(oracleFrames[i], want) {
+			t.Fatalf("frame %d checksum mismatch\nlibvpx:  %s\nlibgopx: %s", i, formatChecksum(oracleFrames[i]), formatChecksum(want))
+		}
+	}
+}
+
 func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run external libvpx conformance tests")
