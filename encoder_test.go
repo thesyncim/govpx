@@ -998,7 +998,7 @@ func TestEncodeIntoBPredKeyFrameUsesInterleavedReconstruction(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoInterFrameIntraMacroblockSelectsBPredLumaAndVerticalChroma(t *testing.T) {
+func TestEncodeIntoInterFramePrefersCodedInterResidualOverBPredIntra(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
 	first := testImage(16, 32)
 	fillImage(first, 0, 90, 170)
@@ -1016,15 +1016,12 @@ func TestEncodeIntoInterFrameIntraMacroblockSelectsBPredLumaAndVerticalChroma(t 
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred {
-		t.Fatalf("inter mode[1] = %+v, want intra B_PRED luma for repeated rows", e.interFrameModes[1])
-	}
-	if e.interFrameModes[1].UVMode != vp8common.VPred {
-		t.Fatalf("inter UV mode[1] = %+v, want intra vertical prediction for repeated chroma rows", e.interFrameModes[1])
+	if e.interFrameModes[1].RefFrame == vp8common.IntraFrame {
+		t.Fatalf("inter mode[1] = %+v, want coded inter residual after RD scoring", e.interFrameModes[1])
 	}
 }
 
-func TestEncodeIntoInterFrameCanUseIntraMacroblock(t *testing.T) {
+func TestEncodeIntoInterFrameCodesLargeUniformResidual(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
@@ -1044,8 +1041,8 @@ func TestEncodeIntoInterFrameCanUseIntraMacroblock(t *testing.T) {
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[0].RefFrame != vp8common.IntraFrame || e.interFrameModes[0].Mode != vp8common.DCPred {
-		t.Fatalf("mode[0] = %+v, want intra DCPRED macroblock", e.interFrameModes[0])
+	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
+		t.Fatalf("mode[0] = %+v, want LAST/ZEROMV residual macroblock", e.interFrameModes[0])
 	}
 	decoded := decodeFrameSequence(t, key.Data, inter.Data)
 	if len(decoded) != 2 {

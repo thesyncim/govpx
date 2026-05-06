@@ -221,7 +221,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoBPredIntraInterFrame(t *testing.T) {
+func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -245,14 +245,14 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredIntraInterFrame(t *testing.T)
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred || e.interFrameModes[1].UVMode != vp8common.VPred {
-		t.Fatalf("inter mode[1] = %+v, want intra B_PRED/V_PRED", e.interFrameModes[1])
+	if e.interFrameModes[1].RefFrame == vp8common.IntraFrame {
+		t.Fatalf("inter mode[1] = %+v, want coded inter residual after RD scoring", e.interFrameModes[1])
 	}
 
 	ivf := makeIVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
 	got := decodeIVFChecksums(t, ivf)
-	assertFrameChecksumsEqual(t, "B_PRED intra interframe", got, oracleFrames)
+	assertFrameChecksumsEqual(t, "B_PRED candidate interframe", got, oracleFrames)
 }
 
 func TestOracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
@@ -696,7 +696,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing
 	}
 }
 
-func TestOracleLibvpxChecksumMatchesEncodeIntoIntraMacroblockInterFrame(t *testing.T) {
+func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing.T) {
 	if os.Getenv("LIBGOPX_WITH_ORACLE") != "1" {
 		t.Skip("set LIBGOPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
 	}
@@ -718,10 +718,10 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoIntraMacroblockInterFrame(t *testi
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
 	if inter.KeyFrame {
-		t.Fatalf("inter KeyFrame = true, want intra-macroblock interframe")
+		t.Fatalf("inter KeyFrame = true, want residual interframe")
 	}
-	if e.interFrameModes[0].RefFrame != vp8common.IntraFrame {
-		t.Fatalf("mode[0] = %+v, want intra macroblock", e.interFrameModes[0])
+	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
+		t.Fatalf("mode[0] = %+v, want LAST/ZEROMV residual macroblock", e.interFrameModes[0])
 	}
 
 	libgopxFrames := decodeFrameSequence(t, key.Data, inter.Data)

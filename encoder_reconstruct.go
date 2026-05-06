@@ -134,19 +134,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			ref, mv := selectInterFrameReferenceMotionVector(src, refs[:], refCount, row, col)
-			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
-			interScore := interMotionRDScore(src, ref.Img, row, col, mv, segmentQIndex)
-			useIntra := false
-			intraMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
-			if interCost > 0 {
-				var intraCost int
-				var ok bool
-				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, segmentQIndex, row, col, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch)
-				if !ok {
-					return ErrInvalidConfig
-				}
-				useIntra = intraCost < interScore
-			}
 			var above *vp8enc.InterFrameMacroblockMode
 			var left *vp8enc.InterFrameMacroblockMode
 			var aboveLeft *vp8enc.InterFrameMacroblockMode
@@ -158,6 +145,24 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
+			}
+			interMode := vp8enc.InterFrameMotionModeForVectorAt(ref.Frame, mv, above, left, aboveLeft, row, col, rows, cols)
+			interMode.SegmentID = segmentID
+			interCost := interMotionSearchCost(src, ref.Img, row, col, mv)
+			interScore, ok := e.estimateInterResidualRDScore(src, ref.Img, row, col, &interMode, &quants[segmentID], segmentQIndex, segmentID)
+			if !ok {
+				return ErrInvalidConfig
+			}
+			useIntra := false
+			intraMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
+			if interCost > 0 {
+				var intraCost int
+				var ok bool
+				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, segmentQIndex, row, col, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch)
+				if !ok {
+					return ErrInvalidConfig
+				}
+				useIntra = intraCost < interScore
 			}
 
 			if useIntra {
@@ -172,8 +177,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return ErrInvalidConfig
 				}
 			} else {
-				modes[index] = vp8enc.InterFrameMotionModeForVectorAt(ref.Frame, mv, above, left, aboveLeft, row, col, rows, cols)
-				modes[index].SegmentID = segmentID
+				modes[index] = interMode
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true
@@ -696,6 +700,46 @@ func rdRateOnly(qIndex int, rate int) int {
 
 func interMotionRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int) int {
 	return rdModeScore(qIndex, interMotionVectorCost(mv), macroblockLumaSSE(src, ref, mbRow, mbCol, mv))
+}
+
+func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8) (int, bool) {
+	if ref == nil || mode == nil || quant == nil || segmentID >= vp8common.MaxMBSegments {
+		return 0, false
+	}
+	var decMode vp8dec.MacroblockMode
+	convertInterFrameMode(mode, &decMode)
+	predMode := decMode
+	predMode.MBSkipCoeff = true
+	var zeroTokens vp8dec.MacroblockTokens
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref, mbRow, mbCol, &predMode, &zeroTokens, &e.dequants[segmentID], &e.reconstructScratch) {
+		return 0, false
+	}
+
+	mvRate := interMotionVectorCost(mode.MV)
+	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
+	skipScore := rdModeScore(qIndex, mvRate, predictionDist)
+	if staticInterEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
+		return skipScore, true
+	}
+
+	var coeffs vp8enc.MacroblockCoefficients
+	buildPredictedMacroblockCoefficients(src, mbRow, mbCol, &e.analysis.Img, quant, qIndex, interZbinModeBoost(mode), false, &coeffs)
+	if macroblockCoefficientsEmpty(&coeffs, false) {
+		return skipScore, true
+	}
+
+	var tokens vp8dec.MacroblockTokens
+	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	decMode.MBSkipCoeff = false
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref, mbRow, mbCol, &decMode, &tokens, &e.dequants[segmentID], &e.reconstructScratch) {
+		return 0, false
+	}
+	codedDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
+	tokenRate := macroblockCoefficientTokenRate(&vp8tables.DefaultCoefProbs, false, &coeffs)
+	if shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist) {
+		return skipScore, true
+	}
+	return rdModeScore(qIndex, mvRate+tokenRate, codedDist), true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (vp8enc.MotionVector, int) {
