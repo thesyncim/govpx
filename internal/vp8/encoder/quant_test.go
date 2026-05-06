@@ -41,6 +41,34 @@ func TestInitFastMacroblockQuant(t *testing.T) {
 	}
 }
 
+func TestInitRegularBlockQuantMatchesLibvpxSetup(t *testing.T) {
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = 100
+	}
+	var quant BlockQuant
+
+	InitRegularBlockQuant(80, &dequant, &quant)
+
+	if quant.QuantFast[1] != 655 || quant.Round[1] != 37 || quant.Zbin[1] != 63 {
+		t.Fatalf("regular quant fast/round/zbin = %d/%d/%d, want 655/37/63", quant.QuantFast[1], quant.Round[1], quant.Zbin[1])
+	}
+	if quant.Quant[1] != -23592 || quant.QuantShift[1] != 1024 {
+		t.Fatalf("regular quant inverse = %d/%d, want -23592/1024", quant.Quant[1], quant.QuantShift[1])
+	}
+	if quant.ZbinBoost[7] != 15 {
+		t.Fatalf("zrun boost[7] = %d, want 15", quant.ZbinBoost[7])
+	}
+
+	for i := range dequant {
+		dequant[i] = 10
+	}
+	InitRegularBlockQuant(4, &dequant, &quant)
+	if quant.Quant[1] != -13107 || quant.QuantShift[1] != 8192 || quant.Zbin[1] != 7 {
+		t.Fatalf("low-q regular quant = %d/%d zbin %d, want -13107/8192 zbin 7", quant.Quant[1], quant.QuantShift[1], quant.Zbin[1])
+	}
+}
+
 func TestInitSegmentMacroblockQuantsUsesDeltaSegmentation(t *testing.T) {
 	segmentation := SegmentationConfig{Enabled: true, UpdateData: true}
 	segmentation.FeatureEnabled[common.MBLvlAltQ][1] = true

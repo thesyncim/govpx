@@ -1,19 +1,27 @@
 package encoder
 
 import (
+	"math/bits"
+
 	"github.com/thesyncim/libgopx/internal/vp8/common"
 	"github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
-// Ported from libvpx v1.16.0 vp8/encoder/vp8_quantize.c fast block
-// quantization setup and vp8_fast_quantize_b_c.
+// Ported from libvpx v1.16.0 vp8/encoder/vp8_quantize.c block
+// quantization setup, vp8_fast_quantize_b_c, and vp8_regular_quantize_b_c.
 
 const quantRoundFactor = 48
 
+var quantZbinBoost = [...]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
+
 type BlockQuant struct {
-	QuantFast [16]int16
-	Round     [16]int16
-	Dequant   [16]int16
+	Quant      [16]int16
+	QuantFast  [16]int16
+	QuantShift [16]int16
+	Zbin       [16]int16
+	Round      [16]int16
+	ZbinBoost  [16]int16
+	Dequant    [16]int16
 }
 
 type MacroblockQuant struct {
@@ -39,6 +47,35 @@ func InitFastMacroblockQuant(dequant *common.MacroblockDequant, out *MacroblockQ
 	InitFastBlockQuant(&dequant.UV, &out.UV)
 }
 
+func InitRegularBlockQuant(qIndex int, dequant *[16]int16, out *BlockQuant) {
+	InitFastBlockQuant(dequant, out)
+	q := common.ClampQIndex(qIndex)
+	zbinFactor := 80
+	if q < 48 {
+		zbinFactor = 84
+	}
+	for i := 0; i < 16; i++ {
+		d := int(dequant[i])
+		out.Zbin[i] = int16((zbinFactor*d + 64) >> 7)
+		out.ZbinBoost[i] = int16((d * quantZbinBoost[i]) >> 7)
+		invertRegularQuant(d, &out.Quant[i], &out.QuantShift[i])
+	}
+}
+
+func InitRegularMacroblockQuant(qIndex int, dequant *common.MacroblockDequant, out *MacroblockQuant) {
+	InitRegularBlockQuant(qIndex, &dequant.Y1, &out.Y1)
+	InitRegularBlockQuant(qIndex, &dequant.Y1DC, &out.Y1DC)
+	InitRegularBlockQuant(qIndex, &dequant.Y2, &out.Y2)
+	InitRegularBlockQuant(qIndex, &dequant.UV, &out.UV)
+}
+
+func invertRegularQuant(dequant int, quant *int16, shift *int16) {
+	l := bits.Len(uint(dequant)) - 1
+	m := 1 + (1<<(16+l))/dequant
+	*quant = int16(m - (1 << 16))
+	*shift = int16(1 << (16 - l))
+}
+
 func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segmentation SegmentationConfig, out *[common.MaxMBSegments]MacroblockQuant) error {
 	if baseQIndex < common.MinQ || baseQIndex > common.MaxQ || out == nil || !validSegmentationConfig(segmentation) {
 		return ErrInvalidPacketConfig
@@ -57,7 +94,7 @@ func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segm
 			}
 		}
 		common.InitMacroblockDequant(&tables, qIndex, &dequant)
-		InitFastMacroblockQuant(&dequant, &out[segment])
+		InitRegularMacroblockQuant(qIndex, &dequant, &out[segment])
 	}
 	return nil
 }
