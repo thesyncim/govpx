@@ -33,6 +33,13 @@ func ApplyLoopFilter(img *common.Image, rows int, cols int, modes []MacroblockMo
 	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
 	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
 
+	if header.Type == SimpleLoopFilter {
+		return applySimpleLoopFilterGrid(img, rows, cols, modes, lfi)
+	}
+	return applyNormalLoopFilterGrid(img, rows, cols, modes, frameType, lfi)
+}
+
+func applyNormalLoopFilterGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
 	for row := 0; row < rows; row++ {
 		yRow := row * 16 * img.YStride
 		uRow := row * 8 * img.UStride
@@ -51,11 +58,28 @@ func ApplyLoopFilter(img *common.Image, rows int, cols int, modes []MacroblockMo
 			yOff := yRow + col*16
 			uOff := uRow + col*8
 			vOff := vRow + col*8
-			if header.Type == SimpleLoopFilter {
-				applySimpleLoopFilterMB(img, row, col, yOff, mode, level, lfi)
-			} else {
-				applyNormalLoopFilterMB(img, row, col, yOff, uOff, vOff, mode, frameType, level, lfi)
+			applyNormalLoopFilterMB(img, row, col, yOff, uOff, vOff, mode, frameType, level, lfi)
+		}
+	}
+	return nil
+}
+
+func applySimpleLoopFilterGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo) error {
+	for row := 0; row < rows; row++ {
+		yRow := row * 16 * img.YStride
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			mode := &modes[index]
+			if !validLoopFilterMode(mode) {
+				return ErrLoopFilterBufferTooSmall
 			}
+			level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
+			if level == 0 {
+				continue
+			}
+
+			yOff := yRow + col*16
+			applySimpleLoopFilterMB(img, row, col, yOff, mode, level, lfi)
 		}
 	}
 	return nil

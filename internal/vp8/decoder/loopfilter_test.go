@@ -112,7 +112,41 @@ func TestApplyLoopFilterAllocatesZero(t *testing.T) {
 	}
 }
 
-func newLoopFilterFrame(t *testing.T, width int, height int) *common.FrameBuffer {
+func BenchmarkApplyLoopFilterNormal(b *testing.B) {
+	fb := newLoopFilterFrame(b, 64, 64)
+	fillLoopFilterMacroblockColumns(&fb.Img, 100, 110, 80, 90)
+	modes := loopFilterBenchmarkModes(4, 4)
+	header := LoopFilterHeader{Type: NormalLoopFilter, Level: 20}
+	var lfi common.LoopFilterInfo
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = ApplyLoopFilter(&fb.Img, 4, 4, modes, common.KeyFrame, header, SegmentationHeader{}, &lfi)
+	}
+}
+
+func BenchmarkApplyLoopFilterSimple(b *testing.B) {
+	fb := newLoopFilterFrame(b, 64, 64)
+	fillLoopFilterMacroblockColumns(&fb.Img, 100, 110, 80, 90)
+	modes := loopFilterBenchmarkModes(4, 4)
+	header := LoopFilterHeader{Type: SimpleLoopFilter, Level: 20}
+	var lfi common.LoopFilterInfo
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = ApplyLoopFilter(&fb.Img, 4, 4, modes, common.KeyFrame, header, SegmentationHeader{}, &lfi)
+	}
+}
+
+func loopFilterBenchmarkModes(rows int, cols int) []MacroblockMode {
+	modes := make([]MacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred, RefFrame: common.IntraFrame}
+	}
+	return modes
+}
+
+func newLoopFilterFrame(t testing.TB, width int, height int) *common.FrameBuffer {
 	t.Helper()
 	fb, err := common.NewFrameBuffer(width, height, 32, 32)
 	if err != nil {
