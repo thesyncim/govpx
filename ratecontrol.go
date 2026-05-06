@@ -190,6 +190,31 @@ func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 	rc.framesSinceKeyframe++
 }
 
+func (rc *rateControlState) shouldDropInterFrame() bool {
+	if !rc.dropFrameAllowed || rc.mode != RateControlCBR {
+		return false
+	}
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	return targetBits > 0 && rc.bufferLevelBits <= targetBits
+}
+
+func (rc *rateControlState) postDropFrame() {
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	rc.rollingTargetBits = saturatingAdd(rc.rollingTargetBits, targetBits)
+	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.clampBuffer()
+	if rc.frameDropPressure > 0 {
+		rc.frameDropPressure--
+	}
+	rc.framesSinceKeyframe++
+}
+
 func (rc *rateControlState) adjustQuantizer(actualBits int, targetBits int) {
 	if targetBits <= 0 {
 		return

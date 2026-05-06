@@ -55,7 +55,7 @@ grant. This repository keeps libvpx license and patent notices in
 | Token and mode parsing | tree reader, partition layout, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, SAD 16x16/16x8/8x16/8x8/4x4, variance/SSE 16x16/16x8/8x16/8x8/4x4, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
-| Encoder rate-control API | scaffolded |
+| Encoder rate-control API | target bits, buffer model, quantizer feedback, and bounded CBR frame dropping scaffolded |
 | VP8 constants and static tables | scaffolded; quant/dequant tables scaffolded |
 | Encoder bitstream writer | bool writer, packet, tree-token, keyframe state, and interframe intra/inter mode primitives scaffolded |
 | Encoder frame algorithms | neutral/coefficient keyframe packets, keyframe mode, zero/nonzero coefficient token grid writers, whole-block luma/chroma intra mode selection, keyframe residual analysis with reconstruction feedback, LAST/ZEROMV residual interframes with intra macroblock selection, last/golden/altref reference selection and refresh control, invisible-frame handling, libvpx-inspired NEWMV interframes with near-MV reuse, hex-ring motion candidates, bounded full-pixel and subpixel refinement, opt-in reconstructed-frame loop filtering, forward transforms, and fast block quantization scaffolded |

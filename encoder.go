@@ -181,6 +181,14 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		BufferLevelBits:   e.rc.bufferLevelBits,
 	}
 	invisible := flags&EncodeInvisibleFrame != 0
+	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
+		e.rc.postDropFrame()
+		result.Dropped = true
+		result.BufferLevelBits = e.rc.bufferLevelBits
+		e.forceKeyFrame = false
+		e.frameCount++
+		return result, nil
+	}
 
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)

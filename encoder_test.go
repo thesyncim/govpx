@@ -83,6 +83,68 @@ func TestEncodeIntoUpdatesRateControlAfterFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoDropsInterFrameWhenBufferEmptyAndAllowed(t *testing.T) {
+	e := newLowBitrateDropTestEncoder(t, true)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if !key.KeyFrame || key.Dropped {
+		t.Fatalf("key result = key:%t dropped:%t, want encoded keyframe", key.KeyFrame, key.Dropped)
+	}
+
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if !inter.Dropped || inter.KeyFrame || len(inter.Data) != 0 || inter.SizeBytes != 0 {
+		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped interframe", inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
+	}
+	if inter.BufferLevelBits <= key.BufferLevelBits {
+		t.Fatalf("buffer after drop = %d, want above post-key buffer %d", inter.BufferLevelBits, key.BufferLevelBits)
+	}
+}
+
+func TestEncodeIntoDoesNotDropWhenFrameDroppingDisabled(t *testing.T) {
+	e := newLowBitrateDropTestEncoder(t, false)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inter, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.Dropped || inter.KeyFrame || inter.SizeBytes == 0 || len(inter.Data) == 0 {
+		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want encoded interframe", inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
+	}
+}
+
+func TestEncodeIntoDoesNotDropInvisibleInterFrame(t *testing.T) {
+	e := newLowBitrateDropTestEncoder(t, true)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inter, err := e.EncodeInto(dst, src, 1, 1, EncodeInvisibleFrame)
+	if err != nil {
+		t.Fatalf("invisible inter EncodeInto returned error: %v", err)
+	}
+	if inter.Dropped || inter.KeyFrame || inter.SizeBytes == 0 || len(inter.Data) == 0 {
+		t.Fatalf("invisible inter result = key:%t dropped:%t size:%d data:%d, want encoded invisible interframe", inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
+	}
+}
+
 func TestSetRateControlValidation(t *testing.T) {
 	e := newTestEncoder(t)
 
@@ -759,6 +821,28 @@ func newSizedTestEncoder(t *testing.T, width int, height int) *VP8Encoder {
 		ErrorResilient:      true,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+func newLowBitrateDropTestEncoder(t *testing.T, dropFrameAllowed bool) *VP8Encoder {
+	t.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		DropFrameAllowed:    dropFrameAllowed,
+		KeyFrameInterval:    120,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 0,
 		BufferOptimalSizeMs: 500,
 	})
 	if err != nil {
