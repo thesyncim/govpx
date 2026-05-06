@@ -47,11 +47,11 @@ grant. This repository keeps libvpx license and patent notices in
 | Public API | scaffolded |
 | Upstream manifest | scaffolded |
 | Oracle harness | optional vpxdec smoke and libvpx checksum oracle scaffolded |
-| IVF/test vectors | IVF parser and oracle checksum parser scaffolded; normal-test VP8/IVF smoke vectors, including NEWMV, luma/chroma intra-mode keyframe, and intra-macroblock interframe coverage, checksummed against libvpx v1.16.0 |
+| IVF/test vectors | IVF parser and oracle checksum parser scaffolded; normal-test VP8/IVF smoke vectors, including a libvpx-authored reference stream plus NEWMV, luma/chroma intra-mode keyframe, and intra-macroblock interframe coverage, checksummed against libvpx v1.16.0 |
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, and narrow frame output scaffolded |
+| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup with libvpx-style row-edge extension, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, and narrow frame output scaffolded |
 | Token and mode parsing | tree reader, partition layout, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
 | Scalar DSP | clip/copy/reconstruction, SAD 16x16/16x8/8x16/8x8/4x4, variance/SSE 16x16/16x8/8x16/8x8/4x4, bilinear/six-tap subpixel, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |

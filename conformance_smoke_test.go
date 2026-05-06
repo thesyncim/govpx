@@ -11,6 +11,10 @@ func TestSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxSmokeIVFHex, libvpxSmokeChecksums[:])
 }
 
+func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
+	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxEncodedSmokeIVFHex, libvpxEncodedSmokeChecksums[:])
+}
+
 func TestNewMVSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 	assertSmokeIVFMatchesLibvpxChecksums(t, libvpxNewMVIVFHex, libvpxNewMVChecksums[:])
 }
@@ -81,6 +85,25 @@ func mustDecodeHex(t *testing.T, s string) []byte {
 	return out
 }
 
+func checksumMD5(y, u, v, full string) testutil.PlaneMD5 {
+	return testutil.PlaneMD5{
+		Y:    md5Hex(y),
+		U:    md5Hex(u),
+		V:    md5Hex(v),
+		Full: md5Hex(full),
+	}
+}
+
+func md5Hex(s string) [16]byte {
+	raw, err := hex.DecodeString(s)
+	if err != nil || len(raw) != 16 {
+		panic("invalid test MD5")
+	}
+	var out [16]byte
+	copy(out[:], raw)
+	return out
+}
+
 // Generated from libgopx encoder output and verified with the libvpx v1.16.0
 // checksum oracle in internal/coracle.
 const libvpxSmokeIVFHex = "444b49460000200056503830200010001e0000000100000002000000000000005f00000000000000000000001001009d012a2000100000002800000f0400fef6507ffdfa69ff39ffff26c9725c9724e2c6abb51e9788e49c58d57ffff295ffc6eff765c16ffff99a3ff49bfec37901fe81f697ffbf4d3fe73ff4fd3f4fd3c43cb5ada69e9788796b5b1e00120000000100000000000000d101000000a03100048981818043a46b0000"
@@ -111,6 +134,40 @@ var libvpxSmokeChecksums = [...]testutil.FrameChecksum{
 			V:    [16]byte{0xeb, 0x7a, 0x49, 0x1f, 0x09, 0xf6, 0x1a, 0x33, 0x8a, 0x2b, 0x9f, 0xc2, 0xdf, 0xdf, 0x00, 0x40},
 			Full: [16]byte{0x5a, 0xc3, 0xb7, 0x65, 0x20, 0x53, 0x81, 0x48, 0xbc, 0x83, 0x16, 0x72, 0x37, 0x24, 0x61, 0x1d},
 		},
+	},
+}
+
+// Encoded from deterministic 32x32 I420 input by the libvpx v1.16.0
+// simple_encoder example, then checksummed with the libvpx v1.16.0 oracle in
+// internal/coracle. This is a libvpx-authored VP8 reference stream.
+const libvpxEncodedSmokeIVFHex = "444b49460000200056503830200020001e000000010000000200000000000000560100000000000000000000900c009d012a2000200001470885858885848802020275ba24c1be2bf8e9f901cf9fb25de2c907f01fc8bfb67f01fdbcfe8dbc03fc2bf35ffb16f80ff01f6e6e701e001fd15f340f52bfd01f801fe15fc5ff437f7b6f92fe035807c41abfe25b376ecbb4f18481b2b0572bcc3f80feffff24af5679a4cd69bcc3eef32163ffca80cf151c31c16fdcffe4aa4bbbc14cd15a7ff91efeb83f702e377acb525f3a190cbffb05fb13a27bf99de91586ff8d8ab1e89e4222377181ceea56d3e8fe239d66b9b71b8fdffe23f9ebb2e4658a14d80becf046b103005c9d510cabbbe413ad53add4496dceedf1e90cfbd6535d0ecc1623362de9dccb4b7fcd8321ee9554201de7fe44f87a72dae52a96c13edac721af6f726a3ae6066ef6339ad4feef767a45a62cf39f53bf0e71987acdb29ad4545ff0ebc3d390fcd4d64b61bea3de2cf532110e753131aa4a861d0a19ef4ac90d4fe9047a60c0520100000100000000000000910500051010001804c04ee03ba03e481bc03ec39f89284032a03f803ce73f893b15dff9406e4e789d7710f8deea80fef6b484ffc05046db2a8c911247b101eae3ab788db0fff1eda7f9e42ddfb2f8fea5e18d7c1f63f1d4d688003008177c3976ddf61938e718ca9e71ebf27bfb88645d425d57f92ba2a7e49ef6739741ae374ffb5a72ef6f0e31e648474f216c74e4b4e2fa25bb6f8e24ef566e81d4ffd7d0d3cea9394237f617cb47b4d85dfb632fa66603080d2914b86db70f7fef5bb9c276abfa5d7560ca6016818fce9e32ab039b05dd2d58664deb92d50d26319e09bdfa0fff0bf7fa90e4effdf1bfff3968200d6fafb348b7f45a7dc3fff5f0bfe7d3ffb2e75fe1afffdfd8fb0a9a557ff989cd5f87f55a623a50993b47587ff38042ab96ea2dd122b90ff52050f92331317832e065fd9595fb6082d81b321f4c833211fd56d0277030261f1131c39c559e224700"
+
+var libvpxEncodedSmokeChecksums = [...]testutil.FrameChecksum{
+	{
+		Index:     0,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  true,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"619b9320d46f28592c05cc7fdbc932ca",
+			"4da7bc1de91fa1f67109859408a22547",
+			"2f5b346c77bac5c09d6c1adb71e2ef75",
+			"5295d8fea89ac706ed916258d03eb846",
+		),
+	},
+	{
+		Index:     1,
+		Width:     32,
+		Height:    32,
+		KeyFrame:  false,
+		ShowFrame: true,
+		MD5: checksumMD5(
+			"625598c470bc09b7b809c2c154a0e8a4",
+			"09bb44a2dc7d7b87321e36ab814e7b91",
+			"a4516f5667d7d81d171d5744fa6bf6e4",
+			"f9aa515f6ed3ef5df4fd9f1ce329d5a9",
+		),
 	},
 }
 

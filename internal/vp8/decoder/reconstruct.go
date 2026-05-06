@@ -13,6 +13,7 @@ import (
 // - vp8/common/setupintrarecon.c intra edge setup
 // - vp8/common/reconinter.c whole-macroblock inter predictor offsets
 // - vp8/common/findnearmv.h motion-vector border clamping
+// - vp8/common/extend.c row-edge extension for intra prediction
 
 var (
 	ErrReconstructGridBufferTooSmall      = errors.New("libgopx: VP8 reconstruction grid buffer too small")
@@ -83,14 +84,14 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 	codedWidth := codedImageWidth(img)
 	codedHeight := codedImageHeight(img)
 
-	buildAbove(scratch.YAbove[:], img.Y, img.YStride, codedWidth, yRow, yCol, upAvailable)
-	buildLeft(scratch.YLeft[:], img.Y, img.YStride, codedHeight, yRow, yCol, leftAvailable)
+	buildAbove(scratch.YAbove[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	buildLeft(scratch.YLeft[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedHeight, yRow, yCol, img.YBorder, leftAvailable)
 	uvWidth := (codedWidth + 1) >> 1
 	uvHeight := (codedHeight + 1) >> 1
-	buildAbove(scratch.UAbove[:], img.U, img.UStride, uvWidth, uvRow, uvCol, upAvailable)
-	buildLeft(scratch.ULeft[:], img.U, img.UStride, uvHeight, uvRow, uvCol, leftAvailable)
-	buildAbove(scratch.VAbove[:], img.V, img.VStride, uvWidth, uvRow, uvCol, upAvailable)
-	buildLeft(scratch.VLeft[:], img.V, img.VStride, uvHeight, uvRow, uvCol, leftAvailable)
+	buildAbove(scratch.UAbove[:], img.U, img.UFull, img.UOrigin, img.UStride, uvWidth, uvRow, uvCol, img.UVBorder, upAvailable)
+	buildLeft(scratch.ULeft[:], img.U, img.UFull, img.UOrigin, img.UStride, uvHeight, uvRow, uvCol, img.UVBorder, leftAvailable)
+	buildAbove(scratch.VAbove[:], img.V, img.VFull, img.VOrigin, img.VStride, uvWidth, uvRow, uvCol, img.UVBorder, upAvailable)
+	buildLeft(scratch.VLeft[:], img.V, img.VFull, img.VOrigin, img.VStride, uvHeight, uvRow, uvCol, img.UVBorder, leftAvailable)
 
 	return IntraPredictorRefs{
 		YAbove:        scratch.YAbove[:],
@@ -99,9 +100,9 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 		ULeft:         scratch.ULeft[:],
 		VAbove:        scratch.VAbove[:],
 		VLeft:         scratch.VLeft[:],
-		YTopLeft:      topLeftSample(img.Y, img.YStride, yRow, yCol, upAvailable, leftAvailable),
-		UTopLeft:      topLeftSample(img.U, img.UStride, uvRow, uvCol, upAvailable, leftAvailable),
-		VTopLeft:      topLeftSample(img.V, img.VStride, uvRow, uvCol, upAvailable, leftAvailable),
+		YTopLeft:      topLeftSample(img.Y, img.YFull, img.YOrigin, img.YStride, yRow, yCol, img.YBorder, upAvailable, leftAvailable),
+		UTopLeft:      topLeftSample(img.U, img.UFull, img.UOrigin, img.UStride, uvRow, uvCol, img.UVBorder, upAvailable, leftAvailable),
+		VTopLeft:      topLeftSample(img.V, img.VFull, img.VOrigin, img.VStride, uvRow, uvCol, img.UVBorder, upAvailable, leftAvailable),
 		UpAvailable:   upAvailable,
 		LeftAvailable: leftAvailable,
 	}
@@ -262,6 +263,7 @@ func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes [
 				return ErrUnsupportedIntraReconstructionMode
 			}
 		}
+		extendIntraRightEdgeForRow(img, row)
 	}
 	return nil
 }
@@ -320,6 +322,7 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 				return ErrUnsupportedInterReconstructionMode
 			}
 		}
+		extendIntraRightEdgeForRow(img, row)
 	}
 	return nil
 }
@@ -675,11 +678,53 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, out *[16]int16) {
 	}
 }
 
-func buildAbove(out []byte, plane []byte, stride int, width int, row int, col int, available bool) {
+func extendIntraRightEdgeForRow(img *common.Image, mbRow int) {
+	if img == nil {
+		return
+	}
+	codedWidth := codedImageWidth(img)
+	codedHeight := codedImageHeight(img)
+	extendIntraRightEdgeRows(img.YFull, img.YOrigin, img.YStride, codedWidth, codedHeight, img.YBorder, mbRow*16+14, 2)
+
+	uvWidth := (codedWidth + 1) >> 1
+	uvHeight := (codedHeight + 1) >> 1
+	extendIntraRightEdgeRows(img.UFull, img.UOrigin, img.UStride, uvWidth, uvHeight, img.UVBorder, mbRow*8+6, 2)
+	extendIntraRightEdgeRows(img.VFull, img.VOrigin, img.VStride, uvWidth, uvHeight, img.UVBorder, mbRow*8+6, 2)
+}
+
+func extendIntraRightEdgeRows(full []byte, origin int, stride int, width int, height int, border int, startRow int, count int) {
+	if len(full) == 0 || origin < 0 || stride <= 0 || width <= 0 || height <= 0 || border < 4 || count <= 0 {
+		return
+	}
+	if stride < width+border {
+		return
+	}
+	for i := 0; i < count; i++ {
+		row := startRow + i
+		if row < 0 || row >= height {
+			continue
+		}
+		start := origin + row*stride + width
+		if start <= 0 || start+4 > len(full) {
+			continue
+		}
+		edge := full[start-1]
+		full[start+0] = edge
+		full[start+1] = edge
+		full[start+2] = edge
+		full[start+3] = edge
+	}
+}
+
+func buildAbove(out []byte, plane []byte, full []byte, origin int, stride int, width int, row int, col int, border int, available bool) {
 	if !available {
 		for i := range out {
 			out[i] = 127
 		}
+		return
+	}
+	if hasFullIntraSampleRange(full, origin, stride, width, border, row-1, col, len(out)) {
+		copy(out, full[origin+(row-1)*stride+col:])
 		return
 	}
 	src := (row-1)*stride + col
@@ -692,10 +737,17 @@ func buildAbove(out []byte, plane []byte, stride int, width int, row int, col in
 	}
 }
 
-func buildLeft(out []byte, plane []byte, stride int, height int, row int, col int, available bool) {
+func buildLeft(out []byte, plane []byte, full []byte, origin int, stride int, height int, row int, col int, border int, available bool) {
 	if !available {
 		for i := range out {
 			out[i] = 129
+		}
+		return
+	}
+	if hasFullIntraVerticalRange(full, origin, stride, height, border, row, col-1, len(out)) {
+		src := origin + row*stride + col - 1
+		for i := range out {
+			out[i] = full[src+i*stride]
 		}
 		return
 	}
@@ -709,14 +761,39 @@ func buildLeft(out []byte, plane []byte, stride int, height int, row int, col in
 	}
 }
 
-func topLeftSample(plane []byte, stride int, row int, col int, upAvailable bool, leftAvailable bool) byte {
+func topLeftSample(plane []byte, full []byte, origin int, stride int, row int, col int, border int, upAvailable bool, leftAvailable bool) byte {
 	if !upAvailable {
 		return 127
 	}
 	if !leftAvailable {
 		return 129
 	}
+	if hasFullIntraSampleRange(full, origin, stride, col, border, row-1, col-1, 1) {
+		return full[origin+(row-1)*stride+col-1]
+	}
 	return plane[(row-1)*stride+col-1]
+}
+
+func hasFullIntraSampleRange(full []byte, origin int, stride int, width int, border int, row int, col int, count int) bool {
+	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 || border <= 0 || row < 0 || col < 0 {
+		return false
+	}
+	if col+count > width+border {
+		return false
+	}
+	start := origin + row*stride + col
+	return start >= 0 && start+count <= len(full)
+}
+
+func hasFullIntraVerticalRange(full []byte, origin int, stride int, height int, border int, row int, col int, count int) bool {
+	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 || border <= 0 || row < 0 || col < 0 {
+		return false
+	}
+	if row+count > height+border {
+		return false
+	}
+	start := origin + row*stride + col
+	return start >= 0 && start+(count-1)*stride < len(full)
 }
 
 func imageHasMacroblockGrid(img *common.Image, rows int, cols int) bool {

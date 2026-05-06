@@ -102,6 +102,35 @@ func TestBuildIntraPredictorRefsEdgesFillSyntheticSamples(t *testing.T) {
 	}
 }
 
+func TestBuildIntraPredictorRefsUsesExtendedRightEdge(t *testing.T) {
+	fb, err := common.NewFrameBuffer(32, 32, 8, 16)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	img := &fb.Img
+	img.Y[14*img.YStride+31] = 44
+	img.Y[15*img.YStride+31] = 55
+
+	extendIntraRightEdgeForRow(img, 0)
+
+	for i := 0; i < 4; i++ {
+		if got := img.YFull[img.YOrigin+14*img.YStride+32+i]; got != 44 {
+			t.Fatalf("extended row 14 right[%d] = %d, want 44", i, got)
+		}
+		if got := img.YFull[img.YOrigin+15*img.YStride+32+i]; got != 55 {
+			t.Fatalf("extended row 15 right[%d] = %d, want 55", i, got)
+		}
+	}
+
+	var scratch IntraPredictorScratch
+	refs := BuildIntraPredictorRefs(img, 1, 1, &scratch)
+	for i := 16; i < 20; i++ {
+		if got := refs.YAbove[i]; got != 55 {
+			t.Fatalf("YAbove[%d] = %d, want extended right edge 55", i, got)
+		}
+	}
+}
+
 func TestBuildIntraPredictorRefsAllocatesZero(t *testing.T) {
 	img := testImage(32, 32)
 	var scratch IntraPredictorScratch
