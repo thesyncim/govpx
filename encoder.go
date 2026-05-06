@@ -122,6 +122,10 @@ type EncodeResult struct {
 	TemporalLayerFrameBandwidthBits    int
 	TemporalLayerBufferLevelBits       int
 	TemporalLayerMaximumBufferBits     int
+	TemporalLayerInputFrames           int
+	TemporalLayerEncodedFrames         int
+	TemporalLayerTotalEncodedFrames    int
+	TemporalLayerEncodedBits           int
 
 	PSNRHint float64
 }
@@ -348,6 +352,10 @@ func (e *VP8Encoder) populateTemporalLayerBufferResult(result *EncodeResult, met
 	result.TemporalLayerFrameBandwidthBits = accounting.FrameBandwidthBits
 	result.TemporalLayerBufferLevelBits = accounting.BufferLevelBits
 	result.TemporalLayerMaximumBufferBits = accounting.MaximumBufferBits
+	result.TemporalLayerInputFrames = accounting.InputFrames
+	result.TemporalLayerEncodedFrames = accounting.EncodedFrames
+	result.TemporalLayerTotalEncodedFrames = accounting.TotalEncodedFrames
+	result.TemporalLayerEncodedBits = accounting.EncodedBits
 }
 
 func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
