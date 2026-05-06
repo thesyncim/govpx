@@ -2,6 +2,9 @@ package mem
 
 import "unsafe"
 
+// Adapted from libvpx v1.16.0 vpx_mem/vpx_mem.c aligned allocation behavior
+// for Go-owned byte slices.
+
 // NewAligned returns a byte slice whose first element is aligned to align.
 // It allocates backing memory and is intended for initialization-time buffers.
 func NewAligned(size int, align int) []byte {

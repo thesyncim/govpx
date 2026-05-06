@@ -4,6 +4,9 @@ import (
 	"github.com/thesyncim/libgopx/internal/vp8/mem"
 )
 
+// Ported frame-buffer layout concepts from libvpx v1.16.0
+// vp8/common/alloccommon.c and vpx_scale/yv12config.c.
+
 // Image is the internal planar 8-bit 4:2:0 image view used by VP8 frame
 // buffers. Width and Height are visible dimensions; CodedWidth and CodedHeight
 // cover the macroblock-padded reconstruction area.

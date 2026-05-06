@@ -1,5 +1,7 @@
 package common
 
+// Ported from libvpx v1.16.0 vpx_scale/generic/yv12extend.c.
+
 // ExtendBorders replicates visible edge samples into the frame border.
 func (fb *FrameBuffer) ExtendBorders() {
 	if fb == nil {
