@@ -7,6 +7,7 @@ import (
 	vp8dec "github.com/thesyncim/libgopx/internal/vp8/decoder"
 	"github.com/thesyncim/libgopx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/libgopx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/libgopx/internal/vp8/tables"
 )
 
 var benchmarkInterReference interAnalysisReference
@@ -193,7 +194,8 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 
 	var scratch vp8dec.IntraReconstructionScratch
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, &pred.Img, &scratch)
+	quant := testMacroblockQuant(20)
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, &quant, &pred.Img, &scratch)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
@@ -202,6 +204,67 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 	if mode.BModes[0] != vp8common.BHEPred {
 		t.Fatalf("B mode[0] = %v, want B_HE_PRED", mode.BModes[0])
+	}
+}
+
+func TestPredictBestBPredLumaModeCostReconstructsChosenBlocks(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 128, 128, 128)
+	for row := 0; row < 4; row++ {
+		for col := 0; col < 4; col++ {
+			src.Y[row*src.YStride+col] = 200
+		}
+	}
+	pred := testVP8Frame(t, 16, 16, 128, 128, 128)
+	quant := testMacroblockQuant(4)
+	var scratch vp8dec.IntraReconstructionScratch
+
+	_, cost, ok := predictBestBPredLumaModeCost(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch)
+
+	if !ok {
+		t.Fatalf("predictBestBPredLumaModeCost returned ok=false")
+	}
+	if cost <= 0 {
+		t.Fatalf("cost = %d, want positive RD cost", cost)
+	}
+	if pred.Img.Y[0] <= 128 {
+		t.Fatalf("reconstructed block sample = %d, want above raw predictor 128", pred.Img.Y[0])
+	}
+}
+
+func TestCoefficientBlockTokenRateUsesEntropyCosts(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var zero [16]int16
+
+	zeroRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &zero, 0)
+	wantZero := treeTokenCost(vp8tables.CoefTree[:], probs[3][0][0][:], vp8tables.DCTEOBToken)
+	if zeroRate != wantZero {
+		t.Fatalf("zero token rate = %d, want %d", zeroRate, wantZero)
+	}
+
+	positive := [16]int16{0: 1}
+	positiveRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &positive, 1)
+	negative := [16]int16{0: -1}
+	negativeRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &negative, 1)
+	if positiveRate <= zeroRate {
+		t.Fatalf("positive token rate = %d, zero = %d, want nonzero token to cost more", positiveRate, zeroRate)
+	}
+	if negativeRate <= zeroRate {
+		t.Fatalf("negative token rate = %d, zero = %d, want nonzero token to cost more", negativeRate, zeroRate)
+	}
+
+	zeroThenOne := [16]int16{1: 1}
+	zeroThenOneRate := coefficientBlockTokenRate(&probs, 3, 0, 0, &zeroThenOne, 2)
+	p0 := probs[3][0][0]
+	p1 := probs[3][vp8tables.CoefBandsTable[1]][0]
+	p2 := probs[3][vp8tables.CoefBandsTable[2]][vp8tables.PrevTokenClass[vp8tables.OneToken]]
+	wantZeroThenOne := boolBitCost(p0[0], 1) +
+		boolBitCost(p0[1], 0) +
+		nonZeroCoeffTokenRate(p1, vp8tables.OneToken) +
+		boolBitCost(128, 0) +
+		treeTokenCost(vp8tables.CoefTree[:], p2[:], vp8tables.DCTEOBToken)
+	if zeroThenOneRate != wantZeroThenOne {
+		t.Fatalf("zero-then-one rate = %d, want %d", zeroThenOneRate, wantZeroThenOne)
 	}
 }
 
@@ -413,6 +476,16 @@ func sourceImageFromPublic(img Image) vp8enc.SourceImage {
 		UStride: img.UStride,
 		VStride: img.VStride,
 	}
+}
+
+func testMacroblockQuant(qIndex int) vp8enc.MacroblockQuant {
+	var tables vp8common.FrameDequantTables
+	var dequant vp8common.MacroblockDequant
+	var quant vp8enc.MacroblockQuant
+	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &tables)
+	vp8common.InitMacroblockDequant(&tables, qIndex, &dequant)
+	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
+	return quant
 }
 
 func testVP8Frame(tb testing.TB, width int, height int, y byte, u byte, v byte) vp8common.FrameBuffer {

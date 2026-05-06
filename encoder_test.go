@@ -295,14 +295,14 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 }
 
 func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
-	low := encodeRateControlTestClip(t, 40)
-	high := encodeRateControlTestClip(t, 80)
+	low := encodeRateControlTestClip(t, 100)
+	high := encodeRateControlTestClip(t, 180)
 
 	if low.BitrateErrorPct < -35 || low.BitrateErrorPct > 35 {
-		t.Fatalf("40kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
+		t.Fatalf("100kbps bitrate error = %.2f%%, want within +/-35%%", low.BitrateErrorPct)
 	}
 	if high.BitrateErrorPct < -35 || high.BitrateErrorPct > 35 {
-		t.Fatalf("80kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
+		t.Fatalf("180kbps bitrate error = %.2f%%, want within +/-35%%", high.BitrateErrorPct)
 	}
 	if high.OutputBytes <= low.OutputBytes {
 		t.Fatalf("output bytes = low:%d high:%d, want higher target to emit more bits", low.OutputBytes, high.OutputBytes)
