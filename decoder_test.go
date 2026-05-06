@@ -398,6 +398,36 @@ func TestDecodeRejectsConfiguredResolutionChange(t *testing.T) {
 	}
 }
 
+func TestDecodeAcceptsKeyFrameResolutionChangeByDefault(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("initial Decode returned error: %v", err)
+	}
+	if frame, ok := d.NextFrame(); !ok || frame.Width != 16 || frame.Height != 16 {
+		t.Fatalf("initial NextFrame = %+v/%t, want 16x16 frame", frame, ok)
+	}
+
+	if err := d.Decode(vp8KeyFramePacketWithPayload(32, 16, 200, 0, true)); err != nil {
+		t.Fatalf("resolution-change Decode returned error: %v", err)
+	}
+	if d.frameWidth != 32 || d.frameHeight != 16 || d.mbCols != 2 || d.mbRows != 1 {
+		t.Fatalf("decoder dimensions = frame %dx%d mb %dx%d, want 32x16 mb 2x1", d.frameWidth, d.frameHeight, d.mbCols, d.mbRows)
+	}
+	if d.current.Img.Width != 32 || d.lastRef.Img.Width != 32 || d.goldenRef.Img.Width != 32 || d.altRef.Img.Width != 32 {
+		t.Fatalf("reference widths = current:%d last:%d golden:%d alt:%d, want 32", d.current.Img.Width, d.lastRef.Img.Width, d.goldenRef.Img.Width, d.altRef.Img.Width)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("resolution-change NextFrame returned no frame")
+	}
+	if frame.Width != 32 || frame.Height != 16 {
+		t.Fatalf("resolution-change frame = %dx%d, want 32x16", frame.Width, frame.Height)
+	}
+}
+
 func TestDecodeOutputsMacroblockSkipKeyFrame(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {
