@@ -158,6 +158,8 @@ Remaining work:
 - Complete exact libvpx constrained-quality bitrate behavior for
   `RateControlCQ`; initial CQLevel quantizer floor/control and bounded
   overshoot feedback exist.
+- Continue porting one-pass CBR rate-control correction factors around the
+  libvpx bits-per-macroblock quantizer regulator now used for frame starts.
 - Complete exact libvpx golden-frame CBR boost heuristics; opt-in
   GF-CBR boost target/refresh control exists.
 - Implement VBR/two-pass planning if production parity requires VBR.

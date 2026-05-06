@@ -89,6 +89,30 @@ func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.
 	}
 }
 
+func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
+	if got := libvpxRegulatedQuantizer(false, 12000, 60, 4, 56, 1.0); got != 24 {
+		t.Fatalf("inter regulated quantizer = %d, want libvpx table q24", got)
+	}
+	if got := libvpxRegulatedQuantizer(true, 72000, 60, 4, 56, 1.0); got != 4 {
+		t.Fatalf("key regulated quantizer = %d, want min-clamped q4", got)
+	}
+
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  4,
+		bitsPerFrame:      12000,
+		frameTargetBits:   12000,
+		bufferOptimalBits: 60000,
+		bufferLevelBits:   48000,
+	}
+	rc.selectQuantizerForFrame(false, 60)
+	if rc.currentQuantizer != 24 {
+		t.Fatalf("selected quantizer = %d, want q24", rc.currentQuantizer)
+	}
+}
+
 func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{

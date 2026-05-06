@@ -230,6 +230,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
+	e.rc.selectQuantizerForFrame(keyFrame, required)
 
 	result := EncodeResult{
 		KeyFrame:                       keyFrame,

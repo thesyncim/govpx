@@ -97,6 +97,7 @@ const (
 	defaultRateControlUndershootPct = 50
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
+	libvpxBPerMBNormBits            = 9
 )
 
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
@@ -207,6 +208,18 @@ func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits i
 		}
 	}
 	rc.frameTargetBits = targetBits
+	rc.clampQuantizer()
+}
+
+func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks int) {
+	if rc.mode != RateControlCBR || macroblocks <= 0 {
+		return
+	}
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, 1.0)
 	rc.clampQuantizer()
 }
 
@@ -654,4 +667,94 @@ func checkedMul(a int, b int) (int, bool) {
 
 func maxInt() int {
 	return int(^uint(0) >> 1)
+}
+
+// libvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are
+// bits per macroblock multiplied by 1<<libvpxBPerMBNormBits.
+var libvpxBitsPerMB = [2][128]int{
+	{
+		1125000, 900000, 750000, 642857, 562500, 500000, 450000, 450000,
+		409090, 375000, 346153, 321428, 300000, 281250, 264705, 264705,
+		250000, 236842, 225000, 225000, 214285, 214285, 204545, 204545,
+		195652, 195652, 187500, 180000, 180000, 173076, 166666, 160714,
+		155172, 150000, 145161, 140625, 136363, 132352, 128571, 125000,
+		121621, 121621, 118421, 115384, 112500, 109756, 107142, 104651,
+		102272, 100000, 97826, 97826, 95744, 93750, 91836, 90000,
+		88235, 86538, 84905, 83333, 81818, 80357, 78947, 77586,
+		76271, 75000, 73770, 72580, 71428, 70312, 69230, 68181,
+		67164, 66176, 65217, 64285, 63380, 62500, 61643, 60810,
+		60000, 59210, 59210, 58441, 57692, 56962, 56250, 55555,
+		54878, 54216, 53571, 52941, 52325, 51724, 51136, 50561,
+		49450, 48387, 47368, 46875, 45918, 45000, 44554, 44117,
+		43269, 42452, 41666, 40909, 40178, 39473, 38793, 38135,
+		36885, 36290, 35714, 35156, 34615, 34090, 33582, 33088,
+		32608, 32142, 31468, 31034, 30405, 29801, 29220, 28662,
+	},
+	{
+		712500, 570000, 475000, 407142, 356250, 316666, 285000, 259090,
+		237500, 219230, 203571, 190000, 178125, 167647, 158333, 150000,
+		142500, 135714, 129545, 123913, 118750, 114000, 109615, 105555,
+		101785, 98275, 95000, 91935, 89062, 86363, 83823, 81428,
+		79166, 77027, 75000, 73076, 71250, 69512, 67857, 66279,
+		64772, 63333, 61956, 60638, 59375, 58163, 57000, 55882,
+		54807, 53773, 52777, 51818, 50892, 50000, 49137, 47500,
+		45967, 44531, 43181, 41911, 40714, 39583, 38513, 37500,
+		36538, 35625, 34756, 33928, 33139, 32386, 31666, 30978,
+		30319, 29687, 29081, 28500, 27941, 27403, 26886, 26388,
+		25909, 25446, 25000, 24568, 23949, 23360, 22800, 22265,
+		21755, 21268, 20802, 20357, 19930, 19520, 19127, 18750,
+		18387, 18037, 17701, 17378, 17065, 16764, 16473, 16101,
+		15745, 15405, 15079, 14766, 14467, 14179, 13902, 13636,
+		13380, 13133, 12895, 12666, 12445, 12179, 11924, 11632,
+		11445, 11220, 11003, 10795, 10594, 10401, 10215, 10035,
+	},
+}
+
+func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) int {
+	if macroblocks <= 0 || targetBitsPerFrame <= 0 {
+		return clampQuantizerValue(minQ, minQ, maxQ)
+	}
+	if correctionFactor <= 0 {
+		correctionFactor = 1.0
+	}
+	targetBitsPerMB := 0
+	if targetBitsPerFrame > maxInt()>>libvpxBPerMBNormBits {
+		temp := targetBitsPerFrame / macroblocks
+		if temp > maxInt()>>libvpxBPerMBNormBits {
+			targetBitsPerMB = maxInt()
+		} else {
+			targetBitsPerMB = temp << libvpxBPerMBNormBits
+		}
+	} else {
+		targetBitsPerMB = (targetBitsPerFrame << libvpxBPerMBNormBits) / macroblocks
+	}
+	frameType := 1
+	if keyFrame {
+		frameType = 0
+	}
+	q := maxQ
+	lastError := maxInt()
+	for i := minQ; i <= maxQ && i < len(libvpxBitsPerMB[frameType]); i++ {
+		bitsAtQ := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][i]))
+		if bitsAtQ <= targetBitsPerMB {
+			if targetBitsPerMB-bitsAtQ <= lastError {
+				q = i
+			} else {
+				q = i - 1
+			}
+			break
+		}
+		lastError = bitsAtQ - targetBitsPerMB
+	}
+	return clampQuantizerValue(q, minQ, maxQ)
+}
+
+func clampQuantizerValue(q int, minQ int, maxQ int) int {
+	if q < minQ {
+		return minQ
+	}
+	if q > maxQ {
+		return maxQ
+	}
+	return q
 }
