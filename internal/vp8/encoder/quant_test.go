@@ -118,6 +118,22 @@ func BenchmarkFastQuantizeBlock(b *testing.B) {
 	}
 }
 
+func BenchmarkFastQuantizeBlockSparse(b *testing.B) {
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = int16(i + 10)
+	}
+	var quant BlockQuant
+	InitFastBlockQuant(&dequant, &quant)
+	coeff := [16]int16{37, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9}
+	var qcoeff, dqcoeff [16]int16
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = FastQuantizeBlock(&coeff, &quant, &qcoeff, &dqcoeff)
+	}
+}
+
 func filledBlock(v int16) [16]int16 {
 	return [16]int16{v, v, v, v, v, v, v, v, v, v, v, v, v, v, v, v}
 }

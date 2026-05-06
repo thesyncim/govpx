@@ -44,6 +44,11 @@ func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, d
 	for i := 0; i < 16; i++ {
 		rc := int(tables.DefaultZigZag1D[i])
 		z := int(coeff[rc])
+		if z == 0 {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+			continue
+		}
 		x := z
 		if x < 0 {
 			x = -x
