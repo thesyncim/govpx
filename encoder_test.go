@@ -2314,7 +2314,7 @@ func TestEncodeIntoBPredKeyFrameUsesInterleavedReconstruction(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoInterFramePrefersCodedInterResidualOverBPredIntra(t *testing.T) {
+func TestEncodeIntoInterFrameCanChooseBPredIntraAfterRDScoring(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 32)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
@@ -2335,8 +2335,8 @@ func TestEncodeIntoInterFramePrefersCodedInterResidualOverBPredIntra(t *testing.
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[1].RefFrame == vp8common.IntraFrame {
-		t.Fatalf("inter mode[1] = %+v, want coded inter residual after RD scoring", e.interFrameModes[1])
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred {
+		t.Fatalf("inter mode[1] = %+v, want libvpx-style B_PRED intra candidate after RD scoring", e.interFrameModes[1])
 	}
 }
 

@@ -711,8 +711,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[1].RefFrame == vp8common.IntraFrame {
-		t.Fatalf("inter mode[1] = %+v, want coded inter residual after RD scoring", e.interFrameModes[1])
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred {
+		t.Fatalf("inter mode[1] = %+v, want libvpx-style B_PRED intra candidate after RD scoring", e.interFrameModes[1])
 	}
 
 	ivf := makeIVF(16, 32, 30, 1, [][]byte{key.Data, inter.Data})

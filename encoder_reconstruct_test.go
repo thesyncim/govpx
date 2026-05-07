@@ -866,6 +866,46 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	}
 }
 
+func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 128, 128, 128)
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			src.U[row*src.UStride+col] = byte(24 + ((row*37 + col*19) & 0xff))
+			src.V[row*src.VStride+col] = byte(224 - ((row*11 + col*43) & 0x7f))
+		}
+	}
+	pred := testVP8Frame(t, 16, 16, 128, 128, 128)
+	quant := testRegularMacroblockQuant(t, 20)
+	probs := vp8tables.DefaultCoefProbs
+	var scratch vp8dec.IntraReconstructionScratch
+
+	mode, rate, dist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, &probs)
+	if !ok {
+		t.Fatalf("predictBestIntraChromaModeRD returned ok=false")
+	}
+	if mode < vp8common.DCPred || mode > vp8common.TMPred {
+		t.Fatalf("UV mode = %v, want valid intra chroma mode", mode)
+	}
+	if modeRate := intraUVModeRate(true, mode); rate <= modeRate {
+		t.Fatalf("UV rate = %d, want mode rate %d plus transform token cost", rate, modeRate)
+	}
+
+	chosenPred := testVP8Frame(t, 16, 16, 128, 128, 128)
+	var chosenScratch vp8dec.IntraReconstructionScratch
+	if !predictAnalysisChroma(&chosenPred.Img, 0, 0, mode, &chosenScratch) {
+		t.Fatalf("predictAnalysisChroma returned false")
+	}
+	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 20, nil, nil, &quant, &probs)
+	wantRate := intraUVModeRate(true, mode) + tokenRate
+	if rate != wantRate || dist != wantDist {
+		t.Fatalf("UV RD = rate:%d dist:%d, want transform/token rate:%d dist:%d", rate, dist, wantRate, wantDist)
+	}
+	if sse := macroblockChromaSSE(sourceImageFromPublic(src), &chosenPred.Img, 0, 0); dist == sse {
+		t.Fatalf("UV distortion = %d, want transform-domain error rather than chroma SSE", dist)
+	}
+}
+
 func TestCoefficientBlockTokenRateUsesEntropyCosts(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var zero [16]int16
@@ -1443,7 +1483,7 @@ func TestStaticInterEncodeBreakoutUsesChromaGate(t *testing.T) {
 func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
-	src.Y[0] = 208
+	src.Y[0] = 160
 
 	noBreakout := newSizedTestEncoder(t, 16, 16)
 	if err := noBreakout.SetDeadline(DeadlineBestQuality); err != nil {
@@ -1980,6 +2020,15 @@ func testMacroblockQuant(qIndex int) vp8enc.MacroblockQuant {
 	vp8common.InitMacroblockDequant(&tables, qIndex, &dequant)
 	vp8enc.InitFastMacroblockQuant(&dequant, &quant)
 	return quant
+}
+
+func testRegularMacroblockQuant(tb testing.TB, qIndex int) vp8enc.MacroblockQuant {
+	tb.Helper()
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, vp8common.QuantDeltas{}, vp8enc.SegmentationConfig{}, &quants); err != nil {
+		tb.Fatalf("InitSegmentMacroblockQuants returned error: %v", err)
+	}
+	return quants[0]
 }
 
 func testVP8Frame(tb testing.TB, width int, height int, y byte, u byte, v byte) vp8common.FrameBuffer {
