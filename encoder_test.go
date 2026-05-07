@@ -609,41 +609,113 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 	assertImagesEqual(t, "static inter current", interFrame, publicImageFromVP8(&e.current.Img))
 }
 
-func TestStaticSegmentationQuantizerDeltaUsesCyclicRefreshBoost(t *testing.T) {
+func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testing.T) {
 	e := VP8Encoder{}
-	e.opts.StaticThreshold = 1
+	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 20
 
-	cfg := e.staticSegmentationConfig()
+	cfg := e.cyclicRefreshSegmentationConfig()
 
 	if !cfg.Enabled || !cfg.UpdateMap || !cfg.UpdateData {
-		t.Fatalf("static segmentation = %+v, want enabled map/data update", cfg)
+		t.Fatalf("cyclic segmentation = %+v, want enabled map/data update", cfg)
 	}
 	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -10 {
-		t.Fatalf("static segment alt-q = %d, want cyclic background delta -10", got)
+		t.Fatalf("cyclic segment alt-q = %d, want background delta -10", got)
 	}
 
 	e.rc.currentQuantizer = 21
-	cfg = e.staticSegmentationConfig()
+	cfg = e.cyclicRefreshSegmentationConfig()
 	if !cfg.Enabled {
-		t.Fatalf("q=21 static segmentation disabled, want cyclic background boost")
+		t.Fatalf("q=21 cyclic segmentation disabled, want background boost")
 	}
 	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -11 {
-		t.Fatalf("q=21 static segment alt-q = %d, want libvpx Q/2-Q delta -11", got)
+		t.Fatalf("q=21 cyclic segment alt-q = %d, want libvpx Q/2-Q delta -11", got)
 	}
 
 	e.rc.currentQuantizer = 1
-	cfg = e.staticSegmentationConfig()
+	cfg = e.cyclicRefreshSegmentationConfig()
 	if !cfg.Enabled {
-		t.Fatalf("q=1 static segmentation disabled, want libvpx Q/2-Q delta enabled")
+		t.Fatalf("q=1 cyclic segmentation disabled, want libvpx Q/2-Q delta enabled")
 	}
 	if got := cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -1 {
-		t.Fatalf("q=1 static segment alt-q = %d, want libvpx Q/2-Q delta -1", got)
+		t.Fatalf("q=1 cyclic segment alt-q = %d, want libvpx Q/2-Q delta -1", got)
 	}
 
 	e.rc.currentQuantizer = 0
-	if cfg := e.staticSegmentationConfig(); cfg.Enabled {
-		t.Fatalf("q=0 static segmentation = %+v, want disabled when cyclic delta is zero", cfg)
+	cfg = e.cyclicRefreshSegmentationConfig()
+	if !cfg.Enabled || cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+		t.Fatalf("q=0 cyclic segmentation = %+v, want enabled with no alt-q feature", cfg)
+	}
+
+	e.rc.mode = RateControlVBR
+	e.opts.StaticThreshold = 1
+	if cfg := e.cyclicRefreshSegmentationConfig(); cfg.Enabled {
+		t.Fatalf("VBR static-threshold cyclic segmentation = %+v, want disabled", cfg)
+	}
+}
+
+func TestEncodeIntoDefaultCBREnablesLibvpxCyclicRefreshSegmentation(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
+		t.Fatalf("key segmentation = %+v, want libvpx default cyclic refresh", keyState.Segmentation)
+	}
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -2 {
+		t.Fatalf("key cyclic alt-q = %d, want libvpx q/2-q delta -2", got)
+	}
+
+	inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	interState := packetState(t, inter.Data)
+	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation = %+v, want libvpx default cyclic refresh", interState.Segmentation)
+	}
+}
+
+func TestCyclicRefreshSegmentationTreeProbsMirrorLibvpxCounts(t *testing.T) {
+	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
+	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 0}}
+
+	updateKeyFrameSegmentationTreeProbs(&cfg, keyModes)
+	if cfg.TreeProbUpdated != ([vp8common.MBFeatureTreeProbs]bool{}) {
+		t.Fatalf("key tree prob updates = %v, want none for all-zero segment map", cfg.TreeProbUpdated)
+	}
+
+	cfg = vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
+	interModes := make([]vp8enc.InterFrameMacroblockMode, 40)
+	interModes[0].SegmentID = staticSegmentID
+	interModes[1].SegmentID = staticSegmentID
+
+	updateInterFrameSegmentationTreeProbs(&cfg, interModes)
+	if cfg.TreeProbUpdated[0] || !cfg.TreeProbUpdated[1] || cfg.TreeProbUpdated[2] {
+		t.Fatalf("inter tree prob update flags = %v, want only branch 1 updated", cfg.TreeProbUpdated)
+	}
+	if got := cfg.TreeProbs[1]; got != 242 {
+		t.Fatalf("inter tree prob[1] = %d, want libvpx count-derived 242", got)
 	}
 }
 

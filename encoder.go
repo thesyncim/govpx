@@ -399,7 +399,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
-		segmentation = e.staticSegmentationConfig()
+		segmentation = e.cyclicRefreshSegmentationConfig()
 	}
 	var err error
 	if segmentation.Enabled {
@@ -414,6 +414,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
 	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
 		return 0, err
+	}
+	if segmentation.Enabled {
+		updateKeyFrameSegmentationTreeProbs(&segmentation, e.keyFrameModes[:required])
 	}
 
 	cfg := vp8enc.KeyFrameStateConfig{
@@ -468,7 +471,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
-		segmentation = e.staticSegmentationConfig()
+		segmentation = e.cyclicRefreshSegmentationConfig()
 	}
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
@@ -503,6 +506,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
 		return interFrameEncodeAttempt{}, err
+	}
+	if segmentation.Enabled {
+		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
+		cfg.Segmentation = segmentation
 	}
 	n, frameCoefProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.MV)
 	if err != nil {

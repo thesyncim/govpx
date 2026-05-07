@@ -5,18 +5,14 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// Inspired by libvpx v1.16.0 vp8/encoder/onyx_if.c cyclic background
-// refresh setup. StaticThreshold itself feeds encode_breakout; segmentation
-// data here mirrors libvpx's cyclic refresh Q boost shape for small CBR clips.
+// Ported from libvpx v1.16.0 vp8/encoder/onyx_if.c cyclic background
+// refresh setup. StaticThreshold itself feeds encode_breakout; cyclic refresh
+// segmentation is enabled independently for CBR and error-resilient encodes.
 
 const staticSegmentID = 1
 
-func (e *VP8Encoder) staticSegmentationConfig() vp8enc.SegmentationConfig {
-	if e.opts.StaticThreshold <= 0 {
-		return vp8enc.SegmentationConfig{}
-	}
-	delta := e.staticSegmentationQuantizerDelta()
-	if delta == 0 {
+func (e *VP8Encoder) cyclicRefreshSegmentationConfig() vp8enc.SegmentationConfig {
+	if !e.cyclicRefreshModeEnabled() {
 		return vp8enc.SegmentationConfig{}
 	}
 	cfg := vp8enc.SegmentationConfig{
@@ -24,22 +20,83 @@ func (e *VP8Encoder) staticSegmentationConfig() vp8enc.SegmentationConfig {
 		UpdateMap:  true,
 		UpdateData: true,
 	}
-	cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
-	cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
-	for i := range cfg.TreeProbs {
-		cfg.TreeProbs[i] = 128
-		cfg.TreeProbUpdated[i] = true
+	if delta := e.cyclicRefreshQuantizerDelta(); delta != 0 {
+		cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
+		cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
 	}
 	return cfg
 }
 
-func (e *VP8Encoder) staticSegmentationQuantizerDelta() int8 {
-	q := e.rc.currentQuantizer
-	delta := q/2 - q
-	if delta == 0 {
-		return 0
+func (e *VP8Encoder) cyclicRefreshModeEnabled() bool {
+	if e == nil {
+		return false
 	}
-	return int8(delta)
+	return e.opts.ErrorResilient || e.rc.mode == RateControlCBR
+}
+
+func (e *VP8Encoder) cyclicRefreshQuantizerDelta() int8 {
+	q := e.rc.currentQuantizer
+	return int8(q/2 - q)
+}
+
+func updateKeyFrameSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, modes []vp8enc.KeyFrameMacroblockMode) {
+	var counts [vp8common.MaxMBSegments]int
+	for _, mode := range modes {
+		if mode.SegmentID < vp8common.MaxMBSegments {
+			counts[mode.SegmentID]++
+		}
+	}
+	updateSegmentationTreeProbs(cfg, counts)
+}
+
+func updateInterFrameSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, modes []vp8enc.InterFrameMacroblockMode) {
+	var counts [vp8common.MaxMBSegments]int
+	for _, mode := range modes {
+		if mode.SegmentID < vp8common.MaxMBSegments {
+			counts[mode.SegmentID]++
+		}
+	}
+	updateSegmentationTreeProbs(cfg, counts)
+}
+
+func updateSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, counts [vp8common.MaxMBSegments]int) {
+	if cfg == nil || !cfg.Enabled || !cfg.UpdateMap {
+		return
+	}
+	for i := range cfg.TreeProbUpdated {
+		cfg.TreeProbUpdated[i] = false
+		cfg.TreeProbs[i] = 0
+	}
+	probs := [vp8common.MBFeatureTreeProbs]uint8{255, 255, 255}
+	total := counts[0] + counts[1] + counts[2] + counts[3]
+	if total > 0 {
+		probs[0] = nonZeroSegmentTreeProb(((counts[0] + counts[1]) * 255) / total)
+		leftTotal := counts[0] + counts[1]
+		if leftTotal > 0 {
+			probs[1] = nonZeroSegmentTreeProb((counts[0] * 255) / leftTotal)
+		}
+		rightTotal := counts[2] + counts[3]
+		if rightTotal > 0 {
+			probs[2] = nonZeroSegmentTreeProb((counts[2] * 255) / rightTotal)
+		}
+	}
+	for i, prob := range probs {
+		if prob == 255 {
+			continue
+		}
+		cfg.TreeProbs[i] = prob
+		cfg.TreeProbUpdated[i] = true
+	}
+}
+
+func nonZeroSegmentTreeProb(prob int) uint8 {
+	if prob <= 0 {
+		return 1
+	}
+	if prob >= 255 {
+		return 255
+	}
+	return uint8(prob)
 }
 
 func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) {

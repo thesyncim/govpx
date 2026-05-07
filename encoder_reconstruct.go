@@ -132,7 +132,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !ok {
 				return ErrInvalidConfig
 			}
-			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			var above *vp8enc.InterFrameMacroblockMode
 			var left *vp8enc.InterFrameMacroblockMode
 			var aboveLeft *vp8enc.InterFrameMacroblockMode
@@ -145,57 +144,60 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			ref, interMode, interScore, ok := e.selectBestInterFrameMode(
+			decision, ok := e.selectInterFrameModeDecision(
 				src, refs[:], refCount,
 				row, col, rows, cols,
-				segmentQIndex, segmentID,
+				qIndex, segmentation, segmentID,
 				above, left, aboveLeft,
 				&quants[segmentID],
 			)
 			if !ok {
 				return ErrInvalidConfig
 			}
-			mv := interMode.MV
-			useIntra := false
-			intraMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
-			if macroblockSAD(src, ref.Img, row, col, mv) > 0 {
-				var intraCost int
-				var ok bool
-				intraMode, intraCost, ok = predictBestInterIntraModeCost(src, segmentQIndex, row, col, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch)
+			if segmentID != 0 && !decision.cyclicRefreshEligible() {
+				segmentID = 0
+				decision, ok = e.selectInterFrameModeDecision(
+					src, refs[:], refCount,
+					row, col, rows, cols,
+					qIndex, segmentation, segmentID,
+					above, left, aboveLeft,
+					&quants[segmentID],
+				)
 				if !ok {
 					return ErrInvalidConfig
 				}
-				useIntra = intraCost < interScore
 			}
+			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
+			quant := &quants[segmentID]
 
-			if useIntra {
-				modes[index] = intraMode
+			if decision.useIntra {
+				modes[index] = decision.intraMode
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
-					if !buildReconstructingBPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &e.reconstructModes[index], &quants[segmentID], segmentQIndex, &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(src, row, col, &e.analysis.Img, &e.reconstructModes[index], quant, segmentQIndex, &coeffs[index], &e.reconstructScratch) {
 						return ErrInvalidConfig
 					}
 				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 			} else {
-				modes[index] = interMode
+				modes[index] = decision.interMode
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true
-				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 			}
 			predictionDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
-				staticInterEncodeBreakout(src, &e.analysis.Img, row, col, &quants[segmentID], e.opts.StaticThreshold)
+				staticInterEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.opts.StaticThreshold)
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
-				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, &quants[segmentID], segmentQIndex, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
+				buildPredictedMacroblockCoefficients(src, row, col, &e.analysis.Img, quant, segmentQIndex, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
 			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
@@ -209,7 +211,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return ErrInvalidConfig
 				}
 			} else {
-				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return ErrInvalidConfig
 				}
 				if !modes[index].MBSkipCoeff {
@@ -220,7 +222,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 						modes[index].MBSkipCoeff = true
 						convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 						convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
-						if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+						if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 							return ErrInvalidConfig
 						}
 					}
@@ -347,6 +349,53 @@ func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interA
 		}
 	}
 	return bestRef, best
+}
+
+type interFrameModeDecision struct {
+	ref       interAnalysisReference
+	interMode vp8enc.InterFrameMacroblockMode
+	useIntra  bool
+	intraMode vp8enc.InterFrameMacroblockMode
+}
+
+func (d interFrameModeDecision) cyclicRefreshEligible() bool {
+	return !d.useIntra && d.interMode.RefFrame == vp8common.LastFrame && d.interMode.Mode == vp8common.ZeroMV
+}
+
+func (e *VP8Encoder) selectInterFrameModeDecision(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	baseQIndex int, segmentation vp8enc.SegmentationConfig, segmentID uint8,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	quant *vp8enc.MacroblockQuant,
+) (interFrameModeDecision, bool) {
+	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
+	ref, interMode, interScore, ok := e.selectBestInterFrameMode(
+		src, refs, refCount,
+		mbRow, mbCol, mbRows, mbCols,
+		segmentQIndex, segmentID,
+		above, left, aboveLeft,
+		quant,
+	)
+	if !ok {
+		return interFrameModeDecision{}, false
+	}
+	decision := interFrameModeDecision{
+		ref:       ref,
+		interMode: interMode,
+		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
+	}
+	if macroblockSAD(src, ref.Img, mbRow, mbCol, interMode.MV) <= 0 {
+		return decision, true
+	}
+	intraMode, intraCost, ok := predictBestInterIntraModeCost(src, segmentQIndex, mbRow, mbCol, quant, &e.analysis.Img, &e.reconstructScratch)
+	if !ok {
+		return interFrameModeDecision{}, false
+	}
+	intraMode.SegmentID = segmentID
+	decision.intraMode = intraMode
+	decision.useIntra = intraCost < interScore
+	return decision, true
 }
 
 func (e *VP8Encoder) selectBestInterFrameMode(

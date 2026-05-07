@@ -163,9 +163,10 @@ segment-aware decisions.
 Remaining work:
 
 - Complete exact libvpx cyclic/background refresh segmentation policy; rotating
-  cyclic-refresh-style segment maps exist with libvpx temporal-layer MB cadence
-  and libvpx Q/2-Q ALT_Q boost, eligibility map, and one-frame clean-block
-  cooldown, gated to base temporal-layer frames.
+  cyclic-refresh-style segment maps now use libvpx's default CBR/error-resilient
+  enablement, temporal-layer MB cadence, Q/2-Q ALT_Q boost, eligibility map,
+  one-frame clean-block cooldown, count-derived segment tree probabilities, and
+  base temporal-layer gating.
 - Make quantizer selection segment-aware.
 - Implement libvpx CBR feedback more completely.
 - Complete exact libvpx constrained-quality bitrate behavior for
