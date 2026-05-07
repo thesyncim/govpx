@@ -1882,6 +1882,30 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 	return rate, distortion >> 2
 }
 
+// Ported from libvpx v1.16.0 vp8/encoder/rdopt.c rd_pick_intra4x4block (and
+// the per-MB driver rd_pick_intra4x4mby_modes at lines 519-644). Audit notes
+// (parity items confirmed against the reference):
+//  1. Bmode cost source: keyframe path uses vp8tables.KeyFrameBModeProbs[A][L]
+//     via bPredAnalysisAboveMode/LeftMode, matching mb->bmode_costs[A][L];
+//     inter path uses vp8tables.DefaultBModeProbs (cf. mb->inter_bmode_costs).
+//  2. ENTROPY_CONTEXT: tokenAbove/tokenLeft are seeded once from the caller
+//     and only committed using bestEOB after the candidate loop, mirroring
+//     libvpx's "*a = tempa; *l = templ;" inside the if-best block.
+//  3. Reconstruction: dsp.IDCT4x4Add is invoked inside the winning branch
+//     and the resulting bestRecon is written via copyBPredBlock at the end
+//     of each block iteration, equivalent to libvpx's deferred
+//     vp8_short_idct4x4llm(best_dqcoeff, best_predictor, ...) call.
+//  4. Bailout: govpx returns ok=false when the running rate/dist already
+//     exceeds bestRD; callers then fall back to the whole-block result, the
+//     same role as libvpx's "return INT_MAX" when total_rd >= best_rd.
+//  5. BPred container cost: callers (predictBestKeyFrameIntraMode and
+//     predictBestInterIntraModeCost) add intraYModeRate(keyFrame, BPred)
+//     before comparing with whole-block RD, matching libvpx's
+//     "cost = mb->mbmode_cost[xd->frame_type][B_PRED];" seed.
+//  6. intra_prediction_down_copy: predictAnalysisBPredBlock reads
+//     refs.YAbove[16:20] for the bottom-right sub-block, replacing libvpx's
+//     in-place predictor copy.
+//
 // libvpx applies RDCOST once at MB level (rdopt.c rd_pick_intra4x4mby_modes);
 // applying it per-block compounds the +128 rounding bias 16x. bestRD lets
 // the caller short-circuit when the running cost already exceeds the best
