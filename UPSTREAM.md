@@ -66,12 +66,11 @@ grant. This repository keeps libvpx license and patent notices in
 
 ## Known Deviations
 
-- `Decode` and `DecodeInto` cover supported VP8 versions, token partitions,
+- `Decode` and `DecodeInto` cover VP8 versions 0-7, token partitions,
   keyframes, interframes, SplitMV, narrow error-resilient inter-frame
   concealment, default and granular deblock/demacroblock post-processing,
   libvpx-style MFQE, and optional luma ADDNOISE using deterministic Go-side
-  noise state. Reserved
-  VP8 versions and caller-configured size/resolution limits return
+  noise state. Caller-configured size/resolution limits return
   `ErrUnsupportedFeature`.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes,
