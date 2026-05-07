@@ -200,6 +200,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
 	}
+	// Reset oracle trace MB buffer at the start of each build pass so retried
+	// (recoded) attempts overwrite earlier rows.
+	e.resetOracleMBTraceBuffer()
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return ErrInvalidConfig
@@ -336,6 +339,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
+			e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index])
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}

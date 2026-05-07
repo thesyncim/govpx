@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"io"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -118,6 +119,14 @@ type EncoderOptions struct {
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
 	StaticThreshold   int
+
+	// OracleTraceWriter is an off-by-default oracle harness output. When
+	// non-nil, the encoder writes a deterministic JSON Lines trace describing
+	// per-frame state and per-macroblock decisions for inter frames. The
+	// schema is intended to be compared against equivalent output instrumented
+	// from libvpx for parity validation. Leave nil for normal encoding; no
+	// allocation or work is performed when nil.
+	OracleTraceWriter io.Writer
 }
 
 type EncodeResult struct {
@@ -292,6 +301,13 @@ type VP8Encoder struct {
 	loopFilterLevel    uint8
 	coefProbs          vp8tables.CoefficientProbs
 	modeProbs          vp8dec.ModeProbs
+
+	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
+	// frame currently being built. Rows from intermediate recode attempts are
+	// reset; the final committed attempt's rows are flushed to
+	// EncoderOptions.OracleTraceWriter at frame end. Unused (nil) when the
+	// oracle trace is disabled.
+	oracleTraceMBBuffer []oracleTraceMBRow
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
@@ -301,6 +317,7 @@ type keyFrameEncodeAttempt struct {
 	Size                int
 	LoopFilterLevel     uint8
 	RefreshEntropyProbs bool
+	SegmentationEnabled bool
 }
 
 type interFrameEncodeAttempt struct {
@@ -537,6 +554,19 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			AltRef: attempt.Config.RefreshAltRef,
 		}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
+		e.emitOracleFrameTrace(oracleTraceFrameSummary{
+			FrameType:      vp8common.InterFrame,
+			BaseQIndex:     int(attempt.Config.BaseQIndex),
+			LoopFilter:     int(attempt.Config.LoopFilterLevel),
+			RefreshLast:    attempt.Config.RefreshLast,
+			RefreshGolden:  attempt.Config.RefreshGolden,
+			RefreshAltRef:  attempt.Config.RefreshAltRef,
+			GoldenSignBias: attempt.Config.GoldenSignBias,
+			AltRefSignBias: attempt.Config.AltRefSignBias,
+			SegEnabled:     attempt.Config.Segmentation.Enabled,
+			SizeBytes:      attempt.Size,
+		})
+		e.flushOracleMBTraceBuffer()
 		e.frameCount++
 		return result, nil
 	}
@@ -576,6 +606,16 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
+	e.emitOracleFrameTrace(oracleTraceFrameSummary{
+		FrameType:     vp8common.KeyFrame,
+		BaseQIndex:    e.rc.currentQuantizer,
+		LoopFilter:    int(keyAttempt.LoopFilterLevel),
+		RefreshLast:   true,
+		RefreshGolden: true,
+		RefreshAltRef: true,
+		SegEnabled:    keyAttempt.SegmentationEnabled,
+		SizeBytes:     keyAttempt.Size,
+	})
 	e.frameCount++
 	return result, nil
 }
@@ -678,7 +718,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, RefreshEntropyProbs: cfg.RefreshEntropyProbs}, nil
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {

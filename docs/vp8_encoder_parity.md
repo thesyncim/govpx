@@ -51,13 +51,32 @@ the anchor and look for the surrounding mismatch.
 
 ## Validation Harness
 
-- [ ] Add a per-frame and per-MB encoder oracle trace mode.
-  - govpx: current oracle tests in
+- [~] Add a per-frame and per-MB encoder oracle trace mode.
+  - govpx: in progress. The trace is emitted as JSON Lines through
+    [`EncoderOptions.OracleTraceWriter`](../encoder.go) (off by default; nil
+    writer means zero overhead). Implementation lives in
+    [`encoder_oracle_trace.go`](../encoder_oracle_trace.go) with parser tests
+    in [`encoder_oracle_trace_test.go`](../encoder_oracle_trace_test.go).
+    Existing oracle smoke tests remain in
     [`oracle_encoder_validation_test.go`](../oracle_encoder_validation_test.go)
     and mode tests in
     [`encoder_reconstruct_test.go`](../encoder_reconstruct_test.go).
-  - libvpx: instrument `encodeframe.c`, `pickinter.c`, `rdopt.c`,
-    `ratectrl.c`, `onyx_if.c`, and `bitstream.c`.
+  - Covered now (govpx side): per-frame row with `frame_index`, `frame_type`
+    (key/inter), `q_index`, `base_q_index`, `loop_filter_level`,
+    `refresh_last/golden/altref`, `sign_bias_golden/altref`,
+    `segmentation_enabled`, Y/U/V plane Adler32 reference checksums, and
+    `size_bytes`; per-MB row (inter frames only) with `frame_index`,
+    `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
+    `mv_col`, `skip`, `eob[0..24]`, and `eob_sum`. Rows are emitted in
+    deterministic raster scan order and only for the final committed
+    encode attempt (recoded attempts are discarded).
+  - Remaining: libvpx-side instrumentation in `encodeframe.c`,
+    `pickinter.c`, `rdopt.c`, `ratectrl.c`, `onyx_if.c`, and
+    `bitstream.c`, plus a comparator that diffs the JSON Lines stream
+    against govpx's trace; and extending the govpx-side schema with
+    rate-control state, residual decision, probabilities, and
+    per-frame loop-filter delta details once libvpx output exists to
+    compare.
   - Done when comparable JSON/CSV rows expose frame state, rate-control state,
     per-MB mode decision, residual decision, probabilities, segmentation, loop
     filter, and reference updates.
