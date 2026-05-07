@@ -30,6 +30,29 @@ func TestBuildKeyFrameCoefficientProbabilityUpdates(t *testing.T) {
 	}
 }
 
+func TestKeyFrameCoefficientEntropySavingsMatchesPositiveUpdates(t *testing.T) {
+	const rows, cols = 16, 16
+	modes := make([]KeyFrameMacroblockMode, rows*cols)
+	coeffs := make([]MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+	}
+
+	updateAbove := make([]TokenContextPlanes, cols)
+	_, updates, err := BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, updateAbove, &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("BuildKeyFrameCoefficientProbabilityUpdates returned error: %v", err)
+	}
+	savingsAbove := make([]TokenContextPlanes, cols)
+	savings, err := KeyFrameCoefficientEntropySavings(rows, cols, modes, coeffs, savingsAbove, &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("KeyFrameCoefficientEntropySavings returned error: %v", err)
+	}
+	if updates.UpdateCount == 0 || savings <= 0 {
+		t.Fatalf("updates/savings = %d/%d, want positive libvpx default_coef_context_savings", updates.UpdateCount, savings)
+	}
+}
+
 func TestWriteCoefficientKeyFrameEmitsCoefficientProbabilityUpdates(t *testing.T) {
 	const rows, cols = 16, 16
 	modes := make([]KeyFrameMacroblockMode, rows*cols)

@@ -1018,19 +1018,21 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 //	cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi);
 //	cpi->projected_frame_size = max(0, cpi->projected_frame_size);
 //
-// govpx applies only the ref-frame-cost portion of
-// vp8_estimate_entropy_savings (libvpxRefFrameEntropySavings); the
-// coefficient-context portion (default_coef_context_savings /
-// independent_coef_context_savings) is tracked separately under the
-// probability item. Returns the adjusted size in bytes for the recode
-// comparison.
+// govpx applies the ref-frame-cost portion plus default coefficient-context
+// update savings. The error-resilient independent coefficient-context branch is
+// tracked separately under the probability item. Returns the adjusted size in
+// bytes for the recode comparison.
 func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame bool, macroblocks int) int {
 	if sizeBytes <= 0 || macroblocks <= 0 {
 		return sizeBytes
 	}
-	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	var intra, last, golden, alt int
+	if len(e.interFrameModes) >= macroblocks {
+		intra, last, golden, alt = countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	}
 	savingsBits := libvpxRefFrameEntropySavings(keyFrame, intra, last, golden, alt,
 		int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
+	savingsBits += e.coefficientEntropySavingsBits(keyFrame, macroblocks)
 	if savingsBits <= 0 {
 		return sizeBytes
 	}
@@ -1040,6 +1042,35 @@ func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame 
 		return 0
 	}
 	return adjustedBits / 8
+}
+
+func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {
+	if e == nil || e.opts.ErrorResilient || macroblocks <= 0 {
+		return 0
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	if rows <= 0 || cols <= 0 || rows*cols != macroblocks || len(e.tokenAbove) < cols {
+		return 0
+	}
+	if keyFrame {
+		if len(e.keyFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
+			return 0
+		}
+		savings, err := vp8enc.KeyFrameCoefficientEntropySavings(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+		if err != nil {
+			return 0
+		}
+		return savings
+	}
+	if len(e.interFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
+		return 0
+	}
+	savings, err := vp8enc.InterCoefficientEntropySavings(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
+	if err != nil {
+		return 0
+	}
+	return savings
 }
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {

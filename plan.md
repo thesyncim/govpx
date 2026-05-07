@@ -117,10 +117,11 @@ Primary references:
 - Inter RD now costs skip signaling from libvpx-style live
   `prob_skip_false` history and uses the current coefficient probability base
   for token-rate decisions; subpel, NEWMV, and SPLITMV vector RD costs now use
-  the current MV probability base. Final coefficient optimization still uses
-  the default coefficient base pending tighter oracle parity. Remaining
-  current-prob work is mostly broader libvpx mode-cost caching and exact
-  per-frame mode-table setup.
+  the current MV probability base. Recode size checks now subtract libvpx-style
+  ref-frame and default coefficient-context entropy savings before deciding
+  whether to retry. Remaining current-prob work is mostly broader libvpx
+  mode-cost caching, exact per-frame mode-table setup, and error-resilient
+  independent coefficient contexts.
 - Encoder oracle validation now drives libvpx with the case's configured
   deadline and `CpuUsed`, so realtime quality gaps are measured against the
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.

@@ -43,15 +43,53 @@ func WriteCoefficientProbabilityUpdates(w *BoolWriter, updates *CoefficientProba
 }
 
 func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	counts, err := countKeyFrameCoefficientBranches(rows, cols, modes, coeffs, above, base)
+	if err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+	}
+	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+}
+
+func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	counts, err := countInterCoefficientBranches(rows, cols, modes, coeffs, above, base)
+	if err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+	}
+	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+}
+
+// KeyFrameCoefficientEntropySavings ports the default_coef_context_savings
+// branch of libvpx's vp8_estimate_entropy_savings for key frames. The result
+// is whole bits, matching libvpx's prob_update_savings units.
+func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	counts, err := countKeyFrameCoefficientBranches(rows, cols, modes, coeffs, above, base)
+	if err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCounts(base, &counts), nil
+}
+
+// InterCoefficientEntropySavings ports the default_coef_context_savings branch
+// of libvpx's vp8_estimate_entropy_savings for inter frames. The result is
+// whole bits, matching libvpx's prob_update_savings units.
+func InterCoefficientEntropySavings(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	counts, err := countInterCoefficientBranches(rows, cols, modes, coeffs, above, base)
+	if err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCounts(base, &counts), nil
+}
+
+func countKeyFrameCoefficientBranches(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (coefficientBranchCounts, error) {
 	if rows < 0 || cols < 0 {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 	required := rows * cols
 	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 
 	var counts coefficientBranchCounts
@@ -64,26 +102,26 @@ func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyF
 			index := row*cols + col
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+				return coefficientBranchCounts{}, ErrInvalidPacketConfig
 			}
 			if err := countCoefficientMacroblockBranches(mode.YMode == common.BPred, &above[col], &left, &coeffs[index], &counts); err != nil {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+				return coefficientBranchCounts{}, err
 			}
 		}
 	}
-	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+	return counts, nil
 }
 
-func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+func countInterCoefficientBranches(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (coefficientBranchCounts, error) {
 	if rows < 0 || cols < 0 {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 	required := rows * cols
 	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return coefficientBranchCounts{}, ErrModeBufferTooSmall
 	}
 
 	var counts coefficientBranchCounts
@@ -100,14 +138,14 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 				continue
 			}
 			if !validInterCoefficientTokenMode(&modes[index]) {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+				return coefficientBranchCounts{}, ErrInvalidPacketConfig
 			}
 			if err := countCoefficientMacroblockBranches(is4x4, &above[col], &left, &coeffs[index], &counts); err != nil {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+				return coefficientBranchCounts{}, err
 			}
 		}
 	}
-	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+	return counts, nil
 }
 
 func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
@@ -143,6 +181,36 @@ func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, coun
 		}
 	}
 	return frameProbs, updates, nil
+}
+
+func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) int {
+	if base == nil || counts == nil {
+		return 0
+	}
+	savings := 0
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					ct := (*counts)[block][band][ctx][node]
+					total := ct[0] + ct[1]
+					if total == 0 {
+						continue
+					}
+					newProb := coefficientProbabilityFromBranchCount(ct)
+					oldProb := (*base)[block][band][ctx][node]
+					if newProb == oldProb {
+						continue
+					}
+					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
+					if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
+						savings += s
+					}
+				}
+			}
+		}
+	}
+	return savings
 }
 
 func coefficientProbabilityFromBranchCount(ct [2]int) uint8 {

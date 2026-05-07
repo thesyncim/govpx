@@ -140,8 +140,9 @@ the anchor and look for the surrounding mismatch.
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
     The recode size-bounds comparison now subtracts
-    `vp8_estimate_entropy_savings` (ref-frame portion) from the
-    just-encoded size before deciding to recode, mirroring libvpx's
+    `vp8_estimate_entropy_savings` (ref-frame plus default
+    coefficient-context portions) from the just-encoded size before
+    deciding to recode, mirroring libvpx's
     `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
     via [`applyEntropySavingsToProjectedSize`](../encoder.go). The
     libvpx `decide_key_frame` heuristic is ported as
@@ -158,10 +159,9 @@ the anchor and look for the surrounding mismatch.
     is tracked after the decision so the next frame sees the libvpx
     lookback value.
   - Missing: full saved-coding-context restore coverage after failed
-    attempts, the coefficient-context portion of
-    vp8_estimate_entropy_savings (default_coef_context_savings /
-    independent_coef_context_savings), and trace coverage for GF/ARF
-    zbin-over-quant cases once automatic ARF state is in place.
+    attempts, independent coefficient-context savings for error-resilient
+    partitions, and trace coverage for GF/ARF zbin-over-quant cases once
+    automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -869,13 +869,12 @@ the anchor and look for the surrounding mismatch.
     [`encoder_entropy_savings.go`](../encoder_entropy_savings.go),
     matching the libvpx `cost_zero(p)/cost_one(p) = ProbCost[p]/[255-p]`
     formula and the new_intra=1 floor / new_last/new_garf=128 fallbacks
-    for empty distributions.
-  - Missing: wiring `libvpxRefFrameEntropySavings` (and the coefficient
-    portion of `vp8_estimate_entropy_savings`) into the recode-loop
-    `projected_frame_size` adjustment, independent coefficient-context
-    handling for error-resilient partitions, key-frame forced coef-prob
-    updates, and exact zero-reference/alt-ref skip-probability edge
-    cases.
+    for empty distributions. Default coefficient-context savings reuse
+    the coefficient branch-count/probability update walk and are wired
+    into the recode-loop `projected_frame_size` adjustment.
+  - Missing: independent coefficient-context handling for error-resilient
+    partitions, key-frame forced coef-prob updates, and exact
+    zero-reference/alt-ref skip-probability edge cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.
