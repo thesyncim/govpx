@@ -225,18 +225,22 @@ the anchor and look for the surrounding mismatch.
     exactly like libvpx), resets to {1,1,1,1} via
     `resetRecentRefFrameUsage` on GF/key refresh, and exposes
     `thisFramePercentIntra` so calcGFParams and the auto_gold refresh
-    decision read the same state libvpx would.
+    decision read the same state libvpx would. The encoder now invokes
+    `calcGFParams` at the tail of every CBR GF refresh frame (matching
+    libvpx's `calc_pframe_target_size` ordering, so the small +/-
+    last_boost adjustment for non-GF frames sees the prior GF's boost,
+    not this one's) and stores the boost in `lastBoost` for the next
+    section.
   - Missing: temporal-layer propagation of KF/GF overspend through
     libvpx's per-layer `layer_context` state (govpx already mirrors
     the single-layer-vs-multi-layer KF split toggle inside
     accumulatePostPackOverspend, but does not yet maintain per-layer
     overspend counters), wiring `libvpxGoldenFrameTargetBits` and
-    `libvpxAutoGoldOnePassRefreshDecision` into the encoder GF refresh
-    path so VBR/CQ GF frames are sized via the boost-weighted formula
-    and the recent-ref-usage refresh decision (currently the encoder
-    only uses the simplified CBR heuristic), and the two-pass
-    `calc_gf_params` IIAccumulator code path (disabled in libvpx as
-    well).
+    `libvpxAutoGoldOnePassRefreshDecision` into a non-CBR (VBR/CQ)
+    auto_gold refresh path (the encoder still only triggers GF
+    refreshes through the CBR `shouldRefreshGoldenFrameCBR`
+    heuristic), and the two-pass `calc_gf_params` IIAccumulator code
+    path (disabled in libvpx as well).
   - Done when sequence tests match `refresh_golden_frame`, GF interval,
     `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
     targets on motion/static clips.
