@@ -168,8 +168,9 @@ the anchor and look for the surrounding mismatch.
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
     The recode size-bounds comparison now subtracts
-    `vp8_estimate_entropy_savings` (ref-frame portion) from the
-    just-encoded size before deciding to recode, mirroring libvpx's
+    `vp8_estimate_entropy_savings` (ref-frame plus default
+    coefficient-context portions) from the just-encoded size before
+    deciding to recode, mirroring libvpx's
     `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
     via [`applyEntropySavingsToProjectedSize`](../encoder.go). The
     libvpx `decide_key_frame` heuristic is ported as
@@ -177,16 +178,18 @@ the anchor and look for the surrounding mismatch.
     the unconditional thresholds (this==100 && this>last+2 ||
     this>95 && this>=last+5) and the GF-guarded second tier
     (this>60 && this>2*last; this>75 && this>3/2*last;
-    this>90 && this>last+10) for the auto-key recode decision.
-  - Missing: wiring `libvpxDecideKeyFrame` into the encoder loop to
-    actually trigger the auto-key recode (currently the helper is
-    callable but no call site invokes it), tracking
-    `lastFramePercentIntra` for the heuristic's lookback, full
-    saved-coding-context restore coverage after failed attempts, the
-    coefficient-context portion of vp8_estimate_entropy_savings
-    (default_coef_context_savings / independent_coef_context_savings),
-    and trace coverage for GF/ARF zbin-over-quant cases once automatic
-    ARF state is in place.
+    this>90 && this>last+10) for the auto-key recode decision. The
+    encoder now applies that heuristic after an opt-in, non-realtime,
+    one-pass inter attempt: if the intra-percentage gate fires, the
+    uncommitted inter attempt is discarded, `sourceAltRefActive` is
+    cleared like libvpx, key-frame target/Q selection is recomputed, and
+    the same source is encoded as a key frame. `lastFramePercentIntra`
+    is tracked after the decision so the next frame sees the libvpx
+    lookback value.
+  - Missing: full saved-coding-context restore coverage after failed
+    attempts, independent coefficient-context savings for error-resilient
+    partitions, and trace coverage for GF/ARF zbin-over-quant cases once
+    automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -329,9 +332,15 @@ the anchor and look for the surrounding mismatch.
     `zz_motion_search` plus a libvpx-shaped NSTEP `first_pass_motion_search`
     against LAST, seeded by the previous accepted row MV with the libvpx
     zero-MV retry when that seed is nonzero, and a zero-MV-only search against
-    GOLDEN. First-pass search uses SAD for the diamond walk, SSE plus MV error
-    cost for the final score, applies the libvpx `new_mv_mode_penalty=256` to
-    motion-search results, and the inter/neutral accept gate uses libvpx's
+    GOLDEN. The raw previous source is kept separately for
+    `zz_motion_search`/`oxcf.encode_breakout`, while the accepted LAST
+    reference is reconstructed into a first-pass `new_yv12`-style scratch
+    before it becomes the next frame's LAST reference. First-pass search uses
+    SAD for the diamond walk, SSE plus MV error cost for the final score,
+    applies the libvpx `new_mv_mode_penalty=256` to motion-search results,
+    wires `EncoderOptions.StaticThreshold` through libvpx's
+    `oxcf.encode_breakout` raw zero-motion skip gate, and the inter/neutral
+    accept gate uses libvpx's
     `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
     The post-stats LAST->GOLDEN copy follows the libvpx
     `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
@@ -341,11 +350,8 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: distinct `last_frame_unscaled_source` raw buffer used by libvpx's
-    `zz_motion_search` (govpx folds raw and reconstructed LAST into the
-    same buffer), encode_breakout user-facing knob, terminal total-stats
-    packet/section accumulators, and oracle-trace coverage on a fixed Y4M
-    corpus.
+  - Missing: terminal total-stats packet/section accumulators and oracle-trace
+    coverage on a fixed Y4M corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
@@ -385,12 +391,55 @@ the anchor and look for the surrounding mismatch.
     `buffer_level / optimal_buffer_level` when the buffer is below
     optimal, with the libvpx
     `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
-    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
-    feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
-  - Missing: `alt_extra_bits` carry, section max-Q factor, active
-    worst-Q estimates, VBR min/max section limits beyond
-    frame_max_bits, CBR buffer adjustments inside Pass2Encode, and
-    ARF pending decisions wired into the encoder.
+    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`.
+    The non-key `twoPassState.frameTargetBits` path now uses that live
+    VBR cap, so the target ceiling tracks current surplus/deficit bits
+    instead of the initial average frame target. These helpers also feed
+    the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
+    `libvpxAssignStdFrameBits` ports the libvpx
+    `assign_std_frame_bits` per-frame allocator inside a GF group:
+    `target = gf_group_bits * (modified_err / gf_group_error_left)`,
+    clamp(0, min(max_bits, gf_group_bits)), add min_frame_bandwidth,
+    and add alt_extra_bits on odd frames_since_golden when
+    frames_till_gf_update_due > 0. `libvpxSectionStats` /
+    `libvpxSectionIntraRating` / `libvpxSectionMaxQFactor` port the
+    libvpx FIRSTPASS_STATS section accumulator pattern
+    (accumulate_stats / avg_stats), the section_intra_rating
+    `(unsigned int)(sectionIntra/sectionCoded)` cast with the
+    DOUBLE_DIVIDE_CHECK fallback, and the
+    `section_max_qfactor = 1.0 - (Ratio - 10.0) * 0.025` formula
+    with the libvpx 0.80 floor.
+    `libvpxCalcCorrectionFactor` ports the libvpx
+    `calc_correction_factor` per-Q rate-model correction:
+    `cf = clamp(pow(err_per_mb/err_devisor, min(pt_low+Q*0.01,
+    pt_high)), 0.05, 5.0)`, used by `estimate_max_q` /
+    `estimate_min_q`. `libvpxEstimateMaxQRollingRatioAdjustment`
+    ports the rolling `est_max_qcorrection_factor` update (`+/-0.005`
+    based on rolling actual/target ratio, clamped to `[0.1, 10.0]`).
+    `libvpxEstimateMaxQ` ports the libvpx vp8/encoder/firstpass.c
+    `estimate_max_q` Q-search loop end-to-end: walks Q from
+    `maxq_min_limit` upward computing
+    `bits_per_mb_at_q = err_correction * speed_correction *
+    est_max_qcorrection * section_max_qfactor *
+    (vp8_bits_per_mb[INTER][Q] + overhead)` with overhead decay of
+    0.98 per Q step and the `(512*section_target_bandwidth)/num_mbs`
+    per-MB budget normalization (with libvpx's `< 1<<20` overflow
+    guard). Returns `maxq_max_limit` when the budget cannot be met.
+    `libvpxEstimateQ` ports the simpler `estimate_q` Q-search used
+    inside Pass2Encode (no overhead/section_max_qfactor scaling).
+    `libvpxEstimateKFGroupQ` ports `estimate_kf_group_q`: derives
+    `pow_high_q` and `pow_low_q` from `oxcf.two_pass_vbrbias / 100`,
+    folds in `current_spend_ratio = clamp(long_rolling_actual /
+    long_rolling_target, 0.1, 10.0)` (10.0 fallback when
+    long_rolling_target is 0) and `iiratio_correction =
+    max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)`, walks Q with
+    `calc_correction_factor`, then bumps Q (shrinking bits by 0.96
+    per step) until MAXQ*2 if no Q in [0, MAXQ) satisfies the budget.
+  - Missing: broader VBR min/max section-limit application inside the
+    full Pass2Encode flow, CBR buffer adjustments inside Pass2Encode,
+    ARF pending decisions wired into the encoder, and the CQ floor application
+    (`USAGE_CONSTRAINED_QUALITY -> max(Q, cq_target_quality)`)
+    deferred to callers since it depends on encoder mode state.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

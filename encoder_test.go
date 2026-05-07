@@ -3555,6 +3555,54 @@ func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
 	if !info.KeyFrame {
 		t.Fatalf("packet KeyFrame = false, want keyframe packet")
 	}
+	if len(e.oracleTraceMBBuffer) != 0 {
+		t.Fatalf("discarded inter-attempt MB trace rows = %d, want 0", len(e.oracleTraceMBBuffer))
+	}
+}
+
+func TestEncodeIntoAdaptiveKeyFramesRecodeUsesLibvpxDecideKeyFrame(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             80,
+		Height:            80,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           0,
+		KeyFrameInterval:  120,
+		AdaptiveKeyFrames: true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	first := testImage(80, 80)
+	second := testImage(80, 80)
+	fillImage(first, 0, 90, 170)
+	fillImage(second, 128, 90, 170)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+	e.lastFramePercentIntra = 0
+
+	result, err := e.EncodeInto(dst, second, 1, 1, EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame || !result.SceneCut {
+		intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes)
+		t.Fatalf("auto-key recode result = key:%t scene:%t refs:%d/%d/%d/%d, want key scene-cut",
+			result.KeyFrame, result.SceneCut, intra, last, golden, alt)
+	}
+	info, err := PeekVP8StreamInfo(result.Data)
+	if err != nil {
+		t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
+	}
+	if !info.KeyFrame {
+		t.Fatalf("packet KeyFrame = false, want keyframe packet")
+	}
 }
 
 func TestEncodeIntoAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
@@ -3574,6 +3622,35 @@ func TestEncodeIntoAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 	}
 	if result.KeyFrame || result.SceneCut {
 		t.Fatalf("default result = key:%t sceneCut:%t, want legacy interframe", result.KeyFrame, result.SceneCut)
+	}
+}
+
+func TestShouldRecodeInterAttemptAsKeyFrameMirrorsLibvpxGate(t *testing.T) {
+	e := &VP8Encoder{
+		opts:                  EncoderOptions{AdaptiveKeyFrames: true, Deadline: DeadlineGoodQuality},
+		lastFramePercentIntra: 20,
+		interFrameModes: []vp8enc.InterFrameMacroblockMode{
+			{Mode: vp8common.DCPred},
+			{Mode: vp8common.DCPred},
+			{Mode: vp8common.DCPred},
+			{Mode: vp8common.ZeroMV, RefFrame: vp8common.LastFrame},
+		},
+	}
+	if pct, ok := e.shouldRecodeInterAttemptAsKeyFrame(4, false, false, false); pct != 75 || !ok {
+		t.Fatalf("auto-key recode = pct:%d ok:%t, want pct75 true", pct, ok)
+	}
+	if pct, ok := e.shouldRecodeInterAttemptAsKeyFrame(4, true, false, false); pct != 75 || ok {
+		t.Fatalf("golden-refresh auto-key recode = pct:%d ok:%t, want pct75 false", pct, ok)
+	}
+
+	e.interFrameModes[3] = vp8enc.InterFrameMacroblockMode{Mode: vp8common.DCPred}
+	if pct, ok := e.shouldRecodeInterAttemptAsKeyFrame(4, true, false, false); pct != 100 || !ok {
+		t.Fatalf("unconditional auto-key recode = pct:%d ok:%t, want pct100 true", pct, ok)
+	}
+
+	e.opts.Deadline = DeadlineRealtime
+	if _, ok := e.shouldRecodeInterAttemptAsKeyFrame(4, false, false, false); ok {
+		t.Fatalf("realtime auto-key recode = true, want false for compressor_speed 2")
 	}
 }
 
@@ -5066,11 +5143,103 @@ func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
 // reset branch of libvpx onyx_if.c: source_alt_ref_active and
 // frames_since_golden are zeroed.
 func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
-	e := &VP8Encoder{framesSinceGolden: 7, sourceAltRefActive: true}
+	e := &VP8Encoder{
+		framesSinceGolden:     7,
+		sourceAltRefActive:    true,
+		sourceAltRefPending:   true,
+		altRefSourceValid:     true,
+		framesTillAltRefFrame: 5,
+	}
 	e.resetGoldenFrameStats()
-	if e.framesSinceGolden != 0 || e.sourceAltRefActive {
-		t.Fatalf("post-keyframe state = {%d %v}, want {0 false}",
-			e.framesSinceGolden, e.sourceAltRefActive)
+	if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
+		e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
+		t.Fatalf("post-keyframe state = {fsg:%d active:%v pending:%v valid:%v till:%d}, want all-zero",
+			e.framesSinceGolden, e.sourceAltRefActive, e.sourceAltRefPending,
+			e.altRefSourceValid, e.framesTillAltRefFrame)
+	}
+}
+
+// TestScheduleAltRefSourceArmsPendingFlagAndPTS pins the libvpx
+// `cpi->source_alt_ref_pending = 1; cpi->alt_ref_source = source` set
+// inside vp8_get_compressed_data: scheduling the ARF arms the pending
+// flag, records the PTS, and primes frames_till_alt_ref_frame.
+func TestScheduleAltRefSourceArmsPendingFlagAndPTS(t *testing.T) {
+	var e VP8Encoder
+	e.scheduleAltRefSource(1234, 7)
+	if !e.sourceAltRefPending {
+		t.Fatalf("sourceAltRefPending after schedule = false, want true")
+	}
+	if !e.altRefSourceValid || e.altRefSourcePTS != 1234 {
+		t.Fatalf("altRefSourcePTS = %d valid=%v, want 1234 valid=true",
+			e.altRefSourcePTS, e.altRefSourceValid)
+	}
+	if e.framesTillAltRefFrame != 7 {
+		t.Fatalf("framesTillAltRefFrame = %d, want 7", e.framesTillAltRefFrame)
+	}
+}
+
+// TestIsSrcFrameAltRefMatchesScheduledPTS pins the libvpx
+// is_src_frame_alt_ref = (alt_ref_source != NULL && source ==
+// alt_ref_source) check.
+func TestIsSrcFrameAltRefMatchesScheduledPTS(t *testing.T) {
+	var e VP8Encoder
+	if e.isSrcFrameAltRef(1234) {
+		t.Fatalf("unscheduled frame should not match")
+	}
+	e.scheduleAltRefSource(1234, 7)
+	if !e.isSrcFrameAltRef(1234) {
+		t.Fatalf("scheduled PTS should match")
+	}
+	if e.isSrcFrameAltRef(9999) {
+		t.Fatalf("non-matching PTS should not be ARF source")
+	}
+}
+
+// TestUpdateGoldenFrameStatsCountsDownAltRefFrame pins the libvpx
+// `if (cpi->frames_till_alt_ref_frame) cpi->frames_till_alt_ref_frame--`
+// counter.
+func TestUpdateGoldenFrameStatsCountsDownAltRefFrame(t *testing.T) {
+	var e VP8Encoder
+	e.scheduleAltRefSource(1234, 3)
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 2 {
+		t.Fatalf("frames_till_alt_ref_frame after first inter = %d, want 2", e.framesTillAltRefFrame)
+	}
+	e.updateGoldenFrameStats(false, false)
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 0 {
+		t.Fatalf("frames_till_alt_ref_frame after 3 inters = %d, want 0", e.framesTillAltRefFrame)
+	}
+	// Counter should not go negative.
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 0 {
+		t.Fatalf("frames_till_alt_ref_frame after underflow = %d, want 0 floor", e.framesTillAltRefFrame)
+	}
+}
+
+// TestUpdateGoldenFrameStatsAltRefRefreshClearsPending pins the libvpx
+// update_alt_ref_frame_stats branch: a successful ARF refresh consumes
+// the pending flag.
+func TestUpdateGoldenFrameStatsAltRefRefreshClearsPending(t *testing.T) {
+	e := &VP8Encoder{sourceAltRefPending: true, framesTillAltRefFrame: 2}
+	e.updateGoldenFrameStats(false, true)
+	if e.sourceAltRefPending {
+		t.Fatalf("sourceAltRefPending after ARF refresh = true, want false (consumed)")
+	}
+	if !e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive after ARF refresh = false, want true")
+	}
+}
+
+// TestUpdateGoldenFrameStatsGoldenRefreshKeepsActiveOnPending pins the
+// libvpx `if (!source_alt_ref_pending) source_alt_ref_active = 0`
+// branch: when an ARF is still pending, refreshing GOLDEN does not
+// clear the active flag.
+func TestUpdateGoldenFrameStatsGoldenRefreshKeepsActiveOnPending(t *testing.T) {
+	e := &VP8Encoder{sourceAltRefActive: true, sourceAltRefPending: true}
+	e.updateGoldenFrameStats(true, false)
+	if !e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive after GF refresh with ARF pending = false, want true (gated)")
 	}
 }
 

@@ -203,6 +203,35 @@ func TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp(t *testing.T) {
 	}
 }
 
+// TestApplyEntropySavingsToProjectedSizeIncludesCoefficientSavings pins the
+// default_coef_context_savings half of libvpx's vp8_estimate_entropy_savings.
+// Key frames have no ref-frame savings, so any reduction here comes from the
+// coefficient probability update savings.
+func TestApplyEntropySavingsToProjectedSizeIncludesCoefficientSavings(t *testing.T) {
+	const rows, cols = 16, 16
+	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
+	coeffs := make([]vp8enc.MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: vp8common.DCPred, UVMode: vp8common.DCPred}
+	}
+	e := &VP8Encoder{
+		opts: EncoderOptions{
+			Width:  cols * 16,
+			Height: rows * 16,
+		},
+		keyFrameModes:  modes,
+		keyFrameCoeffs: coeffs,
+		tokenAbove:     make([]vp8enc.TokenContextPlanes, cols),
+	}
+	if savings := e.coefficientEntropySavingsBits(true, rows*cols); savings <= 0 {
+		t.Fatalf("coefficient entropy savings = %d, want positive", savings)
+	}
+	got := e.applyEntropySavingsToProjectedSize(1000, true, rows*cols)
+	if got >= 1000 {
+		t.Fatalf("adjusted size = %d, want < 1000 from coefficient entropy savings", got)
+	}
+}
+
 // TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal
 // pins the libvpx `if (sizeBytes <= 0 || macroblocks <= 0)` guard.
 func TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal(t *testing.T) {

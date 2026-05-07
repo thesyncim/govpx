@@ -15,6 +15,9 @@ muxing, and no libvpx C API clone.
   output, future encoder decisions, or oracle diagnosis.
 - Treat "100% parity" as quality/rate and quality-relevant decision
   equivalence, not universal bit-exactness.
+- Future agent handoffs should state that percentages are quality-equivalence
+  estimates. Bit exactness is a tool for proving important paths, not the
+  product target by itself.
 - Bit-exact output is still required where deterministic paths make it the
   right proof, especially packet validity, frame headers, reference
   refresh/copy/sign-bias bits, decoder MD5s, and low-level entropy writers.
@@ -35,7 +38,9 @@ lives in [Makefile](Makefile).
   by `make verify-decoder-parity`.
 - Encoder: functional and oracle-guarded for many paths, including opt-in
   lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
-  two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
+  two-pass VBR targeting, pre-analysis scene-cut keyframe placement, and
+  libvpx post-inter auto-key recode for opt-in one-pass non-realtime encodes.
+  Exact libvpx
   quality/rate-control tuning parity is still open. Current estimate is roughly
   65% overall encoder parity, or about 75% on the core one-pass quality path;
   these are quality/rate-equivalence estimates, not bit-exactness percentages.
@@ -112,13 +117,18 @@ Primary references:
 - Inter RD now costs skip signaling from libvpx-style live
   `prob_skip_false` history and uses the current coefficient probability base
   for token-rate decisions; subpel, NEWMV, and SPLITMV vector RD costs now use
-  the current MV probability base. Final coefficient optimization still uses
-  the default coefficient base pending tighter oracle parity. Remaining
-  current-prob work is mostly broader libvpx mode-cost caching and exact
-  per-frame mode-table setup.
+  the current MV probability base. Recode size checks now subtract libvpx-style
+  ref-frame and default coefficient-context entropy savings before deciding
+  whether to retry. Remaining current-prob work is mostly broader libvpx
+  mode-cost caching, exact per-frame mode-table setup, and error-resilient
+  independent coefficient contexts.
 - Encoder oracle validation now drives libvpx with the case's configured
   deadline and `CpuUsed`, so realtime quality gaps are measured against the
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.
+- First-pass stats now keep libvpx-style raw previous source for
+  `zz_motion_search` / `encode_breakout` separately from the reconstructed
+  first-pass LAST reference used by motion search. Remaining first-pass gaps
+  are terminal total/section stats and fixed-corpus oracle trace coverage.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),

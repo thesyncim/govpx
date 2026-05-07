@@ -91,7 +91,9 @@ type EncoderOptions struct {
 	LookaheadFrames int
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
-	// keyframe before rate control and mode decision run.
+	// keyframe before rate control and mode decision run; non-realtime
+	// one-pass encodes also mirror libvpx's post-inter auto-key recode when
+	// the committed inter-mode map crosses the intra-percentage thresholds.
 	AdaptiveKeyFrames bool
 
 	// VP8 behavior.
@@ -125,7 +127,9 @@ type EncoderOptions struct {
 	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
-	StaticThreshold   int
+	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
+	// oxcf.encode_breakout for first-pass and inter-frame static skips.
+	StaticThreshold int
 
 	// OracleTraceWriter is an off-by-default oracle harness output. When
 	// non-nil, the encoder writes a deterministic JSON Lines trace describing
@@ -296,9 +300,11 @@ type VP8Encoder struct {
 	// state machine. See vp8/encoder/denoising.c.
 	denoiser denoiserState
 
-	firstPassLastRef   vp8common.FrameBuffer
-	firstPassGoldenRef vp8common.FrameBuffer
-	firstPassCount     uint64
+	firstPassLastRef    vp8common.FrameBuffer
+	firstPassGoldenRef  vp8common.FrameBuffer
+	firstPassLastSource vp8common.FrameBuffer
+	firstPassNewRef     vp8common.FrameBuffer
+	firstPassCount      uint64
 
 	twoPass twoPassState
 
@@ -634,65 +640,93 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if err != nil {
 			return EncodeResult{}, err
 		}
-		finalQuantizer := e.rc.currentQuantizer
-		e.commitInterFrameAttempt(attempt)
-		e.loopFilterLevel = attempt.Config.LoopFilterLevel
-		result.Data = dst[:attempt.Size]
-		result.SizeBytes = attempt.Size
-		result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
-		result.Droppable = interFrameDroppable(attempt.Config)
-		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
-		e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
-		e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
-		result.BufferLevelBits = e.rc.bufferLevelBits
-		e.forceKeyFrame = false
-		if attempt.CyclicRefresh {
-			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
-		}
-		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
-		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
-		e.updateConsecutiveZeroLast(e.interFrameModes[:required])
-		// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
-		// per-frame ref usage so calc_gf_params and the auto_gold
-		// refresh decision read the same `recent_ref_frame_usage`
-		// libvpx would. On GF refresh the encoder resets the counters
-		// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
-		// counts accumulate (skipping the immediate post-GF frame).
-		intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
-		if attempt.Config.RefreshGolden {
-			e.rc.resetRecentRefFrameUsage(required)
+		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
+			keyFrame = true
+			sceneCutKeyFrame = true
+			goldenCBRRefresh = false
+			boostedReferenceFrame = false
+			e.rc.thisFramePercentIntra = thisFramePercentIntra
+			// libvpx clears source_alt_ref_active before restarting the
+			// encode as a key frame; the normal key-frame commit below will
+			// reset the rest of the golden-frame/alt-ref lifecycle.
+			e.sourceAltRefActive = false
+			e.resetOracleMBTraceBuffer()
+			e.rc.beginFrameWithTargetAndContext(true, e.rc.bitsPerFrame, rateControlFrameContext{
+				temporalLayerCount: temporalFrame.LayerCount,
+				timing:             e.timing,
+			})
+			twoPassTargetBits = e.twoPass.frameTargetBits(e.frameCount, true, e.rc.frameTargetBits)
+			if twoPassTargetBits > 0 {
+				e.rc.frameTargetBits = twoPassTargetBits
+			}
+			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
+			result.KeyFrame = true
+			result.SceneCut = true
+			result.TwoPassFrameTargetBits = twoPassTargetBits
+			result.FrameTargetBits = e.rc.frameTargetBits
+			result.BufferLevelBits = e.rc.bufferLevelBits
+			result.Quantizer = libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer)
 		} else {
-			e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+			finalQuantizer := e.rc.currentQuantizer
+			e.commitInterFrameAttempt(attempt)
+			e.loopFilterLevel = attempt.Config.LoopFilterLevel
+			result.Data = dst[:attempt.Size]
+			result.SizeBytes = attempt.Size
+			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
+			result.Droppable = interFrameDroppable(attempt.Config)
+			e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
+			e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
+			e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
+			result.BufferLevelBits = e.rc.bufferLevelBits
+			e.forceKeyFrame = false
+			if attempt.CyclicRefresh {
+				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+			}
+			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+			// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
+			// per-frame ref usage so calc_gf_params and the auto_gold
+			// refresh decision read the same `recent_ref_frame_usage`
+			// libvpx would. On GF refresh the encoder resets the counters
+			// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
+			// counts accumulate (skipping the immediate post-GF frame).
+			intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+			if attempt.Config.RefreshGolden {
+				e.rc.resetRecentRefFrameUsage(required)
+			} else {
+				e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+			}
+			if required > 0 {
+				e.rc.thisFramePercentIntra = (100 * intra) / required
+			}
+			// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
+			// AFTER decide_key_frame consumes this_frame_percent_intra.
+			// Keep that ordering here: lastFramePercentIntra captures the
+			// just-encoded frame's value for the next frame's heuristic.
+			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
+			e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
+				Last:   attempt.Config.RefreshLast,
+				Golden: attempt.Config.RefreshGolden,
+				AltRef: attempt.Config.RefreshAltRef,
+			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
+			e.populateTemporalLayerBufferResult(&result, temporalFrame)
+			e.emitOracleFrameTrace(oracleTraceFrameSummary{
+				FrameType:      vp8common.InterFrame,
+				BaseQIndex:     int(attempt.Config.BaseQIndex),
+				LoopFilter:     int(attempt.Config.LoopFilterLevel),
+				RefreshLast:    attempt.Config.RefreshLast,
+				RefreshGolden:  attempt.Config.RefreshGolden,
+				RefreshAltRef:  attempt.Config.RefreshAltRef,
+				GoldenSignBias: attempt.Config.GoldenSignBias,
+				AltRefSignBias: attempt.Config.AltRefSignBias,
+				SegEnabled:     attempt.Config.Segmentation.Enabled,
+				SizeBytes:      attempt.Size,
+			})
+			e.flushOracleMBTraceBuffer()
+			e.frameCount++
+			return result, nil
 		}
-		if required > 0 {
-			e.rc.thisFramePercentIntra = (100 * intra) / required
-		}
-		// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
-		// AFTER decide_key_frame consumes this_frame_percent_intra.
-		// Keep that ordering here: lastFramePercentIntra captures the
-		// just-encoded frame's value for the next frame's heuristic.
-		e.lastFramePercentIntra = e.rc.thisFramePercentIntra
-		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
-			Last:   attempt.Config.RefreshLast,
-			Golden: attempt.Config.RefreshGolden,
-			AltRef: attempt.Config.RefreshAltRef,
-		}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
-		e.populateTemporalLayerBufferResult(&result, temporalFrame)
-		e.emitOracleFrameTrace(oracleTraceFrameSummary{
-			FrameType:      vp8common.InterFrame,
-			BaseQIndex:     int(attempt.Config.BaseQIndex),
-			LoopFilter:     int(attempt.Config.LoopFilterLevel),
-			RefreshLast:    attempt.Config.RefreshLast,
-			RefreshGolden:  attempt.Config.RefreshGolden,
-			RefreshAltRef:  attempt.Config.RefreshAltRef,
-			GoldenSignBias: attempt.Config.GoldenSignBias,
-			AltRefSignBias: attempt.Config.AltRefSignBias,
-			SegEnabled:     attempt.Config.Segmentation.Enabled,
-			SizeBytes:      attempt.Size,
-		})
-		e.flushOracleMBTraceBuffer()
-		e.frameCount++
-		return result, nil
 	}
 
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
@@ -1017,19 +1051,21 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 //	cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi);
 //	cpi->projected_frame_size = max(0, cpi->projected_frame_size);
 //
-// govpx applies only the ref-frame-cost portion of
-// vp8_estimate_entropy_savings (libvpxRefFrameEntropySavings); the
-// coefficient-context portion (default_coef_context_savings /
-// independent_coef_context_savings) is tracked separately under the
-// probability item. Returns the adjusted size in bytes for the recode
-// comparison.
+// govpx applies the ref-frame-cost portion plus default coefficient-context
+// update savings. The error-resilient independent coefficient-context branch is
+// tracked separately under the probability item. Returns the adjusted size in
+// bytes for the recode comparison.
 func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame bool, macroblocks int) int {
 	if sizeBytes <= 0 || macroblocks <= 0 {
 		return sizeBytes
 	}
-	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	var intra, last, golden, alt int
+	if len(e.interFrameModes) >= macroblocks {
+		intra, last, golden, alt = countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	}
 	savingsBits := libvpxRefFrameEntropySavings(keyFrame, intra, last, golden, alt,
 		int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
+	savingsBits += e.coefficientEntropySavingsBits(keyFrame, macroblocks)
 	if savingsBits <= 0 {
 		return sizeBytes
 	}
@@ -1039,6 +1075,35 @@ func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame 
 		return 0
 	}
 	return adjustedBits / 8
+}
+
+func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {
+	if e == nil || e.opts.ErrorResilient || macroblocks <= 0 {
+		return 0
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	if rows <= 0 || cols <= 0 || rows*cols != macroblocks || len(e.tokenAbove) < cols {
+		return 0
+	}
+	if keyFrame {
+		if len(e.keyFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
+			return 0
+		}
+		savings, err := vp8enc.KeyFrameCoefficientEntropySavings(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+		if err != nil {
+			return 0
+		}
+		return savings
+	}
+	if len(e.interFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
+		return 0
+	}
+	savings, err := vp8enc.InterCoefficientEntropySavings(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
+	if err != nil {
+		return 0
+	}
+	return savings
 }
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
@@ -1173,27 +1238,66 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 	if refreshAltRef {
 		e.framesSinceGolden = 0
 		e.sourceAltRefActive = true
+		// libvpx vp8/encoder/onyx_if.c update_alt_ref_frame_stats clears
+		// source_alt_ref_pending after the hidden ARF is encoded.
+		e.sourceAltRefPending = false
 		return
 	}
 	if refreshGolden {
 		e.framesSinceGolden = 0
-		// Without a pending alt-ref schedule, refreshing golden clears the
-		// active alt-ref (libvpx onyx_if.c: `if (!source_alt_ref_pending)
-		// source_alt_ref_active = 0`).
-		e.sourceAltRefActive = false
+		// libvpx onyx_if.c: `if (!source_alt_ref_pending)
+		// source_alt_ref_active = 0`. Refreshing golden in the absence of
+		// a pending alt-ref schedule clears the active alt-ref.
+		if !e.sourceAltRefPending {
+			e.sourceAltRefActive = false
+		}
 		return
 	}
 	if e.framesSinceGolden < int(^uint(0)>>1) {
 		e.framesSinceGolden++
 	}
+	// libvpx onyx_if.c counts down frames_till_alt_ref_frame on every
+	// non-refresh inter frame; when it hits 0 the encoder consumes the
+	// pending ARF on the next frame.
+	if e.framesTillAltRefFrame > 0 {
+		e.framesTillAltRefFrame--
+	}
 }
 
 // resetGoldenFrameStats mirrors libvpx's key-frame branch in onyx_if.c, which
 // clears source_alt_ref_active and resets frames_since_golden so the next
-// inter frame's RD scoring starts from a clean slate.
+// inter frame's RD scoring starts from a clean slate. libvpx also clears
+// source_alt_ref_pending and resets frames_till_alt_ref_frame on key frame
+// reset since the prior ARF schedule is invalidated.
 func (e *VP8Encoder) resetGoldenFrameStats() {
 	e.framesSinceGolden = 0
 	e.sourceAltRefActive = false
+	e.sourceAltRefPending = false
+	e.altRefSourceValid = false
+	e.framesTillAltRefFrame = 0
+}
+
+// scheduleAltRefSource ports the libvpx
+// vp8/encoder/onyx_if.c automatic ARF scheduling decision: when an ARF
+// is pending and the lookahead has the future source available, the
+// encoder marks the lookahead entry as the alt_ref_source and arms the
+// hidden-frame insertion. This helper just records the schedule; the
+// actual hidden-frame encode path is a follow-up.
+func (e *VP8Encoder) scheduleAltRefSource(altRefSourcePTS uint64, framesTillUpdate int) {
+	e.sourceAltRefPending = true
+	e.altRefSourcePTS = altRefSourcePTS
+	e.altRefSourceValid = true
+	e.framesTillAltRefFrame = framesTillUpdate
+}
+
+// isSrcFrameAltRef ports the libvpx is_src_frame_alt_ref check:
+// after popping a lookahead entry, the encoder marks it as the ARF
+// source frame if its PTS matches the previously scheduled
+// alt_ref_source. The check is gated on altRefSourceValid because
+// scheduleAltRefSource has not yet been called for the first ARF
+// section (libvpx's `cpi->alt_ref_source != NULL` guard).
+func (e *VP8Encoder) isSrcFrameAltRef(framePTS uint64) bool {
+	return e.altRefSourceValid && framePTS == e.altRefSourcePTS
 }
 
 func (e *VP8Encoder) interFrameSignBias() [vp8common.MaxRefFrames]bool {
@@ -1292,6 +1396,22 @@ func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, la
 		}
 	}
 	return intra, last, golden, alt
+}
+
+func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGoldenFrame bool, temporalEnabled bool, invisible bool) (int, bool) {
+	if e == nil ||
+		!e.opts.AdaptiveKeyFrames ||
+		e.twoPass.enabled() ||
+		temporalEnabled ||
+		invisible ||
+		e.interAnalysisCompressorSpeed() == 2 ||
+		required <= 0 ||
+		len(e.interFrameModes) < required {
+		return 0, false
+	}
+	intra, _, _, _ := countInterFrameRefUsage(e.interFrameModes[:required])
+	thisFramePercentIntra := (100 * intra) / required
+	return thisFramePercentIntra, libvpxDecideKeyFrame(thisFramePercentIntra, e.lastFramePercentIntra, refreshGoldenFrame)
 }
 
 func validateEncodeFlags(flags EncodeFlags) error {

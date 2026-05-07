@@ -4,6 +4,7 @@ import (
 	"math"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -18,12 +19,6 @@ const (
 	// new_mv_mode_penalty added to motion_error after a successful diamond
 	// search in libvpx vp8/encoder/firstpass.c first_pass_motion_search.
 	libvpxFirstPassNewMVModePenalty = 256
-	// encode_breakout default for first-pass raw zero-motion early exit. The
-	// libvpx default oxcf.encode_breakout is 0 meaning "never break out". We
-	// preserve that default but expose the gate so the encode_breakout skip
-	// path is exercised exactly once with a non-zero threshold; the public
-	// API does not yet plumb the user-facing oxcf.encode_breakout knob.
-	libvpxFirstPassEncodeBreakout = 0
 	// libvpx first_pass_motion_search starts the NSTEP diamond at step_param=3
 	// rather than searching the full range.
 	libvpxFirstPassSearchStepParam = 3
@@ -72,7 +67,7 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 	//     vp8_yv12_copy_frame(lst_yv12, gld_yv12);
 	//   }
 	// The decision must use the *previous* LAST buffer, before we swap in
-	// the current source as the new LAST.
+	// the reconstructed current frame as the new LAST.
 	if e.firstPassCount > 0 &&
 		stats.PcntInter > 0.20 &&
 		(stats.IntraError/doubleDivideCheck(stats.CodedError)) > 2.0 &&
@@ -82,7 +77,9 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 		e.firstPassGoldenRef.ExtendBorders()
 	}
 
-	copySourceToFrameBuffer(&e.firstPassLastRef, srcImg)
+	copyFrameImage(&e.firstPassLastRef.Img, &e.firstPassNewRef.Img)
+	e.firstPassLastRef.ExtendBorders()
+	copySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
 
 	// Special case for the first frame (libvpx firstpass.c): copy LAST into
 	// GF as a second reference. Also keep the legacy scene-cut fallback that
@@ -106,6 +103,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 		return FirstPassFrameStats{Frame: e.firstPassCount, Count: 1}
 	}
 	intraPenalty := libvpxFirstPassIntraPenalty
+	encodeBreakout := e.opts.StaticThreshold
 	intraError := int64(0)
 	codedError := int64(0)
 	interCount := 0
@@ -127,30 +125,40 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	lastMVAsInt := uint32(0)
 
 	hasLast := e.firstPassCount > 0 && e.firstPassLastRef.Img.Width == src.Width && e.firstPassLastRef.Img.Height == src.Height
+	hasLastSource := e.firstPassCount > 0 && e.firstPassLastSource.Img.Width == src.Width && e.firstPassLastSource.Img.Height == src.Height
 	hasGolden := e.firstPassCount > 1 && e.firstPassGoldenRef.Img.Width == src.Width && e.firstPassGoldenRef.Img.Height == src.Height
 	qIndex := e.rc.currentQuantizer
+	copySourceToFrameBuffer(&e.firstPassNewRef, src)
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
+	var dequantTables vp8common.FrameDequantTables
+	var dequant vp8common.MacroblockDequant
+	vp8common.BuildFrameDequantTables(quantDeltas, &dequantTables)
+	vp8common.InitMacroblockDequant(&dequantTables, qIndex, &dequant)
 	for row := 0; row < rows; row++ {
 		bestRefMV := vp8enc.MotionVector{}
 		for col := 0; col < cols; col++ {
 			intra := macroblockMeanLumaSSE(src, row, col) + intraPenalty
 			intraError += int64(intra)
+			_ = e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
 
 			thisError := intra
 			lastErr := maxInt()
 			bestMV := vp8enc.MotionVector{}
 
 			if hasLast {
-				// Raw zero-motion check (libvpx zz_motion_search). In
-				// govpx we only retain the previous source as a single
-				// buffer, so raw_motion_error == motion_error before the
-				// diamond search runs. Preserving the +128 offset matches
-				// the prior govpx scoring scale used by the rest of the
-				// two-pass path.
+				// Raw zero-motion check (libvpx zz_motion_search). The
+				// raw source gates encode_breakout, while the reconstructed
+				// LAST reference seeds the actual motion error.
 				zeroErr := macroblockLumaSSE(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{}) + 128
 				rawMotionErr := zeroErr
+				if hasLastSource {
+					rawMotionErr = macroblockLumaSSE(src, &e.firstPassLastSource.Img, row, col, vp8enc.MotionVector{}) + 128
+				}
 				motionErr := zeroErr
 
-				if rawMotionErr >= libvpxFirstPassEncodeBreakout {
+				if rawMotionErr >= encodeBreakout {
 					if mv, err, ok := firstPassMotionSearch(src, &e.firstPassLastRef.Img, row, col, bestRefMV, qIndex); ok {
 						err += libvpxFirstPassNewMVModePenalty
 						if err < motionErr {
@@ -181,6 +189,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 					thisError = motionErr
 					interCount++
 					bestRefMV = bestMV
+					_ = e.reconstructFirstPassInterMacroblock(src, row, col, bestMV, qIndex, &quants[0], &dequant)
 
 					// libvpx multiplies bmi.mv by 8 here to convert from
 					// pel to 1/8-pel (q3) before summing into
@@ -257,7 +266,9 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 
 			codedError += int64(thisError)
 		}
+		vp8dec.ExtendIntraRightEdgeForRow(&e.firstPassNewRef.Img, row)
 	}
+	e.firstPassNewRef.ExtendBorders()
 
 	stats := FirstPassFrameStats{
 		Frame:         e.firstPassCount,
@@ -302,6 +313,102 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 		stats.Duration = 1
 	}
 	return stats
+}
+
+func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
+	if e == nil || quant == nil || dequant == nil {
+		return false
+	}
+	useDCPred := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
+	if !useDCPred {
+		mode := vp8dec.MacroblockMode{
+			RefFrame: vp8common.IntraFrame,
+			Mode:     vp8common.BPred,
+			UVMode:   vp8common.DCPred,
+			Is4x4:    true,
+		}
+		for i := range mode.BModes {
+			mode.BModes[i] = vp8common.BDCPred
+		}
+		var coeffs vp8enc.MacroblockCoefficients
+		return buildReconstructingBPredMacroblockCoefficients(
+			&vp8tables.DefaultCoefProbs,
+			src, mbRow, mbCol,
+			&e.firstPassNewRef.Img,
+			&mode,
+			nil, nil,
+			quant, qIndex,
+			0,
+			e.libvpxUseFastQuant(),
+			e.libvpxOptimizeCoefficients(),
+			&coeffs,
+			&e.reconstructScratch,
+		)
+	}
+
+	mode := vp8dec.MacroblockMode{
+		RefFrame: vp8common.IntraFrame,
+		Mode:     vp8common.DCPred,
+		UVMode:   vp8common.DCPred,
+	}
+	if !predictAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
+		return false
+	}
+	var coeffs vp8enc.MacroblockCoefficients
+	buildPredictedMacroblockCoefficients(
+		&vp8tables.DefaultCoefProbs,
+		src, mbRow, mbCol,
+		&e.firstPassNewRef.Img,
+		nil, nil,
+		quant, qIndex,
+		0, 0,
+		false,
+		true,
+		e.libvpxUseFastQuant(),
+		e.libvpxOptimizeCoefficients(),
+		&coeffs,
+	)
+	var tokens vp8dec.MacroblockTokens
+	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	return reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
+}
+
+func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
+	if e == nil || quant == nil || dequant == nil {
+		return false
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.LastFrame,
+		Mode:     vp8common.NewMV,
+		UVMode:   vp8common.DCPred,
+		MV:       mv,
+	}
+	var decMode vp8dec.MacroblockMode
+	convertInterFrameMode(&mode, &decMode)
+	decMode.MBSkipCoeff = true
+	var emptyTokens vp8dec.MacroblockTokens
+	if !reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &emptyTokens, dequant, &e.reconstructScratch) {
+		return false
+	}
+
+	var coeffs vp8enc.MacroblockCoefficients
+	buildPredictedMacroblockCoefficients(
+		&vp8tables.DefaultCoefProbs,
+		src, mbRow, mbCol,
+		&e.firstPassNewRef.Img,
+		nil, nil,
+		quant, qIndex,
+		0, 0,
+		false,
+		false,
+		e.libvpxUseFastQuant(),
+		e.libvpxOptimizeCoefficients(),
+		&coeffs,
+	)
+	var tokens vp8dec.MacroblockTokens
+	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	decMode.MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs, false)
+	return reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &tokens, dequant, &e.reconstructScratch)
 }
 
 func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, seed vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int, bool) {
@@ -481,6 +588,11 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 	if keyFrame {
 		maxTarget *= 4
 		target *= 3
+	} else {
+		framesLeft := int64(len(t.stats)) - int64(frame)
+		if vbrMaxTarget := libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, t.maxPct); vbrMaxTarget > 0 {
+			maxTarget = int64(vbrMaxTarget)
+		}
 	}
 	if target < minTarget {
 		target = minTarget
@@ -512,6 +624,335 @@ func (t *twoPassState) finishFrame(actualBits int) {
 		t.bitsLeft = 0
 	}
 	t.frameIndex++
+}
+
+// libvpxEstimateMaxQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_max_q Q-search loop: walk Q from maxq_min_limit upward
+// computing
+//
+//	bits_per_mb = err_correction * speed_correction * est_max_qcorrection
+//	            * section_max_qfactor * (vp8_bits_per_mb[INTER][Q] + overhead)
+//
+// where err_correction is `libvpxCalcCorrectionFactor(err_per_mb,
+// 150.0, 0.40, 0.90, Q)` and overhead decays by 0.98 per Q step. The
+// search returns the lowest Q for which `bits_per_mb_at_q <=
+// target_norm_bits_per_mb`. target_norm_bits_per_mb derives from
+// section_target_bandwidth via libvpx's overflow-aware
+// `(512 * section_target_bandwidth) / num_mbs` formula. When
+// `section_target_bandwidth <= 0`, libvpx returns
+// `maxq_max_limit` immediately.
+//
+// The CQ floor (`USAGE_CONSTRAINED_QUALITY` -> max(Q, cq_target_quality))
+// is left to callers since it depends on encoder mode state.
+func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64, sectionMaxQFactor float64, maxqMinLimit int, maxqMaxLimit int) int {
+	if numMBs <= 0 || maxqMaxLimit <= maxqMinLimit {
+		return maxqMaxLimit
+	}
+	if sectionTargetBandwidth <= 0 {
+		return maxqMaxLimit
+	}
+	var targetNormBitsPerMB int
+	if sectionTargetBandwidth < (1 << 20) {
+		targetNormBitsPerMB = (512 * sectionTargetBandwidth) / numMBs
+	} else {
+		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
+	}
+	overheadBitsPerMB := overheadBits / numMBs
+	overheadBitsPerMB = int(float64(overheadBitsPerMB) * math.Pow(0.98, float64(maxqMinLimit)))
+	for Q := maxqMinLimit; Q < maxqMaxLimit; Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
+		baseBitsPerMB := 0
+		if Q >= 0 && Q < len(libvpxBitsPerMB[1]) {
+			baseBitsPerMB = libvpxBitsPerMB[1][Q]
+		}
+		baseBitsPerMB += overheadBitsPerMB
+		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*sectionMaxQFactor*float64(baseBitsPerMB))
+		overheadBitsPerMB = int(float64(overheadBitsPerMB) * 0.98)
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			return Q
+		}
+	}
+	return maxqMaxLimit
+}
+
+// libvpxEstimateQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_q Q-search loop (the section-target Q probe used inside
+// new_section_complete / Pass2Encode). It walks Q from 0 upward
+// computing
+//
+//	bits_per_mb = err_correction * speed_correction *
+//	              est_max_qcorrection * vp8_bits_per_mb[INTER][Q]
+//
+// (no overhead/section_max_qfactor scaling, distinguishing it from
+// estimate_max_q). Returns the lowest Q whose bits_per_mb_at_q is at
+// or below the target.
+func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64) int {
+	if numMBs <= 0 || sectionTargetBandwidth <= 0 {
+		return vp8MaxQIndex
+	}
+	var targetNormBitsPerMB int
+	if sectionTargetBandwidth < (1 << 20) {
+		targetNormBitsPerMB = (512 * sectionTargetBandwidth) / numMBs
+	} else {
+		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
+	}
+	for Q := 0; Q < len(libvpxBitsPerMB[1]); Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
+		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*float64(libvpxBitsPerMB[1][Q]))
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			return Q
+		}
+	}
+	return len(libvpxBitsPerMB[1]) - 1
+}
+
+// libvpxEstimateKFGroupQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_kf_group_q worst-case KF-group Q estimator. It mirrors:
+//
+//	pow_highq = (POW1 < 0.6) ? POW1+0.3 : 0.90
+//	pow_lowq  = (POW1 < 0.7) ? POW1+0.1 : 0.80
+//	if long_rolling_target_bits <= 0:
+//	  current_spend_ratio = 10.0
+//	else:
+//	  current_spend_ratio = clamp(long_rolling_actual/long_rolling_target,
+//	                              0.1, 10.0)
+//	iiratio_correction_factor =
+//	  max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)
+//	combined = speed_correction * iiratio_correction_factor *
+//	            current_spend_ratio
+//	for Q in 0..MAXQ:
+//	  cf = calc_correction_factor(err_per_mb, 150, pow_lowq, pow_highq, Q)
+//	  bits = cf * combined * vp8_bits_per_mb[INTER][Q]
+//	  if bits <= target: break
+//	while (bits > target && Q < MAXQ*2):
+//	  bits = 0.96 * bits; Q++
+//
+// POW1 in libvpx is `oxcf.two_pass_vbrbias / 100.0`; callers pass it
+// directly. Returns MAXQ*2 when the budget is non-positive (libvpx's
+// `if (target_norm_bits_per_mb <= 0) return MAXQ * 2;`).
+func libvpxEstimateKFGroupQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, groupIIRatio float64, vbrBiasPct int, longRollingActualBits int, longRollingTargetBits int, speedCorrection float64) int {
+	const maxQ = vp8MaxQIndex + 1
+	if numMBs <= 0 {
+		return maxQ * 2
+	}
+	targetNormBitsPerMB := (512 * sectionTargetBandwidth) / numMBs
+	if targetNormBitsPerMB <= 0 {
+		return maxQ * 2
+	}
+	pow1 := float64(vbrBiasPct) / 100.0
+	powHighQ := 0.90
+	if pow1 < 0.6 {
+		powHighQ = pow1 + 0.3
+	}
+	powLowQ := 0.80
+	if pow1 < 0.7 {
+		powLowQ = pow1 + 0.1
+	}
+	currentSpendRatio := 10.0
+	if longRollingTargetBits > 0 {
+		currentSpendRatio = float64(longRollingActualBits) / float64(longRollingTargetBits)
+		if currentSpendRatio > 10.0 {
+			currentSpendRatio = 10.0
+		} else if currentSpendRatio < 0.1 {
+			currentSpendRatio = 0.1
+		}
+	}
+	iiratioCorrection := 1.0 - (groupIIRatio-6.0)*0.1
+	if iiratioCorrection < 0.5 {
+		iiratioCorrection = 0.5
+	}
+	combined := speedCorrection * iiratioCorrection * currentSpendRatio
+	bitsPerMBAtQ := 0
+	Q := 0
+	for ; Q < maxQ; Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, powLowQ, powHighQ, Q)
+		bitsPerMBAtQ = int(0.5 + errCorrection*combined*float64(libvpxBitsPerMB[1][Q]))
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			break
+		}
+	}
+	for bitsPerMBAtQ > targetNormBitsPerMB && Q < maxQ*2 {
+		bitsPerMBAtQ = int(0.96 * float64(bitsPerMBAtQ))
+		Q++
+	}
+	return Q
+}
+
+// libvpxCalcCorrectionFactor ports the libvpx
+// vp8/encoder/firstpass.c calc_correction_factor:
+//
+//	error_term = err_per_mb / err_devisor
+//	power_term = clamp(pt_low + Q*0.01, +inf, pt_high)
+//	correction_factor = pow(error_term, power_term)
+//	clamp(correction_factor, 0.05, 5.0)
+//
+// Used by estimate_max_q / estimate_min_q / estimate_q to compute
+// the per-Q rate model correction.
+func libvpxCalcCorrectionFactor(errPerMB float64, errDevisor float64, ptLow float64, ptHigh float64, Q int) float64 {
+	if errDevisor == 0 {
+		errDevisor = 1.0
+	}
+	errorTerm := errPerMB / errDevisor
+	powerTerm := ptLow + float64(Q)*0.01
+	if powerTerm > ptHigh {
+		powerTerm = ptHigh
+	}
+	cf := math.Pow(errorTerm, powerTerm)
+	if cf < 0.05 {
+		return 0.05
+	}
+	if cf > 5.0 {
+		return 5.0
+	}
+	return cf
+}
+
+// libvpxEstimateMaxQRollingRatioAdjustment ports the rolling
+// est_max_qcorrection_factor update from estimate_max_q:
+//
+//	rolling_ratio = rolling_actual_bits / rolling_target_bits
+//	if ratio < 0.95: factor -= 0.005
+//	if ratio > 1.05: factor += 0.005
+//	clamp(factor, 0.1, 10.0)
+//
+// Returns the updated factor. Caller passes the previous factor and
+// the rolling stats; the inner libvpx gate
+// `(rolling_target_bits > 0) && (active_worst_quality < worst_quality)`
+// is enforced by the caller.
+func libvpxEstimateMaxQRollingRatioAdjustment(prevFactor float64, rollingActualBits int, rollingTargetBits int) float64 {
+	if rollingTargetBits <= 0 {
+		return prevFactor
+	}
+	ratio := float64(rollingActualBits) / float64(rollingTargetBits)
+	factor := prevFactor
+	if ratio < 0.95 {
+		factor -= 0.005
+	} else if ratio > 1.05 {
+		factor += 0.005
+	}
+	if factor < 0.1 {
+		factor = 0.1
+	}
+	if factor > 10.0 {
+		factor = 10.0
+	}
+	return factor
+}
+
+// libvpxSectionStats accumulates the libvpx FIRSTPASS_STATS section
+// totals used by find_next_key_frame and define_gf_group to derive
+// section_intra_rating and section_max_qfactor. Mirrors libvpx's
+// FIRSTPASS_STATS accumulate_stats / avg_stats pattern: callers
+// call addFrame for each frame in the section and then call avg()
+// once before reading sectionIntra / sectionCoded.
+type libvpxSectionStats struct {
+	count        int
+	sectionIntra float64
+	sectionCoded float64
+}
+
+// addFrame mirrors libvpx's accumulate_stats over the per-frame
+// FIRSTPASS_STATS intra_error / coded_error fields.
+func (s *libvpxSectionStats) addFrame(intraError, codedError float64) {
+	s.count++
+	s.sectionIntra += intraError
+	s.sectionCoded += codedError
+}
+
+// avg mirrors libvpx's avg_stats: divides each accumulator by
+// `count`. Callers should call this exactly once before reading
+// sectionIntra / sectionCoded.
+func (s *libvpxSectionStats) avg() {
+	if s.count <= 0 {
+		return
+	}
+	s.sectionIntra /= float64(s.count)
+	s.sectionCoded /= float64(s.count)
+}
+
+// libvpxSectionIntraRating ports the libvpx vp8/encoder/firstpass.c
+// section_intra_rating computation:
+//
+//	section_intra_rating = sectionIntra / DOUBLE_DIVIDE_CHECK(sectionCoded)
+//
+// where DOUBLE_DIVIDE_CHECK(x) returns 1.0 when |x|<1e-12 and x
+// otherwise. Returns 0 when both error totals are 0 (libvpx asserts
+// non-empty section in normal flow). The libvpx field is unsigned int,
+// so the result is truncated to non-negative.
+func libvpxSectionIntraRating(sectionIntra, sectionCoded float64) int {
+	denom := sectionCoded
+	if denom < 1e-12 && denom > -1e-12 {
+		denom = 1.0
+	}
+	v := sectionIntra / denom
+	if v < 0 {
+		return 0
+	}
+	return int(v)
+}
+
+// libvpxSectionMaxQFactor ports the libvpx vp8/encoder/firstpass.c
+// section_max_qfactor formula:
+//
+//	Ratio = sectionIntra / DOUBLE_DIVIDE_CHECK(sectionCoded)
+//	section_max_qfactor = 1.0 - ((Ratio - 10.0) * 0.025)
+//	if section_max_qfactor < 0.80: section_max_qfactor = 0.80
+//
+// The 0.80 floor mirrors libvpx exactly. Returns 1.0 when both error
+// totals are 0 (libvpx's DOUBLE_DIVIDE_CHECK fallback).
+func libvpxSectionMaxQFactor(sectionIntra, sectionCoded float64) float64 {
+	denom := sectionCoded
+	if denom < 1e-12 && denom > -1e-12 {
+		denom = 1.0
+	}
+	ratio := sectionIntra / denom
+	factor := 1.0 - ((ratio - 10.0) * 0.025)
+	if factor < 0.80 {
+		factor = 0.80
+	}
+	return factor
+}
+
+// libvpxAssignStdFrameBits ports the libvpx vp8/encoder/firstpass.c
+// assign_std_frame_bits per-frame allocator inside a GF group:
+//
+//	err_fraction = modified_err / gf_group_error_left
+//	target = gf_group_bits * err_fraction
+//	clamp(target, 0, min(max_bits, gf_group_bits))
+//	target += min_frame_bandwidth
+//	if (frames_since_golden & 1) && frames_till_gf_update_due>0:
+//	    target += alt_extra_bits
+//
+// Returns the per-frame bit target. Callers are expected to update
+// gf_group_error_left and gf_group_bits themselves so the allocator
+// stays a pure function.
+func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfGroupBits int64, maxBitsPerFrame int, minFrameBandwidth int, framesSinceGolden int, framesTillGFUpdateDue int, altExtraBits int) int {
+	if gfGroupBits <= 0 {
+		return 0
+	}
+	errFraction := 0.0
+	if gfGroupErrorLeft > 0 {
+		errFraction = modifiedErr / gfGroupErrorLeft
+	}
+	target := int(float64(gfGroupBits) * errFraction)
+	if target < 0 {
+		target = 0
+	} else {
+		if maxBitsPerFrame > 0 && target > maxBitsPerFrame {
+			target = maxBitsPerFrame
+		}
+		if int64(target) > gfGroupBits {
+			target = int(gfGroupBits)
+		}
+	}
+	target += minFrameBandwidth
+	if (framesSinceGolden&0x01) != 0 && framesTillGFUpdateDue > 0 {
+		target += altExtraBits
+	}
+	if target < 0 {
+		return 0
+	}
+	return target
 }
 
 // libvpxFrameMaxBitsCBR ports the CBR branch of libvpx's
@@ -751,6 +1192,98 @@ func (t *twoPassState) markKeyFrame(frame uint64) {
 	if t.enabled() {
 		t.lastKeySeen = frame
 	}
+}
+
+// libvpxGetPredictionDecayRate ports the libvpx
+// vp8/encoder/firstpass.c get_prediction_decay_rate:
+//
+//	rate = pcnt_inter
+//	motion_decay = 1.0 - (pcnt_motion / 20.0)
+//	rate = min(rate, motion_decay)
+//	mv_rabs = |mvr_abs * pcnt_motion|
+//	mv_cabs = |mvc_abs * pcnt_motion|
+//	distance_factor = sqrt(mv_rabs^2 + mv_cabs^2) / 250.0
+//	distance_factor = (distance_factor > 1.0) ? 0.0 : (1.0 - distance_factor)
+//	rate = min(rate, distance_factor)
+func libvpxGetPredictionDecayRate(stats FirstPassFrameStats) float64 {
+	rate := stats.PcntInter
+	motionDecay := 1.0 - (stats.PcntMotion / 20.0)
+	if motionDecay < rate {
+		rate = motionDecay
+	}
+	mvRAbs := math.Abs(stats.MVrAbs * stats.PcntMotion)
+	mvCAbs := math.Abs(stats.MVcAbs * stats.PcntMotion)
+	distanceFactor := math.Sqrt(mvRAbs*mvRAbs+mvCAbs*mvCAbs) / 250.0
+	if distanceFactor > 1.0 {
+		distanceFactor = 0.0
+	} else {
+		distanceFactor = 1.0 - distanceFactor
+	}
+	if distanceFactor < rate {
+		rate = distanceFactor
+	}
+	return rate
+}
+
+// libvpxDetectTransitionToStill ports the libvpx
+// vp8/encoder/firstpass.c detect_transition_to_still: returns true
+// when a complex transition is followed by a static section (used to
+// trigger an extra KF for slide-show / fade content).
+//
+//	trans_to_still = (frameInterval > MIN_GF_INTERVAL) &&
+//	                 (loop_decay_rate >= 0.999) &&
+//	                 (decay_accumulator < 0.9) &&
+//	                 (all next still_interval frames have
+//	                   prediction_decay_rate >= 0.999)
+//
+// The lookahead-walk parameter `nextDecayRates` holds the decay rates
+// for the next `still_interval` frames; libvpx peeks them from
+// `cpi->twopass.stats_in` and resets the file position afterwards.
+func libvpxDetectTransitionToStill(frameInterval int, stillInterval int, loopDecayRate float64, decayAccumulator float64, nextDecayRates []float64) bool {
+	if frameInterval <= libvpxMinGFInterval {
+		return false
+	}
+	if loopDecayRate < 0.999 || decayAccumulator >= 0.9 {
+		return false
+	}
+	if stillInterval <= 0 {
+		return false
+	}
+	limit := stillInterval
+	if limit > len(nextDecayRates) {
+		// libvpx returns false when the lookahead runs out before
+		// still_interval frames have been examined.
+		return false
+	}
+	for j := 0; j < limit; j++ {
+		if nextDecayRates[j] < 0.999 {
+			return false
+		}
+	}
+	return true
+}
+
+// libvpxCalculateModifiedErr ports the libvpx vp8/encoder/firstpass.c
+// calculate_modified_err formula:
+//
+//	av_err = total_ssim_weighted_pred_err / count
+//	this_err = this_frame.ssim_weighted_pred_err
+//	if this_err > av_err: modified = av_err * pow(this/av_err, POW1)
+//	else:                  modified = av_err * pow(this/av_err, POW2)
+//
+// where POW1 == POW2 == oxcf.two_pass_vbrbias / 100. Mirrors the
+// libvpx DOUBLE_DIVIDE_CHECK fallback for av_err==0.
+func libvpxCalculateModifiedErr(thisErr float64, totalSSIMErr float64, count float64, vbrBiasPct int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	avErr := totalSSIMErr / count
+	avDenom := avErr
+	if avDenom < 1e-12 && avDenom > -1e-12 {
+		avDenom = 1.0
+	}
+	pow := float64(vbrBiasPct) / 100.0
+	return avErr * math.Pow(thisErr/avDenom, pow)
 }
 
 func twoPassModifiedError(stats FirstPassFrameStats, biasPct int) float64 {

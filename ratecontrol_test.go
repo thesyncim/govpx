@@ -1454,6 +1454,51 @@ func TestRateControlGoldenFrameAccumulatesOverspend(t *testing.T) {
 	}
 }
 
+// TestRateControlAccumulatesPostPackAltRefOverspend pins the libvpx
+// update_alt_ref_frame_stats branch: unlike GF refresh (which
+// accumulates projected_frame_size - inter_frame_target), the ARF
+// accumulates the full projected_frame_size into gf_overspend_bits,
+// then divides by frames_till_gf_update_due for the drain rate.
+func TestRateControlAccumulatesPostPackAltRefOverspend(t *testing.T) {
+	rc := rateControlState{
+		framesTillGFUpdateDue: 10,
+	}
+	// 4000 bits goes fully into gf_overspend_bits.
+	rc.accumulatePostPackAltRefOverspend(4000)
+	if rc.gfOverspendBits != 4000 {
+		t.Fatalf("gf_overspend_bits after ARF = %d, want 4000", rc.gfOverspendBits)
+	}
+	if rc.nonGFBitrateAdjustment != 400 {
+		t.Fatalf("non_gf_bitrate_adjustment = %d, want 400 (4000/10)",
+			rc.nonGFBitrateAdjustment)
+	}
+}
+
+// TestRateControlAccumulatesPostPackAltRefOverspendNoUpdateDueZeroDrain
+// pins the libvpx `if (frames_till_gf_update_due > 0)` guard on the
+// non_gf_bitrate_adjustment update.
+func TestRateControlAccumulatesPostPackAltRefOverspendNoUpdateDueZeroDrain(t *testing.T) {
+	rc := rateControlState{framesTillGFUpdateDue: 0}
+	rc.accumulatePostPackAltRefOverspend(4000)
+	if rc.gfOverspendBits != 4000 {
+		t.Fatalf("gf_overspend_bits = %d, want 4000", rc.gfOverspendBits)
+	}
+	if rc.nonGFBitrateAdjustment != 0 {
+		t.Fatalf("non_gf_bitrate_adjustment with no update due = %d, want 0",
+			rc.nonGFBitrateAdjustment)
+	}
+}
+
+// TestRateControlAccumulatesPostPackAltRefOverspendIgnoresZeroBits pins
+// the libvpx `if (actualBits > 0)` guard.
+func TestRateControlAccumulatesPostPackAltRefOverspendIgnoresZeroBits(t *testing.T) {
+	rc := rateControlState{framesTillGFUpdateDue: 10}
+	rc.accumulatePostPackAltRefOverspend(0)
+	if rc.gfOverspendBits != 0 {
+		t.Fatalf("zero ARF bits should not accumulate: %d", rc.gfOverspendBits)
+	}
+}
+
 // TestRateControlGFOverspendDrainsIntoNextPFrameTarget pins the libvpx
 // calc_pframe_target_size GF-overspend recovery branch: starting with
 // gf_overspend_bits=2000, non_gf_bitrate_adjustment=200, the next p-frame

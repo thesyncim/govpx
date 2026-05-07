@@ -754,6 +754,29 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	}
 }
 
+// accumulatePostPackAltRefOverspend ports the libvpx
+// vp8/encoder/onyx_if.c update_alt_ref_frame_stats overspend branch.
+// Unlike update_golden_frame_stats (which accumulates `projected_frame_size
+// - inter_frame_target` because the GF refresh shares the section bandwidth
+// with the following p-frames), update_alt_ref_frame_stats accumulates the
+// full `projected_frame_size` because the ARF is hidden and the show frames
+// after it pay separately. The non_gf_bitrate_adjustment update is the
+// same drain-rate computation
+// `gf_overspend_bits / frames_till_gf_update_due`.
+//
+// Caller must have already set rc.framesTillGFUpdateDue to the next
+// section length (libvpx's `if (!auto_gold) frames_till_gf_update_due
+// = DEFAULT_GF_INTERVAL` is the encoder-side default).
+func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int) {
+	if actualBits <= 0 {
+		return
+	}
+	rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits)
+	if rc.framesTillGFUpdateDue > 0 {
+		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
+	}
+}
+
 // estimateKeyFrameFrequency ports vp8/encoder/ratectrl.c
 // estimate_keyframe_frequency: a weighted average of the last
 // KEY_FRAME_CONTEXT key-frame distances (weights 1..5), with the
