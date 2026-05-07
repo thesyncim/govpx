@@ -141,3 +141,43 @@ func scalarSAD(src []byte, srcStride int, ref []byte, refStride int, width int, 
 	}
 	return sad
 }
+
+func BenchmarkSAD16x16NEON(b *testing.B) {
+	src, ref := benchSAD16x16Source()
+	for i := 0; i < b.N; i++ {
+		_ = SAD16x16(src, 64, ref, 64)
+	}
+}
+
+func BenchmarkSAD16x16Generic(b *testing.B) {
+	src, ref := benchSAD16x16Source()
+	for i := 0; i < b.N; i++ {
+		_ = sadScalarReference16x16(src, 64, ref, 64)
+	}
+}
+
+func benchSAD16x16Source() ([]byte, []byte) {
+	src := make([]byte, 64*16)
+	ref := make([]byte, 64*16)
+	for i := range src {
+		src[i] = byte(7 + i*3)
+		ref[i] = byte(11 + i*5)
+	}
+	return src, ref
+}
+
+func sadScalarReference16x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	sad := 0
+	for y := 0; y < 16; y++ {
+		s := src[y*srcStride:]
+		r := ref[y*refStride:]
+		for x := 0; x < 16; x++ {
+			d := int(s[x]) - int(r[x])
+			if d < 0 {
+				d = -d
+			}
+			sad += d
+		}
+	}
+	return sad
+}
