@@ -695,6 +695,38 @@ func TestCompareOracleTracesDetectsImprovedMVPredictorDivergence(t *testing.T) {
 	}
 }
 
+func TestCompareOracleTracesDetectsKeyFrameIntraModeDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := strings.Join([]string{
+		frameRow(0, 60, true, 0xdeadbeef),
+		"{\"type\":\"mb\",\"frame_index\":0,\"mb_row\":0,\"mb_col\":0,\"segment_id\":0,\"mode\":\"B_PRED\",\"ref_frame\":\"INTRA_FRAME\",\"mv_row\":0,\"mv_col\":0,\"skip\":false,\"uv_mode\":\"TM_PRED\",\"b_modes\":[\"B_DC_PRED\",\"B_TM_PRED\"],\"eob\":[1],\"eob_sum\":1,\"qcoeff\":[[1]],\"improved_mv_start\":false,\"improved_mv_near_sadidx\":-1,\"improved_mv_row\":0,\"improved_mv_col\":0,\"improved_mv_sr\":-1}",
+	}, "\n") + "\n"
+	libvpx := strings.Join([]string{
+		frameRow(0, 60, true, 0xdeadbeef),
+		"{\"type\":\"mb\",\"frame_index\":0,\"mb_row\":0,\"mb_col\":0,\"segment_id\":0,\"mode\":\"B_PRED\",\"ref_frame\":\"INTRA_FRAME\",\"mv_row\":0,\"mv_col\":0,\"skip\":false,\"uv_mode\":\"V_PRED\",\"b_modes\":[\"B_DC_PRED\",\"B_HE_PRED\"],\"eob\":[1],\"eob_sum\":1,\"qcoeff\":[[1]],\"improved_mv_start\":false,\"improved_mv_near_sadidx\":-1,\"improved_mv_row\":0,\"improved_mv_col\":0,\"improved_mv_sr\":-1}",
+	}, "\n") + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	for _, key := range []string{"row=1/field=uv_mode", "row=1/field=b_modes"} {
+		d, ok := got[key]
+		if !ok {
+			t.Fatalf("missing %s divergence; got: %v", key, divKeys(div))
+		}
+		if d.RowKind != "mb" || d.FrameIndex != 0 || d.MBRow != 0 || d.MBCol != 0 {
+			t.Fatalf("%s metadata = kind:%s frame:%d mb:(%d,%d), want mb frame 0 coords 0,0",
+				key, d.RowKind, d.FrameIndex, d.MBRow, d.MBCol)
+		}
+	}
+}
+
 // frameRowProbState emits a "frame" row carrying the probability-state
 // digests (coef_probs_adler, ymode_probs_adler, uv_mode_probs_adler,
 // mv_probs_adler) and the per-frame reference probabilities
