@@ -1156,6 +1156,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
 
@@ -1343,6 +1344,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	},
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
@@ -1372,11 +1374,14 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			candidate.searched = true
 			candidate.ok = true
 			candidate.mv = mv
+			candidate.start = start
 		}
 		if !candidate.ok {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
-		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}, true
+		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}
+		attachImprovedMVTrace(&mode, candidate.start)
+		return mode, true
 	default:
 		return vp8enc.InterFrameMacroblockMode{}, false
 	}
@@ -1396,6 +1401,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
 
@@ -1491,6 +1497,7 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	},
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
@@ -1520,11 +1527,14 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 			candidate.searched = true
 			candidate.ok = !mv.IsZero()
 			candidate.mv = mv
+			candidate.start = start
 		}
 		if !candidate.ok {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
-		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}, true
+		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}
+		attachImprovedMVTrace(&mode, candidate.start)
+		return mode, true
 	default:
 		// libvpx pickinter.c does not support SPLITMV in the non-RD picker.
 		return vp8enc.InterFrameMacroblockMode{}, false
@@ -3016,9 +3026,20 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src vp8enc.Sou
 }
 
 type interFrameSearchStart struct {
-	mv vp8enc.MotionVector
-	sr int
-	ok bool
+	mv           vp8enc.MotionVector
+	sr           int
+	nearSADIndex int
+	ok           bool
+}
+
+func attachImprovedMVTrace(mode *vp8enc.InterFrameMacroblockMode, start interFrameSearchStart) {
+	if mode == nil || !start.ok {
+		return
+	}
+	mode.ImprovedMVStart = true
+	mode.ImprovedMVNearSADIndex = int8(start.nearSADIndex)
+	mode.ImprovedMVSR = int8(start.sr)
+	mode.ImprovedMVPredictor = start.mv
 }
 
 func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFrameSearchStart) interAnalysisSearchConfig {
@@ -3075,11 +3096,11 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 			if rank < 3 {
 				sr = 3
 			}
-			return interFrameSearchStart{mv: slot.mv, sr: sr, ok: true}
+			return interFrameSearchStart{mv: slot.mv, sr: sr, nearSADIndex: order[rank], ok: true}
 		}
 	}
 	mv := improvedInterFrameMVMedian(slots, slotCount)
-	return interFrameSearchStart{mv: mv, sr: 0, ok: true}
+	return interFrameSearchStart{mv: mv, sr: 0, nearSADIndex: -1, ok: true}
 }
 
 func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {

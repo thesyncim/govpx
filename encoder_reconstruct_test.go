@@ -880,6 +880,9 @@ func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.
 	if !start.ok || start.mv != left.MV || start.sr != 3 {
 		t.Fatalf("improved search start = %+v, want left MV %+v with sr 3", start, left.MV)
 	}
+	if start.nearSADIndex != 1 {
+		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndex)
+	}
 	adjusted := search.adjustedForImprovedMVStart(start)
 	if adjusted.fullPixelSearchParam != 5 || adjusted.fullPixelFurtherSteps != 2 {
 		t.Fatalf("adjusted search = step %d further %d, want step 5 further 2", adjusted.fullPixelSearchParam, adjusted.fullPixelFurtherSteps)
@@ -917,6 +920,9 @@ func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T)
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, search)
 	if !start.ok || start.mv != e.lastFrameInterModes[1*4+1].MV || start.sr != 3 {
 		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, e.lastFrameInterModes[1*4+1].MV)
+	}
+	if start.nearSADIndex != 3 {
+		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndex)
 	}
 }
 
@@ -1999,6 +2005,7 @@ func TestInterModeForRDLoopEntryAllowsZeroNewMVOnFlatMatch(t *testing.T) {
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 
 	mode, ok := e.interModeForRDLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)
@@ -2024,6 +2031,7 @@ func TestFastInterModeForLoopEntryRejectsZeroNewMVOnFlatMatch(t *testing.T) {
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 
 	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, 1, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)
