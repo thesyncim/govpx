@@ -342,6 +342,17 @@ type VP8Encoder struct {
 	// EncoderOptions.OracleTraceWriter at frame end. Unused (nil) when the
 	// oracle trace is disabled.
 	oracleTraceMBBuffer []oracleTraceMBRow
+
+	// oracleTraceRecodeLoopCount counts encode-attempt iterations within the
+	// in-flight key/inter recode loop. Reset to 0 at the start of each loop
+	// and incremented per attempt; consumed when the rate/recode rows are
+	// emitted at frame commit. Unused outside the trace harness.
+	oracleTraceRecodeLoopCount int
+
+	// oracleTraceTotalByteCount accumulates the total bytes emitted across
+	// every committed frame, mirroring libvpx's cpi->total_byte_count for
+	// the rate-row oracle trace. Updated only when the trace is enabled.
+	oracleTraceTotalByteCount int64
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
@@ -686,6 +697,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				AltRef: attempt.Config.RefreshAltRef,
 			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
+			e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size)
 			e.emitOracleFrameTrace(oracleTraceFrameSummary{
 				FrameType:      vp8common.InterFrame,
 				BaseQIndex:     int(attempt.Config.BaseQIndex),
@@ -752,6 +764,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
+	e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size)
 	e.emitOracleFrameTrace(oracleTraceFrameSummary{
 		FrameType:     vp8common.KeyFrame,
 		BaseQIndex:    e.rc.currentQuantizer,
@@ -803,7 +816,9 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 
 func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(true, false)
+	e.oracleTraceRecodeLoopCount = 0
 	for attempt := 0; ; attempt++ {
+		e.oracleTraceRecodeLoopCount++
 		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
@@ -869,7 +884,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(false, boostedReferenceFrame)
+	e.oracleTraceRecodeLoopCount = 0
 	for attempt := 0; ; attempt++ {
+		e.oracleTraceRecodeLoopCount++
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err

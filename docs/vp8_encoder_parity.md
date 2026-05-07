@@ -102,10 +102,14 @@ the anchor and look for the surrounding mismatch.
   - libvpx side: in progress. The patched vpxenc lives in
     [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh),
     which adds a single `vp8/encoder/oracle_trace.c` translation unit
-    plus two `extern` hook calls in `encodeframe.c` (per-MB capture
-    inside `encode_mb_row`) and `bitstream.c` (per-frame flush at the
-    tail of `vp8_pack_bitstream`). Output is gated on
-    `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema.
+    plus `extern` hook calls in `encodeframe.c` (per-MB capture inside
+    `encode_mb_row`), `bitstream.c` (per-frame flush at the tail of
+    `vp8_pack_bitstream`), and `onyx_if.c` (per-frame "rate" row plus a
+    "recode" row when the recode loop iterated more than once, both
+    emitted just before `vp8_pack_bitstream`). The recode-loop iteration
+    count is tracked by a single `govpx_oracle_recode_iter()` call at
+    the top of the `encode_frame_to_data_rate` do-loop. Output is gated
+    on `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema.
   - Comparator: in place. The pure-Go
     [`CompareOracleTraces`](../internal/coracle/oracle_compare.go)
     helper walks both JSON Lines streams in lockstep and surfaces
@@ -116,13 +120,23 @@ the anchor and look for the surrounding mismatch.
     [`oracle_compare_test.go`](../internal/coracle/oracle_compare_test.go)
     cover identical streams, mismatched fields, missing rows, ignored
     fields, and type mismatches.
-  - Remaining: libvpx-side instrumentation in `pickinter.c`, `rdopt.c`,
-    `ratectrl.c`, and `onyx_if.c` for rate-control state and recode
-    reasons (the current libvpx-side patch only covers what govpx already
-    emits); a CI driver that runs both sides under
-    `make verify-production` so divergences gate merges; and extending
-    the govpx-side schema with rate-control state, residual decision,
-    probabilities, and per-frame loop-filter delta details.
+  - Covered now (rate / recode rows): both sides emit a `{"type":"rate", ...}`
+    row per encoded frame with `q_index`, `active_worst_quality`,
+    `active_best_quality`, `buffer_level`, `total_byte_count`,
+    `projected_frame_size`, `this_frame_target`, `kf_overspend_bits`,
+    and `gf_overspend_bits`; and a `{"type":"recode", ...}` row (with
+    `loop_count`, `final_q`, `reason`) whenever the recode loop
+    iterated more than once. Reason is one of `altref_src`,
+    `kf_forced_quality`, or `size_recode`; govpx currently always
+    reports `size_recode` because its recode loop does not yet model the
+    libvpx alt-ref / forced-key-frame branches.
+  - Remaining: libvpx-side instrumentation in `pickinter.c` and
+    `rdopt.c` for residual decisions and probability state; per-frame
+    loop-filter delta details and segmentation tree probabilities; a
+    CI driver that runs both sides under `make verify-production` so
+    divergences gate merges; and tightening govpx's recode reason
+    classifier once the alt-ref / forced-key recode branches are in
+    place.
   - Done when comparable JSON/CSV rows expose frame state, rate-control state,
     per-MB mode decision, residual decision, probabilities, segmentation, loop
     filter, and reference updates.
@@ -139,8 +153,16 @@ the anchor and look for the surrounding mismatch.
     index, frame index, MB coordinates, field name, and both decoded
     values).
   - Remaining: a CI hook that fails on the first divergence, plus
-    libvpx-side coverage of the rate-control / probability / partition
-    fields once the govpx-side schema grows to include them.
+    libvpx-side coverage of the residual / probability / partition
+    fields once the govpx-side schema grows to include them. The
+    rate-control state and recode-reason coverage is in place via the
+    `rate` and `recode` rows emitted from
+    [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
+    and the matching emitters in
+    [`encoder_oracle_trace.go`](../encoder_oracle_trace.go); the
+    comparator in
+    [`oracle_compare.go`](../internal/coracle/oracle_compare.go)
+    surfaces field-level divergences for those rows generically.
   - Done when the comparator fails CI on the first divergent frame, MB, header,
     probability, reference, or segmentation field and prints enough state to
     identify govpx, libvpx instrumentation, or harness-config mismatches.

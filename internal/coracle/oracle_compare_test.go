@@ -31,6 +31,40 @@ func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) strin
 	}, ",")
 }
 
+// rateRow returns a JSON Lines-encoded "rate" row matching the schema in
+// encoder_oracle_trace.go (oracleTraceRateRow). The helper takes the rare
+// fields likely to vary in tests; the rest stay at deterministic defaults
+// so the comparator's union-of-keys diff stays focused on the field under
+// test.
+func rateRow(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameTarget, kfOverspend int) string {
+	return strings.Join([]string{
+		"{\"type\":\"rate\"",
+		fmt.Sprintf("\"frame_index\":%d", frameIndex),
+		"\"frame_type\":\"inter\"",
+		fmt.Sprintf("\"q_index\":%d", qIndex),
+		fmt.Sprintf("\"active_worst_quality\":%d", activeWorst),
+		"\"active_best_quality\":4",
+		fmt.Sprintf("\"buffer_level\":%d", bufferLevel),
+		"\"total_byte_count\":0",
+		fmt.Sprintf("\"projected_frame_size\":%d", projected),
+		fmt.Sprintf("\"this_frame_target\":%d", frameTarget),
+		fmt.Sprintf("\"kf_overspend_bits\":%d", kfOverspend),
+		"\"gf_overspend_bits\":0}",
+	}, ",")
+}
+
+// recodeRow returns a JSON Lines-encoded "recode" row matching the schema
+// in encoder_oracle_trace.go (oracleTraceRecodeRow).
+func recodeRow(frameIndex, loopCount, finalQ int, reason string) string {
+	return strings.Join([]string{
+		"{\"type\":\"recode\"",
+		fmt.Sprintf("\"frame_index\":%d", frameIndex),
+		fmt.Sprintf("\"loop_count\":%d", loopCount),
+		fmt.Sprintf("\"final_q\":%d", finalQ),
+		fmt.Sprintf("\"reason\":%q}", reason),
+	}, ",")
+}
+
 func mbRowJSON(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int, skip bool, eobSum int) string {
 	return strings.Join([]string{
 		"{\"type\":\"mb\"",
@@ -207,6 +241,129 @@ func TestCompareOracleTracesTypeMismatch(t *testing.T) {
 	}
 	if div[0].RowKind != "type_mismatch" {
 		t.Errorf("RowKind=%q want type_mismatch", div[0].RowKind)
+	}
+}
+
+func TestCompareOracleTracesDetectsRateRowDivergence(t *testing.T) {
+	t.Parallel()
+
+	// govpx and libvpx agree on the frame and MB rows but diverge on the
+	// rate row's q_index, active_worst_quality, buffer_level, and
+	// projected_frame_size. The comparator should surface each field-level
+	// mismatch with RowKind == "rate" and the right frame index.
+	govpx := strings.Join([]string{
+		rateRow(0, 60, 80, 50000, 9872, 12000, 0),
+		frameRow(0, 60, true, 0xdeadbeef),
+		mbRowJSON(0, 0, 0, "ZEROMV", "LAST_FRAME", 0, 0, false, 1),
+	}, "\n") + "\n"
+
+	libvpx := strings.Join([]string{
+		rateRow(0, 61, 79, 49000, 10000, 12000, 0),
+		frameRow(0, 60, true, 0xdeadbeef),
+		mbRowJSON(0, 0, 0, "ZEROMV", "LAST_FRAME", 0, 0, false, 1),
+	}, "\n") + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) == 0 {
+		t.Fatalf("expected divergences, got none")
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	wantKeys := []string{
+		"row=0/field=q_index",
+		"row=0/field=active_worst_quality",
+		"row=0/field=buffer_level",
+		"row=0/field=projected_frame_size",
+	}
+	for _, key := range wantKeys {
+		d, ok := got[key]
+		if !ok {
+			t.Errorf("missing divergence for %s; got divergences: %v", key, divKeys(div))
+			continue
+		}
+		if d.RowKind != "rate" {
+			t.Errorf("%s: RowKind=%q want rate", key, d.RowKind)
+		}
+		if d.FrameIndex != 0 {
+			t.Errorf("%s: FrameIndex=%d want 0", key, d.FrameIndex)
+		}
+		if d.MBRow != -1 || d.MBCol != -1 {
+			t.Errorf("%s: coords=(%d,%d) want (-1,-1)", key, d.MBRow, d.MBCol)
+		}
+	}
+	// Spot-check the q_index payload reflects the actual feed values.
+	q := got["row=0/field=q_index"]
+	if gf, _ := q.Govpx.(float64); gf != 60 {
+		t.Errorf("row=0/field=q_index: Govpx=%v want 60", q.Govpx)
+	}
+	if lf, _ := q.Libvpx.(float64); lf != 61 {
+		t.Errorf("row=0/field=q_index: Libvpx=%v want 61", q.Libvpx)
+	}
+}
+
+func TestCompareOracleTracesDetectsRecodeRowDivergence(t *testing.T) {
+	t.Parallel()
+
+	// govpx records a 3-iteration size_recode terminating at Q=58 while
+	// libvpx records a 4-iteration kf_forced_quality terminating at Q=60.
+	// All three fields (loop_count, final_q, reason) must surface as
+	// divergences with RowKind == "recode".
+	govpx := strings.Join([]string{
+		rateRow(0, 58, 80, 50000, 9872, 12000, 0),
+		recodeRow(0, 3, 58, "size_recode"),
+		frameRow(0, 58, true, 0xdeadbeef),
+	}, "\n") + "\n"
+
+	libvpx := strings.Join([]string{
+		rateRow(0, 58, 80, 50000, 9872, 12000, 0),
+		recodeRow(0, 4, 60, "kf_forced_quality"),
+		frameRow(0, 58, true, 0xdeadbeef),
+	}, "\n") + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	wantKeys := []string{
+		"row=1/field=loop_count",
+		"row=1/field=final_q",
+		"row=1/field=reason",
+	}
+	for _, key := range wantKeys {
+		d, ok := got[key]
+		if !ok {
+			t.Errorf("missing divergence for %s; got divergences: %v", key, divKeys(div))
+			continue
+		}
+		if d.RowKind != "recode" {
+			t.Errorf("%s: RowKind=%q want recode", key, d.RowKind)
+		}
+		if d.FrameIndex != 0 {
+			t.Errorf("%s: FrameIndex=%d want 0", key, d.FrameIndex)
+		}
+	}
+	// Spot-check the reason payload is reported as the literal string.
+	reason := got["row=1/field=reason"]
+	if reason.Govpx != "size_recode" || reason.Libvpx != "kf_forced_quality" {
+		t.Errorf("row=1/field=reason: values=(%v,%v) want (size_recode, kf_forced_quality)",
+			reason.Govpx, reason.Libvpx)
+	}
+	// loop_count and final_q decode as float64 from JSON.
+	loop := got["row=1/field=loop_count"]
+	if gf, _ := loop.Govpx.(float64); gf != 3 {
+		t.Errorf("row=1/field=loop_count: Govpx=%v want 3", loop.Govpx)
+	}
+	if lf, _ := loop.Libvpx.(float64); lf != 4 {
+		t.Errorf("row=1/field=loop_count: Libvpx=%v want 4", loop.Libvpx)
 	}
 }
 

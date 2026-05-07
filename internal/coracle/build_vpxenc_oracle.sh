@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-rate-recode
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -334,6 +334,79 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
     fflush(out);
     govpx_oracle_state.frame_index++;
 }
+
+/* Per-frame recode-loop counter. Reset by govpx_oracle_emit_rate after the
+ * row is flushed, incremented from the top of encode_frame_to_data_rate's
+ * recode loop body. The counter lives here so the patch only touches
+ * onyx_if.c with two narrow anchor edits. */
+static int govpx_recode_iter_count;
+
+void govpx_oracle_recode_iter(void) {
+    govpx_recode_iter_count++;
+}
+
+/* Emit per-frame rate-control state and (when the recode loop ran more than
+ * once) a "recode" row capturing loop count, final Q, and an inferred reason
+ * for why the loop terminated. Called from encode_frame_to_data_rate just
+ * before vp8_pack_bitstream so cpi state reflects the accepted attempt. */
+void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
+    VP8_COMMON *cm;
+    FILE *out;
+    const char *reason;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        govpx_recode_iter_count = 0;
+        return;
+    }
+    cm = &cpi->common;
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"rate\","
+            "\"frame_index\":%llu,"
+            "\"frame_type\":\"%s\","
+            "\"q_index\":%d,"
+            "\"active_worst_quality\":%d,"
+            "\"active_best_quality\":%d,"
+            "\"buffer_level\":%lld,"
+            "\"total_byte_count\":%lld,"
+            "\"projected_frame_size\":%d,"
+            "\"this_frame_target\":%d,"
+            "\"kf_overspend_bits\":%d,"
+            "\"gf_overspend_bits\":%d}\n",
+            govpx_oracle_state.frame_index,
+            cm->frame_type == KEY_FRAME ? "key" : "inter",
+            final_q,
+            cpi->active_worst_quality,
+            cpi->active_best_quality,
+            (long long)cpi->buffer_level,
+            (long long)cpi->total_byte_count,
+            cpi->projected_frame_size,
+            cpi->this_frame_target,
+            cpi->kf_overspend_bits,
+            cpi->gf_overspend_bits);
+    if (govpx_recode_iter_count > 1) {
+        if (cpi->is_src_frame_alt_ref) {
+            reason = "altref_src";
+        } else if (cm->frame_type == KEY_FRAME && cpi->this_key_frame_forced) {
+            reason = "kf_forced_quality";
+        } else {
+            reason = "size_recode";
+        }
+        fprintf(out,
+                "{\"type\":\"recode\","
+                "\"frame_index\":%llu,"
+                "\"loop_count\":%d,"
+                "\"final_q\":%d,"
+                "\"reason\":\"%s\"}\n",
+                govpx_oracle_state.frame_index,
+                govpx_recode_iter_count,
+                final_q,
+                reason);
+    }
+    fflush(out);
+    govpx_recode_iter_count = 0;
+}
 GOVPX_ORACLE_TU
 
 	# (2) Add extern declarations + the per-MB capture call to encodeframe.c.
@@ -437,6 +510,70 @@ text = text[:j] + insertion + text[j:]
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_BITSTREAM_TAIL_PY
+
+	# (3.5) Add extern declarations + the per-frame rate/recode emit + the
+	# per-iteration counter increment to onyx_if.c. Two anchor edits:
+	#   - just after "  do {\n    vpx_clear_system_state();" inside
+	#     encode_frame_to_data_rate (the recode loop body).
+	#   - immediately before the unique
+	#     "vp8_pack_bitstream(cpi, dest, dest_end, size);" call site.
+	# The extern declarations go at the top of the encoder section, right
+	# after the existing "extern void vp8cx_init_quantizer(...)" header which
+	# is unique in v1.16.0.
+	python3 - "$src_dir/vp8/encoder/onyx_if.c" <<'GOVPX_ONYX_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: rate/recode emit hook. */'
+if sentinel in text:
+    sys.exit(0)  # already patched
+# Anchor 1: inject extern declarations directly after the "extern void
+# vp8cx_init_quantizer" line (unique in v1.16.0). If absent, fall back to
+# inserting after the first "#include \"onyx_int.h\"" so the patch still
+# compiles.
+decl = ('extern void govpx_oracle_recode_iter(void);\n'
+        'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n')
+ext_anchor = 'extern void vp8cx_init_quantizer(VP8_COMP *cpi);'
+if ext_anchor in text:
+    text = text.replace(ext_anchor, ext_anchor + '\n' + decl, 1)
+else:
+    inc_anchor = '#include "vp8/encoder/onyx_int.h"'
+    if inc_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: extern anchor missing in onyx_if.c\n')
+        sys.exit(2)
+    text = text.replace(inc_anchor, inc_anchor + '\n\n' + decl, 1)
+# Anchor 2: increment the per-frame loop counter at the top of the recode
+# loop body inside encode_frame_to_data_rate. The unique pattern is
+# "  do {\n    vpx_clear_system_state();\n\n    vp8_set_quantizer(cpi, Q);"
+# (the only do-loop in the file that pairs vpx_clear_system_state() with
+# vp8_set_quantizer at this indentation).
+loop_anchor = ('  do {\n'
+               '    vpx_clear_system_state();\n'
+               '\n'
+               '    vp8_set_quantizer(cpi, Q);')
+loop_replacement = ('  do {\n'
+                    '    /* govpx oracle: count recode-loop iterations. */\n'
+                    '    govpx_oracle_recode_iter();\n'
+                    '    vpx_clear_system_state();\n'
+                    '\n'
+                    '    vp8_set_quantizer(cpi, Q);')
+if loop_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: recode-loop anchor missing in onyx_if.c\n')
+    sys.exit(2)
+text = text.replace(loop_anchor, loop_replacement, 1)
+# Anchor 3: emit rate/recode rows immediately before vp8_pack_bitstream.
+pack_anchor = '  vp8_pack_bitstream(cpi, dest, dest_end, size);'
+if pack_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pack_bitstream anchor missing in onyx_if.c\n')
+    sys.exit(2)
+pack_replacement = ('  ' + sentinel + '\n'
+                    '  govpx_oracle_emit_rate(cpi, Q);\n'
+                    + pack_anchor)
+text = text.replace(pack_anchor, pack_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_ONYX_PY
 
 	# (4) Wire the new TU into the makefile.
 	if ! grep -q 'encoder/oracle_trace\.c' "$src_dir/vp8/vp8cx.mk"; then
