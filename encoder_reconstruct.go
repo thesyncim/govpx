@@ -1854,13 +1854,9 @@ func selectInterFrameSplitSubsetMotionModeWithSearch(src vp8enc.SourceImage, ref
 // label RD cost is already below it, the NEW4X4 motion search is skipped
 // — matching `if (best_label_rd < label_mv_thresh) break;` in libvpx.
 //
-// The picker continues to rank candidates by SAD + sub-MV-rate (the
-// historical govpx ordering), but the gate compares an RDCOST-shaped
-// score so the threshold matches libvpx's bsi->mvthresh space. The
-// gate score is RDCOST(label_rate, label_SAD), which mirrors the
-// vp8_rd_pick_best_mbsegmentation/rd_check_segment definition where
-// `this_rd = RDCOST(rdmult, rddiv, rate, distortion)` and distortion is
-// the per-label residual error.
+// Candidate ranking uses the same RDCOST(rate, distortion) shape as
+// rd_check_segment. The current distortion proxy is the label SAD; full
+// transform/token segment RD remains tracked in the parity checklist.
 func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, subset int, width int, height int, bestRefMV vp8enc.MotionVector, searchCenter vp8enc.MotionVector, stepParam int, fullSearchFallback bool, qIndex int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8, labelMVThresh int) (vp8enc.MotionVector, vp8common.BPredictionMode) {
 	block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
 	leftMV := analysisSplitLeftMV(mode, left, block)
@@ -1868,19 +1864,16 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	bestMV := leftMV
 	bestMode := vp8common.Left4x4
 	bestSAD := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV)
-	bestCost := bestSAD + splitSubMotionLabelSearchCostWithContext(bestMode, leftMV, aboveMV, qIndex)
-	bestLabelRate := splitSubMotionLabelRate(bestMode, leftMV, aboveMV)
-	bestLabelDist := bestSAD
+	bestRD := splitMotionLabelRDScore(qIndex, splitSubMotionLabelRate(bestMode, leftMV, aboveMV), bestSAD)
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
 		sad := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv)
-		cost := sad + splitSubMotionLabelSearchCostWithContext(candidateMode, leftMV, aboveMV, qIndex)
-		if cost < bestCost {
-			bestCost = cost
+		rate := splitSubMotionLabelRate(candidateMode, leftMV, aboveMV)
+		rd := splitMotionLabelRDScore(qIndex, rate, sad)
+		if rd < bestRD {
+			bestRD = rd
 			bestMV = mv
 			bestMode = candidateMode
-			bestLabelRate = splitSubMotionLabelRate(candidateMode, leftMV, aboveMV)
-			bestLabelDist = sad
 		}
 	}
 
@@ -1895,25 +1888,29 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	// is disabled (labelMVThresh == 0) we keep the legacy behavior of
 	// always running the NEW4X4 search. We compare in RDCOST space so
 	// the threshold matches the libvpx rd_threshes scale.
-	if labelMVThresh > 0 {
-		bestRD := rdModeScoreWithZbin(qIndex, 0, bestLabelRate, bestLabelDist)
-		if bestRD < labelMVThresh {
-			return bestMV, bestMode
-		}
+	if labelMVThresh > 0 && bestRD < labelMVThresh {
+		return bestMV, bestMode
 	}
 
-	newMV, newCost := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, stepParam, fullSearchFallback)
+	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, stepParam, fullSearchFallback)
 	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVector(src, ref, mbRow, mbCol, block, width, height, newMV, bestRefMV, qIndex, search, mvProbs); ok {
 		newMV = refinedMV
-		newCost = interMotionSplitBlockSearchCost(src, ref, mbRow, mbCol, block, width, height, refinedMV, bestRefMV, qIndex)
 	}
-	newCost += splitSubMotionLabelSearchCostWithContext(vp8common.New4x4, leftMV, aboveMV, qIndex)
-	if newCost < bestCost {
+	newRate := splitSubMotionLabelRate(vp8common.New4x4, leftMV, aboveMV)
+	delta := vp8enc.MotionVector{Row: int16(int(newMV.Row) - int(bestRefMV.Row)), Col: int16(int(newMV.Col) - int(bestRefMV.Col))}
+	newRate += splitMotionVectorCost(delta, mvProbs)
+	newDist := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, newMV)
+	newRD := splitMotionLabelRDScore(qIndex, newRate, newDist)
+	if newRD < bestRD {
 		bestMV = newMV
 		bestMode = vp8common.New4x4
 	}
 
 	return bestMV, bestMode
+}
+
+func splitMotionLabelRDScore(qIndex int, rate int, distortion int) int {
+	return rdModeScoreWithZbin(qIndex, 0, rate, distortion)
 }
 
 type splitMotionSearchSeeds struct {

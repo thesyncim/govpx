@@ -746,9 +746,9 @@ the anchor and look for the surrounding mismatch.
     `TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias`,
     `TestImprovedInterFrameSearchStartBiasesCurrentSlots`, and
     `TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots`.
-  - The full SplitMV label-level RD search now mirrors libvpx's
+  - The SplitMV label-level search now follows libvpx's
     `rd_check_segment` per-label `LEFT4X4 / ABOVE4X4 / ZERO4X4 / NEW4X4`
-    trial structure with `THR_NEW1/2/3` gating: `selectRDInterFrameModeDecision`
+    trial and gating shape: `selectRDInterFrameModeDecision`
     pulls the current SPLITMV+NEW threshold from the same
     `interModeRDThresholdsForReferences` table using the compacted libvpx
     reference search slot (`vp8_ref_frame_order[mode_index]`), not the
@@ -763,9 +763,13 @@ the anchor and look for the surrounding mismatch.
     `if (best_label_rd < label_mv_thresh) break;` from
     `rd_check_segment` and using an RDCOST-shaped comparison with the same
     left/above contextual sub-MV label rate used by final SplitMV accounting so
-    the threshold scale lines up with libvpx's `rd_threshes`. Tests:
+    the threshold scale lines up with libvpx's `rd_threshes`. Candidate labels
+    are also ranked in `RDCOST(label_rate + NEW_MV_rate, label_SAD)` space
+    instead of the older `SAD + scaled label cost` proxy; full transform/token
+    segment RD remains in the SPLITMV checklist. Tests:
     `TestSplitMVSubsearchThresholdUsesReferenceSearchSlot` and
-    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`. The split RD
+    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`,
+    plus `TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD`. The split RD
     decision (`selectInterFrameSplitMotionDecisionRDWithThreshold`) now
     also returns the full `other_cost` / Y-RD breakdown libvpx accumulates
     in `vp8_rd_pick_inter_mode` after `vp8_rd_pick_best_mbsegmentation`:
@@ -906,9 +910,9 @@ the anchor and look for the surrounding mismatch.
     `libvpxSplitMVSubsearchThreshold` (slot index from the compacted libvpx
     reference search order, not the absolute LAST/GOLDEN/ALTREF enum) into
     `selectInterFrameSplitMotionModeWithSearchAndThreshold`, which divides
-    by `label_count` and per-label compares
-    `RDCOST(label_rate, label_SAD)` against the threshold to short-circuit
-    the NEW4X4 motion search — mirroring libvpx
+    by `label_count` and per-label compares and ranks
+    `RDCOST(label_rate + NEW_MV_rate, label_SAD)` to short-circuit
+    the NEW4X4 motion search and pick LEFT/ABOVE/ZERO/NEW labels — mirroring libvpx
     `rd_check_segment`'s `if (best_label_rd < label_mv_thresh) break;`
     guard. Exact `other_cost` / Y-RD side accounting is now exposed on
     `interSplitMVRDDecision` via `OtherCost`, `RefCost`, `TotalRate`,
@@ -920,9 +924,10 @@ the anchor and look for the surrounding mismatch.
     picker. Tests:
     `TestSelectInterFrameSplitMotionLabelLevelTrials`,
     `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`, and
+    `TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD`,
     `TestSelectInterFrameSplitMotionOtherCostBreakdown`.
-    Remaining search-shape work is broader oracle coverage. Token-context
-    commit parity remains open.
+    Remaining full label-RD work is transform/quant token segment RD and
+    broader oracle coverage. Token-context commit parity remains open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

@@ -1243,8 +1243,11 @@ func TestSelectInterFrameSplitSubsetMotionModeRefinesNew4x4Subpixel(t *testing.T
 		}
 	}
 	ref.ExtendBorders()
-	refStart := ref.Img.YFull[ref.Img.YOrigin-2*ref.Img.YStride-2:]
-	dsp.SixTapPredict4x4(refStart, ref.Img.YStride, 2, 2, src.Y, src.YStride)
+	targetMV := vp8enc.MotionVector{Row: 18, Col: 18}
+	refBaseY := int(targetMV.Row >> 3)
+	refBaseX := int(targetMV.Col >> 3)
+	refStart := ref.Img.YFull[ref.Img.YOrigin+(refBaseY-2)*ref.Img.YStride+refBaseX-2:]
+	dsp.SixTapPredict4x4(refStart, ref.Img.YStride, int(targetMV.Col)&7, int(targetMV.Row)&7, src.Y, src.YStride)
 
 	mode := vp8enc.InterFrameMacroblockMode{
 		RefFrame:  vp8common.LastFrame,
@@ -1258,7 +1261,7 @@ func TestSelectInterFrameSplitSubsetMotionModeRefinesNew4x4Subpixel(t *testing.T
 	if bMode != vp8common.New4x4 || (int(mv.Row)&7 == 0 && int(mv.Col)&7 == 0) {
 		t.Fatalf("subset candidate = %+v/%v, want NEW4X4 subpixel MV", mv, bMode)
 	}
-	if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{Row: 2, Col: 2}); sad != 0 {
+	if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, targetMV); sad != 0 {
 		t.Fatalf("subpixel split SAD = %d, want exact predictor match", sad)
 	}
 }
@@ -2778,6 +2781,66 @@ func TestSplitSubMotionLabelSearchCostUsesAnalysisContext(t *testing.T) {
 	}
 	if got == splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex) {
 		t.Fatalf("contextual ABOVE4X4 search cost matched default cost %d; want left/above context to affect SplitMV search", got)
+	}
+}
+
+func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
+	leftMV := vp8enc.MotionVector{Col: 32}
+	aboveMV := leftMV
+	leftRate := splitSubMotionLabelRate(vp8common.Left4x4, leftMV, aboveMV)
+	zeroRate := splitSubMotionLabelRate(vp8common.Zero4x4, leftMV, aboveMV)
+	qIndex, leftDiff, zeroDiff := -1, -1, -1
+	for q := 0; q < vp8common.QIndexRange && leftDiff < 0; q++ {
+		sadPerBit := libvpxSADPerBit4(q)
+		for ld := 0; ld <= 127 && leftDiff < 0; ld++ {
+			for zd := 0; zd <= 127; zd++ {
+				leftSAD := ld * 16
+				zeroSAD := zd * 16
+				oldLeft := leftSAD + ((leftRate*sadPerBit + 128) >> 8)
+				oldZero := zeroSAD + ((zeroRate*sadPerBit + 128) >> 8)
+				rdLeft := splitMotionLabelRDScore(q, leftRate, leftSAD)
+				rdZero := splitMotionLabelRDScore(q, zeroRate, zeroSAD)
+				if oldLeft < oldZero && rdZero < rdLeft {
+					qIndex, leftDiff, zeroDiff = q, ld, zd
+					break
+				}
+			}
+		}
+	}
+	if leftDiff < 0 {
+		t.Fatalf("failed to find split-label fixture with divergent SAD+rate and RDCOST ordering (leftRate=%d zeroRate=%d)", leftRate, zeroRate)
+	}
+
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	ref := testVP8Frame(t, 32, 32, 255, 128, 128)
+	for row := 0; row < 4; row++ {
+		for col := 0; col < 4; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte(128 + zeroDiff)
+			ref.Img.Y[row*ref.Img.YStride+col+4] = byte(128 + leftDiff)
+		}
+	}
+	ref.ExtendBorders()
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 3,
+	}
+	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV, Partition: 3}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV, Partition: 3}
+	for block := 0; block < 16; block++ {
+		left.BlockMV[block] = leftMV
+		above.BlockMV[block] = aboveMV
+	}
+	width, height := splitMotionPartitionBlockSize(int(mode.Partition))
+	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(
+		sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height,
+		vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, false, qIndex,
+		&left, &above, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext, maxInt(),
+	)
+	if bMode != vp8common.Zero4x4 || mv != (vp8enc.MotionVector{}) {
+		t.Fatalf("split-label choice = %v/%+v, want ZERO4X4 by RDCOST ordering (leftDiff=%d zeroDiff=%d)", bMode, mv, leftDiff, zeroDiff)
 	}
 }
 
