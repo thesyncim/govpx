@@ -329,7 +329,13 @@ the anchor and look for the surrounding mismatch.
     it like libvpx. Frame-level quant deltas now match libvpx
     `vp8_set_quantizer`: low-Q frames write and use `y2dc_delta_q = 4 - Q`,
     and screen-content frames above Q40 write and use clamped negative UV
-    DC/AC deltas.
+    DC/AC deltas. The whole-block coefficient rate
+    (`coefficientBlockTokenRate`) is anchored against libvpx's
+    `cost_coeffs`, including the `skip_eob_node` subtree elision when the
+    prior token's `prev_token_class == 0` and the band exceeds the plane
+    threshold, by `TestCoefCoeffsParityMatchesReferenceWalk` and
+    `TestCoefCoeffsParityIncrementalMatchesWholeBlock` in
+    `encoder_cost_coeffs_parity_test.go`.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
