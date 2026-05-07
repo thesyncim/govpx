@@ -4683,3 +4683,191 @@ func TestRecodeLoopResetsTokenContext(t *testing.T) {
 		t.Fatalf("recode coefficient drift: corrupted e.tokenAbove leaked across attempts")
 	}
 }
+
+// splitMVDecisionRDFixture builds the deterministic SPLITMV-friendly fixture
+// shared by the transform-domain RD assertions below. The shape mirrors
+// TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual: the
+// luma top half shifts by one column, the bottom half is identity, the
+// per-4x4 DC offsets push the residual above the inter zbin so blocks
+// quantize to non-zero coefficients, and chroma is matched so UV residual
+// only comes from the encoder-derived 8x8 chroma sub-pel filter taps.
+func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Image, *vp8common.FrameBuffer, vp8enc.MacroblockQuant, int) {
+	t.Helper()
+	const w, h = 32, 32
+	src := testImage(w, h)
+	fillImage(src, 0, 128, 128)
+	ref := testVP8Frame(t, w, h, 0, 128, 128)
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*11 + col*col*23 + row*col*5 + 7) & 255)
+		}
+	}
+	uvWidth := (w + 1) >> 1
+	uvHeight := (h + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			ref.Img.U[row*ref.Img.UStride+col] = byte((row*19 ^ col*13) & 255)
+			ref.Img.V[row*ref.Img.VStride+col] = byte((row*7 + col*29 + 41) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
+	copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 0, 0)
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			block := (row>>2)*4 + (col >> 2)
+			delta := 60
+			if block&1 == 0 {
+				delta = -60
+			}
+			pixel := int(src.Y[row*src.YStride+col]) + delta
+			if pixel < 0 {
+				pixel = 0
+			} else if pixel > 255 {
+				pixel = 255
+			}
+			src.Y[row*src.YStride+col] = byte(pixel)
+		}
+	}
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			src.U[row*src.UStride+col] = ref.Img.U[row*ref.Img.UStride+col]
+			src.V[row*src.VStride+col] = ref.Img.V[row*ref.Img.VStride+col]
+		}
+	}
+	ref.ExtendBorders()
+
+	pred := &vp8common.FrameBuffer{}
+	if err := pred.Resize(w, h, 32, 32); err != nil {
+		t.Fatalf("pred.Resize: %v", err)
+	}
+
+	const splitRDQIndex = testInterSearchQIndex
+	var (
+		dequantTables vp8common.FrameDequantTables
+		dequant       vp8common.MacroblockDequant
+		quant         vp8enc.MacroblockQuant
+	)
+	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &dequantTables)
+	vp8common.InitMacroblockDequant(&dequantTables, splitRDQIndex, &dequant)
+	vp8enc.InitRegularMacroblockQuant(splitRDQIndex, &dequant, &quant)
+
+	return sourceImageFromPublic(src), &ref.Img, pred, quant, splitRDQIndex
+}
+
+// TestSplitMVDecisionRDUsesTransformDomainRate pins
+// selectInterFrameSplitMotionDecisionRDWithThreshold's rate accounting to
+// libvpx's rd_check_segment + vp8_rd_pick_inter_mode SPLITMV path. After
+// vp8_rd_pick_best_mbsegmentation commits the per-subblock luma MVs, the
+// SPLITMV branch runs forward DCT + vp8_quantize_b + cost_coeffs over all
+// 16 luma 4x4 blocks (block_type=3 / Y_WITH_DC) and over all 8 chroma 4x4
+// blocks (block_type=2 / UV) — distinct from the per-label SAD + MV-cost
+// trial inside rd_check_segment. This test asserts the rate path is the
+// transform-domain one (YRate must be strictly positive on a fixture that
+// generates non-zero residual), the chroma path runs (UVRate >= 0), and
+// the rate2 breakdown
+//
+//	rate2 = rate_y + rate_uv + other_cost + ref_frame_cost
+//
+// from update_best_mode is reproduced exactly on the returned decision.
+func TestSplitMVDecisionRDUsesTransformDomainRate(t *testing.T) {
+	src, ref, pred, quant, qIndex := splitMVDecisionRDFixture(t)
+	const otherCost = 73
+	const refCost = 41
+	decision, ok := selectInterFrameSplitMotionDecisionRDWithThreshold(
+		src, ref, vp8common.LastFrame,
+		0, 0, vp8enc.MotionVector{}, qIndex, 0,
+		&quant, nil, nil, &vp8tables.DefaultCoefProbs, &pred.Img,
+		0, false, true,
+		0, otherCost, refCost,
+	)
+	if !ok {
+		t.Fatalf("selectInterFrameSplitMotionDecisionRDWithThreshold returned false")
+	}
+	if decision.Mode.Mode != vp8common.SplitMV {
+		t.Fatalf("decision.Mode.Mode = %v, want SplitMV", decision.Mode.Mode)
+	}
+	// Transform-domain rate must be strictly positive: the fixture's
+	// per-4x4 DC offsets push the residual above the inter zbin so each
+	// luma 4x4 block emits at least the DC coefficient through cost_coeffs
+	// (block_type=3). Prior to wiring the per-block transform/quant path
+	// into the SPLITMV decision the rate was a SAD-derived estimate that
+	// would not cleanly track this fixture.
+	if decision.YRate <= 0 {
+		t.Fatalf("YRate = %d, want strictly positive transform-domain rate", decision.YRate)
+	}
+	if decision.UVRate < 0 {
+		t.Fatalf("UVRate = %d, want >= 0", decision.UVRate)
+	}
+	// rate2 breakdown from update_best_mode in vp8_rd_pick_inter_mode:
+	//   rate2 = rate_y (label tree + sub-MV-mode + MV cost + cost_coeffs Y) +
+	//           rate_uv (rd_inter4x4_uv cost_coeffs UV) +
+	//           other_cost (default no-skip / skip backout) +
+	//           x->ref_frame_cost[ref_frame]
+	wantRate := decision.YRate + decision.UVRate + decision.OtherCost + decision.RefCost
+	if decision.TotalRate != wantRate {
+		t.Fatalf("TotalRate = %d, want YRate+UVRate+OtherCost+RefCost = %d (Y=%d UV=%d other=%d ref=%d)", decision.TotalRate, wantRate, decision.YRate, decision.UVRate, decision.OtherCost, decision.RefCost)
+	}
+	if decision.Rate2 != decision.TotalRate {
+		t.Fatalf("Rate2 = %d, want TotalRate %d", decision.Rate2, decision.TotalRate)
+	}
+	if decision.OtherCost != otherCost || decision.RefCost != refCost {
+		t.Fatalf("OtherCost/RefCost = %d/%d, want %d/%d", decision.OtherCost, decision.RefCost, otherCost, refCost)
+	}
+}
+
+// TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError asserts the
+// distortion stored on interSplitMVRDDecision matches a libvpx-faithful
+// per-4x4-block forward-DCT + quantize + (coeff - dqcoeff)^2 sum,
+// independently recomputed from the SPLITMV predictor. This pins the
+// SPLITMV RD score to vp8_encode_inter_mb_segment's
+//
+//	distortion = vp8_block_error(coeff, dqcoeff) summed across 4x4 blocks,
+//	then >> 2 (matching libvpx's vp8_encode_inter_mb_segment / 4)
+//
+// instead of any pixel-domain SAD/SSE proxy. Chroma follows the same
+// transform-domain accounting via the rd_inter4x4_uv path.
+func TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError(t *testing.T) {
+	src, ref, pred, quant, qIndex := splitMVDecisionRDFixture(t)
+	decision, ok := selectInterFrameSplitMotionDecisionRD(
+		src, ref, vp8common.LastFrame,
+		0, 0, vp8enc.MotionVector{}, qIndex, 0,
+		&quant, nil, nil, &vp8tables.DefaultCoefProbs, &pred.Img,
+		0, false, true,
+	)
+	if !ok {
+		t.Fatalf("selectInterFrameSplitMotionDecisionRD returned false")
+	}
+	if decision.Mode.Mode != vp8common.SplitMV {
+		t.Fatalf("decision.Mode.Mode = %v, want SplitMV", decision.Mode.Mode)
+	}
+	// pred now holds the committed SPLITMV predictor. Re-run the same
+	// per-4x4-block forward-DCT + quantize + transform-error sum the
+	// SPLITMV RD path uses, independently, and compare to the returned
+	// distortion. We feed the second pass a fresh MacroblockCoefficients
+	// so it cannot reuse anything from the first pass.
+	var coeffs vp8enc.MacroblockCoefficients
+	stats := buildPredictedMacroblockCoefficientsRD(
+		&vp8tables.DefaultCoefProbs, src, 0, 0, &pred.Img,
+		nil, nil, &quant, qIndex, 0, splitInterModeZbinBoost,
+		true, false, false, true, &coeffs,
+	)
+	if stats.distortionY != decision.YDist {
+		t.Fatalf("YDist = %d, want per-block transform-error sum %d", decision.YDist, stats.distortionY)
+	}
+	if stats.distortionUV != decision.UVDist {
+		t.Fatalf("UVDist = %d, want per-block transform-error sum %d", decision.UVDist, stats.distortionUV)
+	}
+	if stats.rateY != decision.YRate {
+		t.Fatalf("YRate = %d, want per-block cost_coeffs sum %d", decision.YRate, stats.rateY)
+	}
+	if stats.rateUV != decision.UVRate {
+		t.Fatalf("UVRate = %d, want per-block cost_coeffs sum %d", decision.UVRate, stats.rateUV)
+	}
+	// At least one Y block and the overall distortion must be positive on
+	// this fixture: if the picker had collapsed to a zero-residual
+	// shortcut, neither the rate nor the distortion would discriminate
+	// SPLITMV from ZEROMV.
+	if decision.YDist <= 0 {
+		t.Fatalf("YDist = %d, want strictly positive on non-zero residual fixture", decision.YDist)
+	}
+}
