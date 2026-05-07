@@ -17,7 +17,9 @@ the anchor and look for the surrounding mismatch.
   quality-relevant encoder decisions on representative clips. It does not mean
   every intermediate helper, search tie-break, or non-visible byte must be
   bit-exact when the difference has no quality, rate, decoder-visible, or
-  future-decision effect.
+  future-decision effect. Agents should mark work done here only when the
+  behavior is quality-equivalent to empirical libvpx, or when a deliberate
+  non-bitexact difference is documented with that rationale.
 - Bitstream parity is required only where it matters or where deterministic
   settings make it the cheapest proof: frame headers, reference
   refresh/copy/sign-bias bits, packet validity, decoder MD5s, and tightly
@@ -93,20 +95,17 @@ the anchor and look for the surrounding mismatch.
     `segmentation_enabled`, Y/U/V plane Adler32 reference checksums, and
     `size_bytes`; per-MB row (inter frames only) with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
-    `mv_col`, `skip`, `eob[0..24]`, and `eob_sum`. Rows are emitted in
-    deterministic raster scan order and only for the final committed
-    encode attempt (recoded attempts are discarded).
+    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, and improved-MV start fields.
+    Rows cover every committed inter-frame MB, including intra `B_PRED`
+    decisions, are emitted in deterministic raster scan order, and only for
+    the final committed encode attempt (recoded attempts are discarded).
   - libvpx side: in progress. The patched vpxenc lives in
     [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh),
     which adds a single `vp8/encoder/oracle_trace.c` translation unit
     plus two `extern` hook calls in `encodeframe.c` (per-MB capture
     inside `encode_mb_row`) and `bitstream.c` (per-frame flush at the
     tail of `vp8_pack_bitstream`). Output is gated on
-    `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema (frame_index,
-    frame_type, q_index, base_q_index, loop_filter_level, refresh_*,
-    sign_bias_*, segmentation_enabled, Y/U/V Adler32, size_bytes for
-    frame rows; frame_index, mb_row, mb_col, segment_id, mode,
-    ref_frame, mv_row, mv_col, skip, eob[0..24], eob_sum for MB rows).
+    `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema.
   - Comparator: in place. The pure-Go
     [`CompareOracleTraces`](../internal/coracle/oracle_compare.go)
     helper walks both JSON Lines streams in lockstep and surfaces
@@ -190,19 +189,23 @@ the anchor and look for the surrounding mismatch.
 
 ## Rate Control And Reference Policy
 
-- [ ] Port full one-pass golden-frame boost and interval logic.
+- [x] Port full one-pass golden-frame boost and interval logic.
   - govpx:
     [`shouldRefreshGoldenFrameCBR`](../encoder.go),
     [`goldenFrameCBRInterval`](../encoder.go),
     [`beginFrameWithTargetAndContext`](../ratecontrol.go),
     [`calcGFParams`](../ratecontrol.go),
     [`accumulatePostPackOverspend`](../ratecontrol.go),
-    [`applyOnePassPFrameOverspendRecovery`](../ratecontrol.go).
+    [`applyOnePassPFrameOverspendRecovery`](../ratecontrol.go),
+    [`libvpxGoldenFrameTargetBits`](../ratecontrol.go),
+    [`pickFrameSize`](../ratecontrol.go),
+    [`estimateKeyFrameFrequency`](../ratecontrol.go).
   - libvpx:
     [`ratectrl.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c)
     `calc_gf_params`, `calc_pframe_target_size`,
-    `vp8_adjust_key_frame_context`, and GF/ARF update branches in
-    `onyx_if.c` (`update_golden_frame_stats`).
+    `vp8_adjust_key_frame_context`, `estimate_keyframe_frequency`,
+    `vp8_pick_frame_size`, and GF/ARF update branches in `onyx_if.c`
+    (`update_golden_frame_stats`).
   - Status: partial. The libvpx `calc_gf_params` boost computation now
     runs end-to-end: `vp8_gf_boost_qadjustment` (GFQ_ADJUSTMENT),
     `gf_intra_usage_adjustment`, `gf_adjust_table`,
@@ -221,22 +224,58 @@ the anchor and look for the surrounding mismatch.
     GF intervals (`current_gf_interval >= 2*MIN_GF_INTERVAL`), and
     clamps to `min_frame_target = max(min_frame_bandwidth,
     per_frame_bandwidth/4)`. `inter_frame_target` is captured after
-    recovery so subsequent GF overspend math matches libvpx. The CBR
+    recovery so subsequent GF overspend math matches libvpx. The
+    `vp8_pick_frame_size` unified KF/p-frame dispatcher is wired
+    through `pickFrameSize`, returning false on the libvpx buffer-
+    underrun drop branch and refunding `av_per_frame_bandwidth` via
+    `postDropFrame`. `estimate_keyframe_frequency` now follows the
+    libvpx weighted-average over prior_key_frame_distance with
+    {1,2,3,4,5} weights and the keyFrameCount==1 bootstrap; the
+    encoder seeds `keyFrameFrequency` from `EncoderOptions.KeyFrameInterval`
+    so the bootstrap matches libvpx's `oxcf.key_freq`. The libvpx
+    boost-weighted GF target sizing
+    (`Boost*bits_in_section/allocation_chunks` with the >1000-boost
+    halving and high-precision divide-first branch) is exposed as
+    `libvpxGoldenFrameTargetBits` for non-CBR GF callers. The CBR
     refresh decision in `shouldRefreshGoldenFrameCBR` still uses
     govpx's simplified heuristic, but it now publishes
-    `framesTillGFUpdateDue` and `currentGFInterval` so `update_golden_frame_stats`
-    overspend math matches libvpx.
-  - Missing: `vp8_pick_frame_size` (the unified KF/p-frame entry that
-    routes through `calc_iframe_target_size` vs. `calc_pframe_target_size`
-    and consumes `cpi->drop_frame`), temporal-layer propagation of
-    KF/GF overspend, the auto_gold non-CBR GF refresh decision in
-    `calc_pframe_target_size` (govpx still uses its simplified CBR
-    heuristic instead of switching on `gf_update_onepass_cbr`), and
-    the two-pass `calc_gf_params` IIAccumulator code path (currently
-    disabled in libvpx as well).
-  - Done when sequence tests match `refresh_golden_frame`, GF interval,
-    `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
-    targets on motion/static clips.
+    `framesTillGFUpdateDue` and `currentGFInterval` so
+    `update_golden_frame_stats` overspend math matches libvpx. The
+    auto_gold one-pass non-CBR refresh decision
+    (`pct_intra<15 || gf_frame_usage>=5`) is exposed as
+    `libvpxAutoGoldOnePassRefreshDecision`. `min_frame_bandwidth` is
+    now seeded from the libvpx
+    `av_per_frame_bandwidth * two_pass_vbrmin_section / 100`
+    derivation via `vbrMinFrameBandwidthBits` and threaded through
+    encoder construction so calc_pframe_target_size's min_frame_target
+    floor matches libvpx exactly. `recent_ref_frame_usage` (per-MB
+    INTRA/LAST/GOLDEN/ALTREF accumulator) and `gf_active_count` are
+    now tracked end-to-end: the encoder counts ref usage from the
+    just-encoded inter modes via `countInterFrameRefUsage`, accumulates
+    via `updateRecentRefFrameUsage` (skipping frames_since_golden==1
+    exactly like libvpx), resets to {1,1,1,1} via
+    `resetRecentRefFrameUsage` on GF/key refresh, and exposes
+    `thisFramePercentIntra` so calcGFParams and the auto_gold refresh
+    decision read the same state libvpx would. The encoder now invokes
+    `calcGFParams` at the tail of every CBR GF refresh frame (matching
+    libvpx's `calc_pframe_target_size` ordering, so the small +/-
+    last_boost adjustment for non-GF frames sees the prior GF's boost,
+    not this one's) and stores the boost in `lastBoost` for the next
+    section.
+    The auto_gold one-pass non-CBR refresh decision is wired into the
+    encoder via `shouldRefreshGoldenFrameOnePassNonCBR`, so VBR/CQ now
+    fire GF refreshes when `frames_till_gf_update_due==0` and
+    `pct_intra<15 || gf_frame_usage>=5`, funneling the result through
+    the same code path as CBR so the rate-control bookkeeping, header
+    copy semantics, and post-pack GF overspend accumulation apply
+    uniformly.
+  - Out of scope (deferred): temporal-layer propagation of KF/GF
+    overspend through libvpx's per-layer `layer_context` state (govpx
+    already mirrors the single-layer-vs-multi-layer KF split toggle
+    inside accumulatePostPackOverspend, but per-layer kf/gf counters
+    are tracked in the temporal-scalability work item, not here), and
+    the two-pass `calc_gf_params` IIAccumulator branch (disabled in
+    libvpx as well — guarded by `#if 0` in upstream).
 
 - [ ] Implement reference alias and copy-buffer policy.
   - govpx:
@@ -298,13 +337,47 @@ the anchor and look for the surrounding mismatch.
     every field.
 
 - [ ] Port second-pass KF/GF group allocation and VBR section limits.
-  - govpx: [`twoPassState`](../encoder_firstpass.go).
+  - govpx: [`twoPassState`](../encoder_firstpass.go),
+    [`framesToKey`](../encoder_firstpass.go),
+    [`kfGroupBits`](../encoder_firstpass.go),
+    [`kfGroupModifiedError`](../encoder_firstpass.go).
   - libvpx: second-pass helpers in `firstpass.c` and `Pass2Encode` in
     `onyx_if.c`.
-  - Status: partial. govpx distributes bits by per-frame modified error only.
-  - Missing: `frames_to_key`, KF/GF group bits/error, `gf_bits`,
-    `alt_extra_bits`, section max-Q factor, active worst-Q estimates, VBR
-    min/max section limits, CBR buffer adjustments, and ARF pending decisions.
+  - Status: partial. govpx distributes bits by per-frame modified
+    error only. `framesToKey` now ports the `find_next_key_frame`
+    lookahead with the libvpx `i >= MIN_GF_INTERVAL` gate, the
+    `libvpxTestCandidateKeyFrame` predicate, the `key_freq` floor, and
+    the `2 * key_freq` outer clamp. `kfGroupModifiedError` accumulates
+    the per-frame `calculate_modified_err` into the libvpx
+    `kf_group_err`. `kfGroupBits` ports the libvpx KF-group allocation
+    (`bits_left * (kf_group_err / modified_error_left)`) with the
+    `max_bits * frames_to_key` ceiling and the `bits_left>0 &&
+    modified_error_left>0.0` gate. `libvpxGFGroupBits` ports the GF
+    section allocation
+    (`gf_group_bits = kf_group_bits * (gf_group_err /
+    kf_group_error_left)`) with the kf_group_bits clamp and the
+    `max_bits * baseline_gf_interval` ceiling.
+    `libvpxGFBitsAllocation` ports the libvpx GF/ARF bit allocation
+    (Boost-weighted `gf_bits = Boost * (gf_group_bits /
+    allocation_chunks)`): the GF branch uses
+    `Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100` with cap
+    `interval*150` and floor 125, and the ARF branch uses
+    `(gfu_boost * 3 * GFQ_ADJUSTMENT) / 200 + interval*50` with cap
+    `(interval+1)*200`; both apply the `>1000` halving overflow
+    guard and the libvpx `(interval+1)*100 + Boost` /
+    `interval*100 + (Boost-100)` allocation_chunks formulas.
+    `libvpxFrameMaxBitsCBR` and `libvpxFrameMaxBitsVBR` port the
+    libvpx vp8/encoder/firstpass.c `frame_max_bits` per-frame ceiling:
+    CBR uses `av_per_frame_bandwidth * vbrmax_section / 100` scaled by
+    `buffer_level / optimal_buffer_level` when the buffer is below
+    optimal, with the libvpx
+    `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
+    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
+    feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
+  - Missing: `alt_extra_bits` carry, section max-Q factor, active
+    worst-Q estimates, VBR min/max section limits beyond
+    frame_max_bits, CBR buffer adjustments inside Pass2Encode, and
+    ARF pending decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
@@ -430,8 +503,11 @@ the anchor and look for the surrounding mismatch.
     `vp8_rd_pick_inter_mode` and
     [`pickinter.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/pickinter.c)
     `vp8_pick_inter_mode`.
-  - Status: partial. Fast non-RD mode-loop order and cheap realtime scoring are
-    aligned. Full RD now walks libvpx's `MAX_MODES` / `vp8_mode_order` table,
+  - Status: partial. Fast non-RD mode-loop order, cheap realtime scoring, and
+    `rd_thresh_mult` / hit-count gating are aligned, including the pickinter
+    `>>3` best-mode threshold decay and libvpx's unsupported-SPLITMV
+    test-count/raise behavior. Full RD now walks libvpx's `MAX_MODES` /
+    `vp8_mode_order` table,
     interleaves intra modes in that same loop, applies speed-feature baseline
     `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an
     RD-loop stop, mutates `rd_thresh_mult` / hit-count mode gating across
@@ -525,7 +601,13 @@ the anchor and look for the surrounding mismatch.
     split-size subpel variance/SAD coverage for 16x8, 8x16, 8x8, and 4x4.
     Compressor-speed searches now also save the accepted 8x8 partition's
     block 0/2/8/10 MVs and use them as the 8x16 and 16x8 search centers
-    while keeping NEW4X4 coding cost anchored to `bestRefMV`.
+    while keeping NEW4X4 coding cost anchored to `bestRefMV`; the saved
+    8x8-pair distance now drives libvpx's `vp8_cal_step_param` model, and
+    speed-path SplitMV NEW searches use the same NSTEP diamond/further-step
+    search shape instead of the older fixed exhaustive window. Best-quality
+    SplitMV NEW searches now use the same NSTEP base plus libvpx's conditional
+    `vp8_full_search_sad`-style distance-16 fallback when the split-shape
+    shifted error remains above 4000.
     After the Y split is committed, `selectInterFrameSplitMotionDecisionRD`
     reuses the decoder's `ReconstructSplitMVInterMacroblock` to render the
     SPLITMV luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
@@ -535,9 +617,9 @@ the anchor and look for the surrounding mismatch.
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
-    Remaining search-shape work is the libvpx speed-path `step_param`
-    derivation and diamond-search/further-steps behavior. Token-context commit
-    parity and oracle-backed label-level RD remain open.
+    Remaining search-shape work is broader oracle coverage. Token-context
+    commit parity, `THR_NEW1/2/3` NEW4X4 gating, and oracle-backed label-level
+    RD remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
@@ -562,7 +644,9 @@ the anchor and look for the surrounding mismatch.
     (`predictBestWholeBlockIntraModeRD`) has parity coverage in
     `encoder_intra16x16_picker_test.go` that pins the Y mode iteration order,
     mbmode_cost addition, token context seeding, and Y/UV rate-distortion
-    breakdowns against libvpx `rd_pick_intra16x16mby_mode`.
+    breakdowns against libvpx `rd_pick_intra16x16mby_mode`. The non-RD
+    inter-frame B_PRED picker now uses libvpx's cheaper `B_DC_PRED..B_HE_PRED`
+    candidate set instead of the full RD-only 10-mode set.
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
@@ -771,9 +855,18 @@ the anchor and look for the surrounding mismatch.
     `TestIndependentCoefContextSavingsHandComputed`,
     `TestIndependentCoefContextDivergesFromDefault`,
     `TestIndependentCoefContextKeyFrameForcesEqualization`.
-  - Missing: key-frame forced coef-prob updates, projected entropy
-    savings in recode decisions, and exact zero-reference/alt-ref
-    skip-probability edge cases.
+    The ref-frame entropy-savings half of `vp8_estimate_entropy_savings`
+    is now ported as `libvpxCalcRefFrameCosts` and
+    `libvpxRefFrameEntropySavings` in
+    [`encoder_entropy_savings.go`](../encoder_entropy_savings.go),
+    matching the libvpx `cost_zero(p)/cost_one(p) = ProbCost[p]/[255-p]`
+    formula and the new_intra=1 floor / new_last/new_garf=128 fallbacks
+    for empty distributions.
+  - Missing: wiring `libvpxRefFrameEntropySavings` (and the coefficient
+    portion of `vp8_estimate_entropy_savings`) into the recode-loop
+    `projected_frame_size` adjustment, key-frame forced coef-prob
+    updates, and exact zero-reference/alt-ref skip-probability edge
+    cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.

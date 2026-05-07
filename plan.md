@@ -53,10 +53,12 @@ lives in [Makefile](Makefile).
   MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, libvpx NSTEP
   `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
   `vp8_hex_search` path are in place. The realtime/non-RD branch now uses
-  libvpx-style luma-variance pickinter scoring and skips SPLITMV evaluation;
-  improved-MV oracle rows now expose the govpx predictor slot, predictor MV,
-  and search range. Remaining gaps are the libvpx-side improved-MV comparator,
-  the alternate DIAMOND path, and the full 20-entry mode-loop threshold model.
+  libvpx-style luma-variance pickinter scoring, applies pickinter's mode-loop
+  threshold and hit-count model, and skips SPLITMV evaluation while preserving
+  libvpx's test-count/threshold raise side effect; improved-MV oracle rows now
+  expose the govpx predictor slot, predictor MV, and search range. Remaining
+  gaps are the libvpx-side improved-MV comparator and the alternate DIAMOND
+  path.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
@@ -64,9 +66,12 @@ lives in [Makefile](Makefile).
   now wired into selection, cost, MV-probability counting, and syntax. Split
   NEW candidates now get fractional refinement, and compressor-speed 4x4
   searches reuse the previous left/above block MV as the next search center.
-  Speed-path 8x8 seed reuse for 16x8/8x16 search centers is in place; exact
-  `step_param`/diamond-search behavior, token-context commit parity, and
-  oracle-backed label-level RD remain open.
+  Speed-path 8x8 seed reuse for 16x8/8x16 search centers is in place, and the
+  saved 8x8-pair distances now feed libvpx-style `vp8_cal_step_param` values
+  into NSTEP diamond/further-step SplitMV NEW searches. Best-quality SplitMV
+  NEW searches now also use libvpx's conditional distance-16 full-search
+  fallback. Remaining gaps are token-context commit parity, `THR_NEW1/2/3`
+  NEW4X4 gating, and oracle-backed label-level RD.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact

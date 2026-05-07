@@ -352,6 +352,315 @@ func TestSimpleWeightLumaMatchesLibvpxTable(t *testing.T) {
 	}
 }
 
+// TestTwoPassFramesToKeyReturnsZeroWhenStatsMissing pins the libvpx
+// fallback when stats are not loaded.
+func TestTwoPassFramesToKeyReturnsZeroWhenStatsMissing(t *testing.T) {
+	var ts twoPassState
+	if got := ts.framesToKey(0, 60); got != 0 {
+		t.Fatalf("framesToKey with no stats = %d, want 0", got)
+	}
+}
+
+// TestTwoPassFramesToKeyClampsAtKeyFrameInterval pins the libvpx
+// `if (frames_to_key >= keyFrameInterval) break;` clamp: with no
+// scene-cut signal in the synthetic stats, framesToKey should not
+// exceed the configured interval.
+func TestTwoPassFramesToKeyClampsAtKeyFrameInterval(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 100)
+	for i := range stats {
+		// Boring stats that never trigger libvpxTestCandidateKeyFrame.
+		stats[i] = FirstPassFrameStats{IntraError: 1000, CodedError: 1000, PcntInter: 0.95}
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	got := ts.framesToKey(0, 30)
+	if got > 31 {
+		t.Fatalf("framesToKey with 30-frame interval = %d, want <= 31", got)
+	}
+	if got < 30 {
+		t.Fatalf("framesToKey with 30-frame interval = %d, want >= 30 (no early KF predicate fires)", got)
+	}
+}
+
+// TestTwoPassFramesToKeyClampsAtTwoIntervalsForAutoKey pins the libvpx
+// `if (frames_to_key >= 2*key_freq) break;` outer clamp by passing
+// keyFrameInterval=10 and verifying the result is <= 20.
+func TestTwoPassFramesToKeyClampsAtTwoIntervalsForAutoKey(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 100)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{IntraError: 1000, CodedError: 1000, PcntInter: 0.95}
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	if got := ts.framesToKey(0, 10); got > 20 {
+		t.Fatalf("framesToKey with 10-frame interval = %d, want <= 20", got)
+	}
+}
+
+// TestTwoPassKFGroupModifiedErrorMatchesSumOfFrames pins libvpx's
+// inner accumulator: `kf_group_err += calculate_modified_err(this_frame)`
+// across the KF group.
+func TestTwoPassKFGroupModifiedErrorMatchesSumOfFrames(t *testing.T) {
+	stats := []FirstPassFrameStats{
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+		{IntraError: 1500, CodedError: 200, PcntInter: 0.85},
+		{IntraError: 800, CodedError: 50, PcntInter: 0.95},
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	want := twoPassModifiedError(stats[0], 50) + twoPassModifiedError(stats[1], 50) + twoPassModifiedError(stats[2], 50)
+	if got := ts.kfGroupModifiedError(0, 3); got != want {
+		t.Fatalf("kfGroupModifiedError = %v, want %v", got, want)
+	}
+}
+
+// TestTwoPassKFGroupBitsAllocatesByErrorRatio pins the libvpx allocation
+//
+//	kf_group_bits = bits_left * (kf_group_err / modified_error_left)
+//
+// clamped at max_bits_per_frame * frames_to_key.
+func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
+	stats := []FirstPassFrameStats{
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+		{IntraError: 1500, CodedError: 200, PcntInter: 0.85},
+		{IntraError: 800, CodedError: 50, PcntInter: 0.95},
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	groupErr := ts.kfGroupModifiedError(0, 3)
+	want := int64(float64(ts.bitsLeft) * (groupErr / ts.errorLeft))
+	if got := ts.kfGroupBits(0, 3, 0); got != want {
+		t.Fatalf("kfGroupBits without cap = %d, want %d", got, want)
+	}
+	// With max_bits_per_frame=100 and frames_to_key=3, the cap is 300.
+	if got := ts.kfGroupBits(0, 3, 100); got > 300 {
+		t.Fatalf("kfGroupBits with cap=100*3 = %d, want <= 300", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsCBRBasicAllocation pins the libvpx CBR
+// branch of frame_max_bits when buffer is at optimal:
+//
+//	max_bits = av_per_frame_bandwidth * vbrmax / 100.
+func TestLibvpxFrameMaxBitsCBRBasicAllocation(t *testing.T) {
+	got := libvpxFrameMaxBitsCBR(1000, 200, 5000, 5000)
+	if got != 2000 {
+		t.Fatalf("frame_max_bits CBR optimal = %d, want 2000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsCBRScalesWithBufferRatio pins the libvpx
+// buffer-fullness scaling: when buffer_level < optimal, max_bits is
+// scaled by (buffer_level / optimal), with a floor of
+// min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale)).
+func TestLibvpxFrameMaxBitsCBRScalesWithBufferRatio(t *testing.T) {
+	// av=1000, vbrmax=200 -> max_bits=2000 pre-scale.
+	// buffer=2500, optimal=5000 -> ratio=0.5 -> max_bits=1000.
+	// min_floor = min(1000>>2=250, 2000>>2=500) = 250. 1000 > 250.
+	got := libvpxFrameMaxBitsCBR(1000, 200, 2500, 5000)
+	if got != 1000 {
+		t.Fatalf("frame_max_bits CBR half-buffer = %d, want 1000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsCBRFloorsAtMinMaxBits pins the libvpx
+// `if (max_bits < min_max_bits) max_bits = min_max_bits` floor.
+func TestLibvpxFrameMaxBitsCBRFloorsAtMinMaxBits(t *testing.T) {
+	// av=1000, vbrmax=200 -> max_bits=2000 pre-scale.
+	// buffer=100, optimal=5000 -> ratio=0.02 -> max_bits=40.
+	// min_floor = min(250, 500) = 250. 40 < 250 -> 250.
+	got := libvpxFrameMaxBitsCBR(1000, 200, 100, 5000)
+	if got != 250 {
+		t.Fatalf("frame_max_bits CBR low-buffer floor = %d, want 250", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsVBRBasicAllocation pins the libvpx VBR branch:
+//
+//	max_bits = (bits_left / frames_left) * vbrmax / 100.
+func TestLibvpxFrameMaxBitsVBRBasicAllocation(t *testing.T) {
+	// bits_left=100000, frames_left=100 -> per-frame=1000.
+	// vbrmax=200 -> max_bits = int(1000 * 2.0) = 2000.
+	got := libvpxFrameMaxBitsVBR(100000, 100, 200)
+	if got != 2000 {
+		t.Fatalf("frame_max_bits VBR = %d, want 2000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsReturnsZeroForExhaustedInputs pins the
+// guards: zero/negative bits_left, frames_left, vbrmax_section, or
+// av_per_frame_bandwidth all return 0.
+func TestLibvpxFrameMaxBitsReturnsZeroForExhaustedInputs(t *testing.T) {
+	if got := libvpxFrameMaxBitsCBR(0, 200, 5000, 5000); got != 0 {
+		t.Fatalf("CBR av=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsCBR(1000, 0, 5000, 5000); got != 0 {
+		t.Fatalf("CBR vbrmax=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsVBR(0, 100, 200); got != 0 {
+		t.Fatalf("VBR bits_left=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsVBR(100000, 0, 200); got != 0 {
+		t.Fatalf("VBR frames_left=0 -> %d, want 0", got)
+	}
+}
+
+// TestLibvpxGFGroupBitsAllocatesByErrorRatio pins the libvpx
+// gf_group_bits = kf_group_bits * (gf_group_err / kf_group_error_left)
+// with the kf_group_bits ceiling.
+func TestLibvpxGFGroupBitsAllocatesByErrorRatio(t *testing.T) {
+	got := libvpxGFGroupBits(10000, 30.0, 100.0, 0, 0)
+	want := int64(10000.0 * (30.0 / 100.0))
+	if got != want {
+		t.Fatalf("libvpxGFGroupBits = %d, want %d", got, want)
+	}
+}
+
+// TestLibvpxGFGroupBitsCapsAtKFGroupBits pins the libvpx clamp:
+// gf_group_bits cannot exceed kf_group_bits even if the error ratio
+// exceeds 1.0.
+func TestLibvpxGFGroupBitsCapsAtKFGroupBits(t *testing.T) {
+	got := libvpxGFGroupBits(1000, 200.0, 100.0, 0, 0)
+	if got != 1000 {
+		t.Fatalf("libvpxGFGroupBits with err_ratio>1 = %d, want kf_group_bits=1000", got)
+	}
+}
+
+// TestLibvpxGFGroupBitsClampsAtMaxBits pins the libvpx
+// `max_bits * baseline_gf_interval` ceiling.
+func TestLibvpxGFGroupBitsClampsAtMaxBits(t *testing.T) {
+	got := libvpxGFGroupBits(100000, 50.0, 100.0, 1000, 8)
+	// raw = 50000, max=8000.
+	if got != 8000 {
+		t.Fatalf("libvpxGFGroupBits with max_bits cap = %d, want 8000", got)
+	}
+}
+
+// TestLibvpxGFGroupBitsReturnsZeroWhenInputsZero pins the libvpx
+// `if (kf_group_bits > 0 && kf_group_error_left > 0)` gate.
+func TestLibvpxGFGroupBitsReturnsZeroWhenInputsZero(t *testing.T) {
+	if got := libvpxGFGroupBits(0, 50.0, 100.0, 0, 0); got != 0 {
+		t.Fatalf("kf_group_bits=0 -> %d, want 0", got)
+	}
+	if got := libvpxGFGroupBits(1000, 50.0, 0, 0, 0); got != 0 {
+		t.Fatalf("kf_group_error_left=0 -> %d, want 0", got)
+	}
+}
+
+// TestLibvpxGFBitsAllocationGoldenFrameMatchesLibvpx pins the libvpx
+// GF (non-ARF) allocation. With gfu_boost=200, gfq_adjustment=128,
+// baseline_gf_interval=8:
+//
+//	Boost = (200 * 128) / 100 = 256.
+//	cap = 8 * 150 = 1200; 256 < 1200; floor 125 not active.
+//	allocation_chunks = 8 * 100 + (256 - 100) = 956.
+//	gf_bits = int(256 * (10000/956)) = int(256 * 10.46) = 2677.
+func TestLibvpxGFBitsAllocationGoldenFrameMatchesLibvpx(t *testing.T) {
+	got := libvpxGFBitsAllocation(false, 200, 128, 10000, 8)
+	wantF := 256.0 * (10000.0 / 956.0)
+	want := int(wantF)
+	if got != want {
+		t.Fatalf("libvpxGFBitsAllocation GF = %d, want %d", got, want)
+	}
+}
+
+// TestLibvpxGFBitsAllocationARFMatchesLibvpx pins the libvpx ARF
+// allocation: Boost = (gfu_boost * 3 * gfq_adjustment) / (2 * 100) +
+// interval*50. With gfu_boost=200, gfq_adjustment=128, interval=8:
+//
+//	Boost = (200 * 3 * 128) / 200 + 400 = 384 + 400 = 784.
+//	cap = (8+1)*200 = 1800; 784 < cap; floor 125 not active.
+//	allocation_chunks = (8+1)*100 + 784 = 1684.
+//	gf_bits = int(784 * (10000/1684)) = int(784 * 5.937) = 4654.
+func TestLibvpxGFBitsAllocationARFMatchesLibvpx(t *testing.T) {
+	got := libvpxGFBitsAllocation(true, 200, 128, 10000, 8)
+	wantF := 784.0 * (10000.0 / 1684.0)
+	want := int(wantF)
+	if got != want {
+		t.Fatalf("libvpxGFBitsAllocation ARF = %d, want %d", got, want)
+	}
+}
+
+// TestLibvpxGFBitsAllocationAppliesBoostFloor pins the libvpx 125
+// floor on Boost.
+func TestLibvpxGFBitsAllocationAppliesBoostFloor(t *testing.T) {
+	// Boost = (10 * 50) / 100 = 5; floor -> 125.
+	got := libvpxGFBitsAllocation(false, 10, 50, 10000, 8)
+	// allocation_chunks = 800 + (125-100) = 825. gf_bits = int(125 * 10000/825).
+	wantF := 125.0 * (10000.0 / 825.0)
+	want := int(wantF)
+	if got != want {
+		t.Fatalf("libvpxGFBitsAllocation with boost floor = %d, want %d", got, want)
+	}
+}
+
+// TestLibvpxGFBitsAllocationHalvesLargeBoost pins the libvpx
+// `while (Boost > 1000) Boost /= 2; allocation_chunks /= 2;` overflow
+// guard.
+func TestLibvpxGFBitsAllocationHalvesLargeBoost(t *testing.T) {
+	// gfu_boost=2000, gfq_adjustment=200 -> Boost=4000 (before clamp).
+	// Cap is interval*150 = 8*150 = 1200, so Boost clamps to 1200 first
+	// (libvpx applies the cap *before* the halving). After cap=1200,
+	// halving runs once: Boost=600, alloc_chunks=(800+1100)/2=950.
+	got := libvpxGFBitsAllocation(false, 2000, 200, 10000, 8)
+	// Boost=1200 (cap), alloc=800+1100=1900. Halve: B=600, alloc=950.
+	// gf_bits = int(600*10000/950).
+	wantF := 600.0 * (10000.0 / 950.0)
+	want := int(wantF)
+	if got != want {
+		t.Fatalf("libvpxGFBitsAllocation halved = %d, want %d", got, want)
+	}
+}
+
+// TestTwoPassKFGroupBitsReturnsZeroWhenBitsExhausted pins the libvpx
+// `if (bits_left > 0 && modified_error_left > 0.0)` gate.
+func TestTwoPassKFGroupBitsReturnsZeroWhenBitsExhausted(t *testing.T) {
+	stats := []FirstPassFrameStats{{IntraError: 1000, CodedError: 100, PcntInter: 0.9}}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	ts.bitsLeft = 0
+	if got := ts.kfGroupBits(0, 1, 0); got != 0 {
+		t.Fatalf("kfGroupBits with bits_left=0 = %d, want 0", got)
+	}
+}
+
+// TestTwoPassFramesToKeyHonoursTestCandidateKF pins the
+// libvpxTestCandidateKeyFrame predicate firing inside framesToKey.
+// Build stats where frame 6 is a clear scene cut (low intra/coded
+// ratio drop) so the predicate fires after the MIN_GF_INTERVAL=4
+// gate.
+func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 50)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError: 10000,
+			CodedError: 100,
+			PcntInter:  0.99,
+		}
+	}
+	// Frame 6: simulate a scene cut by inverting intra/coded.
+	for i := 6; i <= 12; i++ {
+		stats[i] = FirstPassFrameStats{
+			IntraError: 100,
+			CodedError: 9000,
+			PcntInter:  0.05,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+		}
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	got := ts.framesToKey(0, 30)
+	// Predicate-driven KF should fire well before the 30-frame floor.
+	if got > 20 {
+		t.Fatalf("framesToKey with scene cut at frame 6 = %d, want <= 20", got)
+	}
+	if got < libvpxMinGFInterval {
+		t.Fatalf("framesToKey = %d, want >= MIN_GF_INTERVAL=%d", got, libvpxMinGFInterval)
+	}
+}
+
 // firstPassRegression* values are captured from running this implementation
 // once. They pin every libvpx-aligned FIRSTPASS_STATS field on the
 // deterministic 32x32 ramp clip above. Update in lock-step with the

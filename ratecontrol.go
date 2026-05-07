@@ -122,6 +122,16 @@ type rateControlState struct {
 	keyFrameCount          int
 	keyFrameFrequency      int
 	priorKeyFrameDistance  [keyFrameContextSize]int
+
+	// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats accumulates
+	// per-MB ref-frame usage across the GF section so calc_gf_params and
+	// the calc_pframe_target_size auto_gold decision can read it.
+	recentRefFrameUsageIntra  int
+	recentRefFrameUsageLast   int
+	recentRefFrameUsageGolden int
+	recentRefFrameUsageAltRef int
+	gfActiveCount             int
+	thisFramePercentIntra     int
 }
 
 const (
@@ -1977,4 +1987,160 @@ func (rc *rateControlState) applyGFParams(out gfParamsOutput) {
 	rc.lastBoost = out.Boost
 	rc.framesTillGFUpdateDue = out.FramesTillUpdate
 	rc.currentGFInterval = out.FramesTillUpdate
+}
+
+// libvpxGoldenFrameTargetBits ports the libvpx GF target-sizing formula
+// from vp8/encoder/ratectrl.c calc_pframe_target_size (the
+// non-onepass-CBR auto_gold branch). It splits the upcoming GF-section
+// bandwidth across the GF and the following p-frames so that the GF
+// receives a `boost`-weighted share. The math is:
+//
+//	frames_in_section = framesTillGFUpdateDue + 1
+//	allocation_chunks = frames_in_section*100 + (boost - 100)
+//	bits_in_section   = inter_frame_target * frames_in_section
+//	target            = boost * bits_in_section / allocation_chunks
+//
+// libvpx halves boost and allocation_chunks while boost > 1000 to avoid
+// overflow in `boost * bits_in_section`, and switches the divide order
+// when `bits_in_section >> 7 > allocation_chunks` to retain precision
+// without overflow. Both branches are mirrored here.
+func libvpxGoldenFrameTargetBits(boost int, framesTillGFUpdateDue int, interFrameTarget int) int {
+	if boost <= 0 || framesTillGFUpdateDue < 0 || interFrameTarget <= 0 {
+		return 0
+	}
+	framesInSection := framesTillGFUpdateDue + 1
+	allocationChunks := framesInSection*100 + (boost - 100)
+	if allocationChunks <= 0 {
+		return 0
+	}
+	bitsInSection := interFrameTarget * framesInSection
+	if bitsInSection <= 0 {
+		return 0
+	}
+	for boost > 1000 {
+		boost /= 2
+		allocationChunks /= 2
+		if allocationChunks <= 0 {
+			return 0
+		}
+	}
+	if (bitsInSection >> 7) > allocationChunks {
+		return boost * (bitsInSection / allocationChunks)
+	}
+	return (boost * bitsInSection) / allocationChunks
+}
+
+// updateRecentRefFrameUsage mirrors the libvpx
+// vp8/encoder/onyx_if.c update_golden_frame_stats branch:
+//
+//	if (cpi->frames_since_golden > 1) {
+//	    cpi->recent_ref_frame_usage[INTRA_FRAME] +=
+//	        cpi->mb.count_mb_ref_frame_usage[INTRA_FRAME];
+//	    ...
+//	}
+//
+// Counts from the just-encoded frame are accumulated into the rolling
+// `recent_ref_frame_usage` totals (skipping the first frame after a GF
+// to suppress noise). On GF refresh, libvpx resets these counters to 1
+// each (handled separately, in resetGoldenFrameStats below).
+func (rc *rateControlState) updateRecentRefFrameUsage(intra, last, golden, alt int) {
+	if rc.framesSinceGolden <= 1 {
+		return
+	}
+	rc.recentRefFrameUsageIntra = saturatingAdd(rc.recentRefFrameUsageIntra, intra)
+	rc.recentRefFrameUsageLast = saturatingAdd(rc.recentRefFrameUsageLast, last)
+	rc.recentRefFrameUsageGolden = saturatingAdd(rc.recentRefFrameUsageGolden, golden)
+	rc.recentRefFrameUsageAltRef = saturatingAdd(rc.recentRefFrameUsageAltRef, alt)
+}
+
+// resetRecentRefFrameUsage mirrors libvpx's GF refresh reset:
+//
+//	cpi->recent_ref_frame_usage[INTRA_FRAME] = 1;
+//	cpi->recent_ref_frame_usage[LAST_FRAME]  = 1;
+//	cpi->recent_ref_frame_usage[GOLDEN_FRAME]= 1;
+//	cpi->recent_ref_frame_usage[ALTREF_FRAME]= 1;
+//
+// (vp8/encoder/onyx_if.c update_golden_frame_stats refresh branch).
+// Also resets gfActiveCount to the full MB count via the active_flags
+// memset in libvpx; the caller passes that count.
+func (rc *rateControlState) resetRecentRefFrameUsage(macroblocks int) {
+	rc.recentRefFrameUsageIntra = 1
+	rc.recentRefFrameUsageLast = 1
+	rc.recentRefFrameUsageGolden = 1
+	rc.recentRefFrameUsageAltRef = 1
+	rc.gfActiveCount = macroblocks
+}
+
+// vbrMinFrameBandwidthBits ports the libvpx
+// vp8/encoder/onyx_if.c min_frame_bandwidth derivation:
+//
+//	cpi->min_frame_bandwidth = (int)VPXMIN(
+//	    (int64_t)cpi->av_per_frame_bandwidth * cpi->oxcf.two_pass_vbrmin_section / 100,
+//	    INT_MAX);
+//
+// pct == 0 disables the minimum (returns 0).
+func vbrMinFrameBandwidthBits(perFrameBandwidth int, pct int) int {
+	if perFrameBandwidth <= 0 || pct <= 0 {
+		return 0
+	}
+	v := int64(perFrameBandwidth) * int64(pct) / 100
+	if v > int64(libvpxIntMax) {
+		return libvpxIntMax
+	}
+	return int(v)
+}
+
+// libvpxAutoGoldOnePassRefreshDecision ports the libvpx one-pass auto_gold
+// GF refresh decision from vp8/encoder/ratectrl.c calc_pframe_target_size.
+// Excerpt:
+//
+//	if ((cpi->pass == 0) &&
+//	    (cpi->this_frame_percent_intra < 15 || gf_frame_usage >= 5)) {
+//	    cpi->common.refresh_golden_frame = 1;
+//	}
+//
+// gf_frame_usage is computed exactly the same way as inside calcGFParams
+// (max of (golden+altref)*100/total_recent_ref_usage and
+// 100*gf_active_count/MBs). Returns true when libvpx would force a GF
+// refresh on this frame.
+func libvpxAutoGoldOnePassRefreshDecision(thisFramePercentIntra int, recentRefIntra, recentRefLast, recentRefGolden, recentRefAltRef, gfActiveCount, macroblocks int) bool {
+	totMBs := recentRefIntra + recentRefLast + recentRefGolden + recentRefAltRef
+	gfFrameUsage := 0
+	if totMBs > 0 {
+		gfFrameUsage = (recentRefGolden + recentRefAltRef) * 100 / totMBs
+	}
+	pctGFActive := 0
+	if macroblocks > 0 {
+		pctGFActive = (100 * gfActiveCount) / macroblocks
+	}
+	if pctGFActive > gfFrameUsage {
+		gfFrameUsage = pctGFActive
+	}
+	return thisFramePercentIntra < 15 || gfFrameUsage >= 5
+}
+
+// pickFrameSize ports vp8/encoder/ratectrl.c vp8_pick_frame_size: the
+// unified KF/p-frame target dispatcher. It returns true when the frame
+// should be encoded and false when libvpx would set cpi->drop_frame and
+// return 0 from vp8_pick_frame_size.
+//
+// govpx's existing entry point is beginFrameWithTargetAndContext, which
+// computes the per-frame target. pickFrameSize wraps it so callers can
+// follow libvpx's contract: invoke calc_iframe_target_size for KFs,
+// calc_pframe_target_size for inter frames, and consume the drop signal
+// before encode. After computing the target, this method also reflects
+// libvpx's tail-of-calc_pframe_target_size buffer-underrun drop check
+// (drop_frames_allowed && buffer_level < 0 && !KEY_FRAME) by calling
+// shouldDropInterFrame and refunding av_per_frame_bandwidth via
+// postDropFrame.
+func (rc *rateControlState) pickFrameSize(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) bool {
+	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, ctx)
+	if keyFrame {
+		return true
+	}
+	if rc.shouldDropInterFrame() {
+		rc.postDropFrame()
+		return false
+	}
+	return true
 }

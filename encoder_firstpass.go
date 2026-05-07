@@ -494,6 +494,239 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxFrameMaxBitsCBR ports the CBR branch of libvpx's
+// vp8/encoder/firstpass.c frame_max_bits:
+//
+//	max_bits = av_per_frame_bandwidth * (two_pass_vbrmax_section / 100)
+//	if buffer_level < optimal:
+//	  buffer_fullness_ratio = buffer_level / optimal
+//	  max_bits *= buffer_fullness_ratio
+//	  min_max_bits = min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))
+//	  max_bits = max(max_bits, min_max_bits)
+//
+// avPerFrameBandwidth is libvpx's `cpi->av_per_frame_bandwidth`, which
+// equals govpx's `bitsPerFrame` in steady state. vbrMaxSection is
+// `cpi->oxcf.two_pass_vbrmax_section` (govpx's
+// EncoderOptions.TwoPassMaxPct). Returns 0 when the budget would be
+// negative.
+func libvpxFrameMaxBitsCBR(avPerFrameBandwidth int, vbrMaxSection int, bufferLevel int, optimalBufferLevel int) int {
+	if avPerFrameBandwidth <= 0 || vbrMaxSection <= 0 {
+		return 0
+	}
+	maxBits := avPerFrameBandwidth * vbrMaxSection / 100
+	if optimalBufferLevel > 0 && bufferLevel < optimalBufferLevel {
+		// Capture the pre-scale max_bits>>2 for the min floor calculation
+		// (libvpx evaluates the min before the buffer-ratio scale).
+		minMaxBits := avPerFrameBandwidth >> 2
+		if (maxBits >> 2) < minMaxBits {
+			minMaxBits = maxBits >> 2
+		}
+		maxBits = int(float64(maxBits) * float64(bufferLevel) / float64(optimalBufferLevel))
+		if maxBits < minMaxBits {
+			maxBits = minMaxBits
+		}
+	}
+	if maxBits < 0 {
+		return 0
+	}
+	return maxBits
+}
+
+// libvpxFrameMaxBitsVBR ports the VBR branch of libvpx's frame_max_bits:
+//
+//	max_bits = (bits_left / frames_left) * (two_pass_vbrmax_section / 100)
+//
+// Returns 0 when bits_left or frames_left are non-positive.
+func libvpxFrameMaxBitsVBR(bitsLeft int64, framesLeft int64, vbrMaxSection int) int {
+	if bitsLeft <= 0 || framesLeft <= 0 || vbrMaxSection <= 0 {
+		return 0
+	}
+	bitsPerFrame := float64(bitsLeft) / float64(framesLeft)
+	maxBits := int(bitsPerFrame * float64(vbrMaxSection) / 100.0)
+	if maxBits < 0 {
+		return 0
+	}
+	return maxBits
+}
+
+// libvpxGFGroupBits ports the libvpx vp8/encoder/firstpass.c GF-group
+// allocation:
+//
+//	gf_group_bits = kf_group_bits * (gf_group_err / kf_group_error_left)
+//
+// then clamped to [0, kf_group_bits], then capped at
+// `max_bits * baseline_gf_interval`. Returns 0 when kf_group_bits<=0
+// or kf_group_error_left<=0.
+func libvpxGFGroupBits(kfGroupBits int64, gfGroupErr float64, kfGroupErrorLeft float64, maxBitsPerFrame int, baselineGFInterval int) int64 {
+	if kfGroupBits <= 0 || kfGroupErrorLeft <= 0 {
+		return 0
+	}
+	gfGroupBits := int64(float64(kfGroupBits) * (gfGroupErr / kfGroupErrorLeft))
+	if gfGroupBits < 0 {
+		gfGroupBits = 0
+	}
+	if gfGroupBits > kfGroupBits {
+		gfGroupBits = kfGroupBits
+	}
+	if maxBitsPerFrame > 0 && baselineGFInterval > 0 {
+		cap := int64(maxBitsPerFrame) * int64(baselineGFInterval)
+		if gfGroupBits > cap {
+			gfGroupBits = cap
+		}
+	}
+	return gfGroupBits
+}
+
+// libvpxGFBitsAllocation ports the libvpx vp8/encoder/firstpass.c
+// gf_bits allocator: for the GF (or ARF when isARF=true), pre-clamp
+// the boost via the GFQ_ADJUSTMENT scaling, apply min/max caps based
+// on baseline_gf_interval, and compute
+//
+//	gf_bits = Boost * (gf_group_bits / allocation_chunks)
+//
+// with the libvpx >1000-boost halving guard. The two branches diverge:
+//   - ARF (i==0 with source_alt_ref_pending):
+//     Boost = (gfu_boost * 3 * GFQ_ADJUSTMENT) / (2 * 100) + interval*50
+//     cap = (interval+1)*200, floor = 125
+//     allocation_chunks = (interval+1)*100 + Boost
+//   - GF: Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100
+//     cap = interval*150, floor = 125
+//     allocation_chunks = interval*100 + (Boost - 100)
+//
+// gfuBoost is the libvpx `cpi->gfu_boost` (last_boost-equivalent),
+// gfqAdjustment is `vp8_gf_boost_qadjustment[Q]`. interval is
+// `baseline_gf_interval`.
+func libvpxGFBitsAllocation(isARF bool, gfuBoost int, gfqAdjustment int, gfGroupBits int64, baselineGFInterval int) int {
+	if gfGroupBits <= 0 || baselineGFInterval <= 0 {
+		return 0
+	}
+	var boost, allocationChunks int
+	if isARF {
+		boost = (gfuBoost * 3 * gfqAdjustment) / (2 * 100)
+		boost += baselineGFInterval * 50
+		if cap := (baselineGFInterval + 1) * 200; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = (baselineGFInterval+1)*100 + boost
+	} else {
+		boost = (gfuBoost * gfqAdjustment) / 100
+		if cap := baselineGFInterval * 150; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = baselineGFInterval*100 + (boost - 100)
+	}
+	for boost > 1000 {
+		boost /= 2
+		allocationChunks /= 2
+		if allocationChunks <= 0 {
+			return 0
+		}
+	}
+	if allocationChunks <= 0 {
+		return 0
+	}
+	gfBits := int(float64(boost) * (float64(gfGroupBits) / float64(allocationChunks)))
+	if gfBits < 0 {
+		gfBits = 0
+	}
+	return gfBits
+}
+
+// kfGroupModifiedError ports the inner-loop accumulator
+//
+//	kf_group_err += calculate_modified_err(cpi, this_frame);
+//
+// from libvpx vp8/encoder/firstpass.c find_next_key_frame: total
+// modified error across the KF group starting at `frame` and lasting
+// `framesToKey` frames. Returns 0 when stats are not loaded.
+func (t *twoPassState) kfGroupModifiedError(frame uint64, framesToKey int) float64 {
+	if !t.enabled() || framesToKey <= 0 || frame >= uint64(len(t.stats)) {
+		return 0
+	}
+	end := frame + uint64(framesToKey)
+	if end > uint64(len(t.stats)) {
+		end = uint64(len(t.stats))
+	}
+	var sum float64
+	for i := frame; i < end; i++ {
+		sum += twoPassModifiedError(t.stats[i], t.vbrBiasPct)
+	}
+	return sum
+}
+
+// kfGroupBits ports the libvpx vp8/encoder/firstpass.c
+// find_next_key_frame KF-group bit allocation:
+//
+//	kf_group_bits = bits_left * (kf_group_err / modified_error_left)
+//
+// clamped by max_bits * frames_to_key (the per-frame ceiling). Returns
+// 0 when stats are not loaded, when bits_left has been depleted, or
+// when modified_error_left is 0 (libvpx's `if (bits_left > 0 &&
+// modified_error_left > 0.0)` gate). The caller passes the libvpx
+// frame_max_bits value (libvpx caps any single normal frame at this
+// rate; defaults to av_per_frame_bandwidth * (max_section_pct/100)).
+func (t *twoPassState) kfGroupBits(frame uint64, framesToKey int, maxBitsPerFrame int) int64 {
+	if !t.enabled() || framesToKey <= 0 || t.bitsLeft <= 0 || t.errorLeft <= 0 {
+		return 0
+	}
+	groupErr := t.kfGroupModifiedError(frame, framesToKey)
+	if groupErr <= 0 {
+		return 0
+	}
+	groupBits := int64(float64(t.bitsLeft) * (groupErr / t.errorLeft))
+	if maxBitsPerFrame > 0 {
+		maxGroupBits := int64(maxBitsPerFrame) * int64(framesToKey)
+		if groupBits > maxGroupBits {
+			groupBits = maxGroupBits
+		}
+	}
+	if groupBits < 0 {
+		groupBits = 0
+	}
+	return groupBits
+}
+
+// framesToKey ports a simplified `cpi->twopass.frames_to_key` lookahead
+// from libvpx's vp8/encoder/firstpass.c find_next_key_frame: starting at
+// `frame`, walk forward until libvpxTestCandidateKeyFrame fires (with
+// the libvpx `i >= MIN_GF_INTERVAL` gate), or until the user-configured
+// keyFrameInterval is exhausted, or until end-of-stats. Returns the
+// number of frames remaining until the next predicted KF, including
+// the current frame at index `frame`. Returns 0 when stats are not
+// loaded or `frame` is past the end (libvpx falls back to default
+// targets in that case).
+func (t *twoPassState) framesToKey(frame uint64, keyFrameInterval int) int {
+	if !t.enabled() || frame >= uint64(len(t.stats)) {
+		return 0
+	}
+	maxLookahead := uint64(len(t.stats)) - frame
+	if keyFrameInterval > 0 && uint64(2*keyFrameInterval) < maxLookahead {
+		// libvpx breaks the loop when frames_to_key >= 2*key_freq.
+		maxLookahead = uint64(2 * keyFrameInterval)
+	}
+	for i := uint64(1); i < maxLookahead; i++ {
+		idx := frame + i
+		if idx >= uint64(len(t.stats)) {
+			break
+		}
+		// libvpx requires `i >= MIN_GF_INTERVAL` before firing the
+		// candidate-KF predicate; mirror that gate.
+		if int(i) >= libvpxMinGFInterval && libvpxTestCandidateKeyFrame(t.stats, int(idx)) {
+			return int(i) + 1
+		}
+		if keyFrameInterval > 0 && int(i) >= keyFrameInterval {
+			return int(i) + 1
+		}
+	}
+	return int(maxLookahead)
+}
+
 func (t *twoPassState) markKeyFrame(frame uint64) {
 	if t.enabled() {
 		t.lastKeySeen = frame

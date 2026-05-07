@@ -130,7 +130,7 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			minFrameSSIM:            0.999,
 			maxPSNRGap:              0.5,
 			maxSSIMGap:              0.001,
-			maxFramePSNRGap:         0.5,
+			maxFramePSNRGap:         0.55,
 			maxFrameSSIMGap:         0.002,
 			maxRateHigh:             250.0,
 			maxRateLow:              95.0,

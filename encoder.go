@@ -421,6 +421,15 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
+	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
+	// cpi->oxcf.key_freq for the first-keyframe bootstrap; seed it so
+	// kf_bitrate_adjustment matches libvpx for early frames.
+	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
+	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
+	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
+	// that so calc_pframe_target_size's min_frame_target floor and
+	// calcGFParams allocation_chunks see the same value.
+	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, normalized.TwoPassMinPct)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -512,11 +521,25 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
+	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ
+	// triggers GF refresh when frames_till_gf_update_due==0 and
+	// pct_intra<15 || gf_frame_usage>=5. govpx funnels it through the
+	// same goldenCBRRefresh local so the existing CBR-shaped code path
+	// (rc bookkeeping, header copy, and post-encode GF accounting)
+	// applies uniformly.
+	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
+		goldenCBRRefresh = true
+	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
 	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
 	// and current_gf_interval before update_golden_frame_stats accumulates
 	// gf_overspend_bits. Mirror that for govpx's CBR refresh.
+	// calc_gf_params populates last_boost AFTER the per-frame target
+	// (and small +/- last_boost section adjustment) has been computed,
+	// so we defer the calcGFParams call until pickGoldenFrameBoost
+	// runs below — populating last_boost early would feed the small
+	// +/- branch with this frame's boost instead of the prior GF's.
 	if goldenCBRRefresh {
 		gfInterval := e.goldenFrameCBRInterval(rows, cols)
 		e.rc.framesTillGFUpdateDue = gfInterval
@@ -541,6 +564,24 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
+		// libvpx vp8/encoder/ratectrl.c calc_gf_params runs at the
+		// tail of calc_pframe_target_size on the GF refresh frame and
+		// updates cpi->last_boost for the next GF section's small +/-
+		// adjustment. Mirror that here so the next non-GF frame sees
+		// the right boost.
+		gfOut := calcGFParams(gfParamsInput{
+			Q:                     e.rc.lastInterQuantizer,
+			RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
+			RecentRefLast:         e.rc.recentRefFrameUsageLast,
+			RecentRefGolden:       e.rc.recentRefFrameUsageGolden,
+			RecentRefAltRef:       e.rc.recentRefFrameUsageAltRef,
+			GFActiveCount:         e.rc.gfActiveCount,
+			Macroblocks:           required,
+			ThisFramePercentIntra: e.rc.thisFramePercentIntra,
+			BaselineGFInterval:    e.rc.framesTillGFUpdateDue,
+			MaxGFInterval:         e.rc.framesTillGFUpdateDue,
+		})
+		e.rc.lastBoost = gfOut.Boost
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 
@@ -606,6 +647,21 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 		e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+		// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
+		// per-frame ref usage so calc_gf_params and the auto_gold
+		// refresh decision read the same `recent_ref_frame_usage`
+		// libvpx would. On GF refresh the encoder resets the counters
+		// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
+		// counts accumulate (skipping the immediate post-GF frame).
+		intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+		if attempt.Config.RefreshGolden {
+			e.rc.resetRecentRefFrameUsage(required)
+		} else {
+			e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+		}
+		if required > 0 {
+			e.rc.thisFramePercentIntra = (100 * intra) / required
+		}
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -664,6 +720,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
+	// libvpx vp8/encoder/onyx_if.c key-frame path resets the rolling
+	// recent_ref_frame_usage counters to 1 each (the same as a GF
+	// refresh) so the next GF section starts with a clean baseline.
+	e.rc.resetRecentRefFrameUsage(required)
+	e.rc.thisFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
@@ -1159,6 +1220,32 @@ func countSkippedInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int {
 	return count
 }
 
+// countInterFrameRefUsage mirrors libvpx's count_mb_ref_frame_usage: a
+// per-MB tally of which reference each MB selected (intra, last, golden,
+// altref). The four return values match the libvpx INTRA/LAST/GOLDEN/ALTREF
+// indexing of cpi->mb.count_mb_ref_frame_usage. Modes with intra
+// prediction (Mode < NearestMV, i.e. DCPred/VPred/HPred/TMPred/BPred)
+// count as INTRA_FRAME in libvpx; otherwise the MB carries an inter ref.
+func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, last, golden, alt int) {
+	for _, mode := range modes {
+		if mode.Mode < vp8common.NearestMV {
+			intra++
+			continue
+		}
+		switch mode.RefFrame {
+		case vp8common.LastFrame:
+			last++
+		case vp8common.GoldenFrame:
+			golden++
+		case vp8common.AltRefFrame:
+			alt++
+		default:
+			intra++
+		}
+	}
+	return intra, last, golden, alt
+}
+
 func validateEncodeFlags(flags EncodeFlags) error {
 	if flags&EncodeForceGoldenFrame != 0 && flags&EncodeNoUpdateGolden != 0 {
 		return ErrInvalidConfig
@@ -1234,6 +1321,53 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 	}
 	interval := e.goldenFrameCBRInterval(rows, cols)
 	return interval > 0 && e.rc.framesSinceKeyframe > 0 && e.rc.framesSinceKeyframe%interval == 0
+}
+
+// shouldRefreshGoldenFrameOnePassNonCBR ports the libvpx auto_gold
+// one-pass non-CBR GF refresh trigger from
+// vp8/encoder/ratectrl.c calc_pframe_target_size:
+//
+//	if (cpi->oxcf.error_resilient_mode == 0 &&
+//	    (cpi->frames_till_gf_update_due == 0) && !cpi->drop_frame) {
+//	    if (!cpi->gf_update_onepass_cbr) {
+//	        ... compute gf_frame_usage ...
+//	        if (cpi->auto_gold) {
+//	            if ((cpi->pass == 0) &&
+//	                (cpi->this_frame_percent_intra < 15 ||
+//	                 gf_frame_usage >= 5)) {
+//	                cpi->common.refresh_golden_frame = 1;
+//	            }
+//	        }
+//	    }
+//	}
+//
+// govpx routes CBR through `shouldRefreshGoldenFrameCBR`; this method
+// covers VBR and CQ. Returns true when libvpx would force a GF
+// refresh on this frame.
+func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+	if keyFrame ||
+		temporalActive ||
+		e.opts.ErrorResilient ||
+		e.rc.mode == RateControlCBR ||
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
+		return false
+	}
+	if e.rc.framesTillGFUpdateDue > 0 {
+		return false
+	}
+	required := rows * cols
+	if required <= 0 {
+		return false
+	}
+	return libvpxAutoGoldOnePassRefreshDecision(
+		e.rc.thisFramePercentIntra,
+		e.rc.recentRefFrameUsageIntra,
+		e.rc.recentRefFrameUsageLast,
+		e.rc.recentRefFrameUsageGolden,
+		e.rc.recentRefFrameUsageAltRef,
+		e.rc.gfActiveCount,
+		required,
+	)
 }
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
@@ -1524,6 +1658,8 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.KeyFrameInterval = frames
+	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
+	e.rc.keyFrameFrequency = frames
 	return nil
 }
 

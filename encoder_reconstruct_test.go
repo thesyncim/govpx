@@ -532,6 +532,20 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 	}
 }
 
+func TestInterFastBestThresholdUsesPickInterDecay(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+
+	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineRealtime, 8)
+	e.lowerBestInterFastThreshold(libvpxThrNew1)
+	afterBest := e.interModeRDThresholds(40)
+	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*112; got != want {
+		t.Fatalf("fast best NEW1 threshold = %d, want %d", got, want)
+	}
+}
+
 func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
 	e := &VP8Encoder{}
 	e.resetInterRDThresholdMultipliers()
@@ -568,6 +582,27 @@ func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.
 	}
 	if got := libvpxSplitMVSubsearchThreshold(thresholds, 3); got != 33 {
 		t.Fatalf("slot 3 SplitMV threshold = %d, want THR_NEW3", got)
+	}
+}
+
+func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
+	tests := []struct {
+		sr   int
+		want int
+	}{
+		{sr: 0, want: 7},
+		{sr: 1, want: 7},
+		{sr: 2, want: 6},
+		{sr: 3, want: 6},
+		{sr: 4, want: 5},
+		{sr: 127, want: 1},
+		{sr: 128, want: 0},
+		{sr: 512, want: 0},
+	}
+	for _, tt := range tests {
+		if got := libvpxSplitMVStepParamFromSeedDistance(tt.sr); got != tt.want {
+			t.Fatalf("step_param(%d) = %d, want %d", tt.sr, got, tt.want)
+		}
 	}
 }
 
@@ -1186,14 +1221,40 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 
 	bestRefMV := vp8enc.MotionVector{}
 	reusedCenter := vp8enc.MotionVector{Col: 64}
-	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0)
-	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0, 5, false)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0, 5, false)
+	bestQualityMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
 
 	if mv != (vp8enc.MotionVector{Col: 96}) {
 		t.Fatalf("search-centered split MV = %+v, want col +96", mv)
 	}
 	if noReuseMV == mv {
 		t.Fatalf("zero-centered search unexpectedly reached %+v; test no longer proves predictor reuse", mv)
+	}
+	if bestQualityMV != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("best-quality full-search fallback MV = %+v, want col +96", bestQualityMV)
+	}
+}
+
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*67 + col*43 + row*col*19 + col*col*5) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 4, 4, 0, 2)
+	ref.ExtendBorders()
+
+	source := sourceImageFromPublic(src)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6, false)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7, false)
+
+	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
+		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
+	}
+	if stepOneMV == stepTwoMV {
+		t.Fatalf("step_param 7 reached %+v; want smaller diamond window than step_param 6", stepOneMV)
 	}
 }
 
@@ -1204,7 +1265,7 @@ func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*71 + col*37 + row*col*17 + col*col*11) & 255)
 		}
 	}
-	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 12)
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 9)
 	copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 0)
 	ref.ExtendBorders()
 	seeds := splitMotionSearchSeeds{
@@ -1222,8 +1283,8 @@ func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.
 	if !ok || mode.Partition != 1 {
 		t.Fatalf("mode = %+v ok=%t, want 8x16 SplitMV", mode, ok)
 	}
-	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 96}) {
-		t.Fatalf("seeded 8x16 left MV = %+v, want col +96", mode.BlockMV[0])
+	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 72}) {
+		t.Fatalf("seeded 8x16 left MV = %+v, want col +72", mode.BlockMV[0])
 	}
 	if mode.BlockMV[2] != (vp8enc.MotionVector{}) {
 		t.Fatalf("8x16 right MV = %+v, want zero", mode.BlockMV[2])
@@ -1289,6 +1350,9 @@ func TestSplitMotionSearchSeedsFrom8x8UsesLibvpxBlocks(t *testing.T) {
 	want := [4]vp8enc.MotionVector{mode.BlockMV[0], mode.BlockMV[2], mode.BlockMV[8], mode.BlockMV[10]}
 	if seeds.mv != want {
 		t.Fatalf("seeds = %+v, want %+v", seeds.mv, want)
+	}
+	if seeds.step8x16 != [2]int{5, 5} || seeds.step16x8 != [2]int{7, 7} {
+		t.Fatalf("seed steps 8x16=%v 16x8=%v, want [5 5] and [7 7]", seeds.step8x16, seeds.step16x8)
 	}
 }
 
@@ -1544,6 +1608,46 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 	if mode.BModes[0] != vp8common.BHEPred {
 		t.Fatalf("B mode[0] = %v, want B_HE_PRED", mode.BModes[0])
+	}
+}
+
+func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	e.analysis = testVP8Frame(t, 32, 32, 128, 128, 128)
+	for i := 0; i < 16; i++ {
+		e.analysis.Img.Y[15*e.analysis.Img.YStride+16+i] = byte(30 + i*11)
+		e.analysis.Img.Y[(16+i)*e.analysis.Img.YStride+15] = byte(220 - i*9)
+	}
+	e.analysis.ExtendBorders()
+
+	var genScratch vp8dec.IntraReconstructionScratch
+	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, 1, 1, &genScratch.Refs)
+	yOff := 16*e.analysis.Img.YStride + 16
+	y := e.analysis.Img.Y[yOff:]
+	for block := 0; block < 16; block++ {
+		var blockPred [16]byte
+		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			t.Fatalf("predictAnalysisBPredBlock returned false")
+		}
+		copyBPredBlock(blockPred[:], 4, y, e.analysis.Img.YStride, block)
+		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
+	}
+	for row := 16; row < 32; row++ {
+		for col := 16; col < 32; col++ {
+			e.analysis.Img.Y[row*e.analysis.Img.YStride+col] = 128
+		}
+	}
+
+	mode, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
+	if !ok {
+		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
+	}
+	for block, bMode := range mode.BModes {
+		if bMode > vp8common.BHEPred {
+			t.Fatalf("fast B mode[%d] = %v, want libvpx non-RD candidate <= B_HE_PRED", block, bMode)
+		}
 	}
 }
 
@@ -2150,6 +2254,50 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 	}
 	if decision.useIntra || decision.ref.Frame != vp8common.GoldenFrame || decision.interMode.Mode != vp8common.ZeroMV {
 		t.Fatalf("decision = %+v, want GOLDEN/ZEROMV from libvpx slot-2 loop entry", decision)
+	}
+}
+
+func TestSelectFastInterFrameModeDecisionUsesThresholdState(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.opts.Deadline = DeadlineRealtime
+	e.opts.CpuUsed = 8
+	fillBenchmarkVP8Image(&e.analysis.Img, 96, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 96, 90, 170)
+	last := testVP8Frame(t, 16, 16, 96, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			y := byte((11 + row*37 + col*19 + row*col*5) & 255)
+			src.Y[row*src.YStride+col] = y
+			last.Img.Y[row*last.Img.YStride+col] = y
+		}
+	}
+	last.ExtendBorders()
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.beginInterRDModeDecisionMacroblock()
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil)
+
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if decision.useIntra || decision.ref.Frame != vp8common.LastFrame || decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("decision = %+v, want LAST/ZEROMV on matching reference", decision)
+	}
+	if got := e.interModeTestHitCounts[libvpxThrZero1]; got != 1 {
+		t.Fatalf("ZERO1 hit count = %d, want 1", got)
+	}
+	if !e.interRDThreshTouched[libvpxThrZero1] {
+		t.Fatalf("ZERO1 threshold was not touched")
+	}
+	if got := e.interRDThreshMult[libvpxThrZero1]; got >= libvpxRDThreshMultStart {
+		t.Fatalf("ZERO1 threshold multiplier = %d, want below start after improvement", got)
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -82,22 +84,27 @@ type comparisonReport struct {
 }
 
 type referenceReport struct {
-	Encoder           string        `json:"encoder"`
-	Mode              string        `json:"mode"`
-	OutputBitrateKbps float64       `json:"output_bitrate_kbps"`
-	BitrateErrorPct   float64       `json:"bitrate_error_pct"`
-	NSPerFrame        int64         `json:"ns_per_frame"`
-	EncodeFPS         float64       `json:"encode_fps"`
-	MacroblocksPerSec float64       `json:"macroblocks_per_second"`
-	PSNR              float64       `json:"psnr"`
-	SSIM              float64       `json:"ssim"`
-	QualityFrames     int           `json:"quality_frames"`
-	QualityError      string        `json:"quality_error,omitempty"`
-	KeyframeBytes     int           `json:"keyframe_bytes"`
-	AvgInterBytes     float64       `json:"avg_interframe_bytes"`
-	LatencyNS         latencyReport `json:"latency_ns"`
-	OutputBytes       int           `json:"output_bytes"`
-	EncodedFrames     int           `json:"encoded_frames"`
+	Encoder              string        `json:"encoder"`
+	Mode                 string        `json:"mode"`
+	OutputBitrateKbps    float64       `json:"output_bitrate_kbps"`
+	BitrateErrorPct      float64       `json:"bitrate_error_pct"`
+	NSPerFrame           int64         `json:"ns_per_frame"`
+	EncodeFPS            float64       `json:"encode_fps"`
+	MacroblocksPerSec    float64       `json:"macroblocks_per_second"`
+	PSNR                 float64       `json:"psnr"`
+	SSIM                 float64       `json:"ssim"`
+	QualityFrames        int           `json:"quality_frames"`
+	QualityError         string        `json:"quality_error,omitempty"`
+	KeyframeBytes        int           `json:"keyframe_bytes"`
+	AvgInterBytes        float64       `json:"avg_interframe_bytes"`
+	LatencyNS            latencyReport `json:"latency_ns"`
+	OutputBytes          int           `json:"output_bytes"`
+	EncodedFrames        int           `json:"encoded_frames"`
+	TimingSource         string        `json:"timing_source"`
+	WallNSPerFrame       int64         `json:"wall_ns_per_frame"`
+	WallEncodeFPS        float64       `json:"wall_encode_fps"`
+	SubprocessOverheadNS int64         `json:"subprocess_overhead_ns"`
+	ParityFlags          []string      `json:"parity_flags,omitempty"`
 }
 
 type decodeBenchReport struct {
@@ -493,21 +500,59 @@ func decodeBenchmarkPackets(dec *govpx.VP8Decoder, packets [][]byte, latencies [
 	return decodedFrames, latencies, nil
 }
 
+// encoderParity captures the rate-control knobs that have to match between
+// govpx and libvpx for the comparison to be apples-to-apples. Both
+// newBenchmarkEncoder and runLibvpxBenchmark consume this so the two encoders
+// see the same problem (CBR, same buffer sizes, same q-range, same kf
+// cadence, single-pass, single-thread, zero lag).
+type encoderParity struct {
+	MinQuantizer        int
+	MaxQuantizer        int
+	KeyFrameInterval    int
+	BufferSizeMs        int
+	BufferInitialSizeMs int
+	BufferOptimalSizeMs int
+	UndershootPct       int
+	OvershootPct        int
+	Threads             int
+	CpuUsed             int
+}
+
+func parityFor(cfg benchConfig) encoderParity {
+	kf := cfg.FPS
+	if kf <= 0 {
+		kf = 30
+	}
+	return encoderParity{
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		KeyFrameInterval:    kf,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		UndershootPct:       100,
+		OvershootPct:        15,
+		Threads:             1,
+		CpuUsed:             8,
+	}
+}
+
 func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8Encoder, error) {
+	p := parityFor(cfg)
 	return govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               cfg.Width,
 		Height:              cfg.Height,
 		FPS:                 cfg.FPS,
 		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   cfg.BitrateKbps,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
+		MinQuantizer:        p.MinQuantizer,
+		MaxQuantizer:        p.MaxQuantizer,
 		Deadline:            deadline,
-		CpuUsed:             8,
-		KeyFrameInterval:    cfg.FPS,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
+		CpuUsed:             p.CpuUsed,
+		KeyFrameInterval:    p.KeyFrameInterval,
+		BufferSizeMs:        p.BufferSizeMs,
+		BufferInitialSizeMs: p.BufferInitialSizeMs,
+		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
 	})
 }
 
@@ -627,8 +672,9 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	if deadlineName == "good" {
 		vpxDeadlineFlag = "--good"
 	}
-	args := append([]string{}, cfg.LibvpxArgs...)
-	args = append(args,
+	parity := parityFor(cfg)
+	parityFlags := libvpxParityFlags(cfg, parity, vpxDeadlineFlag)
+	args := append([]string{
 		"--codec=vp8",
 		"--ivf",
 		"--i420",
@@ -636,18 +682,21 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		fmt.Sprintf("--height=%d", cfg.Height),
 		fmt.Sprintf("--fps=%d/1", cfg.FPS),
 		fmt.Sprintf("--limit=%d", cfg.Frames),
-		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
-		vpxDeadlineFlag,
-		"--cpu-used=8",
-		fmt.Sprintf("--output=%s", outPath),
-		rawPath,
-	)
-	start := time.Now()
+	}, parityFlags...)
+	// User overrides come after parity defaults so the same-flag-wins
+	// behaviour of vpxenc lets callers tweak rate control if they need to.
+	args = append(args, cfg.LibvpxArgs...)
+	args = append(args, fmt.Sprintf("--output=%s", outPath), rawPath)
+
+	var stderr bytes.Buffer
 	cmd := exec.Command(cfg.LibvpxVpxenc, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return referenceReport{}, fmt.Errorf("libvpx vpxenc failed: %w\n%s", err, out)
-	}
+	cmd.Stderr = &stderr
+	start := time.Now()
+	stdout, err := cmd.Output()
 	elapsed := time.Since(start)
+	if err != nil {
+		return referenceReport{}, fmt.Errorf("libvpx vpxenc failed: %w\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr.Bytes())
+	}
 
 	ivf, err := os.ReadFile(outPath)
 	if err != nil {
@@ -661,7 +710,25 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	for _, size := range sizes {
 		outputBytes += size
 	}
-	nsPerFrame := elapsed.Nanoseconds() / int64(len(frames))
+	wallNS := elapsed.Nanoseconds()
+	wallPerFrame := wallNS / int64(len(frames))
+	encodeNS := wallNS
+	timingSource := "wall"
+	if parsed, ok := parseVpxencEncodeTime(stderr.Bytes()); ok && parsed.frames > 0 && parsed.totalNS > 0 {
+		encodeNS = parsed.totalNS
+		timingSource = "vpxenc-stats"
+	}
+	encodePerFrame := encodeNS / int64(len(frames))
+	if encodePerFrame <= 0 {
+		// Fall back so downstream divisions stay positive.
+		encodePerFrame = wallPerFrame
+		encodeNS = wallNS
+		timingSource = "wall"
+	}
+	overheadNS := wallNS - encodeNS
+	if overheadNS < 0 {
+		overheadNS = 0
+	}
 	outputBitrate := float64(outputBytes*8*cfg.FPS) / float64(cfg.Frames*1000)
 	bitrateError := (outputBitrate - float64(cfg.BitrateKbps)) * 100 / float64(cfg.BitrateKbps)
 	keyframeBytes := 0
@@ -682,14 +749,18 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		qualityError = qualityErr.Error()
 	}
 	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
+	wallFPS := 0.0
+	if wallPerFrame > 0 {
+		wallFPS = 1e9 / float64(wallPerFrame)
+	}
 	return referenceReport{
 		Encoder:           "libvpx-vp8",
 		Mode:              deadlineName,
 		OutputBitrateKbps: outputBitrate,
 		BitrateErrorPct:   bitrateError,
-		NSPerFrame:        nsPerFrame,
-		EncodeFPS:         1e9 / float64(nsPerFrame),
-		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(nsPerFrame),
+		NSPerFrame:        encodePerFrame,
+		EncodeFPS:         1e9 / float64(encodePerFrame),
+		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(encodePerFrame),
 		PSNR:              psnr,
 		SSIM:              ssim,
 		QualityFrames:     qualityFrames,
@@ -697,13 +768,89 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		KeyframeBytes:     keyframeBytes,
 		AvgInterBytes:     avgInter,
 		LatencyNS: latencyReport{
-			P50: nsPerFrame,
-			P95: nsPerFrame,
-			P99: nsPerFrame,
+			P50: encodePerFrame,
+			P95: encodePerFrame,
+			P99: encodePerFrame,
 		},
-		OutputBytes:   outputBytes,
-		EncodedFrames: len(sizes),
+		OutputBytes:          outputBytes,
+		EncodedFrames:        len(sizes),
+		TimingSource:         timingSource,
+		WallNSPerFrame:       wallPerFrame,
+		WallEncodeFPS:        wallFPS,
+		SubprocessOverheadNS: overheadNS,
+		ParityFlags:          parityFlags,
 	}, nil
+}
+
+// libvpxParityFlags returns the vpxenc flags that mirror govpx's
+// EncoderOptions for a fair benchmark: same CBR target and buffer model,
+// same q-range and keyframe cadence, single-pass, single-thread, no lag,
+// noise sensitivity off, deadline matched. The deadlineFlag is "--rt" or
+// "--good" depending on benchConfig.Mode.
+func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []string {
+	return []string{
+		"--passes=1",
+		"--lag-in-frames=0",
+		"--end-usage=cbr",
+		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
+		fmt.Sprintf("--min-q=%d", p.MinQuantizer),
+		fmt.Sprintf("--max-q=%d", p.MaxQuantizer),
+		fmt.Sprintf("--kf-min-dist=%d", p.KeyFrameInterval),
+		fmt.Sprintf("--kf-max-dist=%d", p.KeyFrameInterval),
+		fmt.Sprintf("--buf-sz=%d", p.BufferSizeMs),
+		fmt.Sprintf("--buf-initial-sz=%d", p.BufferInitialSizeMs),
+		fmt.Sprintf("--buf-optimal-sz=%d", p.BufferOptimalSizeMs),
+		fmt.Sprintf("--undershoot-pct=%d", p.UndershootPct),
+		fmt.Sprintf("--overshoot-pct=%d", p.OvershootPct),
+		fmt.Sprintf("--threads=%d", p.Threads),
+		"--noise-sensitivity=0",
+		deadlineFlag,
+		fmt.Sprintf("--cpu-used=%d", p.CpuUsed),
+	}
+}
+
+type vpxencProgress struct {
+	frames  int
+	bytes   int
+	totalNS int64
+}
+
+// vpxenc prints (and updates with carriage returns) lines like
+//
+//	Pass 1/1 frame   30/30   12345B   123456 us 24.31 fps
+//
+// to stderr while encoding. The numeric column is microseconds for short
+// runs and switches to milliseconds when the total exceeds ~10 seconds.
+// We take the last match so we get the final cumulative tally rather than
+// an intermediate update.
+var vpxencProgressRE = regexp.MustCompile(`Pass\s+\d+/\d+\s+frame\s+(\d+)/(\d+)\s+(\d+)B\s+(\d+)\s+(us|ms)`)
+
+func parseVpxencEncodeTime(stderr []byte) (vpxencProgress, bool) {
+	matches := vpxencProgressRE.FindAllSubmatch(stderr, -1)
+	if len(matches) == 0 {
+		return vpxencProgress{}, false
+	}
+	last := matches[len(matches)-1]
+	framesIn, _ := strconv.Atoi(string(last[1]))
+	framesOut, _ := strconv.Atoi(string(last[2]))
+	rawBytes, _ := strconv.Atoi(string(last[3]))
+	rawTime, _ := strconv.ParseInt(string(last[4]), 10, 64)
+	unit := string(last[5])
+	frames := framesOut
+	if frames == 0 {
+		frames = framesIn
+	}
+	var ns int64
+	switch unit {
+	case "ms":
+		ns = rawTime * int64(time.Millisecond)
+	default:
+		ns = rawTime * int64(time.Microsecond)
+	}
+	if frames <= 0 || ns <= 0 {
+		return vpxencProgress{}, false
+	}
+	return vpxencProgress{frames: frames, bytes: rawBytes, totalNS: ns}, true
 }
 
 func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
