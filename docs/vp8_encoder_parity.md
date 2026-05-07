@@ -292,9 +292,13 @@ the anchor and look for the surrounding mismatch.
     [`predictBestBPredLumaModeRD`](../encoder_reconstruct.go).
   - libvpx: `vp8_pick_intra_mode`, RD intra pickers, and `encodeintra.c`.
   - Status: partial. UV intra mode selection now uses transform/quantize,
-    coefficient-token rate, and transform-domain distortion. Remaining gaps
-    include exact thresholds, activity/tuning hooks, predictor edge setup, and
-    per-block bailout behavior.
+    coefficient-token rate, and transform-domain distortion. The 16x16 intra
+    RD picker (`predictBestWholeBlockIntraModeRD`) has parity coverage that
+    pins the Y mode iteration order, mbmode_cost addition, token context
+    seeding, and Y/UV rate-distortion breakdowns against libvpx
+    `rd_pick_intra16x16mby_mode`. Remaining gaps include exact thresholds,
+    activity/tuning hooks, predictor edge setup, and per-block bailout
+    behavior.
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
     coefficient EOBs, rate, distortion, and reconstructed pixels.
 
