@@ -581,6 +581,113 @@ func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
 	}
 }
 
+// TestLibvpxGetPredictionDecayRateMatchesLibvpxFormula pins the libvpx
+// vp8/encoder/firstpass.c get_prediction_decay_rate computation.
+// With pcnt_inter=0.9, pcnt_motion=0.2, mvr_abs=10, mvc_abs=10:
+//
+//	rate = 0.9
+//	motion_decay = 1.0 - 0.2/20 = 0.99 (no clamp, 0.9 < 0.99).
+//	mv_rabs = |10 * 0.2| = 2; mv_cabs = 2.
+//	distance_factor = sqrt(4+4)/250 = 2.828/250 = 0.01131.
+//	distance_factor = 1.0 - 0.01131 = 0.9887.
+//	rate stays at 0.9 (rate < distance_factor).
+func TestLibvpxGetPredictionDecayRateMatchesLibvpxFormula(t *testing.T) {
+	stats := FirstPassFrameStats{
+		PcntInter:  0.9,
+		PcntMotion: 0.2,
+		MVrAbs:     10,
+		MVcAbs:     10,
+	}
+	got := libvpxGetPredictionDecayRate(stats)
+	if math.Abs(got-0.9) > 1e-9 {
+		t.Fatalf("prediction_decay_rate = %v, want ~0.9", got)
+	}
+}
+
+// TestLibvpxGetPredictionDecayRateLargeMVZerosOut pins the libvpx
+// `(distance_factor > 1.0) ? 0.0 : (1.0 - distance_factor)` clamp.
+// Large MVs produce distance_factor > 1, which becomes 0.0 and
+// dominates the min.
+func TestLibvpxGetPredictionDecayRateLargeMVZerosOut(t *testing.T) {
+	stats := FirstPassFrameStats{
+		PcntInter:  0.9,
+		PcntMotion: 1.0,
+		MVrAbs:     500,
+		MVcAbs:     500,
+	}
+	got := libvpxGetPredictionDecayRate(stats)
+	if got != 0.0 {
+		t.Fatalf("large-MV decay rate = %v, want 0.0", got)
+	}
+}
+
+// TestLibvpxGetPredictionDecayRateMotionDecayClamps pins the libvpx
+// `motion_decay = 1.0 - pcnt_motion/20` floor when motion_decay
+// becomes the dominant term. With pcnt_inter=0.99, pcnt_motion=10,
+// motion_decay=0.5 -> rate clamps to 0.5.
+func TestLibvpxGetPredictionDecayRateMotionDecayClamps(t *testing.T) {
+	stats := FirstPassFrameStats{
+		PcntInter:  0.99,
+		PcntMotion: 10.0,
+		MVrAbs:     1,
+		MVcAbs:     1,
+	}
+	got := libvpxGetPredictionDecayRate(stats)
+	// motion_decay = 1.0 - 10/20 = 0.5.
+	// distance_factor = sqrt(100+100)/250 = 14.14/250 = 0.0566 -> 0.9434.
+	// rate = min(0.99, 0.5, 0.9434) = 0.5.
+	if math.Abs(got-0.5) > 1e-9 {
+		t.Fatalf("motion-decay clamp = %v, want 0.5", got)
+	}
+}
+
+// TestLibvpxDetectTransitionToStillReturnsFalseOnShortInterval pins
+// the libvpx `frame_interval > MIN_GF_INTERVAL` gate.
+func TestLibvpxDetectTransitionToStillReturnsFalseOnShortInterval(t *testing.T) {
+	rates := []float64{1.0, 1.0, 1.0}
+	if libvpxDetectTransitionToStill(libvpxMinGFInterval, 3, 0.999, 0.5, rates) {
+		t.Fatalf("frame_interval == MIN_GF_INTERVAL should not fire")
+	}
+}
+
+// TestLibvpxDetectTransitionToStillReturnsFalseOnLowDecayRate pins
+// the libvpx `loop_decay_rate >= 0.999` gate.
+func TestLibvpxDetectTransitionToStillReturnsFalseOnLowDecayRate(t *testing.T) {
+	rates := []float64{1.0, 1.0, 1.0}
+	if libvpxDetectTransitionToStill(10, 3, 0.95, 0.5, rates) {
+		t.Fatalf("loop_decay_rate < 0.999 should not fire")
+	}
+}
+
+// TestLibvpxDetectTransitionToStillReturnsFalseOnHighDecayAccum pins
+// the libvpx `decay_accumulator < 0.9` gate.
+func TestLibvpxDetectTransitionToStillReturnsFalseOnHighDecayAccum(t *testing.T) {
+	rates := []float64{1.0, 1.0, 1.0}
+	if libvpxDetectTransitionToStill(10, 3, 0.999, 0.95, rates) {
+		t.Fatalf("decay_accumulator >= 0.9 should not fire")
+	}
+}
+
+// TestLibvpxDetectTransitionToStillReturnsTrueOnAllStill pins the
+// happy-path: long interval, low accumulator, high decay rate, and
+// all next-still rates >= 0.999 -> transition_to_still=true.
+func TestLibvpxDetectTransitionToStillReturnsTrueOnAllStill(t *testing.T) {
+	rates := []float64{0.999, 1.0, 1.0}
+	if !libvpxDetectTransitionToStill(10, 3, 0.999, 0.5, rates) {
+		t.Fatalf("all-still lookahead should fire")
+	}
+}
+
+// TestLibvpxDetectTransitionToStillReturnsFalseOnLookaheadDip pins the
+// libvpx loop break: any lookahead frame with decay_rate < 0.999
+// breaks the transition-still detection.
+func TestLibvpxDetectTransitionToStillReturnsFalseOnLookaheadDip(t *testing.T) {
+	rates := []float64{1.0, 0.95, 1.0}
+	if libvpxDetectTransitionToStill(10, 3, 0.999, 0.5, rates) {
+		t.Fatalf("middle dip should break the lookahead loop")
+	}
+}
+
 // TestLibvpxCalculateModifiedErrMatchesLibvpxFormula pins libvpx's
 //
 //	modified_err = av_err * pow(this_err/av_err, vbrbias/100)

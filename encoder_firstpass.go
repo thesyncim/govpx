@@ -1189,6 +1189,75 @@ func (t *twoPassState) markKeyFrame(frame uint64) {
 	}
 }
 
+// libvpxGetPredictionDecayRate ports the libvpx
+// vp8/encoder/firstpass.c get_prediction_decay_rate:
+//
+//	rate = pcnt_inter
+//	motion_decay = 1.0 - (pcnt_motion / 20.0)
+//	rate = min(rate, motion_decay)
+//	mv_rabs = |mvr_abs * pcnt_motion|
+//	mv_cabs = |mvc_abs * pcnt_motion|
+//	distance_factor = sqrt(mv_rabs^2 + mv_cabs^2) / 250.0
+//	distance_factor = (distance_factor > 1.0) ? 0.0 : (1.0 - distance_factor)
+//	rate = min(rate, distance_factor)
+func libvpxGetPredictionDecayRate(stats FirstPassFrameStats) float64 {
+	rate := stats.PcntInter
+	motionDecay := 1.0 - (stats.PcntMotion / 20.0)
+	if motionDecay < rate {
+		rate = motionDecay
+	}
+	mvRAbs := math.Abs(stats.MVrAbs * stats.PcntMotion)
+	mvCAbs := math.Abs(stats.MVcAbs * stats.PcntMotion)
+	distanceFactor := math.Sqrt(mvRAbs*mvRAbs+mvCAbs*mvCAbs) / 250.0
+	if distanceFactor > 1.0 {
+		distanceFactor = 0.0
+	} else {
+		distanceFactor = 1.0 - distanceFactor
+	}
+	if distanceFactor < rate {
+		rate = distanceFactor
+	}
+	return rate
+}
+
+// libvpxDetectTransitionToStill ports the libvpx
+// vp8/encoder/firstpass.c detect_transition_to_still: returns true
+// when a complex transition is followed by a static section (used to
+// trigger an extra KF for slide-show / fade content).
+//
+//	trans_to_still = (frameInterval > MIN_GF_INTERVAL) &&
+//	                 (loop_decay_rate >= 0.999) &&
+//	                 (decay_accumulator < 0.9) &&
+//	                 (all next still_interval frames have
+//	                   prediction_decay_rate >= 0.999)
+//
+// The lookahead-walk parameter `nextDecayRates` holds the decay rates
+// for the next `still_interval` frames; libvpx peeks them from
+// `cpi->twopass.stats_in` and resets the file position afterwards.
+func libvpxDetectTransitionToStill(frameInterval int, stillInterval int, loopDecayRate float64, decayAccumulator float64, nextDecayRates []float64) bool {
+	if frameInterval <= libvpxMinGFInterval {
+		return false
+	}
+	if loopDecayRate < 0.999 || decayAccumulator >= 0.9 {
+		return false
+	}
+	if stillInterval <= 0 {
+		return false
+	}
+	limit := stillInterval
+	if limit > len(nextDecayRates) {
+		// libvpx returns false when the lookahead runs out before
+		// still_interval frames have been examined.
+		return false
+	}
+	for j := 0; j < limit; j++ {
+		if nextDecayRates[j] < 0.999 {
+			return false
+		}
+	}
+	return true
+}
+
 // libvpxCalculateModifiedErr ports the libvpx vp8/encoder/firstpass.c
 // calculate_modified_err formula:
 //
