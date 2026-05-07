@@ -309,13 +309,26 @@ the anchor and look for the surrounding mismatch.
     every field.
 
 - [ ] Port second-pass KF/GF group allocation and VBR section limits.
-  - govpx: [`twoPassState`](../encoder_firstpass.go).
+  - govpx: [`twoPassState`](../encoder_firstpass.go),
+    [`framesToKey`](../encoder_firstpass.go),
+    [`kfGroupBits`](../encoder_firstpass.go),
+    [`kfGroupModifiedError`](../encoder_firstpass.go).
   - libvpx: second-pass helpers in `firstpass.c` and `Pass2Encode` in
     `onyx_if.c`.
-  - Status: partial. govpx distributes bits by per-frame modified error only.
-  - Missing: `frames_to_key`, KF/GF group bits/error, `gf_bits`,
-    `alt_extra_bits`, section max-Q factor, active worst-Q estimates, VBR
-    min/max section limits, CBR buffer adjustments, and ARF pending decisions.
+  - Status: partial. govpx distributes bits by per-frame modified
+    error only. `framesToKey` now ports the `find_next_key_frame`
+    lookahead with the libvpx `i >= MIN_GF_INTERVAL` gate, the
+    `libvpxTestCandidateKeyFrame` predicate, the `key_freq` floor, and
+    the `2 * key_freq` outer clamp. `kfGroupModifiedError` accumulates
+    the per-frame `calculate_modified_err` into the libvpx
+    `kf_group_err`. `kfGroupBits` ports the libvpx KF-group allocation
+    (`bits_left * (kf_group_err / modified_error_left)`) with the
+    `max_bits * frames_to_key` ceiling and the `bits_left>0 &&
+    modified_error_left>0.0` gate.
+  - Missing: GF-group bits/error accumulators (`gf_group_bits`,
+    `gf_group_error_left`), `gf_bits`, `alt_extra_bits`, section
+    max-Q factor, active worst-Q estimates, VBR min/max section
+    limits, CBR buffer adjustments, and ARF pending decisions.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

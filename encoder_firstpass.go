@@ -494,6 +494,95 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// kfGroupModifiedError ports the inner-loop accumulator
+//
+//	kf_group_err += calculate_modified_err(cpi, this_frame);
+//
+// from libvpx vp8/encoder/firstpass.c find_next_key_frame: total
+// modified error across the KF group starting at `frame` and lasting
+// `framesToKey` frames. Returns 0 when stats are not loaded.
+func (t *twoPassState) kfGroupModifiedError(frame uint64, framesToKey int) float64 {
+	if !t.enabled() || framesToKey <= 0 || frame >= uint64(len(t.stats)) {
+		return 0
+	}
+	end := frame + uint64(framesToKey)
+	if end > uint64(len(t.stats)) {
+		end = uint64(len(t.stats))
+	}
+	var sum float64
+	for i := frame; i < end; i++ {
+		sum += twoPassModifiedError(t.stats[i], t.vbrBiasPct)
+	}
+	return sum
+}
+
+// kfGroupBits ports the libvpx vp8/encoder/firstpass.c
+// find_next_key_frame KF-group bit allocation:
+//
+//	kf_group_bits = bits_left * (kf_group_err / modified_error_left)
+//
+// clamped by max_bits * frames_to_key (the per-frame ceiling). Returns
+// 0 when stats are not loaded, when bits_left has been depleted, or
+// when modified_error_left is 0 (libvpx's `if (bits_left > 0 &&
+// modified_error_left > 0.0)` gate). The caller passes the libvpx
+// frame_max_bits value (libvpx caps any single normal frame at this
+// rate; defaults to av_per_frame_bandwidth * (max_section_pct/100)).
+func (t *twoPassState) kfGroupBits(frame uint64, framesToKey int, maxBitsPerFrame int) int64 {
+	if !t.enabled() || framesToKey <= 0 || t.bitsLeft <= 0 || t.errorLeft <= 0 {
+		return 0
+	}
+	groupErr := t.kfGroupModifiedError(frame, framesToKey)
+	if groupErr <= 0 {
+		return 0
+	}
+	groupBits := int64(float64(t.bitsLeft) * (groupErr / t.errorLeft))
+	if maxBitsPerFrame > 0 {
+		maxGroupBits := int64(maxBitsPerFrame) * int64(framesToKey)
+		if groupBits > maxGroupBits {
+			groupBits = maxGroupBits
+		}
+	}
+	if groupBits < 0 {
+		groupBits = 0
+	}
+	return groupBits
+}
+
+// framesToKey ports a simplified `cpi->twopass.frames_to_key` lookahead
+// from libvpx's vp8/encoder/firstpass.c find_next_key_frame: starting at
+// `frame`, walk forward until libvpxTestCandidateKeyFrame fires (with
+// the libvpx `i >= MIN_GF_INTERVAL` gate), or until the user-configured
+// keyFrameInterval is exhausted, or until end-of-stats. Returns the
+// number of frames remaining until the next predicted KF, including
+// the current frame at index `frame`. Returns 0 when stats are not
+// loaded or `frame` is past the end (libvpx falls back to default
+// targets in that case).
+func (t *twoPassState) framesToKey(frame uint64, keyFrameInterval int) int {
+	if !t.enabled() || frame >= uint64(len(t.stats)) {
+		return 0
+	}
+	maxLookahead := uint64(len(t.stats)) - frame
+	if keyFrameInterval > 0 && uint64(2*keyFrameInterval) < maxLookahead {
+		// libvpx breaks the loop when frames_to_key >= 2*key_freq.
+		maxLookahead = uint64(2 * keyFrameInterval)
+	}
+	for i := uint64(1); i < maxLookahead; i++ {
+		idx := frame + i
+		if idx >= uint64(len(t.stats)) {
+			break
+		}
+		// libvpx requires `i >= MIN_GF_INTERVAL` before firing the
+		// candidate-KF predicate; mirror that gate.
+		if int(i) >= libvpxMinGFInterval && libvpxTestCandidateKeyFrame(t.stats, int(idx)) {
+			return int(i) + 1
+		}
+		if keyFrameInterval > 0 && int(i) >= keyFrameInterval {
+			return int(i) + 1
+		}
+	}
+	return int(maxLookahead)
+}
+
 func (t *twoPassState) markKeyFrame(frame uint64) {
 	if t.enabled() {
 		t.lastKeySeen = frame
