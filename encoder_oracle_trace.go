@@ -46,6 +46,54 @@ type oracleTraceFrameRow struct {
 	SizeBytes      int    `json:"size_bytes"`
 }
 
+// oracleTraceRateRow mirrors the libvpx-side "rate" row emitted from
+// internal/coracle/build_vpxenc_oracle.sh just before vp8_pack_bitstream.
+// Field semantics match the libvpx VP8_COMP fields documented in
+// vp8/encoder/onyx_int.h:
+//
+//	q_index               -> the final accepted Q for this frame
+//	active_worst_quality  -> cpi->active_worst_quality
+//	active_best_quality   -> cpi->active_best_quality
+//	buffer_level          -> cpi->buffer_level (bits)
+//	total_byte_count      -> cpi->total_byte_count (cumulative bytes emitted)
+//	projected_frame_size  -> cpi->projected_frame_size (bits, post-entropy-savings)
+//	this_frame_target     -> cpi->this_frame_target (bits)
+//	kf_overspend_bits     -> cpi->kf_overspend_bits
+//	gf_overspend_bits     -> cpi->gf_overspend_bits
+//
+// Fields without a govpx equivalent yet are emitted as zero/sentinel; the
+// parity doc tracks the residuals.
+type oracleTraceRateRow struct {
+	Type               string `json:"type"`
+	FrameIndex         uint64 `json:"frame_index"`
+	FrameType          string `json:"frame_type"`
+	QIndex             int    `json:"q_index"`
+	ActiveWorstQ       int    `json:"active_worst_quality"`
+	ActiveBestQ        int    `json:"active_best_quality"`
+	BufferLevel        int64  `json:"buffer_level"`
+	TotalByteCount     int64  `json:"total_byte_count"`
+	ProjectedFrameSize int    `json:"projected_frame_size"`
+	ThisFrameTarget    int    `json:"this_frame_target"`
+	KFOverspendBits    int    `json:"kf_overspend_bits"`
+	GFOverspendBits    int    `json:"gf_overspend_bits"`
+}
+
+// oracleTraceRecodeRow mirrors the libvpx-side "recode" row, emitted only
+// when the frame's recode loop ran more than one iteration. LoopCount counts
+// every encode pass (including the first); FinalQ is the accepted Q the
+// loop converged to. Reason is an inferred classification:
+//
+//	"altref_src"        -> cpi->is_src_frame_alt_ref forced Loop=0
+//	"kf_forced_quality" -> KEY_FRAME with this_key_frame_forced
+//	"size_recode"       -> recode_loop_test driven termination (default)
+type oracleTraceRecodeRow struct {
+	Type       string `json:"type"`
+	FrameIndex uint64 `json:"frame_index"`
+	LoopCount  int    `json:"loop_count"`
+	FinalQ     int    `json:"final_q"`
+	Reason     string `json:"reason"`
+}
+
 // oracleTraceMBRow is the per-macroblock oracle trace row (inter frames only).
 type oracleTraceMBRow struct {
 	Type       string    `json:"type"`
@@ -122,6 +170,135 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	}
 	row.YAdler32, row.UAdler32, row.VAdler32 = oracleTraceReferenceChecksums(&e.lastRef.Img)
 	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+}
+
+// oracleTraceRateSummary is the slice of rate-control state callers pass to
+// emitOracleRateTrace. ActiveWorstQ / ActiveBestQ mirror libvpx's
+// active_worst_quality / active_best_quality at the point the recode loop
+// has accepted an attempt; ProjectedFrameSizeBits and ThisFrameTargetBits
+// are in bits to align with libvpx's int field semantics.
+type oracleTraceRateSummary struct {
+	FrameType              vp8common.FrameType
+	QIndex                 int
+	ActiveWorstQ           int
+	ActiveBestQ            int
+	BufferLevelBits        int64
+	TotalByteCount         int64
+	ProjectedFrameSizeBits int
+	ThisFrameTargetBits    int
+	KFOverspendBits        int
+	GFOverspendBits        int
+}
+
+// emitOracleRateTrace writes a single per-frame "rate" row capturing the
+// rate-control state at the point the encoder has accepted the final
+// recoded attempt. The row schema matches the libvpx-side oracle-trace
+// patch in internal/coracle/build_vpxenc_oracle.sh.
+func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	row := oracleTraceRateRow{
+		Type:               "rate",
+		FrameIndex:         e.frameCount,
+		QIndex:             summary.QIndex,
+		ActiveWorstQ:       summary.ActiveWorstQ,
+		ActiveBestQ:        summary.ActiveBestQ,
+		BufferLevel:        summary.BufferLevelBits,
+		TotalByteCount:     summary.TotalByteCount,
+		ProjectedFrameSize: summary.ProjectedFrameSizeBits,
+		ThisFrameTarget:    summary.ThisFrameTargetBits,
+		KFOverspendBits:    summary.KFOverspendBits,
+		GFOverspendBits:    summary.GFOverspendBits,
+	}
+	switch summary.FrameType {
+	case vp8common.KeyFrame:
+		row.FrameType = "key"
+	default:
+		row.FrameType = "inter"
+	}
+	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+}
+
+// oracleTraceRecodeSummary describes the recode-loop outcome for the just
+// finished frame. LoopCount counts every encode pass, including the first;
+// rows are only emitted when LoopCount > 1.
+type oracleTraceRecodeSummary struct {
+	LoopCount int
+	FinalQ    int
+	Reason    string
+}
+
+// emitOracleRecodeTrace writes a single per-frame "recode" row when the
+// frame's recode loop ran more than once. Reason is one of "altref_src",
+// "kf_forced_quality", or "size_recode" to align with the libvpx-side
+// classification.
+func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
+	if !e.oracleTraceEnabled() || summary.LoopCount <= 1 {
+		return
+	}
+	row := oracleTraceRecodeRow{
+		Type:       "recode",
+		FrameIndex: e.frameCount,
+		LoopCount:  summary.LoopCount,
+		FinalQ:     summary.FinalQ,
+		Reason:     summary.Reason,
+	}
+	if row.Reason == "" {
+		row.Reason = "size_recode"
+	}
+	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+}
+
+// emitOracleRateAndRecodeTrace emits the per-frame "rate" row plus, when
+// the recode loop ran more than once, a "recode" row. The pair is written
+// before the corresponding "frame" row so the JSONL ordering matches the
+// libvpx-side patch in internal/coracle/build_vpxenc_oracle.sh, which emits
+// rate/recode rows immediately before vp8_pack_bitstream and the per-frame
+// row inside vp8_pack_bitstream itself.
+//
+// frameType drives the goldenFrame heuristic for the active-Q bound
+// computation: KeyFrame queries the key-frame branch, otherwise the
+// inter/golden branch. sizeBytes accumulates into oracleTraceTotalByteCount
+// AFTER the rate row is emitted so the field reflects libvpx's
+// cpi->total_byte_count which is updated post-pack (i.e. before this
+// frame's contribution).
+func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType, finalQuantizer int, sizeBytes int) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	keyFrame := frameType == vp8common.KeyFrame
+	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBounds(keyFrame, false)
+	projectedBits := sizeBytes * 8
+	e.emitOracleRateTrace(oracleTraceRateSummary{
+		FrameType:              frameType,
+		QIndex:                 finalQuantizer,
+		ActiveWorstQ:           activeWorst,
+		ActiveBestQ:            activeBest,
+		BufferLevelBits:        int64(e.rc.bufferLevelBits),
+		TotalByteCount:         e.oracleTraceTotalByteCount,
+		ProjectedFrameSizeBits: projectedBits,
+		ThisFrameTargetBits:    e.rc.frameTargetBits,
+		KFOverspendBits:        e.rc.kfOverspendBits,
+		GFOverspendBits:        e.rc.gfOverspendBits,
+	})
+	if e.oracleTraceRecodeLoopCount > 1 {
+		reason := "size_recode"
+		// govpx does not currently model libvpx's is_src_frame_alt_ref or
+		// this_key_frame_forced gating on its recode loop; fall back to
+		// "size_recode" which is libvpx's default reason once the alt-ref
+		// override and forced-keyframe quality branches are excluded.
+		e.emitOracleRecodeTrace(oracleTraceRecodeSummary{
+			LoopCount: e.oracleTraceRecodeLoopCount,
+			FinalQ:    finalQuantizer,
+			Reason:    reason,
+		})
+	}
+	// Mirror libvpx's "cpi->total_byte_count += projected_bytes" which runs
+	// after pack_bitstream. The trace row already reflects the pre-frame
+	// total so the next frame's rate row sees the same cumulative value
+	// libvpx would.
+	e.oracleTraceTotalByteCount += int64(sizeBytes)
 }
 
 // resetOracleMBTraceBuffer clears any accumulated per-MB trace rows. It is

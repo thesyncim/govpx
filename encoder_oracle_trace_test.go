@@ -79,6 +79,8 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	lines := splitNonEmptyLines(buf.Bytes())
 	var frameRows []map[string]interface{}
 	var mbRows []map[string]interface{}
+	var rateRows []map[string]interface{}
+	var recodeRows []map[string]interface{}
 	for i, line := range lines {
 		var row map[string]interface{}
 		if err := json.Unmarshal(line, &row); err != nil {
@@ -93,6 +95,10 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			frameRows = append(frameRows, row)
 		case "mb":
 			mbRows = append(mbRows, row)
+		case "rate":
+			rateRows = append(rateRows, row)
+		case "recode":
+			recodeRows = append(recodeRows, row)
 		default:
 			t.Fatalf("trace line %d has unexpected type %q", i, typ)
 		}
@@ -103,6 +109,33 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	}
 	if len(mbRows) != 4 {
 		t.Fatalf("mb rows = %d, want 4 (2x2 inter frame)", len(mbRows))
+	}
+	// Each committed frame emits exactly one rate row; recode rows only
+	// appear when the frame's recode loop iterated more than once.
+	if len(rateRows) != 2 {
+		t.Fatalf("rate rows = %d, want 2", len(rateRows))
+	}
+	for i, row := range rateRows {
+		for _, key := range []string{
+			"frame_index", "frame_type", "q_index",
+			"active_worst_quality", "active_best_quality",
+			"buffer_level", "total_byte_count",
+			"projected_frame_size", "this_frame_target",
+			"kf_overspend_bits", "gf_overspend_bits",
+		} {
+			if _, ok := row[key]; !ok {
+				t.Fatalf("rate[%d] missing field %q", i, key)
+			}
+		}
+	}
+	for i, row := range recodeRows {
+		for _, key := range []string{
+			"frame_index", "loop_count", "final_q", "reason",
+		} {
+			if _, ok := row[key]; !ok {
+				t.Fatalf("recode[%d] missing field %q", i, key)
+			}
+		}
 	}
 
 	// Frame-row schema sanity.
