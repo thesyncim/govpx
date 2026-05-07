@@ -168,6 +168,18 @@ func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "postprocess flags Decode", gotFlags, want)
 }
 
+func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := mustDecodeHex(t, libvpxProfile3IVFHex)
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true})
+	assertFrameChecksumsEqual(t, "profile3 postprocess Decode", got, want)
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
