@@ -295,7 +295,10 @@ the anchor and look for the surrounding mismatch.
     above-row reference (`refs.YAbove[16:20]`), matching libvpx's
     `intra_prediction_down_copy` payload semantically. The 4x4 RD picker
     bails out per block when `total_rd >= bestRD`, mirroring libvpx's
-    `rd_pick_intra4x4mby_modes` early-exit.
+    `rd_pick_intra4x4mby_modes` early-exit. Mode iteration order
+    (`B_DC_PRED..B_HU_PRED`), keyframe `bmode_costs[A][L]` neighbor
+    sensitivity, and the per-block bailout are now pinned by parity tests in
+    `encoder_intra4x4_picker_test.go`.
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
