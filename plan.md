@@ -81,11 +81,12 @@ lives in [Makefile](Makefile).
   into NSTEP diamond/further-step SplitMV NEW searches. Best-quality SplitMV
   NEW searches now also use libvpx's conditional distance-16 full-search
   fallback. Search-time sub-MV label costs now use the same left/above
-  contextual probabilities as final SplitMV label accounting, and
-  `THR_NEW1/2/3` SplitMV NEW4X4 gating now follows libvpx's compacted
-  reference search slot instead of absolute LAST/GOLDEN/ALTREF enum values.
-  Remaining gaps are token-context commit parity and oracle-backed label-level
-  RD.
+  contextual probabilities as final SplitMV label accounting, label candidates
+  are ranked with an RDCOST-shaped score, and `THR_NEW1/2/3` SplitMV NEW4X4
+  gating now follows libvpx's compacted reference search slot instead of
+  absolute LAST/GOLDEN/ALTREF enum values. Remaining gaps are token-context
+  commit parity, transform/quant token segment RD inside label selection, and
+  oracle-backed label-level RD.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, partial-frame luma SSE
   scoring, default mode/ref deltas, and realtime `CpuUsed >= 14` simple-filter
