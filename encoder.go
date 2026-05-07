@@ -391,6 +391,10 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
+	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
+	// cpi->oxcf.key_freq for the first-keyframe bootstrap; seed it so
+	// kf_bitrate_adjustment matches libvpx for early frames.
+	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -477,6 +481,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
+	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
+	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
+	// and current_gf_interval before update_golden_frame_stats accumulates
+	// gf_overspend_bits. Mirror that for govpx's CBR refresh.
+	if goldenCBRRefresh {
+		gfInterval := e.goldenFrameCBRInterval(rows, cols)
+		e.rc.framesTillGFUpdateDue = gfInterval
+		e.rc.currentGFInterval = gfInterval
+	}
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount: temporalFrame.LayerCount,
@@ -1471,6 +1484,8 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.KeyFrameInterval = frames
+	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
+	e.rc.keyFrameFrequency = frames
 	return nil
 }
 
