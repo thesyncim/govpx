@@ -9,6 +9,9 @@ muxing, and no libvpx C API clone.
 - Decoder-only proof gate: `make verify-decoder-parity`
 - Focused work should add or extend oracle coverage before claiming support.
 - Correctness and libvpx parity come before performance.
+- This is still pre-release encoder work: internal helper signatures should
+  follow the current parity model directly. Do not carry legacy compatibility
+  wrappers for older internal call shapes.
 - Every safe point should end with `make verify-production` and
   `git status --short`.
 
@@ -36,13 +39,15 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 - Faithful remaining motion-search branches: the `bestRefMV` centring,
   MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, libvpx NSTEP
   `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
-  `vp8_hex_search` path are in place; remaining gaps are exact improved MV
-  predictor search-range adjustment, the alternate DIAMOND path, and SPLITMV
-  integer-search pruning/details.
+  `vp8_hex_search` path are in place. The realtime/non-RD branch now uses
+  libvpx-style luma-variance pickinter scoring and skips SPLITMV evaluation;
+  remaining gaps are exact improved MV predictor search-range adjustment, the
+  alternate DIAMOND path, and the full 20-entry mode-loop threshold model.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
-  `no_skip_block4x4_search` gate are in place, while per-subset
-  LEFT/ABOVE/ZERO/NEW mode trials and predictor/step reuse remain open.
+  `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
+  per-subset LEFT/ABOVE/ZERO/NEW mode trials and predictor/step reuse remain
+  open.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
@@ -78,9 +83,14 @@ Primary references:
   branch from `onyx_if.c` are still flat.
 - Inter RD now costs skip signaling from libvpx-style live
   `prob_skip_false` history and uses the current coefficient probability base
-  for token-rate decisions; final coefficient optimization still uses the
-  default base pending tighter oracle parity. Remaining current-prob gaps are
-  primarily MV cost tables and broader libvpx mode-cost caching.
+  for token-rate decisions; subpel, NEWMV, and SPLITMV vector RD costs now use
+  the current MV probability base. Final coefficient optimization still uses
+  the default coefficient base pending tighter oracle parity. Remaining
+  current-prob work is mostly broader libvpx mode-cost caching and exact
+  per-frame mode-table setup.
+- Encoder oracle validation now drives libvpx with the case's configured
+  deadline and `CpuUsed`, so realtime quality gaps are measured against the
+  matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),

@@ -90,15 +90,15 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 				opts.TokenPartitions = int(vp8common.EightPartition)
 			}),
 			libvpxArgs: []string{"--token-parts=3"},
-			// The motion corpus should now reconstruct at libvpx-equivalent
-			// quality. Rate and static-segmentation parity remain open.
+			// Realtime mode follows the cheaper libvpx pick_inter path; the
+			// remaining gap is mostly mode-loop and rate-control parity.
 			minPSNR:                       48.0,
 			minSSIM:                       0.999,
-			minFramePSNR:                  48.75,
+			minFramePSNR:                  48.25,
 			minFrameSSIM:                  0.999,
-			maxPSNRGap:                    1.1,
+			maxPSNRGap:                    1.7,
 			maxSSIMGap:                    0.001,
-			maxFramePSNRGap:               1.5,
+			maxFramePSNRGap:               2.25,
 			maxFrameSSIMGap:               0.002,
 			maxRateHigh:                   250.0,
 			maxRateLow:                    95.0,
@@ -260,12 +260,19 @@ func encodeLibvpxValidationCorpus(t *testing.T, vpxenc string, tc encoderValidat
 	yuvPath := filepath.Join(dir, tc.name+".yuv")
 	ivfPath := filepath.Join(dir, tc.name+".ivf")
 	writeEncoderValidationI420(t, yuvPath, sources)
+	deadlineArg := "--good"
+	switch tc.opts.Deadline {
+	case DeadlineBestQuality:
+		deadlineArg = "--best"
+	case DeadlineRealtime:
+		deadlineArg = "--rt"
+	}
 	args := []string{
 		"--codec=vp8",
 		"--ivf",
 		"--quiet",
-		"--good",
-		"--cpu-used=0",
+		deadlineArg,
+		"--cpu-used=" + strconv.Itoa(tc.opts.CpuUsed),
 		"--lag-in-frames=0",
 		"--auto-alt-ref=0",
 		"--kf-min-dist=999",

@@ -691,6 +691,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testin
 	oracle := findChecksumOracle(t)
 
 	e := newSizedTestEncoder(t, 16, 32)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 32)
 	fillImage(first, 0, 90, 170)
 	second := rateControlTestFrame(16, 32, 0)
@@ -1223,6 +1226,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoSplitMVInterFrame(t *testing.T) {
 	oracle := findChecksumOracle(t)
 
 	e := newSizedTestEncoder(t, 32, 32)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(32, 32)
 	fillImage(first, 0, 90, 170)
 	for row := 0; row < first.Height; row++ {
