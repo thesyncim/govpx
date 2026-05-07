@@ -334,6 +334,7 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 		t.Fatalf("after key = key:%t frameCount:%d twoPass:%d, want true/1/1", key.KeyFrame, e.frameCount, e.twoPass.frameIndex)
 	}
 	afterKeyBitsLeft := e.twoPass.bitsLeft
+	afterKeyFramesSinceKey := e.rc.framesSinceKeyframe
 
 	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
 	if err != nil {
@@ -350,6 +351,10 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 		t.Fatalf("after hidden ARF = frameCount:%d twoPass:%d bitsLeft:%d, want 1/1/%d",
 			e.frameCount, e.twoPass.frameIndex, e.twoPass.bitsLeft, wantBitsLeft)
 	}
+	if e.rc.framesSinceKeyframe != afterKeyFramesSinceKey {
+		t.Fatalf("after hidden ARF framesSinceKeyframe = %d, want unchanged %d",
+			e.rc.framesSinceKeyframe, afterKeyFramesSinceKey)
+	}
 
 	visible, err := e.encodeSourceInto(dst, showSrc, 2, 1, 0, encodeSourceMetadata{})
 	if err != nil {
@@ -357,6 +362,10 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 	}
 	if visible.KeyFrame || e.frameCount != 2 || e.twoPass.frameIndex != 2 {
 		t.Fatalf("after visible = key:%t frameCount:%d twoPass:%d, want false/2/2", visible.KeyFrame, e.frameCount, e.twoPass.frameIndex)
+	}
+	if e.rc.framesSinceKeyframe != afterKeyFramesSinceKey+1 {
+		t.Fatalf("after visible framesSinceKeyframe = %d, want %d",
+			e.rc.framesSinceKeyframe, afterKeyFramesSinceKey+1)
 	}
 }
 

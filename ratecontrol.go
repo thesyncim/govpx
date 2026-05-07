@@ -725,6 +725,9 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 		rc.framesSinceGolden = 0
 		return
 	}
+	if !showFrame {
+		return
+	}
 	rc.framesSinceKeyframe++
 	if goldenFrame {
 		rc.framesSinceGolden = 0

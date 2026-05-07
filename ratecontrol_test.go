@@ -855,14 +855,17 @@ func TestRateControlDropsOnlyOnLibvpxBufferUnderrun(t *testing.T) {
 
 func TestRateControlInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T) {
 	rc := rateControlState{
-		mode:              RateControlCBR,
-		minQuantizer:      4,
-		maxQuantizer:      56,
-		currentQuantizer:  20,
-		bitsPerFrame:      1000,
-		frameTargetBits:   3000,
-		bufferLevelBits:   5000,
-		maximumBufferBits: 8000,
+		mode:                  RateControlCBR,
+		minQuantizer:          4,
+		maxQuantizer:          56,
+		currentQuantizer:      20,
+		bitsPerFrame:          1000,
+		frameTargetBits:       3000,
+		bufferLevelBits:       5000,
+		maximumBufferBits:     8000,
+		framesSinceKeyframe:   9,
+		framesSinceGolden:     4,
+		framesTillGFUpdateDue: 3,
 	}
 
 	rc.postEncodeFrameWithPacketContext(100, false, false, 0, false)
@@ -872,6 +875,10 @@ func TestRateControlInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.
 	}
 	if rc.rollingActualBits != 200 || rc.rollingTargetBits != 750 {
 		t.Fatalf("invisible rolling bits = actual:%d target:%d, want libvpx 200/750", rc.rollingActualBits, rc.rollingTargetBits)
+	}
+	if rc.framesSinceKeyframe != 9 || rc.framesSinceGolden != 4 || rc.framesTillGFUpdateDue != 3 {
+		t.Fatalf("invisible counters = framesSinceKey:%d framesSinceGolden:%d framesTillGF:%d, want unchanged 9/4/3",
+			rc.framesSinceKeyframe, rc.framesSinceGolden, rc.framesTillGFUpdateDue)
 	}
 }
 

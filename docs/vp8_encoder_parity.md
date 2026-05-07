@@ -603,9 +603,10 @@ the anchor and look for the surrounding mismatch.
     Hidden ARF packets now mirror libvpx `Pass2Encode`: packet bytes are
     charged against `twopass.bits_left`, but `refresh_alt_ref_frame` skips
     `vp8_second_pass` and `show_frame=0` leaves the visible first-pass
-    stats index unchanged. Visible frames subtract packet bytes and then add
-    back the configured `two_pass_vbrmin_section` minimum-frame budget, while
-    hidden ARFs remain subtract-only; pinned by
+    stats index plus rate-control visible-frame counters unchanged. Visible
+    frames subtract packet bytes and then add back the configured
+    `two_pass_vbrmin_section` minimum-frame budget, while hidden ARFs remain
+    subtract-only; pinned by
     `TestTwoPassAltRefBitChargeDoesNotAdvanceStats` and
     `TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`.
     `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR
@@ -671,8 +672,8 @@ the anchor and look for the surrounding mismatch.
     permanently shifted by one call until `FlushInto` consumes the
     remaining entries. Hidden ARFs also follow libvpx's frame-counter
     semantics: the packet is not a real show frame, so it does not advance
-    `current_video_frame` / govpx `frameCount`; only the packet bits are
-    charged in two-pass mode.
+    `current_video_frame` / govpx `frameCount` or rate-control
+    `framesSinceKeyframe`; only the packet bits are charged in two-pass mode.
   - Tests:
     [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
