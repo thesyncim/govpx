@@ -181,6 +181,23 @@ func TestOracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *tes
 	}
 }
 
+func TestOracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
+	}
+	oracle := findChecksumOracle(t)
+	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	truncatedKey := vp8KeyFramePacket(16, 16, 0, 0, true)[:6]
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, truncatedKey})
+
+	if err := runLibvpxChecksumOracleModeExpectError(t, oracle, "decode-error-concealment", ivf); err == nil {
+		t.Fatalf("libvpx error-concealment oracle accepted truncated keyframe header, want error")
+	}
+	if err := decodeIVFExpectError(t, ivf, DecoderOptions{ErrorConcealment: true}); err == nil {
+		t.Fatalf("govpx accepted truncated keyframe header, want error")
+	}
+}
+
 func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
