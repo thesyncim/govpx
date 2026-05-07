@@ -4344,6 +4344,114 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 	}
 }
 
+// TestSetActiveMapOracleVectorPreservesEveryInactiveMB exercises a
+// checkerboard active-map pattern and confirms libvpx's per-MB invariants
+// across the whole frame: every inactive MB codes as ZEROMV-LAST with
+// MBSkipCoeff=1 and segment 0, every inactive MB decodes back to the prior
+// LAST reconstruction byte-for-byte, every active MB updates, and a second
+// encode of the same source under the same active map is deterministic
+// (decoder-stable). This is the active-map oracle vector for the
+// single-threaded encodeframe path; govpx does not implement libvpx's
+// row-threaded encodeframe loop so the threaded variant is N/A.
+func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
+	const width, height = 64, 64
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	first := testImage(width, height)
+	second := testImage(width, height)
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 80, 180)
+
+	// Checkerboard active map: ~half MBs inactive across the frame, including
+	// boundary positions, so token-context resets at MB edges are exercised.
+	activeMap := make([]byte, rows*cols)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			if (row+col)%2 == 0 {
+				activeMap[row*cols+col] = 0
+			} else {
+				activeMap[row*cols+col] = 1
+			}
+		}
+	}
+
+	encodeRun := func() ([]Image, []vp8enc.InterFrameMacroblockMode) {
+		t.Helper()
+		e, err := NewVP8Encoder(EncoderOptions{
+			Width:               width,
+			Height:              height,
+			FPS:                 30,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   1200,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			BufferSizeMs:        600,
+			BufferInitialSizeMs: 400,
+			BufferOptimalSizeMs: 500,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             8,
+			KeyFrameInterval:    120,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder returned error: %v", err)
+		}
+		dst := make([]byte, 32*1024)
+		key, err := e.EncodeInto(dst, first, 0, 1, 0)
+		if err != nil {
+			t.Fatalf("key EncodeInto returned error: %v", err)
+		}
+		keyData := append([]byte(nil), key.Data...)
+		if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+			t.Fatalf("SetActiveMap returned error: %v", err)
+		}
+		inter, err := e.EncodeInto(dst, second, 1, 1, 0)
+		if err != nil {
+			t.Fatalf("inter EncodeInto returned error: %v", err)
+		}
+		interData := append([]byte(nil), inter.Data...)
+		modes := append([]vp8enc.InterFrameMacroblockMode(nil), e.interFrameModes[:rows*cols]...)
+		return decodeFrameSequence(t, keyData, interData), modes
+	}
+
+	decoded, modes := encodeRun()
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			if activeMap[index] == 0 {
+				m := modes[index]
+				if m.RefFrame != vp8common.LastFrame || m.Mode != vp8common.ZeroMV || !m.MBSkipCoeff || m.SegmentID != 0 {
+					t.Fatalf("inactive MB(%d,%d) mode = %+v, want skipped LAST/ZEROMV in segment 0", row, col, m)
+				}
+				if m.MV != (vp8enc.MotionVector{}) {
+					t.Fatalf("inactive MB(%d,%d) MV = %+v, want zero", row, col, m.MV)
+				}
+				assertMacroblockEqual(t, "active-map oracle inactive", decoded[0], decoded[1], row, col)
+			} else {
+				assertMacroblockDifferent(t, "active-map oracle active", decoded[0], decoded[1], row, col)
+			}
+		}
+	}
+
+	// Determinism: a second encode of the same source under the same active
+	// map yields decoder-equivalent output (per-MB pixels match exactly).
+	decoded2, modes2 := encodeRun()
+	if len(decoded2) != 2 {
+		t.Fatalf("second decoded frame count = %d, want 2", len(decoded2))
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			if modes2[index].RefFrame != modes[index].RefFrame || modes2[index].Mode != modes[index].Mode || modes2[index].MBSkipCoeff != modes[index].MBSkipCoeff || modes2[index].SegmentID != modes[index].SegmentID {
+				t.Fatalf("MB(%d,%d) modes diverged across runs: first=%+v second=%+v", row, col, modes[index], modes2[index])
+			}
+			assertMacroblockEqual(t, "active-map oracle determinism", decoded[1], decoded2[1], row, col)
+		}
+	}
+}
+
 func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
 	cases := []struct {
 		level    int

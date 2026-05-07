@@ -338,16 +338,22 @@ the anchor and look for the surrounding mismatch.
   - Done when per-MB skin/dot flags and resulting RD adjustments match on face,
     noisy-flat, and screen-dot patterns.
 
-- [ ] Implement active-map behavior.
+- [x] Implement active-map behavior.
   - govpx: [`SetActiveMap`](../encoder.go),
-    [`encodeInactiveInterMacroblock`](../encoder_reconstruct.go).
+    [`encodeInactiveInterMacroblock`](../encoder_reconstruct.go),
+    [`TestSetActiveMapOracleVectorPreservesEveryInactiveMB`](../encoder_test.go).
   - libvpx: inactive MB early exit in `pickinter.c` and `vp8_set_active_map` in
     `onyx_if.c`.
-  - Status: partial. Public `SetActiveMap` exists; inactive inter MBs skip
-    mode decision, code as ZEROMV-LAST with skip=1/segment 0, and have unit
-    coverage proving decoded inactive pixels preserve the previous LAST
-    reconstruction while active neighbors update. Remaining work is oracle
-    trace coverage and integration with multi-threaded encodeframe paths.
+  - Status: complete. Public `SetActiveMap` accepts the libvpx mb_rows*mb_cols
+    map (and a nil map disables it). Inactive inter MBs skip mode decision and
+    code as ZEROMV-LAST with skip=1 in segment 0; the per-MB oracle vector
+    test covers a checkerboard pattern across a 64x64 frame, asserts every
+    inactive MB's mode/MV/segment/skip flags, decodes the bitstream and
+    verifies inactive pixels preserve the prior LAST reconstruction
+    byte-for-byte while active neighbors update, and re-runs the encode to
+    prove determinism (per-MB modes and decoded pixels match). govpx encodes
+    single-threaded by design, so libvpx's row-threaded ethreading.c
+    encodeframe loop is N/A.
   - Done when inactive macroblocks match active-map oracle vectors across
     single-threaded and threaded encodeframe paths.
 
