@@ -107,6 +107,21 @@ type rateControlState struct {
 	goldenCorrectionFactor   float64
 	currentZbinOverQuant     int
 	activeWorstQChanged      bool
+
+	// libvpx vp8/encoder/ratectrl.c one-pass GF/KF overspend bookkeeping.
+	kfOverspendBits        int
+	gfOverspendBits        int
+	kfBitrateAdjustment    int
+	nonGFBitrateAdjustment int
+	interFrameTarget       int
+	minFrameBandwidth      int
+	lastBoost              int
+	currentGFInterval      int
+	framesTillGFUpdateDue  int
+	framesSinceGolden      int
+	keyFrameCount          int
+	keyFrameFrequency      int
+	priorKeyFrameDistance  [keyFrameContextSize]int
 }
 
 const (
@@ -119,7 +134,16 @@ const (
 	libvpxMaxBPBFactor              = 50.0
 	libvpxZbinOverQuantMax          = 192
 	vp8MaxQIndex                    = 127
+
+	// libvpx vp8/encoder/onyx_int.h GF interval defaults.
+	// libvpxMinGFInterval is declared in encoder_firstpass.go.
+	libvpxDefaultGFInterval = 7
+	keyFrameContextSize     = 5
 )
+
+// libvpxPriorKeyFrameWeight ports prior_key_frame_weight from
+// vp8/encoder/ratectrl.c (used by estimate_keyframe_frequency).
+var libvpxPriorKeyFrameWeight = [keyFrameContextSize]int{1, 2, 3, 4, 5}
 
 var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
 	0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15, 17, 18, 19,
@@ -250,6 +274,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		}
 	}
 	if !keyFrame && rc.mode == RateControlCBR && rc.rollingTargetBits > 0 && ctx.temporalLayerCount <= 1 {
+		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits)
 		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	} else if rc.mode == RateControlCQ {
 		if rc.currentQuantizer < rc.cqLevel {
@@ -258,6 +283,98 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 	}
 	rc.frameTargetBits = targetBits
 	rc.clampQuantizer()
+}
+
+// applyOnePassPFrameOverspendRecovery mirrors the one-pass non-ARF p-frame
+// branch of libvpx's calc_pframe_target_size (vp8/encoder/ratectrl.c). It
+// drains accumulated kf_overspend_bits / gf_overspend_bits into the
+// per-frame target via kf_bitrate_adjustment / non_gf_bitrate_adjustment,
+// clamping to min_frame_target = max(min_frame_bandwidth, per_frame_bandwidth/4).
+// inter_frame_target is captured after recovery (libvpx records it on every
+// non-altref normal frame).
+func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) int {
+	if targetBits <= 0 {
+		return targetBits
+	}
+	perFrameBandwidth := rc.bitsPerFrame
+	if perFrameBandwidth <= 0 {
+		return targetBits
+	}
+	minFrameTarget := rc.minFrameBandwidth
+	quarter := perFrameBandwidth / 4
+	if minFrameTarget < quarter {
+		minFrameTarget = quarter
+	}
+	if minFrameTarget < 0 {
+		minFrameTarget = 0
+	}
+	thisFrameTarget := targetBits
+	if rc.kfOverspendBits > 0 {
+		adjustment := rc.kfBitrateAdjustment
+		if adjustment > rc.kfOverspendBits {
+			adjustment = rc.kfOverspendBits
+		}
+		if adjustment > perFrameBandwidth-minFrameTarget {
+			adjustment = perFrameBandwidth - minFrameTarget
+		}
+		if adjustment < 0 {
+			adjustment = 0
+		}
+		rc.kfOverspendBits -= adjustment
+		thisFrameTarget = targetBits - adjustment
+		if thisFrameTarget < minFrameTarget {
+			thisFrameTarget = minFrameTarget
+		}
+	}
+	if rc.gfOverspendBits > 0 && thisFrameTarget > minFrameTarget {
+		adjustment := rc.nonGFBitrateAdjustment
+		if adjustment > rc.gfOverspendBits {
+			adjustment = rc.gfOverspendBits
+		}
+		if adjustment > thisFrameTarget-minFrameTarget {
+			adjustment = thisFrameTarget - minFrameTarget
+		}
+		if adjustment < 0 {
+			adjustment = 0
+		}
+		rc.gfOverspendBits -= adjustment
+		thisFrameTarget -= adjustment
+	}
+	// libvpx also applies a small +/- last_boost adjustment for non-gf
+	// frames inside long GF intervals.
+	if rc.lastBoost > 150 && rc.framesTillGFUpdateDue > 0 &&
+		rc.currentGFInterval >= (libvpxMinGFInterval<<1) {
+		adjustment := (rc.lastBoost - 100) >> 5
+		if adjustment > 10 {
+			adjustment = 10
+		}
+		if adjustment < 1 {
+			adjustment = 1
+		}
+		adjustment = (thisFrameTarget * adjustment) / 100
+		if adjustment > thisFrameTarget-minFrameTarget {
+			adjustment = thisFrameTarget - minFrameTarget
+		}
+		if adjustment < 0 {
+			adjustment = 0
+		}
+		if rc.framesSinceGolden == rc.currentGFInterval>>1 {
+			adjustment = (rc.currentGFInterval - 1) * adjustment
+			cap10 := (10 * thisFrameTarget) / 100
+			if adjustment > cap10 {
+				adjustment = cap10
+			}
+			thisFrameTarget += adjustment
+		} else {
+			thisFrameTarget -= adjustment
+		}
+	}
+	if thisFrameTarget < minFrameTarget {
+		thisFrameTarget = minFrameTarget
+	}
+	// libvpx records inter_frame_target on every non-altref normal frame.
+	rc.interFrameTarget = thisFrameTarget
+	return thisFrameTarget
 }
 
 func (rc *rateControlState) initialKeyFrameTargetBits() int {
@@ -540,6 +657,11 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
 
+	// libvpx vp8/encoder/ratectrl.c vp8_adjust_key_frame_context and
+	// onyx_if.c update_golden_frame_stats accumulate post-pack overspend
+	// before the next frame's calc_pframe_target_size runs.
+	rc.accumulatePostPackOverspend(actualBits, keyFrame, goldenFrame)
+
 	encodedQuantizer := rc.currentQuantizer
 	rc.lastQuantizer = encodedQuantizer
 	if !keyFrame {
@@ -555,9 +677,119 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 	rc.updateQuantizerAverages(encodedQuantizer, keyFrame, goldenFrame)
 	if keyFrame {
 		rc.framesSinceKeyframe = 0
+		rc.framesSinceGolden = 0
 		return
 	}
 	rc.framesSinceKeyframe++
+	if goldenFrame {
+		rc.framesSinceGolden = 0
+	} else {
+		rc.framesSinceGolden++
+		if rc.framesTillGFUpdateDue > 0 {
+			rc.framesTillGFUpdateDue--
+		}
+	}
+}
+
+// accumulatePostPackOverspend ports libvpx's post-pack overspend
+// bookkeeping. For key frames it mirrors vp8_adjust_key_frame_context: when
+// the projected (encoded) size exceeds per_frame_bandwidth, 7/8 of the
+// overspend is accumulated into kf_overspend_bits and 1/8 into
+// gf_overspend_bits (single-layer); kf_bitrate_adjustment is the per-frame
+// drain rate computed from estimate_keyframe_frequency. For golden refreshes
+// it mirrors update_golden_frame_stats: overspend relative to
+// inter_frame_target accumulates into gf_overspend_bits and
+// non_gf_bitrate_adjustment is the per-frame drain rate over the next GF
+// interval.
+func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame bool, goldenFrame bool) {
+	perFrameBandwidth := rc.bitsPerFrame
+	if perFrameBandwidth <= 0 {
+		return
+	}
+	if keyFrame {
+		rc.keyFrameCount++
+		if actualBits > perFrameBandwidth {
+			overspend := actualBits - perFrameBandwidth
+			if rc.currentTemporalLayers > 1 {
+				rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, overspend)
+			} else {
+				rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, overspend*7/8)
+				rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, overspend/8)
+			}
+			kfFreq := rc.estimateKeyFrameFrequency()
+			if kfFreq <= 0 {
+				kfFreq = 1
+			}
+			rc.kfBitrateAdjustment = rc.kfOverspendBits / kfFreq
+		}
+		return
+	}
+	if !goldenFrame {
+		return
+	}
+	// libvpx onyx_if.c update_golden_frame_stats: only accumulate gf
+	// overspend on non-key non-altref-active golden refreshes. govpx's
+	// CBR oracle does not currently model an active alt-ref, so treat
+	// every golden refresh as the non-altref case (matches libvpx
+	// behaviour when source_alt_ref_active is 0).
+	interTarget := rc.interFrameTarget
+	if interTarget <= 0 {
+		interTarget = perFrameBandwidth
+	}
+	if actualBits > interTarget {
+		rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
+	}
+	if rc.framesTillGFUpdateDue > 0 {
+		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
+	}
+}
+
+// estimateKeyFrameFrequency ports vp8/encoder/ratectrl.c
+// estimate_keyframe_frequency: a weighted average of the last
+// KEY_FRAME_CONTEXT key-frame distances (weights 1..5), with the
+// key_frame_count == 1 bootstrap returning 1 + 2*output_framerate (or
+// key_frame_frequency for auto-key).
+func (rc *rateControlState) estimateKeyFrameFrequency() int {
+	if rc.keyFrameCount == 1 {
+		var avg int
+		if rc.keyFrameFrequency > 0 {
+			avg = rc.keyFrameFrequency
+		} else {
+			avg = 1
+		}
+		// libvpx's first-keyframe bootstrap uses
+		// 1 + (int)output_framerate * 2; without timing data fall back
+		// to the configured key-frame frequency.
+		if rc.keyFrameFrequency > 0 {
+			rc.priorKeyFrameDistance[keyFrameContextSize-1] = avg
+		}
+		if avg < 1 {
+			avg = 1
+		}
+		return avg
+	}
+	last := rc.framesSinceKeyframe
+	if last <= 0 {
+		last = 1
+	}
+	totalWeight := 0
+	avg := 0
+	for i := 0; i < keyFrameContextSize; i++ {
+		if i < keyFrameContextSize-1 {
+			rc.priorKeyFrameDistance[i] = rc.priorKeyFrameDistance[i+1]
+		} else {
+			rc.priorKeyFrameDistance[i] = last
+		}
+		avg += libvpxPriorKeyFrameWeight[i] * rc.priorKeyFrameDistance[i]
+		totalWeight += libvpxPriorKeyFrameWeight[i]
+	}
+	if totalWeight > 0 {
+		avg /= totalWeight
+	}
+	if avg < 1 {
+		avg = 1
+	}
+	return avg
 }
 
 func libvpxLimitCBRInterQuantizerDrop(lastInterQuantizer int, currentQuantizer int) int {
@@ -1576,4 +1808,173 @@ func clampQuantizerValue(q int, minQ int, maxQ int) int {
 		return maxQ
 	}
 	return q
+}
+
+// libvpxGFBoostQAdjustment ports vp8_gf_boost_qadjustment from
+// vp8/encoder/ratectrl.c. It is the GFQ_ADJUSTMENT lookup that seeds the
+// one-pass GF boost computation.
+var libvpxGFBoostQAdjustment = [128]int{
+	80, 82, 84, 86, 88, 90, 92, 94, 96, 97, 98, 99, 100, 101, 102,
+	103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+	118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132,
+	133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+	148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162,
+	163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177,
+	178, 179, 180, 181, 182, 183, 184, 184, 185, 185, 186, 186, 187, 187, 188,
+	188, 189, 189, 190, 190, 191, 191, 192, 192, 193, 193, 194, 194, 194, 194,
+	195, 195, 196, 196, 197, 197, 198, 198,
+}
+
+// libvpxKFGFBoostQLimits ports kf_gf_boost_qlimits from
+// vp8/encoder/ratectrl.c (one-pass upper limit on GF boost by Q).
+var libvpxKFGFBoostQLimits = [128]int{
+	150, 155, 160, 165, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220,
+	225, 230, 235, 240, 245, 250, 255, 260, 265, 270, 275, 280, 285, 290, 295,
+	300, 305, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 410, 420, 430,
+	440, 450, 460, 470, 480, 490, 500, 510, 520, 530, 540, 550, 560, 570, 580,
+	590, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600,
+	600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600,
+	600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600,
+	600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600, 600,
+	600, 600, 600, 600, 600, 600, 600, 600,
+}
+
+// libvpxGFAdjustTable ports gf_adjust_table from vp8/encoder/ratectrl.c.
+// Indexed by gf_frame_usage (0..100) it scales the GF boost by recent
+// golden-frame usage.
+var libvpxGFAdjustTable = [101]int{
+	100, 115, 130, 145, 160, 175, 190, 200, 210, 220, 230, 240, 260, 270, 280,
+	290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 400, 400, 400,
+	400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
+	400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
+	400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
+	400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
+	400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400,
+}
+
+// libvpxGFIntraUsageAdjustment ports gf_intra_usage_adjustment from
+// vp8/encoder/ratectrl.c. Indexed by clamp(this_frame_percent_intra, 0, 14)
+// (the libvpx switch caps at 14 when percent_intra < 15).
+var libvpxGFIntraUsageAdjustment = [20]int{
+	125, 120, 115, 110, 105, 100, 95, 85, 80, 75,
+	70, 65, 60, 55, 50, 50, 50, 50, 50, 50,
+}
+
+// libvpxGFIntervalTable ports gf_interval_table from vp8/encoder/ratectrl.c.
+var libvpxGFIntervalTable = [101]int{
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8,
+	8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+	9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+	9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+	10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+}
+
+// gfParamsInput collects the libvpx calc_gf_params inputs that govpx must
+// supply explicitly: the inter-frame Q used for the GFQ_ADJUSTMENT lookup,
+// the per-MB ref-frame usage counts (intra/last/golden/altref), the count
+// of macroblocks still pointing at the active golden, the number of MBs in
+// the frame, percent_intra for this frame, and the maximum permitted GF
+// interval (libvpx clamps to max_gf_interval).
+type gfParamsInput struct {
+	Q                     int
+	RecentRefIntra        int
+	RecentRefLast         int
+	RecentRefGolden       int
+	RecentRefAltRef       int
+	GFActiveCount         int
+	Macroblocks           int
+	ThisFramePercentIntra int
+	BaselineGFInterval    int
+	MaxGFInterval         int
+}
+
+// gfParamsOutput is the calc_gf_params result govpx consumes: the GF boost
+// (last_boost) and the next-GF interval (frames_till_gf_update_due).
+type gfParamsOutput struct {
+	Boost            int
+	FramesTillUpdate int
+	GFFrameUsage     int
+}
+
+// calcGFParams ports the one-pass branch of vp8/encoder/ratectrl.c
+// calc_gf_params: it computes the GF boost from GFQ_ADJUSTMENT scaled by
+// gf_intra_usage_adjustment and gf_adjust_table[gf_frame_usage], applies
+// the kf_gf_boost_qlimits ceiling and a 110 floor, and computes the
+// frames_till_gf_update_due interval from baseline_gf_interval, last_boost
+// thresholds (>750/>1000/>1250/>=1500), gf_interval_table, and the
+// max_gf_interval cap.
+func calcGFParams(in gfParamsInput) gfParamsOutput {
+	q := clampQuantizerValue(in.Q, 0, vp8MaxQIndex)
+	totMBs := in.RecentRefIntra + in.RecentRefLast + in.RecentRefGolden + in.RecentRefAltRef
+	gfFrameUsage := 0
+	if totMBs > 0 {
+		gfFrameUsage = (in.RecentRefGolden + in.RecentRefAltRef) * 100 / totMBs
+	}
+	pctGFActive := 0
+	if in.Macroblocks > 0 {
+		pctGFActive = (100 * in.GFActiveCount) / in.Macroblocks
+	}
+	if pctGFActive > gfFrameUsage {
+		gfFrameUsage = pctGFActive
+	}
+	if gfFrameUsage < 0 {
+		gfFrameUsage = 0
+	}
+	if gfFrameUsage > 100 {
+		gfFrameUsage = 100
+	}
+
+	intraIdx := in.ThisFramePercentIntra
+	if intraIdx < 0 {
+		intraIdx = 0
+	}
+	if intraIdx >= 15 {
+		intraIdx = 14
+	}
+
+	boost := libvpxGFBoostQAdjustment[q]
+	boost = boost * libvpxGFIntraUsageAdjustment[intraIdx] / 100
+	boost = boost * libvpxGFAdjustTable[gfFrameUsage] / 100
+
+	if boost > libvpxKFGFBoostQLimits[q] {
+		boost = libvpxKFGFBoostQLimits[q]
+	} else if boost < 110 {
+		boost = 110
+	}
+
+	framesTillUpdate := in.BaselineGFInterval
+	if boost > 750 {
+		framesTillUpdate++
+	}
+	if boost > 1000 {
+		framesTillUpdate++
+	}
+	if boost > 1250 {
+		framesTillUpdate++
+	}
+	if boost >= 1500 {
+		framesTillUpdate++
+	}
+	if libvpxGFIntervalTable[gfFrameUsage] > framesTillUpdate {
+		framesTillUpdate = libvpxGFIntervalTable[gfFrameUsage]
+	}
+	if in.MaxGFInterval > 0 && framesTillUpdate > in.MaxGFInterval {
+		framesTillUpdate = in.MaxGFInterval
+	}
+	return gfParamsOutput{
+		Boost:            boost,
+		FramesTillUpdate: framesTillUpdate,
+		GFFrameUsage:     gfFrameUsage,
+	}
+}
+
+// applyGFParams stores the calc_gf_params result onto the rate-control
+// state, mirroring the assignment of cpi->last_boost,
+// cpi->frames_till_gf_update_due, and cpi->current_gf_interval that
+// follows calc_gf_params in libvpx.
+func (rc *rateControlState) applyGFParams(out gfParamsOutput) {
+	rc.lastBoost = out.Boost
+	rc.framesTillGFUpdateDue = out.FramesTillUpdate
+	rc.currentGFInterval = out.FramesTillUpdate
 }
