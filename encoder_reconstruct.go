@@ -5540,7 +5540,7 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	}
 	if !is4x4 {
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-		eob := quantizeEncodedBlock(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
+		eob := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
 		coeffs.SetBlockEOB(24, eob)
 		stats.rateY += coefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
 		y2Error := transformBlockError(&y2Coeff, &dq)
@@ -5773,18 +5773,29 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex in
 }
 
 func quantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return quantizeOptimizedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, zbinOverQuant, intra, coeff, quant, qcoeff, dqcoeff)
+}
+
+func quantizeOptimizedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := quantizeBlockWithZbin(coeff, quant, qIndex, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
-	eob = optimizeQuantizedBlock(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, intra, coeff, quant, qcoeff, eob)
+	eob = optimizeQuantizedBlock(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, intra, coeff, quant, qcoeff, eob)
 	dequantizeQuantizedBlock(quant, qcoeff, dqcoeff)
 	return eob
 }
 
 func quantizeEncodedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, coeff, quant, qcoeff, dqcoeff)
+}
+
+// quantizeEncodedBlockWithRDZbin keeps libvpx's Y2 split explicit: Y2 zbin
+// thresholding uses zbin_over_quant/2, while the trellis optimizer scores with
+// mb->rdmult computed from the full frame-level zbin_over_quant.
+func quantizeEncodedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, fastQuant bool, optimize bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
 		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
 	if optimize {
-		eob := quantizeOptimizedBlock(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, intra, coeff, quant, qcoeff, dqcoeff)
+		eob := quantizeOptimizedBlockWithRDZbin(coefProbs, qIndex, blockType, ctx, skipDC, zbinOverQuant, zbinModeBoost, rdZbinOverQuant, intra, coeff, quant, qcoeff, dqcoeff)
 		if blockType == 1 && skipDC == 0 {
 			eob = resetLibvpxSmallSecondOrderCoefficients(quant, qcoeff, dqcoeff, eob)
 		}

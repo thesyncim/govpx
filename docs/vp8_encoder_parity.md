@@ -1136,6 +1136,10 @@ the anchor and look for the surrounding mismatch.
     now pin the same elided cost path through `optimizeQuantizedBlock`:
     `TestOptimizeQuantizedBlockUsesElidedPostZeroTokenCost` and
     `TestCoefficientBlockTokenTracePostZeroElidesEOBNode`.
+    Y2 optimized quant now mirrors libvpx's split zbin handling: quantization
+    thresholding uses `zbin_over_quant/2`, but the trellis optimizer scores
+    with `mb->rdmult` derived from the full frame-level `zbin_over_quant`;
+    pinned by `TestY2OptimizedQuantUsesFullZbinOverQuantForTrellis`.
   - Required/keep: libvpx Viterbi trellis coefficient optimization, including
     `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not

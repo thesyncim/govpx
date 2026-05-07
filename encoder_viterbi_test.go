@@ -40,6 +40,30 @@ func TestViterbiY2PlaneDropsOvershootDC(t *testing.T) {
 	}
 }
 
+func TestY2OptimizedQuantUsesFullZbinOverQuantForTrellis(t *testing.T) {
+	const (
+		qIndex         = 20
+		zbinOverQuant  = 32
+		dequantValue   = int16(35)
+		coefficientVal = int16(28)
+	)
+	quant := viterbiTestRegularBlockQuant(qIndex, dequantValue)
+	var coeff [16]int16
+	var halfQ, fullQ [16]int16
+	var halfDQ, fullDQ [16]int16
+	coeff[0] = coefficientVal
+
+	halfEOB := quantizeEncodedBlockWithRDZbin(&vp8tables.DefaultCoefProbs, qIndex, 1, 0, 0, zbinOverQuant/2, 0, zbinOverQuant/2, false, false, true, &coeff, &quant, &halfQ, &halfDQ)
+	fullEOB := quantizeEncodedBlockWithRDZbin(&vp8tables.DefaultCoefProbs, qIndex, 1, 0, 0, zbinOverQuant/2, 0, zbinOverQuant, false, false, true, &coeff, &quant, &fullQ, &fullDQ)
+
+	if halfEOB != 1 || halfQ[0] == 0 {
+		t.Fatalf("halved-zbin trellis eob/qcoeff[0] = %d/%d, want coefficient kept to prove fixture sensitivity", halfEOB, halfQ[0])
+	}
+	if fullEOB != 0 || fullQ[0] != 0 {
+		t.Fatalf("full-zbin trellis eob/qcoeff[0] = %d/%d, want libvpx full-rdmult path to drop coefficient", fullEOB, fullQ[0])
+	}
+}
+
 // TestViterbiUVPlaneDropsOvershootDC exercises blockType=2 (UV plane,
 // UV_RD_MULT=2). UV's plane multiplier is smaller than Y2's so we still need
 // a high qIndex to make the rate cost dominate.
