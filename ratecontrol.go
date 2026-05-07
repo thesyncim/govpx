@@ -126,12 +126,12 @@ type rateControlState struct {
 	// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats accumulates
 	// per-MB ref-frame usage across the GF section so calc_gf_params and
 	// the calc_pframe_target_size auto_gold decision can read it.
-	recentRefFrameUsageIntra   int
-	recentRefFrameUsageLast    int
-	recentRefFrameUsageGolden  int
-	recentRefFrameUsageAltRef  int
-	gfActiveCount              int
-	thisFramePercentIntra      int
+	recentRefFrameUsageIntra  int
+	recentRefFrameUsageLast   int
+	recentRefFrameUsageGolden int
+	recentRefFrameUsageAltRef int
+	gfActiveCount             int
+	thisFramePercentIntra     int
 }
 
 const (

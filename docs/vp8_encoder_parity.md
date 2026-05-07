@@ -17,7 +17,9 @@ the anchor and look for the surrounding mismatch.
   quality-relevant encoder decisions on representative clips. It does not mean
   every intermediate helper, search tie-break, or non-visible byte must be
   bit-exact when the difference has no quality, rate, decoder-visible, or
-  future-decision effect.
+  future-decision effect. Agents should mark work done here only when the
+  behavior is quality-equivalent to empirical libvpx, or when a deliberate
+  non-bitexact difference is documented with that rationale.
 - Bitstream parity is required only where it matters or where deterministic
   settings make it the cheapest proof: frame headers, reference
   refresh/copy/sign-bias bits, packet validity, decoder MD5s, and tightly
@@ -442,8 +444,11 @@ the anchor and look for the surrounding mismatch.
     `vp8_rd_pick_inter_mode` and
     [`pickinter.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/pickinter.c)
     `vp8_pick_inter_mode`.
-  - Status: partial. Fast non-RD mode-loop order and cheap realtime scoring are
-    aligned. Full RD now walks libvpx's `MAX_MODES` / `vp8_mode_order` table,
+  - Status: partial. Fast non-RD mode-loop order, cheap realtime scoring, and
+    `rd_thresh_mult` / hit-count gating are aligned, including the pickinter
+    `>>3` best-mode threshold decay and libvpx's unsupported-SPLITMV
+    test-count/raise behavior. Full RD now walks libvpx's `MAX_MODES` /
+    `vp8_mode_order` table,
     interleaves intra modes in that same loop, applies speed-feature baseline
     `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an
     RD-loop stop, mutates `rd_thresh_mult` / hit-count mode gating across

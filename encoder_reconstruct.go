@@ -228,10 +228,8 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if refCount == 0 {
 		return ErrInvalidConfig
 	}
-	if e.interAnalysisUsesRDModeDecision() {
-		e.beginInterRDModeDecisionFrame()
-		defer e.endInterRDModeDecisionFrame()
-	}
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
 	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
 	var lastRefForActiveMap *interAnalysisReference
@@ -269,9 +267,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if e.interAnalysisUsesRDModeDecision() {
-				e.beginInterRDModeDecisionMacroblock()
-			}
+			e.beginInterRDModeDecisionMacroblock()
 			decision, ok := e.selectInterFrameModeDecision(
 				src, refs[:], refCount,
 				row, col, rows, cols,
@@ -855,6 +851,19 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 	e.interRDThreshTouched[modeIndex] = true
 }
 
+func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
+	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
+	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
+		e.interRDThreshMult[modeIndex] -= bestAdjustment
+	} else {
+		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
+	}
+	e.interRDThreshTouched[modeIndex] = true
+}
+
 func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadline, speed int) [libvpxInterModeCount]int {
 	return libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, deadline, speed, libvpxInterModeThresholdContext{})
 }
@@ -1402,9 +1411,14 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	qIndex int, segmentID uint8,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 ) (interFrameModeDecision, bool) {
+	if !e.interRDFrameActive {
+		e.beginInterRDModeDecisionMacroblock()
+	}
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestSSE := maxInt()
+	bestModeIndex := -1
 	best := interFrameModeDecision{}
 	var newMVCandidates [3]struct {
 		searched bool
@@ -1415,18 +1429,34 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
+		threshold := thresholds[modeIndex]
+		if threshold == libvpxInterModeThresholdDisabled {
+			continue
+		}
+		if bestSet && bestScore <= threshold {
+			continue
+		}
+
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
 		if refSlot == 0 {
+			if !e.interRDModeTestAllowed(modeIndex) {
+				continue
+			}
+			e.recordInterRDModeTest(modeIndex)
 			mode, score, sse, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE)
 			if !ok {
 				continue
 			}
 			mode.SegmentID = segmentID
 			if !bestSet || score < bestScore {
+				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
 				bestSSE = sse
+				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode}
+			} else {
+				e.raiseInterRDThreshold(modeIndex)
 			}
 			continue
 		}
@@ -1435,7 +1465,15 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if !ok {
 			continue
 		}
+		if !e.interRDModeTestAllowed(modeIndex) {
+			continue
+		}
+		e.recordInterRDModeTest(modeIndex)
 		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
+		if mbMode == vp8common.SplitMV {
+			e.raiseInterRDThreshold(modeIndex)
+			continue
+		}
 		if !ok {
 			continue
 		}
@@ -1445,14 +1483,21 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		if !bestSet || score < bestScore {
+			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score
 			_, bestSSE = macroblockLumaMotionVarianceSSE(src, ref.Img, mbRow, mbCol, mode.MV)
+			bestModeIndex = modeIndex
 			best = interFrameModeDecision{ref: ref, interMode: mode}
+		} else {
+			e.raiseInterRDThreshold(modeIndex)
 		}
 	}
 	if !bestSet {
 		return interFrameModeDecision{}, false
+	}
+	if bestModeIndex >= 0 {
+		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	if best.useIntra {
 		uvMode, ok := e.predictFastIntraChromaMode(src, mbRow, mbCol)
