@@ -375,6 +375,23 @@ func TestRateControlPostEncodeCarriesLibvpxNegativeBufferDebt(t *testing.T) {
 	}
 }
 
+func TestRateControlScreenContentClampsLibvpxNegativeBufferDebt(t *testing.T) {
+	rc := rateControlState{
+		bufferLevelBits:   -7000,
+		maximumBufferBits: 6000,
+	}
+
+	rc.clampScreenContentBufferDebt(0)
+	if rc.bufferLevelBits != -7000 {
+		t.Fatalf("non-screen buffer debt = %d, want unchanged -7000", rc.bufferLevelBits)
+	}
+
+	rc.clampScreenContentBufferDebt(1)
+	if rc.bufferLevelBits != -6000 {
+		t.Fatalf("screen buffer debt = %d, want libvpx clamp -6000", rc.bufferLevelBits)
+	}
+}
+
 func TestRateControlDropsOnlyOnLibvpxBufferUnderrun(t *testing.T) {
 	rc := rateControlState{
 		mode:             RateControlCBR,

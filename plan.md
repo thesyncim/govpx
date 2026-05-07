@@ -164,9 +164,9 @@ Remaining work:
 
 - Complete exact libvpx cyclic/background refresh segmentation policy; rotating
   cyclic-refresh-style segment maps now use libvpx's default CBR/error-resilient
-  enablement, temporal-layer MB cadence, Q/2-Q ALT_Q boost, eligibility map,
-  one-frame clean-block cooldown, count-derived segment tree probabilities, and
-  base temporal-layer gating.
+  enablement, temporal-layer MB cadence, screen-content cadence/disable rules,
+  Q/2-Q ALT_Q boost, eligibility map, one-frame clean-block cooldown,
+  count-derived segment tree probabilities, and base temporal-layer gating.
 - Make quantizer selection segment-aware.
 - Implement libvpx CBR feedback more completely.
 - Complete exact libvpx constrained-quality bitrate behavior for
@@ -187,8 +187,8 @@ Remaining work:
   default unboosted refresh, and prior LAST/ZEROMV majority gate.
 - Implement VBR/two-pass planning if production parity requires VBR.
 - Add adaptive keyframe/scene-cut behavior.
-- Add screen-content controls and complete static-background segmentation policy;
-  static-threshold runtime control exists.
+- Complete static-background segmentation policy; screen-content and
+  static-threshold runtime controls exist.
 
 Useful references:
 

@@ -87,8 +87,11 @@ type EncoderOptions struct {
 	TokenPartitions int
 
 	// Quality knobs.
-	Sharpness       int
-	StaticThreshold int
+	Sharpness int
+	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
+	// 0=off, 1=on, 2=on with more aggressive rate control.
+	ScreenContentMode int
+	StaticThreshold   int
 }
 
 type EncodeResult struct {
@@ -145,6 +148,7 @@ type VP8Encoder struct {
 	cyclicRefreshMap        []int8
 	cyclicRefreshAttemptMap []int8
 	lastInterZeroMVCount    int
+	lastInterSkipCount      int
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
@@ -311,12 +315,14 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Quantizer = finalQuantizer
 		result.Droppable = interFrameDroppable(attempt.Config)
 		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, goldenCBRRefresh, required, !invisible)
+		e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
 		if attempt.CyclicRefresh {
 			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
 		}
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -337,10 +343,12 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.SizeBytes = n
 	result.Quantizer = finalQuantizer
 	e.rc.postEncodeFrameWithPacketContext(n, true, false, required, !invisible)
+	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
 	e.lastInterZeroMVCount = 0
+	e.lastInterSkipCount = 0
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.frameCount++
@@ -399,7 +407,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfig()
+		segmentation = e.cyclicRefreshSegmentationConfig(true)
 	}
 	var err error
 	if segmentation.Enabled {
@@ -471,7 +479,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfig()
+		segmentation = e.cyclicRefreshSegmentationConfig(cfg.RefreshGolden)
 	}
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
@@ -583,6 +591,16 @@ func countLastZeroMVInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int
 	count := 0
 	for _, mode := range modes {
 		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+			count++
+		}
+	}
+	return count
+}
+
+func countSkippedInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int {
+	count := 0
+	for _, mode := range modes {
+		if mode.MBSkipCoeff {
 			count++
 		}
 	}
@@ -767,6 +785,17 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 	return nil
 }
 
+func (e *VP8Encoder) SetScreenContentMode(mode int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if mode < 0 || mode > 2 {
+		return ErrInvalidConfig
+	}
+	e.opts.ScreenContentMode = mode
+	return nil
+}
+
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -909,6 +938,7 @@ func (e *VP8Encoder) Reset() {
 	clearCyclicRefreshMap(e.cyclicRefreshMap)
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	e.lastInterZeroMVCount = 0
+	e.lastInterSkipCount = 0
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
@@ -999,7 +1029,7 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.KeyFrameInterval < 0 || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.Sharpness < 0 || opts.Sharpness > 7 || opts.StaticThreshold < 0 {
+	if opts.Sharpness < 0 || opts.Sharpness > 7 || opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 || opts.StaticThreshold < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 

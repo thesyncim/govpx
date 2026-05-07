@@ -408,6 +408,16 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 	rc.framesSinceKeyframe++
 }
 
+func (rc *rateControlState) clampScreenContentBufferDebt(screenContentMode int) {
+	if screenContentMode <= 0 || rc.maximumBufferBits <= 0 {
+		return
+	}
+	minimumBuffer := -rc.maximumBufferBits
+	if rc.bufferLevelBits < minimumBuffer {
+		rc.bufferLevelBits = minimumBuffer
+	}
+}
+
 func (rc *rateControlState) updateQuantizerAverages(q int, keyFrame bool, goldenFrame bool) {
 	if q < 0 {
 		return

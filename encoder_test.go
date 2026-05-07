@@ -45,6 +45,11 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("GF CBR boost error = %v, want ErrInvalidConfig", err)
 	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ScreenContentMode: 3})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
@@ -614,7 +619,7 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 20
 
-	cfg := e.cyclicRefreshSegmentationConfig()
+	cfg := e.cyclicRefreshSegmentationConfig(false)
 
 	if !cfg.Enabled || !cfg.UpdateMap || !cfg.UpdateData {
 		t.Fatalf("cyclic segmentation = %+v, want enabled map/data update", cfg)
@@ -624,7 +629,7 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	}
 
 	e.rc.currentQuantizer = 21
-	cfg = e.cyclicRefreshSegmentationConfig()
+	cfg = e.cyclicRefreshSegmentationConfig(false)
 	if !cfg.Enabled {
 		t.Fatalf("q=21 cyclic segmentation disabled, want background boost")
 	}
@@ -633,7 +638,7 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	}
 
 	e.rc.currentQuantizer = 1
-	cfg = e.cyclicRefreshSegmentationConfig()
+	cfg = e.cyclicRefreshSegmentationConfig(false)
 	if !cfg.Enabled {
 		t.Fatalf("q=1 cyclic segmentation disabled, want libvpx Q/2-Q delta enabled")
 	}
@@ -642,15 +647,24 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	}
 
 	e.rc.currentQuantizer = 0
-	cfg = e.cyclicRefreshSegmentationConfig()
+	cfg = e.cyclicRefreshSegmentationConfig(false)
 	if !cfg.Enabled || cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
 		t.Fatalf("q=0 cyclic segmentation = %+v, want enabled with no alt-q feature", cfg)
 	}
 
 	e.rc.mode = RateControlVBR
 	e.opts.StaticThreshold = 1
-	if cfg := e.cyclicRefreshSegmentationConfig(); cfg.Enabled {
+	if cfg := e.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
 		t.Fatalf("VBR static-threshold cyclic segmentation = %+v, want disabled", cfg)
+	}
+
+	e.rc.mode = RateControlCBR
+	e.opts.ScreenContentMode = 2
+	if cfg := e.cyclicRefreshSegmentationConfig(true); cfg.Enabled {
+		t.Fatalf("screen-content mode 2 golden-refresh segmentation = %+v, want disabled", cfg)
+	}
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("screen-content mode 2 non-golden cyclic segmentation disabled, want enabled")
 	}
 }
 
@@ -693,6 +707,37 @@ func TestEncodeIntoDefaultCBREnablesLibvpxCyclicRefreshSegmentation(t *testing.T
 	interState := packetState(t, inter.Data)
 	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
 		t.Fatalf("inter segmentation = %+v, want libvpx default cyclic refresh", interState.Segmentation)
+	}
+}
+
+func TestEncodeIntoScreenContentMode2DisablesGoldenRefreshCyclicSegmentation(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		ScreenContentMode:   2,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if keyState.Segmentation.Enabled || keyState.Segmentation.UpdateMap || keyState.Segmentation.UpdateData {
+		t.Fatalf("screen-content mode 2 key segmentation = %+v, want disabled on golden refresh", keyState.Segmentation)
 	}
 }
 
@@ -800,6 +845,21 @@ func TestCyclicRefreshMaxMBsPerFrameMirrorsLibvpxLayerCadence(t *testing.T) {
 	}
 	if got := cyclicRefreshMaxMBsPerFrameForLayers(8, 8, 3); got != 9 {
 		t.Fatalf("three-layer cyclic refresh MBs = %d, want libvpx MBs/7", got)
+	}
+}
+
+func TestCyclicRefreshMaxMBsPerFrameMirrorsLibvpxScreenContentCadence(t *testing.T) {
+	if got := cyclicRefreshMaxMBsPerFrameForConfig(8, 8, 3, 1, 100, 0, 0); got != 6 {
+		t.Fatalf("screen-content high-q cyclic refresh MBs = %d, want libvpx MBs/10", got)
+	}
+	if got := cyclicRefreshMaxMBsPerFrameForConfig(8, 8, 3, 2, 80, 0, 0); got != 6 {
+		t.Fatalf("aggressive screen-content high-q cyclic refresh MBs = %d, want libvpx MBs/10", got)
+	}
+	if got := cyclicRefreshMaxMBsPerFrameForConfig(8, 8, 3, 1, 19, 251, 61); got != 0 {
+		t.Fatalf("screen-content stable low-q cyclic refresh MBs = %d, want disabled", got)
+	}
+	if got := cyclicRefreshMaxMBsPerFrameForConfig(8, 8, 3, 1, 19, 251, 60); got != 3 {
+		t.Fatalf("screen-content low-q cyclic refresh MBs = %d, want libvpx MBs/20", got)
 	}
 }
 
@@ -1211,6 +1271,12 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	if err := e.SetStaticThreshold(-1); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetStaticThreshold negative error = %v, want ErrInvalidConfig", err)
 	}
+	if err := e.SetScreenContentMode(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetScreenContentMode negative error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetScreenContentMode(3); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetScreenContentMode out-of-range error = %v, want ErrInvalidConfig", err)
+	}
 	if err := e.SetTokenPartitions(int(vp8common.EightPartition)); err != nil {
 		t.Fatalf("SetTokenPartitions returned error: %v", err)
 	}
@@ -1219,6 +1285,9 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	}
 	if err := e.SetStaticThreshold(1); err != nil {
 		t.Fatalf("SetStaticThreshold returned error: %v", err)
+	}
+	if err := e.SetScreenContentMode(1); err != nil {
+		t.Fatalf("SetScreenContentMode returned error: %v", err)
 	}
 
 	result, err := e.EncodeInto(make([]byte, 8192), testImage(16, 16), 0, 1, 0)
@@ -2736,6 +2805,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetTokenPartitions", fn: func() { _ = e.SetTokenPartitions(int(vp8common.EightPartition)) }},
 		{name: "SetSharpness", fn: func() { _ = e.SetSharpness(3) }},
 		{name: "SetStaticThreshold", fn: func() { _ = e.SetStaticThreshold(1) }},
+		{name: "SetScreenContentMode", fn: func() { _ = e.SetScreenContentMode(1) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
 		{name: "SetTemporalScalability", fn: func() { _ = e.SetTemporalScalability(temporal) }},
 		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},

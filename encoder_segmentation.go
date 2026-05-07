@@ -11,8 +11,8 @@ import (
 
 const staticSegmentID = 1
 
-func (e *VP8Encoder) cyclicRefreshSegmentationConfig() vp8enc.SegmentationConfig {
-	if !e.cyclicRefreshModeEnabled() {
+func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.SegmentationConfig {
+	if !e.cyclicRefreshModeEnabled(refreshGolden) {
 		return vp8enc.SegmentationConfig{}
 	}
 	cfg := vp8enc.SegmentationConfig{
@@ -27,8 +27,11 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfig() vp8enc.SegmentationConfig
 	return cfg
 }
 
-func (e *VP8Encoder) cyclicRefreshModeEnabled() bool {
+func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e == nil {
+		return false
+	}
+	if e.opts.ScreenContentMode == 2 && refreshGolden {
 		return false
 	}
 	return e.opts.ErrorResilient || e.rc.mode == RateControlCBR
@@ -221,11 +224,42 @@ func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
 	if e != nil && e.temporal.enabled {
 		layers = e.temporal.pattern.Layers
 	}
-	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, layers)
+	screenContentMode := 0
+	q := 0
+	framesSinceKey := 0
+	lastSkipCount := 0
+	if e != nil {
+		screenContentMode = e.opts.ScreenContentMode
+		q = e.rc.currentQuantizer
+		framesSinceKey = e.rc.framesSinceKeyframe
+		lastSkipCount = e.lastInterSkipCount
+	}
+	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, screenContentMode, q, framesSinceKey, lastSkipCount)
 }
 
 func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
 	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, 1)
+}
+
+func cyclicRefreshMaxMBsPerFrameForConfig(rows int, cols int, layers int, screenContentMode int, q int, framesSinceKey int, lastSkipCount int) int {
+	if rows <= 0 || cols <= 0 {
+		return 0
+	}
+	count := rows * cols
+	if screenContentMode > 0 {
+		qpThreshold := 100
+		if screenContentMode == 2 {
+			qpThreshold = 80
+		}
+		if q >= qpThreshold {
+			return count / 10
+		}
+		if framesSinceKey > 250 && q < 20 && lastSkipCount*100 > 95*count {
+			return 0
+		}
+		return count / 20
+	}
+	return cyclicRefreshMaxMBsPerFrameForLayers(rows, cols, layers)
 }
 
 func cyclicRefreshMaxMBsPerFrameForLayers(rows int, cols int, layers int) int {
