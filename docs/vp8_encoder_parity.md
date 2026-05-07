@@ -986,6 +986,16 @@ the anchor and look for the surrounding mismatch.
     `coef_counts` accumulator across all reference branches (libvpx
     `bitstream.c` `default_coef_context_savings`); govpx's
     `BuildInterCoefficientProbabilityUpdates` matches that aggregation.
+    Key-frame forced coef-prob updates: audited against libvpx's
+    `vp8_update_coef_probs` (`bitstream.c:865-950`). The "force u=1 when
+    `newp != *Pold` on key frames" branch (`bitstream.c:920-928`) is gated
+    on `VPX_ERROR_RESILIENT_PARTITIONS && frame_type == KEY_FRAME`, so it
+    only applies to the independent (error-resilient) coef-context path —
+    handled by `coefficientProbabilityUpdatesFromCountsIndependent`. The
+    default (non-error-resilient) path treats key frames identically to
+    inter frames at the savings step (only `s > 0` triggers an update),
+    which `BuildKeyFrameCoefficientProbabilityUpdates` /
+    `coefficientProbabilityUpdatesFromCounts` already mirror.
     Independent coef contexts for error-resilient partitions are now
     ported: `BuildInterCoefficientProbabilityUpdatesIndependent` /
     `BuildKeyFrameCoefficientProbabilityUpdatesIndependent` and
@@ -1025,7 +1035,8 @@ the anchor and look for the surrounding mismatch.
     `TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch`,
     `TestIndependentCoefContextSavingsHandComputed`,
     `TestIndependentCoefContextDivergesFromDefault`,
-    `TestIndependentCoefContextKeyFrameForcesEqualization`.
+    `TestIndependentCoefContextKeyFrameForcesEqualization`,
+    `TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce`.
     The ref-frame entropy-savings half of `vp8_estimate_entropy_savings`
     is now ported as `libvpxCalcRefFrameCosts` and
     `libvpxRefFrameEntropySavings` in

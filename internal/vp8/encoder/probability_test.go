@@ -244,6 +244,84 @@ func TestIndependentCoefContextKeyFrameForcesEqualization(t *testing.T) {
 	}
 }
 
+// TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce pins the libvpx
+// default-path (non-error-resilient) coef-prob update behaviour for key
+// frames: vp8_update_coef_probs only sets u=1 when prob_update_savings>0,
+// and the per-(k,t) "force when newp != *Pold on key frames" branch at
+// bitstream.c:920-928 is gated on VPX_ERROR_RESILIENT_PARTITIONS, so it does
+// NOT fire on the default path. That force IS exercised in the Independent
+// variant, which mirrors the error-resilient branch.
+//
+// We construct a counts vector with a single (block, band, ctx, node)
+// populated at ct=(1,0) so the new probability resolves to 255 against an
+// oldp=128 base. With only one observed branch the entropy savings are
+// dominated by the 8-bit literal cost and are non-positive; the default
+// builder for both inter and key frames must therefore skip the update,
+// while the Independent builder run with keyFrame=true must force it.
+func TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce(t *testing.T) {
+	const blk, bnd, k, n = 1, 2, 1, 3
+
+	var counts coefficientBranchCounts
+	counts[blk][bnd][k][n] = [2]int{1, 0}
+
+	var base tables.CoefficientProbs
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					base[block][band][ctx][node] = 128
+				}
+			}
+		}
+	}
+
+	// Sanity-check the construction: newp = clamp((1*256+0)/1) = 255 and
+	// the savings rule alone rejects the update because the 8-bit literal
+	// dominates the tiny per-token cost difference for ct=(1,0).
+	ct := counts[blk][bnd][k][n]
+	const oldProb uint8 = 128
+	newProb := coefficientProbabilityFromBranchCount(ct)
+	if newProb == oldProb {
+		t.Fatalf("setup: newProb (%d) must differ from oldProb (%d)", newProb, oldProb)
+	}
+	updateProb := tables.CoefUpdateProbs[blk][bnd][k][n]
+	if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
+		t.Fatalf("setup: savings = %d > 0; want non-positive so default path skips", s)
+	}
+
+	// Default path with key-frame counts: matches libvpx default branch,
+	// so no force-update fires when savings <= 0.
+	defaultProbs, defaultUpdates, err := coefficientProbabilityUpdatesFromCounts(&base, &counts)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
+	}
+	if defaultUpdates.Update[blk][bnd][k][n] {
+		t.Fatalf("default key-frame path forced update at [%d][%d][%d][%d] (savings<=0); libvpx default branch does not force on key frames", blk, bnd, k, n)
+	}
+	if got := defaultProbs[blk][bnd][k][n]; got != oldProb {
+		t.Fatalf("default key-frame path prob[%d][%d][%d][%d] = %d, want %d (no update)", blk, bnd, k, n, got, oldProb)
+	}
+	if defaultUpdates.UpdateCount != 0 {
+		t.Fatalf("default key-frame path UpdateCount = %d, want 0 (savings rule rejects)", defaultUpdates.UpdateCount)
+	}
+
+	// Independent (error-resilient) path with keyFrame=true: libvpx
+	// bitstream.c:924-928 forces u=1 whenever newp != *Pold. With the same
+	// ct, the shared newp across k for this node is the per-context value
+	// (because only one ctx has counts) — so for ctx=k the shared newp is
+	// 255 and oldp is 128 → force fires.
+	indepProbs, indepUpdates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &counts, true)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
+	}
+	if !indepUpdates.Update[blk][bnd][k][n] {
+		t.Fatalf("independent key-frame path did not force update at [%d][%d][%d][%d] (newp != oldp)", blk, bnd, k, n)
+	}
+	if got := indepProbs[blk][bnd][k][n]; got != newProb {
+		t.Fatalf("independent key-frame path prob[%d][%d][%d][%d] = %d, want %d (forced)", blk, bnd, k, n, got, newProb)
+	}
+}
+
 func TestWriteCoefficientKeyFrameEmitsCoefficientProbabilityUpdates(t *testing.T) {
 	const rows, cols = 16, 16
 	modes := make([]KeyFrameMacroblockMode, rows*cols)
