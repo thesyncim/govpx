@@ -143,9 +143,18 @@ the anchor and look for the surrounding mismatch.
     `vp8_estimate_entropy_savings` (ref-frame portion) from the
     just-encoded size before deciding to recode, mirroring libvpx's
     `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
-    via [`applyEntropySavingsToProjectedSize`](../encoder.go).
-  - Missing: forced/auto key-frame recodes, full saved-coding-context
-    restore coverage after failed attempts, the
+    via [`applyEntropySavingsToProjectedSize`](../encoder.go). The
+    libvpx `decide_key_frame` heuristic is ported as
+    [`libvpxDecideKeyFrame`](../encoder_entropy_savings.go), covering
+    the unconditional thresholds (this==100 && this>last+2 ||
+    this>95 && this>=last+5) and the GF-guarded second tier
+    (this>60 && this>2*last; this>75 && this>3/2*last;
+    this>90 && this>last+10) for the auto-key recode decision.
+  - Missing: wiring `libvpxDecideKeyFrame` into the encoder loop to
+    actually trigger the auto-key recode (currently the helper is
+    callable but no call site invokes it), tracking
+    `lastFramePercentIntra` for the heuristic's lookback, full
+    saved-coding-context restore coverage after failed attempts, the
     coefficient-context portion of vp8_estimate_entropy_savings
     (default_coef_context_savings / independent_coef_context_savings),
     and trace coverage for GF/ARF zbin-over-quant cases once automatic

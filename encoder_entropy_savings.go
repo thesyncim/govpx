@@ -91,6 +91,39 @@ func libvpxRefFrameEntropySavings(keyFrame bool, rfctIntra, rfctLast, rfctGolden
 	return (oldTotal - newTotal) / 256
 }
 
+// libvpxDecideKeyFrame ports the libvpx vp8/encoder/onyx_if.c
+// decide_key_frame heuristic for the auto-key recode decision: after
+// a non-KF encode, if the intra-percentage trajectory crosses the
+// libvpx thresholds, libvpx restarts the encode as a keyframe. The
+// rules are:
+//
+//	(this == 100 && this > last + 2) ||
+//	(this > 95  && this >= last + 5)            -> always recode as KF
+//	((this > 60 && this > last*2) ||
+//	 (this > 75 && this > last*3/2) ||
+//	 (this > 90 && this > last + 10))           -> recode as KF
+//	                                              unless GF refresh
+//
+// govpx exposes only the realtime/non-speed-2 path (the libvpx
+// `cpi->Speed > 11` early-exit and the speed-2 path are not used by
+// govpx today; speed-2 has its own statistics that govpx does not
+// track). refreshGoldenFrame is the pre-encode GF refresh flag and
+// must be false for the second decision to fire.
+func libvpxDecideKeyFrame(thisFramePercentIntra, lastFramePercentIntra int, refreshGoldenFrame bool) bool {
+	if (thisFramePercentIntra == 100 && thisFramePercentIntra > lastFramePercentIntra+2) ||
+		(thisFramePercentIntra > 95 && thisFramePercentIntra >= lastFramePercentIntra+5) {
+		return true
+	}
+	if !refreshGoldenFrame {
+		if (thisFramePercentIntra > 60 && thisFramePercentIntra > lastFramePercentIntra*2) ||
+			(thisFramePercentIntra > 75 && thisFramePercentIntra > lastFramePercentIntra*3/2) ||
+			(thisFramePercentIntra > 90 && thisFramePercentIntra > lastFramePercentIntra+10) {
+			return true
+		}
+	}
+	return false
+}
+
 func clampProb255(p int) int {
 	if p < 0 {
 		return 0

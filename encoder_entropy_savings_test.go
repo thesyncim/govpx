@@ -87,6 +87,70 @@ func TestLibvpxRefFrameEntropySavingsBalancedDistribution(t *testing.T) {
 	}
 }
 
+// TestLibvpxDecideKeyFrameUnconditionalThresholds pins the libvpx
+// vp8/encoder/onyx_if.c decide_key_frame thresholds that fire even
+// when the GF is being refreshed:
+//
+//	(this == 100 && this > last + 2) ||
+//	(this > 95  && this >= last + 5)
+func TestLibvpxDecideKeyFrameUnconditionalThresholds(t *testing.T) {
+	if !libvpxDecideKeyFrame(100, 50, true) {
+		t.Fatalf("100%% intra > 50%%+2 should fire")
+	}
+	if !libvpxDecideKeyFrame(96, 90, true) {
+		t.Fatalf("96 >= 90+5 should fire")
+	}
+	// Boundary: this==100 but this<=last+2 should NOT fire (the first
+	// rule needs strict >).
+	if libvpxDecideKeyFrame(100, 98, true) {
+		t.Fatalf("100>98+2 false; 100<=100, should not fire")
+	}
+	// Boundary: this==95 should NOT fire (the second rule needs >95).
+	if libvpxDecideKeyFrame(95, 80, true) {
+		t.Fatalf("95 not >95, should not fire on second rule")
+	}
+}
+
+// TestLibvpxDecideKeyFrameGFGuard pins the libvpx
+// `if (!cm->refresh_golden_frame)` guard on the second decision
+// block: with a GF refresh pending, the second-tier rules are
+// suppressed.
+func TestLibvpxDecideKeyFrameGFGuard(t *testing.T) {
+	// 70% > 30%*2=60 satisfies second-tier rule 1 -> fires when no GF.
+	if !libvpxDecideKeyFrame(70, 30, false) {
+		t.Fatalf("70 > 30*2 should fire when no GF refresh")
+	}
+	// Same inputs with GF refresh: suppressed.
+	if libvpxDecideKeyFrame(70, 30, true) {
+		t.Fatalf("70 > 30*2 with GF refresh should NOT fire")
+	}
+}
+
+// TestLibvpxDecideKeyFrameSecondTierThresholds pins the three libvpx
+// second-tier rules:
+//
+//	this>60 && this>last*2
+//	this>75 && this>last*3/2
+//	this>90 && this>last+10
+func TestLibvpxDecideKeyFrameSecondTierThresholds(t *testing.T) {
+	// Rule 1: this=70, last=30 -> 70>60 && 70>60.
+	if !libvpxDecideKeyFrame(70, 30, false) {
+		t.Fatalf("rule 1: 70>60 && 70>60 should fire")
+	}
+	// Rule 2: this=80, last=50 -> 80>75 && 80>75.
+	if !libvpxDecideKeyFrame(80, 50, false) {
+		t.Fatalf("rule 2: 80>75 && 80>75 should fire")
+	}
+	// Rule 3: this=92, last=80 -> 92>90 && 92>90.
+	if !libvpxDecideKeyFrame(92, 80, false) {
+		t.Fatalf("rule 3: 92>90 && 92>90 should fire")
+	}
+	// Below rule 1 threshold: this=60, last=30 -> 60 not >60.
+	if libvpxDecideKeyFrame(60, 30, false) {
+		t.Fatalf("60 not >60 should not fire")
+	}
+}
+
 // TestApplyEntropySavingsToProjectedSizeReducesRecodeInput pins the
 // libvpx contract `projected_frame_size -= vp8_estimate_entropy_savings`
 // before the recode size-bounds check. Construct an encoder where the
