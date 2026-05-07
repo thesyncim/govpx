@@ -111,6 +111,19 @@ func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacro
 	return coefficientEntropySavingsFromCounts(base, &counts), nil
 }
 
+// KeyFrameCoefficientEntropySavingsIndependent ports the
+// VPX_ERROR_RESILIENT_PARTITIONS coefficient-savings branch used by libvpx for
+// key frames. It uses the same independent-context model as
+// BuildKeyFrameCoefficientProbabilityUpdatesIndependent so recode accounting
+// matches the probabilities this package writes.
+func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	var counts coefficientBranchCounts
+	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCountsIndependent(base, &counts, true), nil
+}
+
 // InterCoefficientEntropySavings ports the default_coef_context_savings branch
 // of libvpx's vp8_estimate_entropy_savings for inter frames. The result is
 // whole bits, matching libvpx's prob_update_savings units.
@@ -120,6 +133,17 @@ func InterCoefficientEntropySavings(rows int, cols int, modes []InterFrameMacrob
 		return 0, err
 	}
 	return coefficientEntropySavingsFromCounts(base, &counts), nil
+}
+
+// InterCoefficientEntropySavingsIndependent ports the
+// VPX_ERROR_RESILIENT_PARTITIONS coefficient-savings branch used by libvpx for
+// inter frames.
+func InterCoefficientEntropySavingsIndependent(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	var counts coefficientBranchCounts
+	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCountsIndependent(base, &counts, false), nil
 }
 
 func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) int {
@@ -145,6 +169,40 @@ func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *
 					if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
 						savings += s
 					}
+				}
+			}
+		}
+	}
+	return savings
+}
+
+func coefficientEntropySavingsFromCountsIndependent(base *tables.CoefficientProbs, counts *coefficientBranchCounts, keyFrame bool) int {
+	if base == nil || counts == nil {
+		return 0
+	}
+	savings := 0
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			var summed [tables.EntropyNodes][2]int
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					summed[node][0] += (*counts)[block][band][ctx][node][0]
+					summed[node][1] += (*counts)[block][band][ctx][node][1]
+				}
+			}
+			for node := 0; node < tables.EntropyNodes; node++ {
+				newProb := coefficientProbabilityFromBranchCount(summed[node])
+				nodeSavings := 0
+				for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+					oldProb := (*base)[block][band][ctx][node]
+					if keyFrame && newProb == oldProb {
+						continue
+					}
+					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
+					nodeSavings += coefficientProbabilityUpdateSavings(summed[node], oldProb, newProb, updateProb)
+				}
+				if nodeSavings > 0 || keyFrame {
+					savings += nodeSavings
 				}
 			}
 		}

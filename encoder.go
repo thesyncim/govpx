@@ -858,7 +858,8 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefLFDeltas:         lfHeader.RefDeltas,
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
-		RefreshEntropyProbs: !e.opts.ErrorResilient,
+		RefreshEntropyProbs: true,
+		IndependentContexts: e.opts.ErrorResilient,
 	}
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
@@ -887,6 +888,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
+	cfg.IndependentContexts = e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy updates them.
@@ -1018,10 +1020,9 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 //	cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi);
 //	cpi->projected_frame_size = max(0, cpi->projected_frame_size);
 //
-// govpx applies the ref-frame-cost portion plus default coefficient-context
-// update savings. The error-resilient independent coefficient-context branch is
-// tracked separately under the probability item. Returns the adjusted size in
-// bytes for the recode comparison.
+// govpx applies the ref-frame-cost portion plus coefficient-context update
+// savings. Error-resilient frames use libvpx's independent coefficient-context
+// branch. Returns the adjusted size in bytes for the recode comparison.
 func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame bool, macroblocks int) int {
 	if sizeBytes <= 0 || macroblocks <= 0 {
 		return sizeBytes
@@ -1033,7 +1034,7 @@ func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame 
 	savingsBits := libvpxRefFrameEntropySavings(keyFrame, intra, last, golden, alt,
 		int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
 	savingsBits += e.coefficientEntropySavingsBits(keyFrame, macroblocks)
-	if savingsBits <= 0 {
+	if savingsBits == 0 {
 		return sizeBytes
 	}
 	totalBits := encodedSizeBits(sizeBytes)
@@ -1045,7 +1046,7 @@ func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame 
 }
 
 func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {
-	if e == nil || e.opts.ErrorResilient || macroblocks <= 0 {
+	if e == nil || macroblocks <= 0 {
 		return 0
 	}
 	rows := encoderMacroblockRows(e.opts.Height)
@@ -1057,6 +1058,13 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 		if len(e.keyFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
 			return 0
 		}
+		if e.opts.ErrorResilient {
+			savings, err := vp8enc.KeyFrameCoefficientEntropySavingsIndependent(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+			if err != nil {
+				return 0
+			}
+			return savings
+		}
 		savings, err := vp8enc.KeyFrameCoefficientEntropySavings(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 		if err != nil {
 			return 0
@@ -1065,6 +1073,13 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 	}
 	if len(e.interFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
 		return 0
+	}
+	if e.opts.ErrorResilient {
+		savings, err := vp8enc.InterCoefficientEntropySavingsIndependent(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
+		if err != nil {
+			return 0
+		}
+		return savings
 	}
 	savings, err := vp8enc.InterCoefficientEntropySavings(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
 	if err != nil {

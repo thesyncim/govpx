@@ -1380,7 +1380,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing
 	}
 	oracle := findChecksumOracle(t)
 
-	e := newTestEncoder(t)
+	e := newEntropyRefreshTestEncoder(t, false)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
 	}
@@ -1401,8 +1401,11 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want residual interframe")
 	}
-	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
-		t.Fatalf("mode[0] = %+v, want LAST/ZEROMV residual macroblock", e.interFrameModes[0])
+	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].MBSkipCoeff || !e.interFrameModes[0].MV.IsZero() {
+		t.Fatalf("mode[0] = %+v, want LAST zero-motion residual macroblock", e.interFrameModes[0])
+	}
+	if e.interFrameModes[0].Mode != vp8common.ZeroMV && e.interFrameModes[0].Mode != vp8common.NewMV {
+		t.Fatalf("mode[0] = %+v, want LAST zero-motion residual mode", e.interFrameModes[0])
 	}
 
 	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data)

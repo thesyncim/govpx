@@ -169,6 +169,38 @@ func TestIndependentCoefContextDivergesFromDefault(t *testing.T) {
 	}
 }
 
+func TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates(t *testing.T) {
+	var counts coefficientBranchCounts
+	counts[2][3][0][2] = [2]int{200, 0}
+
+	var base tables.CoefficientProbs
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					base[block][band][ctx][node] = 128
+				}
+			}
+		}
+	}
+	base[2][3][0][2] = 255
+	base[2][3][1][2] = 1
+	base[2][3][2][2] = 1
+
+	_, updates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &counts, false)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
+	}
+	savings := coefficientEntropySavingsFromCountsIndependent(&base, &counts, false)
+
+	if updates.UpdateCount == 0 {
+		t.Fatalf("independent path UpdateCount = 0, want positive updates")
+	}
+	if savings <= 0 {
+		t.Fatalf("independent entropy savings = %d, want positive savings matching update decision", savings)
+	}
+}
+
 // TestIndependentCoefContextKeyFrameForcesEqualization pins the
 // libvpx VPX_ERROR_RESILIENT_PARTITIONS key-frame branch
 // (bitstream.c:924-928): on key frames each k forces u=1 whenever the
