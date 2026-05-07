@@ -162,18 +162,46 @@ the anchor and look for the surrounding mismatch.
   - govpx:
     [`shouldRefreshGoldenFrameCBR`](../encoder.go),
     [`goldenFrameCBRInterval`](../encoder.go),
-    [`beginFrameWithTargetAndContext`](../ratecontrol.go).
+    [`beginFrameWithTargetAndContext`](../ratecontrol.go),
+    [`calcGFParams`](../ratecontrol.go),
+    [`accumulatePostPackOverspend`](../ratecontrol.go),
+    [`applyOnePassPFrameOverspendRecovery`](../ratecontrol.go).
   - libvpx:
     [`ratectrl.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c)
-    `calc_gf_params`, `calc_pframe_target_size`, and GF/ARF update branches in
-    `onyx_if.c`.
-  - Status: partial. govpx uses a simplified CBR refresh heuristic; libvpx
-    tracks GF active count, recent ref usage, boost tables, overspend recovery,
-    and interval updates.
-  - Missing: `vp8_pick_frame_size`, post-pack rate-control bookkeeping,
-    `kf_overspend_bits`, `kf_bitrate_adjustment`, `inter_frame_target`,
-    `min_frame_bandwidth`, temporal-layer propagation, and GF overspend
-    recovery.
+    `calc_gf_params`, `calc_pframe_target_size`,
+    `vp8_adjust_key_frame_context`, and GF/ARF update branches in
+    `onyx_if.c` (`update_golden_frame_stats`).
+  - Status: partial. The libvpx `calc_gf_params` boost computation now
+    runs end-to-end: `vp8_gf_boost_qadjustment` (GFQ_ADJUSTMENT),
+    `gf_intra_usage_adjustment`, `gf_adjust_table`,
+    `kf_gf_boost_qlimits` ceiling and 110 floor, the
+    `last_boost>750/>1000/>1250/>=1500` interval extensions, the
+    `gf_interval_table` floor, and the `max_gf_interval` cap are all
+    ported byte-for-byte. The post-pack overspend bookkeeping mirrors
+    libvpx: KF overspend splits 7/8 into `kf_overspend_bits` and 1/8
+    into `gf_overspend_bits` for single-layer encodes (full into
+    `kf_overspend_bits` for multi-layer), `kf_bitrate_adjustment` is
+    `kf_overspend_bits / estimate_keyframe_frequency`, and GF
+    overspend (`projected_frame_size - inter_frame_target`) drives
+    `non_gf_bitrate_adjustment`. The next p-frame target now drains
+    KF then GF overspend via the libvpx adjustment ordering, applies
+    the small +/- `last_boost` boost for non-GF frames inside long
+    GF intervals (`current_gf_interval >= 2*MIN_GF_INTERVAL`), and
+    clamps to `min_frame_target = max(min_frame_bandwidth,
+    per_frame_bandwidth/4)`. `inter_frame_target` is captured after
+    recovery so subsequent GF overspend math matches libvpx. The CBR
+    refresh decision in `shouldRefreshGoldenFrameCBR` still uses
+    govpx's simplified heuristic, but it now publishes
+    `framesTillGFUpdateDue` and `currentGFInterval` so `update_golden_frame_stats`
+    overspend math matches libvpx.
+  - Missing: `vp8_pick_frame_size` (the unified KF/p-frame entry that
+    routes through `calc_iframe_target_size` vs. `calc_pframe_target_size`
+    and consumes `cpi->drop_frame`), temporal-layer propagation of
+    KF/GF overspend, the auto_gold non-CBR GF refresh decision in
+    `calc_pframe_target_size` (govpx still uses its simplified CBR
+    heuristic instead of switching on `gf_update_onepass_cbr`), and
+    the two-pass `calc_gf_params` IIAccumulator code path (currently
+    disabled in libvpx as well).
   - Done when sequence tests match `refresh_golden_frame`, GF interval,
     `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
     targets on motion/static clips.
