@@ -157,3 +157,35 @@ func TestBilinearSecondPass16ParityVsGeneric(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkVarianceBlock16x16NEON(b *testing.B) {
+	src, ref := benchSrc16x16()
+	for i := 0; i < b.N; i++ {
+		_, _ = varianceBlock16x16(src, 64, ref, 64)
+	}
+}
+
+// BenchmarkVarianceBlock16x16Generic measures the original scalar
+// loop without the 16x16 dispatch, for like-for-like comparison
+// against the NEON path.
+func BenchmarkVarianceBlock16x16Generic(b *testing.B) {
+	src, ref := benchSrc16x16()
+	for i := 0; i < b.N; i++ {
+		_, _ = varianceBlockScalarReference(src, 64, ref, 64)
+	}
+}
+
+func varianceBlockScalarReference(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
+	sum := 0
+	sse := 0
+	for y := 0; y < 16; y++ {
+		srcRow := src[y*srcStride:]
+		refRow := ref[y*refStride:]
+		for x := 0; x < 16; x++ {
+			diff := int(srcRow[x]) - int(refRow[x])
+			sum += diff
+			sse += diff * diff
+		}
+	}
+	return sum, sse
+}

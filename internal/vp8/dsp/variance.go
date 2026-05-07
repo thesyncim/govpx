@@ -104,6 +104,9 @@ func SubpelVariance4x4(src []byte, srcStride int, xOffset int, yOffset int, ref 
 }
 
 func varianceBlock(src []byte, srcStride int, ref []byte, refStride int, width int, height int) (int, int) {
+	if width == 16 && height == 16 {
+		return varianceBlock16x16(src, srcStride, ref, refStride)
+	}
 	sum := 0
 	sse := 0
 	for y := 0; y < height; y++ {
