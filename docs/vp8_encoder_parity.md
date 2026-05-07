@@ -362,10 +362,16 @@ the anchor and look for the surrounding mismatch.
     `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
     VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
     feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
-  - Missing: `alt_extra_bits` carry, section max-Q factor, active
-    worst-Q estimates, VBR min/max section limits beyond
-    frame_max_bits, CBR buffer adjustments inside Pass2Encode, and
-    ARF pending decisions wired into the encoder.
+    `libvpxAssignStdFrameBits` ports the libvpx
+    `assign_std_frame_bits` per-frame allocator inside a GF group:
+    `target = gf_group_bits * (modified_err / gf_group_error_left)`,
+    clamp(0, min(max_bits, gf_group_bits)), add min_frame_bandwidth,
+    and add alt_extra_bits on odd frames_since_golden when
+    frames_till_gf_update_due > 0.
+  - Missing: section max-Q factor, active worst-Q estimates, VBR
+    min/max section limits beyond frame_max_bits, CBR buffer
+    adjustments inside Pass2Encode, and ARF pending decisions wired
+    into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

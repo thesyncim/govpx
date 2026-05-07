@@ -520,6 +520,48 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxAssignStdFrameBits ports the libvpx vp8/encoder/firstpass.c
+// assign_std_frame_bits per-frame allocator inside a GF group:
+//
+//	err_fraction = modified_err / gf_group_error_left
+//	target = gf_group_bits * err_fraction
+//	clamp(target, 0, min(max_bits, gf_group_bits))
+//	target += min_frame_bandwidth
+//	if (frames_since_golden & 1) && frames_till_gf_update_due>0:
+//	    target += alt_extra_bits
+//
+// Returns the per-frame bit target. Callers are expected to update
+// gf_group_error_left and gf_group_bits themselves so the allocator
+// stays a pure function.
+func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfGroupBits int64, maxBitsPerFrame int, minFrameBandwidth int, framesSinceGolden int, framesTillGFUpdateDue int, altExtraBits int) int {
+	if gfGroupBits <= 0 {
+		return 0
+	}
+	errFraction := 0.0
+	if gfGroupErrorLeft > 0 {
+		errFraction = modifiedErr / gfGroupErrorLeft
+	}
+	target := int(float64(gfGroupBits) * errFraction)
+	if target < 0 {
+		target = 0
+	} else {
+		if maxBitsPerFrame > 0 && target > maxBitsPerFrame {
+			target = maxBitsPerFrame
+		}
+		if int64(target) > gfGroupBits {
+			target = int(gfGroupBits)
+		}
+	}
+	target += minFrameBandwidth
+	if (framesSinceGolden&0x01) != 0 && framesTillGFUpdateDue > 0 {
+		target += altExtraBits
+	}
+	if target < 0 {
+		return 0
+	}
+	return target
+}
+
 // libvpxFrameMaxBitsCBR ports the CBR branch of libvpx's
 // vp8/encoder/firstpass.c frame_max_bits:
 //
