@@ -33,6 +33,17 @@ That target builds optimized pinned libvpx tools, fetches the required libvpx
 VP8 corpus/source data under ignored build directories, runs normal Go tests,
 and runs oracle-backed `TestOracle*` checks.
 
+For decoder-only parity proof:
+
+```sh
+make verify-decoder-parity
+```
+
+That target runs normal Go tests plus the decoder oracle suite: libvpx VP8
+external valid corpus, invalid rejection corpus, generated feature corpus,
+postprocess modes, error-concealment modes, and keyframe resolution-change
+coverage.
+
 For focused work, use the closest package tests first, then the full gate.
 New bitstream features should add or extend oracle coverage.
 
@@ -51,7 +62,8 @@ Already established:
   SPLITMV emission across VP8 split partition shapes, rotating cyclic-refresh-style segmentation,
   temporal layer ID override, force-Golden/AltRef refresh flags, and libvpx
   decode acceptance tests.
-- Decoder has broad smoke/oracle coverage but is not production parity yet.
+- Decoder has no known behavioral parity gap for the supported VP8 surface
+  covered by `make verify-decoder-parity`.
 
 Use `UPSTREAM.md` for detailed subsystem status and known deviations.
 
@@ -79,23 +91,28 @@ Useful references:
 
 ### 2. Decoder Parity
 
-Goal: keep decoder behavior aligned with libvpx on valid VP8 while expanding
-oracle coverage for damaged-stream and edge-case inputs.
+Goal: keep decoder behavior aligned with libvpx and prevent regressions.
 
-High-priority gaps:
+Current proof surface:
 
-- Broaden active error-concealment corpus coverage around multi-partition and
-  multi-fragment damaged streams; the decoder now has libvpx-style
-  `ErrorConcealment`, missing-MV estimation, corrupt residual concealment, and
-  missing-frame-tag concealment paths.
-- Remaining postprocess corpus edges beyond the current oracle-backed
-  deblock/demacroblock, ADDNOISE, and MFQE smoke coverage.
-- Multi-token-partition decode edge cases.
-- Remaining profile/segmentation/loop-filter/header edge cases that need
-  additional libvpx oracle fixtures.
-- Resolution-change behavior is covered for keyframe buffer reinitialization;
-  keep scaler/reference-rescale notes tied to any future non-raw-output scaler
-  API work.
+- Required libvpx VP8 external corpus: 58 valid VP80 IVF vectors, covering
+  comprehensive, intra, inter, segmentation, partition, sharpness, and small
+  size fixtures. Both `Decode` and `DecodeInto` are checksummed against
+  libvpx.
+- Required invalid-stream corpus: 2 invalid VP8 IVF vectors rejected like
+  libvpx by both decode entry points.
+- Generated libvpx feature corpus: profile 0/1/2/3, narrow dimensions,
+  one/two/four/eight token partitions including active eight-partition row
+  cycling, error-resilient streams, cyclic-refresh segmentation, sharpness,
+  and static-threshold streams.
+- Targeted oracle tests: postprocess deblock/demacroblock/MFQE/ADDNOISE,
+  active error concealment, malformed token partitions, missing token
+  partition concealment, truncated-frame rejection, and keyframe
+  resolution-change buffer reinitialization.
+
+No known decoder behavioral parity gaps remain for the supported VP8 surface
+covered by `make verify-decoder-parity`. This is an oracle-backed empirical
+claim, not a formal proof over every possible malformed byte stream.
 
 Useful references:
 
