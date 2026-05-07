@@ -1111,10 +1111,13 @@ the anchor and look for the surrounding mismatch.
     rdmult, the intra `(rdmult * 9) >> 4` scaling, the `RDTRUNC` tie-break
     when two trellis paths share an RDCOST, EOB rollback by backtrace, and
     libvpx `token_costs` subtree elision for post-zero trellis transitions.
-    Fast-vs-regular quantizer selection follows the libvpx speed-feature
-    gates, RD scoring uses the same unoptimized fast/regular quantizer
-    family, and the post-optimization `check_reset_2nd_coeffs` behavior
-    clears tiny Y2 residuals that would inverse-transform to zero. Regular
+	    Fast-vs-regular quantizer selection follows the libvpx speed-feature
+	    gates, including the GOOD speed 1/2 split where mode picking uses
+	    `use_fastquant_for_pick` but final reconstruction keeps regular
+	    quantization while `improved_quant` remains enabled. RD scoring uses
+	    the same unoptimized fast/regular quantizer family, and the
+	    post-optimization `check_reset_2nd_coeffs` behavior clears tiny Y2
+	    residuals that would inverse-transform to zero. Regular
     quantization applies libvpx `zbin_extra` for mode boost plus
     `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses
     it like libvpx. Frame-level quant deltas now match libvpx

@@ -163,7 +163,7 @@ func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
 		want     bool
 	}{
 		{name: "best quality uses regular quant", deadline: DeadlineBestQuality, cpuUsed: 15, want: false},
-		{name: "good speed two uses regular quant", deadline: DeadlineGoodQuality, cpuUsed: 2, want: false},
+		{name: "good speed two final encode uses regular quant", deadline: DeadlineGoodQuality, cpuUsed: 2, want: false},
 		{name: "good speed three uses fast quant", deadline: DeadlineGoodQuality, cpuUsed: 3, want: true},
 		{name: "realtime speed zero uses regular quant", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
 		{name: "realtime speed one uses fast quant", deadline: DeadlineRealtime, cpuUsed: 1, want: true},
@@ -174,6 +174,30 @@ func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
 			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
 			if got := e.libvpxUseFastQuant(); got != tt.want {
 				t.Fatalf("fast quant = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLibvpxUseFastQuantForPickGateMirrorsSpeedFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality keeps regular quant for pick", deadline: DeadlineBestQuality, cpuUsed: 15, want: false},
+		{name: "good speed zero keeps regular quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 0, want: false},
+		{name: "good speed one uses fast quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 1, want: true},
+		{name: "good speed two uses fast quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 2, want: true},
+		{name: "realtime speed zero keeps regular quant for pick", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
+		{name: "realtime speed one uses fast quant for pick", deadline: DeadlineRealtime, cpuUsed: 1, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			if got := e.libvpxUseFastQuantForPick(); got != tt.want {
+				t.Fatalf("fast quant for pick = %t, want %t", got, tt.want)
 			}
 		})
 	}

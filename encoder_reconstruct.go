@@ -167,7 +167,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 			if col > 0 {
 				left = &modes[index-1]
 			}
-			mode, ok := predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
+			mode, ok := predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
 			if !ok {
 				return ErrInvalidConfig
 			}
@@ -682,6 +682,20 @@ func (e *VP8Encoder) libvpxUseFastQuant() bool {
 		return e.opts.CpuUsed > 0
 	case DeadlineGoodQuality:
 		return e.opts.CpuUsed > 2
+	default:
+		return false
+	}
+}
+
+func (e *VP8Encoder) libvpxUseFastQuantForPick() bool {
+	if e == nil {
+		return false
+	}
+	switch e.opts.Deadline {
+	case DeadlineRealtime:
+		return e.opts.CpuUsed > 0
+	case DeadlineGoodQuality:
+		return e.opts.CpuUsed > 0
 	default:
 		return false
 	}
@@ -1459,7 +1473,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	var splitSeeds splitMotionSearchSeeds
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
 		var labelRD splitMotionLabelRDEvaluator
-		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuant(), false)
+		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuantForPick(), false)
 		mode, ok := selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, &e.coefProbs)
 		if !ok {
 			continue
@@ -1510,7 +1524,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
 	}
-	fastQuant := e.libvpxUseFastQuant()
+	fastQuant := e.libvpxUseFastQuantForPick()
 	if mbMode == vp8common.BPred {
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, &e.coefProbs, fastQuant)
 		if !ok {
@@ -2589,7 +2603,7 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 }
 
 func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.InterFrameMacroblockMode, int, bool) {
-	fastQuant := e.libvpxUseFastQuant()
+	fastQuant := e.libvpxUseFastQuantForPick()
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, &e.coefProbs, e.modeProbs.YMode[:], e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
@@ -3452,7 +3466,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, r
 
 	var coeffs vp8enc.MacroblockCoefficients
 	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
-	stats := buildPredictedMacroblockCoefficientsRD(&e.coefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(mode), is4x4, false, e.libvpxUseFastQuant(), false, &coeffs)
+	stats := buildPredictedMacroblockCoefficientsRD(&e.coefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(mode), is4x4, false, e.libvpxUseFastQuantForPick(), false, &coeffs)
 	rateUV := stats.rateUV
 	rate2 := modeRate + otherCost + stats.rateY + rateUV
 	distortion2 := stats.distortionY + stats.distortionUV
