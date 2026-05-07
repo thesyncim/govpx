@@ -44,24 +44,29 @@ import (
 // gate, not the side-effect, so parity tests can confirm both encoders took
 // the same branch even when the underlying tables already matched.
 type oracleTraceFrameRow struct {
-	Type                string `json:"type"`
-	FrameIndex          uint64 `json:"frame_index"`
-	FrameType           string `json:"frame_type"`
-	QIndex              int    `json:"q_index"`
-	BaseQIndex          int    `json:"base_q_index"`
-	LoopFilter          int    `json:"loop_filter_level"`
-	RefreshLast         bool   `json:"refresh_last"`
-	RefreshGolden       bool   `json:"refresh_golden"`
-	RefreshAltRef       bool   `json:"refresh_altref"`
-	GoldenSignBias      bool   `json:"sign_bias_golden"`
-	AltRefSignBias      bool   `json:"sign_bias_altref"`
-	SegEnabled          bool   `json:"segmentation_enabled"`
-	RefreshEntropyProbs bool   `json:"refresh_entropy_probs"`
-	DefaultCoefReset    bool   `json:"default_coef_reset"`
-	YAdler32            uint32 `json:"y_adler32"`
-	UAdler32            uint32 `json:"u_adler32"`
-	VAdler32            uint32 `json:"v_adler32"`
-	SizeBytes           int    `json:"size_bytes"`
+	Type                 string  `json:"type"`
+	FrameIndex           uint64  `json:"frame_index"`
+	FrameType            string  `json:"frame_type"`
+	QIndex               int     `json:"q_index"`
+	BaseQIndex           int     `json:"base_q_index"`
+	LoopFilter           int     `json:"loop_filter_level"`
+	SharpnessLevel       int     `json:"sharpness_level"`
+	RefLFDeltas          [4]int8 `json:"ref_lf_deltas"`
+	ModeLFDeltas         [4]int8 `json:"mode_lf_deltas"`
+	ModeRefLFDeltaEnable bool    `json:"mode_ref_lf_delta_enabled"`
+	ModeRefLFDeltaUpdate bool    `json:"mode_ref_lf_delta_update"`
+	RefreshLast          bool    `json:"refresh_last"`
+	RefreshGolden        bool    `json:"refresh_golden"`
+	RefreshAltRef        bool    `json:"refresh_altref"`
+	GoldenSignBias       bool    `json:"sign_bias_golden"`
+	AltRefSignBias       bool    `json:"sign_bias_altref"`
+	SegEnabled           bool    `json:"segmentation_enabled"`
+	RefreshEntropyProbs  bool    `json:"refresh_entropy_probs"`
+	DefaultCoefReset     bool    `json:"default_coef_reset"`
+	YAdler32             uint32  `json:"y_adler32"`
+	UAdler32             uint32  `json:"u_adler32"`
+	VAdler32             uint32  `json:"v_adler32"`
+	SizeBytes            int     `json:"size_bytes"`
 }
 
 // oracleTraceRateRow mirrors the libvpx-side "rate" row emitted from
@@ -156,17 +161,31 @@ func (e *VP8Encoder) oracleTraceEnabled() bool {
 // `vp8_pack_bitstream` error-resilient override and the
 // `error_resilient && key-frame` default-coef gate respectively, so callers
 // do not need to thread those values through the summary struct.
+//
+// SharpnessLevel mirrors libvpx's `cm->sharpness_level`. RefLFDeltas /
+// ModeLFDeltas / ModeRefLFDeltaEnable / ModeRefLFDeltaUpdate mirror
+// `cm->ref_lf_deltas[]`, `cm->mode_lf_deltas[]`,
+// `cm->mode_ref_lf_delta_enabled`, and `cm->mode_ref_lf_delta_update`
+// respectively. The govpx side reads these straight from the accepted
+// attempt's loop-filter header; the libvpx-side oracle patch in
+// internal/coracle/build_vpxenc_oracle.sh reads them from the VP8_COMMON
+// state at the same emission point.
 type oracleTraceFrameSummary struct {
-	FrameType      vp8common.FrameType
-	BaseQIndex     int
-	LoopFilter     int
-	RefreshLast    bool
-	RefreshGolden  bool
-	RefreshAltRef  bool
-	GoldenSignBias bool
-	AltRefSignBias bool
-	SegEnabled     bool
-	SizeBytes      int
+	FrameType            vp8common.FrameType
+	BaseQIndex           int
+	LoopFilter           int
+	SharpnessLevel       int
+	RefLFDeltas          [vp8common.MaxRefLFDeltas]int8
+	ModeLFDeltas         [vp8common.MaxModeLFDeltas]int8
+	ModeRefLFDeltaEnable bool
+	ModeRefLFDeltaUpdate bool
+	RefreshLast          bool
+	RefreshGolden        bool
+	RefreshAltRef        bool
+	GoldenSignBias       bool
+	AltRefSignBias       bool
+	SegEnabled           bool
+	SizeBytes            int
 }
 
 // emitOracleFrameTrace writes a single per-frame trace row to the configured
@@ -199,20 +218,25 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	// frame. govpx uses `e.opts.ErrorResilient && keyframe` to match.
 	defaultCoefReset := e.opts.ErrorResilient && keyFrame
 	row := oracleTraceFrameRow{
-		Type:                "frame",
-		FrameIndex:          e.frameCount,
-		QIndex:              e.rc.currentQuantizer,
-		BaseQIndex:          summary.BaseQIndex,
-		LoopFilter:          summary.LoopFilter,
-		RefreshLast:         summary.RefreshLast,
-		RefreshGolden:       summary.RefreshGolden,
-		RefreshAltRef:       summary.RefreshAltRef,
-		GoldenSignBias:      summary.GoldenSignBias,
-		AltRefSignBias:      summary.AltRefSignBias,
-		SegEnabled:          summary.SegEnabled,
-		RefreshEntropyProbs: refreshEntropyProbs,
-		DefaultCoefReset:    defaultCoefReset,
-		SizeBytes:           summary.SizeBytes,
+		Type:                 "frame",
+		FrameIndex:           e.frameCount,
+		QIndex:               e.rc.currentQuantizer,
+		BaseQIndex:           summary.BaseQIndex,
+		LoopFilter:           summary.LoopFilter,
+		SharpnessLevel:       summary.SharpnessLevel,
+		RefLFDeltas:          summary.RefLFDeltas,
+		ModeLFDeltas:         summary.ModeLFDeltas,
+		ModeRefLFDeltaEnable: summary.ModeRefLFDeltaEnable,
+		ModeRefLFDeltaUpdate: summary.ModeRefLFDeltaUpdate,
+		RefreshLast:          summary.RefreshLast,
+		RefreshGolden:        summary.RefreshGolden,
+		RefreshAltRef:        summary.RefreshAltRef,
+		GoldenSignBias:       summary.GoldenSignBias,
+		AltRefSignBias:       summary.AltRefSignBias,
+		SegEnabled:           summary.SegEnabled,
+		RefreshEntropyProbs:  refreshEntropyProbs,
+		DefaultCoefReset:     defaultCoefReset,
+		SizeBytes:            summary.SizeBytes,
 	}
 	if keyFrame {
 		row.FrameType = "key"

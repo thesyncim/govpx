@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-zbin-default-coef
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-lf-deltas
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -288,6 +288,11 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             "\"q_index\":%d,"
             "\"base_q_index\":%d,"
             "\"loop_filter_level\":%d,"
+            "\"sharpness_level\":%d,"
+            "\"ref_lf_deltas\":[%d,%d,%d,%d],"
+            "\"mode_lf_deltas\":[%d,%d,%d,%d],"
+            "\"mode_ref_lf_delta_enabled\":%s,"
+            "\"mode_ref_lf_delta_update\":%s,"
             "\"refresh_last\":%s,"
             "\"refresh_golden\":%s,"
             "\"refresh_altref\":%s,"
@@ -305,6 +310,13 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             cm->base_qindex,
             cm->base_qindex,
             cm->filter_level,
+            cm->sharpness_level,
+            (int)xd->ref_lf_deltas[0], (int)xd->ref_lf_deltas[1],
+            (int)xd->ref_lf_deltas[2], (int)xd->ref_lf_deltas[3],
+            (int)xd->mode_lf_deltas[0], (int)xd->mode_lf_deltas[1],
+            (int)xd->mode_lf_deltas[2], (int)xd->mode_lf_deltas[3],
+            xd->mode_ref_lf_delta_enabled ? "true" : "false",
+            xd->mode_ref_lf_delta_update ? "true" : "false",
             cm->refresh_last_frame ? "true" : "false",
             cm->refresh_golden_frame ? "true" : "false",
             cm->refresh_alt_ref_frame ? "true" : "false",

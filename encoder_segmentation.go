@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -39,6 +40,38 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.
 // aggressiveDenoiseAltLFDelta mirrors libvpx's lf_adjustment = -40 in the
 // aggressive-denoise cyclic-refresh branch (vp8/encoder/onyx_if.c).
 const aggressiveDenoiseAltLFDelta int8 = -40
+
+// loopFilterSegmentationHeader translates the encoder-side
+// SegmentationConfig (writer shape) into the decoder-side
+// SegmentationHeader (reader shape) so the in-encoder reconstruction
+// loop-filter honors the same per-segment ALT_LF deltas the bitstream
+// signals. Mirrors libvpx vp8/common/vp8_loopfilter.c
+// vp8_loop_filter_frame_init: when segmentation is enabled the
+// loop-filter level for a macroblock is `clamp(base_level +
+// FeatureData[MB_LVL_ALT_LF][seg], 0, 63)` (delta) or `clamp(value,
+// 0, 63)` (abs). Disabled feature slots are emitted as zero so the
+// decoder's matching translation in
+// vp8/decoder/loopfilter.go:loopFilterFrameConfig sees a no-op delta.
+func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.SegmentationHeader {
+	header := vp8dec.SegmentationHeader{
+		Enabled:    cfg.Enabled,
+		UpdateMap:  cfg.UpdateMap,
+		UpdateData: cfg.UpdateData,
+		AbsDelta:   cfg.AbsDelta,
+		TreeProbs:  cfg.TreeProbs,
+	}
+	if !cfg.Enabled {
+		return header
+	}
+	for feature := 0; feature < int(vp8common.MBLvlMax); feature++ {
+		for segment := 0; segment < vp8common.MaxMBSegments; segment++ {
+			if cfg.FeatureEnabled[feature][segment] {
+				header.FeatureData[feature][segment] = cfg.FeatureData[feature][segment]
+			}
+		}
+	}
+	return header
+}
 
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e == nil {
