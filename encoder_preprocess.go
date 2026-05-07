@@ -305,16 +305,20 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 // frames pick filter_weight in {2,1,0} based on the 16x16 SAD threshold pair
 // THRESH_LOW=10000 / THRESH_HIGH=20000.
 //
+// The full-pixel motion search uses libvpx's hex search (vp8_hex_search) with
+// the prior frame's per-MB MV as the seed; the first reference frame in the
+// window seeds at (0,0). Subpel refinement walks libvpx's 1/2-, 1/4- and
+// 1/8-pel diamond around the integer-pel MV using 16x16 sixtap-filtered SAD
+// and adopts the lowest-SAD position. The synthesized predictor uses the
+// 6-tap sixtap filter on luma and chroma (chroma's MV is the halved subpel
+// MV per libvpx's `mv_offset = (1<<3 - 1) & mvR/mvC` dispatch).
+//
 // Simplification (vs. libvpx vp8_temporal_filter_iterate_c):
-//   - The full-pixel motion search now uses libvpx's hex search
-//     (vp8_hex_search) with the prior frame's per-MB MV as the seed; the
-//     first reference frame in the window seeds at (0,0). Subpixel
-//     refinement (vp8_temporal_filter_predictors_mb_c's 6-tap subpixel
-//     predict) is still skipped; chroma reuses the integer luma MV halved
-//     per libvpx, matching the integer-pel branch of that helper.
 //   - The center frame is read from the input SourceImage's visible region;
 //     accordingly the search position is clamped so the predictor 16x16
-//     stays inside the visible area of every reference frame.
+//     stays inside the visible area of every reference frame, and out-of-
+//     visible taps fall back to gatherBlock's edge-replication rather than
+//     libvpx's mirrored 16-pixel source-border extension.
 //
 // Everything else (per-pixel weighting, accumulator/count normalization with
 // (acc + count/2)/count, separate luma/chroma blocks, and the 384-element
@@ -515,7 +519,11 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		// 16x16 luma SAD against fixed thresholds, matching
 		// vp8_temporal_filter_iterate_c's THRESH_LOW/THRESH_HIGH.
 		var filterWeight int
-		var mvX, mvY int
+		// Subpel MV components in 1/8-pel units. libvpx's
+		// vp8_temporal_filter_predictors_mb_c expects mv_row/mv_col
+		// scaled by 8 (so the integer-pel components are mvSubY>>3).
+		var mvSubX, mvSubY int
+		var fullX, fullY int
 		if fi == centerIdx {
 			filterWeight = 2
 		} else {
@@ -531,39 +539,53 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 			if fi > 0 {
 				seed = mvHistory[(fi-1)*mbRows*mbCols+mbHistory]
 			}
-			err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
-			mvX, mvY = sx, sy
+			_, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
+			fullX, fullY = sx, sy
+			// Subpixel refinement around the full-pel MV using the
+			// 6-tap sixtap predictor and 16x16 SAD; mirrors
+			// libvpx's find_fractional_mv_step diamond walk over
+			// 1/2-, 1/4- and 1/8-pel offsets. The returned MV is
+			// in 1/8-pel units; the final 16x16 SAD on the chosen
+			// subpel position drives the THRESH_LOW/THRESH_HIGH
+			// classification (matching vp8_hex_search returning
+			// the subpel SAD via find_fractional_mv_step).
+			subErr, sx8, sy8 := arnrSubpelRefine(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, fullX, fullY)
+			mvSubX, mvSubY = sx8, sy8
 			switch {
-			case err < arnrThreshLow:
+			case subErr < arnrThreshLow:
 				filterWeight = 2
-			case err < arnrThreshHigh:
+			case subErr < arnrThreshHigh:
 				filterWeight = 1
 			default:
 				filterWeight = 0
 			}
 		}
-		// Persist the search outcome so the next reference's search at
-		// this MB can seed from it. Center frames carry their (0,0)
-		// implicit MV forward.
-		mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: mvX, y: mvY}
+		// Persist the integer-pel search outcome so the next reference's
+		// search at this MB can seed from it. Center frames carry their
+		// (0,0) implicit MV forward. Storing the full-pel MV (rather
+		// than the subpel-refined MV) keeps the seed legal for the next
+		// hex search, which itself works in integer-pel units before
+		// subpel refinement runs.
+		mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: fullX, y: fullY}
 		if filterWeight == 0 {
 			continue
 		}
 
 		var predY [256]byte
-		gatherBlock(predY[:], 16, ref.y, ref.yStride, mbX+mvX, mbY+mvY, ref.width, ref.height, 16)
+		arnrPredictLuma16x16(predY[:], 16, ref, mbX, mbY, mvSubX, mvSubY)
 		applyTemporalFilter(srcY[:], 16, predY[:], 16, strength, filterWeight, accumulator[:256], count[:256])
 
 		if doChroma {
-			// Chroma uses the half-resolution colocated MV (libvpx
-			// halves mv_row/mv_col before feeding chroma predictors).
-			mvUVX := mvX >> 1
-			mvUVY := mvY >> 1
-			refUVW := (ref.width + 1) >> 1
-			refUVH := (ref.height + 1) >> 1
+			// Chroma uses the half-resolution colocated subpel MV.
+			// libvpx's vp8_temporal_filter_predictors_mb_c does
+			// `mv_row >>= 1; mv_col >>= 1;` on the 1/8-pel MV
+			// then dispatches subpixel_predict8x8 with
+			// (mv_col & 7, mv_row & 7).
+			mvSubUVX := mvSubX >> 1
+			mvSubUVY := mvSubY >> 1
 			var predU, predV [64]byte
-			gatherBlock(predU[:], 8, ref.u, ref.uStride, mbUVX+mvUVX, mbUVY+mvUVY, refUVW, refUVH, 8)
-			gatherBlock(predV[:], 8, ref.v, ref.vStride, mbUVX+mvUVX, mbUVY+mvUVY, refUVW, refUVH, 8)
+			arnrPredictChroma8x8(predU[:], 8, ref.u, ref.uStride, (ref.width+1)>>1, (ref.height+1)>>1, mbUVX, mbUVY, mvSubUVX, mvSubUVY)
+			arnrPredictChroma8x8(predV[:], 8, ref.v, ref.vStride, (ref.width+1)>>1, (ref.height+1)>>1, mbUVX, mbUVY, mvSubUVX, mvSubUVY)
 			applyTemporalFilter(srcU[:], 8, predU[:], 8, strength, filterWeight, accumulator[256:320], count[256:320])
 			applyTemporalFilter(srcV[:], 8, predV[:], 8, strength, filterWeight, accumulator[320:384], count[320:384])
 		}
@@ -791,6 +813,172 @@ func arnrSADAt(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, mvX, mvY 
 	var pred [256]byte
 	gatherBlock(pred[:], 16, ref.y, ref.yStride, x, y, ref.width, ref.height, 16)
 	return dsp.SAD16x16(src, srcStride, pred[:], 16)
+}
+
+// arnrSubpelRange constrains the subpel search to the same legal MV window
+// the hex search obeys. Each component is in 1/8-pel units.
+const arnrSubpelMaxStep = 8 // = 1 full pel
+
+// arnrSubpelRefine implements libvpx's find_fractional_mv_step diamond walk
+// for the temporal filter. Inputs are the full-pel MV (fullX, fullY) chosen
+// by the hex search; the output is the refined MV in 1/8-pel units along
+// with the 16x16 SAD at that subpel position. The walk visits the four
+// neighboring subpel offsets (left/right/up/down) at successively finer
+// granularities (1/2 -> 1/4 -> 1/8 pel) and adopts the lowest-SAD position;
+// libvpx also tests one diagonal per iteration which we mirror.
+func arnrSubpelRefine(src []byte, srcStride int, ref arnrFrameView, mbRow, mbCol, mbRows, mbCols int, mbX, mbY, fullX, fullY int) (int, int, int) {
+	// Subpel MV bounds (1/8-pel units). The integer-pel search has
+	// already clamped to libvpx's mv_row_min/mv_col_min derivation; the
+	// subpel walk stays within ±1 full pel of that integer position so
+	// the sixtap predictor's 6-tap reach (5 pixels overhang) lines up
+	// with the same pixel envelope the hex search reached.
+	mvColMinPel := -(mbCol*16 + (16 - 5))
+	mvColMaxPel := (mbCols-1-mbCol)*16 + (16 - 5)
+	mvRowMinPel := -(mbRow*16 + (16 - 5))
+	mvRowMaxPel := (mbRows-1-mbRow)*16 + (16 - 5)
+	minCol := mvColMinPel << 3
+	maxCol := mvColMaxPel << 3
+	minRow := mvRowMinPel << 3
+	maxRow := mvRowMaxPel << 3
+
+	bestRow := fullY << 3
+	bestCol := fullX << 3
+	bestSAD := arnrSADAtSubpel(src, srcStride, ref, mbX, mbY, bestCol, bestRow)
+
+	// libvpx does up to 4 half-pel iters then up to 4 quarter-pel iters
+	// in find_fractional_mv_step_iteratively. We extend the same pattern
+	// down to 1/8 pel because govpx's MV grid is 1/8 (libvpx's vp8 final
+	// MV is also 1/8-pel after multiplying the *4 subpel result by 2).
+	steps := [3]int{4, 2, 1} // 1/2-, 1/4-, 1/8-pel deltas in 1/8-pel units
+	for _, step := range steps {
+		iters := 4
+		for it := 0; it < iters; it++ {
+			startRow := bestRow
+			startCol := bestCol
+			// Test the 4 axis-aligned neighbors.
+			leftSAD := arnrSubpelProbe(src, srcStride, ref, mbX, mbY, startRow, startCol-step, minRow, maxRow, minCol, maxCol)
+			rightSAD := arnrSubpelProbe(src, srcStride, ref, mbX, mbY, startRow, startCol+step, minRow, maxRow, minCol, maxCol)
+			upSAD := arnrSubpelProbe(src, srcStride, ref, mbX, mbY, startRow-step, startCol, minRow, maxRow, minCol, maxCol)
+			downSAD := arnrSubpelProbe(src, srcStride, ref, mbX, mbY, startRow+step, startCol, minRow, maxRow, minCol, maxCol)
+			if leftSAD < bestSAD {
+				bestSAD = leftSAD
+				bestRow = startRow
+				bestCol = startCol - step
+			}
+			if rightSAD < bestSAD {
+				bestSAD = rightSAD
+				bestRow = startRow
+				bestCol = startCol + step
+			}
+			if upSAD < bestSAD {
+				bestSAD = upSAD
+				bestRow = startRow - step
+				bestCol = startCol
+			}
+			if downSAD < bestSAD {
+				bestSAD = downSAD
+				bestRow = startRow + step
+				bestCol = startCol
+			}
+			// One diagonal probe in the direction of the better
+			// horizontal+vertical neighbors, mirroring libvpx's
+			// `whichdir` switch.
+			dr := -step
+			dc := -step
+			if downSAD < upSAD {
+				dr = step
+			}
+			if rightSAD < leftSAD {
+				dc = step
+			}
+			diagSAD := arnrSubpelProbe(src, srcStride, ref, mbX, mbY, startRow+dr, startCol+dc, minRow, maxRow, minCol, maxCol)
+			if diagSAD < bestSAD {
+				bestSAD = diagSAD
+				bestRow = startRow + dr
+				bestCol = startCol + dc
+			}
+			if bestRow == startRow && bestCol == startCol {
+				break
+			}
+		}
+	}
+
+	return bestSAD, bestCol, bestRow
+}
+
+// arnrSubpelProbe checks bounds and returns INT_MAX-equivalent on out-of-
+// range so the caller's < bestSAD compare always rejects illegal positions.
+func arnrSubpelProbe(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, row, col, minRow, maxRow, minCol, maxCol int) int {
+	if row < minRow || row > maxRow || col < minCol || col > maxCol {
+		const big = 1<<30 - 1
+		return big
+	}
+	return arnrSADAtSubpel(src, srcStride, ref, mbX, mbY, col, row)
+}
+
+// arnrSADAtSubpel computes the 16x16 SAD between the source block (in a
+// contiguous 16-stride scratch) and a sixtap-filtered predictor at
+// (mbX + col/8 + col%8 fractional, mbY + row/8 + row%8 fractional). When
+// the subpel offset is zero this collapses to the integer-pel SAD path.
+func arnrSADAtSubpel(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, col, row int) int {
+	if (row|col)&7 == 0 {
+		return arnrSADAt(src, srcStride, ref, mbX, mbY, col>>3, row>>3)
+	}
+	var pred [256]byte
+	arnrSubpelLuma16x16(pred[:], 16, ref, mbX, mbY, col, row)
+	return dsp.SAD16x16(src, srcStride, pred[:], 16)
+}
+
+// arnrSubpelLuma16x16 fills a 16x16 predictor block with the sixtap-
+// filtered luma reference at integer position (mbX + col>>3, mbY + row>>3)
+// plus the (col&7, row&7) 1/8-pel fractional offset. Out-of-visible reads
+// are routed through gatherBlock so the predictor stays defined when the
+// MV pushes the 6-tap filter footprint past the visible edge.
+func arnrSubpelLuma16x16(dst []byte, dstStride int, ref arnrFrameView, mbX, mbY, col, row int) {
+	intCol := col >> 3
+	intRow := row >> 3
+	fracCol := col & 7
+	fracRow := row & 7
+	// 6-tap reads 2 pixels before and 3 pixels after the prediction
+	// origin in each axis. Gather a (16+5)x(16+5)=21x21 region whose
+	// origin sits 2 pixels above/left of the integer prediction origin
+	// so SixTapPredict16x16 sees a contiguous 21-stride neighborhood.
+	const pad = 2
+	const gathered = 16 + 5 // 21
+	var scratch [gathered * gathered]byte
+	gatherBlock(scratch[:], gathered, ref.y, ref.yStride, mbX+intCol-pad, mbY+intRow-pad, ref.width, ref.height, gathered)
+	dsp.SixTapPredict16x16(scratch[:], gathered, fracCol, fracRow, dst, dstStride)
+}
+
+// arnrPredictLuma16x16 synthesizes the 16x16 luma predictor at the given
+// 1/8-pel MV. When the MV is integer-aligned this is gatherBlock; otherwise
+// the sixtap filter runs on a clamped 21x21 neighborhood.
+func arnrPredictLuma16x16(dst []byte, dstStride int, ref arnrFrameView, mbX, mbY, mvSubX, mvSubY int) {
+	if (mvSubX|mvSubY)&7 == 0 {
+		gatherBlock(dst, dstStride, ref.y, ref.yStride, mbX+(mvSubX>>3), mbY+(mvSubY>>3), ref.width, ref.height, 16)
+		return
+	}
+	arnrSubpelLuma16x16(dst, dstStride, ref, mbX, mbY, mvSubX, mvSubY)
+}
+
+// arnrPredictChroma8x8 synthesizes an 8x8 chroma predictor at the chroma
+// 1/8-pel MV. libvpx halves the luma MV before dispatching the chroma
+// subpel predictor (vp8_temporal_filter_predictors_mb_c does
+// `mv_row >>= 1; mv_col >>= 1`); callers pass the already-halved MV.
+func arnrPredictChroma8x8(dst []byte, dstStride int, plane []byte, planeStride int, planeW, planeH int, mbUVX, mbUVY, mvSubX, mvSubY int) {
+	intCol := mvSubX >> 3
+	intRow := mvSubY >> 3
+	fracCol := mvSubX & 7
+	fracRow := mvSubY & 7
+	if (fracCol | fracRow) == 0 {
+		gatherBlock(dst, dstStride, plane, planeStride, mbUVX+intCol, mbUVY+intRow, planeW, planeH, 8)
+		return
+	}
+	const pad = 2
+	const gathered = 8 + 5 // 13
+	var scratch [gathered * gathered]byte
+	gatherBlock(scratch[:], gathered, plane, planeStride, mbUVX+intCol-pad, mbUVY+intRow-pad, planeW, planeH, gathered)
+	dsp.SixTapPredict8x8(scratch[:], gathered, fracCol, fracRow, dst, dstStride)
 }
 
 // applyTemporalFilter is a direct port of libvpx's
