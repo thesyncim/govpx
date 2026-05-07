@@ -64,6 +64,30 @@ func TestWriteKeyFrameStateHeaderParsesSegmentation(t *testing.T) {
 	assertParsedSegmentation(t, state.Segmentation)
 }
 
+func TestWriteKeyFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
+	cfg := KeyFrameStateConfig{
+		LoopFilterLevel: 17,
+		LFDeltaEnabled:  true,
+		LFDeltaUpdate:   true,
+		RefLFDeltas:     [common.MaxRefLFDeltas]int8{2, 0, -2, -2},
+		ModeLFDeltas:    [common.MaxModeLFDeltas]int8{4, -12, 2, 4},
+		TokenPartition:  common.OnePartition,
+		BaseQIndex:      20,
+	}
+	packet := keyFrameStatePacket(t, cfg)
+
+	_, state, err := vp8dec.ParseStateHeader(packet, vp8dec.QuantHeader{})
+	if err != nil {
+		t.Fatalf("ParseStateHeader returned error: %v", err)
+	}
+	if !state.LoopFilter.DeltaEnabled || !state.LoopFilter.DeltaUpdate {
+		t.Fatalf("loop filter delta flags = enabled:%t update:%t, want enabled update", state.LoopFilter.DeltaEnabled, state.LoopFilter.DeltaUpdate)
+	}
+	if state.LoopFilter.RefDeltas != cfg.RefLFDeltas || state.LoopFilter.ModeDeltas != cfg.ModeLFDeltas {
+		t.Fatalf("loop filter deltas = %v/%v, want %v/%v", state.LoopFilter.RefDeltas, state.LoopFilter.ModeDeltas, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	}
+}
+
 func TestWriteKeyFrameStateHeaderRejectsInvalidConfig(t *testing.T) {
 	var w BoolWriter
 	w.Init(make([]byte, 512))

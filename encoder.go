@@ -572,7 +572,8 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return 0, 0, err
 	}
-	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
+	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
+	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, rows, cols, required); err != nil {
 		return 0, 0, err
 	}
 	if segmentation.Enabled {
@@ -585,6 +586,10 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		BaseQIndex:          uint8(e.rc.currentQuantizer),
 		LoopFilterLevel:     lfLevel,
 		SharpnessLevel:      lfSharpness,
+		LFDeltaEnabled:      lfHeader.DeltaEnabled,
+		LFDeltaUpdate:       lfHeader.DeltaUpdate,
+		RefLFDeltas:         lfHeader.RefDeltas,
+		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
 		RefreshEntropyProbs: !e.opts.ErrorResilient,
 	}
@@ -674,7 +679,12 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
-	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
+	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
+	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled
+	cfg.LFDeltaUpdate = lfHeader.DeltaUpdate
+	cfg.RefLFDeltas = lfHeader.RefDeltas
+	cfg.ModeLFDeltas = lfHeader.ModeDeltas
+	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, rows, cols, required); err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
@@ -1409,6 +1419,28 @@ func (e *VP8Encoder) encoderLoopFilter(frameType vp8common.FrameType) (uint8, ui
 	return uint8(level), uint8(sharpness)
 }
 
+func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8dec.LoopFilterHeader {
+	header := vp8dec.LoopFilterHeader{
+		Level:          level,
+		SharpnessLevel: sharpness,
+	}
+	if level == 0 {
+		return header
+	}
+	header.DeltaEnabled = true
+	header.DeltaUpdate = true
+	header.RefDeltas = [vp8common.MaxRefLFDeltas]int8{2, 0, -2, -2}
+	header.ModeDeltas = [vp8common.MaxModeLFDeltas]int8{4, e.encoderLoopFilterInterModeDelta(), 2, 4}
+	return header
+}
+
+func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
+	if e != nil && e.opts.Deadline == DeadlineRealtime {
+		return -12
+	}
+	return -2
+}
+
 func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
 	if len(e.reconstructModes) < required {
 		return 0, ErrInvalidConfig
@@ -1562,7 +1594,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool) (int, error) {
 	copyFrameImage(&e.loopFilterPick.Img, &e.analysis.Img)
 	if level > 0 {
-		header := vp8dec.LoopFilterHeader{Level: uint8(level), SharpnessLevel: sharpness}
+		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
 		if err := vp8dec.ApplyLoopFilter(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
 			return 0, ErrInvalidConfig
 		}
@@ -1675,14 +1707,13 @@ func libvpxInitialLoopFilterLevel(qIndex int) int {
 	return level
 }
 
-func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, level uint8, sharpness uint8, rows int, cols int, required int) error {
-	if level == 0 {
+func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, rows int, cols int, required int) error {
+	if header.Level == 0 {
 		return nil
 	}
 	if len(e.reconstructModes) < required {
 		return ErrInvalidConfig
 	}
-	header := vp8dec.LoopFilterHeader{Level: level, SharpnessLevel: sharpness}
 	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
 		return ErrInvalidConfig
 	}

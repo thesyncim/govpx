@@ -1832,6 +1832,38 @@ func TestEncoderLoopFilterUsesPreviousInterLevelWithLibvpxClamp(t *testing.T) {
 	}
 }
 
+func TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities(t *testing.T) {
+	tests := []struct {
+		name      string
+		deadline  Deadline
+		wantModes [vp8common.MaxModeLFDeltas]int8
+	}{
+		{name: "best quality", deadline: DeadlineBestQuality, wantModes: [vp8common.MaxModeLFDeltas]int8{4, -2, 2, 4}},
+		{name: "good quality", deadline: DeadlineGoodQuality, wantModes: [vp8common.MaxModeLFDeltas]int8{4, -2, 2, 4}},
+		{name: "realtime", deadline: DeadlineRealtime, wantModes: [vp8common.MaxModeLFDeltas]int8{4, -12, 2, 4}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline}}
+			header := e.encoderLoopFilterHeader(17, 3)
+			if !header.DeltaEnabled || !header.DeltaUpdate {
+				t.Fatalf("delta flags = enabled:%t update:%t, want enabled update", header.DeltaEnabled, header.DeltaUpdate)
+			}
+			if wantRefs := ([vp8common.MaxRefLFDeltas]int8{2, 0, -2, -2}); header.RefDeltas != wantRefs {
+				t.Fatalf("ref deltas = %v, want %v", header.RefDeltas, wantRefs)
+			}
+			if header.ModeDeltas != tt.wantModes {
+				t.Fatalf("mode deltas = %v, want %v", header.ModeDeltas, tt.wantModes)
+			}
+		})
+	}
+
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime}}
+	if header := e.encoderLoopFilterHeader(0, 3); header.DeltaEnabled || header.DeltaUpdate {
+		t.Fatalf("zero-level delta flags = enabled:%t update:%t, want disabled", header.DeltaEnabled, header.DeltaUpdate)
+	}
+}
+
 func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2268,6 +2300,9 @@ func TestEncodeIntoInterFramePrefersCodedInterResidualOverBPredIntra(t *testing.
 
 func TestEncodeIntoInterFrameCodesLargeUniformResidual(t *testing.T) {
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 0, 90, 170)
@@ -2967,6 +3002,9 @@ func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {
 
 func TestEncodeIntoNoReferenceLastCanUseGoldenReference(t *testing.T) {
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
@@ -3003,6 +3041,9 @@ func TestEncodeIntoNoReferenceLastCanUseGoldenReference(t *testing.T) {
 
 func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	src := testImage(16, 16)
 	fillImage(src, 220, 90, 170)
 	keyPacket := make([]byte, 4096)

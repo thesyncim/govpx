@@ -139,6 +139,51 @@ func TestInterAnalysisRDModeDecisionMirrorsLibvpxSpeedFeature(t *testing.T) {
 	}
 }
 
+func TestLibvpxFastInterModeLoopTablesMirrorPickInter(t *testing.T) {
+	wantModes := [...]vp8common.MBPredictionMode{
+		vp8common.ZeroMV, vp8common.DCPred,
+		vp8common.NearestMV, vp8common.NearMV,
+		vp8common.ZeroMV, vp8common.NearestMV,
+		vp8common.ZeroMV, vp8common.NearestMV,
+		vp8common.NearMV, vp8common.NearMV,
+		vp8common.VPred, vp8common.HPred, vp8common.TMPred,
+		vp8common.NewMV, vp8common.NewMV, vp8common.NewMV,
+		vp8common.SplitMV, vp8common.SplitMV, vp8common.SplitMV,
+		vp8common.BPred,
+	}
+	wantRefs := [...]int{
+		1, 0,
+		1, 1,
+		2, 2,
+		3, 3,
+		2, 3,
+		0, 0, 0,
+		1, 2, 3,
+		1, 2, 3,
+		0,
+	}
+	if libvpxFastInterModeOrder != wantModes {
+		t.Fatalf("mode order = %v, want %v", libvpxFastInterModeOrder, wantModes)
+	}
+	if libvpxFastRefFrameOrder != wantRefs {
+		t.Fatalf("ref order = %v, want %v", libvpxFastRefFrameOrder, wantRefs)
+	}
+}
+
+func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
+		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
+	}
+	ref, refIndex, ok := libvpxFastInterReferenceAt(refs[:], 2, 2)
+	if !ok || refIndex != 1 || ref.Frame != vp8common.GoldenFrame {
+		t.Fatalf("slot 2 = %+v index=%d ok=%t, want GOLDEN index 1", ref, refIndex, ok)
+	}
+	if _, _, ok := libvpxFastInterReferenceAt(refs[:], 2, 3); ok {
+		t.Fatalf("slot 3 ok=true, want disabled ALTREF slot to be skipped")
+	}
+}
+
 func TestInterAnalysisNoSkipBlock4x4SearchMirrorsLibvpxSpeedFeature(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -980,6 +1025,91 @@ func TestEstimateFastInterModeScoreUsesLibvpxPickInterDistortion(t *testing.T) {
 	}
 }
 
+func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T) {
+	e := &VP8Encoder{
+		opts:          EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		refProbIntra:  63,
+		refProbLast:   128,
+		refProbGolden: 128,
+		probSkipFalse: 128,
+	}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	if err := e.analysis.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("analysis resize returned error: %v", err)
+	}
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	last := testVP8Frame(t, 16, 16, 0, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((row*29 + col*53) & 255)
+		}
+	}
+	last.ExtendBorders()
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil)
+
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if !decision.useIntra || decision.intraMode.Mode != vp8common.DCPred || decision.intraMode.RefFrame != vp8common.IntraFrame {
+		t.Fatalf("decision = %+v, want intra DC from libvpx interleaved mode loop", decision)
+	}
+}
+
+func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) {
+	e := &VP8Encoder{
+		opts:          EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		refProbIntra:  63,
+		refProbLast:   128,
+		refProbGolden: 128,
+		probSkipFalse: 128,
+	}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	if err := e.analysis.Resize(16, 16, 32, 32); err != nil {
+		t.Fatalf("analysis resize returned error: %v", err)
+	}
+	fillBenchmarkVP8Image(&e.analysis.Img, 127, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 127, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte((17 + row*43 + col*71 + row*col*11) & 255)
+		}
+	}
+	last := testVP8Frame(t, 16, 16, 0, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((231 - row*17 - col*31) & 255)
+		}
+	}
+	last.ExtendBorders()
+	golden := testVP8Frame(t, 16, 16, 0, 90, 170)
+	for row := 0; row < 16; row++ {
+		copy(golden.Img.Y[row*golden.Img.YStride:], src.Y[row*src.YStride:row*src.YStride+16])
+	}
+	golden.ExtendBorders()
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &last.Img},
+		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
+	}
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil)
+
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if decision.useIntra || decision.ref.Frame != vp8common.GoldenFrame || decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("decision = %+v, want GOLDEN/ZEROMV from libvpx slot-2 loop entry", decision)
+	}
+}
+
 func TestFastZeroMVLastRDAdjustmentMirrorsLibvpxLocalMotionBias(t *testing.T) {
 	zero := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
 	moving := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
@@ -1120,6 +1250,9 @@ func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *te
 	src.Y[0] = 208
 
 	noBreakout := newSizedTestEncoder(t, 16, 16)
+	if err := noBreakout.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	fillBenchmarkVP8Image(&noBreakout.lastRef.Img, 128, 90, 170)
 	noBreakout.lastRef.ExtendBorders()
 	noBreakoutModes := make([]vp8enc.InterFrameMacroblockMode, 1)
@@ -1132,6 +1265,9 @@ func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *te
 	}
 
 	breakout := newSizedTestEncoder(t, 16, 16)
+	if err := breakout.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	breakout.opts.StaticThreshold = 7000
 	fillBenchmarkVP8Image(&breakout.lastRef.Img, 128, 90, 170)
 	breakout.lastRef.ExtendBorders()
@@ -1428,6 +1564,9 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegme
 
 func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSegmentForNonLastZero(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	src := testImage(16, 16)
 	fillImage(src, 40, 90, 170)
 	golden := testVP8Frame(t, 16, 16, 40, 90, 170)

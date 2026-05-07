@@ -16,6 +16,10 @@ type KeyFrameStateConfig struct {
 	SimpleLoopFilter bool
 	LoopFilterLevel  uint8
 	SharpnessLevel   uint8
+	LFDeltaEnabled   bool
+	LFDeltaUpdate    bool
+	RefLFDeltas      [common.MaxRefLFDeltas]int8
+	ModeLFDeltas     [common.MaxModeLFDeltas]int8
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
@@ -45,7 +49,7 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 	}
 	w.WriteLiteral(uint32(cfg.LoopFilterLevel), 6)
 	w.WriteLiteral(uint32(cfg.SharpnessLevel), 3)
-	w.WriteBit(0)
+	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.RefLFDeltas, cfg.ModeLFDeltas)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
 	for i := 0; i < 5; i++ {
@@ -71,6 +75,43 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 		return w.Err()
 	}
 	return nil
+}
+
+func writeLoopFilterDeltas(w *BoolWriter, enabled bool, update bool, refDeltas [common.MaxRefLFDeltas]int8, modeDeltas [common.MaxModeLFDeltas]int8) {
+	if !enabled {
+		w.WriteBit(0)
+		return
+	}
+	w.WriteBit(1)
+	if !update {
+		w.WriteBit(0)
+		return
+	}
+	w.WriteBit(1)
+	for _, delta := range refDeltas {
+		writeLoopFilterDelta(w, delta)
+	}
+	for _, delta := range modeDeltas {
+		writeLoopFilterDelta(w, delta)
+	}
+}
+
+func writeLoopFilterDelta(w *BoolWriter, delta int8) {
+	if delta == 0 {
+		w.WriteBit(0)
+		return
+	}
+	w.WriteBit(1)
+	value := delta
+	if value < 0 {
+		value = -value
+	}
+	w.WriteLiteral(uint32(value)&0x3f, 6)
+	if delta < 0 {
+		w.WriteBit(1)
+	} else {
+		w.WriteBit(0)
+	}
 }
 
 func WriteNoCoefficientProbabilityUpdates(w *BoolWriter) {

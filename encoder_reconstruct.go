@@ -37,6 +37,30 @@ var bPredIntraModeCandidates = [...]vp8common.BPredictionMode{
 	vp8common.BHUPred,
 }
 
+var libvpxFastInterModeOrder = [...]vp8common.MBPredictionMode{
+	vp8common.ZeroMV, vp8common.DCPred,
+	vp8common.NearestMV, vp8common.NearMV,
+	vp8common.ZeroMV, vp8common.NearestMV,
+	vp8common.ZeroMV, vp8common.NearestMV,
+	vp8common.NearMV, vp8common.NearMV,
+	vp8common.VPred, vp8common.HPred, vp8common.TMPred,
+	vp8common.NewMV, vp8common.NewMV, vp8common.NewMV,
+	vp8common.SplitMV, vp8common.SplitMV, vp8common.SplitMV,
+	vp8common.BPred,
+}
+
+var libvpxFastRefFrameOrder = [...]int{
+	1, 0,
+	1, 1,
+	2, 2,
+	3, 3,
+	2, 3,
+	0, 0, 0,
+	1, 2, 3,
+	1, 2, 3,
+	0,
+}
+
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceImage, qIndex int, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) error {
 	return e.buildReconstructingKeyFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols)
 }
@@ -186,7 +210,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
-					if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, &coeffs[index], &e.reconstructScratch) {
 						return ErrInvalidConfig
 					}
 				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -208,7 +232,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
-				buildPredictedMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &aboveTok[col], &leftTok, quant, segmentQIndex, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
+				buildPredictedMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &aboveTok[col], &leftTok, quant, segmentQIndex, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, &coeffs[index])
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
 			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
@@ -229,7 +253,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if !modes[index].MBSkipCoeff {
 					codedDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
 					tokenRate := macroblockCoefficientTokenRateWithContext(&e.coefProbs, is4x4, &aboveTok[col], &leftTok, &coeffs[index])
-					if e.shouldSkipInterResidual(segmentQIndex, tokenRate, predictionDist, codedDist) {
+					if e.interAnalysisUsesRDModeDecision() && e.shouldSkipInterResidual(segmentQIndex, tokenRate, predictionDist, codedDist) {
 						clearMacroblockCoefficients(&coeffs[index])
 						modes[index].MBSkipCoeff = true
 						convertInterFrameMode(&modes[index], &e.reconstructModes[index])
@@ -537,6 +561,14 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	quant *vp8enc.MacroblockQuant,
 ) (interFrameModeDecision, bool) {
 	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
+	if !e.interAnalysisUsesRDModeDecision() {
+		return e.selectFastInterFrameModeDecision(
+			src, refs, refCount,
+			mbRow, mbCol, mbRows, mbCols,
+			segmentQIndex, segmentID,
+			above, left, aboveLeft,
+		)
+	}
 	ref, interMode, interScore, ok := e.selectBestInterFrameMode(
 		src, refs, refCount,
 		mbRow, mbCol, mbRows, mbCols,
@@ -564,6 +596,206 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	decision.intraMode = intraMode
 	decision.useIntra = intraCost < interScore
 	return decision, true
+}
+
+func (e *VP8Encoder) selectFastInterFrameModeDecision(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	qIndex int, segmentID uint8,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+) (interFrameModeDecision, bool) {
+	bestSet := false
+	bestScore := maxInt()
+	bestSSE := maxInt()
+	best := interFrameModeDecision{}
+	var newMVCandidates [3]struct {
+		searched bool
+		ok       bool
+		mv       vp8enc.MotionVector
+	}
+
+	for modeIndex, mbMode := range libvpxFastInterModeOrder {
+		refSlot := libvpxFastRefFrameOrder[modeIndex]
+		if refSlot == 0 {
+			mode, score, sse, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE)
+			if !ok {
+				continue
+			}
+			mode.SegmentID = segmentID
+			if !bestSet || score < bestScore {
+				bestSet = true
+				bestScore = score
+				bestSSE = sse
+				best = interFrameModeDecision{useIntra: true, intraMode: mode}
+			}
+			continue
+		}
+
+		ref, refIndex, ok := libvpxFastInterReferenceAt(refs, refCount, refSlot)
+		if !ok {
+			continue
+		}
+		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
+		if !ok {
+			continue
+		}
+		mode.SegmentID = segmentID
+		score, ok := e.estimateFastInterModeScore(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex)
+		if !ok {
+			continue
+		}
+		if !bestSet || score < bestScore {
+			bestSet = true
+			bestScore = score
+			_, bestSSE = macroblockLumaMotionVarianceSSE(src, ref.Img, mbRow, mbCol, mode.MV)
+			best = interFrameModeDecision{ref: ref, interMode: mode}
+		}
+	}
+	if !bestSet {
+		return interFrameModeDecision{}, false
+	}
+	if best.useIntra {
+		uvMode, ok := e.predictFastIntraChromaMode(src, mbRow, mbCol)
+		if !ok {
+			return interFrameModeDecision{}, false
+		}
+		best.intraMode.UVMode = uvMode
+	}
+	if !best.useIntra {
+		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
+	}
+	return best, true
+}
+
+func libvpxFastInterReferenceAt(refs []interAnalysisReference, refCount int, refSlot int) (interAnalysisReference, int, bool) {
+	refIndex := refSlot - 1
+	if refIndex < 0 || refIndex >= refCount || refIndex >= len(refs) || refs[refIndex].Img == nil {
+		return interAnalysisReference{}, 0, false
+	}
+	return refs[refIndex], refIndex, true
+}
+
+func (e *VP8Encoder) fastInterModeForLoopEntry(
+	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, refSlot int, mbMode vp8common.MBPredictionMode,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	newMVCandidates *[3]struct {
+		searched bool
+		ok       bool
+		mv       vp8enc.MotionVector
+	},
+) (vp8enc.InterFrameMacroblockMode, bool) {
+	switch mbMode {
+	case vp8common.ZeroMV:
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
+	case vp8common.NearestMV, vp8common.NearMV:
+		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		mv := nearest
+		if mbMode == vp8common.NearMV {
+			mv = near
+		}
+		if mv.IsZero() {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
+	case vp8common.NewMV:
+		if refIndex < 0 || refIndex >= len(newMVCandidates) {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		candidate := &newMVCandidates[refIndex]
+		if !candidate.searched {
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+			mv, _ := selectInterFrameMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, e.interAnalysisSearchConfig(), &e.modeProbs.MV)
+			candidate.searched = true
+			candidate.ok = !mv.IsZero()
+			candidate.mv = mv
+		}
+		if !candidate.ok {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}, true
+	default:
+		// libvpx pickinter.c does not support SPLITMV in the non-RD picker.
+		return vp8enc.InterFrameMacroblockMode{}, false
+	}
+}
+
+func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, bool) {
+	if mbMode == vp8common.BPred {
+		return e.estimateFastBPredIntraModeScore(src, mbRow, mbCol, qIndex, bestSSE)
+	}
+	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+	}
+	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
+	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+	}
+	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
+	rate := boolBitCost(e.refProbIntra, 0) + intraYModeRate(false, mbMode)
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}, rdModeScore(qIndex, rate, variance), sse, true
+}
+
+func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, bool) {
+	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
+	var pred [16 * 16]byte
+	var modes [16]vp8common.BPredictionMode
+	rate := boolBitCost(e.refProbIntra, 0) + intraYModeRate(false, vp8common.BPred)
+	distortion := 0
+	for block := 0; block < 16; block++ {
+		bestMode := vp8common.BModeCount
+		bestRate := 0
+		bestDist := 0
+		bestCost := maxInt()
+		var bestBlock [16]byte
+		for _, bMode := range bPredIntraModeCandidates {
+			var blockPred [16]byte
+			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+				return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+			}
+			modeRate := bPredModeRate(false, bMode, vp8common.BDCPred, vp8common.BDCPred)
+			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
+			modeCost := rdModeScore(qIndex, modeRate, modeDist)
+			if modeCost < bestCost {
+				bestMode = bMode
+				bestRate = modeRate
+				bestDist = modeDist
+				bestCost = modeCost
+				copy(bestBlock[:], blockPred[:])
+			}
+		}
+		modes[block] = bestMode
+		copyBPredBlock(bestBlock[:], 4, pred[:], 16, block)
+		rate += bestRate
+		distortion += bestDist
+		if distortion > bestSSE {
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+		}
+	}
+	yOff := mbRow*16*e.analysis.Img.YStride + mbCol*16
+	for row := 0; row < 16; row++ {
+		copy(e.analysis.Img.Y[yOff+row*e.analysis.Img.YStride:], pred[row*16:row*16+16])
+	}
+	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, rdModeScore(qIndex, rate, variance), sse, true
+}
+
+func (e *VP8Encoder) predictFastIntraChromaMode(src vp8enc.SourceImage, mbRow int, mbCol int) (vp8common.MBPredictionMode, bool) {
+	bestMode := vp8common.DCPred
+	bestSet := false
+	bestDist := maxInt()
+	for _, uvMode := range wholeBlockIntraUVModeCandidates {
+		if !predictAnalysisChroma(&e.analysis.Img, mbRow, mbCol, uvMode, &e.reconstructScratch) {
+			return 0, false
+		}
+		dist := macroblockChromaSSE(src, &e.analysis.Img, mbRow, mbCol)
+		if !bestSet || dist < bestDist {
+			bestSet = true
+			bestMode = uvMode
+			bestDist = dist
+		}
+	}
+	return bestMode, bestSet
 }
 
 func (e *VP8Encoder) selectBestInterFrameMode(
@@ -595,13 +827,7 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 		candidate := candidates[candidateIndex]
 		mode := vp8enc.InterFrameMotionModeForVectorAt(candidate.Ref.Frame, candidate.MV, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		mode.SegmentID = segmentID
-		var score int
-		var ok bool
-		if e.interAnalysisUsesRDModeDecision() {
-			score, ok = e.estimateInterResidualRDScore(src, candidate.Ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID)
-		} else {
-			score, ok = e.estimateFastInterModeScore(src, candidate.Ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex)
-		}
+		score, ok := e.estimateInterResidualRDScore(src, candidate.Ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID)
 		if !ok {
 			continue
 		}
@@ -611,9 +837,6 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 			bestMode = mode
 			bestScore = score
 		}
-	}
-	if !e.interAnalysisUsesRDModeDecision() {
-		return bestRef, bestMode, bestScore, bestSet
 	}
 	for refIndex := 0; refIndex < refCount && refIndex < len(refs); refIndex++ {
 		ref := refs[refIndex]
@@ -1393,7 +1616,7 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 
 	var coeffs vp8enc.MacroblockCoefficients
 	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
-	buildPredictedMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, interZbinModeBoost(mode), is4x4, false, &coeffs)
+	buildPredictedMacroblockCoefficients(&e.coefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, interZbinModeBoost(mode), is4x4, false, &coeffs)
 	if macroblockCoefficientsEmpty(&coeffs, is4x4) {
 		return skipScore, true
 	}

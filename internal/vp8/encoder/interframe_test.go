@@ -31,6 +31,34 @@ func TestWriteInterFrameStateHeaderParsesInDecoder(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.LoopFilterLevel = 17
+	cfg.LFDeltaEnabled = true
+	cfg.LFDeltaUpdate = true
+	cfg.RefLFDeltas = [common.MaxRefLFDeltas]int8{2, 0, -2, -2}
+	cfg.ModeLFDeltas = [common.MaxModeLFDeltas]int8{4, -12, 2, 4}
+	dst := make([]byte, 512)
+	n, err := WriteZeroInterFrame(dst, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(dst[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if !state.LoopFilter.DeltaEnabled || !state.LoopFilter.DeltaUpdate {
+		t.Fatalf("loop filter delta flags = enabled:%t update:%t, want enabled update", state.LoopFilter.DeltaEnabled, state.LoopFilter.DeltaUpdate)
+	}
+	if state.LoopFilter.RefDeltas != cfg.RefLFDeltas || state.LoopFilter.ModeDeltas != cfg.ModeLFDeltas {
+		t.Fatalf("loop filter deltas = %v/%v, want %v/%v", state.LoopFilter.RefDeltas, state.LoopFilter.ModeDeltas, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	}
+}
+
 func TestAdaptInterFrameModeProbabilities(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	modes := []InterFrameMacroblockMode{

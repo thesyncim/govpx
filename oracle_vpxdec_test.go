@@ -838,6 +838,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
@@ -891,6 +894,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testi
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
@@ -1003,6 +1009,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	src := testImage(16, 16)
 	fillImage(src, 220, 90, 170)
 	keyPacket := make([]byte, 4096)
@@ -1044,6 +1053,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
@@ -1095,6 +1107,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoResidualInterFrame(t *testing.T) {
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
@@ -1291,6 +1306,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoSubpixelNewMVInterFrame(t *testing
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	fillImage(first, 0, 90, 170)
 	for row := 0; row < first.Height; row++ {
@@ -1346,6 +1364,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoLargeResidualInterFrame(t *testing
 	oracle := findChecksumOracle(t)
 
 	e := newTestEncoder(t)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
 	fillImage(first, 0, 90, 170)
