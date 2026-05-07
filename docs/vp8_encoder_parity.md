@@ -1105,13 +1105,31 @@ the anchor and look for the surrounding mismatch.
     realtime with `CpuUsed >= 14` writes the simple loop-filter type for key
     frames, normal inter frames, and zero-reference inter frames; lower
     realtime speeds and good/best quality stay on the normal loop filter.
+    ALT_LF segmentation filter-level behavior is now wired:
+    `cyclicRefreshSegmentationConfig` switches to a `MB_LVL_ALT_LF` delta of
+    -40 on the aggressive-denoise gate (mirrors libvpx onyx_if.c
+    cyclic_background_refresh `lf_adjustment = -40`), and the in-encoder
+    reconstruction loop filter
+    (`applyReconstructionLoopFilter` -> `loopFilterSegmentationHeader`) now
+    threads the encoder's `vp8enc.SegmentationConfig` into
+    `vp8dec.ApplyLoopFilter` so the encoder-side reconstruction sees the
+    same per-segment ALT_LF deltas the bitstream signals to the decoder.
+    The libvpx-side oracle trace patch in
+    `internal/coracle/build_vpxenc_oracle.sh` now emits `sharpness_level`,
+    `ref_lf_deltas[4]`, `mode_lf_deltas[4]`, `mode_ref_lf_delta_enabled`,
+    and `mode_ref_lf_delta_update` on every per-frame row, matching the
+    extended `oracleTraceFrameRow` schema in `encoder_oracle_trace.go`.
     Tests:
     `TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities`,
-    `TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed`, and
-    `TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter`.
-  - Missing: ALT_LF segmentation filter-level behavior, VP8 version 1-3
-    loop-filter behavior if that encoder surface is exposed, and libvpx-side
-    oracle trace rows for per-frame loop-filter deltas.
+    `TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed`,
+    `TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter`,
+    `TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF`,
+    `TestCyclicRefreshSegmentationFallsBackToAltQOutsideAggressiveBranch`,
+    `TestKeyFrameBitstreamCarriesAltLFDelta`,
+    `TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData`, and
+    `TestCompareOracleTracesDetectsLoopFilterDeltaDivergence`.
+  - Missing: VP8 version 1-3 loop-filter behavior if that encoder surface
+    is exposed.
   - Done when frame traces match filter type, level, sharpness, ref/mode
     deltas, segmentation interaction, and reconstructed reference checksums
     across best/good/realtime speeds.

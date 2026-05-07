@@ -472,6 +472,11 @@ type keyFrameEncodeAttempt struct {
 	FrameCoefProbs      vp8tables.CoefficientProbs
 	Size                int
 	LoopFilterLevel     uint8
+	SharpnessLevel      uint8
+	LFDeltaEnabled      bool
+	LFDeltaUpdate       bool
+	RefLFDeltas         [vp8common.MaxRefLFDeltas]int8
+	ModeLFDeltas        [vp8common.MaxModeLFDeltas]int8
 	RefreshEntropyProbs bool
 	SegmentationEnabled bool
 }
@@ -840,16 +845,21 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
 			e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size)
 			e.emitOracleFrameTrace(oracleTraceFrameSummary{
-				FrameType:      vp8common.InterFrame,
-				BaseQIndex:     int(attempt.Config.BaseQIndex),
-				LoopFilter:     int(attempt.Config.LoopFilterLevel),
-				RefreshLast:    attempt.Config.RefreshLast,
-				RefreshGolden:  attempt.Config.RefreshGolden,
-				RefreshAltRef:  attempt.Config.RefreshAltRef,
-				GoldenSignBias: attempt.Config.GoldenSignBias,
-				AltRefSignBias: attempt.Config.AltRefSignBias,
-				SegEnabled:     attempt.Config.Segmentation.Enabled,
-				SizeBytes:      attempt.Size,
+				FrameType:            vp8common.InterFrame,
+				BaseQIndex:           int(attempt.Config.BaseQIndex),
+				LoopFilter:           int(attempt.Config.LoopFilterLevel),
+				SharpnessLevel:       int(attempt.Config.SharpnessLevel),
+				RefLFDeltas:          attempt.Config.RefLFDeltas,
+				ModeLFDeltas:         attempt.Config.ModeLFDeltas,
+				ModeRefLFDeltaEnable: attempt.Config.LFDeltaEnabled,
+				ModeRefLFDeltaUpdate: attempt.Config.LFDeltaUpdate,
+				RefreshLast:          attempt.Config.RefreshLast,
+				RefreshGolden:        attempt.Config.RefreshGolden,
+				RefreshAltRef:        attempt.Config.RefreshAltRef,
+				GoldenSignBias:       attempt.Config.GoldenSignBias,
+				AltRefSignBias:       attempt.Config.AltRefSignBias,
+				SegEnabled:           attempt.Config.Segmentation.Enabled,
+				SizeBytes:            attempt.Size,
 			})
 			e.flushOracleMBTraceBuffer()
 			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
@@ -917,14 +927,19 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size)
 	e.emitOracleFrameTrace(oracleTraceFrameSummary{
-		FrameType:     vp8common.KeyFrame,
-		BaseQIndex:    e.rc.currentQuantizer,
-		LoopFilter:    int(keyAttempt.LoopFilterLevel),
-		RefreshLast:   true,
-		RefreshGolden: true,
-		RefreshAltRef: true,
-		SegEnabled:    keyAttempt.SegmentationEnabled,
-		SizeBytes:     keyAttempt.Size,
+		FrameType:            vp8common.KeyFrame,
+		BaseQIndex:           e.rc.currentQuantizer,
+		LoopFilter:           int(keyAttempt.LoopFilterLevel),
+		SharpnessLevel:       int(keyAttempt.SharpnessLevel),
+		RefLFDeltas:          keyAttempt.RefLFDeltas,
+		ModeLFDeltas:         keyAttempt.ModeLFDeltas,
+		ModeRefLFDeltaEnable: keyAttempt.LFDeltaEnabled,
+		ModeRefLFDeltaUpdate: keyAttempt.LFDeltaUpdate,
+		RefreshLast:          true,
+		RefreshGolden:        true,
+		RefreshAltRef:        true,
+		SegEnabled:           keyAttempt.SegmentationEnabled,
+		SizeBytes:            keyAttempt.Size,
 	})
 	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
 	// frame has been committed; the next forced KF will set it again. Update
@@ -1061,7 +1076,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, err
 	}
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
-	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, rows, cols, required); err != nil {
+	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required); err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
@@ -1088,7 +1103,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
@@ -1219,7 +1234,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.LFDeltaUpdate = lfHeader.DeltaUpdate
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
-	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, rows, cols, required); err != nil {
+	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
@@ -2725,14 +2740,17 @@ func libvpxInitialLoopFilterLevel(qIndex int) int {
 	return level
 }
 
-func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, rows int, cols int, required int) error {
+func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, segmentation vp8enc.SegmentationConfig, rows int, cols int, required int) error {
 	if header.Level == 0 {
 		return nil
 	}
 	if len(e.reconstructModes) < required {
 		return ErrInvalidConfig
 	}
-	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
+	// libvpx vp8_loop_filter_frame_init reads the ALT_LF feature data
+	// when cm->segmentation.enabled is set, so the reconstruction-side
+	// LF must see the same per-segment deltas the bitstream signals.
+	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 		return ErrInvalidConfig
 	}
 	e.analysis.ExtendBorders()

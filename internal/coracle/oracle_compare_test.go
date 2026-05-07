@@ -19,6 +19,14 @@ func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) strin
 // reset gate. Existing call sites use frameRow which keeps the new fields
 // at their pre-extension defaults (false) so older tests keep passing.
 func frameRowFull(frameIndex int, qIndex int, frameType string, refreshLast bool, yAdler uint32, refreshEntropyProbs bool, defaultCoefReset bool) string {
+	return frameRowLF(frameIndex, qIndex, frameType, refreshLast, yAdler, refreshEntropyProbs, defaultCoefReset, 0, [4]int{0, 0, 0, 0}, [4]int{0, 0, 0, 0}, false, false)
+}
+
+// frameRowLF is the full-control variant that also threads the LF-delta
+// fields (sharpness, ref/mode deltas, enabled/update flags) so tests can
+// exercise the libvpx-side oracle's per-frame loop-filter delta rows. The
+// schema mirrors oracleTraceFrameRow in encoder_oracle_trace.go.
+func frameRowLF(frameIndex int, qIndex int, frameType string, refreshLast bool, yAdler uint32, refreshEntropyProbs bool, defaultCoefReset bool, sharpness int, refLFDeltas [4]int, modeLFDeltas [4]int, modeRefDeltaEnabled bool, modeRefDeltaUpdate bool) string {
 	return strings.Join([]string{
 		"{\"type\":\"frame\"",
 		fmt.Sprintf("\"frame_index\":%d", frameIndex),
@@ -26,6 +34,11 @@ func frameRowFull(frameIndex int, qIndex int, frameType string, refreshLast bool
 		fmt.Sprintf("\"q_index\":%d", qIndex),
 		"\"base_q_index\":40",
 		"\"loop_filter_level\":12",
+		fmt.Sprintf("\"sharpness_level\":%d", sharpness),
+		fmt.Sprintf("\"ref_lf_deltas\":[%d,%d,%d,%d]", refLFDeltas[0], refLFDeltas[1], refLFDeltas[2], refLFDeltas[3]),
+		fmt.Sprintf("\"mode_lf_deltas\":[%d,%d,%d,%d]", modeLFDeltas[0], modeLFDeltas[1], modeLFDeltas[2], modeLFDeltas[3]),
+		fmt.Sprintf("\"mode_ref_lf_delta_enabled\":%t", modeRefDeltaEnabled),
+		fmt.Sprintf("\"mode_ref_lf_delta_update\":%t", modeRefDeltaUpdate),
 		fmt.Sprintf("\"refresh_last\":%t", refreshLast),
 		"\"refresh_golden\":false",
 		"\"refresh_altref\":false",
@@ -471,6 +484,67 @@ func TestCompareOracleTracesDetectsDefaultCoefResetDivergence(t *testing.T) {
 	// as a divergence since both sides emit true.
 	if _, hasRefresh := got["row=0/field=refresh_entropy_probs"]; hasRefresh {
 		t.Errorf("unexpected refresh_entropy_probs divergence: %+v", got["row=0/field=refresh_entropy_probs"])
+	}
+}
+
+// TestCompareOracleTracesDetectsLoopFilterDeltaDivergence feeds two streams
+// where the per-frame loop-filter delta fields diverge: govpx emits the
+// libvpx default ref/mode deltas with mode_ref_lf_delta_enabled=true and
+// mode_ref_lf_delta_update=true, while libvpx emits zeroed deltas with
+// the enable/update flags off. The comparator must surface the
+// sharpness_level, ref_lf_deltas, mode_lf_deltas, mode_ref_lf_delta_enabled,
+// and mode_ref_lf_delta_update mismatches with RowKind == "frame".
+func TestCompareOracleTracesDetectsLoopFilterDeltaDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := frameRowLF(0, 60, "inter", true, 0xdeadbeef, true, false,
+		3, [4]int{2, 0, -2, -2}, [4]int{4, -2, 2, 4}, true, true) + "\n"
+	libvpx := frameRowLF(0, 60, "inter", true, 0xdeadbeef, true, false,
+		0, [4]int{0, 0, 0, 0}, [4]int{0, 0, 0, 0}, false, false) + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	wantKeys := []string{
+		"row=0/field=sharpness_level",
+		"row=0/field=ref_lf_deltas",
+		"row=0/field=mode_lf_deltas",
+		"row=0/field=mode_ref_lf_delta_enabled",
+		"row=0/field=mode_ref_lf_delta_update",
+	}
+	for _, key := range wantKeys {
+		d, ok := got[key]
+		if !ok {
+			t.Errorf("missing divergence for %s; got divergences: %v", key, divKeys(div))
+			continue
+		}
+		if d.RowKind != "frame" {
+			t.Errorf("%s: RowKind=%q want frame", key, d.RowKind)
+		}
+		if d.FrameIndex != 0 {
+			t.Errorf("%s: FrameIndex=%d want 0", key, d.FrameIndex)
+		}
+	}
+	// Spot-check the sharpness payload reflects the actual feed values.
+	sharp := got["row=0/field=sharpness_level"]
+	if gv, _ := sharp.Govpx.(float64); gv != 3 {
+		t.Errorf("row=0/field=sharpness_level: Govpx=%v want 3", sharp.Govpx)
+	}
+	if lv, _ := sharp.Libvpx.(float64); lv != 0 {
+		t.Errorf("row=0/field=sharpness_level: Libvpx=%v want 0", sharp.Libvpx)
+	}
+	// mode_ref_lf_delta_enabled must report a typed bool divergence.
+	enabled := got["row=0/field=mode_ref_lf_delta_enabled"]
+	if gv, _ := enabled.Govpx.(bool); !gv {
+		t.Errorf("row=0/field=mode_ref_lf_delta_enabled: Govpx=%v want true", enabled.Govpx)
+	}
+	if lv, _ := enabled.Libvpx.(bool); lv {
+		t.Errorf("row=0/field=mode_ref_lf_delta_enabled: Libvpx=%v want false", enabled.Libvpx)
 	}
 }
 
