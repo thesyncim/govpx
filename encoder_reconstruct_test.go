@@ -1351,9 +1351,8 @@ func TestLibvpxSADPerBitLUTsMatchInitializeMEConsts(t *testing.T) {
 func TestInterMotionModeVectorCostOnlyChargesNewMVDelta(t *testing.T) {
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	newMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
-	delta := vp8enc.MotionVector{Col: 8}
 
-	if got, want := interMotionModeVectorCost(&newMode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext), interMotionVectorCost(delta, &vp8tables.DefaultMVContext); got != want {
+	if got, want := interMotionModeVectorCost(&newMode, &above, nil, nil, 0, 0, 1, 1, &vp8tables.DefaultMVContext), vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight); got != want {
 		t.Fatalf("NEWMV vector cost = %d, want delta cost %d", got, want)
 	}
 
@@ -1365,12 +1364,49 @@ func TestInterMotionModeVectorCostOnlyChargesNewMVDelta(t *testing.T) {
 	liveProbs := vp8tables.DefaultMVContext
 	liveProbs[1][0] = 1
 	liveCost := interMotionModeVectorCost(&newMode, &above, nil, nil, 0, 0, 1, 1, &liveProbs)
-	wantLive := interMotionVectorCost(delta, &liveProbs)
+	wantLive := vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &liveProbs, libvpxRDNewMVBitCostWeight)
 	if liveCost != wantLive {
 		t.Fatalf("live NEWMV vector cost = %d, want live-prob delta cost %d", liveCost, wantLive)
 	}
-	if liveCost == interMotionVectorCost(delta, &vp8tables.DefaultMVContext) {
+	if liveCost == vp8enc.MotionVectorBitCost(newMode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight) {
 		t.Fatalf("live NEWMV vector cost = default cost %d, want MV probs to affect RD cost", liveCost)
+	}
+}
+
+func TestInterMotionModeVectorCostChargesRDNewMVWithLibvpxWeight(t *testing.T) {
+	mvProbs := vp8tables.DefaultMVContext
+	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 24, Col: 8}}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: bestRefMV}
+
+	got := interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1, &mvProbs)
+	want := vp8enc.MotionVectorBitCost(mode.MV, bestRefMV, &mvProbs, libvpxRDNewMVBitCostWeight)
+	if got != want {
+		t.Fatalf("RD NEWMV vector cost = %d, want MotionVectorBitCost weight-96 cost %d", got, want)
+	}
+	if fastWeight := vp8enc.MotionVectorBitCost(mode.MV, bestRefMV, &mvProbs, libvpxFastNewMVBitCostWeight); got == fastWeight {
+		t.Fatalf("RD NEWMV vector cost = fast weight-128 cost %d, want weight 96", fastWeight)
+	}
+}
+
+func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
+	refRate := 17
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+
+	got := e.fastInterMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate)
+	want := boolBitCost(63, 1) +
+		refRate +
+		interPredictionModeRate(vp8common.NewMV, counts) +
+		vp8enc.MotionVectorBitCost(mode.MV, above.MV, &vp8tables.DefaultMVContext, libvpxFastNewMVBitCostWeight)
+	if got != want {
+		t.Fatalf("fast NEWMV mode rate = %d, want pickinter weight-128 rate %d", got, want)
+	}
+	if rdRate := e.interMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate); got == rdRate {
+		t.Fatalf("fast NEWMV mode rate = RD rate %d, want separate pickinter weight", rdRate)
 	}
 }
 
@@ -1450,6 +1486,84 @@ func TestEstimateFastInterModeScoreUsesLibvpxPickInterDistortion(t *testing.T) {
 	}
 	if sseScore := rdModeScore(qIndex, rate, sse); got == sseScore {
 		t.Fatalf("fast inter score used SSE %d, want libvpx variance distortion", sse)
+	}
+}
+
+func TestInterModeForRDLoopEntryAllowsZeroNewMVOnFlatMatch(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	fillBenchmarkVP8Image(&e.analysis.Img, 72, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 72, 90, 170)
+	last := testVP8Frame(t, 16, 16, 72, 90, 170)
+	ref := interAnalysisReference{Frame: vp8common.LastFrame, Img: &last.Img}
+	var newMVCandidates [3]struct {
+		searched bool
+		ok       bool
+		mv       vp8enc.MotionVector
+	}
+
+	mode, ok := e.interModeForRDLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)
+	if !ok {
+		t.Fatalf("RD NEWMV loop entry rejected zero MV on flat matching frame")
+	}
+	if mode.Mode != vp8common.NewMV || mode.RefFrame != vp8common.LastFrame || !mode.MV.IsZero() {
+		t.Fatalf("RD NEWMV loop entry mode = %+v, want LAST/NEWMV with zero MV", mode)
+	}
+}
+
+func TestFastInterModeForLoopEntryRejectsZeroNewMVOnFlatMatch(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	fillBenchmarkVP8Image(&e.analysis.Img, 72, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 72, 90, 170)
+	last := testVP8Frame(t, 16, 16, 72, 90, 170)
+	ref := interAnalysisReference{Frame: vp8common.LastFrame, Img: &last.Img}
+	var newMVCandidates [3]struct {
+		searched bool
+		ok       bool
+		mv       vp8enc.MotionVector
+	}
+
+	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, 1, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)
+	if ok {
+		t.Fatalf("fast NEWMV loop entry accepted mode %+v, want zero MV rejected", mode)
+	}
+}
+
+func TestSelectRDInterFrameMotionVectorAllowsSubpixelRefinementWithBestRefMVCost(t *testing.T) {
+	src := testImage(48, 48)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 48, 48, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*11 + col*7 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
+	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
+	bestRefMV := vp8enc.MotionVector{Row: 2, Col: 2}
+
+	mv, cost := selectRDInterFrameMotionVectorWithSearchStart(sourceImageFromPublic(src), &ref.Img, 1, 1, 3, 3, bestRefMV, testInterSearchQIndex, defaultInterAnalysisSearchConfig(), interFrameSearchStart{}, &vp8tables.DefaultMVContext)
+
+	if mv != bestRefMV {
+		t.Fatalf("RD NEWMV search MV = %+v, want accepted subpel refinement %+v", mv, bestRefMV)
+	}
+	want := interMotionSearchErrorVectorCost(mv, bestRefMV, testInterSearchQIndex, &vp8tables.DefaultMVContext)
+	if cost != want {
+		t.Fatalf("RD NEWMV search cost = %d, want best_ref_mv anchored subpel cost %d", cost, want)
+	}
+	if zeroAnchor := interMotionSearchErrorVectorCost(mv, vp8enc.MotionVector{}, testInterSearchQIndex, &vp8tables.DefaultMVContext); cost == zeroAnchor {
+		t.Fatalf("RD NEWMV search cost = zero-anchor cost %d, want best_ref_mv anchor", zeroAnchor)
 	}
 }
 

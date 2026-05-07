@@ -240,11 +240,15 @@ the anchor and look for the surrounding mismatch.
     RD penalty, keeps the RD-only NSTEP `first_step` / final one-pixel
     refining search separate from the high-speed non-RD picker, and compacts
     enabled LAST/GOLDEN/ALT references through the same four-slot reference
-    search map as `get_reference_search_order`.
+    search map as `get_reference_search_order`. RD NEWMV no longer reuses the
+    fast-path zero-vector rejection, RD NEWMV vector cost uses libvpx's weight
+    96, and RD subpel acceptance now has a dedicated helper instead of sharing
+    the fast picker decision path.
   - Missing: sign-bias switching, temporal-layer threshold tweaks, full
-    SplitMV label-level segmentation search with `THR_NEW1/2/3` gating,
-    active-map skip short-circuiting, exact `other_cost` / Y-RD side accounting,
-    and recode-loop interactions.
+    SplitMV label-level segmentation search with `THR_NEW1/2/3` gating, exact
+    RD accounting including `other_cost` / Y-RD side accounting, active-map skip
+    short-circuiting, and recode-loop interactions. Active-map behavior is
+    tracked in the dedicated active-map checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
