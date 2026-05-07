@@ -42,7 +42,7 @@ func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *test
 	}
 	source := sourceImageFromPublic(src)
 
-	ref, mv := selectInterFrameReferenceMotionVector(source, refs[:], len(refs), 0, 0, testInterSearchQIndex)
+	ref, mv := selectInterFrameReferenceMotionVector(source, refs[:], len(refs), 0, 0, 1, 1, nil, nil, nil, testInterSearchQIndex)
 
 	if ref.Frame != vp8common.GoldenFrame || mv != (vp8enc.MotionVector{}) {
 		t.Fatalf("selection = %v %+v, want golden zero MV", ref.Frame, mv)
@@ -66,7 +66,7 @@ func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.
 	}
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, testInterSearchQIndex)
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, nil, nil, nil, testInterSearchQIndex)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 16}) {
 		t.Fatalf("selection = %v %+v, want last row +16 from libvpx hex ring", ref.Frame, mv)
@@ -90,7 +90,7 @@ func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing
 	}
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, testInterSearchQIndex)
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, nil, nil, nil, testInterSearchQIndex)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 24}) {
 		t.Fatalf("selection = %v %+v, want last row +24 after exhaustive search", ref.Frame, mv)
@@ -114,7 +114,7 @@ func TestSelectInterFrameReferenceMotionVectorFindsExhaustiveCornerCandidate(t *
 	}
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, testInterSearchQIndex)
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, nil, nil, nil, testInterSearchQIndex)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 32, Col: 32}) {
 		t.Fatalf("selection = %v %+v, want last +32,+32 exhaustive candidate", ref.Frame, mv)
@@ -136,7 +136,7 @@ func TestSelectInterFrameSplitMotionModeFindsQuadrantMotion(t *testing.T) {
 	copyShifted8x8FromReference(src, &ref.Img, 8, 8, 2, 0)
 	ref.ExtendBorders()
 
-	mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 2)
+	mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, testInterSearchQIndex, 2)
 
 	if !ok {
 		t.Fatalf("split mode selection returned false")
@@ -167,7 +167,7 @@ func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 		copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
 		copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 2, 0)
 
-		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 0)
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, testInterSearchQIndex, 0)
 
 		if !ok || mode.Partition != 0 {
 			t.Fatalf("mode = %+v ok=%t, want partition 0", mode, ok)
@@ -181,7 +181,7 @@ func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 		copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 1, 0)
 		copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 2)
 
-		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 1)
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, testInterSearchQIndex, 1)
 
 		if !ok || mode.Partition != 1 {
 			t.Fatalf("mode = %+v ok=%t, want partition 1", mode, ok)
@@ -202,7 +202,7 @@ func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 			want[block] = vp8enc.MotionVector{Row: int16(dy * 8), Col: int16(dx * 8)}
 		}
 
-		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, testInterSearchQIndex, 3)
+		mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, testInterSearchQIndex, 3)
 
 		if !ok || mode.Partition != 3 {
 			t.Fatalf("mode = %+v ok=%t, want partition 3", mode, ok)
@@ -229,7 +229,7 @@ func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testin
 	dsp.SixTapPredict16x16(refStart, last.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 1, 1, testInterSearchQIndex)
+	ref, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 1, 1, 2, 2, nil, nil, nil, testInterSearchQIndex)
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("selection = %v %+v, want last subpixel +2,+2", ref.Frame, mv)
@@ -242,7 +242,7 @@ func TestSelectInterFrameReferenceMotionVectorPrefersCheaperMotionOnTie(t *testi
 	last := testVP8Frame(t, 32, 32, 40, 90, 170)
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	_, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, testInterSearchQIndex)
+	_, mv := selectInterFrameReferenceMotionVector(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, nil, nil, nil, testInterSearchQIndex)
 
 	if mv != (vp8enc.MotionVector{}) {
 		t.Fatalf("mv = %+v, want zero MV for equal-SAD candidates", mv)
@@ -304,7 +304,7 @@ func TestIterativeInterFrameSubpixelMotionVectorUsesBilinearVariance(t *testing.
 	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
 	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
 
-	mv, cost, ok := iterativeInterFrameSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 1, 1, vp8enc.MotionVector{}, testInterSearchQIndex)
+	mv, cost, ok := iterativeInterFrameSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 1, 1, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex)
 
 	if !ok {
 		t.Fatalf("iterativeInterFrameSubpixelMotionVector returned ok=false")
@@ -312,7 +312,7 @@ func TestIterativeInterFrameSubpixelMotionVectorUsesBilinearVariance(t *testing.
 	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("mv = %+v, want +2,+2 quarter-pel candidate", mv)
 	}
-	if want := interMotionSearchErrorVectorCost(mv, testInterSearchQIndex); cost != want {
+	if want := interMotionSearchErrorVectorCost(mv, vp8enc.MotionVector{}, testInterSearchQIndex); cost != want {
 		t.Fatalf("cost = %d, want zero distortion plus mv cost %d", cost, want)
 	}
 }
@@ -416,7 +416,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 }
 
-func TestPredictBestBPredLumaModeCostReconstructsChosenBlocks(t *testing.T) {
+func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 128, 128, 128)
 	for row := 0; row < 4; row++ {
@@ -428,13 +428,13 @@ func TestPredictBestBPredLumaModeCostReconstructsChosenBlocks(t *testing.T) {
 	quant := testMacroblockQuant(4)
 	var scratch vp8dec.IntraReconstructionScratch
 
-	_, cost, ok := predictBestBPredLumaModeCost(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch)
+	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, 0)
 
 	if !ok {
-		t.Fatalf("predictBestBPredLumaModeCost returned ok=false")
+		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")
 	}
-	if cost <= 0 {
-		t.Fatalf("cost = %d, want positive RD cost", cost)
+	if rate <= 0 || dist < 0 {
+		t.Fatalf("rate=%d dist=%d, want positive rate and non-negative distortion", rate, dist)
 	}
 	if pred.Img.Y[0] <= 128 {
 		t.Fatalf("reconstructed block sample = %d, want above raw predictor 128", pred.Img.Y[0])
@@ -663,15 +663,16 @@ func TestInterPredictionModeRateMirrorsWriterBranches(t *testing.T) {
 }
 
 func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128}
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
-	want := boolBitCost(128, 1) +
-		interReferenceFrameRate(vp8common.GoldenFrame) +
+	want := boolBitCost(63, 1) +
+		e.interReferenceFrameRate(vp8common.GoldenFrame) +
 		interPredictionModeRate(vp8common.NewMV, counts) +
 		interMotionModeVectorCost(&mode, &above, nil, nil, 0, 0, 1, 1)
 
-	if got := interMotionModeRate(&mode, &above, nil, nil, 0, 0, 1, 1); got != want {
+	if got := e.interMotionModeRate(&mode, &above, nil, nil, 0, 0, 1, 1); got != want {
 		t.Fatalf("inter mode rate = %d, want %d", got, want)
 	}
 	if got := interMacroblockSkipRate(false); got != boolBitCost(128, 0) {
@@ -680,8 +681,24 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	if got := interMacroblockSkipRate(true); got != boolBitCost(128, 1) {
 		t.Fatalf("skipped rate = %d, want prob-128 true cost", got)
 	}
-	if got, want := interIntraMacroblockModeRate(), boolBitCost(128, 0)+boolBitCost(128, 0); got != want {
+	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(128, 0)+boolBitCost(63, 0); got != want {
 		t.Fatalf("inter-intra mode rate = %d, want skip plus intra-reference rate %d", got, want)
+	}
+}
+
+// TestInterReferenceFrameRateUsesLivePrevFrameProbs locks in libvpx parity for
+// vp8_calc_ref_frame_costs: ref-frame selection bits are charged against the
+// previous frame's prob_last_coded / prob_gf_coded, not a static 128 prior.
+func TestInterReferenceFrameRateUsesLivePrevFrameProbs(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 50, refProbLast: 200, refProbGolden: 90}
+	if got, want := e.interReferenceFrameRate(vp8common.LastFrame), boolBitCost(200, 0); got != want {
+		t.Fatalf("LAST rate = %d, want %d", got, want)
+	}
+	if got, want := e.interReferenceFrameRate(vp8common.GoldenFrame), boolBitCost(200, 1)+boolBitCost(90, 0); got != want {
+		t.Fatalf("GOLDEN rate = %d, want %d", got, want)
+	}
+	if got, want := e.interReferenceFrameRate(vp8common.AltRefFrame), boolBitCost(200, 1)+boolBitCost(90, 1); got != want {
+		t.Fatalf("ALTREF rate = %d, want %d", got, want)
 	}
 }
 
@@ -1139,7 +1156,7 @@ func BenchmarkSelectInterFrameReferenceMotionVector(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		row := (i >> 2) & 3
 		col := i & 3
-		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col, testInterSearchQIndex)
+		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col, 4, 4, nil, nil, nil, testInterSearchQIndex)
 	}
 }
 
@@ -1173,7 +1190,7 @@ func BenchmarkSelectInterFrameReferenceMotionVectorZeroCost(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		row := (i >> 2) & 3
 		col := i & 3
-		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col, testInterSearchQIndex)
+		benchmarkInterReference, benchmarkInterMV = selectInterFrameReferenceMotionVector(source, refs[:], len(refs), row, col, 4, 4, nil, nil, nil, testInterSearchQIndex)
 	}
 }
 

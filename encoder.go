@@ -189,6 +189,15 @@ type VP8Encoder struct {
 	lastInterZeroMVCount    int
 	lastInterSkipCount      int
 
+	// Cross-frame inter-mode reference-frame probabilities. libvpx
+	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
+	// inter frame from observed mb_ref_frame counts (see
+	// vp8_estimate_entropy_savings); RD scoring needs the previous-frame
+	// values, not the per-frame static 128 default.
+	refProbIntra  uint8
+	refProbLast   uint8
+	refProbGolden uint8
+
 	lookahead []lookaheadEntry
 
 	preprocess        vp8common.FrameBuffer
@@ -265,6 +274,9 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		coefProbs:         vp8tables.DefaultCoefProbs,
+		refProbIntra:      63,
+		refProbLast:       128,
+		refProbGolden:     128,
 	}
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
@@ -659,11 +671,61 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
+	e.updateRefFrameProbsFromAttempt(attempt)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 		return
 	}
 	e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
+}
+
+// updateRefFrameProbsFromAttempt mirrors libvpx vp8_estimate_entropy_savings'
+// new_intra/new_last/new_garf computation: ref-frame probs for the next
+// frame's RD scoring are derived from observed mode counts. ZeroReference
+// frames bypass mode decisions entirely so leave the probs unchanged.
+func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAttempt) {
+	if attempt.ZeroReference {
+		return
+	}
+	var rfct [4]int
+	for i := range e.interFrameModes {
+		switch e.interFrameModes[i].RefFrame {
+		case vp8common.IntraFrame:
+			rfct[0]++
+		case vp8common.LastFrame:
+			rfct[1]++
+		case vp8common.GoldenFrame:
+			rfct[2]++
+		case vp8common.AltRefFrame:
+			rfct[3]++
+		}
+	}
+	rfIntra := rfct[0]
+	rfInter := rfct[1] + rfct[2] + rfct[3]
+	if rfIntra+rfInter == 0 {
+		return
+	}
+	newIntra := rfIntra * 255 / (rfIntra + rfInter)
+	if newIntra == 0 {
+		newIntra = 1
+	}
+	newLast := 128
+	if rfInter > 0 {
+		newLast = rfct[1] * 255 / rfInter
+		if newLast == 0 {
+			newLast = 1
+		}
+	}
+	newGarf := 128
+	if rfct[2]+rfct[3] > 0 {
+		newGarf = rfct[2] * 255 / (rfct[2] + rfct[3])
+		if newGarf == 0 {
+			newGarf = 1
+		}
+	}
+	e.refProbIntra = uint8(newIntra)
+	e.refProbLast = uint8(newLast)
+	e.refProbGolden = uint8(newGarf)
 }
 
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {

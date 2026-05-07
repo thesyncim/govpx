@@ -30,10 +30,21 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 
 ### Encoder Quality
 
-- Full exact intra mode analysis, especially B_PRED 4x4 selection.
-- Exact libvpx RD scoring and mode-cost parity.
-- Exact inter candidate pruning/costing.
-- Exact NEWMV search/pruning parity.
+- B_PRED 4x4 token-context seeding from neighbor MB EOBs (`above_context` /
+  `left_context` per `rdopt.c rd_pick_intra4x4mby_modes`); current code seeds
+  with zero. The MB-level RDCOST single-application and the `best_rd`
+  per-block early-exit are in place.
+- `whole_block` 16x16 Y RD uses raw pixel SSE; libvpx `macro_block_yrd` uses
+  transform-domain rate + distortion via `cost_coeffs`.
+- Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
+  per-call tree walks are functionally equivalent, but the libvpx pattern
+  precomputes once per frame).
+- Faithful diamond / 3-step / hex motion search with the
+  `vp8_init3smotion_compensation` search-site table; the `bestRefMV`
+  centring, MV-cost ref, and sub-pel `±MAX_FULL_PEL_VAL` reject are in place
+  but the integer search is still an exhaustive ±8 sweep, not a stepped
+  diamond.
+- `sad_per_bit4lut` (mcomp.c) for SPLITMV-block SAD scoring.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage.
 - Exact loop-filter level search.
 
@@ -56,6 +67,12 @@ Primary references:
 - Fixed-Q and exact two-pass allocation branches if those modes become
   production requirements.
 - Exact static-background segmentation policy.
+- Cross-frame ref-frame probability tracking (`prob_intra_coded`,
+  `prob_last_coded`, `prob_gf_coded`) is wired against
+  `vp8_estimate_entropy_savings`'s default mode-count formula (63/128/128
+  init); the keyframe-after-keyframe boost branch (`prob_intra_coded += 40`,
+  `prob_last_coded = 200`, `prob_gf_coded = 1`) and `source_alt_ref_active`
+  branch from `onyx_if.c` are still flat.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),
