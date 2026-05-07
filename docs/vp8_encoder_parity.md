@@ -540,14 +540,20 @@ the anchor and look for the surrounding mismatch.
     `oxcf.encode_breakout` raw zero-motion skip gate, and the inter/neutral
     accept gate uses libvpx's
     `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
+    Zero-motion LAST/raw errors now use plain libvpx MSE with no `+128`
+    bias, GOLDEN second-reference scoring starts from `INT_MAX` and is lowered
+    only by the GOLDEN first-pass motion search, and the old non-libvpx
+    all-intra GOLDEN reset fallback has been removed.
     The post-stats LAST->GOLDEN copy follows the libvpx
     `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
     frame still seeds GOLDEN from LAST as a second reference. Per-frame
     field values are pinned by
     [`TestFirstPassStatsRegression32x32`](../encoder_firstpass_test.go) on a
     deterministic 32x32 ramp clip; plausibility coverage is in
-    `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
-    boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
+    `TestFirstPassStatsPopulatesLibvpxFields`, zero-motion MSE and GOLDEN reset
+    behavior are pinned by `TestFirstPassZeroMotionErrorDoesNotAddBias` and
+    `TestFirstPassGoldenDoesNotResetOnAllIntraFallback`, and the simple_weight
+    table boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
     [`accumulateFirstPassStats`](../encoder_firstpass.go) ports libvpx's
     `accumulate_stats` per-field summation, and
     [`FinalizeFirstPassStats`](../encoder_firstpass.go) emits the libvpx

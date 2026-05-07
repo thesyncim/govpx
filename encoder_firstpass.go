@@ -178,12 +178,8 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 	copySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
 
 	// Special case for the first frame (libvpx firstpass.c): copy LAST into
-	// GF as a second reference. Also keep the legacy scene-cut fallback that
-	// resets GF when essentially the entire frame went intra; the libvpx
-	// equivalent is the swap+initial GF copy plus the post-stats heuristic
-	// above, but in govpx this fallback prevents PcntSecondRef from latching
-	// to a stale GOLDEN across hard cuts.
-	if e.firstPassCount == 0 || stats.PcntInter < 0.05 {
+	// GF as a second reference.
+	if e.firstPassCount == 0 {
 		copyFrameImage(&e.firstPassGoldenRef.Img, &e.firstPassLastRef.Img)
 		e.firstPassGoldenRef.ExtendBorders()
 	}
@@ -247,10 +243,10 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 				// Raw zero-motion check (libvpx zz_motion_search). The
 				// raw source gates encode_breakout, while the reconstructed
 				// LAST reference seeds the actual motion error.
-				zeroErr := macroblockLumaSSE(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{}) + 128
+				zeroErr := macroblockLumaSSE(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{})
 				rawMotionErr := zeroErr
 				if hasLastSource {
-					rawMotionErr = macroblockLumaSSE(src, &e.firstPassLastSource.Img, row, col, vp8enc.MotionVector{}) + 128
+					rawMotionErr = macroblockLumaSSE(src, &e.firstPassLastSource.Img, row, col, vp8enc.MotionVector{})
 				}
 				motionErr := zeroErr
 
@@ -345,9 +341,8 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 			}
 
 			if hasGolden {
-				// Experimental search in a second reference frame
-				// ((0,0) based only) per libvpx.
-				goldenErr := macroblockLumaSSE(src, &e.firstPassGoldenRef.Img, row, col, vp8enc.MotionVector{}) + 128
+				// Experimental search in a second reference frame per libvpx.
+				goldenErr := maxInt()
 				if mv, err, ok := firstPassMotionSearch(src, &e.firstPassGoldenRef.Img, row, col, vp8enc.MotionVector{}, qIndex); ok {
 					_ = mv
 					err += libvpxFirstPassNewMVModePenalty

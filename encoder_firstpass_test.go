@@ -199,6 +199,73 @@ func TestFirstPassStaticThresholdFeedsEncodeBreakout(t *testing.T) {
 	}
 }
 
+func TestFirstPassZeroMotionErrorDoesNotAddBias(t *testing.T) {
+	const width, height = 32, 16
+	enc, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 400,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	frame := testImage(width, height)
+	fillImage(frame, 128, 128, 128)
+
+	if _, err := enc.CollectFirstPassStats(frame, 0, 1, 0); err != nil {
+		t.Fatalf("CollectFirstPassStats[0]: %v", err)
+	}
+	stats, err := enc.CollectFirstPassStats(frame, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("CollectFirstPassStats[1]: %v", err)
+	}
+	if stats.CodedError != 0 {
+		t.Fatalf("identical-frame coded_error = %v, want 0 (libvpx zero-motion MSE has no +128 bias)", stats.CodedError)
+	}
+}
+
+func TestFirstPassGoldenDoesNotResetOnAllIntraFallback(t *testing.T) {
+	const width, height = 16, 16
+	enc, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 400,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	first := testImage(width, height)
+	fillImage(first, 16, 128, 128)
+	second := testImage(width, height)
+	fillImage(second, 240, 128, 128)
+
+	if _, err := enc.CollectFirstPassStats(first, 0, 1, 0); err != nil {
+		t.Fatalf("CollectFirstPassStats[0]: %v", err)
+	}
+	stats, err := enc.CollectFirstPassStats(second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("CollectFirstPassStats[1]: %v", err)
+	}
+	if stats.PcntInter >= 0.05 {
+		t.Fatalf("test setup PcntInter = %v, want all-intra hard cut", stats.PcntInter)
+	}
+	golden := &enc.firstPassGoldenRef.Img
+	last := &enc.firstPassLastRef.Img
+	if planeMatches(golden.Y, golden.YStride, last.Y, last.YStride, width, height) &&
+		planeMatches(golden.U, golden.UStride, last.U, last.UStride, width/2, height/2) &&
+		planeMatches(golden.V, golden.VStride, last.V, last.VStride, width/2, height/2) {
+		t.Fatalf("GOLDEN reset to the all-intra current LAST frame; libvpx only seeds GOLDEN on frame 0 or via the post-stats copy heuristic")
+	}
+}
+
 // TestFirstPassStatsRegression32x32 pins the per-frame FirstPassFrameStats
 // for a deterministic 32x32 (4 macroblock) clip. The expected values were
 // captured from this implementation against the libvpx vp8_first_pass
