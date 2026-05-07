@@ -191,6 +191,13 @@ type VP8Encoder struct {
 	lastInterZeroMVCount    int
 	lastInterSkipCount      int
 
+	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
+	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
+	// evaluate_inter_mode and rdopt.c rd_pick_inter_mode active_ptr checks).
+	// Key frames ignore the map.
+	activeMap        []uint8
+	activeMapEnabled bool
+
 	// Cross-frame inter-mode reference-frame probabilities. libvpx
 	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
 	// inter frame from observed mb_ref_frame counts (see
@@ -286,6 +293,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		cyclicRefreshAttemptMap: make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		skinMap:                 make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		consecZeroLast:          make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		activeMap:               make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		lastFrameInterModes:     make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
@@ -1220,6 +1228,38 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 		return ErrClosed
 	}
 	e.opts.AdaptiveKeyFrames = enabled
+	return nil
+}
+
+// SetActiveMap installs a per-macroblock activity map. Cells equal to 0 mark
+// inactive macroblocks; in inter frames those MBs skip mode decision and code
+// as ZEROMV-LAST with skip=1, matching libvpx vp8_set_active_map (onyx_if.c)
+// and the active_ptr early-exit in pickinter.c/rdopt.c. Pass a nil map to
+// disable. Key frames ignore the map.
+//
+// rows and cols must equal the encoder's macroblock dimensions; len(activeMap)
+// must equal rows*cols.
+func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if activeMap == nil {
+		e.activeMapEnabled = false
+		return nil
+	}
+	expectedRows := encoderMacroblockRows(e.opts.Height)
+	expectedCols := encoderMacroblockCols(e.opts.Width)
+	if rows != expectedRows || cols != expectedCols {
+		return ErrInvalidConfig
+	}
+	if len(activeMap) < rows*cols {
+		return ErrInvalidConfig
+	}
+	if len(e.activeMap) < rows*cols {
+		e.activeMap = make([]uint8, rows*cols)
+	}
+	copy(e.activeMap[:rows*cols], activeMap[:rows*cols])
+	e.activeMapEnabled = true
 	return nil
 }
 

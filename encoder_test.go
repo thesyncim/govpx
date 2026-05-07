@@ -3876,3 +3876,111 @@ func assertPlaneEqual(t *testing.T, name string, want []byte, wantStride int, go
 		}
 	}
 }
+
+func TestSetActiveMapValidation(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	mapBytes := make([]byte, 4)
+	for i := range mapBytes {
+		mapBytes[i] = 1
+	}
+	if err := e.SetActiveMap(mapBytes, 1, 4); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("wrong-row SetActiveMap error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetActiveMap(mapBytes, 2, 1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("wrong-col SetActiveMap error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetActiveMap(mapBytes[:1], 2, 2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("short-buffer SetActiveMap error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetActiveMap(mapBytes, 2, 2); err != nil {
+		t.Fatalf("matching-size SetActiveMap error = %v", err)
+	}
+	if !e.activeMapEnabled {
+		t.Fatalf("activeMapEnabled = false after SetActiveMap, want true")
+	}
+	if err := e.SetActiveMap(nil, 0, 0); err != nil {
+		t.Fatalf("nil SetActiveMap error = %v", err)
+	}
+	if e.activeMapEnabled {
+		t.Fatalf("activeMapEnabled = true after disabling, want false")
+	}
+}
+
+func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	// Distinct content per frame so inactive MBs would normally code residual.
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 90, 170)
+	keyPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	activeMap := make([]byte, rows*cols)
+	for i := range activeMap {
+		activeMap[i] = 1
+	}
+	// Mark a single MB inactive.
+	inactiveRow, inactiveCol := 1, 0
+	inactiveIndex := inactiveRow*cols + inactiveCol
+	activeMap[inactiveIndex] = 0
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	interPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(interPacket, second, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	mode := e.interFrameModes[inactiveIndex]
+	if mode.RefFrame != vp8common.LastFrame || mode.Mode != vp8common.ZeroMV || !mode.MBSkipCoeff {
+		t.Fatalf("inactive MB mode = %+v, want skipped LAST/ZEROMV", mode)
+	}
+	if mode.MV != (vp8enc.MotionVector{}) {
+		t.Fatalf("inactive MB MV = %+v, want zero", mode.MV)
+	}
+	if mode.SegmentID != 0 {
+		t.Fatalf("inactive MB SegmentID = %d, want 0", mode.SegmentID)
+	}
+	if !e.interFrameModes[inactiveIndex].MBSkipCoeff {
+		t.Fatalf("inactive MB MBSkipCoeff = false, want true")
+	}
+}
+
+func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 90, 170)
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	activeMap := make([]byte, rows*cols)
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	// Disable: subsequent inter encode should not force any MB skip.
+	if err := e.SetActiveMap(nil, 0, 0); err != nil {
+		t.Fatalf("nil SetActiveMap returned error: %v", err)
+	}
+	keyPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	interPacket := make([]byte, 8192)
+	if _, err := e.EncodeInto(interPacket, second, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	allSkipped := true
+	for i := range e.interFrameModes {
+		if !e.interFrameModes[i].MBSkipCoeff {
+			allSkipped = false
+			break
+		}
+	}
+	if allSkipped {
+		t.Fatalf("disabled active map still forced every MB to skip; want normal mode decision")
+	}
+}

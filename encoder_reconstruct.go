@@ -157,10 +157,26 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 		return ErrInvalidConfig
 	}
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
+	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
+	var lastRefForActiveMap *interAnalysisReference
+	if activeMapEnabled {
+		for ri := 0; ri < refCount; ri++ {
+			if refs[ri].Frame == vp8common.LastFrame {
+				lastRefForActiveMap = &refs[ri]
+				break
+			}
+		}
+	}
 	for row := 0; row < rows; row++ {
 		var leftTok vp8enc.TokenContextPlanes
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
+			if activeMapEnabled && lastRefForActiveMap != nil && e.activeMap[index] == 0 {
+				if !e.encodeInactiveInterMacroblock(row, col, index, lastRefForActiveMap.Img, modes, coeffs, &aboveTok[col], &leftTok) {
+					return ErrInvalidConfig
+				}
+				continue
+			}
 			segmentID, ok := interFrameAnalysisSegmentID(&modes[index], segmentation, preserveSegmentID)
 			if !ok {
 				return ErrInvalidConfig
@@ -270,6 +286,30 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	}
 	e.analysis.ExtendBorders()
 	return nil
+}
+
+// encodeInactiveInterMacroblock matches libvpx's active-map fast path: an
+// inactive macroblock skips mode decision and codes as ZEROMV from LAST with
+// MBSkipCoeff=1, no segment override, and no residual. See
+// vp8/encoder/pickinter.c evaluate_inter_mode and rdopt.c rd_pick_inter_mode
+// active_ptr branches.
+func (e *VP8Encoder) encodeInactiveInterMacroblock(row int, col int, index int, lastRef *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes) bool {
+	modes[index] = vp8enc.InterFrameMacroblockMode{
+		SegmentID:   0,
+		MBSkipCoeff: true,
+		RefFrame:    vp8common.LastFrame,
+		Mode:        vp8common.ZeroMV,
+		UVMode:      vp8common.DCPred,
+	}
+	clearMacroblockCoefficients(&coeffs[index])
+	convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+	is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+	convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, lastRef, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
+		return false
+	}
+	updateInterAnalysisTokenContext(above, left, is4x4, true, &coeffs[index])
+	return true
 }
 
 func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) {
