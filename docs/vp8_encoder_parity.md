@@ -311,7 +311,7 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] Audit quantization and coefficient optimization against libvpx.
   - govpx:
-    [`optimizeQuantizedBlock`](../encoder_reconstruct.go),
+    [`quantizeOptimizedBlock`](../encoder_reconstruct.go),
     [`internal/vp8/encoder/quant.go`](../internal/vp8/encoder/quant.go).
   - libvpx: `encodemb.c` and `vp8_quantize.c`.
   - Status: partial. Coefficient optimization now ports the libvpx
@@ -330,6 +330,8 @@ the anchor and look for the surrounding mismatch.
     `vp8_set_quantizer`: low-Q frames write and use `y2dc_delta_q = 4 - Q`,
     and screen-content frames above Q40 write and use clamped negative UV
     DC/AC deltas.
+  - Required/keep: libvpx Viterbi trellis coefficient optimization, including
+    `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
