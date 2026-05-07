@@ -139,10 +139,17 @@ the anchor and look for the surrounding mismatch.
     multiplier. Oversized frames at `active_worst_quality` now relax the active
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
-  - Missing: forced/auto key-frame recodes, entropy projected-size decisions,
-    full saved-coding-context restore coverage after failed attempts, and trace
-    coverage for GF/ARF zbin-over-quant cases once automatic ARF state is in
-    place.
+    The recode size-bounds comparison now subtracts
+    `vp8_estimate_entropy_savings` (ref-frame portion) from the
+    just-encoded size before deciding to recode, mirroring libvpx's
+    `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
+    via [`applyEntropySavingsToProjectedSize`](../encoder.go).
+  - Missing: forced/auto key-frame recodes, full saved-coding-context
+    restore coverage after failed attempts, the
+    coefficient-context portion of vp8_estimate_entropy_savings
+    (default_coef_context_savings / independent_coef_context_savings),
+    and trace coverage for GF/ARF zbin-over-quant cases once automatic
+    ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 

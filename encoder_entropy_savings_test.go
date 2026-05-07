@@ -3,6 +3,8 @@ package govpx
 import (
 	"testing"
 
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -82,6 +84,68 @@ func TestLibvpxRefFrameEntropySavingsBalancedDistribution(t *testing.T) {
 	want := (oldTotal - newTotal) / 256
 	if got != want {
 		t.Fatalf("entropy savings = %d, want %d (re-computed)", got, want)
+	}
+}
+
+// TestApplyEntropySavingsToProjectedSizeReducesRecodeInput pins the
+// libvpx contract `projected_frame_size -= vp8_estimate_entropy_savings`
+// before the recode size-bounds check. Construct an encoder where the
+// per-MB ref-frame distribution diverges sharply from the prior
+// probabilities so the savings are clearly positive, then verify the
+// adjusted recode size is strictly smaller than the raw size.
+func TestApplyEntropySavingsToProjectedSizeReducesRecodeInput(t *testing.T) {
+	const macroblocks = 16
+	modes := make([]vp8enc.InterFrameMacroblockMode, macroblocks)
+	for i := range modes {
+		// Mostly-LAST distribution.
+		modes[i].Mode = vp8common.ZeroMV
+		modes[i].RefFrame = vp8common.LastFrame
+	}
+	e := &VP8Encoder{
+		interFrameModes: modes,
+		// Prior probs that under-weight LAST (high prob_intra, low
+		// prob_last) so switching to the new distribution saves bits.
+		refProbIntra:  200,
+		refProbLast:   64,
+		refProbGolden: 128,
+	}
+	originalBytes := 1000
+	got := e.applyEntropySavingsToProjectedSize(originalBytes, false, macroblocks)
+	if got >= originalBytes {
+		t.Fatalf("adjusted size = %d, want < original %d (savings should reduce projected size)",
+			got, originalBytes)
+	}
+}
+
+// TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp pins libvpx's
+// `frame_type != KEY_FRAME` gate inside vp8_estimate_entropy_savings:
+// govpx returns the original size on key frames.
+func TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp(t *testing.T) {
+	const macroblocks = 16
+	modes := make([]vp8enc.InterFrameMacroblockMode, macroblocks)
+	for i := range modes {
+		modes[i].Mode = vp8common.ZeroMV
+		modes[i].RefFrame = vp8common.LastFrame
+	}
+	e := &VP8Encoder{
+		interFrameModes: modes,
+		refProbIntra:    200,
+		refProbLast:     64,
+		refProbGolden:   128,
+	}
+	got := e.applyEntropySavingsToProjectedSize(1000, true, macroblocks)
+	if got != 1000 {
+		t.Fatalf("KF entropy savings adjustment changed size: got %d, want 1000", got)
+	}
+}
+
+// TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal
+// pins the libvpx `if (sizeBytes <= 0 || macroblocks <= 0)` guard.
+func TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal(t *testing.T) {
+	e := &VP8Encoder{}
+	got := e.applyEntropySavingsToProjectedSize(1000, false, 0)
+	if got != 1000 {
+		t.Fatalf("zero macroblocks adjustment changed size: got %d, want 1000", got)
 	}
 }
 
