@@ -27,12 +27,22 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 45-55% complete. This is an engineering
-  estimate, not a measured percentage, because govpx still lacks the trace
-  oracle needed to count matching frame/MB decisions.
-- The largest remaining parity weight is in recode/rate control, full RD mode
-  decision, quant/token optimization, first/two-pass planning, ARF/ARNR, and
-  denoiser-driven mode re-evaluation.
+- Encoder decision parity: roughly 55-65% complete (point estimate ~60%),
+  weighted by libvpx LOC. This is an engineering estimate, not a measured
+  percentage, because govpx still lacks the libvpx-side trace comparator
+  needed to count matching frame/MB decisions; the govpx-side per-MB JSON
+  Lines harness is in place.
+- The largest single remaining parity weight is `firstpass.c` (~2500 LOC
+  equivalent unimplemented). Other heavy areas: automatic hidden-ARF
+  scheduling, motion-compensated ARNR temporal filter, full GF boost
+  tables and `kf_overspend_bits`/`gf_overspend_bits` rate-control
+  bookkeeping, error-resilient independent coefficient contexts, and the
+  libvpx-side oracle comparator.
+- If only three more things are fixed, they should be: (1) the libvpx-side
+  oracle comparator paired with the existing govpx trace, (2) a proper
+  `firstpass.c` port covering motion search, MV variance, simple_weight,
+  and the section accumulators, and (3) automatic hidden-ARF scheduling
+  plus motion-compensated ARNR.
 
 ## Acceptance Gates
 
