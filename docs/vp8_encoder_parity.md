@@ -92,7 +92,11 @@ the anchor and look for the surrounding mismatch.
   - Covered now (govpx side): per-frame row with `frame_index`, `frame_type`
     (key/inter), `q_index`, `base_q_index`, `loop_filter_level`,
     `refresh_last/golden/altref`, `sign_bias_golden/altref`,
-    `segmentation_enabled`, Y/U/V plane Adler32 reference checksums, and
+    `segmentation_enabled`, Y/U/V plane Adler32 reference checksums,
+    Adler32 digests over the post-update probability tables
+    (`coef_probs_adler`, `ymode_probs_adler`, `uv_mode_probs_adler`,
+    `mv_probs_adler`), the per-frame reference coding probabilities
+    (`prob_intra_coded`, `prob_last_coded`, `prob_gf_coded`), and
     `size_bytes`; per-MB row (inter frames only) with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
     `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, and improved-MV start fields.
@@ -130,13 +134,30 @@ the anchor and look for the surrounding mismatch.
     `kf_forced_quality`, or `size_recode`; govpx currently always
     reports `size_recode` because its recode loop does not yet model the
     libvpx alt-ref / forced-key-frame branches.
-  - Remaining: libvpx-side instrumentation in `pickinter.c` and
-    `rdopt.c` for residual decisions and probability state; per-frame
-    loop-filter delta details and segmentation tree probabilities; a
-    CI driver that runs both sides under `make verify-production` so
-    divergences gate merges; and tightening govpx's recode reason
-    classifier once the alt-ref / forced-key recode branches are in
-    place.
+  - Covered now (residual + probability state): per-MB residual decisions
+    are covered by the existing `mode`, `ref_frame`, `mv_row`, `mv_col`,
+    `skip`, `eob[0..24]`, and `eob_sum` fields, captured at the same
+    point libvpx commits the chosen mode (after `vp8_pick_inter_mode` /
+    `vp8_rd_pick_inter_mode` write into `mb->e_mbd.mode_info_context->mbmi`
+    and the macroblock has been tokenized). Frame-level probability state
+    is captured at the tail of `vp8_pack_bitstream` as four Adler32
+    digests over the post-update tables — `coef_probs_adler` over
+    `cm->fc.coef_probs[BLOCK_TYPES][COEF_BANDS][PREV_COEF_CONTEXTS][ENTROPY_NODES]`,
+    `ymode_probs_adler` over `cm->fc.ymode_prob`, `uv_mode_probs_adler`
+    over `cm->fc.uv_mode_prob`, and `mv_probs_adler` over the row+col
+    `cm->fc.mvc[0..1].prob[0..18]` arrays — plus the three reference
+    coding probabilities `prob_intra_coded`, `prob_last_coded`, and
+    `prob_gf_coded`. govpx mirrors each digest from `e.coefProbs`,
+    `e.modeProbs.YMode`, `e.modeProbs.UVMode`, and `e.modeProbs.MV` in
+    [`encoder_oracle_trace.go`](../encoder_oracle_trace.go) and feeds
+    the reference probs from `e.refProbIntra` / `e.refProbLast` /
+    `e.refProbGolden`.
+  - Remaining: per-frame segmentation tree probabilities (the per-MB
+    `segment_id` already lands in the row schema, but the frame-level
+    tree-probability bytes are not yet captured); a CI driver that runs
+    both sides under `make verify-production` so divergences gate
+    merges; and tightening govpx's recode reason classifier once the
+    alt-ref / forced-key recode branches are in place.
   - Done when comparable JSON/CSV rows expose frame state, rate-control state,
     per-MB mode decision, residual decision, probabilities, segmentation, loop
     filter, and reference updates.
@@ -153,14 +174,18 @@ the anchor and look for the surrounding mismatch.
     index, frame index, MB coordinates, field name, and both decoded
     values).
   - Remaining: a CI hook that fails on the first divergence, plus
-    libvpx-side coverage of the residual / probability / partition
-    fields once the govpx-side schema grows to include them. The
-    rate-control state and recode-reason coverage is in place via the
-    `rate` and `recode` rows emitted from
+    libvpx-side coverage of the partition / segmentation-tree fields
+    once the govpx-side schema grows to include them. The rate-control
+    state and recode-reason coverage is in place via the `rate` and
+    `recode` rows emitted from
     [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
     and the matching emitters in
     [`encoder_oracle_trace.go`](../encoder_oracle_trace.go); the
-    comparator in
+    residual decisions land in the per-MB row's mode/ref/mv/eob fields
+    and frame-level probability state lands in the per-frame row's
+    `coef_probs_adler`, `ymode_probs_adler`, `uv_mode_probs_adler`,
+    `mv_probs_adler`, `prob_intra_coded`, `prob_last_coded`, and
+    `prob_gf_coded` fields; the comparator in
     [`oracle_compare.go`](../internal/coracle/oracle_compare.go)
     surfaces field-level divergences for those rows generically.
   - Done when the comparator fails CI on the first divergent frame, MB, header,
