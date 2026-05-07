@@ -1060,6 +1060,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	thresholds := e.interModeRDThresholds(qIndex)
 	bestSet := false
 	bestScore := maxInt()
+	bestYRD := maxInt()
 	bestModeIndex := -1
 	best := interFrameModeDecision{
 		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
@@ -1086,7 +1087,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
-			mode, score, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestScore, aboveTok, leftTok, quant)
+			mode, score, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			if !ok {
 				continue
 			}
@@ -1095,6 +1096,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
+				bestYRD = score
 				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode}
 			} else {
@@ -1113,14 +1115,19 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		e.recordInterRDModeTest(modeIndex)
 		var mode vp8enc.InterFrameMacroblockMode
 		var score int
+		var yrd int
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
-			mode, score, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mode, score, yrd, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
 			if ok {
 				mode.SegmentID = segmentID
-				score, rdLoopSkip, ok = e.estimateInterResidualRDScoreWithReferenceRateAndSkip(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
+				acct, acctOK := e.estimateInterResidualRDAccounting(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
+				ok = acctOK
+				score = acct.rd
+				yrd = acct.yrd
+				rdLoopSkip = acct.rdLoopSkip
 			}
 		}
 		if !ok {
@@ -1130,6 +1137,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score
+			bestYRD = yrd
 			bestModeIndex = modeIndex
 			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}}
 		} else {
@@ -1151,15 +1159,16 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-	qIndex int, segmentID uint8,
+	qIndex int, segmentID uint8, bestYRD int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
-) (vp8enc.InterFrameMacroblockMode, int, bool, bool) {
+) (vp8enc.InterFrameMacroblockMode, int, int, bool, bool) {
 	signBias := defaultInterFrameSignBias()
 	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	bestSet := false
 	bestScore := maxInt()
+	bestPartitionYRD := maxInt()
 	var bestMode vp8enc.InterFrameMacroblockMode
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
 		mode, ok := selectInterFrameSplitMotionMode(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition)
@@ -1167,20 +1176,25 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 			continue
 		}
 		mode.SegmentID = segmentID
-		score, rdLoopSkip, ok := e.estimateInterResidualRDScoreWithReferenceRateAndSkip(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
+		acct, ok := e.estimateInterResidualRDAccounting(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
 		if !ok {
 			continue
 		}
-		if rdLoopSkip || !bestSet || score < bestScore {
+		if !acct.rdLoopSkip && acct.yrd >= bestYRD {
+			continue
+		}
+		score := acct.rd
+		if acct.rdLoopSkip || !bestSet || score < bestScore {
 			bestSet = true
 			bestScore = score
+			bestPartitionYRD = acct.yrd
 			bestMode = mode
 		}
-		if rdLoopSkip {
-			return bestMode, bestScore, true, true
+		if acct.rdLoopSkip {
+			return bestMode, bestScore, bestPartitionYRD, true, true
 		}
 	}
-	return bestMode, bestScore, false, bestSet
+	return bestMode, bestScore, bestPartitionYRD, false, bestSet
 }
 
 func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSlot int) int {
@@ -2437,8 +2451,27 @@ func (e *VP8Encoder) estimateInterResidualRDScoreWithReferenceRate(src vp8enc.So
 }
 
 func (e *VP8Encoder) estimateInterResidualRDScoreWithReferenceRateAndSkip(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (int, bool, bool) {
-	if ref == nil || mode == nil || quant == nil || segmentID >= vp8common.MaxMBSegments {
-		return 0, false, false
+	acct, ok := e.estimateInterResidualRDAccounting(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, refRate)
+	return acct.rd, acct.rdLoopSkip, ok
+}
+
+type interResidualRDAccounting struct {
+	rd           int
+	yrd          int
+	rate2        int
+	rateY        int
+	rateUV       int
+	distortion2  int
+	distortionUV int
+	otherCost    int
+	refCost      int
+	rdLoopSkip   bool
+	mbSkipCoeff  bool
+}
+
+func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (interResidualRDAccounting, bool) {
+	if e == nil || ref == nil || mode == nil || quant == nil || segmentID >= vp8common.MaxMBSegments {
+		return interResidualRDAccounting{}, false
 	}
 	zbinOverQuant := 0
 	if e != nil {
@@ -2450,32 +2483,55 @@ func (e *VP8Encoder) estimateInterResidualRDScoreWithReferenceRateAndSkip(src vp
 	predMode.MBSkipCoeff = true
 	var zeroTokens vp8dec.MacroblockTokens
 	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref, mbRow, mbCol, &predMode, &zeroTokens, &e.dequants[segmentID], &e.reconstructScratch) {
-		return 0, false, false
+		return interResidualRDAccounting{}, false
 	}
 
 	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
+	refCost := boolBitCost(e.refProbIntra, 1) + refRate
+	otherCost := e.interMacroblockSkipRate(false)
 	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	skipScore := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate+e.interMacroblockSkipRate(true), predictionDist)
 	if staticInterEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
-		return rdModeScoreWithZbin(qIndex, zbinOverQuant, 500, predictionDist), true, true
+		rd := rdModeScoreWithZbin(qIndex, zbinOverQuant, 500, predictionDist)
+		return interResidualRDAccounting{
+			rd:          rd,
+			yrd:         rd,
+			rate2:       500,
+			distortion2: predictionDist,
+			otherCost:   otherCost,
+			refCost:     refCost,
+			rdLoopSkip:  true,
+			mbSkipCoeff: true,
+		}, true
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
 	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
-	buildPredictedMacroblockCoefficients(&e.coefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(mode), is4x4, false, e.libvpxUseFastQuant(), false, &coeffs)
-	if macroblockCoefficientsEmpty(&coeffs, is4x4) {
-		return skipScore, false, true
+	stats := buildPredictedMacroblockCoefficientsRD(&e.coefProbs, src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(mode), is4x4, false, e.libvpxUseFastQuant(), false, &coeffs)
+	rateUV := stats.rateUV
+	rate2 := modeRate + otherCost + stats.rateY + rateUV
+	distortion2 := stats.distortionY + stats.distortionUV
+	mbSkipCoeff := stats.tteob == 0
+	if mbSkipCoeff {
+		rate2 -= stats.rateY + stats.rateUV
+		rateUV = 0
+		skipBackout := e.interMacroblockSkipRate(true) - e.interMacroblockSkipRate(false)
+		rate2 += skipBackout
+		otherCost += skipBackout
 	}
-
-	var tokens vp8dec.MacroblockTokens
-	convertMacroblockCoefficients(&coeffs, is4x4, &tokens)
-	decMode.MBSkipCoeff = false
-	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ref, mbRow, mbCol, &decMode, &tokens, &e.dequants[segmentID], &e.reconstructScratch) {
-		return 0, false, false
-	}
-	codedDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	tokenRate := macroblockCoefficientTokenRateWithContext(&e.coefProbs, is4x4, aboveTok, leftTok, &coeffs)
-	return rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate+e.interMacroblockSkipRate(false)+tokenRate, codedDist), false, true
+	rd := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate2, distortion2)
+	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate2-rateUV-otherCost-refCost, distortion2-stats.distortionUV)
+	return interResidualRDAccounting{
+		rd:           rd,
+		yrd:          yrd,
+		rate2:        rate2,
+		rateY:        stats.rateY,
+		rateUV:       rateUV,
+		distortion2:  distortion2,
+		distortionUV: stats.distortionUV,
+		otherCost:    otherCost,
+		refCost:      refCost,
+		mbSkipCoeff:  mbSkipCoeff,
+	}, true
 }
 
 func (e *VP8Encoder) estimateFastInterModeScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int) (int, bool) {
@@ -3931,9 +3987,22 @@ func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 	return sse - ((sum * sum) >> 8), sse
 }
 
+type predictedMacroblockRDStats struct {
+	rateY        int
+	rateUV       int
+	distortionY  int
+	distortionUV int
+	tteob        int
+}
+
 func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) {
-	if coefProbs == nil {
-		return
+	_ = buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs)
+}
+
+func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) predictedMacroblockRDStats {
+	var stats predictedMacroblockRDStats
+	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
+		return stats
 	}
 	var y2Input [16]int16
 	var y2Coeff [16]int16
@@ -3967,6 +4036,11 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 			ctx := int(yAbove[a] + yLeft[l])
 			eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
+			stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
+			stats.distortionY += transformBlockError(&dct, &dq)
+			if eob > 0 {
+				stats.tteob++
+			}
 			hasCoeffs := uint8(0)
 			if eob > 0 {
 				hasCoeffs = 1
@@ -3981,6 +4055,11 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 			ctx := int(yAbove[a] + yLeft[l])
 			eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
+			stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
+			stats.distortionY += transformBlockError(&dct, &dq)
+			if eob > 1 {
+				stats.tteob++
+			}
 			hasCoeffs := uint8(0)
 			if eob > 1 {
 				hasCoeffs = 1
@@ -3993,8 +4072,13 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 		eob := quantizeEncodedBlock(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
 		coeffs.SetBlockEOB(24, eob)
+		stats.rateY += coefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
+		y2Error := transformBlockError(&y2Coeff, &dq)
+		stats.distortionY = ((stats.distortionY << 2) + y2Error) >> 4
+		stats.tteob += eob
 	} else {
 		coeffs.SetBlockEOB(24, 0)
+		stats.distortionY >>= 2
 	}
 
 	uvWidth := (src.Width + 1) >> 1
@@ -4008,6 +4092,9 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
+		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
+		stats.distortionUV += transformBlockError(&dct, &dq)
+		stats.tteob += eob
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1
@@ -4021,6 +4108,9 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 		ctx = int(uvAbove[a] + uvLeft[l])
 		eob = quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
+		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
+		stats.distortionUV += transformBlockError(&dct, &dq)
+		stats.tteob += eob
 		hasCoeffs = 0
 		if eob > 0 {
 			hasCoeffs = 1
@@ -4028,6 +4118,8 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
 	}
+	stats.distortionUV >>= 2
+	return stats
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {

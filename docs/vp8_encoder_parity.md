@@ -248,11 +248,14 @@ the anchor and look for the surrounding mismatch.
     for completed searches; hex search remains on its libvpx SAD return path.
     Encoder near/best MV helpers, mode validation, mode-probability contexts,
     packet writing, and MV-probability adaptation now apply libvpx-style
-    reference sign bias before predictor dedupe/counting.
+    reference sign bias before predictor dedupe/counting. Inter residual
+    scoring now uses libvpx-shaped transform-domain accounting: `rate2`,
+    default no-skip `other_cost`, skip backout when `tteob == 0`,
+    split Y/UV token rates and distortions, and Y-only `yrd` for intra4x4 /
+    SplitMV pruning.
   - Missing: high-level sign-bias policy/reference switching, temporal-layer
     threshold tweaks, full SplitMV label-level segmentation search with
-    `THR_NEW1/2/3` gating, exact RD accounting including `other_cost` / Y-RD
-    side accounting, active-map skip short-circuiting, and recode-loop
+    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
     interactions. Active-map behavior is tracked in the dedicated active-map
     checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
