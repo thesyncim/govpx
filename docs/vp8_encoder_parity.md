@@ -699,6 +699,18 @@ the anchor and look for the surrounding mismatch.
     grid, libvpx realtime gate, and low-level sign-biased near/best MV
     predictor helpers are present, and high-level predictor search now uses
     the current frame's sign-bias map plus the saved previous-frame slot bias.
+    The high-level sign-bias policy / reference-switching wiring matches
+    libvpx: per-reference NEWMV invocations of `improvedInterFrameSearchStart`
+    (the `vp8_mv_pred` analogue) feed `interFrameSignBias()` — which only ever
+    flips `ALTREF_FRAME` based on `sourceAltRefActive`, mirroring
+    `cpi->common.ref_frame_sign_bias[ALTREF_FRAME]` in `onyx_if.c` — through
+    `biasImprovedInterFrameMVSlots`, which applies the libvpx `mv_bias` flip
+    to every current-frame and previous-frame near-MV slot whose stored ref
+    sign bias disagrees with the target ref before SAD-ranked slot selection
+    and the median fallback. The reference iteration order (LAST → GOLDEN →
+    ALTREF, gated on `interReferenceAvailability`) flowing through
+    `libvpxInterReferenceSearchOrder` mirrors `get_reference_search_order`'s
+    compaction of `cpi->ref_frame_flags`.
     Border-mode-info indexing now mirrors
     libvpx's calloc-zeroed sentinel rows/columns: nil current-frame
     above/left/above-left and out-of-range previous-frame
@@ -714,7 +726,10 @@ the anchor and look for the surrounding mismatch.
     a panning corpus in addition to the token-partition motion case. A new
     9-position 3x3-grid regression test pins border behavior at every corner,
     edge, and interior macroblock for both the current-frame and last-frame
-    neighbor tables.
+    neighbor tables, and
+    `TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias`
+    pins the per-reference sign-bias flip on a 3x3 grid for both
+    LAST↔ALTREF directions.
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
 

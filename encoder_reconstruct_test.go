@@ -4131,3 +4131,93 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 		t.Fatalf("YRD = %d, RD = %d, want YRD < RD when UV rate is non-zero", decision.YRD, decision.RD)
 	}
 }
+
+// TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias verifies
+// the high-level reference-switching sign-bias policy: when libvpx walks LAST,
+// GOLDEN, and ALTREF as candidate references in vp8_pick_inter_mode /
+// vp8_rd_pick_inter_mode, vp8_mv_pred biases each near-MV with mv_bias() based
+// on the neighbour's stored ref frame versus the currently tested ref frame.
+// In libvpx only ALTREF ever flips its sign bias (driven by source_alt_ref_active
+// in onyx_if.c update_alt_ref_frame_stats); LAST and GOLDEN remain at 0. The
+// expected behaviour is that re-running the predictor for the same neighbour
+// table with target=LAST vs target=ALTREF produces opposite-signed predicted
+// MVs when the neighbour ref disagrees with the target on the sign bias map.
+func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *testing.T) {
+	const mbRows, mbCols = 3, 3
+	src := testImage(mbCols*16, mbRows*16)
+	fillImage(src, 96, 90, 170)
+	analysis := testVP8Frame(t, mbCols*16, mbRows*16, 96, 90, 170)
+	last := testVP8Frame(t, mbCols*16, mbRows*16, 96, 90, 170)
+	// Populate the previous-frame mode grid with the same LAST-ref MV in every
+	// MB so all five lf-frame slots land on LAST sign-bias=false. Two cells
+	// (mbRow,mbCol-1 = 1,0 and mbRow-1,mbCol-1 = 0,0) are intra to mirror an
+	// arbitrary mix; the remaining cells stamp a positive col MV.
+	modes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
+	bias := make([]bool, len(modes))
+	for r := 0; r < mbRows; r++ {
+		for c := 0; c < mbCols; c++ {
+			modes[r*mbCols+c] = vp8enc.InterFrameMacroblockMode{
+				RefFrame: vp8common.LastFrame,
+				Mode:     vp8common.NewMV,
+				MV:       vp8enc.MotionVector{Col: 24},
+			}
+		}
+	}
+	e := &VP8Encoder{
+		analysis:                 analysis,
+		lastRef:                  last,
+		lastFrameInterModes:      modes,
+		lastFrameInterModeBias:   bias,
+		lastFrameInterModesValid: true,
+		sourceAltRefActive:       true, // sign_bias[ALTREF] = 1, sign_bias[LAST] = 0
+	}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
+	left := above
+	aboveLeft := above
+	search := interAnalysisSearchConfig{improvedMVPrediction: true}
+
+	// Target=LAST: target sign-bias matches the LAST-ref neighbours, so the
+	// predicted MV is taken verbatim from the first neighbour-ranked LAST slot.
+	startLast := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
+	if !startLast.ok {
+		t.Fatalf("LAST predictor returned ok=false")
+	}
+	if startLast.mv != (vp8enc.MotionVector{Col: 24}) {
+		t.Fatalf("LAST predictor MV = %+v, want {Col: 24} (no sign flip when sign_bias[LAST] == sign_bias[LAST])", startLast.mv)
+	}
+
+	// Target=ALTREF: every neighbour holds a LAST ref with sign-bias=0, but
+	// target ALTREF has sign-bias=1, so libvpx's mv_bias flips every near-MV.
+	// No neighbour has refFrame==ALTREF, so improvedInterFrameSearchStart falls
+	// through to the median-of-flipped-MVs fallback with sr=0 — the libvpx
+	// "sr=0 lets caller pick search range" branch.
+	startAltRef := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
+	if !startAltRef.ok {
+		t.Fatalf("ALTREF predictor returned ok=false")
+	}
+	if startAltRef.mv != (vp8enc.MotionVector{Col: -24}) {
+		t.Fatalf("ALTREF predictor MV = %+v, want {Col: -24} (sign flipped because sign_bias[ALTREF] != sign_bias[LAST])", startAltRef.mv)
+	}
+	if startAltRef.sr != 0 {
+		t.Fatalf("ALTREF predictor sr = %d, want 0 (median fallback when no neighbour matches target ref)", startAltRef.sr)
+	}
+
+	// Symmetry check: a neighbour table populated with ALTREF refs collapses
+	// the bias decision the other way — predicting ALTREF returns the raw MV,
+	// predicting LAST flips it.
+	above.RefFrame = vp8common.AltRefFrame
+	left.RefFrame = vp8common.AltRefFrame
+	aboveLeft.RefFrame = vp8common.AltRefFrame
+	for i := range modes {
+		modes[i].RefFrame = vp8common.AltRefFrame
+		bias[i] = true
+	}
+	startAltRef2 := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
+	if !startAltRef2.ok || startAltRef2.mv != (vp8enc.MotionVector{Col: 24}) {
+		t.Fatalf("ALTREF predictor with ALTREF neighbours = %+v, want {Col: 24} (matching sign_bias must not flip)", startAltRef2.mv)
+	}
+	startLast2 := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search)
+	if !startLast2.ok || startLast2.mv != (vp8enc.MotionVector{Col: -24}) {
+		t.Fatalf("LAST predictor with ALTREF neighbours = %+v, want {Col: -24} (sign flipped because sign_bias[LAST] != sign_bias[ALTREF])", startLast2.mv)
+	}
+}
