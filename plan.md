@@ -121,7 +121,8 @@ Primary references:
   ref-frame and default coefficient-context entropy savings before deciding
   whether to retry. Remaining current-prob work is mostly broader libvpx
   mode-cost caching, exact per-frame mode-table setup, and error-resilient
-  independent coefficient contexts.
+  independent coefficient contexts; zero-reference shortcut frames now feed
+  libvpx-style ref-count probability conversion for the next frame.
 - Encoder oracle validation now drives libvpx with the case's configured
   deadline and `CpuUsed`, so realtime quality gaps are measured against the
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.

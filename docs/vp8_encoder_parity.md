@@ -910,6 +910,11 @@ the anchor and look for the surrounding mismatch.
     now driven by both the post-frame fresh-from-counts update
     (`updateRefFrameProbsFromAttempt`, the equivalent of libvpx's
     `vp8_convert_rfct_to_prob`) and the pre-frame heuristic bump above.
+    The conversion follows libvpx's gate: normal single-layer inter frames,
+    including zero-reference shortcuts, convert ref counts, while single-layer
+    GF/ARF refresh frames keep the prior probabilities for the next frame's
+    refresh heuristic; temporal multi-layer frames convert even across GF/ARF
+    refreshes.
     Tests:
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh`,
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden`,
@@ -925,12 +930,16 @@ the anchor and look for the surrounding mismatch.
     [`encoder_entropy_savings.go`](../encoder_entropy_savings.go),
     matching the libvpx `cost_zero(p)/cost_one(p) = ProbCost[p]/[255-p]`
     formula and the new_intra=1 floor / new_last/new_garf=128 fallbacks
-    for empty distributions.
-  - Missing: wiring `libvpxRefFrameEntropySavings` (and the coefficient
-    portion of `vp8_estimate_entropy_savings`) into the recode-loop
-    `projected_frame_size` adjustment, key-frame forced coef-prob
-    updates, and exact zero-reference/alt-ref skip-probability edge
-    cases.
+    for empty distributions. Default coefficient-context savings reuse
+    the coefficient branch-count/probability update walk and are wired
+    into the recode-loop `projected_frame_size` adjustment. Independent
+    coefficient-context handling for error-resilient partitions is also
+    in place via `BuildInterCoefficientProbabilityUpdatesIndependent` /
+    `BuildKeyFrameCoefficientProbabilityUpdatesIndependent` (see
+    `internal/vp8/encoder/probability.go`), gated on
+    `EncoderOptions.ErrorResilient`.
+  - Missing: key-frame forced coef-prob updates, and exact alt-ref
+    skip-probability edge cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.

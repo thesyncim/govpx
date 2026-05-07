@@ -5005,6 +5005,70 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	}
 }
 
+func TestUpdateRefFrameProbsFromZeroReferenceMirrorsLibvpxConvertRFCT(t *testing.T) {
+	modes := make([]vp8enc.InterFrameMacroblockMode, 4)
+	fillZeroInterFrameModes(modes, vp8common.GoldenFrame)
+	e := &VP8Encoder{
+		interFrameModes: modes,
+		refProbIntra:    63,
+		refProbLast:     128,
+		refProbGolden:   128,
+	}
+
+	e.updateRefFrameProbsFromAttempt(interFrameEncodeAttempt{ZeroReference: true})
+
+	if e.refProbIntra != 1 || e.refProbLast != 1 || e.refProbGolden != 255 {
+		t.Fatalf("zero-reference ref probs = %d/%d/%d, want libvpx RFCT 1/1/255",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
+func TestUpdateRefFrameProbsFromAttemptSkipsSingleLayerGFAndARFRefresh(t *testing.T) {
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+	}
+	e := &VP8Encoder{
+		interFrameModes: modes,
+		refProbIntra:    63,
+		refProbLast:     99,
+		refProbGolden:   77,
+	}
+
+	e.updateRefFrameProbsFromAttempt(interFrameEncodeAttempt{Config: vp8enc.InterFrameStateConfig{RefreshGolden: true}})
+	if e.refProbIntra != 63 || e.refProbLast != 99 || e.refProbGolden != 77 {
+		t.Fatalf("single-layer GF refresh converted refs = %d/%d/%d, want unchanged 63/99/77",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+
+	e.updateRefFrameProbsFromAttempt(interFrameEncodeAttempt{Config: vp8enc.InterFrameStateConfig{RefreshAltRef: true}})
+	if e.refProbIntra != 63 || e.refProbLast != 99 || e.refProbGolden != 77 {
+		t.Fatalf("single-layer ARF refresh converted refs = %d/%d/%d, want unchanged 63/99/77",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
+func TestUpdateRefFrameProbsFromAttemptConvertsTemporalLayerRefresh(t *testing.T) {
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+	}
+	e := &VP8Encoder{
+		opts:            EncoderOptions{TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}},
+		interFrameModes: modes,
+		refProbIntra:    63,
+		refProbLast:     99,
+		refProbGolden:   77,
+	}
+
+	e.updateRefFrameProbsFromAttempt(interFrameEncodeAttempt{Config: vp8enc.InterFrameStateConfig{RefreshGolden: true}})
+
+	if e.refProbIntra != 1 || e.refProbLast != 255 || e.refProbGolden != 128 {
+		t.Fatalf("temporal GF refresh ref probs = %d/%d/%d, want libvpx RFCT 1/255/128",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
 // TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh verifies the
 // alt-ref-refresh branch of vp8/encoder/onyx_if.c update_rd_ref_frame_probs:
 // prob_intra is bumped by 40 (clamped to 255), prob_last forced to 200, and
