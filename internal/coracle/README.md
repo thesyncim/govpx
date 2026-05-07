@@ -26,8 +26,9 @@ internal/coracle/build/govpx-vpx-oracle decode input.ivf
 ```
 
 Use `decode-postproc` to enable libvpx VP8 deblock/demacroblock/MFQE
-postprocessing, and `decode-error-concealment` to initialize libvpx with VP8
-error concealment.
+postprocessing, `decode-postproc-noise` for ADDNOISE only,
+`decode-postproc-all-noise` for deblock/demacroblock/ADDNOISE/MFQE, and
+`decode-error-concealment` to initialize libvpx with VP8 error concealment.
 
 Output is newline-delimited JSON:
 

@@ -85,8 +85,8 @@ High-priority gaps:
 
 - Full error concealment for corrupt/truncated partitions; decoder API now has
   a libvpx-style `ErrorConcealment` option alias for the existing concealment path.
-- Remaining postprocess tuning/corpus edges after granular deblock,
-  demacroblock, add-noise, and MFQE controls.
+- Remaining postprocess corpus edges beyond the current oracle-backed
+  deblock/demacroblock, ADDNOISE, and MFQE smoke coverage.
 - Multi-token-partition decode edge cases.
 - Remaining profile/segmentation/loop-filter/header feature edges that still
   return `ErrUnsupportedFeature`.

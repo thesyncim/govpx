@@ -224,6 +224,30 @@ func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "profile3 postprocess Decode", got, want)
 }
 
+func TestOracleLibvpxPostProcessNoiseMatchesDecoder(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc-noise", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 4})
+	assertFrameChecksumsEqual(t, "postprocess addnoise Decode", got, want)
+}
+
+func TestOracleLibvpxPostProcessLegacyNoiseMatchesDecoder(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := mustDecodeHex(t, libvpxEncodedSmokeIVFHex)
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-postproc-all-noise", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcess: true, PostProcessNoiseLevel: 4})
+	assertFrameChecksumsEqual(t, "legacy postprocess addnoise Decode", got, want)
+}
+
 func TestOracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")

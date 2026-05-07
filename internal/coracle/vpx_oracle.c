@@ -368,7 +368,7 @@ static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cf
 }
 
 static void usage(const char *argv0) {
-	fprintf(stderr, "usage: %s decode|decode-postproc|decode-error-concealment input.ivf\n", argv0);
+	fprintf(stderr, "usage: %s decode|decode-postproc|decode-postproc-noise|decode-postproc-all-noise|decode-error-concealment input.ivf\n", argv0);
 }
 
 int main(int argc, char **argv) {
@@ -380,6 +380,16 @@ int main(int argc, char **argv) {
 	}
 	if (argc == 3 && strcmp(argv[1], "decode-postproc") == 0) {
 		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };
+		return decode_ivf(argv[2], VPX_CODEC_USE_POSTPROC, &postproc);
+	}
+	if (argc == 3 && strcmp(argv[1], "decode-postproc-noise") == 0) {
+		vp8_postproc_cfg_t postproc = { VP8_ADDNOISE, 0, 4 };
+		srand(1);
+		return decode_ivf(argv[2], VPX_CODEC_USE_POSTPROC, &postproc);
+	}
+	if (argc == 3 && strcmp(argv[1], "decode-postproc-all-noise") == 0) {
+		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_ADDNOISE | VP8_MFQE, 4, 4 };
+		srand(1);
 		return decode_ivf(argv[2], VPX_CODEC_USE_POSTPROC, &postproc);
 	}
 	if (argc == 3 && strcmp(argv[1], "decode-error-concealment") == 0) {

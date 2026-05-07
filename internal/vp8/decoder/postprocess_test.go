@@ -83,6 +83,36 @@ func TestApplyPostProcessAllocatesZero(t *testing.T) {
 	}
 }
 
+func TestPostProcessRandMatchesLibcSequences(t *testing.T) {
+	tests := []struct {
+		name   string
+		flavor postProcessRandFlavor
+		want   []int
+	}{
+		{
+			name:   "glibc",
+			flavor: postProcessRandFlavorGlibc,
+			want:   []int{1804289383, 846930886, 1681692777, 1714636915, 1957747793, 424238335},
+		},
+		{
+			name:   "darwin",
+			flavor: postProcessRandFlavorMinStd,
+			want:   []int{16807, 282475249, 1622650073, 984943658, 1144108930, 470211272},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var rand postProcessRand
+			rand.seed(postProcessNoiseSeed, tc.flavor)
+			for i, want := range tc.want {
+				if got := rand.next(); got != want {
+					t.Fatalf("next[%d] = %d, want %d", i, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyPostProcessWithOptionsAddsDeterministicLumaNoise(t *testing.T) {
 	src := newPostProcessFrame(t, 32, 16)
 	fillPostProcessPattern(&src.Img)

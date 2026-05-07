@@ -3,6 +3,7 @@ package decoder
 import (
 	"errors"
 	"math"
+	"runtime"
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
@@ -62,8 +63,8 @@ func (s *PostProcessState) EnsureNoise(width int) {
 		s.noiseWidth = width
 		s.noiseReady = false
 	}
-	if s.rand.state == 0 {
-		s.rand.state = postProcessNoiseSeed
+	if !s.rand.seeded {
+		s.rand.seed(postProcessNoiseSeed, defaultPostProcessRandFlavor())
 	}
 }
 
@@ -84,18 +85,124 @@ func (s *PostProcessState) Reset() {
 	s.lastNoise = 0
 	s.lastBaseQIndex = 0
 	s.clamp = 0
-	s.rand.state = postProcessNoiseSeed
+	s.rand.seed(postProcessNoiseSeed, defaultPostProcessRandFlavor())
 	s.mfqeScratch.Reset()
 }
 
 type postProcessRand struct {
-	state uint32
+	flavor     postProcessRandFlavor
+	seeded     bool
+	state      uint32
+	glibcState [31]int32
+	glibcF     int
+	glibcR     int
 }
 
 func (r *postProcessRand) next() int {
-	if r.state == 0 {
-		r.state = postProcessNoiseSeed
+	if !r.seeded {
+		r.seed(postProcessNoiseSeed, defaultPostProcessRandFlavor())
 	}
+	switch r.flavor {
+	case postProcessRandFlavorGlibc:
+		return r.nextGlibc()
+	case postProcessRandFlavorMinStd:
+		return r.nextMinStd()
+	default:
+		return r.nextANSI()
+	}
+}
+
+type postProcessRandFlavor uint8
+
+const (
+	postProcessRandFlavorANSI postProcessRandFlavor = iota
+	postProcessRandFlavorGlibc
+	postProcessRandFlavorMinStd
+)
+
+// libvpx ADDNOISE uses libc rand(), so checksum parity follows the libc used
+// by the oracle build rather than a VP8-specified random stream.
+func defaultPostProcessRandFlavor() postProcessRandFlavor {
+	switch runtime.GOOS {
+	case "linux":
+		return postProcessRandFlavorGlibc
+	case "darwin", "ios":
+		return postProcessRandFlavorMinStd
+	default:
+		return postProcessRandFlavorANSI
+	}
+}
+
+func (r *postProcessRand) seed(seed int32, flavor postProcessRandFlavor) {
+	if seed == 0 {
+		seed = postProcessNoiseSeed
+	}
+	r.flavor = flavor
+	r.seeded = true
+	r.state = uint32(seed)
+	for i := range r.glibcState {
+		r.glibcState[i] = 0
+	}
+	r.glibcF = 0
+	r.glibcR = 0
+	if flavor == postProcessRandFlavorGlibc {
+		r.seedGlibc(seed)
+	}
+}
+
+func (r *postProcessRand) seedGlibc(seed int32) {
+	r.glibcState[0] = seed
+	word := int64(seed)
+	for i := 1; i < len(r.glibcState); i++ {
+		hi := word / 127773
+		lo := word % 127773
+		word = 16807*lo - 2836*hi
+		if word < 0 {
+			word += 2147483647
+		}
+		r.glibcState[i] = int32(word)
+	}
+	r.glibcF = 3
+	r.glibcR = 0
+	for i := 0; i < 10*len(r.glibcState); i++ {
+		r.nextGlibc()
+	}
+}
+
+func (r *postProcessRand) nextGlibc() int {
+	r.glibcState[r.glibcF] += r.glibcState[r.glibcR]
+	value := int(uint32(r.glibcState[r.glibcF]) >> 1)
+	r.glibcF++
+	if r.glibcF == len(r.glibcState) {
+		r.glibcF = 0
+	}
+	r.glibcR++
+	if r.glibcR == len(r.glibcState) {
+		r.glibcR = 0
+	}
+	return value
+}
+
+func (r *postProcessRand) nextMinStd() int {
+	const (
+		a = 16807
+		m = 2147483647
+		q = 127773
+		p = 2836
+	)
+	state := int64(r.state)
+	if state <= 0 || state >= m {
+		state = postProcessNoiseSeed
+	}
+	state = a*(state%q) - p*(state/q)
+	if state <= 0 {
+		state += m
+	}
+	r.state = uint32(state)
+	return int(r.state)
+}
+
+func (r *postProcessRand) nextANSI() int {
 	r.state = r.state*1103515245 + 12345
 	return int((r.state >> 16) & 0x7fff)
 }
