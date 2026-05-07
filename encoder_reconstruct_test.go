@@ -121,6 +121,29 @@ func TestInterFrameImprovedMVPredictionGateMirrorsLibvpxQualities(t *testing.T) 
 	}
 }
 
+func TestLibvpxOptimizeCoefficientsGateMirrorsSpeedFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality optimizes", deadline: DeadlineBestQuality, cpuUsed: 15, want: true},
+		{name: "good speed zero optimizes", deadline: DeadlineGoodQuality, cpuUsed: 0, want: true},
+		{name: "good speed one disables", deadline: DeadlineGoodQuality, cpuUsed: 1, want: false},
+		{name: "realtime speed zero disables", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
+		{name: "realtime speed eight disables", deadline: DeadlineRealtime, cpuUsed: 8, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			if got := e.libvpxOptimizeCoefficients(); got != tt.want {
+				t.Fatalf("optimize coefficients = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInterAnalysisSplitPartitionOrderMirrorsLibvpxCompressorSpeed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1718,6 +1741,27 @@ func TestQuantizeOptimizedBlockKeepsDequantizedCoefficient(t *testing.T) {
 
 	if eob != 2 || qcoeff[rc] != 1 || dqcoeff[rc] != 100 {
 		t.Fatalf("optimized eob/q/dq = %d/%d/%d, want coefficient kept and dequantized", eob, qcoeff[rc], dqcoeff[rc])
+	}
+}
+
+func TestQuantizeEncodedBlockHonorsOptimizeGate(t *testing.T) {
+	quant := testRegularBlockQuant(127, 10)
+	var coeff [16]int16
+	var optimizedQ [16]int16
+	var optimizedDQ [16]int16
+	var plainQ [16]int16
+	var plainDQ [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	coeff[rc] = 11
+
+	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
+	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, &coeff, &quant, &plainQ, &plainDQ)
+
+	if optimizedEOB != 1 || optimizedQ[rc] != 0 || optimizedDQ[rc] != 0 {
+		t.Fatalf("optimized encoding eob/q/dq = %d/%d/%d, want dropped coefficient", optimizedEOB, optimizedQ[rc], optimizedDQ[rc])
+	}
+	if plainEOB != 2 || plainQ[rc] != 1 || plainDQ[rc] != 10 {
+		t.Fatalf("plain encoding eob/q/dq = %d/%d/%d, want unoptimized quantized coefficient", plainEOB, plainQ[rc], plainDQ[rc])
 	}
 }
 
