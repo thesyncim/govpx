@@ -229,7 +229,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if !modes[index].MBSkipCoeff {
 					codedDist := macroblockImageSSE(src, &e.analysis.Img, row, col)
 					tokenRate := macroblockCoefficientTokenRateWithContext(&vp8tables.DefaultCoefProbs, is4x4, &aboveTok[col], &leftTok, &coeffs[index])
-					if shouldSkipInterResidual(segmentQIndex, tokenRate, predictionDist, codedDist) {
+					if e.shouldSkipInterResidual(segmentQIndex, tokenRate, predictionDist, codedDist) {
 						clearMacroblockCoefficients(&coeffs[index])
 						modes[index].MBSkipCoeff = true
 						convertInterFrameMode(&modes[index], &e.reconstructModes[index])
@@ -1351,7 +1351,7 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 
 	modeRate := e.interMotionModeRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	skipScore := rdModeScore(qIndex, modeRate+interMacroblockSkipRate(true), predictionDist)
+	skipScore := rdModeScore(qIndex, modeRate+e.interMacroblockSkipRate(true), predictionDist)
 	if staticInterEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
 		return skipScore, true
 	}
@@ -1371,10 +1371,10 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 	}
 	codedDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
 	tokenRate := macroblockCoefficientTokenRateWithContext(&vp8tables.DefaultCoefProbs, is4x4, aboveTok, leftTok, &coeffs)
-	if shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist) {
+	if e.shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist) {
 		return skipScore, true
 	}
-	return rdModeScore(qIndex, modeRate+interMacroblockSkipRate(false)+tokenRate, codedDist), true
+	return rdModeScore(qIndex, modeRate+e.interMacroblockSkipRate(false)+tokenRate, codedDist), true
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
@@ -1977,17 +1977,31 @@ func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8
 }
 
 func interMacroblockSkipRate(skip bool) int {
-	if skip {
-		return boolBitCost(128, 1)
+	return interMacroblockSkipRateWithProb(128, skip)
+}
+
+func interMacroblockSkipRateWithProb(prob uint8, skip bool) int {
+	if prob == 0 {
+		prob = 128
 	}
-	return boolBitCost(128, 0)
+	if skip {
+		return boolBitCost(prob, 1)
+	}
+	return boolBitCost(prob, 0)
+}
+
+func (e *VP8Encoder) interMacroblockSkipRate(skip bool) int {
+	if e == nil {
+		return interMacroblockSkipRate(skip)
+	}
+	return interMacroblockSkipRateWithProb(e.probSkipFalse, skip)
 }
 
 // interIntraMacroblockModeRate models libvpx vp8_calc_ref_frame_costs for the
 // intra-coded ref-frame branch: skip-bit + intra/inter selector with the
 // previous-frame prob_intra_coded.
 func (e *VP8Encoder) interIntraMacroblockModeRate() int {
-	return interMacroblockSkipRate(false) + boolBitCost(e.refProbIntra, 0)
+	return e.interMacroblockSkipRate(false) + boolBitCost(e.refProbIntra, 0)
 }
 
 func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) int {
@@ -2507,11 +2521,22 @@ func clearMacroblockCoefficients(coeffs *vp8enc.MacroblockCoefficients) {
 }
 
 func shouldSkipInterResidual(qIndex int, tokenRate int, predictionDist int, codedDist int) bool {
-	if tokenRate < 0 || predictionDist < 0 || codedDist < 0 {
+	return shouldSkipInterResidualWithRates(qIndex, 0, tokenRate, predictionDist, codedDist)
+}
+
+func (e *VP8Encoder) shouldSkipInterResidual(qIndex int, tokenRate int, predictionDist int, codedDist int) bool {
+	if e == nil {
+		return shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist)
+	}
+	return shouldSkipInterResidualWithRates(qIndex, e.interMacroblockSkipRate(true), e.interMacroblockSkipRate(false)+tokenRate, predictionDist, codedDist)
+}
+
+func shouldSkipInterResidualWithRates(qIndex int, skipRate int, codedRate int, predictionDist int, codedDist int) bool {
+	if skipRate < 0 || codedRate < 0 || predictionDist < 0 || codedDist < 0 {
 		return false
 	}
-	skipCost := rdModeScore(qIndex, 0, predictionDist)
-	codedCost := rdModeScore(qIndex, tokenRate, codedDist)
+	skipCost := rdModeScore(qIndex, skipRate, predictionDist)
+	codedCost := rdModeScore(qIndex, codedRate, codedDist)
 	return skipCost <= codedCost
 }
 

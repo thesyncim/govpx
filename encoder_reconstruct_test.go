@@ -779,6 +779,19 @@ func TestShouldSkipInterResidualUsesRDTokenCost(t *testing.T) {
 	}
 }
 
+func TestShouldSkipInterResidualUsesLiveSkipProbability(t *testing.T) {
+	e := &VP8Encoder{probSkipFalse: 200}
+	qIndex := 40
+	tokenRate := 512
+	predictionDist := 100
+	codedDist := 80
+	want := rdModeScore(qIndex, boolBitCost(200, 1), predictionDist) <=
+		rdModeScore(qIndex, boolBitCost(200, 0)+tokenRate, codedDist)
+	if got := e.shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist); got != want {
+		t.Fatalf("skip decision = %t, want live-prob RD comparison %t", got, want)
+	}
+}
+
 func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 	tests := []struct {
 		qIndex int
@@ -875,7 +888,7 @@ func TestInterPredictionModeRateMirrorsWriterBranches(t *testing.T) {
 }
 
 func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
-	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128}
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128, probSkipFalse: 200}
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
 	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
@@ -893,7 +906,13 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	if got := interMacroblockSkipRate(true); got != boolBitCost(128, 1) {
 		t.Fatalf("skipped rate = %d, want prob-128 true cost", got)
 	}
-	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(128, 0)+boolBitCost(63, 0); got != want {
+	if got := e.interMacroblockSkipRate(false); got != boolBitCost(200, 0) {
+		t.Fatalf("live coded skip rate = %d, want prob-200 false cost", got)
+	}
+	if got := e.interMacroblockSkipRate(true); got != boolBitCost(200, 1) {
+		t.Fatalf("live skipped rate = %d, want prob-200 true cost", got)
+	}
+	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(200, 0)+boolBitCost(63, 0); got != want {
 		t.Fatalf("inter-intra mode rate = %d, want skip plus intra-reference rate %d", got, want)
 	}
 }

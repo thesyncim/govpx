@@ -198,6 +198,13 @@ type VP8Encoder struct {
 	refProbIntra  uint8
 	refProbLast   uint8
 	refProbGolden uint8
+	// libvpx also carries a skip-false probability for inter RD costing. The
+	// packet writer adapts the final value from this frame's skip counts; mode
+	// decision uses the previous refreshed reference's value, clamped away from
+	// the extremes.
+	probSkipFalse      uint8
+	lastSkipFalseProbs [3]uint8
+	baseSkipFalseProbs [vp8common.QIndexRange]uint8
 
 	lookahead []lookaheadEntry
 
@@ -274,12 +281,14 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
-		reconstructModes:  make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		reconstructTokens: make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		coefProbs:         vp8tables.DefaultCoefProbs,
-		refProbIntra:      63,
-		refProbLast:       128,
-		refProbGolden:     128,
+		reconstructModes:   make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		reconstructTokens:  make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		coefProbs:          vp8tables.DefaultCoefProbs,
+		refProbIntra:       63,
+		refProbLast:        128,
+		refProbGolden:      128,
+		probSkipFalse:      128,
+		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
 	}
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
@@ -623,6 +632,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if flags&EncodeForceAltRefFrame != 0 {
 		cfg.RefreshAltRef = true
 	}
+	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef)
+	e.probSkipFalse = cfg.ProbSkipFalse
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
 		segmentation = e.cyclicRefreshSegmentationConfig(cfg.RefreshGolden)
@@ -637,6 +648,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 				return interFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 			fillZeroInterFrameModes(e.interFrameModes[:required], refFrame)
+			cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 			n, err := vp8enc.WriteZeroReferenceInterFrame(dst, e.opts.Width, e.opts.Height, cfg, refFrame)
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
@@ -669,6 +681,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
 		cfg.Segmentation = segmentation
 	}
+	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 	n, frameCoefProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.MV)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
@@ -687,6 +700,7 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
+	e.commitInterFrameSkipFalseProb(attempt)
 	e.updateRefFrameProbsFromAttempt(attempt)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
@@ -1217,6 +1231,9 @@ func (e *VP8Encoder) Reset() {
 	clearUint8Map(e.consecZeroLast)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
+	e.probSkipFalse = 128
+	e.lastSkipFalseProbs = [3]uint8{}
+	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
