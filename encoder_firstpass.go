@@ -4,6 +4,7 @@ import (
 	"math"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -66,7 +67,7 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 	//     vp8_yv12_copy_frame(lst_yv12, gld_yv12);
 	//   }
 	// The decision must use the *previous* LAST buffer, before we swap in
-	// the current source as the new LAST.
+	// the reconstructed current frame as the new LAST.
 	if e.firstPassCount > 0 &&
 		stats.PcntInter > 0.20 &&
 		(stats.IntraError/doubleDivideCheck(stats.CodedError)) > 2.0 &&
@@ -76,7 +77,9 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 		e.firstPassGoldenRef.ExtendBorders()
 	}
 
-	copySourceToFrameBuffer(&e.firstPassLastRef, srcImg)
+	copyFrameImage(&e.firstPassLastRef.Img, &e.firstPassNewRef.Img)
+	e.firstPassLastRef.ExtendBorders()
+	copySourceToFrameBuffer(&e.firstPassLastSource, srcImg)
 
 	// Special case for the first frame (libvpx firstpass.c): copy LAST into
 	// GF as a second reference. Also keep the legacy scene-cut fallback that
@@ -122,27 +125,37 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	lastMVAsInt := uint32(0)
 
 	hasLast := e.firstPassCount > 0 && e.firstPassLastRef.Img.Width == src.Width && e.firstPassLastRef.Img.Height == src.Height
+	hasLastSource := e.firstPassCount > 0 && e.firstPassLastSource.Img.Width == src.Width && e.firstPassLastSource.Img.Height == src.Height
 	hasGolden := e.firstPassCount > 1 && e.firstPassGoldenRef.Img.Width == src.Width && e.firstPassGoldenRef.Img.Height == src.Height
 	qIndex := e.rc.currentQuantizer
+	copySourceToFrameBuffer(&e.firstPassNewRef, src)
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	_ = vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, vp8enc.SegmentationConfig{}, &quants)
+	var dequantTables vp8common.FrameDequantTables
+	var dequant vp8common.MacroblockDequant
+	vp8common.BuildFrameDequantTables(quantDeltas, &dequantTables)
+	vp8common.InitMacroblockDequant(&dequantTables, qIndex, &dequant)
 	for row := 0; row < rows; row++ {
 		bestRefMV := vp8enc.MotionVector{}
 		for col := 0; col < cols; col++ {
 			intra := macroblockMeanLumaSSE(src, row, col) + intraPenalty
 			intraError += int64(intra)
+			_ = e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
 
 			thisError := intra
 			lastErr := maxInt()
 			bestMV := vp8enc.MotionVector{}
 
 			if hasLast {
-				// Raw zero-motion check (libvpx zz_motion_search). In
-				// govpx we only retain the previous source as a single
-				// buffer, so raw_motion_error == motion_error before the
-				// diamond search runs. Preserving the +128 offset matches
-				// the prior govpx scoring scale used by the rest of the
-				// two-pass path.
+				// Raw zero-motion check (libvpx zz_motion_search). The
+				// raw source gates encode_breakout, while the reconstructed
+				// LAST reference seeds the actual motion error.
 				zeroErr := macroblockLumaSSE(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{}) + 128
 				rawMotionErr := zeroErr
+				if hasLastSource {
+					rawMotionErr = macroblockLumaSSE(src, &e.firstPassLastSource.Img, row, col, vp8enc.MotionVector{}) + 128
+				}
 				motionErr := zeroErr
 
 				if rawMotionErr >= encodeBreakout {
@@ -176,6 +189,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 					thisError = motionErr
 					interCount++
 					bestRefMV = bestMV
+					_ = e.reconstructFirstPassInterMacroblock(src, row, col, bestMV, qIndex, &quants[0], &dequant)
 
 					// libvpx multiplies bmi.mv by 8 here to convert from
 					// pel to 1/8-pel (q3) before summing into
@@ -252,7 +266,9 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 
 			codedError += int64(thisError)
 		}
+		vp8dec.ExtendIntraRightEdgeForRow(&e.firstPassNewRef.Img, row)
 	}
+	e.firstPassNewRef.ExtendBorders()
 
 	stats := FirstPassFrameStats{
 		Frame:         e.firstPassCount,
@@ -297,6 +313,102 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 		stats.Duration = 1
 	}
 	return stats
+}
+
+func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
+	if e == nil || quant == nil || dequant == nil {
+		return false
+	}
+	useDCPred := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
+	if !useDCPred {
+		mode := vp8dec.MacroblockMode{
+			RefFrame: vp8common.IntraFrame,
+			Mode:     vp8common.BPred,
+			UVMode:   vp8common.DCPred,
+			Is4x4:    true,
+		}
+		for i := range mode.BModes {
+			mode.BModes[i] = vp8common.BDCPred
+		}
+		var coeffs vp8enc.MacroblockCoefficients
+		return buildReconstructingBPredMacroblockCoefficients(
+			&vp8tables.DefaultCoefProbs,
+			src, mbRow, mbCol,
+			&e.firstPassNewRef.Img,
+			&mode,
+			nil, nil,
+			quant, qIndex,
+			0,
+			e.libvpxUseFastQuant(),
+			e.libvpxOptimizeCoefficients(),
+			&coeffs,
+			&e.reconstructScratch,
+		)
+	}
+
+	mode := vp8dec.MacroblockMode{
+		RefFrame: vp8common.IntraFrame,
+		Mode:     vp8common.DCPred,
+		UVMode:   vp8common.DCPred,
+	}
+	if !predictAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
+		return false
+	}
+	var coeffs vp8enc.MacroblockCoefficients
+	buildPredictedMacroblockCoefficients(
+		&vp8tables.DefaultCoefProbs,
+		src, mbRow, mbCol,
+		&e.firstPassNewRef.Img,
+		nil, nil,
+		quant, qIndex,
+		0, 0,
+		false,
+		true,
+		e.libvpxUseFastQuant(),
+		e.libvpxOptimizeCoefficients(),
+		&coeffs,
+	)
+	var tokens vp8dec.MacroblockTokens
+	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	return reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
+}
+
+func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
+	if e == nil || quant == nil || dequant == nil {
+		return false
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.LastFrame,
+		Mode:     vp8common.NewMV,
+		UVMode:   vp8common.DCPred,
+		MV:       mv,
+	}
+	var decMode vp8dec.MacroblockMode
+	convertInterFrameMode(&mode, &decMode)
+	decMode.MBSkipCoeff = true
+	var emptyTokens vp8dec.MacroblockTokens
+	if !reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &emptyTokens, dequant, &e.reconstructScratch) {
+		return false
+	}
+
+	var coeffs vp8enc.MacroblockCoefficients
+	buildPredictedMacroblockCoefficients(
+		&vp8tables.DefaultCoefProbs,
+		src, mbRow, mbCol,
+		&e.firstPassNewRef.Img,
+		nil, nil,
+		quant, qIndex,
+		0, 0,
+		false,
+		false,
+		e.libvpxUseFastQuant(),
+		e.libvpxOptimizeCoefficients(),
+		&coeffs,
+	)
+	var tokens vp8dec.MacroblockTokens
+	convertMacroblockCoefficients(&coeffs, false, &tokens)
+	decMode.MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs, false)
+	return reconstructInterAnalysisMacroblock(&e.firstPassNewRef.Img, &e.firstPassLastRef.Img, mbRow, mbCol, &decMode, &tokens, dequant, &e.reconstructScratch)
 }
 
 func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, seed vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int, bool) {

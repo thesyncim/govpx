@@ -279,9 +279,11 @@ type VP8Encoder struct {
 	// state machine. See vp8/encoder/denoising.c.
 	denoiser denoiserState
 
-	firstPassLastRef   vp8common.FrameBuffer
-	firstPassGoldenRef vp8common.FrameBuffer
-	firstPassCount     uint64
+	firstPassLastRef    vp8common.FrameBuffer
+	firstPassGoldenRef  vp8common.FrameBuffer
+	firstPassLastSource vp8common.FrameBuffer
+	firstPassNewRef     vp8common.FrameBuffer
+	firstPassCount      uint64
 
 	twoPass twoPassState
 

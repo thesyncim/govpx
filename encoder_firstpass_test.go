@@ -1143,8 +1143,10 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 // Frame 0 has no LAST so MV stats are zero; coded_error == intra_error.
 // Frames 1 and 2 produce the same LAST-reference motion stats because the 2D
 // ramp shifts by an equal amount each step and first-pass NSTEP search carries
-// the previous best MV across each row like libvpx. Frame 2 also sees the
-// initial GOLDEN reference for the second-ref experiment.
+// the previous best MV across each row like libvpx. LAST searches run against
+// the reconstructed first-pass reference, while encode_breakout raw checks use
+// the separate prior source buffer. Frame 2 also sees the initial GOLDEN
+// reference for the second-ref experiment.
 //
 // Computation walkthrough (see encoder_firstpass.go for line refs):
 //   - 32x32 image -> 4 macroblocks (2x2)
@@ -1157,26 +1159,26 @@ const (
 	firstPassRegressionExpectIntraError0    = 1109.0
 	firstPassRegressionExpectIntraError1    = 1109.0
 	firstPassRegressionExpectIntraError2    = 1109.0
-	firstPassRegressionExpectCodedError1    = 5.0
-	firstPassRegressionExpectCodedError2    = 5.0
+	firstPassRegressionExpectCodedError1    = 7.0
+	firstPassRegressionExpectCodedError2    = 7.0
 	firstPassRegressionExpectSSIM0          = 1070.5410388183593
-	firstPassRegressionExpectSSIM1          = 4.89166259765625
-	firstPassRegressionExpectSSIM2          = 4.93804931640625
-	firstPassRegressionExpectMVr1           = 16.0
-	firstPassRegressionExpectMVrAbs1        = 16.0
-	firstPassRegressionExpectMVc1           = -4.0
-	firstPassRegressionExpectMVcAbs1        = 16.0
-	firstPassRegressionExpectMVrv1          = 432.0
-	firstPassRegressionExpectMVcv1          = 447.0
+	firstPassRegressionExpectSSIM1          = 6.84832763671875
+	firstPassRegressionExpectSSIM2          = 6.91326904296875
+	firstPassRegressionExpectMVr1           = 8.0
+	firstPassRegressionExpectMVrAbs1        = 20.0
+	firstPassRegressionExpectMVc1           = 8.0
+	firstPassRegressionExpectMVcAbs1        = 28.0
+	firstPassRegressionExpectMVrv1          = 572.0
+	firstPassRegressionExpectMVcv1          = 1212.0
 	firstPassRegressionExpectMVInOut1       = -0.5
-	firstPassRegressionExpectNewMV1         = 3.0
-	firstPassRegressionExpectPcntSecondRef2 = 0.25
-	firstPassRegressionExpectMVr2           = 16.0
-	firstPassRegressionExpectMVrAbs2        = 16.0
-	firstPassRegressionExpectMVc2           = -4.0
-	firstPassRegressionExpectMVcAbs2        = 16.0
-	firstPassRegressionExpectMVrv2          = 432.0
-	firstPassRegressionExpectMVcv2          = 447.0
+	firstPassRegressionExpectNewMV1         = 4.0
+	firstPassRegressionExpectPcntSecondRef2 = 0.75
+	firstPassRegressionExpectMVr2           = 8.0
+	firstPassRegressionExpectMVrAbs2        = 20.0
+	firstPassRegressionExpectMVc2           = 8.0
+	firstPassRegressionExpectMVcAbs2        = 28.0
+	firstPassRegressionExpectMVrv2          = 572.0
+	firstPassRegressionExpectMVcv2          = 1212.0
 	firstPassRegressionExpectMVInOut2       = -0.5
-	firstPassRegressionExpectNewMV2         = 3.0
+	firstPassRegressionExpectNewMV2         = 4.0
 )

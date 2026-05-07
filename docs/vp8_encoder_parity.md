@@ -301,11 +301,15 @@ the anchor and look for the surrounding mismatch.
     `zz_motion_search` plus a libvpx-shaped NSTEP `first_pass_motion_search`
     against LAST, seeded by the previous accepted row MV with the libvpx
     zero-MV retry when that seed is nonzero, and a zero-MV-only search against
-    GOLDEN. First-pass search uses SAD for the diamond walk, SSE plus MV error
-    cost for the final score, applies the libvpx `new_mv_mode_penalty=256` to
-    motion-search results, wires `EncoderOptions.StaticThreshold` through
-    libvpx's `oxcf.encode_breakout` raw zero-motion skip gate, and the
-    inter/neutral accept gate uses libvpx's
+    GOLDEN. The raw previous source is kept separately for
+    `zz_motion_search`/`oxcf.encode_breakout`, while the accepted LAST
+    reference is reconstructed into a first-pass `new_yv12`-style scratch
+    before it becomes the next frame's LAST reference. First-pass search uses
+    SAD for the diamond walk, SSE plus MV error cost for the final score,
+    applies the libvpx `new_mv_mode_penalty=256` to motion-search results,
+    wires `EncoderOptions.StaticThreshold` through libvpx's
+    `oxcf.encode_breakout` raw zero-motion skip gate, and the inter/neutral
+    accept gate uses libvpx's
     `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
     The post-stats LAST->GOLDEN copy follows the libvpx
     `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
@@ -315,10 +319,8 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: distinct `last_frame_unscaled_source` raw buffer used by libvpx's
-    `zz_motion_search` (govpx folds raw and reconstructed LAST into the
-    same buffer), terminal total-stats packet/section accumulators, and
-    oracle-trace coverage on a fixed Y4M corpus.
+  - Missing: terminal total-stats packet/section accumulators and oracle-trace
+    coverage on a fixed Y4M corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
