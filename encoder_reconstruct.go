@@ -1257,8 +1257,9 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	bestScore := maxInt()
 	bestPartitionYRD := maxInt()
 	var bestMode vp8enc.InterFrameMacroblockMode
+	var splitSeeds splitMotionSearchSeeds
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
-		mode, ok := selectInterFrameSplitMotionModeWithSearch(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &e.modeProbs.MV)
+		mode, ok := selectInterFrameSplitMotionModeWithSearch(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV)
 		if !ok {
 			continue
 		}
@@ -1269,6 +1270,9 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 		}
 		if !acct.rdLoopSkip && acct.yrd >= bestYRD {
 			continue
+		}
+		if e.interAnalysisCompressorSpeed() != 0 && partition == 2 {
+			splitSeeds = splitMotionSearchSeedsFrom8x8(&mode)
 		}
 		score := acct.rd
 		if acct.rdLoopSkip || !bestSet || score < bestScore {
@@ -1618,10 +1622,10 @@ func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Imag
 }
 
 func selectInterFrameSplitMotionModeWithContext(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode) (vp8enc.InterFrameMacroblockMode, bool) {
-	return selectInterFrameSplitMotionModeWithSearch(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, defaultInterAnalysisSearchConfig(), 0, &vp8tables.DefaultMVContext)
+	return selectInterFrameSplitMotionModeWithSearch(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, defaultInterAnalysisSearchConfig(), 0, nil, &vp8tables.DefaultMVContext)
 }
 
-func selectInterFrameSplitMotionModeWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.InterFrameMacroblockMode, bool) {
+func selectInterFrameSplitMotionModeWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.InterFrameMacroblockMode, bool) {
 	if ref == nil || refFrame == vp8common.IntraFrame || partition < 0 || partition >= vp8tables.NumMBSplits {
 		return vp8enc.InterFrameMacroblockMode{}, false
 	}
@@ -1634,7 +1638,7 @@ func selectInterFrameSplitMotionModeWithSearch(src vp8enc.SourceImage, ref *vp8c
 	allSame := true
 	width, height := splitMotionPartitionBlockSize(partition)
 	for subset := 0; subset < int(vp8tables.MBSplitCount[mode.Partition]); subset++ {
-		searchCenter := splitMotionSubsetSearchCenter(partition, subset, &mode, bestRefMV, compressorSpeed)
+		searchCenter := splitMotionSubsetSearchCenter(partition, subset, &mode, bestRefMV, compressorSpeed, seeds)
 		mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearch(src, ref, mbRow, mbCol, &mode, subset, width, height, bestRefMV, searchCenter, qIndex, left, above, search, mvProbs)
 		if subset == 0 {
 			first = mv
@@ -1689,8 +1693,53 @@ func selectInterFrameSplitSubsetMotionModeWithSearch(src vp8enc.SourceImage, ref
 	return bestMV, bestMode
 }
 
-func splitMotionSubsetSearchCenter(partition int, subset int, mode *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, compressorSpeed int) vp8enc.MotionVector {
-	if compressorSpeed == 0 || partition != 3 || mode == nil || subset <= 0 || subset >= int(vp8tables.MBSplitCount[uint8(partition)]) {
+type splitMotionSearchSeeds struct {
+	valid bool
+	mv    [4]vp8enc.MotionVector
+}
+
+func splitMotionSearchSeedsFrom8x8(mode *vp8enc.InterFrameMacroblockMode) splitMotionSearchSeeds {
+	if mode == nil || mode.Mode != vp8common.SplitMV || mode.Partition != 2 {
+		return splitMotionSearchSeeds{}
+	}
+	return splitMotionSearchSeeds{
+		valid: true,
+		mv: [4]vp8enc.MotionVector{
+			mode.BlockMV[0],
+			mode.BlockMV[2],
+			mode.BlockMV[8],
+			mode.BlockMV[10],
+		},
+	}
+}
+
+func splitMotionSubsetSearchCenter(partition int, subset int, mode *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, compressorSpeed int, seeds *splitMotionSearchSeeds) vp8enc.MotionVector {
+	if compressorSpeed == 0 || mode == nil || partition < 0 || partition >= vp8tables.NumMBSplits || subset < 0 || subset >= int(vp8tables.MBSplitCount[uint8(partition)]) {
+		return bestRefMV
+	}
+	if seeds != nil && seeds.valid {
+		switch partition {
+		case 0:
+			if subset == 0 {
+				return seeds.mv[0]
+			}
+			if subset == 1 {
+				return seeds.mv[2]
+			}
+		case 1:
+			if subset == 0 {
+				return seeds.mv[0]
+			}
+			if subset == 1 {
+				return seeds.mv[1]
+			}
+		case 3:
+			if subset == 0 {
+				return seeds.mv[0]
+			}
+		}
+	}
+	if partition != 3 || subset == 0 {
 		return bestRefMV
 	}
 	block := int(vp8tables.MBSplitOffset[uint8(partition)][subset])

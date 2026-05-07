@@ -63,7 +63,8 @@ lives in [Makefile](Makefile).
   now wired into selection, cost, MV-probability counting, and syntax. Split
   NEW candidates now get fractional refinement, and compressor-speed 4x4
   searches reuse the previous left/above block MV as the next search center.
-  8x8 seed/step reuse for 16x8/8x16, token-context commit parity, and
+  Speed-path 8x8 seed reuse for 16x8/8x16 search centers is in place; exact
+  `step_param`/diamond-search behavior, token-context commit parity, and
   oracle-backed label-level RD remain open.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE

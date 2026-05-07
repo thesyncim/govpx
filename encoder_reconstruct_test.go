@@ -1191,20 +1191,98 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 	}
 }
 
-func TestSplitMotionSubsetSearchCenterMatchesLibvpx4x4Reuse(t *testing.T) {
+func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*71 + col*37 + row*col*17 + col*col*11) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 12)
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 0)
+	ref.ExtendBorders()
+	seeds := splitMotionSearchSeeds{
+		valid: true,
+		mv: [4]vp8enc.MotionVector{
+			{Col: 64},
+			{},
+			{Col: 64},
+			{},
+		},
+	}
+
+	mode, ok := selectInterFrameSplitMotionModeWithSearch(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, 0, 1, nil, nil, defaultInterAnalysisSearchConfig(), 1, &seeds, &vp8tables.DefaultMVContext)
+
+	if !ok || mode.Partition != 1 {
+		t.Fatalf("mode = %+v ok=%t, want 8x16 SplitMV", mode, ok)
+	}
+	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("seeded 8x16 left MV = %+v, want col +96", mode.BlockMV[0])
+	}
+	if mode.BlockMV[2] != (vp8enc.MotionVector{}) {
+		t.Fatalf("8x16 right MV = %+v, want zero", mode.BlockMV[2])
+	}
+}
+
+func TestSplitMotionSubsetSearchCenterMatchesLibvpxSeedReuse(t *testing.T) {
 	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
 	mode := vp8enc.InterFrameMacroblockMode{Partition: 3}
 	mode.BlockMV[0] = vp8enc.MotionVector{Col: 64}
 	mode.BlockMV[4] = vp8enc.MotionVector{Row: 32}
+	seeds := splitMotionSearchSeeds{
+		valid: true,
+		mv: [4]vp8enc.MotionVector{
+			{Col: 16},
+			{Col: 24},
+			{Row: 32},
+			{Row: 40},
+		},
+	}
 
-	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 1); got != mode.BlockMV[0] {
+	if got := splitMotionSubsetSearchCenter(1, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("8x16 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(1, 1, &mode, bestRefMV, 1, &seeds); got != seeds.mv[1] {
+		t.Fatalf("8x16 subset 1 search center = %+v, want 8x8 seed %+v", got, seeds.mv[1])
+	}
+	if got := splitMotionSubsetSearchCenter(0, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("16x8 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(0, 1, &mode, bestRefMV, 1, &seeds); got != seeds.mv[2] {
+		t.Fatalf("16x8 subset 1 search center = %+v, want 8x8 seed %+v", got, seeds.mv[2])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("4x4 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 1, &seeds); got != mode.BlockMV[0] {
 		t.Fatalf("subset 1 search center = %+v, want left block %+v", got, mode.BlockMV[0])
 	}
-	if got := splitMotionSubsetSearchCenter(3, 8, &mode, bestRefMV, 1); got != mode.BlockMV[4] {
+	if got := splitMotionSubsetSearchCenter(3, 8, &mode, bestRefMV, 1, &seeds); got != mode.BlockMV[4] {
 		t.Fatalf("subset 8 search center = %+v, want above block %+v", got, mode.BlockMV[4])
 	}
-	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 0); got != bestRefMV {
+	if got := splitMotionSubsetSearchCenter(1, 1, &mode, bestRefMV, 0, &seeds); got != bestRefMV {
 		t.Fatalf("best-quality search center = %+v, want bestRefMV %+v", got, bestRefMV)
+	}
+}
+
+func TestSplitMotionSearchSeedsFrom8x8UsesLibvpxBlocks(t *testing.T) {
+	mode := vp8enc.InterFrameMacroblockMode{
+		Mode:      vp8common.SplitMV,
+		Partition: 2,
+	}
+	mode.BlockMV[0] = vp8enc.MotionVector{Col: 16}
+	mode.BlockMV[2] = vp8enc.MotionVector{Col: 24}
+	mode.BlockMV[8] = vp8enc.MotionVector{Row: 32}
+	mode.BlockMV[10] = vp8enc.MotionVector{Row: 40}
+
+	seeds := splitMotionSearchSeedsFrom8x8(&mode)
+
+	if !seeds.valid {
+		t.Fatalf("8x8 seeds are not valid")
+	}
+	want := [4]vp8enc.MotionVector{mode.BlockMV[0], mode.BlockMV[2], mode.BlockMV[8], mode.BlockMV[10]}
+	if seeds.mv != want {
+		t.Fatalf("seeds = %+v, want %+v", seeds.mv, want)
 	}
 }
 
