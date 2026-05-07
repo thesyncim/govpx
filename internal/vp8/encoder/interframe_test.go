@@ -59,6 +59,27 @@ func TestWriteInterFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderParsesQuantDeltas(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(2)
+	cfg.QuantDeltas = common.QuantDeltas{Y2DC: 2, UVDC: -3, UVAC: -3}
+	dst := make([]byte, 512)
+	n, err := WriteZeroInterFrame(dst, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(dst[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.Quant.BaseQIndex != 2 || state.Quant.Y2DCDelta != 2 || state.Quant.UVDCDelta != -3 || state.Quant.UVACDelta != -3 {
+		t.Fatalf("quant = %+v, want base Q 2 with Y2/UV deltas", state.Quant)
+	}
+}
+
 func TestAdaptInterFrameModeProbabilities(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	modes := []InterFrameMacroblockMode{
@@ -154,6 +175,60 @@ func TestWriteCoefficientInterFrameEmitsMVProbabilityUpdates(t *testing.T) {
 	}
 	if modeProbs.MV == tables.DefaultMVContext {
 		t.Fatalf("parsed MV probabilities equal defaults, want updates applied")
+	}
+}
+
+func TestAdaptInterFrameModeProbabilitiesCountsSignBiasedNewMVPredictor(t *testing.T) {
+	const cols = 64
+	modes := make([]InterFrameMacroblockMode, cols)
+	for i := range modes {
+		mode := InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}, MBSkipCoeff: true}
+		if i%2 == 1 {
+			mode.RefFrame = common.GoldenFrame
+			mode.MV = MotionVector{Col: -16}
+		}
+		modes[i] = mode
+	}
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.GoldenSignBias = true
+
+	got, err := adaptInterFrameModeProbabilitiesWithMVBase(1, cols, modes, tables.DefaultMVContext, &cfg)
+	if err != nil {
+		t.Fatalf("adaptInterFrameModeProbabilitiesWithMVBase returned error: %v", err)
+	}
+
+	var wantCounts [2][tables.MVPCount][2]int
+	if err := countMotionVectorBranches(&wantCounts, MotionVector{Col: 16}); err != nil {
+		t.Fatalf("count first MV branches returned error: %v", err)
+	}
+	for i := 1; i < len(modes); i++ {
+		if err := countMotionVectorBranches(&wantCounts, MotionVector{}); err != nil {
+			t.Fatalf("count biased MV branches returned error: %v", err)
+		}
+	}
+	wantCfg := DefaultInterFrameStateConfig(20)
+	want := adaptInterFrameMVProbabilitiesWithBase(&wantCounts, tables.DefaultMVContext, &wantCfg)
+	if got != want {
+		t.Fatalf("frame MV probs = %v, want sign-biased predictor counts %v", got, want)
+	}
+
+	var noBiasCounts [2][tables.MVPCount][2]int
+	if err := countMotionVectorBranches(&noBiasCounts, MotionVector{Col: 16}); err != nil {
+		t.Fatalf("count first no-bias MV branches returned error: %v", err)
+	}
+	for i := 1; i < len(modes); i++ {
+		delta := MotionVector{Col: 32}
+		if modes[i].RefFrame == common.GoldenFrame {
+			delta.Col = -32
+		}
+		if err := countMotionVectorBranches(&noBiasCounts, delta); err != nil {
+			t.Fatalf("count no-bias MV branches returned error: %v", err)
+		}
+	}
+	noBiasCfg := DefaultInterFrameStateConfig(20)
+	noBias := adaptInterFrameMVProbabilitiesWithBase(&noBiasCounts, tables.DefaultMVContext, &noBiasCfg)
+	if got == noBias {
+		t.Fatalf("frame MV probs matched un-biased predictor counts, want sign bias to change counted NEWMV deltas")
 	}
 }
 
@@ -700,6 +775,43 @@ func TestWriteCoefficientInterFrameDecodesNearestAndNearMV(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameDecodesSignBiasedNearestMV(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(20)
+	cfg.GoldenSignBias = true
+	modes := []InterFrameMacroblockMode{
+		{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}, MBSkipCoeff: true},
+		{RefFrame: common.GoldenFrame, Mode: common.NearestMV, MV: MotionVector{Col: -16}, MBSkipCoeff: true},
+	}
+	coeffs := make([]MacroblockCoefficients, len(modes))
+	packet := make([]byte, 1024)
+	above := make([]TokenContextPlanes, 2)
+	n, err := WriteCoefficientInterFrame(packet, 32, 16, cfg, modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	signBias := [common.MaxRefFrames]bool{
+		common.GoldenFrame: state.Refresh.GoldenSignBias,
+		common.AltRefFrame: state.Refresh.AltRefSignBias,
+	}
+	if !signBias[common.GoldenFrame] || signBias[common.AltRefFrame] {
+		t.Fatalf("parsed sign bias = %v, want GOLDEN only", signBias)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, len(modes))
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, 1, 2, &state.Segmentation, state.Mode, &modeProbs, signBias, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	if decodedModes[1].RefFrame != common.GoldenFrame || decodedModes[1].Mode != common.NearestMV || decodedModes[1].MV != (vp8dec.MotionVector{Col: -16}) {
+		t.Fatalf("mode[1] = %+v, want sign-biased GOLDEN/NEARESTMV col -16", decodedModes[1])
+	}
+}
+
 func TestWriteCoefficientInterFrameDecodesSplitMV(t *testing.T) {
 	mode := InterFrameMacroblockMode{
 		RefFrame:    common.LastFrame,
@@ -824,14 +936,15 @@ func TestWriteCoefficientInterFrameClampsNearestMV(t *testing.T) {
 
 func TestInterFrameMotionModeForVectorClassifiesNeighbors(t *testing.T) {
 	left := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: -8}}
-	mode := InterFrameMotionModeForVector(common.LastFrame, MotionVector{Col: -8}, nil, &left, nil)
+	signBias := [common.MaxRefFrames]bool{}
+	mode := InterFrameMotionModeForVector(common.LastFrame, MotionVector{Col: -8}, nil, &left, nil, signBias)
 	if mode.RefFrame != common.LastFrame || mode.Mode != common.NearestMV || mode.MV != left.MV {
 		t.Fatalf("mode = %+v, want nearest col -8", mode)
 	}
 
 	above := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: 8}}
 	aboveLeft := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: -8}}
-	mode = InterFrameMotionModeForVector(common.GoldenFrame, MotionVector{Col: 8}, &above, &left, &aboveLeft)
+	mode = InterFrameMotionModeForVector(common.GoldenFrame, MotionVector{Col: 8}, &above, &left, &aboveLeft, signBias)
 	if mode.RefFrame != common.GoldenFrame || mode.Mode != common.NearMV || mode.MV != above.MV {
 		t.Fatalf("mode = %+v, want near col 8", mode)
 	}
@@ -839,10 +952,55 @@ func TestInterFrameMotionModeForVectorClassifiesNeighbors(t *testing.T) {
 
 func TestInterFrameMotionModeForVectorAtClassifiesClampedNeighbor(t *testing.T) {
 	above := InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: 136}}
-	mode := InterFrameMotionModeForVectorAt(common.LastFrame, MotionVector{Col: 128}, &above, nil, nil, 1, 2, 2, 3)
+	mode := InterFrameMotionModeForVectorAt(common.LastFrame, MotionVector{Col: 128}, &above, nil, nil, 1, 2, 2, 3, [common.MaxRefFrames]bool{})
 
 	if mode.RefFrame != common.LastFrame || mode.Mode != common.NearestMV || mode.MV != (MotionVector{Col: 128}) {
 		t.Fatalf("mode = %+v, want clamped nearest col 128", mode)
+	}
+}
+
+func TestInterFrameNearMotionVectorsAtInvertsDifferentSignBiasNeighbor(t *testing.T) {
+	left := InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}}
+	signBias := [common.MaxRefFrames]bool{common.GoldenFrame: true}
+
+	nearest, near := InterFrameNearMotionVectorsAt(&left, nil, nil, common.GoldenFrame, 0, 0, 1, 2, signBias)
+	best := InterFrameBestMotionVectorAt(&left, nil, nil, common.GoldenFrame, 0, 0, 1, 2, signBias)
+
+	if nearest != (MotionVector{Col: -16}) || best != nearest || !near.IsZero() {
+		t.Fatalf("nearest/near/best = %+v/%+v/%+v, want inverted nearest/best col -16 and zero near", nearest, near, best)
+	}
+}
+
+func TestInterFrameMotionModeForVectorAtClassifiesInvertedSignBiasNearest(t *testing.T) {
+	left := InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}}
+	signBias := [common.MaxRefFrames]bool{common.GoldenFrame: true}
+
+	mode := InterFrameMotionModeForVectorAt(common.GoldenFrame, MotionVector{Col: -16}, &left, nil, nil, 0, 0, 1, 2, signBias)
+
+	if mode.RefFrame != common.GoldenFrame || mode.Mode != common.NearestMV || mode.MV != (MotionVector{Col: -16}) {
+		t.Fatalf("mode = %+v, want GOLDEN nearest col -16", mode)
+	}
+}
+
+func TestInterFrameMotionModeForVectorAtKeepsSameSignBiasNeighbor(t *testing.T) {
+	left := InterFrameMacroblockMode{RefFrame: common.GoldenFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}}
+	signBias := [common.MaxRefFrames]bool{common.GoldenFrame: true}
+
+	mode := InterFrameMotionModeForVectorAt(common.GoldenFrame, MotionVector{Col: 16}, &left, nil, nil, 0, 0, 1, 2, signBias)
+
+	if mode.RefFrame != common.GoldenFrame || mode.Mode != common.NearestMV || mode.MV != (MotionVector{Col: 16}) {
+		t.Fatalf("mode = %+v, want same-bias GOLDEN nearest col 16", mode)
+	}
+}
+
+func TestInterFrameMotionModeForVectorAtClampsAfterSignBiasInversion(t *testing.T) {
+	left := InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 136}}
+	signBias := [common.MaxRefFrames]bool{common.GoldenFrame: true}
+
+	mode := InterFrameMotionModeForVectorAt(common.GoldenFrame, MotionVector{Col: -128}, &left, nil, nil, 0, 0, 1, 2, signBias)
+
+	if mode.RefFrame != common.GoldenFrame || mode.Mode != common.NearestMV || mode.MV != (MotionVector{Col: -128}) {
+		t.Fatalf("mode = %+v, want inverted then clamped GOLDEN nearest col -128", mode)
 	}
 }
 

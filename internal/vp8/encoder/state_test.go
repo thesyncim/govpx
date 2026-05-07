@@ -64,6 +64,23 @@ func TestWriteKeyFrameStateHeaderParsesSegmentation(t *testing.T) {
 	assertParsedSegmentation(t, state.Segmentation)
 }
 
+func TestWriteKeyFrameStateHeaderParsesQuantDeltas(t *testing.T) {
+	cfg := KeyFrameStateConfig{
+		TokenPartition: common.OnePartition,
+		BaseQIndex:     2,
+		QuantDeltas:    common.QuantDeltas{Y2DC: 2},
+	}
+	packet := keyFrameStatePacket(t, cfg)
+
+	_, state, err := vp8dec.ParseStateHeader(packet, vp8dec.QuantHeader{})
+	if err != nil {
+		t.Fatalf("ParseStateHeader returned error: %v", err)
+	}
+	if state.Quant.BaseQIndex != 2 || state.Quant.Y2DCDelta != 2 {
+		t.Fatalf("quant = %+v, want base Q 2 with Y2 DC delta 2", state.Quant)
+	}
+}
+
 func TestWriteKeyFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
 	cfg := KeyFrameStateConfig{
 		LoopFilterLevel: 17,

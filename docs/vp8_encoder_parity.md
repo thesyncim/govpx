@@ -243,12 +243,18 @@ the anchor and look for the surrounding mismatch.
     search map as `get_reference_search_order`. RD NEWMV no longer reuses the
     fast-path zero-vector rejection, RD NEWMV vector cost uses libvpx's weight
     96, and RD subpel acceptance now has a dedicated helper instead of sharing
-    the fast picker decision path.
-  - Missing: sign-bias switching, temporal-layer threshold tweaks, full
-    SplitMV label-level segmentation search with `THR_NEW1/2/3` gating, exact
-    RD accounting including `other_cost` / Y-RD side accounting, active-map skip
-    short-circuiting, and recode-loop interactions. Active-map behavior is
-    tracked in the dedicated active-map checklist item elsewhere.
+    the fast picker decision path. Whole-MB full-pel NSTEP/full/refine searches
+    now keep libvpx's SAD-based site walk but return variance plus `mv_err_cost`
+    for completed searches; hex search remains on its libvpx SAD return path.
+    Encoder near/best MV helpers, mode validation, mode-probability contexts,
+    packet writing, and MV-probability adaptation now apply libvpx-style
+    reference sign bias before predictor dedupe/counting.
+  - Missing: high-level sign-bias policy/reference switching, temporal-layer
+    threshold tweaks, full SplitMV label-level segmentation search with
+    `THR_NEW1/2/3` gating, exact RD accounting including `other_cost` / Y-RD
+    side accounting, active-map skip short-circuiting, and recode-loop
+    interactions. Active-map behavior is tracked in the dedicated active-map
+    checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -260,10 +266,12 @@ the anchor and look for the surrounding mismatch.
   - libvpx:
     `vp8_mv_pred` and `vp8_cal_sad` in `rdopt.c`.
   - Status: partial. Current-frame SAD ordering, previous inter-frame mode/MV
-    grid, and libvpx realtime gate are present. Remaining work is sign-bias
-    parity, exact border-mode-info indexing, and oracle traces for `near_sadidx`,
-    predictor MV, and `sr`.
-    End-to-end quality smoke now covers realtime `CpuUsed` 4, 5, 9, and 15 on
+    grid, libvpx realtime gate, and low-level sign-biased near/best MV
+    predictor helpers are present. Remaining work is exact border-mode-info
+    indexing, high-level sign-bias policy/reference switching, and oracle
+    traces for `near_sadidx`, predictor MV, and `sr`.
+    End-to-end quality smoke now covers best-quality panning, good-quality RD
+    and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case.
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
@@ -318,7 +326,10 @@ the anchor and look for the surrounding mismatch.
     clears tiny Y2 residuals that would inverse-transform to zero. Regular
     quantization applies libvpx `zbin_extra` for mode boost plus
     `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses
-    it like libvpx.
+    it like libvpx. Frame-level quant deltas now match libvpx
+    `vp8_set_quantizer`: low-Q frames write and use `y2dc_delta_q = 4 - Q`,
+    and screen-content frames above Q40 write and use clamped negative UV
+    DC/AC deltas.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,

@@ -179,6 +179,28 @@ func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestLibvpxFrameQuantDeltas(t *testing.T) {
+	tests := []struct {
+		name              string
+		qIndex            int
+		screenContentMode int
+		want              vp8common.QuantDeltas
+	}{
+		{name: "q zero y2 dc", qIndex: 0, want: vp8common.QuantDeltas{Y2DC: 4}},
+		{name: "q three y2 dc", qIndex: 3, want: vp8common.QuantDeltas{Y2DC: 1}},
+		{name: "q four neutral", qIndex: 4, want: vp8common.QuantDeltas{}},
+		{name: "screen q eighty uv", qIndex: 80, screenContentMode: 1, want: vp8common.QuantDeltas{UVDC: -12, UVAC: -12}},
+		{name: "screen q one twenty seven clamps uv", qIndex: 127, screenContentMode: 1, want: vp8common.QuantDeltas{UVDC: -15, UVAC: -15}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := libvpxFrameQuantDeltas(tt.qIndex, tt.screenContentMode); got != tt.want {
+				t.Fatalf("quant deltas = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInterAnalysisSplitPartitionOrderMirrorsLibvpxCompressorSpeed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -664,9 +686,13 @@ func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(
 	if mv != start.mv {
 		t.Fatalf("full-pixel MV = %+v, want improved search start %+v", mv, start.mv)
 	}
-	wantCost := interMotionSearchCost(sourceImageFromPublic(src), &last.Img, 1, 1, start.mv, bestRefMV, testInterSearchQIndex)
+	variance, _ := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &last.Img, 1, 1, mv)
+	wantCost := variance + interMotionSearchErrorVectorCost(mv, bestRefMV, testInterSearchQIndex, &vp8tables.DefaultMVContext)
 	if cost != wantCost {
-		t.Fatalf("full-pixel cost = %d, want MV cost charged against bestRefMV = %d", cost, wantCost)
+		t.Fatalf("full-pixel cost = %d, want variance plus best_ref_mv anchored error cost %d", cost, wantCost)
+	}
+	if legacyCost := interMotionSearchCost(sourceImageFromPublic(src), &last.Img, 1, 1, mv, bestRefMV, testInterSearchQIndex); cost == legacyCost {
+		t.Fatalf("full-pixel cost = legacy SAD plus vector cost %d, want variance plus error vector cost", legacyCost)
 	}
 }
 
@@ -1395,7 +1421,7 @@ func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
 	refRate := 17
-	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 
 	got := e.fastInterMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate)
 	want := boolBitCost(63, 1) +
@@ -1436,7 +1462,7 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	e.modeProbs.MV = vp8tables.DefaultMVContext
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
-	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 	want := boolBitCost(63, 1) +
 		e.interReferenceFrameRate(vp8common.GoldenFrame) +
 		interPredictionModeRate(vp8common.NewMV, counts) +
@@ -2714,5 +2740,124 @@ func copyShiftedBlockFromReference(dst Image, ref *vp8common.Image, y int, x int
 		for col := 0; col < width; col++ {
 			dst.Y[(y+row)*dst.YStride+x+col] = ref.Y[(y+row+dy)*ref.YStride+x+col+dx]
 		}
+	}
+}
+
+func TestCoefficientBlockTokenTraceMatchesAggregateRate(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	// Use a representative block: a couple of non-zero coefficients
+	// at varying scan positions, plus an interior zero, with eob<16.
+	var qcoeff [16]int16
+	qcoeff[vp8tables.DefaultZigZag1D[0]] = 3
+	qcoeff[vp8tables.DefaultZigZag1D[1]] = -1
+	qcoeff[vp8tables.DefaultZigZag1D[3]] = 5
+	const eob = 4
+
+	wantTotal := coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, eob)
+	trace, gotTotal := coefficientBlockTokenTrace(&probs, 3, 0, 0, &qcoeff, eob)
+	if gotTotal != wantTotal {
+		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
+	}
+	if len(trace) == 0 {
+		t.Fatalf("trace empty, want entries for positions 0..%d", eob)
+	}
+
+	sum := 0
+	for _, e := range trace {
+		sum += e.TokenRate + e.SignRate + e.ExtraBits
+	}
+	if sum != wantTotal {
+		t.Fatalf("sum of per-position rates = %d, want %d", sum, wantTotal)
+	}
+	// EOB transition recorded as the trailing entry since eob<16.
+	last := trace[len(trace)-1]
+	if last.Token != vp8tables.DCTEOBToken {
+		t.Fatalf("trailing trace token = %d, want EOB %d", last.Token, vp8tables.DCTEOBToken)
+	}
+	if last.Position != eob {
+		t.Fatalf("trailing trace position = %d, want %d", last.Position, eob)
+	}
+}
+
+func TestCoefficientBlockTokenTraceAllZerosRecordsSingleEOB(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var qcoeff [16]int16
+
+	wantTotal := coefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
+	trace, gotTotal := coefficientBlockTokenTrace(&probs, 3, 0, 0, &qcoeff, 0)
+	if gotTotal != wantTotal {
+		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
+	}
+	if len(trace) != 1 {
+		t.Fatalf("trace length = %d, want 1 EOB entry", len(trace))
+	}
+	entry := trace[0]
+	if entry.Position != 0 {
+		t.Fatalf("eob entry position = %d, want 0", entry.Position)
+	}
+	if entry.Token != vp8tables.DCTEOBToken {
+		t.Fatalf("eob entry token = %d, want EOB %d", entry.Token, vp8tables.DCTEOBToken)
+	}
+	if entry.Coefficient != 0 {
+		t.Fatalf("eob entry coefficient = %d, want 0", entry.Coefficient)
+	}
+	if entry.SignRate != 0 || entry.ExtraBits != 0 {
+		t.Fatalf("eob entry sign/extra = (%d,%d), want (0,0)", entry.SignRate, entry.ExtraBits)
+	}
+	if entry.TokenRate != wantTotal {
+		t.Fatalf("eob entry rate = %d, want total %d", entry.TokenRate, wantTotal)
+	}
+}
+
+func TestCoefficientBlockTokenTraceSingleNonZeroAtSkipDC(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	// skipDC=1 with a single non-zero at scan position 1 (eob=2): the trace
+	// should contain the non-zero entry at position 1 followed by the EOB
+	// entry at position 2.
+	var qcoeff [16]int16
+	qcoeff[vp8tables.DefaultZigZag1D[1]] = 1
+	const skipDC = 1
+	const eob = 2
+
+	wantTotal := coefficientBlockTokenRate(&probs, 0, 0, skipDC, &qcoeff, eob)
+	trace, gotTotal := coefficientBlockTokenTrace(&probs, 0, 0, skipDC, &qcoeff, eob)
+	if gotTotal != wantTotal {
+		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
+	}
+	if len(trace) != 2 {
+		t.Fatalf("trace length = %d, want 2 (non-zero + EOB)", len(trace))
+	}
+
+	first := trace[0]
+	if first.Position != skipDC {
+		t.Fatalf("first entry position = %d, want %d", first.Position, skipDC)
+	}
+	if first.Coefficient != 1 {
+		t.Fatalf("first entry coefficient = %d, want 1", first.Coefficient)
+	}
+	if first.Token != vp8tables.OneToken {
+		t.Fatalf("first entry token = %d, want OneToken %d", first.Token, vp8tables.OneToken)
+	}
+	if first.SignRate != boolBitCost(128, 0) {
+		t.Fatalf("first entry sign rate = %d, want %d", first.SignRate, boolBitCost(128, 0))
+	}
+
+	second := trace[1]
+	if second.Position != skipDC+1 {
+		t.Fatalf("second entry position = %d, want %d", second.Position, skipDC+1)
+	}
+	if second.Token != vp8tables.DCTEOBToken {
+		t.Fatalf("second entry token = %d, want EOB %d", second.Token, vp8tables.DCTEOBToken)
+	}
+	if second.SignRate != 0 || second.ExtraBits != 0 {
+		t.Fatalf("second entry sign/extra = (%d,%d), want (0,0)", second.SignRate, second.ExtraBits)
+	}
+
+	sum := 0
+	for _, e := range trace {
+		sum += e.TokenRate + e.SignRate + e.ExtraBits
+	}
+	if sum != wantTotal {
+		t.Fatalf("sum of per-position rates = %d, want %d", sum, wantTotal)
 	}
 }
