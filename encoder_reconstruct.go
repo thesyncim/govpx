@@ -1640,6 +1640,86 @@ func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Imag
 	return mode, true
 }
 
+// interSplitMVRDDecision mirrors libvpx's RATE_DISTORTION accounting after a
+// SPLITMV partition is chosen: vp8_rd_pick_best_mbsegmentation feeds the Y RD
+// (rate_y/distortion) and rd_inter4x4_uv adds rate_uv/distortion_uv on top.
+// Per-block EOBs let downstream packet writers reuse the chosen partition's
+// quantized coefficients (libvpx stores these in MACROBLOCKD::eobs[0..23]).
+type interSplitMVRDDecision struct {
+	Mode   vp8enc.InterFrameMacroblockMode
+	YRate  int
+	YDist  int
+	UVRate int
+	UVDist int
+	Coeffs vp8enc.MacroblockCoefficients
+}
+
+// LumaEOB returns the per-4x4-block luma EOB stored after the chosen SPLITMV
+// partition's transform/quantize pass. block must be 0..15.
+func (d *interSplitMVRDDecision) LumaEOB(block int) int {
+	if d == nil || block < 0 || block > 15 {
+		return 0
+	}
+	return d.Coeffs.BlockEOB(block, 0)
+}
+
+// UVEOB returns the per-4x4-block chroma EOB stored after the chosen SPLITMV
+// partition's transform/quantize pass. U blocks are 0..3, V blocks are 4..7.
+func (d *interSplitMVRDDecision) UVEOB(block int) int {
+	if d == nil || block < 0 || block > 7 {
+		return 0
+	}
+	return d.Coeffs.BlockEOB(16+block, 0)
+}
+
+// selectInterFrameSplitMotionDecisionRD ports rdopt.c's SPLITMV branch in
+// vp8_rd_pick_inter_mode: after vp8_rd_pick_best_mbsegmentation commits the
+// per-subblock luma MVs, we run macro_block_yrd over the 4x4 luma residual
+// and rd_inter4x4_uv over the chroma residual using libvpx-style 8x8 UV MVs
+// (average of the four covering 4x4 luma MVs, rounded to the nearest 1/8-pel
+// chroma vector via vp8_build_inter4x4_predictors_mbuv). Per-block EOBs are
+// stored on the returned decision so downstream callers can write the chosen
+// partition's tokens without re-quantizing.
+func selectInterFrameSplitMotionDecisionRD(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, quant *vp8enc.MacroblockQuant, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, coefProbs *vp8tables.CoefficientProbs, pred *vp8common.Image, zbinOverQuant int, fastQuant bool, optimize bool) (interSplitMVRDDecision, bool) {
+	if quant == nil || coefProbs == nil || pred == nil {
+		return interSplitMVRDDecision{}, false
+	}
+	mode, ok := selectInterFrameSplitMotionMode(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition)
+	if !ok {
+		return interSplitMVRDDecision{}, false
+	}
+
+	// Render the SPLITMV predictor into pred so we can reuse the same
+	// per-4x4 transform/quantize path the whole-MB inter case takes through
+	// buildPredictedMacroblockCoefficientsRD. With MBSkipCoeff=true the
+	// reconstruction stops after vp8_build_inter*_predictors_mb{y,uv} so
+	// pred holds the 16x16 luma + 8x8 chroma SPLITMV predictor.
+	var decMode vp8dec.MacroblockMode
+	convertInterFrameMode(&mode, &decMode)
+	decMode.MBSkipCoeff = true
+	yOff := mbRow*16*pred.YStride + mbCol*16
+	uOff := mbRow*8*pred.UStride + mbCol*8
+	vOff := mbRow*8*pred.VStride + mbCol*8
+	var emptyTokens vp8dec.MacroblockTokens
+	var residual vp8dec.MacroblockResidual
+	if !vp8dec.ReconstructSplitMVInterMacroblock(&decMode, &emptyTokens, &vp8common.MacroblockDequant{}, ref, pred.Y[yOff:], pred.YStride, pred.U[uOff:], pred.UStride, pred.V[vOff:], pred.VStride, &residual, mbRow, mbCol, vp8dec.InterPredictionConfig{}) {
+		return interSplitMVRDDecision{}, false
+	}
+
+	// is4x4=true, intra=false, zbinModeBoost=splitInterModeZbinBoost(0)
+	// matches the SPLITMV branch of rdopt.c vp8_rd_pick_inter_mode where
+	// macro_block_yrd reports rate_y/distortion via 16 4x4 token blocks
+	// (block_type=3) and rd_inter4x4_uv reports rate_uv/distortion_uv via
+	// 8 4x4 chroma blocks (block_type=2).
+	decision := interSplitMVRDDecision{Mode: mode}
+	stats := buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, splitInterModeZbinBoost, true, false, fastQuant, optimize, &decision.Coeffs)
+	decision.YRate = stats.rateY
+	decision.YDist = stats.distortionY
+	decision.UVRate = stats.rateUV
+	decision.UVDist = stats.distortionUV
+	return decision, true
+}
+
 func splitMotionPartitionBlockSize(partition int) (int, int) {
 	switch partition {
 	case 0:
