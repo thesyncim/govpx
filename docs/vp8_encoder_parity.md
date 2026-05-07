@@ -720,7 +720,14 @@ the anchor and look for the surrounding mismatch.
   - Status: partial. Fast non-RD mode-loop order, cheap realtime scoring, and
     `rd_thresh_mult` / hit-count gating are aligned, including the pickinter
     `>>3` best-mode threshold decay and libvpx's unsupported-SPLITMV
-    test-count/raise behavior. Full RD now walks libvpx's `MAX_MODES` /
+    test-count/raise behavior. Fast static encode-breakout now runs during
+    inter-candidate evaluation, promotes the candidate to `MBSkipCoeff`, and
+    breaks the mode loop like `pickinter.c`; its chroma gate uses libvpx's
+    cheaper `sse2*2 < encode_breakout` rule, while the RD path keeps
+    `rdopt.c`'s threshold-based chroma gate. Tests:
+    `TestStaticInterFastEncodeBreakoutUsesPickinterChromaGate` and
+    `TestSelectFastInterFrameModeDecisionStopsOnStaticEncodeBreakout`.
+    Full RD now walks libvpx's `MAX_MODES` /
     `vp8_mode_order` table,
     interleaves intra modes in that same loop, applies speed-feature baseline
     `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an

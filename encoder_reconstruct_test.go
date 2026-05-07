@@ -2318,7 +2318,7 @@ func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T)
 	last.ExtendBorders()
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2367,7 +2367,7 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
 	}
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2402,7 +2402,7 @@ func TestSelectFastInterFrameModeDecisionUsesThresholdState(t *testing.T) {
 	defer e.endInterRDModeDecisionFrame()
 	e.beginInterRDModeDecisionMacroblock()
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil, nil)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2954,36 +2954,87 @@ func TestRdBlockScoreAppliesLibvpxPlaneAndIntraMultipliers(t *testing.T) {
 	}
 }
 
-func TestStaticInterEncodeBreakoutUsesStrictLibvpxThreshold(t *testing.T) {
+func TestStaticInterRDEncodeBreakoutUsesStrictLibvpxThreshold(t *testing.T) {
 	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
 	quant := testMacroblockQuant(20)
 
 	src.Y[0] = 133
-	if !staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
 		t.Fatalf("static breakout = false, want skip below AC threshold")
 	}
 
 	src.Y[0] = 134
-	if staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
 		t.Fatalf("static breakout = true, want no skip at strict AC threshold")
 	}
 }
 
-func TestStaticInterEncodeBreakoutUsesChromaGate(t *testing.T) {
+func TestStaticInterRDEncodeBreakoutUsesChromaGate(t *testing.T) {
 	pred := testVP8Frame(t, 16, 16, 128, 90, 170)
 	src := testImage(16, 16)
 	fillImage(src, 129, 90, 170)
 	quant := testMacroblockQuant(80)
 
-	if !staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
 		t.Fatalf("static breakout = false, want uniform low-luma residual skipped")
 	}
 
 	src.U[0] = 110
-	if staticInterEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
+	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &pred.Img, 0, 0, &quant, 1) {
 		t.Fatalf("static breakout = true, want chroma SSE to prevent skip")
+	}
+}
+
+func TestStaticInterFastEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
+	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	quant := testMacroblockQuant(80)
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	_, lumaSSE := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, 0, 0, mode.MV)
+
+	src.U[0] = 92
+	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
+		t.Fatalf("RD static breakout = false, want threshold-based chroma gate to skip")
+	}
+	if staticInterFastEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, &quant, 1, lumaSSE) {
+		t.Fatalf("fast static breakout = true, want pickinter encode_breakout chroma gate to reject")
+	}
+}
+
+func TestSelectFastInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineRealtime); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.opts.StaticThreshold = 1
+	e.refProbIntra = 1
+	e.refProbLast = 1
+	e.refProbGolden = 1
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	last := testVP8Frame(t, 16, 16, 128, 90, 170)
+	golden := testVP8Frame(t, 16, 16, 30, 90, 170)
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &last.Img, RefRateSet: true, RefRate: 1 << 20},
+		{Frame: vp8common.GoldenFrame, Img: &golden.Img, RefRateSet: true, RefRate: 0},
+	}
+	quant := testRegularMacroblockQuant(t, 20)
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, 0, nil, nil, nil, &quant)
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if decision.useIntra || decision.interMode.RefFrame != vp8common.LastFrame || decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("decision = %+v, want LAST/ZEROMV static breakout candidate", decision)
+	}
+	if !decision.interMode.MBSkipCoeff {
+		t.Fatalf("fast decision MBSkipCoeff = false, want candidate-level static breakout skip")
+	}
+	if e.interModeTestHitCounts[libvpxThrDC] != 0 {
+		t.Fatalf("DC mode hit count = %d, want fast loop to break after static breakout", e.interModeTestHitCounts[libvpxThrDC])
 	}
 }
 
