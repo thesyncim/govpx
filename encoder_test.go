@@ -4344,6 +4344,93 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 	}
 }
 
+func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testing.T) {
+	e := VP8Encoder{}
+	e.rc.mode = RateControlCBR
+	// Aggressive denoise (mode 3+) brings consec_zerolast=15 and qp_thresh=80.
+	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
+	e.opts.NoiseSensitivity = 3
+	e.rc.currentQuantizer = 40
+	e.rc.framesSinceKeyframe = 100
+	cfg := e.cyclicRefreshSegmentationConfig(false)
+	if !cfg.Enabled {
+		t.Fatalf("aggressive-denoise cyclic segmentation disabled, want enabled with alt-LF")
+	}
+	if cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+		t.Fatalf("aggressive-denoise alt-Q feature still set, want suppressed in favour of alt-LF")
+	}
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+		t.Fatalf("aggressive-denoise alt-LF feature = false, want enabled")
+	}
+	if got := cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID]; got != -40 {
+		t.Fatalf("aggressive-denoise alt-LF delta = %d, want libvpx -40", got)
+	}
+
+	// Q at or above qp_thresh: alt-Q path resumes.
+	e.rc.currentQuantizer = 80
+	cfg = e.cyclicRefreshSegmentationConfig(false)
+	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+		t.Fatalf("Q>=qp_thresh alt-LF still set, want libvpx fallback to alt-Q delta")
+	}
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+		t.Fatalf("Q>=qp_thresh alt-Q feature = false, want enabled")
+	}
+
+	// Too soon after keyframe: alt-Q path resumes too.
+	e.rc.currentQuantizer = 40
+	e.rc.framesSinceKeyframe = 10
+	cfg = e.cyclicRefreshSegmentationConfig(false)
+	if cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] {
+		t.Fatalf("frames_since_key<=2*consec_zerolast alt-LF still set, want fallback to alt-Q")
+	}
+	if !cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] {
+		t.Fatalf("frames_since_key<=2*consec_zerolast alt-Q feature = false, want enabled")
+	}
+}
+
+func TestCyclicRefreshSegmentationConfigDisabledUnderForceMaxQuantizer(t *testing.T) {
+	e := VP8Encoder{}
+	e.rc.mode = RateControlCBR
+	e.rc.currentQuantizer = 30
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("baseline CBR cyclic segmentation disabled, want enabled")
+	}
+	e.forceMaxQuantizer = true
+	if cfg := e.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
+		t.Fatalf("force_maxqp cyclic segmentation = %+v, want disabled per libvpx force_maxqp gate", cfg)
+	}
+	e.forceMaxQuantizer = false
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("after clearing force_maxqp cyclic segmentation disabled, want enabled")
+	}
+}
+
+func TestCyclicRefreshSegmentTransitionsClearOnNonZeroLast(t *testing.T) {
+	// updateCyclicRefreshMapFromInterFrame is the per-MB segment-transition
+	// recorder. After a frame:
+	//   - Refreshed segment-1 MBs become -1 (cooldown).
+	//   - Cooldown counters increment; ZEROMV-LAST flips a 1 to 0 (eligible).
+	//   - Anything else sets the entry to 1 (dirty).
+	refreshMap := []int8{-1, 1, 0, -1}
+	modes := []vp8enc.InterFrameMacroblockMode{
+		// MB0 was in segment 1 → final state -1
+		{SegmentID: staticSegmentID, RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		// MB1 ZEROMV-LAST flips dirty→eligible
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		// MB2 NewMV last → dirty (1)
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV},
+		// MB3 GOLDEN ZEROMV → dirty (1)
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+	}
+	updateCyclicRefreshMapFromInterFrame(modes, refreshMap)
+	want := []int8{-1, 0, 1, 1}
+	for i := range want {
+		if refreshMap[i] != want[i] {
+			t.Fatalf("MB%d post-frame map = %d, want libvpx state %d", i, refreshMap[i], want[i])
+		}
+	}
+}
+
 // TestSetActiveMapOracleVectorPreservesEveryInactiveMB exercises a
 // checkerboard active-map pattern and confirms libvpx's per-MB invariants
 // across the whole frame: every inactive MB codes as ZEROMV-LAST with

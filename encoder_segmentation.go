@@ -20,12 +20,25 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.
 		UpdateMap:  true,
 		UpdateData: true,
 	}
+	if e.aggressiveDenoiseSegmentationActive() {
+		// libvpx onyx_if.c cyclic_background_refresh: under aggressive
+		// denoising, drop the cyclic Q delta and instead ship an alt-LF
+		// delta of -40 so segment 1 macroblocks (steady ZEROMV-LAST) get
+		// loop-filter-suppressed to avoid dot artifacts.
+		cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
+		cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+		return cfg
+	}
 	if delta := e.cyclicRefreshQuantizerDelta(); delta != 0 {
 		cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
 		cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
 	}
 	return cfg
 }
+
+// aggressiveDenoiseAltLFDelta mirrors libvpx's lf_adjustment = -40 in the
+// aggressive-denoise cyclic-refresh branch (vp8/encoder/onyx_if.c).
+const aggressiveDenoiseAltLFDelta int8 = -40
 
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e == nil {
@@ -34,7 +47,37 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e.opts.ScreenContentMode == 2 && refreshGolden {
 		return false
 	}
+	if e.forceMaxQuantizer {
+		// libvpx onyx_if.c gates cyclic refresh on force_maxqp == 0; when an
+		// overshoot drop forces the next frame to max Q, segmentation is
+		// disabled so the segment map and feature data don't fight the
+		// max-Q clamp.
+		return false
+	}
 	return e.opts.ErrorResilient || e.rc.mode == RateControlCBR
+}
+
+// aggressiveDenoiseSegmentationActive matches libvpx's branch in
+// cyclic_background_refresh that switches the cyclic-refresh segment from a
+// Q delta to an alt-LF delta when noise sensitivity is aggressive, the
+// current Q is below qp_thresh, and the frame is far enough past the last
+// key frame (frames_since_key > 2 * consec_zerolast).
+func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
+	if e == nil || e.opts.NoiseSensitivity < 3 {
+		return false
+	}
+	mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
+	if mode != denoiserOnYUVAggressive {
+		return false
+	}
+	_, params := denoiserSetParameters(mode)
+	if e.rc.currentQuantizer >= params.qpThresh {
+		return false
+	}
+	if e.rc.framesSinceKeyframe <= 2*params.consecZeroLast {
+		return false
+	}
+	return true
 }
 
 func (e *VP8Encoder) cyclicRefreshQuantizerDelta() int8 {

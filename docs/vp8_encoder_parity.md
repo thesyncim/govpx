@@ -307,17 +307,33 @@ the anchor and look for the surrounding mismatch.
 
 ## Segmentation, Cyclic Refresh, Skin, And Active Maps
 
-- [ ] Port cyclic background refresh exactly.
+- [x] Port cyclic background refresh exactly.
   - govpx:
     [`cyclicRefreshSegmentationConfig`](../encoder_segmentation.go),
-    [`assignInterFrameStaticSegments`](../encoder_segmentation.go).
-  - libvpx: cyclic refresh setup in `onyx_if.c` and `segmentation.c`.
-  - Status: partial. govpx already has default CBR/error-resilient enablement,
-    base-layer gating, screen-content cadence/disable behavior, cyclic map,
-    cooldown/dirty states, segment tree-prob updates, keyframe reset, and
-    segment-1 clear-on-non-LAST/ZEROMV. Remaining work is force-max-Q gating,
-    ALT_LF/denoiser segmentation feature behavior, exact per-MB final segment
-    transition tracing, and temporal enhancement-layer disablement parity.
+    [`aggressiveDenoiseSegmentationActive`](../encoder_segmentation.go),
+    [`assignInterFrameStaticSegments`](../encoder_segmentation.go),
+    [`updateCyclicRefreshMapFromInterFrame`](../encoder_segmentation.go),
+    `forceMaxQuantizer` field on `VP8Encoder` ([encoder.go](../encoder.go)).
+  - libvpx: cyclic refresh setup in `onyx_if.c` (`cyclic_background_refresh`,
+    `force_maxqp` gate), drop-overshoot wiring in `ratectrl.c`, and
+    segmentation packing in `segmentation.c`.
+  - Status: complete. govpx has default CBR/error-resilient enablement,
+    base-layer gating (via `staticSegmentationAllowed = !temporal.Enabled ||
+    LayerID == 0`), screen-content mode-2 disable on golden refresh,
+    cyclic map cooldown/dirty states, segment tree-prob updates, key-frame
+    reset, and the libvpx segment-1 clear-on-non-LAST/ZEROMV transition.
+    Force-max-Q is now plumbed end-to-end: an inter frame dropped due to
+    overshoot sets `forceMaxQuantizer = true`, and the next frame's
+    `cyclicRefreshModeEnabled` returns false (mirroring
+    `cpi->force_maxqp == 0` in `onyx_if.c`); a key frame or successful
+    non-dropped commit clears the flag. Aggressive-denoise now switches the
+    cyclic-refresh feature data from a Q delta to an alt-LF delta of -40
+    when `NoiseSensitivity` ≥ 3, the current Q is below
+    `denoise_pars.qp_thresh` (80), and `frames_since_key >
+    2 * consec_zerolast` (30), matching the libvpx
+    `cyclic_background_refresh` denoiser branch. Per-MB segment transitions
+    are oracle-tested across the libvpx state machine
+    (`updateCyclicRefreshMapFromInterFrame`).
   - Done when per-frame segment map, feature data, tree probabilities, and
     segment IDs match for CBR, error-resilient, temporal, and screen-content
     modes.

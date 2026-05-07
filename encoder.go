@@ -210,6 +210,13 @@ type VP8Encoder struct {
 	consecZeroLastMVBias   []uint8
 	dotArtifactChecked     []bool
 
+	// forceMaxQuantizer mirrors libvpx's cpi->force_maxqp. It is set when an
+	// overshoot drop forces the *next* inter frame to be encoded at max Q
+	// (vp8/encoder/ratectrl.c vp8_drop_encodedframe_overshoot) and disables
+	// cyclic background refresh while it is set (vp8/encoder/onyx_if.c). The
+	// flag is cleared after the next non-dropped frame commits.
+	forceMaxQuantizer bool
+
 	// Cross-frame inter-mode reference-frame probabilities. libvpx
 	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
 	// inter frame from observed mb_ref_frame counts (see
@@ -482,6 +489,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
+		// libvpx vp8_drop_encodedframe_overshoot sets force_maxqp=1 on the
+		// dropped frame so the next encoded frame is forced to max Q and
+		// cyclic refresh segmentation is suppressed for that frame.
+		e.forceMaxQuantizer = true
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
 		e.frameCount++
@@ -532,6 +543,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// Seed denoiser running averages from the key-frame source (libvpx
 	// onyx_if.c update_reference_frames key-frame branch).
 	e.initDenoiserAvgFromKeyFrame(source)
+	// Key frames consume any pending force_maxqp gate without applying it
+	// (cyclic refresh is already keyframe-reset).
+	e.forceMaxQuantizer = false
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
@@ -797,6 +811,10 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	// buffers per the frame's refresh policy.
 	e.copyDenoiserAvgForRefresh(attempt.Config.RefreshLast, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
 	e.rememberLastFrameInterModes()
+	// Once an inter frame has been encoded under the post-drop max-Q gate,
+	// clear it; libvpx leaves force_maxqp set only until the next frame
+	// consumes it.
+	e.forceMaxQuantizer = false
 }
 
 // updateRefFrameProbsFromAttempt mirrors libvpx vp8_estimate_entropy_savings'
