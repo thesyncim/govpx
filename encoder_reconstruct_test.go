@@ -1597,6 +1597,46 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 }
 
+func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	e.analysis = testVP8Frame(t, 32, 32, 128, 128, 128)
+	for i := 0; i < 16; i++ {
+		e.analysis.Img.Y[15*e.analysis.Img.YStride+16+i] = byte(30 + i*11)
+		e.analysis.Img.Y[(16+i)*e.analysis.Img.YStride+15] = byte(220 - i*9)
+	}
+	e.analysis.ExtendBorders()
+
+	var genScratch vp8dec.IntraReconstructionScratch
+	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, 1, 1, &genScratch.Refs)
+	yOff := 16*e.analysis.Img.YStride + 16
+	y := e.analysis.Img.Y[yOff:]
+	for block := 0; block < 16; block++ {
+		var blockPred [16]byte
+		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			t.Fatalf("predictAnalysisBPredBlock returned false")
+		}
+		copyBPredBlock(blockPred[:], 4, y, e.analysis.Img.YStride, block)
+		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
+	}
+	for row := 16; row < 32; row++ {
+		for col := 16; col < 32; col++ {
+			e.analysis.Img.Y[row*e.analysis.Img.YStride+col] = 128
+		}
+	}
+
+	mode, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
+	if !ok {
+		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
+	}
+	for block, bMode := range mode.BModes {
+		if bMode > vp8common.BHEPred {
+			t.Fatalf("fast B mode[%d] = %v, want libvpx non-RD candidate <= B_HE_PRED", block, bMode)
+		}
+	}
+}
+
 func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 128, 128, 128)

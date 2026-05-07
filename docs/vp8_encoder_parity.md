@@ -533,7 +533,9 @@ the anchor and look for the surrounding mismatch.
     (`predictBestWholeBlockIntraModeRD`) has parity coverage in
     `encoder_intra16x16_picker_test.go` that pins the Y mode iteration order,
     mbmode_cost addition, token context seeding, and Y/UV rate-distortion
-    breakdowns against libvpx `rd_pick_intra16x16mby_mode`.
+    breakdowns against libvpx `rd_pick_intra16x16mby_mode`. The non-RD
+    inter-frame B_PRED picker now uses libvpx's cheaper `B_DC_PRED..B_HE_PRED`
+    candidate set instead of the full RD-only 10-mode set.
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,

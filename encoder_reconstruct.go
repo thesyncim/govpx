@@ -37,6 +37,13 @@ var bPredIntraModeCandidates = [...]vp8common.BPredictionMode{
 	vp8common.BHUPred,
 }
 
+var fastBPredIntraModeCandidates = [...]vp8common.BPredictionMode{
+	vp8common.BDCPred,
+	vp8common.BTMPred,
+	vp8common.BVEPred,
+	vp8common.BHEPred,
+}
+
 func libvpxFrameQuantDeltas(qIndex int, screenContentMode int) vp8common.QuantDeltas {
 	var deltas vp8common.QuantDeltas
 	if qIndex < 4 {
@@ -1579,7 +1586,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		bestDist := 0
 		bestCost := maxInt()
 		var bestBlock [16]byte
-		for _, bMode := range bPredIntraModeCandidates {
+		for _, bMode := range fastBPredIntraModeCandidates {
 			var blockPred [16]byte
 			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 				return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
