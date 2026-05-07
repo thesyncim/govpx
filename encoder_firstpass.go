@@ -5,6 +5,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 const (
@@ -29,13 +30,9 @@ const (
 	// path is exercised exactly once with a non-zero threshold; the public
 	// API does not yet plumb the user-facing oxcf.encode_breakout knob.
 	libvpxFirstPassEncodeBreakout = 0
-	// First-pass motion search radius. libvpx's first_pass_motion_search runs
-	// a NSTEP diamond seeded at step_param=3 plus refinements. govpx uses an
-	// integer-pel exhaustive sweep over this radius around the seed, which is
-	// cheap, deterministic, and produces matching MV signs/magnitudes for
-	// small synthetic inputs. The full libvpx diamond/refinement port is
-	// tracked in docs/vp8_encoder_parity.md.
-	libvpxFirstPassSearchRadius = 4
+	// libvpx first_pass_motion_search starts the NSTEP diamond at step_param=3
+	// rather than searching the full range.
+	libvpxFirstPassSearchStepParam = 3
 )
 
 type FirstPassFrameStats struct {
@@ -137,7 +134,9 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 
 	hasLast := e.firstPassCount > 0 && e.firstPassLastRef.Img.Width == src.Width && e.firstPassLastRef.Img.Height == src.Height
 	hasGolden := e.firstPassCount > 1 && e.firstPassGoldenRef.Img.Width == src.Width && e.firstPassGoldenRef.Img.Height == src.Height
+	qIndex := e.rc.currentQuantizer
 	for row := 0; row < rows; row++ {
+		bestRefMV := vp8enc.MotionVector{}
 		for col := 0; col < cols; col++ {
 			intra := macroblockMeanLumaSSE(src, row, col) + intraPenalty
 			intraError += int64(intra)
@@ -158,16 +157,20 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 				motionErr := zeroErr
 
 				if rawMotionErr >= libvpxFirstPassEncodeBreakout {
-					// Zero-MV-seeded simplified first_pass_motion_search
-					// against LAST. libvpx uses an NSTEP diamond plus
-					// refinement; govpx walks a small integer-pel window
-					// around (0,0) and picks the lowest SSE. Cost:
-					// (2R+1)^2 SSE16x16 evaluations per MB.
-					if mv, err, ok := firstPassMotionSearchExhaustive(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{}); ok {
+					if mv, err, ok := firstPassMotionSearch(src, &e.firstPassLastRef.Img, row, col, bestRefMV, qIndex); ok {
 						err += libvpxFirstPassNewMVModePenalty
 						if err < motionErr {
 							motionErr = err
 							bestMV = mv
+						}
+					}
+					if !bestRefMV.IsZero() {
+						if mv, err, ok := firstPassMotionSearch(src, &e.firstPassLastRef.Img, row, col, vp8enc.MotionVector{}, qIndex); ok {
+							err += libvpxFirstPassNewMVModePenalty
+							if err < motionErr {
+								motionErr = err
+								bestMV = mv
+							}
 						}
 					}
 				}
@@ -183,6 +186,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 					}
 					thisError = motionErr
 					interCount++
+					bestRefMV = bestMV
 
 					// libvpx multiplies bmi.mv by 8 here to convert from
 					// pel to 1/8-pel (q3) before summing into
@@ -236,15 +240,16 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 							}
 						}
 					}
+				} else {
+					bestRefMV = vp8enc.MotionVector{}
 				}
 			}
 
 			if hasGolden {
 				// Experimental search in a second reference frame
-				// ((0,0) based only) per libvpx. We use the same
-				// simplified search for parity with the LAST path.
+				// ((0,0) based only) per libvpx.
 				goldenErr := macroblockLumaSSE(src, &e.firstPassGoldenRef.Img, row, col, vp8enc.MotionVector{}) + 128
-				if mv, err, ok := firstPassMotionSearchExhaustive(src, &e.firstPassGoldenRef.Img, row, col, vp8enc.MotionVector{}); ok {
+				if mv, err, ok := firstPassMotionSearch(src, &e.firstPassGoldenRef.Img, row, col, vp8enc.MotionVector{}, qIndex); ok {
 					_ = mv
 					err += libvpxFirstPassNewMVModePenalty
 					if err < goldenErr {
@@ -305,43 +310,64 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	return stats
 }
 
-// firstPassMotionSearchExhaustive is a deterministic stand-in for libvpx's
-// first_pass_motion_search NSTEP diamond. It walks an integer-pel window of
-// radius libvpxFirstPassSearchRadius around `seed` and returns the (mv, sse)
-// pair with the lowest SSE16x16. The MV is reported in q3 (1/8-pel) units to
-// match the rest of govpx, which is the same scale libvpx uses in
-// FIRSTPASS_STATS after its post-search `bmi.mv *= 8`. ok=false when the
-// reference is empty/unset.
-//
-// Reference: vp8/encoder/firstpass.c first_pass_motion_search uses
-// step_param=3 plus refining further_steps; we collapse that into the
-// exhaustive sweep so MV statistics are populated without depending on the
-// full diamond_search_sad helper, which is tracked separately in the parity
-// doc.
-func firstPassMotionSearchExhaustive(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, seed vp8enc.MotionVector) (vp8enc.MotionVector, int, bool) {
+func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, seed vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int, bool) {
 	if ref == nil || ref.Width <= 0 || ref.Height <= 0 {
 		return vp8enc.MotionVector{}, 0, false
 	}
-	bestMV := vp8enc.MotionVector{}
-	bestErr := maxInt()
-	have := false
-	r := libvpxFirstPassSearchRadius
-	seedRow := int(seed.Row >> 3)
-	seedCol := int(seed.Col >> 3)
-	for dr := -r; dr <= r; dr++ {
-		for dc := -r; dc <= r; dc++ {
-			rowPel := seedRow + dr
-			colPel := seedCol + dc
-			mv := vp8enc.MotionVector{Row: int16(rowPel) << 3, Col: int16(colPel) << 3}
-			err := macroblockLumaSSE(src, ref, mbRow, mbCol, mv)
-			if !have || err < bestErr {
-				bestErr = err
-				bestMV = mv
-				have = true
-			}
+	mbRows := encoderMacroblockRows(src.Height)
+	mbCols := encoderMacroblockCols(src.Width)
+	bounds := interFrameFullPixelSearchBounds(seed, mbRow, mbCol, mbRows, mbCols)
+	center := bounds.clampEighth(vp8enc.MotionVector{
+		Row: int16(int(seed.Row) & ^7),
+		Col: int16(int(seed.Col) & ^7),
+	})
+	centerCost := interMotionSearchCost(src, ref, mbRow, mbCol, center, seed, qIndex)
+	search := interAnalysisSearchConfig{
+		fullPixelSearchParam:  libvpxFirstPassSearchStepParam,
+		fullPixelFurtherSteps: interFrameMaxMVSearchSteps - 1 - libvpxFirstPassSearchStepParam,
+	}
+	mv, cost := firstPassNstepMotionSearch(src, ref, mbRow, mbCol, center, centerCost, seed, qIndex, bounds, search)
+	return mv, cost, true
+}
+
+func firstPassNstepMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
+	stepParam := search.fullPixelSearchParam
+	if stepParam < 0 {
+		stepParam = 0
+	} else if stepParam >= interFrameMaxMVSearchSteps {
+		stepParam = interFrameMaxMVSearchSteps - 1
+	}
+
+	result := firstPassDiamondNstepMotionSearch(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, stepParam)
+	best := result.mv
+	bestCost := result.cost
+	n := result.num00
+	num00 := 0
+	for n < search.fullPixelFurtherSteps {
+		n++
+		if num00 > 0 {
+			num00--
+			continue
+		}
+		candidate := firstPassDiamondNstepMotionSearch(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, stepParam+n)
+		num00 = candidate.num00
+		if candidate.cost < bestCost {
+			best = candidate.mv
+			bestCost = candidate.cost
 		}
 	}
-	return bestMV, bestErr, have
+	return best, bestCost
+}
+
+func firstPassDiamondNstepMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, searchParam int) interFrameNstepSearchResult {
+	sites := interFrameNstepSearchSites()
+	result := diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites[:], 8, searchParam, &vp8tables.DefaultMVContext)
+	result.cost = firstPassMotionSearchReturnCost(src, ref, mbRow, mbCol, result.mv, bestRefMV, qIndex)
+	return result
+}
+
+func firstPassMotionSearchReturnCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
+	return macroblockLumaSSE(src, ref, mbRow, mbCol, mv) + interMotionSearchErrorVectorCost(mv, bestRefMV, qIndex, &vp8tables.DefaultMVContext)
 }
 
 // simpleWeightLuma ports libvpx vp8/encoder/firstpass.c simple_weight: it
