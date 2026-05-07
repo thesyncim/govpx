@@ -369,6 +369,44 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 	}
 }
 
+func TestOnePassHiddenAltRefAccumulatesFullPostPackOverspend(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t)
+	dst := make([]byte, 1<<16)
+	keySrc := sourceImageFromImage(movingBarTestImage(32, 32, 0))
+	altSrc := sourceImageFromImage(movingBarTestImage(32, 32, 1))
+
+	key, err := e.encodeSourceInto(dst, keySrc, 0, 1, 0, encodeSourceMetadata{})
+	if err != nil {
+		t.Fatalf("key encodeSourceInto returned error: %v", err)
+	}
+	if !key.KeyFrame {
+		t.Fatalf("key result = inter, want key")
+	}
+
+	e.rc.gfOverspendBits = 0
+	e.rc.nonGFBitrateAdjustment = 0
+	e.rc.framesTillGFUpdateDue = 10
+	e.rc.interFrameTarget = 1 << 30
+
+	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+	if err != nil {
+		t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
+	}
+	if hidden.KeyFrame || hidden.SizeBytes == 0 {
+		t.Fatalf("hidden ARF result = key:%t size:%d, want non-key packet", hidden.KeyFrame, hidden.SizeBytes)
+	}
+
+	wantBits := encodedSizeBits(hidden.SizeBytes)
+	if e.rc.gfOverspendBits != wantBits {
+		t.Fatalf("one-pass hidden ARF gfOverspendBits = %d, want full packet bits %d",
+			e.rc.gfOverspendBits, wantBits)
+	}
+	if e.rc.nonGFBitrateAdjustment != wantBits/10 {
+		t.Fatalf("one-pass hidden ARF nonGFBitrateAdjustment = %d, want %d",
+			e.rc.nonGFBitrateAdjustment, wantBits/10)
+	}
+}
+
 // cloneAutoAltRefImage deep-copies a returned decoder Image so subsequent
 // NextFrame calls cannot overwrite the buffers.
 func cloneAutoAltRefImage(src Image) Image {

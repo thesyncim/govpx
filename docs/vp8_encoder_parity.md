@@ -335,7 +335,10 @@ the anchor and look for the surrounding mismatch.
     `kf_overspend_bits` for multi-layer), `kf_bitrate_adjustment` is
     `kf_overspend_bits / estimate_keyframe_frequency`, and GF
     overspend (`projected_frame_size - inter_frame_target`) drives
-    `non_gf_bitrate_adjustment`. The next p-frame target now drains
+    `non_gf_bitrate_adjustment`; hidden ARF post-pack accounting now
+    follows `update_alt_ref_frame_stats` and accumulates the full
+    `projected_frame_size` into `gf_overspend_bits` instead of using the
+    GF delta path. The next p-frame target now drains
     KF then GF overspend via the libvpx adjustment ordering, applies
     the small +/- `last_boost` boost for non-GF frames inside long
     GF intervals (`current_gf_interval >= 2*MIN_GF_INTERVAL`), and
@@ -606,7 +609,9 @@ the anchor and look for the surrounding mismatch.
     stats index plus rate-control visible-frame counters unchanged. Visible
     frames subtract packet bytes and then add back the configured
     `two_pass_vbrmin_section` minimum-frame budget, while hidden ARFs remain
-    subtract-only; pinned by
+    subtract-only. Pass2 frames skip the one-pass KF/GF/ARF post-pack
+    overspend bookkeeping and rely on the second-pass bit allocator instead;
+    pinned by
     `TestTwoPassAltRefBitChargeDoesNotAdvanceStats` and
     `TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`.
     `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR

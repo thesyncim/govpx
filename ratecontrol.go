@@ -682,54 +682,76 @@ func (rc *rateControlState) postEncodeFrame(sizeBytes int, keyFrame bool) {
 }
 
 func (rc *rateControlState) postEncodeFrameWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int) {
-	rc.postEncodeFrameWithPacketContext(sizeBytes, keyFrame, goldenFrame, macroblocks, true)
+	rc.postEncodeFrameWithPacketContext(sizeBytes, rateControlPostEncodeContext{
+		keyFrame:    keyFrame,
+		goldenFrame: goldenFrame,
+		macroblocks: macroblocks,
+		showFrame:   true,
+	})
 }
 
-func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, showFrame bool) {
+type rateControlPostEncodeContext struct {
+	keyFrame              bool
+	goldenFrame           bool
+	altRefFrame           bool
+	macroblocks           int
+	showFrame             bool
+	skipPostPackOverspend bool
+}
+
+func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx rateControlPostEncodeContext) {
 	actualBits := encodedSizeBits(sizeBytes)
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
+	boostedReferenceFrame := ctx.goldenFrame || ctx.altRefFrame
 	if !rc.activeWorstQChanged {
-		rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
+		rc.updateRateCorrectionFactor(actualBits, ctx.keyFrame, boostedReferenceFrame, ctx.macroblocks)
 	}
 	rc.activeWorstQChanged = false
 	rc.updateRollingBitAverages(actualBits, targetBits)
-	if showFrame {
+	if ctx.showFrame {
 		rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	}
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
 
 	// libvpx vp8/encoder/ratectrl.c vp8_adjust_key_frame_context and
-	// onyx_if.c update_golden_frame_stats accumulate post-pack overspend
-	// before the next frame's calc_pframe_target_size runs.
-	rc.accumulatePostPackOverspend(actualBits, keyFrame, goldenFrame)
+	// onyx_if.c update_golden_frame_stats / update_alt_ref_frame_stats
+	// accumulate post-pack overspend before the next frame's
+	// calc_pframe_target_size runs. Pass2 skips this one-pass bookkeeping.
+	if !ctx.skipPostPackOverspend {
+		if ctx.altRefFrame && !ctx.keyFrame {
+			rc.accumulatePostPackAltRefOverspend(actualBits)
+		} else {
+			rc.accumulatePostPackOverspend(actualBits, ctx.keyFrame, ctx.goldenFrame)
+		}
+	}
 
 	encodedQuantizer := rc.currentQuantizer
 	rc.lastQuantizer = encodedQuantizer
-	if !keyFrame {
+	if !ctx.keyFrame {
 		rc.lastInterQuantizer = encodedQuantizer
 	}
 	if rc.mode == RateControlCQ {
-		rc.adjustCQQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
+		rc.adjustCQQuantizerWithContext(actualBits, targetBits, ctx.keyFrame, boostedReferenceFrame)
 	} else {
-		rc.adjustQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
+		rc.adjustQuantizerWithContext(actualBits, targetBits, ctx.keyFrame, boostedReferenceFrame)
 	}
 	rc.clampQuantizer()
 
-	rc.updateQuantizerAverages(encodedQuantizer, keyFrame, goldenFrame)
-	if keyFrame {
+	rc.updateQuantizerAverages(encodedQuantizer, ctx.keyFrame, boostedReferenceFrame)
+	if ctx.keyFrame {
 		rc.framesSinceKeyframe = 0
 		rc.framesSinceGolden = 0
 		return
 	}
-	if !showFrame {
+	if !ctx.showFrame {
 		return
 	}
 	rc.framesSinceKeyframe++
-	if goldenFrame {
+	if ctx.goldenFrame || ctx.altRefFrame {
 		rc.framesSinceGolden = 0
 	} else {
 		rc.framesSinceGolden++

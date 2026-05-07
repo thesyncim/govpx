@@ -823,7 +823,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.SizeBytes = attempt.Size
 			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 			result.Droppable = interFrameDroppable(attempt.Config)
-			e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
+			e.rc.postEncodeFrameWithPacketContext(attempt.Size, rateControlPostEncodeContext{
+				goldenFrame:           attempt.Config.RefreshGolden,
+				altRefFrame:           attempt.Config.RefreshAltRef,
+				macroblocks:           required,
+				showFrame:             !invisible,
+				skipPostPackOverspend: e.twoPass.enabled(),
+			})
 			if hiddenAltRefFrame {
 				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
 			} else {
@@ -921,7 +927,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
-	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, true, false, required, !invisible)
+	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, rateControlPostEncodeContext{
+		keyFrame:              true,
+		macroblocks:           required,
+		showFrame:             !invisible,
+		skipPostPackOverspend: e.twoPass.enabled(),
+	})
 	if twoPassSceneCut {
 		e.twoPass.markKeyFrame(e.frameCount)
 	}
