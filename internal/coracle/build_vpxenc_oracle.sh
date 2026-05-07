@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-rate-recode
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-zbin-default-coef
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -83,6 +83,7 @@ if [ ! -f "$patch_stamp" ]; then
 #include <stdlib.h>
 #include <string.h>
 
+#include "vpx/vpx_encoder.h"
 #include "vp8/common/blockd.h"
 #include "vp8/common/onyxc_int.h"
 #include "vp8/encoder/onyx_int.h"
@@ -248,6 +249,8 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
     unsigned int y_adler, u_adler, v_adler;
     int mb_total;
     int i;
+    int refresh_entropy_probs;
+    int default_coef_reset;
     FILE *out;
 
     govpx_oracle_init();
@@ -265,6 +268,19 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                                   ref->uv_crop_height, ref->uv_stride);
     v_adler = govpx_plane_adler32(ref->v_buffer, ref->uv_crop_width,
                                   ref->uv_crop_height, ref->uv_stride);
+    /* Capture the refresh-entropy-probs decision after vp8_pack_bitstream's
+     * error-resilient override (bitstream.c around line 1226). The default
+     * coef-count/probs reset fires on key frames when error-resilient
+     * partitions are enabled and refresh_entropy_probs is forced to 1; the
+     * reset itself is done by vp8_setup_key_frame -> vp8_default_coef_probs
+     * earlier in the encode pipeline. The flag exposes the gate so govpx
+     * parity tests can confirm the same branch fired. */
+    refresh_entropy_probs = cm->refresh_entropy_probs ? 1 : 0;
+    default_coef_reset =
+        ((cpi->oxcf.error_resilient_mode & VPX_ERROR_RESILIENT_PARTITIONS) &&
+         cm->frame_type == KEY_FRAME)
+            ? 1
+            : 0;
     fprintf(out,
             "{\"type\":\"frame\","
             "\"frame_index\":%llu,"
@@ -278,6 +294,8 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             "\"sign_bias_golden\":%s,"
             "\"sign_bias_altref\":%s,"
             "\"segmentation_enabled\":%s,"
+            "\"refresh_entropy_probs\":%s,"
+            "\"default_coef_reset\":%s,"
             "\"y_adler32\":%u,"
             "\"u_adler32\":%u,"
             "\"v_adler32\":%u,"
@@ -293,6 +311,8 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             cm->ref_frame_sign_bias[GOLDEN_FRAME] ? "true" : "false",
             cm->ref_frame_sign_bias[ALTREF_FRAME] ? "true" : "false",
             xd->segmentation_enabled ? "true" : "false",
+            refresh_entropy_probs ? "true" : "false",
+            default_coef_reset ? "true" : "false",
             y_adler, u_adler, v_adler,
             frame_size);
     /* Flush per-MB rows captured during encode_mb_row (inter frames only). */
@@ -373,7 +393,8 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             "\"projected_frame_size\":%d,"
             "\"this_frame_target\":%d,"
             "\"kf_overspend_bits\":%d,"
-            "\"gf_overspend_bits\":%d}\n",
+            "\"gf_overspend_bits\":%d,"
+            "\"zbin_over_quant\":%d}\n",
             govpx_oracle_state.frame_index,
             cm->frame_type == KEY_FRAME ? "key" : "inter",
             final_q,
@@ -384,7 +405,8 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             cpi->projected_frame_size,
             cpi->this_frame_target,
             cpi->kf_overspend_bits,
-            cpi->gf_overspend_bits);
+            cpi->gf_overspend_bits,
+            cpi->mb.zbin_over_quant);
     if (govpx_recode_iter_count > 1) {
         if (cpi->is_src_frame_alt_ref) {
             reason = "altref_src";

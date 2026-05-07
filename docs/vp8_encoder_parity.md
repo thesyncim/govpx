@@ -230,8 +230,18 @@ the anchor and look for the surrounding mismatch.
     itself is captured at the end of the frame preceding a forced KF
     via the libvpx `next_key_frame_forced` branch
     (`encode_frame_to_data_rate` around line 4282).
-  - Missing: trace coverage for GF/ARF zbin-over-quant cases once
-    automatic ARF state is in place.
+    The oracle trace's "rate" row now carries the active
+    `cpi->mb.zbin_over_quant` for each accepted recode attempt so
+    GF/ARF zbin-over-quant divergences surface as a field-level diff in
+    [`oracle_compare.go`](../internal/coracle/oracle_compare.go); the
+    libvpx-side patch in
+    [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
+    captures the same field at the same emission point (just before
+    `vp8_pack_bitstream`). The govpx side feeds
+    `e.rc.currentZbinOverQuant` into the trace from
+    [`encoder_oracle_trace.go`](../encoder_oracle_trace.go), and
+    `TestCompareOracleTracesDetectsZbinOverQuantDivergence` exercises
+    the diff path on synthetic JSONL.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -1115,8 +1125,19 @@ the anchor and look for the surrounding mismatch.
     `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
     `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
     `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`.
-  - Missing: libvpx-side trace anchors for the error-resilient key-frame
-    default-coef-count reset.
+    The oracle trace's "frame" row now carries the
+    `refresh_entropy_probs` decision (after libvpx's
+    `vp8_pack_bitstream` error-resilient override around
+    `bitstream.c:1226`) and a `default_coef_reset` gate (true iff
+    error-resilient mode AND key frame, mirroring the libvpx
+    `vp8_setup_key_frame` -> `vp8_default_coef_probs` plus
+    `vp8_update_coef_context` key-frame `vp8_copy(coef_counts,
+    default_coef_counts)` reset). The libvpx-side patch in
+    [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
+    captures both fields at the same emission point as `cm->frame_type`
+    so parity tests can confirm govpx and libvpx took the same branch;
+    `TestCompareOracleTracesDetectsDefaultCoefResetDivergence`
+    exercises the diff path on synthetic JSONL.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.

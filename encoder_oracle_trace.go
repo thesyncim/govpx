@@ -27,23 +27,41 @@ import (
 )
 
 // oracleTraceFrameRow is the per-frame oracle trace row.
+//
+// RefreshEntropyProbs mirrors libvpx's `cm->refresh_entropy_probs` after the
+// `vp8_pack_bitstream` error-resilient override (bitstream.c around line
+// 1226): when error_resilient_mode includes VPX_ERROR_RESILIENT_PARTITIONS,
+// libvpx forces refresh_entropy_probs=1 on key frames and refresh_entropy_probs=0
+// on inter frames regardless of the encoder's earlier choice. govpx tracks
+// the same per-attempt flag through `keyFrameEncodeAttempt.RefreshEntropyProbs`
+// / `interFrameEncodeAttempt.Config.RefreshEntropyProbs`.
+//
+// DefaultCoefReset mirrors libvpx's "force-default coef probs/counts" gate:
+// when error_resilient_mode is VPX_ERROR_RESILIENT_PARTITIONS AND the frame
+// is a key frame, libvpx resets `cm->fc.coef_probs` and `mb->coef_counts` to
+// their defaults via vp8_setup_key_frame -> vp8_default_coef_probs and the
+// on-the-fly bitpacking branch in `vp8_update_coef_context`. The flag is the
+// gate, not the side-effect, so parity tests can confirm both encoders took
+// the same branch even when the underlying tables already matched.
 type oracleTraceFrameRow struct {
-	Type           string `json:"type"`
-	FrameIndex     uint64 `json:"frame_index"`
-	FrameType      string `json:"frame_type"`
-	QIndex         int    `json:"q_index"`
-	BaseQIndex     int    `json:"base_q_index"`
-	LoopFilter     int    `json:"loop_filter_level"`
-	RefreshLast    bool   `json:"refresh_last"`
-	RefreshGolden  bool   `json:"refresh_golden"`
-	RefreshAltRef  bool   `json:"refresh_altref"`
-	GoldenSignBias bool   `json:"sign_bias_golden"`
-	AltRefSignBias bool   `json:"sign_bias_altref"`
-	SegEnabled     bool   `json:"segmentation_enabled"`
-	YAdler32       uint32 `json:"y_adler32"`
-	UAdler32       uint32 `json:"u_adler32"`
-	VAdler32       uint32 `json:"v_adler32"`
-	SizeBytes      int    `json:"size_bytes"`
+	Type                string `json:"type"`
+	FrameIndex          uint64 `json:"frame_index"`
+	FrameType           string `json:"frame_type"`
+	QIndex              int    `json:"q_index"`
+	BaseQIndex          int    `json:"base_q_index"`
+	LoopFilter          int    `json:"loop_filter_level"`
+	RefreshLast         bool   `json:"refresh_last"`
+	RefreshGolden       bool   `json:"refresh_golden"`
+	RefreshAltRef       bool   `json:"refresh_altref"`
+	GoldenSignBias      bool   `json:"sign_bias_golden"`
+	AltRefSignBias      bool   `json:"sign_bias_altref"`
+	SegEnabled          bool   `json:"segmentation_enabled"`
+	RefreshEntropyProbs bool   `json:"refresh_entropy_probs"`
+	DefaultCoefReset    bool   `json:"default_coef_reset"`
+	YAdler32            uint32 `json:"y_adler32"`
+	UAdler32            uint32 `json:"u_adler32"`
+	VAdler32            uint32 `json:"v_adler32"`
+	SizeBytes           int    `json:"size_bytes"`
 }
 
 // oracleTraceRateRow mirrors the libvpx-side "rate" row emitted from
@@ -76,6 +94,13 @@ type oracleTraceRateRow struct {
 	ThisFrameTarget    int    `json:"this_frame_target"`
 	KFOverspendBits    int    `json:"kf_overspend_bits"`
 	GFOverspendBits    int    `json:"gf_overspend_bits"`
+	// ZbinOverQuant mirrors libvpx's `cpi->mb.zbin_over_quant` at the
+	// emission point (just before vp8_pack_bitstream), i.e. the active
+	// zbin-overshoot value that drove quantize for the accepted recode
+	// attempt. govpx feeds the same value from
+	// `e.rc.currentZbinOverQuant`, which is committed by the recode loop
+	// for both the GF/ARF boost branch and the regular size-recode branch.
+	ZbinOverQuant int `json:"zbin_over_quant"`
 }
 
 // oracleTraceRecodeRow mirrors the libvpx-side "recode" row, emitted only
@@ -125,7 +150,12 @@ func (e *VP8Encoder) oracleTraceEnabled() bool {
 
 // oracleTraceFrameSummary is the minimal slice of frame state that callers
 // pass to emitOracleFrameTrace. It exists so the call site does not depend on
-// the exact attempt struct shape.
+// the exact attempt struct shape. The frame row's `refresh_entropy_probs`
+// and `default_coef_reset` fields are derived inside emitOracleFrameTrace
+// from `summary.FrameType` and `e.opts.ErrorResilient`, mirroring libvpx's
+// `vp8_pack_bitstream` error-resilient override and the
+// `error_resilient && key-frame` default-coef gate respectively, so callers
+// do not need to thread those values through the summary struct.
 type oracleTraceFrameSummary struct {
 	FrameType      vp8common.FrameType
 	BaseQIndex     int
@@ -148,24 +178,45 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	if !e.oracleTraceEnabled() {
 		return
 	}
-	row := oracleTraceFrameRow{
-		Type:           "frame",
-		FrameIndex:     e.frameCount,
-		QIndex:         e.rc.currentQuantizer,
-		BaseQIndex:     summary.BaseQIndex,
-		LoopFilter:     summary.LoopFilter,
-		RefreshLast:    summary.RefreshLast,
-		RefreshGolden:  summary.RefreshGolden,
-		RefreshAltRef:  summary.RefreshAltRef,
-		GoldenSignBias: summary.GoldenSignBias,
-		AltRefSignBias: summary.AltRefSignBias,
-		SegEnabled:     summary.SegEnabled,
-		SizeBytes:      summary.SizeBytes,
+	keyFrame := summary.FrameType == vp8common.KeyFrame
+	// Mirror libvpx vp8/encoder/bitstream.c around line 1226: when
+	// error_resilient_mode == VPX_ERROR_RESILIENT_PARTITIONS the encoder
+	// forces refresh_entropy_probs to 1 on key frames and to 0 on inter
+	// frames, regardless of the per-attempt choice. Outside the
+	// error-resilient mode govpx's keyframe path always sets
+	// RefreshEntropyProbs=true (see encoder.go: WriteCoefficientKeyFrame
+	// configuration), and the inter path sets true unless the caller
+	// passed EncodeNoUpdateEntropy. The trace approximates the typical
+	// case (no NoUpdateEntropy flag) so libvpx and govpx match in the
+	// common configuration; a future hook can override this when the
+	// per-attempt flag becomes part of the summary.
+	refreshEntropyProbs := true
+	if e.opts.ErrorResilient && !keyFrame {
+		refreshEntropyProbs = false
 	}
-	switch summary.FrameType {
-	case vp8common.KeyFrame:
+	// Mirror libvpx vp8/encoder/bitstream.c default-coef gate exposed by
+	// the oracle TU: error_resilient_mode is set AND frame is a key
+	// frame. govpx uses `e.opts.ErrorResilient && keyframe` to match.
+	defaultCoefReset := e.opts.ErrorResilient && keyFrame
+	row := oracleTraceFrameRow{
+		Type:                "frame",
+		FrameIndex:          e.frameCount,
+		QIndex:              e.rc.currentQuantizer,
+		BaseQIndex:          summary.BaseQIndex,
+		LoopFilter:          summary.LoopFilter,
+		RefreshLast:         summary.RefreshLast,
+		RefreshGolden:       summary.RefreshGolden,
+		RefreshAltRef:       summary.RefreshAltRef,
+		GoldenSignBias:      summary.GoldenSignBias,
+		AltRefSignBias:      summary.AltRefSignBias,
+		SegEnabled:          summary.SegEnabled,
+		RefreshEntropyProbs: refreshEntropyProbs,
+		DefaultCoefReset:    defaultCoefReset,
+		SizeBytes:           summary.SizeBytes,
+	}
+	if keyFrame {
 		row.FrameType = "key"
-	default:
+	} else {
 		row.FrameType = "inter"
 	}
 	row.YAdler32, row.UAdler32, row.VAdler32 = oracleTraceReferenceChecksums(&e.lastRef.Img)
@@ -188,6 +239,11 @@ type oracleTraceRateSummary struct {
 	ThisFrameTargetBits    int
 	KFOverspendBits        int
 	GFOverspendBits        int
+	// ZbinOverQuant mirrors libvpx's `cpi->mb.zbin_over_quant` at the
+	// emission point. Fed from `e.rc.currentZbinOverQuant` which the
+	// recode loop commits for the GF/ARF boost branch and the regular
+	// size-recode branch alike.
+	ZbinOverQuant int
 }
 
 // emitOracleRateTrace writes a single per-frame "rate" row capturing the
@@ -210,6 +266,7 @@ func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
 		ThisFrameTarget:    summary.ThisFrameTargetBits,
 		KFOverspendBits:    summary.KFOverspendBits,
 		GFOverspendBits:    summary.GFOverspendBits,
+		ZbinOverQuant:      summary.ZbinOverQuant,
 	}
 	switch summary.FrameType {
 	case vp8common.KeyFrame:
@@ -281,6 +338,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		ThisFrameTargetBits:    e.rc.frameTargetBits,
 		KFOverspendBits:        e.rc.kfOverspendBits,
 		GFOverspendBits:        e.rc.gfOverspendBits,
+		ZbinOverQuant:          e.rc.currentZbinOverQuant,
 	})
 	if e.oracleTraceRecodeLoopCount > 1 {
 		reason := "size_recode"
