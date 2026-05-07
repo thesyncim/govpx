@@ -136,6 +136,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
 	}
+	// Reset oracle trace MB buffer at the start of each build pass so retried
+	// (recoded) key-frame attempts overwrite earlier rows.
+	e.resetOracleMBTraceBuffer()
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return ErrInvalidConfig
@@ -180,6 +183,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				}
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
 				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
+				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index])
 				continue
 			}
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -192,6 +196,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				return ErrInvalidConfig
 			}
 			vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
+			e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index])
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}

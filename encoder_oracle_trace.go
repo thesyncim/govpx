@@ -10,7 +10,7 @@ package govpx
 // with a "type" field that selects the row schema:
 //
 //   {"type":"frame", ...}  one per encoded (non-dropped) frame
-//   {"type":"mb",    ...}  one per macroblock for inter frames
+//   {"type":"mb",    ...}  one per macroblock
 //
 // Output is emitted in deterministic order (frame trace after the frame is
 // committed; per-MB rows in raster scan order). When the writer is nil there
@@ -147,7 +147,7 @@ type oracleTraceRecodeRow struct {
 	Reason     string `json:"reason"`
 }
 
-// oracleTraceMBRow is the per-macroblock oracle trace row (inter frames only).
+// oracleTraceMBRow is the per-macroblock oracle trace row.
 type oracleTraceMBRow struct {
 	Type       string        `json:"type"`
 	FrameIndex uint64        `json:"frame_index"`
@@ -159,6 +159,8 @@ type oracleTraceMBRow struct {
 	MVRow      int16         `json:"mv_row"`
 	MVCol      int16         `json:"mv_col"`
 	Skip       bool          `json:"skip"`
+	UVMode     string        `json:"uv_mode,omitempty"`
+	BModes     []string      `json:"b_modes,omitempty"`
 	EOB        [25]uint8     `json:"eob"`
 	EOBSum     int           `json:"eob_sum"`
 	QCoeff     [25][16]int16 `json:"qcoeff"`
@@ -445,7 +447,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 }
 
 // resetOracleMBTraceBuffer clears any accumulated per-MB trace rows. It is
-// called at the start of each inter-frame coefficient build pass so retried
+// called at the start of each coefficient build pass so retried
 // (recoded) attempts overwrite earlier rows; the final attempt's rows are
 // flushed by flushOracleMBTraceBuffer at frame commit time.
 func (e *VP8Encoder) resetOracleMBTraceBuffer() {
@@ -504,6 +506,43 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		row.ImprovedMVRow = mode.ImprovedMVPredictor.Row
 		row.ImprovedMVCol = mode.ImprovedMVPredictor.Col
 		row.ImprovedMVSR = int(mode.ImprovedMVSR)
+	}
+	sum := 0
+	for i := 0; i < 25; i++ {
+		row.EOB[i] = coeffs.EOB[i]
+		row.QCoeff[i] = coeffs.QCoeff[i]
+		sum += int(coeffs.EOB[i])
+	}
+	row.EOBSum = sum
+	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
+}
+
+func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
+	mbRow int, mbCol int,
+	mode *vp8enc.KeyFrameMacroblockMode,
+	coeffs *vp8enc.MacroblockCoefficients,
+) {
+	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
+		return
+	}
+	row := oracleTraceMBRow{
+		Type:       "mb",
+		FrameIndex: e.frameCount,
+		MBRow:      mbRow,
+		MBCol:      mbCol,
+		SegmentID:  int(mode.SegmentID),
+		Mode:       oracleTraceModeName(mode.YMode),
+		RefFrame:   oracleTraceRefName(vp8common.IntraFrame),
+		UVMode:     oracleTraceModeName(mode.UVMode),
+
+		ImprovedMVNearSADIndex: -1,
+		ImprovedMVSR:           -1,
+	}
+	if mode.YMode == vp8common.BPred {
+		row.BModes = make([]string, len(mode.BModes))
+		for i, bMode := range mode.BModes {
+			row.BModes[i] = oracleTraceBModeName(bMode)
+		}
 	}
 	sum := 0
 	for i := 0; i < 25; i++ {
@@ -586,6 +625,41 @@ func oracleTraceModeName(mode vp8common.MBPredictionMode) string {
 		return "SPLITMV"
 	default:
 		return fmt.Sprintf("MODE_%d", int(mode))
+	}
+}
+
+func oracleTraceBModeName(mode vp8common.BPredictionMode) string {
+	switch mode {
+	case vp8common.BDCPred:
+		return "B_DC_PRED"
+	case vp8common.BTMPred:
+		return "B_TM_PRED"
+	case vp8common.BVEPred:
+		return "B_VE_PRED"
+	case vp8common.BHEPred:
+		return "B_HE_PRED"
+	case vp8common.BLDPred:
+		return "B_LD_PRED"
+	case vp8common.BRDPred:
+		return "B_RD_PRED"
+	case vp8common.BVRPred:
+		return "B_VR_PRED"
+	case vp8common.BVLPred:
+		return "B_VL_PRED"
+	case vp8common.BHDPred:
+		return "B_HD_PRED"
+	case vp8common.BHUPred:
+		return "B_HU_PRED"
+	case vp8common.Left4x4:
+		return "LEFT4X4"
+	case vp8common.Above4x4:
+		return "ABOVE4X4"
+	case vp8common.Zero4x4:
+		return "ZERO4X4"
+	case vp8common.New4x4:
+		return "NEW4X4"
+	default:
+		return fmt.Sprintf("B_MODE_%d", int(mode))
 	}
 }
 

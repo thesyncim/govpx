@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-prob-state
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-key-mb
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -136,6 +136,9 @@ typedef struct {
     int mv_row;
     int mv_col;
     int skip;
+    int uv_mode;
+    int b_modes_valid;
+    int b_modes[16];
     unsigned char eobs[25];
     int eob_sum;
     short qcoeff[25][16];
@@ -270,6 +273,26 @@ static const char *govpx_oracle_ref_name(int ref) {
     }
 }
 
+static const char *govpx_oracle_bmode_name(int mode) {
+    switch (mode) {
+        case B_DC_PRED: return "B_DC_PRED";
+        case B_TM_PRED: return "B_TM_PRED";
+        case B_VE_PRED: return "B_VE_PRED";
+        case B_HE_PRED: return "B_HE_PRED";
+        case B_LD_PRED: return "B_LD_PRED";
+        case B_RD_PRED: return "B_RD_PRED";
+        case B_VR_PRED: return "B_VR_PRED";
+        case B_VL_PRED: return "B_VL_PRED";
+        case B_HD_PRED: return "B_HD_PRED";
+        case B_HU_PRED: return "B_HU_PRED";
+        case LEFT4X4: return "LEFT4X4";
+        case ABOVE4X4: return "ABOVE4X4";
+        case ZERO4X4: return "ZERO4X4";
+        case NEW4X4: return "NEW4X4";
+        default: return "B_MODE_UNKNOWN";
+    }
+}
+
 /* Capture per-MB state. Called from encodeframe.c immediately after the
  * macroblock has been encoded and tokenized, while xd->eobs is still
  * populated for the just-finished MB. Subsequent calls for the same
@@ -290,10 +313,6 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     }
     cm = &cpi->common;
     xd = &cpi->mb.e_mbd;
-    if (cm->frame_type == KEY_FRAME) {
-        /* govpx-side schema only emits per-MB rows for inter frames. */
-        return;
-    }
     govpx_oracle_state.mb_cols = cm->mb_cols;
     govpx_oracle_ensure_capacity(cm->mb_rows * cm->mb_cols);
     if (govpx_oracle_state.mb_rows == NULL) {
@@ -304,10 +323,21 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     row->valid = 1;
     row->segment_id = xd->mode_info_context->mbmi.segment_id;
     row->mode = xd->mode_info_context->mbmi.mode;
-    row->ref_frame = xd->mode_info_context->mbmi.ref_frame;
+    row->ref_frame =
+        cm->frame_type == KEY_FRAME ? INTRA_FRAME
+                                    : xd->mode_info_context->mbmi.ref_frame;
     row->mv_row = xd->mode_info_context->mbmi.mv.as_mv.row;
     row->mv_col = xd->mode_info_context->mbmi.mv.as_mv.col;
     row->skip = xd->mode_info_context->mbmi.mb_skip_coeff;
+    row->uv_mode = xd->mode_info_context->mbmi.uv_mode;
+    row->b_modes_valid = 0;
+    if (cm->frame_type == KEY_FRAME &&
+        xd->mode_info_context->mbmi.mode == B_PRED) {
+        row->b_modes_valid = 1;
+        for (i = 0; i < 16; ++i) {
+            row->b_modes[i] = xd->mode_info_context->bmi[i].as_mode;
+        }
+    }
     sum = 0;
     for (i = 0; i < 25; ++i) {
         unsigned char e = (unsigned char)xd->eobs[i];
@@ -472,8 +502,8 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             cpi->prob_last_coded,
             cpi->prob_gf_coded,
             frame_size);
-    /* Flush per-MB rows captured during encode_mb_row (inter frames only). */
-    if (cm->frame_type != KEY_FRAME && govpx_oracle_state.mb_rows != NULL) {
+    /* Flush per-MB rows captured during encode_mb_row. */
+    if (govpx_oracle_state.mb_rows != NULL) {
         mb_total = cm->mb_rows * cm->mb_cols;
         for (i = 0; i < mb_total; ++i) {
             govpx_mb_row_t *r = &govpx_oracle_state.mb_rows[i];
@@ -504,10 +534,21 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                 fprintf(out, "%s%u", j == 0 ? "" : ",",
                         (unsigned int)r->eobs[j]);
             }
-            fprintf(out,
-                    "],\"eob_sum\":%d,"
-                    "\"qcoeff\":[",
-                    r->eob_sum);
+            if (cm->frame_type == KEY_FRAME) {
+                fprintf(out, "],\"uv_mode\":\"%s\"",
+                        govpx_oracle_mode_name(r->uv_mode));
+                if (r->b_modes_valid) {
+                    fprintf(out, ",\"b_modes\":[");
+                    for (j = 0; j < 16; ++j) {
+                        fprintf(out, "%s\"%s\"", j == 0 ? "" : ",",
+                                govpx_oracle_bmode_name(r->b_modes[j]));
+                    }
+                    fprintf(out, "]");
+                }
+                fprintf(out, ",\"eob_sum\":%d,\"qcoeff\":[", r->eob_sum);
+            } else {
+                fprintf(out, "],\"eob_sum\":%d,\"qcoeff\":[", r->eob_sum);
+            }
             for (j = 0; j < 25; ++j) {
                 fprintf(out, "%s[", j == 0 ? "" : ",");
                 for (k = 0; k < 16; ++k) {

@@ -975,6 +975,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		SegEnabled:           keyAttempt.SegmentationEnabled,
 		SizeBytes:            keyAttempt.Size,
 	})
+	e.flushOracleMBTraceBuffer()
 	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
 	// frame has been committed; the next forced KF will set it again. Update
 	// the next_key_frame_forced bookkeeping for the following frame's

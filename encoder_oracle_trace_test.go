@@ -13,7 +13,7 @@ import (
 // TestOracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
 // by an inter frame with the trace writer enabled and asserts the JSONL
 // stream has 1 frame row for the keyframe, 1 frame row for the inter frame,
-// and 4 MB rows (32x32 = 2x2 macroblocks) for the inter frame.
+// and 8 MB rows (32x32 = 2x2 macroblocks for each frame).
 func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	const w, h = 32, 32
 	var buf bytes.Buffer
@@ -107,8 +107,8 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	if len(frameRows) != 2 {
 		t.Fatalf("frame rows = %d, want 2", len(frameRows))
 	}
-	if len(mbRows) != 4 {
-		t.Fatalf("mb rows = %d, want 4 (2x2 inter frame)", len(mbRows))
+	if len(mbRows) != 8 {
+		t.Fatalf("mb rows = %d, want 8 (2x2 key frame + 2x2 inter frame)", len(mbRows))
 	}
 	// Each committed frame emits exactly one rate row; recode rows only
 	// appear when the frame's recode loop iterated more than once.
@@ -166,17 +166,20 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		}
 	}
 
-	// MB-row schema sanity. Expect raster scan order across 2x2 MBs and
-	// frame_index = 1 (the inter frame).
-	wantCells := [][2]float64{{0, 0}, {0, 1}, {1, 0}, {1, 1}}
+	// MB-row schema sanity. Expect raster scan order across 2x2 MBs for
+	// key frame 0, then raster scan order for inter frame 1.
+	wantCells := [][3]float64{
+		{0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {0, 1, 1},
+		{1, 0, 0}, {1, 0, 1}, {1, 1, 0}, {1, 1, 1},
+	}
 	for i, row := range mbRows {
-		if got := row["frame_index"].(float64); got != 1 {
-			t.Fatalf("mb[%d].frame_index = %v, want 1", i, got)
+		if got, want := row["frame_index"].(float64), wantCells[i][0]; got != want {
+			t.Fatalf("mb[%d].frame_index = %v, want %v", i, got, want)
 		}
-		if got, want := row["mb_row"].(float64), wantCells[i][0]; got != want {
+		if got, want := row["mb_row"].(float64), wantCells[i][1]; got != want {
 			t.Fatalf("mb[%d].mb_row = %v, want %v", i, got, want)
 		}
-		if got, want := row["mb_col"].(float64), wantCells[i][1]; got != want {
+		if got, want := row["mb_col"].(float64), wantCells[i][2]; got != want {
 			t.Fatalf("mb[%d].mb_col = %v, want %v", i, got, want)
 		}
 		for _, key := range []string{
@@ -197,6 +200,14 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		if len(eob) != 25 {
 			t.Fatalf("mb[%d].eob length = %d, want 25", i, len(eob))
 		}
+		if row["frame_index"].(float64) == 0 {
+			if got := row["ref_frame"]; got != "INTRA_FRAME" {
+				t.Fatalf("mb[%d].ref_frame = %v, want INTRA_FRAME for key MB", i, got)
+			}
+			if _, ok := row["uv_mode"]; !ok {
+				t.Fatalf("mb[%d] missing uv_mode for key MB", i)
+			}
+		}
 		qcoeff, ok := row["qcoeff"].([]interface{})
 		if !ok {
 			t.Fatalf("mb[%d].qcoeff is not an array: %T", i, row["qcoeff"])
@@ -208,6 +219,47 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		if !ok || len(firstBlock) != 16 {
 			t.Fatalf("mb[%d].qcoeff[0] shape = %T/%d, want 16 coefficients", i, qcoeff[0], len(firstBlock))
 		}
+	}
+}
+
+func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
+	var buf bytes.Buffer
+	e := &VP8Encoder{
+		opts: EncoderOptions{OracleTraceWriter: &buf},
+	}
+	mode := vp8enc.KeyFrameMacroblockMode{
+		YMode:  vp8common.BPred,
+		UVMode: vp8common.TMPred,
+	}
+	for i := range mode.BModes {
+		mode.BModes[i] = vp8common.BPredictionMode(i % int(vp8common.VP8BIntraModes))
+	}
+	var coeffs vp8enc.MacroblockCoefficients
+	coeffs.QCoeff[24][0] = 3
+	coeffs.SetBlockEOB(24, 1)
+
+	e.emitOracleKeyFrameMBTrace(2, 3, &mode, &coeffs)
+	e.flushOracleMBTraceBuffer()
+
+	var row map[string]interface{}
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &row); err != nil {
+		t.Fatalf("trace row not valid JSON: %v\n%s", err, buf.String())
+	}
+	if got := row["mode"]; got != "B_PRED" {
+		t.Fatalf("mode = %v, want B_PRED", got)
+	}
+	if got := row["uv_mode"]; got != "TM_PRED" {
+		t.Fatalf("uv_mode = %v, want TM_PRED", got)
+	}
+	if got := row["ref_frame"]; got != "INTRA_FRAME" {
+		t.Fatalf("ref_frame = %v, want INTRA_FRAME", got)
+	}
+	bModes, ok := row["b_modes"].([]interface{})
+	if !ok || len(bModes) != 16 {
+		t.Fatalf("b_modes shape = %T/%d, want 16", row["b_modes"], len(bModes))
+	}
+	if bModes[0] != "B_DC_PRED" || bModes[9] != "B_HU_PRED" {
+		t.Fatalf("b_modes edge values = %v/%v, want B_DC_PRED/B_HU_PRED", bModes[0], bModes[9])
 	}
 }
 
@@ -292,6 +344,9 @@ func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 			t.Fatalf("trace line %d invalid JSON: %v", i, err)
 		}
 		if row["type"] != "mb" {
+			continue
+		}
+		if row["frame_index"] != float64(1) {
 			continue
 		}
 		mbRows++

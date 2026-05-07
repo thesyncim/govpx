@@ -126,13 +126,15 @@ the anchor and look for the surrounding mismatch.
     (`coef_probs_adler`, `ymode_probs_adler`, `uv_mode_probs_adler`,
     `mv_probs_adler`), the per-frame reference coding probabilities
     (`prob_intra_coded`, `prob_last_coded`, `prob_gf_coded`), and
-    `size_bytes`; per-MB row (inter frames only) with `frame_index`,
+    `size_bytes`; per-MB row with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
-    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, `qcoeff[25][16]`, and
-    improved-MV start fields.
-    Rows cover every committed inter-frame MB, including intra `B_PRED`
-    decisions, are emitted in deterministic raster scan order, and only for
-    the final committed encode attempt (recoded attempts are discarded).
+    `mv_col`, `skip`, optional key-frame `uv_mode` / `b_modes`,
+    `eob[0..24]`, `eob_sum`, `qcoeff[25][16]`, and improved-MV start
+    fields.
+    Rows cover every committed key-frame and inter-frame MB, including key
+    `B_PRED` submodes and inter intra `B_PRED` decisions, are emitted in
+    deterministic raster scan order, and only for the final committed encode
+    attempt (recoded attempts are discarded).
   - libvpx side: in progress. The patched vpxenc lives in
     [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh),
     which adds a single `vp8/encoder/oracle_trace.c` translation unit
@@ -142,8 +144,9 @@ the anchor and look for the surrounding mismatch.
     "recode" row when the recode loop iterated more than once, both
     emitted just before `vp8_pack_bitstream`). The recode-loop iteration
     count is tracked by a single `govpx_oracle_recode_iter()` call at
-    the top of the `encode_frame_to_data_rate` do-loop. Output is gated
-    on `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema.
+    the top of the `encode_frame_to_data_rate` do-loop. Key-frame MB rows
+    include Y mode, UV mode, B modes when `B_PRED`, EOBs, and qcoeffs.
+    Output is gated on `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema.
   - Comparator: in place. The pure-Go
     [`CompareOracleTraces`](../internal/coracle/oracle_compare.go)
     helper walks both JSON Lines streams in lockstep and surfaces
@@ -301,8 +304,12 @@ the anchor and look for the surrounding mismatch.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
-- [ ] Extend oracle coverage to key-frame MB rows, candidate-level mode-loop
+- [~] Extend oracle coverage to key-frame MB rows, candidate-level mode-loop
   rows, and rejected recode attempts.
+  - Status: key-frame MB rows are now covered on both govpx and patched-libvpx
+    trace paths, including Y mode, UV mode, B modes for `B_PRED`, EOBs, and
+    qcoeffs. Candidate-level mode-loop rows and rejected recode-attempt rows
+    remain open.
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV
@@ -1157,10 +1164,13 @@ the anchor and look for the surrounding mismatch.
     `TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty` and
     `TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts`.
   - Missing: exact thresholds and activity/tuning hooks (gated on
-    `VP8_TUNE_SSIM`, which govpx does not expose), plus key-frame per-MB
-    oracle trace coverage. Either document SSIM tuning as explicitly
-    unsupported in "Accepted Non-Bitexact Differences" or expose a tune
-    option and match libvpx's activity masking and `act_zbin_adj` behavior.
+    `VP8_TUNE_SSIM`, which govpx does not expose). Key-frame per-MB oracle
+    rows now expose Y mode, UV mode, B modes for `B_PRED`, EOBs, and qcoeffs;
+    token-context/rate/distortion/RD/reconstruction-checksum fields remain to
+    be added for full intra trace parity. Either document SSIM tuning as
+    explicitly unsupported in "Accepted Non-Bitexact Differences" or expose a
+    tune option and match libvpx's activity masking and `act_zbin_adj`
+    behavior.
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
     coefficient EOBs, rate, distortion, and reconstructed pixels.
 
