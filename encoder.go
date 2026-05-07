@@ -1104,12 +1104,14 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.forceMaxQuantizer = false
 }
 
-// updateRefFrameProbsFromAttempt mirrors libvpx vp8_estimate_entropy_savings'
-// new_intra/new_last/new_garf computation: ref-frame probs for the next
-// frame's RD scoring are derived from observed mode counts. ZeroReference
-// frames bypass mode decisions entirely so leave the probs unchanged.
+// updateRefFrameProbsFromAttempt mirrors libvpx vp8_convert_rfct_to_prob:
+// ref-frame probs for the next frame's RD scoring are derived from observed
+// mode counts after normal single-layer inter frames, and after all
+// multi-layer inter frames. Single-layer GF/ARF refresh frames deliberately
+// keep the previous probabilities and let update_rd_ref_frame_probs apply the
+// refresh heuristics on the next frame.
 func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAttempt) {
-	if attempt.ZeroReference {
+	if !libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef) {
 		return
 	}
 	var rfct [4]int
@@ -1151,6 +1153,10 @@ func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAtte
 	e.refProbIntra = uint8(newIntra)
 	e.refProbLast = uint8(newLast)
 	e.refProbGolden = uint8(newGarf)
+}
+
+func libvpxShouldConvertRefCountsToProb(temporalLayerCount int, refreshGolden bool, refreshAltRef bool) bool {
+	return temporalLayerCount > 1 || (!refreshGolden && !refreshAltRef)
 }
 
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
