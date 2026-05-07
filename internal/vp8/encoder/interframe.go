@@ -35,6 +35,15 @@ type InterFrameStateConfig struct {
 
 	RefreshEntropyProbs bool
 
+	// IndependentContexts mirrors libvpx's
+	// VPX_ERROR_RESILIENT_PARTITIONS branch in
+	// vp8/encoder/bitstream.c independent_coef_context_savings /
+	// vp8_update_coef_probs. When true, coefficient probability updates
+	// are computed from PREV_COEF_CONTEXTS-summed counts and applied
+	// uniformly across all k contexts so a lost partition cannot
+	// corrupt the per-context prob tables.
+	IndependentContexts bool
+
 	CoefficientProbs CoefficientProbabilityUpdates
 
 	MBNoCoeffSkip bool
@@ -203,7 +212,16 @@ func WriteCoefficientInterFrameWithProbabilityBase(dst []byte, width int, height
 	if coefBase == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
 		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, ErrModeBufferTooSmall
 	}
-	frameCoefProbs, coefUpdates, err := BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, coefBase)
+	var (
+		frameCoefProbs tables.CoefficientProbs
+		coefUpdates    CoefficientProbabilityUpdates
+		err            error
+	)
+	if cfg.IndependentContexts {
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesIndependent(rows, cols, modes, coeffs, above, coefBase, false)
+	} else {
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, coefBase)
+	}
 	if err != nil {
 		return 0, tables.CoefficientProbs{}, [2][tables.MVPCount]uint8{}, err
 	}

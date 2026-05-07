@@ -27,6 +27,12 @@ type KeyFrameStateConfig struct {
 
 	RefreshEntropyProbs bool
 
+	// IndependentContexts mirrors libvpx's
+	// VPX_ERROR_RESILIENT_PARTITIONS branch in
+	// vp8/encoder/bitstream.c independent_coef_context_savings /
+	// vp8_update_coef_probs. See InterFrameStateConfig.IndependentContexts.
+	IndependentContexts bool
+
 	CoefficientProbs CoefficientProbabilityUpdates
 
 	MBNoCoeffSkip bool

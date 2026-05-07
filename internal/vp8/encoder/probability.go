@@ -43,18 +43,36 @@ func WriteCoefficientProbabilityUpdates(w *BoolWriter, updates *CoefficientProba
 }
 
 func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	var counts coefficientBranchCounts
+	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+	}
+	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+}
+
+// BuildKeyFrameCoefficientProbabilityUpdatesIndependent is the key-frame
+// counterpart of BuildInterCoefficientProbabilityUpdatesIndependent. See
+// the doc comment on the inter variant for libvpx provenance.
+func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	var counts coefficientBranchCounts
+	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+	}
+	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, true)
+}
+
+func buildKeyFrameCoefficientBranchCounts(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientBranchCounts) error {
 	if rows < 0 || cols < 0 {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return ErrModeBufferTooSmall
 	}
 	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return ErrModeBufferTooSmall
 	}
 	required := rows * cols
-	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+	if base == nil || counts == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
 	}
 
-	var counts coefficientBranchCounts
 	for col := 0; col < cols; col++ {
 		above[col] = TokenContextPlanes{}
 	}
@@ -64,29 +82,55 @@ func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyF
 			index := row*cols + col
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+				return ErrInvalidPacketConfig
 			}
-			if err := countCoefficientMacroblockBranches(mode.YMode == common.BPred, &above[col], &left, &coeffs[index], &counts); err != nil {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+			if err := countCoefficientMacroblockBranches(mode.YMode == common.BPred, &above[col], &left, &coeffs[index], counts); err != nil {
+				return err
 			}
 		}
+	}
+	return nil
+}
+
+func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	var counts coefficientBranchCounts
+	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
 	return coefficientProbabilityUpdatesFromCounts(base, &counts)
 }
 
-func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+// BuildInterCoefficientProbabilityUpdatesIndependent ports libvpx
+// vp8/encoder/bitstream.c independent_coef_context_savings + the matching
+// branch in vp8_update_coef_probs. Under VPX_ERROR_RESILIENT_PARTITIONS the
+// per-prev-context branch counts for a given (block_type, band) are summed,
+// a single new probability is computed from that summed distribution, and
+// every context k in PREV_COEF_CONTEXTS is updated together when the
+// aggregated savings across k are positive (or, on key frames, whenever the
+// shared new probability differs from the current one). This keeps the
+// emitted coef contexts decodable independent of the per-context cross-talk
+// the default path relies on, so a lost partition does not corrupt the
+// downstream coef-prob tables.
+func BuildInterCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, keyFrame bool) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	var counts coefficientBranchCounts
+	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+	}
+	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, keyFrame)
+}
+
+func buildInterCoefficientBranchCounts(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientBranchCounts) error {
 	if rows < 0 || cols < 0 {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return ErrModeBufferTooSmall
 	}
 	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+		return ErrModeBufferTooSmall
 	}
 	required := rows * cols
-	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrModeBufferTooSmall
+	if base == nil || counts == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
 	}
 
-	var counts coefficientBranchCounts
 	for col := 0; col < cols; col++ {
 		above[col] = TokenContextPlanes{}
 	}
@@ -100,14 +144,14 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 				continue
 			}
 			if !validInterCoefficientTokenMode(&modes[index]) {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+				return ErrInvalidPacketConfig
 			}
-			if err := countCoefficientMacroblockBranches(is4x4, &above[col], &left, &coeffs[index], &counts); err != nil {
-				return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
+			if err := countCoefficientMacroblockBranches(is4x4, &above[col], &left, &coeffs[index], counts); err != nil {
+				return err
 			}
 		}
 	}
-	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+	return nil
 }
 
 func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
@@ -134,6 +178,97 @@ func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, coun
 					if coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb) <= 0 {
 						continue
 					}
+					frameProbs[block][band][ctx][node] = newProb
+					updates.Probs[block][band][ctx][node] = newProb
+					updates.Update[block][band][ctx][node] = true
+					updates.UpdateCount++
+				}
+			}
+		}
+	}
+	return frameProbs, updates, nil
+}
+
+// coefficientProbabilityUpdatesFromCountsIndependent ports libvpx
+// vp8/encoder/bitstream.c independent_coef_context_savings (lines 678-740 in
+// v1.16.0) and the matching VPX_ERROR_RESILIENT_PARTITIONS branch in
+// vp8_update_coef_probs (lines 879-928). For every (block_type, band):
+//
+//  1. Branch counts are summed across PREV_COEF_CONTEXTS (libvpx sums token
+//     counts and re-runs vp8_tree_probs_from_distribution on the sum; that is
+//     equivalent to summing branch counts because branch_counts is linear in
+//     the per-token counts).
+//  2. A single new probability per entropy node is computed from the summed
+//     branch count using the same Pfactor=256, Round=1 fitting as
+//     coefficientProbabilityFromBranchCount.
+//  3. For each entropy node t the savings are aggregated across k as
+//     sum_k prob_update_savings(summed_ct, oldp[i][j][k][t], shared_newp[t],
+//     upd[i][j][k][t]). When that aggregate is positive (or, on key frames,
+//     whenever shared_newp[t] != oldp[i][j][k][t]), every k context is
+//     updated to shared_newp[t]. This forces the prev-coef-context tables to
+//     stay equal so a single emitted update keeps every k decodable.
+func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.CoefficientProbs, counts *coefficientBranchCounts, keyFrame bool) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	if base == nil || counts == nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+	}
+	frameProbs := *base
+	updates := CoefficientProbabilityUpdates{Probs: *base}
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			// Step 1: sum branch counts across PrevCoefContexts. This mirrors
+			// sum_probs_over_prev_coef_context (bitstream.c:655) followed by
+			// vp8_tree_probs_from_distribution acting on the summed token
+			// distribution. Branch counts are linear in token counts so
+			// summing branch counts directly produces the same result.
+			var summed [tables.EntropyNodes][2]int
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					summed[node][0] += (*counts)[block][band][ctx][node][0]
+					summed[node][1] += (*counts)[block][band][ctx][node][1]
+				}
+			}
+			// Step 2: compute the shared new probability per entropy node
+			// from the summed distribution.
+			var sharedNew [tables.EntropyNodes]uint8
+			for node := 0; node < tables.EntropyNodes; node++ {
+				sharedNew[node] = coefficientProbabilityFromBranchCount(summed[node])
+			}
+			// Step 3: aggregate per-node savings across the k contexts. On
+			// key frames libvpx skips the per-k contribution where
+			// newp == oldp[k] (bitstream.c:720-723) so the savings only
+			// reflect the contexts that would actually change.
+			var nodeSavings [tables.EntropyNodes]int
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					oldProb := frameProbs[block][band][ctx][node]
+					newProb := sharedNew[node]
+					if keyFrame && newProb == oldProb {
+						continue
+					}
+					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
+					nodeSavings[node] += coefficientProbabilityUpdateSavings(summed[node], oldProb, newProb, updateProb)
+				}
+			}
+			// Step 4: decide u per-(k, node) following the libvpx
+			// vp8_update_coef_probs error-resilient branch
+			// (bitstream.c:909-928). The per-node `s` is the aggregate
+			// savings shared across all k; on key frames, an additional
+			// per-k force fires when newp != oldp[k] regardless of `s`.
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					newProb := sharedNew[node]
+					oldProb := frameProbs[block][band][ctx][node]
+					update := nodeSavings[node] > 0
+					if keyFrame && newProb != oldProb {
+						update = true
+					}
+					if !update {
+						continue
+					}
+					// libvpx writes `vp8_write(w, u, upd)` and
+					// `vp8_write_literal(w, newp, 8)` whenever u=1 even
+					// if newp == oldp; mirror that to keep the emitted
+					// bitstream byte-identical with a libvpx encoder.
 					frameProbs[block][band][ctx][node] = newProb
 					updates.Probs[block][band][ctx][node] = newProb
 					updates.Update[block][band][ctx][node] = true

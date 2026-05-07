@@ -682,9 +682,25 @@ the anchor and look for the surrounding mismatch.
     `coef_counts` accumulator across all reference branches (libvpx
     `bitstream.c` `default_coef_context_savings`); govpx's
     `BuildInterCoefficientProbabilityUpdates` matches that aggregation.
-    The only per-partition coefficient context is libvpx's error-resilient
-    `independent_coef_context_savings`, tracked separately under the
-    error-resilient partitions item below. Reference-frame *probabilities*
+    Independent coef contexts for error-resilient partitions are now
+    ported: `BuildInterCoefficientProbabilityUpdatesIndependent` /
+    `BuildKeyFrameCoefficientProbabilityUpdatesIndependent` and
+    `coefficientProbabilityUpdatesFromCountsIndependent` in
+    [`internal/vp8/encoder/probability.go`](../internal/vp8/encoder/probability.go)
+    mirror libvpx's `independent_coef_context_savings`
+    (`bitstream.c:678-740`) and the matching VPX_ERROR_RESILIENT_PARTITIONS
+    branch in `vp8_update_coef_probs` (`bitstream.c:879-928`): branch
+    counts are summed across `PREV_COEF_CONTEXTS` for each
+    (block_type, band), a single new probability per entropy node is
+    computed from the summed distribution, savings are aggregated across
+    k, and every k context is updated together when aggregate savings >0
+    or (on key frames) when the shared new prob differs from that k's old
+    prob. Wiring lives in `WriteCoefficientInterFrameWithProbabilityBase`
+    / `WriteCoefficientKeyFrameWithProbabilityBase` via the new
+    `IndependentContexts` field on `InterFrameStateConfig` /
+    `KeyFrameStateConfig`, fed from `EncoderOptions.ErrorResilient` in
+    [`encoder.go`](../encoder.go).
+    Reference-frame *probabilities*
     (`prob_intra`/`prob_last`/`prob_gf`) are per-reference state and are
     now driven by both the post-frame fresh-from-counts update
     (`updateRefFrameProbsFromAttempt`, the equivalent of libvpx's
@@ -694,9 +710,11 @@ the anchor and look for the surrounding mismatch.
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden`,
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay`,
     `TestUpdateGoldenFrameStatsMirrorsLibvpxCounter`,
-    `TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch`.
-  - Missing: independent coefficient-context handling for error-resilient
-    partitions, key-frame forced coef-prob updates, projected entropy
+    `TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch`,
+    `TestIndependentCoefContextSavingsHandComputed`,
+    `TestIndependentCoefContextDivergesFromDefault`,
+    `TestIndependentCoefContextKeyFrameForcesEqualization`.
+  - Missing: key-frame forced coef-prob updates, projected entropy
     savings in recode decisions, and exact zero-reference/alt-ref
     skip-probability edge cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,

@@ -739,6 +739,10 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
 		RefreshEntropyProbs: !e.opts.ErrorResilient,
+		// VPX_ERROR_RESILIENT_PARTITIONS gates the independent coef-context
+		// path in libvpx vp8/encoder/bitstream.c (see
+		// independent_coef_context_savings / vp8_update_coef_probs).
+		IndependentContexts: e.opts.ErrorResilient,
 	}
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
@@ -767,6 +771,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
+	// VPX_ERROR_RESILIENT_PARTITIONS gates the independent coef-context path
+	// in libvpx vp8/encoder/bitstream.c (independent_coef_context_savings /
+	// vp8_update_coef_probs).
+	cfg.IndependentContexts = e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy updates them.
