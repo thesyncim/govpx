@@ -4920,3 +4920,262 @@ func TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive(t *testing.T) {
 		t.Fatalf("sourceAltRefActive = true after GOLDEN refresh, want false")
 	}
 }
+
+// newAutoAltRefTestEncoder builds an encoder with libvpx-style auto-ARF
+// scheduling enabled. ErrorResilient is intentionally false because libvpx
+// gates auto-ARF on `cpi->oxcf.error_resilient_mode == 0`.
+func newAutoAltRefTestEncoder(tb testing.TB, lookahead int) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineGoodQuality,
+		CpuUsed:             4,
+		KeyFrameInterval:    120,
+		LookaheadFrames:     lookahead,
+		AutoAltRef:          true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+// autoAltRefSequenceFrame returns a deterministic 16x16 source for index i
+// that varies across frames so the encoder treats them as distinct sources.
+func autoAltRefSequenceFrame(i int) Image {
+	img := testImage(16, 16)
+	yBase := byte(40 + (i*7)%150)
+	uBase := byte(80 + (i*11)%80)
+	vBase := byte(120 + (i*13)%80)
+	fillImage(img, yBase, uBase, vBase)
+	// Add a small spatial gradient that shifts with i so motion-compensated
+	// prediction is non-trivial across frames.
+	for row := 0; row < img.Height; row++ {
+		for col := 0; col < img.Width; col++ {
+			img.Y[row*img.YStride+col] = byte((int(yBase) + row + col + i) & 0xff)
+		}
+	}
+	return img
+}
+
+// autoAltRefDriveSequence pushes count frames into an auto-ARF encoder and
+// returns the produced packets along with their decoded FrameHeader. Frames
+// that return ErrFrameNotReady (lookahead filling) are skipped. The encoder
+// is then drained via FlushInto. Each entry in the returned slice corresponds
+// to one emitted packet (hidden ARFs included).
+type autoAltRefPacket struct {
+	Index    int
+	Source   int
+	Header   vp8dec.FrameHeader
+	Refresh  vp8dec.RefreshHeader
+	Data     []byte
+	KeyFrame bool
+	PTS      uint64
+}
+
+func autoAltRefDriveSequence(t *testing.T, e *VP8Encoder, count int) []autoAltRefPacket {
+	t.Helper()
+	packets := make([]autoAltRefPacket, 0, count+4)
+	for i := 0; i < count; i++ {
+		dst := make([]byte, 16384)
+		src := autoAltRefSequenceFrame(i)
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			if errors.Is(err, ErrFrameNotReady) {
+				continue
+			}
+			t.Fatalf("EncodeInto(%d) returned error: %v", i, err)
+		}
+		header, perr := vp8dec.ParseFrameHeader(result.Data)
+		if perr != nil {
+			t.Fatalf("ParseFrameHeader %d: %v", i, perr)
+		}
+		state := packetState(t, result.Data)
+		packets = append(packets, autoAltRefPacket{
+			Index:    len(packets),
+			Source:   i,
+			Header:   header,
+			Refresh:  state.Refresh,
+			Data:     append([]byte(nil), result.Data...),
+			KeyFrame: result.KeyFrame,
+			PTS:      result.PTS,
+		})
+	}
+	for {
+		dst := make([]byte, 16384)
+		result, err := e.FlushInto(dst)
+		if err != nil {
+			if errors.Is(err, ErrFrameNotReady) {
+				break
+			}
+			t.Fatalf("FlushInto returned error: %v", err)
+		}
+		header, perr := vp8dec.ParseFrameHeader(result.Data)
+		if perr != nil {
+			t.Fatalf("FlushInto ParseFrameHeader: %v", perr)
+		}
+		state := packetState(t, result.Data)
+		packets = append(packets, autoAltRefPacket{
+			Index:    len(packets),
+			Source:   -1,
+			Header:   header,
+			Refresh:  state.Refresh,
+			Data:     append([]byte(nil), result.Data...),
+			KeyFrame: result.KeyFrame,
+			PTS:      result.PTS,
+		})
+	}
+	return packets
+}
+
+// TestAutoAltRefSchedulesHiddenFrame asserts that when auto-ARF is enabled
+// the encoder periodically inserts a hidden frame (show_frame=0,
+// refresh_alt_ref=1, no LAST/GOLDEN refresh) drawn from the lookahead future
+// window, mirroring libvpx vp8_get_compressed_data's auto-ARF branch.
+func TestAutoAltRefSchedulesHiddenFrame(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t, 10)
+	packets := autoAltRefDriveSequence(t, e, 16)
+	if len(packets) == 0 {
+		t.Fatalf("auto-ARF sequence produced no packets")
+	}
+	hiddenCount := 0
+	for _, p := range packets {
+		if p.Header.ShowFrame {
+			continue
+		}
+		if p.KeyFrame {
+			t.Fatalf("packet %d: hidden key frame is not an auto-ARF", p.Index)
+		}
+		if !p.Refresh.RefreshAltRef {
+			t.Fatalf("hidden packet %d refresh = %+v, want RefreshAltRef=true", p.Index, p.Refresh)
+		}
+		if p.Refresh.RefreshLast || p.Refresh.RefreshGolden {
+			t.Fatalf("hidden packet %d refresh = %+v, want LAST/GOLDEN unchanged", p.Index, p.Refresh)
+		}
+		hiddenCount++
+	}
+	if hiddenCount == 0 {
+		t.Fatalf("auto-ARF emitted no hidden frames; packets=%d", len(packets))
+	}
+}
+
+// TestAutoAltRefDeferredShowFrameRendersOriginalSource asserts that after a
+// hidden ARF is emitted, the next show frame still represents the original
+// caller source (matching by PTS) and decodes close to it. Mirrors libvpx's
+// is_src_frame_alt_ref show-frame path where the deferred source is encoded
+// as a normal show frame using the alt-ref reconstruction as a reference.
+func TestAutoAltRefDeferredShowFrameRendersOriginalSource(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t, 10)
+	packets := autoAltRefDriveSequence(t, e, 16)
+	hiddenIdx := -1
+	for i, p := range packets {
+		if !p.Header.ShowFrame && p.Refresh.RefreshAltRef {
+			hiddenIdx = i
+			break
+		}
+	}
+	if hiddenIdx < 0 {
+		t.Fatalf("no hidden ARF emitted; cannot validate deferred show-frame rendering")
+	}
+	hiddenPTS := packets[hiddenIdx].PTS
+	// Find the next show-frame matching that PTS (the deferred source).
+	deferredIdx := -1
+	for i := hiddenIdx + 1; i < len(packets); i++ {
+		if packets[i].Header.ShowFrame && packets[i].PTS == hiddenPTS {
+			deferredIdx = i
+			break
+		}
+	}
+	if deferredIdx < 0 {
+		t.Fatalf("no deferred show-frame found for hidden ARF PTS=%d", hiddenPTS)
+	}
+	// Decode all packets in stream order so reference buffers track libvpx.
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder: %v", err)
+	}
+	var deferredDecoded Image
+	for i, p := range packets {
+		if err := d.Decode(p.Data); err != nil {
+			t.Fatalf("Decode packet %d (source=%d): %v", i, p.Source, err)
+		}
+		frame, ok := d.NextFrame()
+		if !p.Header.ShowFrame {
+			if ok {
+				t.Fatalf("packet %d ShowFrame=false but decoder produced visible frame", i)
+			}
+			continue
+		}
+		if !ok {
+			t.Fatalf("packet %d ShowFrame=true but decoder produced no frame", i)
+		}
+		if i == deferredIdx {
+			deferredDecoded = cloneImage(frame)
+		}
+	}
+	if deferredDecoded.Y == nil {
+		t.Fatalf("deferred packet %d did not produce a decoded image", deferredIdx)
+	}
+	originalSource := autoAltRefSequenceFrame(int(hiddenPTS))
+	psnr := encoderValidationImagePSNR(originalSource, deferredDecoded)
+	if psnr < 25 {
+		t.Fatalf("deferred show-frame PSNR=%.2f dB vs original source, want >= 25 dB", psnr)
+	}
+}
+
+// TestAutoAltRefSignBiasUpdatesOnRefresh asserts that the inter-frame state
+// header writes AltRefSignBias=true after a hidden ARF refreshes the alt-ref
+// buffer (libvpx vp8/encoder/onyx_if.c sets ref_frame_sign_bias[ALTREF_FRAME]
+// from cpi->source_alt_ref_active). The hidden ARF itself encodes the
+// previous active state; subsequent show frames must reflect the new active
+// state.
+func TestAutoAltRefSignBiasUpdatesOnRefresh(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t, 10)
+	packets := autoAltRefDriveSequence(t, e, 20)
+	hiddenIdx := -1
+	for i, p := range packets {
+		if !p.Header.ShowFrame && p.Refresh.RefreshAltRef {
+			hiddenIdx = i
+			break
+		}
+	}
+	if hiddenIdx < 0 {
+		t.Fatalf("no hidden ARF emitted; cannot validate sign-bias update")
+	}
+	// The first inter show-frame after the hidden ARF must carry
+	// AltRefSignBias=true (libvpx onyx_if.c update_alt_ref_frame_stats sets
+	// source_alt_ref_active=1, which feeds ref_frame_sign_bias[ALTREF]=1
+	// for subsequent inter frames).
+	postShowIdx := -1
+	for i := hiddenIdx + 1; i < len(packets); i++ {
+		if packets[i].Header.ShowFrame && !packets[i].KeyFrame {
+			postShowIdx = i
+			break
+		}
+	}
+	if postShowIdx < 0 {
+		t.Fatalf("no inter show frame after hidden ARF; packets=%d", len(packets))
+	}
+	if !packets[postShowIdx].Refresh.AltRefSignBias {
+		t.Fatalf("post-ARF inter packet %d AltRefSignBias=false, want true (sourceAltRefActive should drive sign bias)", postShowIdx)
+	}
+	// Earlier inter show-frames (before the hidden ARF) must NOT carry the
+	// active-altref sign bias, because no ARF refresh has occurred yet.
+	for i := 0; i < hiddenIdx; i++ {
+		if !packets[i].Header.ShowFrame || packets[i].KeyFrame {
+			continue
+		}
+		if packets[i].Refresh.AltRefSignBias {
+			t.Fatalf("pre-ARF inter packet %d AltRefSignBias=true, want false", i)
+		}
+	}
+}
