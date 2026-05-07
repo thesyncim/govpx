@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-lf-deltas
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-improved-mv
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -119,7 +119,65 @@ typedef struct {
     int skip;
     unsigned char eobs[25];
     int eob_sum;
+    /* Improved-MV predictor fields. Mirror the govpx-side oracleTraceMBRow
+     * fields populated by attachImprovedMVTrace in encoder_reconstruct.go.
+     * `improved_mv_start` is true only when the chosen NEWMV ref had its
+     * predictor produced by vp8_mv_pred (i.e. the per-(mb, ref) slot was
+     * recorded during the macroblock pick). When false, the schema still
+     * emits the four numeric companions at their pre-extension defaults
+     * (near_sadidx=-1, sr=-1, row=0, col=0) so the comparator's union diff
+     * can still reason over them. `improved_mv_near_sadidx` matches the
+     * libvpx slot index `near_sadidx[i]` for the matched rank `i` inside
+     * vp8_mv_pred, or -1 when the median fallback (`*sr=0`) fired. */
+    int improved_mv_start;
+    int improved_mv_near_sadidx;
+    int improved_mv_row;
+    int improved_mv_col;
+    int improved_mv_sr;
 } govpx_mb_row_t;
+
+/* Per-reference improved-MV predictor slot. vp8_mv_pred populates this
+ * (via govpx_oracle_record_improved_mv) for each candidate ref tested by
+ * the inter-mode pick, indexed by ref_frame (LAST_FRAME / GOLDEN_FRAME /
+ * ALTREF_FRAME). govpx_oracle_capture_mb reads the slot keyed by the
+ * chosen MB's ref_frame and clears all four slots so the next MB starts
+ * fresh. The `valid` flag distinguishes "vp8_mv_pred ran for this ref"
+ * from "the pick path skipped this ref entirely". */
+typedef struct {
+    int valid;
+    int near_sadidx; /* -1 == median fallback (find=0 / *sr=0) */
+    int mvp_row;
+    int mvp_col;
+    int sr;
+} govpx_improved_mv_slot_t;
+
+static govpx_improved_mv_slot_t govpx_improved_mv_slots[4];
+
+void govpx_oracle_record_improved_mv(int ref_frame, int near_sadidx,
+                                     int mvp_row, int mvp_col, int sr) {
+    if (ref_frame < 1 || ref_frame > 3) {
+        /* INTRA_FRAME (0) and out-of-range refs are ignored: vp8_mv_pred
+         * early-returns for INTRA, and the calling code never sets a ref
+         * outside [LAST_FRAME, ALTREF_FRAME]. */
+        return;
+    }
+    govpx_improved_mv_slots[ref_frame].valid = 1;
+    govpx_improved_mv_slots[ref_frame].near_sadidx = near_sadidx;
+    govpx_improved_mv_slots[ref_frame].mvp_row = mvp_row;
+    govpx_improved_mv_slots[ref_frame].mvp_col = mvp_col;
+    govpx_improved_mv_slots[ref_frame].sr = sr;
+}
+
+static void govpx_oracle_clear_improved_mv_slots(void) {
+    int r;
+    for (r = 0; r < 4; ++r) {
+        govpx_improved_mv_slots[r].valid = 0;
+        govpx_improved_mv_slots[r].near_sadidx = 0;
+        govpx_improved_mv_slots[r].mvp_row = 0;
+        govpx_improved_mv_slots[r].mvp_col = 0;
+        govpx_improved_mv_slots[r].sr = 0;
+    }
+}
 
 typedef struct {
     FILE *out;
@@ -236,6 +294,28 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         sum += (int)e;
     }
     row->eob_sum = sum;
+    /* Improved-MV trace: only NEWMV uses the vp8_mv_pred predictor; for
+     * other modes the per-MB row keeps the pre-extension defaults that
+     * mirror govpx's oracleTraceMBRow zero-state. The slot for the chosen
+     * ref is read here and ALL four slots are cleared so a stale slot
+     * from a previous candidate ref (or a previous MB) cannot leak. */
+    if (row->ref_frame >= 1 && row->ref_frame <= 3 && row->mode == NEWMV &&
+        govpx_improved_mv_slots[row->ref_frame].valid) {
+        const govpx_improved_mv_slot_t *s =
+            &govpx_improved_mv_slots[row->ref_frame];
+        row->improved_mv_start = 1;
+        row->improved_mv_near_sadidx = s->near_sadidx;
+        row->improved_mv_row = s->mvp_row;
+        row->improved_mv_col = s->mvp_col;
+        row->improved_mv_sr = s->sr;
+    } else {
+        row->improved_mv_start = 0;
+        row->improved_mv_near_sadidx = -1;
+        row->improved_mv_row = 0;
+        row->improved_mv_col = 0;
+        row->improved_mv_sr = -1;
+    }
+    govpx_oracle_clear_improved_mv_slots();
 }
 
 /* Emit per-frame and accumulated per-MB rows. Called from bitstream.c at
@@ -359,7 +439,19 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                 fprintf(out, "%s%u", j == 0 ? "" : ",",
                         (unsigned int)r->eobs[j]);
             }
-            fprintf(out, "],\"eob_sum\":%d}\n", r->eob_sum);
+            fprintf(out,
+                    "],\"eob_sum\":%d,"
+                    "\"improved_mv_start\":%s,"
+                    "\"improved_mv_near_sadidx\":%d,"
+                    "\"improved_mv_row\":%d,"
+                    "\"improved_mv_col\":%d,"
+                    "\"improved_mv_sr\":%d}\n",
+                    r->eob_sum,
+                    r->improved_mv_start ? "true" : "false",
+                    r->improved_mv_near_sadidx,
+                    r->improved_mv_row,
+                    r->improved_mv_col,
+                    r->improved_mv_sr);
             r->valid = 0;
         }
     }
@@ -608,6 +700,91 @@ text = text.replace(pack_anchor, pack_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_ONYX_PY
+
+	# (3.6) Instrument vp8_mv_pred in rdopt.c to record the improved-MV
+	# predictor result per (mb, ref). The matched slot index `near_sadidx[i]`
+	# at the chosen rank `i` is the libvpx-side analogue of govpx's
+	# `interFrameSearchStart.nearSADIndex`. The patch:
+	#   - injects an extern declaration just before vp8_mv_pred,
+	#   - threads a local `govpx_match_slot` through the search loop,
+	#   - records (ref_frame, slot, mvp.row, mvp.col, sr) immediately after
+	#     vp8_clamp_mv2 on the function's tail.
+	# All edits are guarded by sentinel strings so the patch is idempotent.
+	python3 - "$src_dir/vp8/encoder/rdopt.c" <<'GOVPX_RDOPT_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: improved-MV predictor record. */'
+if sentinel in text:
+    sys.exit(0)  # already patched
+# Anchor 1: inject extern just before the vp8_mv_pred definition. The
+# definition opens with this exact line in v1.16.0.
+def_anchor = ('void vp8_mv_pred(VP8_COMP *cpi, MACROBLOCKD *xd, '
+              'const MODE_INFO *here,\n'
+              '                 int_mv *mvp, int refframe, '
+              'int *ref_frame_sign_bias, int *sr,\n'
+              '                 int near_sadidx[]) {\n')
+extern_decl = ('extern void govpx_oracle_record_improved_mv(int ref_frame,\n'
+               '                                            int near_sadidx,\n'
+               '                                            int mvp_row,\n'
+               '                                            int mvp_col,\n'
+               '                                            int sr);\n')
+if def_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_mv_pred def anchor missing\n')
+    sys.exit(2)
+text = text.replace(def_anchor,
+                    extern_decl + '\n' + def_anchor + \
+                    '  /* govpx oracle: matched slot index, -1 == median fallback. */\n' \
+                    '  int govpx_match_slot = -1;\n',
+                    1)
+# Anchor 2: inside the search loop, capture the slot at the matched break.
+loop_anchor = ('          mv.as_int = near_mvs[near_sadidx[i]].as_int;\n'
+               '          find = 1;\n'
+               '          if (i < 3) {\n'
+               '            *sr = 3;\n'
+               '          } else {\n'
+               '            *sr = 2;\n'
+               '          }\n'
+               '          break;\n')
+loop_replacement = ('          mv.as_int = near_mvs[near_sadidx[i]].as_int;\n'
+                    '          find = 1;\n'
+                    '          /* govpx oracle: record matched near_sadidx slot. */\n'
+                    '          govpx_match_slot = near_sadidx[i];\n'
+                    '          if (i < 3) {\n'
+                    '            *sr = 3;\n'
+                    '          } else {\n'
+                    '            *sr = 2;\n'
+                    '          }\n'
+                    '          break;\n')
+if loop_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_mv_pred loop anchor missing\n')
+    sys.exit(2)
+text = text.replace(loop_anchor, loop_replacement, 1)
+# Anchor 3: at the function tail, after vp8_clamp_mv2, emit the record
+# call. The "Set up return values" comment is unique to this function in
+# v1.16.0.
+tail_anchor = ('  /* Set up return values */\n'
+               '  mvp->as_int = mv.as_int;\n'
+               '  vp8_clamp_mv2(mvp, xd);\n'
+               '}\n')
+tail_replacement = ('  /* Set up return values */\n'
+                    '  mvp->as_int = mv.as_int;\n'
+                    '  vp8_clamp_mv2(mvp, xd);\n'
+                    '  ' + sentinel + '\n'
+                    '  govpx_oracle_record_improved_mv(here->mbmi.ref_frame,\n'
+                    '                                  govpx_match_slot,\n'
+                    '                                  mvp->as_mv.row,\n'
+                    '                                  mvp->as_mv.col,\n'
+                    '                                  *sr);\n'
+                    '}\n')
+if tail_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_mv_pred tail anchor missing\n')
+    sys.exit(2)
+text = text.replace(tail_anchor, tail_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_RDOPT_PY
 
 	# (4) Wire the new TU into the makefile.
 	if ! grep -q 'encoder/oracle_trace\.c' "$src_dir/vp8/vp8cx.mk"; then

@@ -548,6 +548,106 @@ func TestCompareOracleTracesDetectsLoopFilterDeltaDivergence(t *testing.T) {
 	}
 }
 
+// mbRowImprovedMVJSON emits an "mb" row with the improved-MV predictor
+// fields populated. Mirrors the schema in oracleTraceMBRow
+// (encoder_oracle_trace.go) and the libvpx-side emit in
+// build_vpxenc_oracle.sh.
+func mbRowImprovedMVJSON(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int, skip bool, eobSum int, improvedStart bool, improvedNearSAD, improvedRow, improvedCol, improvedSR int) string {
+	return strings.Join([]string{
+		"{\"type\":\"mb\"",
+		fmt.Sprintf("\"frame_index\":%d", frameIndex),
+		fmt.Sprintf("\"mb_row\":%d", mbRow),
+		fmt.Sprintf("\"mb_col\":%d", mbCol),
+		"\"segment_id\":0",
+		fmt.Sprintf("\"mode\":%q", mode),
+		fmt.Sprintf("\"ref_frame\":%q", ref),
+		fmt.Sprintf("\"mv_row\":%d", mvRow),
+		fmt.Sprintf("\"mv_col\":%d", mvCol),
+		fmt.Sprintf("\"skip\":%t", skip),
+		"\"eob\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]",
+		fmt.Sprintf("\"eob_sum\":%d", eobSum),
+		fmt.Sprintf("\"improved_mv_start\":%t", improvedStart),
+		fmt.Sprintf("\"improved_mv_near_sadidx\":%d", improvedNearSAD),
+		fmt.Sprintf("\"improved_mv_row\":%d", improvedRow),
+		fmt.Sprintf("\"improved_mv_col\":%d", improvedCol),
+		fmt.Sprintf("\"improved_mv_sr\":%d}", improvedSR),
+	}, ",")
+}
+
+// TestCompareOracleTracesDetectsImprovedMVPredictorDivergence feeds two
+// streams whose only difference on a NEWMV macroblock is the improved-MV
+// predictor companions: govpx records improved_mv_near_sadidx=3 with a
+// (16, -16) predictor and sr=3, while libvpx (modelling the patched
+// vpxenc-oracle binary) reports near_sadidx=4 / row=20 / col=-12 / sr=2.
+// The comparator must surface every per-field divergence with
+// RowKind == "mb" so a future libvpx-side regression in vp8_mv_pred or in
+// the matched-rank capture is caught even when the chosen MV / mode /
+// eob payload still match.
+func TestCompareOracleTracesDetectsImprovedMVPredictorDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := strings.Join([]string{
+		frameRow(0, 60, true, 0xdeadbeef),
+		mbRowImprovedMVJSON(0, 0, 0, "NEWMV", "LAST_FRAME",
+			16, -16, false, 4,
+			true, 3, 16, -16, 3),
+	}, "\n") + "\n"
+
+	libvpx := strings.Join([]string{
+		frameRow(0, 60, true, 0xdeadbeef),
+		mbRowImprovedMVJSON(0, 0, 0, "NEWMV", "LAST_FRAME",
+			16, -16, false, 4,
+			true, 4, 20, -12, 2),
+	}, "\n") + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) == 0 {
+		t.Fatalf("expected divergences, got none")
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	wantKeys := []string{
+		"row=1/field=improved_mv_near_sadidx",
+		"row=1/field=improved_mv_row",
+		"row=1/field=improved_mv_col",
+		"row=1/field=improved_mv_sr",
+	}
+	for _, key := range wantKeys {
+		d, ok := got[key]
+		if !ok {
+			t.Errorf("missing divergence for %s; got divergences: %v", key, divKeys(div))
+			continue
+		}
+		if d.RowKind != "mb" {
+			t.Errorf("%s: RowKind=%q want mb", key, d.RowKind)
+		}
+		if d.FrameIndex != 0 {
+			t.Errorf("%s: FrameIndex=%d want 0", key, d.FrameIndex)
+		}
+		if d.MBRow != 0 || d.MBCol != 0 {
+			t.Errorf("%s: coords=(%d,%d) want (0,0)", key, d.MBRow, d.MBCol)
+		}
+	}
+	// Spot-check the near_sadidx payload reflects the actual feed values.
+	near := got["row=1/field=improved_mv_near_sadidx"]
+	if gv, _ := near.Govpx.(float64); gv != 3 {
+		t.Errorf("row=1/field=improved_mv_near_sadidx: Govpx=%v want 3", near.Govpx)
+	}
+	if lv, _ := near.Libvpx.(float64); lv != 4 {
+		t.Errorf("row=1/field=improved_mv_near_sadidx: Libvpx=%v want 4", near.Libvpx)
+	}
+	// improved_mv_start matches on both sides, so it must NOT show up as
+	// a divergence even though the four numeric companions diverge.
+	if _, hasStart := got["row=1/field=improved_mv_start"]; hasStart {
+		t.Errorf("unexpected improved_mv_start divergence: %+v", got["row=1/field=improved_mv_start"])
+	}
+}
+
 // divKey formats a divergence as "row=<idx>/field=<name>" for assertion
 // keys. Stream-level divergences (no field) collapse to "row=<idx>/<kind>".
 func divKey(d Divergence) string {
