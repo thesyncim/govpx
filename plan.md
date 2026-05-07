@@ -189,8 +189,9 @@ Remaining work:
 - Complete exact libvpx golden-frame CBR boost heuristics; GF-CBR
   target/refresh control exists and now uses libvpx's cyclic refresh cadence,
   default unboosted refresh, and prior LAST/ZEROMV majority gate.
-- Implement VBR/two-pass planning if production parity requires VBR.
-- Add adaptive keyframe/scene-cut behavior.
+- Implement VBR/two-pass planning if production parity requires VBR; opt-in
+  one-pass scene-cut keyframe detection now exists, but first-pass stats files
+  and two-pass allocation are not ported.
 - Complete static-background segmentation policy; screen-content and
   static-threshold runtime controls plus skin/static-block classification for
   cyclic-refresh eligibility exist.

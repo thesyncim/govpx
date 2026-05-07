@@ -83,6 +83,10 @@ type EncoderOptions struct {
 
 	// GOP/keyframe behavior.
 	KeyFrameInterval int
+	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
+	// source/reference error shift is detected, the frame is promoted to a
+	// keyframe before rate control and mode decision run.
+	AdaptiveKeyFrames bool
 
 	// VP8 behavior.
 	ErrorResilient bool
@@ -105,6 +109,8 @@ type EncodeResult struct {
 	// Droppable reports libvpx's encoded-frame discardability signal: true
 	// when the frame updates no reference, entropy, or segmentation state.
 	Droppable bool
+	// SceneCut reports that AdaptiveKeyFrames promoted this frame to a keyframe.
+	SceneCut bool
 
 	PTS      uint64
 	Duration uint64
@@ -252,11 +258,17 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, err
 	}
 	forcedKeyFrame := e.forceKeyFrameRequested(flags)
-	keyFrame := e.shouldEncodeKeyFrame(src, flags)
-	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
 	required := rows * cols
+	source := sourceImageFromImage(src)
+	keyFrame := e.shouldEncodeKeyFrame(flags)
+	sceneCutKeyFrame := false
+	if !keyFrame && e.shouldEncodeSceneCutKeyFrame(source, flags, temporalFrame.Enabled, rows, cols) {
+		keyFrame = true
+		sceneCutKeyFrame = true
+	}
+	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	if temporalFrame.Enabled && !keyFrame {
@@ -279,6 +291,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
+		SceneCut:                           sceneCutKeyFrame,
 		PTS:                                pts,
 		Duration:                           duration,
 		Quantizer:                          e.rc.currentQuantizer,
@@ -304,16 +317,6 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return result, nil
 	}
 
-	source := vp8enc.SourceImage{
-		Width:   src.Width,
-		Height:  src.Height,
-		Y:       src.Y,
-		U:       src.U,
-		V:       src.V,
-		YStride: src.YStride,
-		UStride: src.UStride,
-		VStride: src.VStride,
-	}
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
 	if !keyFrame {
 		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed)
@@ -638,7 +641,7 @@ func boostedReferenceRateControlFrame(goldenCBRRefresh bool, flags EncodeFlags) 
 	return goldenCBRRefresh || flags&(EncodeForceGoldenFrame|EncodeForceAltRefFrame) != 0
 }
 
-func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
+func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
@@ -958,6 +961,14 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.KeyFrameInterval = frames
+	return nil
+}
+
+func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.AdaptiveKeyFrames = enabled
 	return nil
 }
 

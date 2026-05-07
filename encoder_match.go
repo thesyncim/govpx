@@ -8,16 +8,7 @@ import (
 )
 
 func sourceMatchesReference(src Image, ref *vp8common.Image) bool {
-	return sourceImageMatchesReference(vp8enc.SourceImage{
-		Width:   src.Width,
-		Height:  src.Height,
-		Y:       src.Y,
-		U:       src.U,
-		V:       src.V,
-		YStride: src.YStride,
-		UStride: src.UStride,
-		VStride: src.VStride,
-	}, ref)
+	return sourceImageMatchesReference(sourceImageFromImage(src), ref)
 }
 
 func sourceImageMatchesReference(src vp8enc.SourceImage, ref *vp8common.Image) bool {

@@ -1345,6 +1345,9 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	if err := e.SetScreenContentMode(1); err != nil {
 		t.Fatalf("SetScreenContentMode returned error: %v", err)
 	}
+	if err := e.SetAdaptiveKeyFrames(true); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames returned error: %v", err)
+	}
 
 	result, err := e.EncodeInto(make([]byte, 8192), testImage(16, 16), 0, 1, 0)
 	if err != nil {
@@ -2945,6 +2948,53 @@ func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
+	e := newAdaptiveSceneCutTestEncoder(t, true)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 20, 90, 170)
+	fillImage(second, 230, 90, 170)
+	dst := make([]byte, 8192)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(dst, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame || !result.SceneCut {
+		t.Fatalf("adaptive result = key:%t sceneCut:%t, want scene-cut keyframe", result.KeyFrame, result.SceneCut)
+	}
+	info, err := PeekVP8StreamInfo(result.Data)
+	if err != nil {
+		t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
+	}
+	if !info.KeyFrame {
+		t.Fatalf("packet KeyFrame = false, want keyframe packet")
+	}
+}
+
+func TestEncodeIntoAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
+	e := newAdaptiveSceneCutTestEncoder(t, false)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 20, 90, 170)
+	fillImage(second, 230, 90, 170)
+	dst := make([]byte, 8192)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("first EncodeInto returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(dst, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if result.KeyFrame || result.SceneCut {
+		t.Fatalf("default result = key:%t sceneCut:%t, want legacy interframe", result.KeyFrame, result.SceneCut)
+	}
+}
+
 func TestConvertMacroblockCoefficientsOverwritesActiveSkippedDCBlock(t *testing.T) {
 	var src vp8enc.MacroblockCoefficients
 	var dst vp8dec.MacroblockTokens
@@ -3001,6 +3051,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},
 		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
 		{name: "SetKeyFrameInterval", fn: func() { _ = e.SetKeyFrameInterval(120) }},
+		{name: "SetAdaptiveKeyFrames", fn: func() { _ = e.SetAdaptiveKeyFrames(true) }},
 		{name: "ForceKeyFrame", fn: func() { e.ForceKeyFrame() }},
 		{name: "Reset", fn: func() { e.Reset() }},
 	}
@@ -3120,6 +3171,27 @@ func newTemporalRefreshFlagTestEncoder(tb testing.TB, temporal TemporalScalabili
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
 		TemporalScalability: temporal,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+func newAdaptiveSceneCutTestEncoder(tb testing.TB, adaptive bool) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		KeyFrameInterval:  120,
+		AdaptiveKeyFrames: adaptive,
 	})
 	if err != nil {
 		tb.Fatalf("NewVP8Encoder returned error: %v", err)
