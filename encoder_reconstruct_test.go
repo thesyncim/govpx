@@ -585,6 +585,35 @@ func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.
 	}
 }
 
+func TestSplitMVSubsearchThresholdUsesReferenceSearchSlot(t *testing.T) {
+	e := &VP8Encoder{}
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+
+	refs := []interAnalysisReference{{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}}}
+	const qIndex = 40
+	e.raiseInterRDThreshold(libvpxThrNew2)
+	e.raiseInterRDThreshold(libvpxThrNew2)
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, 1)
+	if thresholds[libvpxThrNew1] == thresholds[libvpxThrNew2] {
+		t.Fatalf("test setup NEW1 threshold equals NEW2 (%d)", thresholds[libvpxThrNew1])
+	}
+	if got := e.splitMVSubsearchThresholdForSlot(qIndex, refs, 1, 1); got != thresholds[libvpxThrNew1] {
+		t.Fatalf("golden-only slot-1 SplitMV threshold = %d, want current THR_NEW1 %d", got, thresholds[libvpxThrNew1])
+	}
+
+	e.raiseInterRDThreshold(libvpxThrNew1)
+	fresh := e.interModeRDThresholdsForReferences(qIndex, refs, 1)
+	got := e.splitMVSubsearchThresholdForSlot(qIndex, refs, 1, 1)
+	if got != fresh[libvpxThrNew1] {
+		t.Fatalf("fresh slot-1 SplitMV threshold = %d, want raised THR_NEW1 %d", got, fresh[libvpxThrNew1])
+	}
+	if got == thresholds[libvpxThrNew1] {
+		t.Fatalf("slot-1 SplitMV threshold reused stale THR_NEW1 %d after raise", got)
+	}
+}
+
 func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
 	tests := []struct {
 		sr   int

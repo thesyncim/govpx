@@ -688,18 +688,23 @@ the anchor and look for the surrounding mismatch.
   - The full SplitMV label-level RD search now mirrors libvpx's
     `rd_check_segment` per-label `LEFT4X4 / ABOVE4X4 / ZERO4X4 / NEW4X4`
     trial structure with `THR_NEW1/2/3` gating: `selectRDInterFrameModeDecision`
-    pulls the SPLITMV+NEW threshold for each reference variant from the
-    same `interModeRDThresholdsForReferences` table, indexes it with
-    `libvpxRefSlotForFrame` (LAST→THR_NEW1, GOLDEN→THR_NEW2,
-    ALTREF→THR_NEW3) via the existing `libvpxSplitMVSubsearchThreshold`
-    helper, and feeds it through `selectInterFrameSplitMotionModeWithSearchAndThreshold`
-    as `mvthresh`. The per-label loop in
+    pulls the current SPLITMV+NEW threshold from the same
+    `interModeRDThresholdsForReferences` table using the compacted libvpx
+    reference search slot (`vp8_ref_frame_order[mode_index]`), not the
+    absolute LAST/GOLDEN/ALTREF enum. This keeps GOLDEN-only and ALTREF-only
+    searches on `THR_NEW1`, and the helper rereads the current threshold table
+    so in-loop threshold raises/lowerings are visible to the SplitMV gate. The
+    resulting `mvthresh` feeds through
+    `selectInterFrameSplitMotionModeWithSearchAndThreshold`. The per-label loop in
     `selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold` then
     short-circuits the NEW4X4 motion search using
     `label_mv_thresh = mvthresh / label_count`, matching
     `if (best_label_rd < label_mv_thresh) break;` from
-    `rd_check_segment` and using an RDCOST-shaped comparison so the
-    threshold scale lines up with libvpx's `rd_threshes`. The split RD
+    `rd_check_segment` and using an RDCOST-shaped comparison with the same
+    left/above contextual sub-MV label rate used by final SplitMV accounting so
+    the threshold scale lines up with libvpx's `rd_threshes`. Tests:
+    `TestSplitMVSubsearchThresholdUsesReferenceSearchSlot` and
+    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`. The split RD
     decision (`selectInterFrameSplitMotionDecisionRDWithThreshold`) now
     also returns the full `other_cost` / Y-RD breakdown libvpx accumulates
     in `vp8_rd_pick_inter_mode` after `vp8_rd_pick_best_mbsegmentation`:
