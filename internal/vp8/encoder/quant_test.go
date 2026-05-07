@@ -69,6 +69,88 @@ func TestInitRegularBlockQuantMatchesLibvpxSetup(t *testing.T) {
 	}
 }
 
+// TestInitRegularBlockQuantLibvpxFixedQ64 locks the per-coefficient
+// Zbin/Round/Quant/QuantShift/ZbinBoost values produced by
+// InitRegularBlockQuant for QIndex=64, dequant=10 against numbers derived by
+// hand-evaluating libvpx v1.16.0 vp8/encoder/vp8_quantize.c
+// vp8cx_init_quantizer (with qzbin_factors[64]=80, qrounding_factors[64]=48,
+// improved_quant=1):
+//
+//	round       = (48*10) >> 7        = 3
+//	zbin        = (80*10 + 64) >> 7   = 6
+//	quant_fast  = (1<<16)/10          = 6553
+//	invert_quant(10) -> l=3, m=1+(1<<19)/10=52429
+//	  quant       = m - (1<<16)       = -13107
+//	  quant_shift = 1 << (16-3)       = 8192
+//	zrun_zbin_boost[i] = (10*zbin_boost[i]) >> 7 with
+//	  zbin_boost = {0,0,8,10,12,14,16,20,24,28,32,36,40,44,44,44}
+//	  =>          {0,0,0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3}
+func TestInitRegularBlockQuantLibvpxFixedQ64(t *testing.T) {
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = 10
+	}
+	var quant BlockQuant
+
+	InitRegularBlockQuant(64, &dequant, &quant)
+
+	wantFast := int16(6553)
+	wantRound := int16(3)
+	wantZbin := int16(6)
+	wantQuant := int16(-13107)
+	wantShift := int16(8192)
+	wantBoost := [16]int16{0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3}
+
+	for i := 0; i < 16; i++ {
+		if quant.Dequant[i] != 10 {
+			t.Fatalf("Dequant[%d] = %d, want 10", i, quant.Dequant[i])
+		}
+		if quant.QuantFast[i] != wantFast {
+			t.Fatalf("QuantFast[%d] = %d, want %d", i, quant.QuantFast[i], wantFast)
+		}
+		if quant.Round[i] != wantRound {
+			t.Fatalf("Round[%d] = %d, want %d", i, quant.Round[i], wantRound)
+		}
+		if quant.Zbin[i] != wantZbin {
+			t.Fatalf("Zbin[%d] = %d, want %d", i, quant.Zbin[i], wantZbin)
+		}
+		if quant.Quant[i] != wantQuant {
+			t.Fatalf("Quant[%d] = %d, want %d", i, quant.Quant[i], wantQuant)
+		}
+		if quant.QuantShift[i] != wantShift {
+			t.Fatalf("QuantShift[%d] = %d, want %d", i, quant.QuantShift[i], wantShift)
+		}
+		if quant.ZbinBoost[i] != wantBoost[i] {
+			t.Fatalf("ZbinBoost[%d] = %d, want %d", i, quant.ZbinBoost[i], wantBoost[i])
+		}
+	}
+}
+
+// TestInitRegularBlockQuantLibvpxZbinFactorBoundary locks the Q<48 vs Q>=48
+// split of qzbin_factors in libvpx vp8/encoder/vp8_quantize.c (84 for the
+// first 48 indices, 80 thereafter). dequant=128 is chosen so the >>7 right
+// shift cleanly returns the factor itself.
+func TestInitRegularBlockQuantLibvpxZbinFactorBoundary(t *testing.T) {
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = 128
+	}
+	var quant BlockQuant
+
+	// Q=47 -> qzbin_factors[47]==84 -> Zbin = (84*128 + 64) >> 7 = 84.
+	InitRegularBlockQuant(47, &dequant, &quant)
+	// (84*128 + 64) >> 7 = (10752 + 64) / 128 = 84
+	if got := quant.Zbin[1]; got != 84 {
+		t.Fatalf("Zbin[1] @ Q=47 = %d, want 84 (qzbin_factors[47]=84)", got)
+	}
+
+	// Q=48 -> qzbin_factors[48]==80 -> Zbin = (80*128 + 64) >> 7 = 80.
+	InitRegularBlockQuant(48, &dequant, &quant)
+	if got := quant.Zbin[1]; got != 80 {
+		t.Fatalf("Zbin[1] @ Q=48 = %d, want 80 (qzbin_factors[48]=80)", got)
+	}
+}
+
 func TestInitSegmentMacroblockQuantsUsesDeltaSegmentation(t *testing.T) {
 	segmentation := SegmentationConfig{Enabled: true, UpdateData: true}
 	segmentation.FeatureEnabled[common.MBLvlAltQ][1] = true

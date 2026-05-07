@@ -9,9 +9,19 @@ import (
 
 // Ported from libvpx v1.16.0 vp8/encoder/vp8_quantize.c block
 // quantization setup, vp8_fast_quantize_b_c, and vp8_regular_quantize_b_c.
+//
+// Reference anchors:
+//   - vp8cx_init_quantizer  -> InitRegularBlockQuant / InitFastBlockQuant
+//   - vp8cx_invert_quant    -> invertRegularQuant
+//   - vp8_fast_quantize_b_c -> FastQuantizeBlock
+//   - qrounding_factors[Q]  -> quantRoundFactor (constant 48 across Q)
+//   - qzbin_factors[Q]      -> 84 for Q < 48, 80 otherwise
+//   - zbin_boost[16]        -> quantZbinBoost
 
 const quantRoundFactor = 48
 
+// quantZbinBoost mirrors zbin_boost in libvpx vp8/encoder/vp8_quantize.c
+// vp8cx_init_quantizer.
 var quantZbinBoost = [...]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
 
 type BlockQuant struct {
@@ -31,6 +41,9 @@ type MacroblockQuant struct {
 	UV   BlockQuant
 }
 
+// InitFastBlockQuant mirrors the per-Q-index setup of quant_fast/round/dequant
+// performed by libvpx v1.16.0 vp8/encoder/vp8_quantize.c vp8cx_init_quantizer
+// for a single block (the fast path used by vp8_fast_quantize_b_c).
 func InitFastBlockQuant(dequant *[16]int16, out *BlockQuant) {
 	for i := 0; i < 16; i++ {
 		d := int(dequant[i])
@@ -47,6 +60,10 @@ func InitFastMacroblockQuant(dequant *common.MacroblockDequant, out *MacroblockQ
 	InitFastBlockQuant(&dequant.UV, &out.UV)
 }
 
+// InitRegularBlockQuant mirrors the per-Q-index setup of quant/quant_shift/zbin
+// /round/zrun_zbin_boost performed by libvpx v1.16.0
+// vp8/encoder/vp8_quantize.c vp8cx_init_quantizer for a single block, including
+// the qzbin_factors split (84 for Q<48, 80 otherwise).
 func InitRegularBlockQuant(qIndex int, dequant *[16]int16, out *BlockQuant) {
 	InitFastBlockQuant(dequant, out)
 	q := common.ClampQIndex(qIndex)
@@ -69,6 +86,10 @@ func InitRegularMacroblockQuant(qIndex int, dequant *common.MacroblockDequant, o
 	InitRegularBlockQuant(qIndex, &dequant.UV, &out.UV)
 }
 
+// invertRegularQuant mirrors invert_quant(improved_quant=1, ...) in libvpx
+// v1.16.0 vp8/encoder/vp8_quantize.c. The improved_quant=0 branch is unused by
+// the regular quantizer path that govpx exercises, so it is intentionally not
+// ported here.
 func invertRegularQuant(dequant int, quant *int16, shift *int16) {
 	l := bits.Len(uint(dequant)) - 1
 	m := 1 + (1<<(16+l))/dequant
