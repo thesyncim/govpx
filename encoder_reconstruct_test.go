@@ -144,6 +144,30 @@ func TestLibvpxOptimizeCoefficientsGateMirrorsSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality uses regular quant", deadline: DeadlineBestQuality, cpuUsed: 15, want: false},
+		{name: "good speed two uses regular quant", deadline: DeadlineGoodQuality, cpuUsed: 2, want: false},
+		{name: "good speed three uses fast quant", deadline: DeadlineGoodQuality, cpuUsed: 3, want: true},
+		{name: "realtime speed zero uses regular quant", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
+		{name: "realtime speed one uses fast quant", deadline: DeadlineRealtime, cpuUsed: 1, want: true},
+		{name: "realtime speed eight uses fast quant", deadline: DeadlineRealtime, cpuUsed: 8, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			if got := e.libvpxUseFastQuant(); got != tt.want {
+				t.Fatalf("fast quant = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInterAnalysisSplitPartitionOrderMirrorsLibvpxCompressorSpeed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -851,7 +875,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 
 	var scratch vp8dec.IntraReconstructionScratch
 	quant := testMacroblockQuant(20)
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, nil, nil, &quant, &pred.Img, &scratch)
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, nil, nil, &quant, &pred.Img, &scratch, false)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
@@ -876,7 +900,7 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	var scratch vp8dec.IntraReconstructionScratch
 	probs := vp8tables.DefaultCoefProbs
 
-	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0, &probs)
+	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0, &probs, false)
 
 	if !ok {
 		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")
@@ -903,7 +927,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var scratch vp8dec.IntraReconstructionScratch
 
-	mode, rate, dist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, &probs)
+	mode, rate, dist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, &probs, false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRD returned ok=false")
 	}
@@ -919,7 +943,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	if !predictAnalysisChroma(&chosenPred.Img, 0, 0, mode, &chosenScratch) {
 		t.Fatalf("predictAnalysisChroma returned false")
 	}
-	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 20, nil, nil, &quant, &probs)
+	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 20, nil, nil, &quant, &probs, false)
 	wantRate := intraUVModeRate(true, mode) + tokenRate
 	if rate != wantRate || dist != wantDist {
 		t.Fatalf("UV RD = rate:%d dist:%d, want transform/token rate:%d dist:%d", rate, dist, wantRate, wantDist)
@@ -1754,14 +1778,35 @@ func TestQuantizeEncodedBlockHonorsOptimizeGate(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 11
 
-	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
-	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, &coeff, &quant, &plainQ, &plainDQ)
+	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
+	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, false, &coeff, &quant, &plainQ, &plainDQ)
 
 	if optimizedEOB != 1 || optimizedQ[rc] != 0 || optimizedDQ[rc] != 0 {
 		t.Fatalf("optimized encoding eob/q/dq = %d/%d/%d, want dropped coefficient", optimizedEOB, optimizedQ[rc], optimizedDQ[rc])
 	}
 	if plainEOB != 2 || plainQ[rc] != 1 || plainDQ[rc] != 10 {
 		t.Fatalf("plain encoding eob/q/dq = %d/%d/%d, want unoptimized quantized coefficient", plainEOB, plainQ[rc], plainDQ[rc])
+	}
+}
+
+func TestQuantizeEncodedBlockUsesFastQuantWhenSpeedFeatureRequestsIt(t *testing.T) {
+	quant := testRegularBlockQuant(4, 100)
+	var coeff [16]int16
+	var regularQ [16]int16
+	var regularDQ [16]int16
+	var fastQ [16]int16
+	var fastDQ [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	coeff[rc] = 64
+
+	regularEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, false, &coeff, &quant, &regularQ, &regularDQ)
+	fastEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, true, false, &coeff, &quant, &fastQ, &fastDQ)
+
+	if regularEOB != 0 || regularQ[rc] != 0 || regularDQ[rc] != 0 {
+		t.Fatalf("regular encoding eob/q/dq = %d/%d/%d, want zbin-suppressed coefficient", regularEOB, regularQ[rc], regularDQ[rc])
+	}
+	if fastEOB != 2 || fastQ[rc] != 1 || fastDQ[rc] != 100 {
+		t.Fatalf("fast encoding eob/q/dq = %d/%d/%d, want fast-quantized coefficient", fastEOB, fastQ[rc], fastDQ[rc])
 	}
 }
 

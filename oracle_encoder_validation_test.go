@@ -97,9 +97,9 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			minSSIM:                       0.999,
 			minFramePSNR:                  48.25,
 			minFrameSSIM:                  0.999,
-			maxPSNRGap:                    1.7,
+			maxPSNRGap:                    0.8,
 			maxSSIMGap:                    0.001,
-			maxFramePSNRGap:               2.0,
+			maxFramePSNRGap:               1.5,
 			maxFrameSSIMGap:               0.002,
 			maxRateHigh:                   250.0,
 			maxRateLow:                    95.0,
@@ -137,10 +137,10 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			checkSegmentationHeader: true,
 			checkInterFrames:        true,
 		},
-		realtimeSpeedValidationCase(4, 47.5, 47.25, 0.75, 0.75),
-		realtimeSpeedValidationCase(5, 47.5, 47.25, 0.75, 0.75),
-		realtimeSpeedValidationCase(9, 47.5, 47.25, 0.75, 0.75),
-		realtimeSpeedValidationCase(15, 47.5, 47.25, 0.75, 0.75),
+		realtimeSpeedValidationCase(4, 47.9, 47.6, 0.4, 0.4),
+		realtimeSpeedValidationCase(5, 47.9, 47.6, 0.4, 0.4),
+		realtimeSpeedValidationCase(9, 47.9, 47.6, 0.4, 0.4),
+		realtimeSpeedValidationCase(15, 47.9, 47.6, 0.4, 0.4),
 	}
 
 	for _, tc := range cases {

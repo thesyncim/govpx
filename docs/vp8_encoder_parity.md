@@ -23,9 +23,10 @@ the anchor and look for the surrounding mismatch.
   libvpx v1.16.0 tools and corpus minima.
 - Quality smoke parity: high on the current tiny corpus, but not complete. The
   current oracle cases are near-equal on SSIM, while motion still shows a max
-  frame PSNR gap around 1.9 dB and a large bitrate delta. Current smoke numbers:
-  motion govpx/libvpx PSNR 49.69/50.35, bitrate 349.1/268.7 kbps; static
-  govpx/libvpx PSNR 49.84/49.71, bitrate 372.4/372.3 kbps.
+  frame PSNR gap around 1.4 dB and a large bitrate delta. Current smoke numbers:
+  motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
+  govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
+  govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
 - Encoder decision parity: roughly 45-55% complete. This is an engineering
   estimate, not a measured percentage, because govpx still lacks the trace
   oracle needed to count matching frame/MB decisions.
@@ -278,13 +279,14 @@ the anchor and look for the surrounding mismatch.
     [`internal/vp8/encoder/quant.go`](../internal/vp8/encoder/quant.go).
   - libvpx: `encodemb.c` and `vp8_quantize.c`.
   - Status: partial. Several optimized-block paths are tested; final coefficient
-    optimization now follows the libvpx speed-feature gate, RD scoring uses
-    unoptimized quantization, and post-optimization `check_reset_2nd_coeffs`
-    behavior now clears tiny Y2 residuals that would inverse-transform to zero.
-    Full parity still needs every zbin/round/quant/dequant path, trellis
-    decision, EOB handling, and Y2/Y1/UV context behavior.
-  - Missing: libvpx Viterbi trellis, `zbin_extra`, fast-vs-regular quantizer
-    paths, `RDTRUNC` tie-breaks, and token-cost trace anchors.
+    optimization and fast-vs-regular quantizer selection now follow the libvpx
+    speed-feature gates, RD scoring uses the same unoptimized fast/regular
+    quantizer family, and post-optimization `check_reset_2nd_coeffs` behavior
+    now clears tiny Y2 residuals that would inverse-transform to zero. Full
+    parity still needs every zbin/round/quant/dequant path, trellis decision,
+    EOB handling, and Y2/Y1/UV context behavior.
+  - Missing: libvpx Viterbi trellis, `zbin_extra`, `RDTRUNC` tie-breaks, and
+    token-cost trace anchors.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin
     boosts, and coefficient patterns.
