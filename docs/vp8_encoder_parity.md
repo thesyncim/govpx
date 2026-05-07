@@ -243,7 +243,9 @@ the anchor and look for the surrounding mismatch.
     search map as `get_reference_search_order`. RD NEWMV no longer reuses the
     fast-path zero-vector rejection, RD NEWMV vector cost uses libvpx's weight
     96, and RD subpel acceptance now has a dedicated helper instead of sharing
-    the fast picker decision path.
+    the fast picker decision path. Whole-MB full-pel NSTEP/full/refine searches
+    now keep libvpx's SAD-based site walk but return variance plus `mv_err_cost`
+    for completed searches; hex search remains on its libvpx SAD return path.
   - Missing: sign-bias switching, temporal-layer threshold tweaks, full
     SplitMV label-level segmentation search with `THR_NEW1/2/3` gating, exact
     RD accounting including `other_cost` / Y-RD side accounting, active-map skip

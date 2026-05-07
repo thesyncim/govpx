@@ -664,9 +664,13 @@ func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(
 	if mv != start.mv {
 		t.Fatalf("full-pixel MV = %+v, want improved search start %+v", mv, start.mv)
 	}
-	wantCost := interMotionSearchCost(sourceImageFromPublic(src), &last.Img, 1, 1, start.mv, bestRefMV, testInterSearchQIndex)
+	variance, _ := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &last.Img, 1, 1, mv)
+	wantCost := variance + interMotionSearchErrorVectorCost(mv, bestRefMV, testInterSearchQIndex, &vp8tables.DefaultMVContext)
 	if cost != wantCost {
-		t.Fatalf("full-pixel cost = %d, want MV cost charged against bestRefMV = %d", cost, wantCost)
+		t.Fatalf("full-pixel cost = %d, want variance plus best_ref_mv anchored error cost %d", cost, wantCost)
+	}
+	if legacyCost := interMotionSearchCost(sourceImageFromPublic(src), &last.Img, 1, 1, mv, bestRefMV, testInterSearchQIndex); cost == legacyCost {
+		t.Fatalf("full-pixel cost = legacy SAD plus vector cost %d, want variance plus error vector cost", legacyCost)
 	}
 }
 
