@@ -439,6 +439,8 @@ const interFrameMotionCandidateMax = 15
 const interFrameMaxMVSearchSteps = 8
 const interFrameMaxFullPelVal = (1 << interFrameMaxMVSearchSteps) - 1
 const interFrameUMVBorderPixels = 32
+const libvpxFastNewMVBitCostWeight = 128
+const libvpxRDNewMVBitCostWeight = 96
 
 type interAnalysisFullPixelSearchMethod uint8
 
@@ -1203,7 +1205,40 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		mv       vp8enc.MotionVector
 	},
 ) (vp8enc.InterFrameMacroblockMode, bool) {
-	return e.fastInterModeForLoopEntry(src, ref, refIndex, refIndex+1, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, newMVCandidates)
+	switch mbMode {
+	case vp8common.ZeroMV:
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
+	case vp8common.NearestMV, vp8common.NearMV:
+		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		mv := nearest
+		if mbMode == vp8common.NearMV {
+			mv = near
+		}
+		if mv.IsZero() {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
+	case vp8common.NewMV:
+		if refIndex < 0 || refIndex >= len(newMVCandidates) {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		candidate := &newMVCandidates[refIndex]
+		if !candidate.searched {
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+			search := e.interAnalysisSearchConfig()
+			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			mv, _ := selectRDInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
+			candidate.searched = true
+			candidate.ok = true
+			candidate.mv = mv
+		}
+		if !candidate.ok {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}, true
+	default:
+		return vp8enc.InterFrameMacroblockMode{}, false
+	}
 }
 
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
@@ -2266,7 +2301,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.Sour
 	if ref == nil || mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
 		return 0, false
 	}
-	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
+	modeRate := e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	variance, _ := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mode.MV)
 	zbinOverQuant := 0
 	if e != nil {
@@ -2371,6 +2406,14 @@ func selectInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp
 		}
 	}
 	return best, bestRD
+}
+
+func selectRDInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start)
+	if refined, refinedCost, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search, mvProbs); ok {
+		return refined, refinedCost
+	}
+	return best, bestCost
 }
 
 // selectInterFrameFullPixelMotionVector centers the integer-pel search at
@@ -3132,6 +3175,10 @@ func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.M
 }
 
 func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
+	return interMotionModeVectorCostWithNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, mvProbs, libvpxRDNewMVBitCostWeight)
+}
+
+func interMotionModeVectorCostWithNewMVWeight(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int) int {
 	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
 	}
@@ -3145,8 +3192,7 @@ func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8
 	if mode.Mode != vp8common.NewMV {
 		return 0
 	}
-	delta := vp8enc.MotionVector{Row: int16(int(mode.MV.Row) - int(best.Row)), Col: int16(int(mode.MV.Col) - int(best.Col))}
-	return interMotionVectorCost(delta, mvProbs)
+	return interNewMVVectorCost(mode.MV, best, mvProbs, newMVWeight)
 }
 
 func interMacroblockSkipRate(skip bool) int {
@@ -3188,6 +3234,14 @@ func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, 
 }
 
 func (e *VP8Encoder) interMotionModeRateWithReferenceRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, refRate int) int {
+	return e.interMotionModeRateWithReferenceRateAndNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate, libvpxRDNewMVBitCostWeight)
+}
+
+func (e *VP8Encoder) fastInterMotionModeRateWithReferenceRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, refRate int) int {
+	return e.interMotionModeRateWithReferenceRateAndNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate, libvpxFastNewMVBitCostWeight)
+}
+
+func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndNewMVWeight(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, refRate int, newMVWeight int) int {
 	if mode == nil {
 		return 1 << 30
 	}
@@ -3197,7 +3251,7 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRate(mode *vp8enc.InterFram
 	return boolBitCost(e.refProbIntra, 1) +
 		refRate +
 		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame)) +
-		interMotionModeVectorCost(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV)
+		interMotionModeVectorCostWithNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight)
 }
 
 // interReferenceFrameRate ports libvpx vp8_calc_ref_frame_costs (bitstream.c):
@@ -3379,7 +3433,14 @@ func interMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCou
 	if mvProbs == nil {
 		return maxInt() / 4
 	}
-	return vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, mvProbs, 128)
+	return vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, mvProbs, libvpxFastNewMVBitCostWeight)
+}
+
+func interNewMVVectorCost(mv vp8enc.MotionVector, best vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, weight int) int {
+	if mvProbs == nil {
+		return maxInt() / 4
+	}
+	return vp8enc.MotionVectorBitCost(mv, best, mvProbs, weight)
 }
 
 func splitMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8) int {
