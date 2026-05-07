@@ -234,6 +234,13 @@ type VP8Encoder struct {
 	refProbIntra  uint8
 	refProbLast   uint8
 	refProbGolden uint8
+	// libvpx update_rd_ref_frame_probs (onyx_if.c) heuristically biases the
+	// reference-frame probabilities used by the *current* frame's RD scoring
+	// based on the upcoming refresh policy. It tracks frames_since_golden and
+	// source_alt_ref_active to drive the bumps; see update_golden_frame_stats
+	// for the lifecycle of those counters.
+	framesSinceGolden  int
+	sourceAltRefActive bool
 	// libvpx also carries a skip-false probability for inter RD costing. The
 	// packet writer adapts the final value from this frame's skip counts; mode
 	// decision uses the previous refreshed reference's value, clamped away from
@@ -285,6 +292,10 @@ type VP8Encoder struct {
 	lastRef   vp8common.FrameBuffer
 	goldenRef vp8common.FrameBuffer
 	altRef    vp8common.FrameBuffer
+	// Mirrors libvpx cpi->current_ref_frames[] for closest-reference policy.
+	// Values are frameCount values from the encoded frame that last refreshed
+	// or was copied into each reference buffer.
+	referenceFrameNumbers [vp8common.MaxRefFrames]uint64
 	// Mirrors libvpx gold_is_last / alt_is_last / gold_is_alt. These flags
 	// prune duplicate reference candidates after refreshes make buffers alias.
 	goldenRefAliasesLast bool
@@ -577,6 +588,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
+	// Mirror libvpx onyx_if.c key-frame branch: clear source_alt_ref_active
+	// and frames_since_golden so the next inter frame's RD ref-prob
+	// heuristic starts from a clean slate.
+	e.resetGoldenFrameStats()
 	e.refreshKeyFrameReferencesFromAnalysis()
 	// Seed denoiser running averages from the key-frame source (libvpx
 	// onyx_if.c update_reference_frames key-frame branch).
@@ -789,6 +804,23 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
+	// Mirror libvpx update_rd_ref_frame_probs: bias the previous-frame
+	// reference-frame probabilities for *this* frame's RD scoring based on
+	// the upcoming refresh policy. The base values are restored on every
+	// return so commitInterFrameAttempt's updateRefFrameProbsFromAttempt
+	// recomputes them from this frame's mb_ref_frame counts (the equivalent
+	// of vp8_convert_rfct_to_prob at packet write time).
+	previousRefProbIntra := e.refProbIntra
+	previousRefProbLast := e.refProbLast
+	previousRefProbGolden := e.refProbGolden
+	if !e.opts.TemporalScalability.Enabled {
+		e.applyRdRefFrameProbHeuristics(cfg.RefreshAltRef)
+	}
+	defer func() {
+		e.refProbIntra = previousRefProbIntra
+		e.refProbLast = previousRefProbLast
+		e.refProbGolden = previousRefProbGolden
+	}()
 	var err error
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	if segmentation.Enabled {
@@ -854,6 +886,9 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
 	e.updateRefFrameProbsFromAttempt(attempt)
+	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
+	// counters used by applyRdRefFrameProbHeuristics next frame.
+	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 	} else {
@@ -925,6 +960,73 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	}
 	e.coefProbs = attempt.FrameCoefProbs
 	e.modeProbs.MV = attempt.FrameMVProbs
+}
+
+// applyRdRefFrameProbHeuristics ports the heuristic adjustments in libvpx
+// vp8/encoder/onyx_if.c update_rd_ref_frame_probs that bias prob_intra/
+// prob_last/prob_gf for the *current* inter frame's RD scoring. The base
+// probabilities themselves are kept fresh by updateRefFrameProbsFromAttempt
+// (the equivalent of vp8_convert_rfct_to_prob) at packet write time, so this
+// function only stamps the per-frame heuristic adjustments on top.
+//
+// In libvpx these bumps are gated by `oxcf.number_of_layers == 1`; govpx's
+// temporal-scalability path runs through interReferenceFrameRatesForFlags
+// special cases instead, so the layer guard is enforced by the call site.
+func (e *VP8Encoder) applyRdRefFrameProbHeuristics(refreshAltRef bool) {
+	if refreshAltRef {
+		probIntra := int(e.refProbIntra) + 40
+		if probIntra > 255 {
+			probIntra = 255
+		}
+		e.refProbIntra = uint8(probIntra)
+		e.refProbLast = 200
+		e.refProbGolden = 1
+	} else if e.framesSinceGolden == 0 {
+		e.refProbLast = 214
+	} else if e.framesSinceGolden == 1 {
+		e.refProbLast = 192
+		e.refProbGolden = 220
+	} else if e.sourceAltRefActive {
+		probGolden := int(e.refProbGolden) - 20
+		if probGolden < 10 {
+			probGolden = 10
+		}
+		e.refProbGolden = uint8(probGolden)
+	}
+	if !e.sourceAltRefActive {
+		e.refProbGolden = 255
+	}
+}
+
+// updateGoldenFrameStats tracks libvpx's frames_since_golden /
+// source_alt_ref_active counters used by update_rd_ref_frame_probs. It is the
+// govpx counterpart to vp8/encoder/onyx_if.c update_golden_frame_stats minus
+// the auto-arf bookkeeping that govpx's flag-driven alt-ref does not exercise.
+func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bool) {
+	if refreshAltRef {
+		e.framesSinceGolden = 0
+		e.sourceAltRefActive = true
+		return
+	}
+	if refreshGolden {
+		e.framesSinceGolden = 0
+		// Without a pending alt-ref schedule, refreshing golden clears the
+		// active alt-ref (libvpx onyx_if.c: `if (!source_alt_ref_pending)
+		// source_alt_ref_active = 0`).
+		e.sourceAltRefActive = false
+		return
+	}
+	if e.framesSinceGolden < int(^uint(0)>>1) {
+		e.framesSinceGolden++
+	}
+}
+
+// resetGoldenFrameStats mirrors libvpx's key-frame branch in onyx_if.c, which
+// clears source_alt_ref_active and resets frames_since_golden so the next
+// inter frame's RD scoring starts from a clean slate.
+func (e *VP8Encoder) resetGoldenFrameStats() {
+	e.framesSinceGolden = 0
+	e.sourceAltRefActive = false
 }
 
 func interFrameDroppable(cfg vp8enc.InterFrameStateConfig) bool {
@@ -1464,6 +1566,7 @@ func (e *VP8Encoder) Reset() {
 	e.goldenRefAliasesLast = false
 	e.altRefAliasesLast = false
 	e.goldenRefAliasesAlt = false
+	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
@@ -1957,6 +2060,7 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.goldenRefAliasesLast = true
 	e.altRefAliasesLast = true
 	e.goldenRefAliasesAlt = true
+	e.updateKeyFrameReferenceFrameNumbers()
 }
 
 func (e *VP8Encoder) rememberLastFrameInterModes() {
@@ -1987,6 +2091,7 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 		e.altRef.ExtendBorders()
 	}
 	e.updateInterReferenceAliases(cfg)
+	e.updateInterReferenceFrameNumbers(cfg)
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
@@ -2006,6 +2111,7 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 		e.altRef.ExtendBorders()
 	}
 	e.updateInterReferenceAliases(cfg)
+	e.updateInterReferenceFrameNumbers(cfg)
 }
 
 func (e *VP8Encoder) updateInterReferenceAliases(cfg vp8enc.InterFrameStateConfig) {
@@ -2042,6 +2148,49 @@ func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) 
 	case 2:
 		copyFrameImage(&e.goldenRef.Img, &e.altRef.Img)
 		e.goldenRef.ExtendBorders()
+	}
+}
+
+func (e *VP8Encoder) updateKeyFrameReferenceFrameNumbers() {
+	if e == nil {
+		return
+	}
+	frameNumber := e.frameCount
+	e.referenceFrameNumbers[vp8common.LastFrame] = frameNumber
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = frameNumber
+	e.referenceFrameNumbers[vp8common.AltRefFrame] = frameNumber
+}
+
+func (e *VP8Encoder) updateInterReferenceFrameNumbers(cfg vp8enc.InterFrameStateConfig) {
+	if e == nil {
+		return
+	}
+	frameNumber := e.frameCount
+
+	if cfg.RefreshAltRef {
+		e.referenceFrameNumbers[vp8common.AltRefFrame] = frameNumber
+	} else {
+		switch cfg.CopyBufferToAltRef {
+		case 1:
+			e.referenceFrameNumbers[vp8common.AltRefFrame] = e.referenceFrameNumbers[vp8common.LastFrame]
+		case 2:
+			e.referenceFrameNumbers[vp8common.AltRefFrame] = e.referenceFrameNumbers[vp8common.GoldenFrame]
+		}
+	}
+
+	if cfg.RefreshGolden {
+		e.referenceFrameNumbers[vp8common.GoldenFrame] = frameNumber
+	} else {
+		switch cfg.CopyBufferToGolden {
+		case 1:
+			e.referenceFrameNumbers[vp8common.GoldenFrame] = e.referenceFrameNumbers[vp8common.LastFrame]
+		case 2:
+			e.referenceFrameNumbers[vp8common.GoldenFrame] = e.referenceFrameNumbers[vp8common.AltRefFrame]
+		}
+	}
+
+	if cfg.RefreshLast {
+		e.referenceFrameNumbers[vp8common.LastFrame] = frameNumber
 	}
 }
 

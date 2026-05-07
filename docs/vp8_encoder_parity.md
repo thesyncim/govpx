@@ -271,12 +271,14 @@ the anchor and look for the surrounding mismatch.
     scoring now uses libvpx-shaped transform-domain accounting: `rate2`,
     default no-skip `other_cost`, skip backout when `tteob == 0`,
     split Y/UV token rates and distortions, and Y-only `yrd` for intra4x4 /
-    SplitMV pruning.
-  - Missing: high-level sign-bias policy/reference switching, temporal-layer
-    threshold tweaks, full SplitMV label-level segmentation search with
-    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
-    interactions. Active-map behavior is tracked in the dedicated active-map
-    checklist item elsewhere.
+    SplitMV pruning. Temporal-layer RD thresholds now mirror libvpx's
+    `closest_reference_frame` tweak for LAST+GOLDEN temporal layers, including
+    frame-number tracking through refresh/copy updates and `/8` vs `/2`
+    reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`.
+  - Missing: high-level sign-bias policy/reference switching, full SplitMV
+    label-level segmentation search with `THR_NEW1/2/3` gating, active-map skip
+    short-circuiting, and recode-loop interactions. Active-map behavior is
+    tracked in the dedicated active-map checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -489,16 +491,42 @@ the anchor and look for the surrounding mismatch.
   - govpx:
     [`commitInterFrameEntropy`](../encoder.go),
     [`BuildInterCoefficientProbabilityUpdates`](../internal/vp8/encoder/probability.go),
-    [`adaptInterFrameModeProbabilitiesWithMVBase`](../internal/vp8/encoder/interframe.go).
+    [`adaptInterFrameModeProbabilitiesWithMVBase`](../internal/vp8/encoder/interframe.go),
+    [`applyRdRefFrameProbHeuristics`](../encoder.go),
+    [`updateGoldenFrameStats`](../encoder.go).
   - libvpx: `vp8_estimate_entropy_savings`, `vp8_update_coef_probs`, and
-    error-resilient entropy branches in `bitstream.c` and `onyx_if.c`.
-  - Status: partial. Live coefficient/ref/MV work exists, but full parity needs
-    refresh/no-refresh save-restore behavior, projected entropy savings in
-    recode decisions, zero-reference edge cases, and temporal-layer
-    interactions.
+    error-resilient entropy branches in `bitstream.c` and `onyx_if.c`,
+    plus `update_rd_ref_frame_probs` / `update_golden_frame_stats` /
+    `update_alt_ref_frame_stats` in `onyx_if.c`.
+  - Status: partial. Live coefficient/ref/MV work exists. RD ref-prob
+    heuristics are now ported: `applyRdRefFrameProbHeuristics` mirrors
+    libvpx's `update_rd_ref_frame_probs` (alt-ref refresh bumps
+    `prob_intra+=40`, `prob_last=200`, `prob_gf=1`; `frames_since_golden==0`
+    sets `prob_last=214`; `frames_since_golden==1` sets `prob_last=192`,
+    `prob_gf=220`; `source_alt_ref_active` decays `prob_gf` by 20 down to
+    floor 10; trailing `!source_alt_ref_active` clamp forces `prob_gf=255`).
+    `framesSinceGolden`/`sourceAltRefActive` track libvpx's
+    `update_golden_frame_stats` / `update_alt_ref_frame_stats` lifecycle.
+    Per-reference entropy contexts: VP8 maintains a single coefficient
+    `coef_counts` accumulator across all reference branches (libvpx
+    `bitstream.c` `default_coef_context_savings`); govpx's
+    `BuildInterCoefficientProbabilityUpdates` matches that aggregation.
+    The only per-partition coefficient context is libvpx's error-resilient
+    `independent_coef_context_savings`, tracked separately under the
+    error-resilient partitions item below. Reference-frame *probabilities*
+    (`prob_intra`/`prob_last`/`prob_gf`) are per-reference state and are
+    now driven by both the post-frame fresh-from-counts update
+    (`updateRefFrameProbsFromAttempt`, the equivalent of libvpx's
+    `vp8_convert_rfct_to_prob`) and the pre-frame heuristic bump above.
+    Tests:
+    `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh`,
+    `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden`,
+    `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay`,
+    `TestUpdateGoldenFrameStatsMirrorsLibvpxCounter`,
+    `TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch`.
   - Missing: independent coefficient-context handling for error-resilient
-    partitions, key-frame forced coef-prob updates, RD ref-prob heuristics,
-    per-reference entropy contexts, and exact zero-reference/alt-ref
+    partitions, key-frame forced coef-prob updates, projected entropy
+    savings in recode decisions, and exact zero-reference/alt-ref
     skip-probability edge cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
