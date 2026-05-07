@@ -59,14 +59,17 @@ func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyF
 	return coefficientProbabilityUpdatesFromCounts(base, &counts)
 }
 
-// BuildKeyFrameCoefficientProbabilityUpdatesIndependent is the key-frame
-// counterpart of BuildInterCoefficientProbabilityUpdatesIndependent. See
-// the doc comment on the inter variant for libvpx provenance.
+// BuildKeyFrameCoefficientProbabilityUpdatesIndependent ports the key-frame
+// branch of libvpx independent_coef_context_savings / vp8_update_coef_probs.
+// Libvpx resets key-frame independent-context probability fitting to
+// default_coef_counts, so the emitted updates are intentionally independent of
+// the current frame's coefficient content.
 func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
 	var counts coefficientBranchCounts
 	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
+	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, true)
 }
 
@@ -122,14 +125,15 @@ func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacro
 
 // KeyFrameCoefficientEntropySavingsIndependent ports the
 // VPX_ERROR_RESILIENT_PARTITIONS coefficient-savings branch used by libvpx for
-// key frames. It uses the same independent-context model as
-// BuildKeyFrameCoefficientProbabilityUpdatesIndependent so recode accounting
-// matches the probabilities this package writes.
+// key frames. It uses the same default_coef_counts independent-context model
+// as BuildKeyFrameCoefficientProbabilityUpdatesIndependent so recode
+// accounting matches the probabilities this package writes.
 func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
 	var counts coefficientBranchCounts
 	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return 0, err
 	}
+	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientEntropySavingsFromCountsIndependent(base, &counts, true), nil
 }
 
@@ -405,6 +409,18 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 		}
 	}
 	return frameProbs, updates, nil
+}
+
+func defaultKeyFrameIndependentCoefficientBranchCountsForUpdate() coefficientBranchCounts {
+	var counts coefficientBranchCounts
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for node := 0; node < tables.EntropyNodes; node++ {
+				counts[block][band][0][node] = defaultKeyFrameIndependentCoefficientBranchCounts[block][band][node]
+			}
+		}
+	}
+	return counts
 }
 
 func coefficientProbabilityFromBranchCount(ct [2]int) uint8 {

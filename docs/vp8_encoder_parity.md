@@ -1458,7 +1458,13 @@ the anchor and look for the surrounding mismatch.
     computed from the summed distribution, savings are aggregated across
     k, and every k context is updated together when aggregate savings >0
     or (on key frames) when the shared new prob differs from that k's old
-    prob. Wiring lives in `WriteCoefficientInterFrameWithProbabilityBase`
+    prob. Key frames also mirror libvpx's reset to
+    `default_coef_counts`: error-resilient key-frame coefficient probability
+    updates and entropy-savings projections are intentionally independent of
+    the current frame's coefficient content, using
+    `defaultKeyFrameIndependentCoefficientBranchCounts` derived from
+    libvpx v1.16.0 `defaultcoefcounts.h`. Wiring lives in
+    `WriteCoefficientInterFrameWithProbabilityBase`
     / `WriteCoefficientKeyFrameWithProbabilityBase` via the
     `IndependentContexts` field on `InterFrameStateConfig` /
     `KeyFrameStateConfig`, fed from `EncoderOptions.ErrorResilient` in
@@ -1536,6 +1542,7 @@ the anchor and look for the surrounding mismatch.
     `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
     `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
     `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`,
+    `TestKeyFrameIndependentCoefUpdatesUseDefaultCounts`,
     `TestWriteCoefficientInterFrameEmitsInterIntraModeProbabilityUpdates`,
     `TestCommitInterFrameEntropyRefreshesInterIntraModeProbs`, and
     `TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs`,

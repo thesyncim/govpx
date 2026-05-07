@@ -244,6 +244,50 @@ func TestIndependentCoefContextKeyFrameForcesEqualization(t *testing.T) {
 	}
 }
 
+func TestKeyFrameIndependentCoefUpdatesUseDefaultCounts(t *testing.T) {
+	modes := []KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
+	zeroCoeffs := []MacroblockCoefficients{{}}
+	contentCoeffs := []MacroblockCoefficients{{}}
+	contentCoeffs[0].QCoeff[24][0] = 1
+	contentCoeffs[0].QCoeff[0][1] = 2
+	contentCoeffs[0].QCoeff[16][0] = -3
+
+	zeroProbs, zeroUpdates, err := BuildKeyFrameCoefficientProbabilityUpdatesIndependent(1, 1, modes, zeroCoeffs, make([]TokenContextPlanes, 1), &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("BuildKeyFrameCoefficientProbabilityUpdatesIndependent zero: %v", err)
+	}
+	contentProbs, contentUpdates, err := BuildKeyFrameCoefficientProbabilityUpdatesIndependent(1, 1, modes, contentCoeffs, make([]TokenContextPlanes, 1), &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("BuildKeyFrameCoefficientProbabilityUpdatesIndependent content: %v", err)
+	}
+	if zeroProbs != contentProbs || zeroUpdates != contentUpdates {
+		t.Fatalf("independent key-frame coef updates changed with content; zero updates=%d content updates=%d",
+			zeroUpdates.UpdateCount, contentUpdates.UpdateCount)
+	}
+
+	for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+		if got, want := zeroProbs[0][1][ctx][0], uint8(248); got != want {
+			t.Fatalf("default-count prob[0][1][%d][0] = %d, want %d", ctx, got, want)
+		}
+		if !zeroUpdates.Update[0][1][ctx][0] || zeroUpdates.Probs[0][1][ctx][0] != 248 {
+			t.Fatalf("default-count update[0][1][%d][0] = %t prob=%d, want forced prob 248",
+				ctx, zeroUpdates.Update[0][1][ctx][0], zeroUpdates.Probs[0][1][ctx][0])
+		}
+	}
+
+	zeroSavings, err := KeyFrameCoefficientEntropySavingsIndependent(1, 1, modes, zeroCoeffs, make([]TokenContextPlanes, 1), &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("KeyFrameCoefficientEntropySavingsIndependent zero: %v", err)
+	}
+	contentSavings, err := KeyFrameCoefficientEntropySavingsIndependent(1, 1, modes, contentCoeffs, make([]TokenContextPlanes, 1), &tables.DefaultCoefProbs)
+	if err != nil {
+		t.Fatalf("KeyFrameCoefficientEntropySavingsIndependent content: %v", err)
+	}
+	if zeroSavings != contentSavings {
+		t.Fatalf("independent key-frame entropy savings changed with content: zero=%d content=%d", zeroSavings, contentSavings)
+	}
+}
+
 // TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce pins the libvpx
 // default-path (non-error-resilient) coef-prob update behaviour for key
 // frames: vp8_update_coef_probs only sets u=1 when prob_update_savings>0,
