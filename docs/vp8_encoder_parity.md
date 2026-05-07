@@ -270,7 +270,8 @@ the anchor and look for the surrounding mismatch.
     predictor helpers are present. Remaining work is exact border-mode-info
     indexing, high-level sign-bias policy/reference switching, and oracle
     traces for `near_sadidx`, predictor MV, and `sr`.
-    End-to-end quality smoke now covers realtime `CpuUsed` 4, 5, 9, and 15 on
+    End-to-end quality smoke now covers best-quality panning, good-quality RD
+    and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case.
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
