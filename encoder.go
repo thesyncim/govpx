@@ -1065,6 +1065,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 
 	cfg := vp8enc.KeyFrameStateConfig{
 		InvisibleFrame:      invisible,
+		SimpleLoopFilter:    lfHeader.Type == vp8dec.SimpleLoopFilter,
 		TokenPartition:      vp8common.TokenPartition(e.opts.TokenPartitions),
 		BaseQIndex:          uint8(e.rc.currentQuantizer),
 		QuantDeltas:         quantDeltas,
@@ -1113,6 +1114,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
+	cfg.SimpleLoopFilter = e.encoderUsesSimpleLoopFilter()
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 	cfg.IndependentContexts = e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
@@ -1207,6 +1209,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		return interFrameEncodeAttempt{}, err
 	}
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
+	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled
 	cfg.LFDeltaUpdate = lfHeader.DeltaUpdate
 	cfg.RefLFDeltas = lfHeader.RefDeltas
@@ -2367,6 +2370,9 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 		Level:          level,
 		SharpnessLevel: sharpness,
 	}
+	if e.encoderUsesSimpleLoopFilter() {
+		header.Type = vp8dec.SimpleLoopFilter
+	}
 	if level == 0 {
 		return header
 	}
@@ -2375,6 +2381,10 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 	header.RefDeltas = [vp8common.MaxRefLFDeltas]int8{2, 0, -2, -2}
 	header.ModeDeltas = [vp8common.MaxModeLFDeltas]int8{4, e.encoderLoopFilterInterModeDelta(), 2, 4}
 	return header
+}
+
+func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
+	return e != nil && e.opts.Deadline == DeadlineRealtime && e.opts.CpuUsed >= 14
 }
 
 func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {

@@ -861,8 +861,8 @@ the anchor and look for the surrounding mismatch.
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
     `THR_NEW1/2/3` NEW4X4 gating now flows from the encoder's
     `interModeRDThresholdsForReferences` table through
-    `libvpxSplitMVSubsearchThreshold` (slot index from
-    `libvpxRefSlotForFrame`) into
+    `libvpxSplitMVSubsearchThreshold` (slot index from the compacted libvpx
+    reference search order, not the absolute LAST/GOLDEN/ALTREF enum) into
     `selectInterFrameSplitMotionModeWithSearchAndThreshold`, which divides
     by `label_count` and per-label compares
     `RDCOST(label_rate, label_SAD)` against the threshold to short-circuit
@@ -1059,6 +1059,31 @@ the anchor and look for the surrounding mismatch.
     final quality/rate match for `noise_sensitivity` 1-6.
 
 ## Probability, Entropy, And Header State
+
+- [~] Align loop-filter header and reconstruction filter policy.
+  - govpx:
+    [`encoderLoopFilter`](../encoder.go),
+    [`encoderLoopFilterHeader`](../encoder.go),
+    [`applyReconstructionLoopFilter`](../encoder.go).
+  - libvpx: loop-filter setup in `onyx_if.c` and trial selection in
+    `picklpf.c`.
+  - Status: partial. Previous inter-frame filter-level carry, libvpx Q-based
+    min/max clamps, fast/full trial-filter search, partial-frame luma SSE
+    scoring, and default mode/ref delta signaling are in place. Realtime
+    version-0 high-speed encoding now follows libvpx's cheap path: `Deadline`
+    realtime with `CpuUsed >= 14` writes the simple loop-filter type for key
+    frames, normal inter frames, and zero-reference inter frames; lower
+    realtime speeds and good/best quality stay on the normal loop filter.
+    Tests:
+    `TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities`,
+    `TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed`, and
+    `TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter`.
+  - Missing: ALT_LF segmentation filter-level behavior, VP8 version 1-3
+    loop-filter behavior if that encoder surface is exposed, and libvpx-side
+    oracle trace rows for per-frame loop-filter deltas.
+  - Done when frame traces match filter type, level, sharpness, ref/mode
+    deltas, segmentation interaction, and reconstructed reference checksums
+    across best/good/realtime speeds.
 
 - [ ] Audit probability updates under all entropy-refresh cases.
   - govpx:

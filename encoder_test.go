@@ -2253,6 +2253,70 @@ func TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities(t *tes
 	}
 }
 
+func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     vp8dec.LoopFilterType
+	}{
+		{name: "realtime speed thirteen", deadline: DeadlineRealtime, cpuUsed: 13, want: vp8dec.NormalLoopFilter},
+		{name: "realtime speed fourteen", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.SimpleLoopFilter},
+		{name: "realtime speed fifteen", deadline: DeadlineRealtime, cpuUsed: 15, want: vp8dec.SimpleLoopFilter},
+		{name: "good quality speed fifteen", deadline: DeadlineGoodQuality, cpuUsed: 15, want: vp8dec.NormalLoopFilter},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			header := e.encoderLoopFilterHeader(17, 3)
+			if header.Type != tt.want {
+				t.Fatalf("loop filter type = %d, want %d", header.Type, tt.want)
+			}
+		})
+	}
+}
+
+func TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      20,
+		MaxQuantizer:      20,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           14,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+
+	keySource := testImage(32, 32)
+	fillImage(keySource, 80, 128, 128)
+	key, err := e.EncodeInto(make([]byte, 4096), keySource, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if keyState.LoopFilter.Type != vp8dec.SimpleLoopFilter {
+		t.Fatalf("key loop filter type = %d, want simple", keyState.LoopFilter.Type)
+	}
+
+	interSource := testImage(32, 32)
+	fillImage(interSource, 82, 128, 128)
+	inter, err := e.EncodeInto(make([]byte, 4096), interSource, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.Dropped {
+		t.Fatalf("inter frame dropped, want encoded interframe")
+	}
+	interState := packetState(t, inter.Data)
+	if interState.LoopFilter.Type != vp8dec.SimpleLoopFilter {
+		t.Fatalf("inter loop filter type = %d, want simple", interState.LoopFilter.Type)
+	}
+}
+
 func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.T) {
 	tests := []struct {
 		name     string

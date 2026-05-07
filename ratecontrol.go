@@ -1796,8 +1796,6 @@ var libvpxGoldenFrameLowMotionMinQ = [128]int{
 	43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
 }
 
-
-
 // libvpxGoldenFrameMidMotionMinQ ports gf_mid_motion_minq from
 // vp8/encoder/onyx_if.c. libvpx selects this two-pass variant for a GF/ARF
 // refresh when `cpi->gfu_boost` falls between the high-motion (<400) and
@@ -1812,7 +1810,6 @@ var libvpxGoldenFrameMidMotionMinQ = [128]int{
 	38, 39, 39, 40, 40, 41, 41, 42, 42, 43, 43, 44, 45, 46, 47, 48,
 	49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
 }
-
 
 // libvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are
 // bits per macroblock multiplied by 1<<libvpxBPerMBNormBits.

@@ -84,9 +84,10 @@ lives in [Makefile](Makefile).
   Remaining gaps are token-context commit parity and oracle-backed label-level
   RD.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
-  min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
-  scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
-  simple-filter/version behavior remain open.
+  min/max clamps, fast/full trial-filter search, partial-frame luma SSE
+  scoring, default mode/ref deltas, and realtime `CpuUsed >= 14` simple-filter
+  signaling are in place, while ALT_LF segmentation and VP8 version 1-3
+  behavior remain open.
 
 Primary references:
 [encodeintra.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeintra.c),
