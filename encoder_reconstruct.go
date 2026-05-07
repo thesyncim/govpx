@@ -568,13 +568,8 @@ func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMa
 	return count + 1
 }
 
-func predictBestWholeBlockIntraMode(src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, bool) {
-	yMode, uvMode, _, _, _, _, ok := predictBestWholeBlockIntraModeRD(src, vp8common.MinQ, true, mbRow, mbCol, pred, scratch)
-	return yMode, uvMode, ok
-}
-
 func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, above *vp8enc.KeyFrameMacroblockMode, left *vp8enc.KeyFrameMacroblockMode, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.KeyFrameMacroblockMode, bool) {
-	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRD(src, qIndex, true, mbRow, mbCol, pred, scratch)
+	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRD(src, qIndex, true, mbRow, mbCol, quant, pred, scratch)
 	if !ok {
 		return vp8enc.KeyFrameMacroblockMode{}, false
 	}
@@ -599,7 +594,7 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 }
 
 func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.InterFrameMacroblockMode, int, bool) {
-	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRD(src, qIndex, false, mbRow, mbCol, pred, scratch)
+	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRD(src, qIndex, false, mbRow, mbCol, quant, pred, scratch)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -625,7 +620,16 @@ func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qInde
 	return best, bestCost, true
 }
 
-func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, keyFrame bool, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
+// predictBestWholeBlockIntraModeRD picks the best 16x16 intra Y mode using
+// libvpx's transform-domain RD (rdopt.c macro_block_yrd) instead of pixel-SSE
+// — the AC coefficients are quantized as Y_NO_DC and the 16 DC samples are
+// lifted into the Y2 block, Walsh-transformed, and quantized; rate is the
+// summed cost_coeffs and distortion is libvpx's
+// (mbblock_error<<2 + y2_block_error) >> 4.
+func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, keyFrame bool, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
+	if quant == nil {
+		return 0, 0, 0, 0, 0, 0, false
+	}
 	bestYMode := vp8common.DCPred
 	bestYRate := 0
 	bestYDist := 0
@@ -635,13 +639,13 @@ func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, keyFra
 		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
 			return 0, 0, 0, 0, 0, 0, false
 		}
-		rate := intraYModeRate(keyFrame, yMode)
-		dist := macroblockLumaSSE(src, pred, mbRow, mbCol, vp8enc.MotionVector{})
-		cost := rdModeScore(qIndex, rate, dist)
+		yRate, yDist := wholeBlockYTransformRD(src, pred, mbRow, mbCol, qIndex, quant)
+		rate := intraYModeRate(keyFrame, yMode) + yRate
+		cost := rdModeScore(qIndex, rate, yDist)
 		if i == 0 || cost < bestYCost {
 			bestYMode = yMode
 			bestYRate = rate
-			bestYDist = dist
+			bestYDist = yDist
 			bestYCost = cost
 		}
 	}
@@ -651,6 +655,50 @@ func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, keyFra
 		return 0, 0, 0, 0, 0, 0, false
 	}
 	return bestYMode, bestUVMode, bestYRate, bestYDist, bestUVRate, bestUVDist, true
+}
+
+// wholeBlockYTransformRD ports libvpx rdopt.c macro_block_yrd. The selected
+// yMode prediction is assumed to be present in pred at (mbRow, mbCol).
+func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant) (int, int) {
+	var input [16]int16
+	var dct [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	var y2Input [16]int16
+	var y2Coeff [16]int16
+	var y2Q [16]int16
+	var y2DQ [16]int16
+	var yAbove [4]uint8
+	var yLeft [4]uint8
+
+	rate := 0
+	mbblockError := 0
+	for block := 0; block < 16; block++ {
+		x := mbCol*16 + (block&3)*4
+		y := mbRow*16 + (block>>2)*4
+		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		y2Input[block] = dct[0]
+		dct[0] = 0
+		a := block & 3
+		l := (block & 0x0c) >> 2
+		ctx := int(yAbove[a] + yLeft[l])
+		eob := quantizeOptimizedBlock(qIndex, 0, ctx, 1, 0, true, &dct, &quant.Y1DC, &qcoeff, &dqcoeff)
+		rate += coefficientBlockTokenRate(&vp8tables.DefaultCoefProbs, 0, ctx, 1, &qcoeff, eob)
+		mbblockError += transformBlockError(&dct, &dqcoeff)
+		hasCoeffs := uint8(0)
+		if eob > 1 {
+			hasCoeffs = 1
+		}
+		yAbove[a] = hasCoeffs
+		yLeft[l] = hasCoeffs
+	}
+	vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
+	y2EOB := quantizeOptimizedBlock(qIndex, 1, 0, 0, 0, true, &y2Coeff, &quant.Y2, &y2Q, &y2DQ)
+	rate += coefficientBlockTokenRate(&vp8tables.DefaultCoefProbs, 1, 0, 0, &y2Q, y2EOB)
+	y2Error := transformBlockError(&y2Coeff, &y2DQ)
+	distortion := ((mbblockError << 2) + y2Error) >> 4
+	return rate, distortion
 }
 
 func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, keyFrame bool, mbRow int, mbCol int, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8common.MBPredictionMode, int, int, bool) {

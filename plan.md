@@ -30,12 +30,11 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 
 ### Encoder Quality
 
-- B_PRED 4x4 token-context seeding from neighbor MB EOBs (`above_context` /
-  `left_context` per `rdopt.c rd_pick_intra4x4mby_modes`); current code seeds
-  with zero. The MB-level RDCOST single-application and the `best_rd`
-  per-block early-exit are in place.
-- `whole_block` 16x16 Y RD uses raw pixel SSE; libvpx `macro_block_yrd` uses
-  transform-domain rate + distortion via `cost_coeffs`.
+- B_PRED 4x4 and whole-block 16x16 token-context seeding from neighbor MB
+  EOBs (`above_context` / `left_context` per `rdopt.c
+  rd_pick_intra4x4mby_modes` and `vp8_rdcost_mby`); both currently seed with
+  zero. The MB-level RDCOST single-application and the `best_rd` per-block
+  early-exit are in place.
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
   per-call tree walks are functionally equivalent, but the libvpx pattern
   precomputes once per frame).
