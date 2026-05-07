@@ -1133,6 +1133,9 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
 ) (interFrameModeDecision, bool) {
+	if decision, ok := e.inactiveInterFrameModeDecision(refs, refCount, mbRow, mbCol, mbCols); ok {
+		return decision, true
+	}
 	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
 	if !e.interAnalysisUsesRDModeDecision() {
 		return e.selectFastInterFrameModeDecision(
@@ -1150,6 +1153,40 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 		aboveTok, leftTok,
 		quant,
 	)
+}
+
+// inactiveInterFrameModeDecision mirrors libvpx's evaluate_inter_mode /
+// evaluate_inter_mode_rd active_ptr early exits (vp8/encoder/pickinter.c and
+// rdopt.c). When the active map is enabled and the current MB is marked
+// inactive, the picker must short-circuit before any motion search or intra
+// evaluation and lock the MB to ZEROMV from LAST with skip=1 / segment=0.
+// This keeps both pickers aligned with libvpx even when invoked outside the
+// per-frame loop (which already owns its own short-circuit via
+// encodeInactiveInterMacroblock).
+func (e *VP8Encoder) inactiveInterFrameModeDecision(refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbCols int) (interFrameModeDecision, bool) {
+	if e == nil || !e.activeMapEnabled || mbCols <= 0 {
+		return interFrameModeDecision{}, false
+	}
+	index := mbRow*mbCols + mbCol
+	if index < 0 || index >= len(e.activeMap) || e.activeMap[index] != 0 {
+		return interFrameModeDecision{}, false
+	}
+	for ri := 0; ri < refCount; ri++ {
+		if refs[ri].Frame != vp8common.LastFrame {
+			continue
+		}
+		return interFrameModeDecision{
+			ref: refs[ri],
+			interMode: vp8enc.InterFrameMacroblockMode{
+				SegmentID:   0,
+				MBSkipCoeff: true,
+				RefFrame:    vp8common.LastFrame,
+				Mode:        vp8common.ZeroMV,
+				UVMode:      vp8common.DCPred,
+			},
+		}, true
+	}
+	return interFrameModeDecision{}, false
 }
 
 func (e *VP8Encoder) selectRDInterFrameModeDecision(
