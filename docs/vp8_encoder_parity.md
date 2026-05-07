@@ -373,9 +373,19 @@ the anchor and look for the surrounding mismatch.
     DOUBLE_DIVIDE_CHECK fallback, and the
     `section_max_qfactor = 1.0 - (Ratio - 10.0) * 0.025` formula
     with the libvpx 0.80 floor.
-  - Missing: active worst-Q estimates, VBR min/max section limits
-    beyond frame_max_bits, CBR buffer adjustments inside Pass2Encode,
-    and ARF pending decisions wired into the encoder.
+    `libvpxCalcCorrectionFactor` ports the libvpx
+    `calc_correction_factor` per-Q rate-model correction:
+    `cf = clamp(pow(err_per_mb/err_devisor, min(pt_low+Q*0.01,
+    pt_high)), 0.05, 5.0)`, used by `estimate_max_q` /
+    `estimate_min_q`. `libvpxEstimateMaxQRollingRatioAdjustment`
+    ports the rolling `est_max_qcorrection_factor` update (`+/-0.005`
+    based on rolling actual/target ratio, clamped to `[0.1, 10.0]`).
+  - Missing: full `estimate_max_q` Q-search loop wired through
+    `libvpxCalcCorrectionFactor` + `libvpxBitsPerMB` +
+    section_max_qfactor (currently only the helpers are tested in
+    isolation), VBR min/max section limits beyond frame_max_bits,
+    CBR buffer adjustments inside Pass2Encode, and ARF pending
+    decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

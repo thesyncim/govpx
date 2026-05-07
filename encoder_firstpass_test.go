@@ -538,6 +538,110 @@ func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
 	}
 }
 
+// TestLibvpxCalcCorrectionFactorMatchesLibvpxFormula pins the libvpx
+// vp8/encoder/firstpass.c calc_correction_factor:
+//
+//	error_term = err_per_mb / err_devisor
+//	power_term = min(pt_low + Q*0.01, pt_high)
+//	cf = pow(error_term, power_term)
+//	clamp(cf, 0.05, 5.0)
+func TestLibvpxCalcCorrectionFactorMatchesLibvpxFormula(t *testing.T) {
+	// err_per_mb=300, err_devisor=150 -> error_term=2.0.
+	// Q=20 -> power_term = 0.40 + 20*0.01 = 0.60 (< 0.90 cap).
+	// cf = pow(2.0, 0.60) ~ 1.5157.
+	got := libvpxCalcCorrectionFactor(300.0, 150.0, 0.40, 0.90, 20)
+	want := math.Pow(2.0, 0.60)
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("calc_correction_factor = %v, want ~%v", got, want)
+	}
+}
+
+// TestLibvpxCalcCorrectionFactorClampsBelow005 pins the lower clamp
+// at 0.05.
+func TestLibvpxCalcCorrectionFactorClampsBelow005(t *testing.T) {
+	// err_per_mb=1, err_devisor=1e6 -> error_term=1e-6.
+	// power_term=0.4. cf = pow(1e-6, 0.4) ~ 0.00398 -> clamped to 0.05.
+	got := libvpxCalcCorrectionFactor(1.0, 1e6, 0.40, 0.90, 0)
+	if got != 0.05 {
+		t.Fatalf("calc_correction_factor lower clamp = %v, want 0.05", got)
+	}
+}
+
+// TestLibvpxCalcCorrectionFactorClampsAbove50 pins the upper clamp at 5.0.
+func TestLibvpxCalcCorrectionFactorClampsAbove50(t *testing.T) {
+	// err_per_mb=1e6, err_devisor=1 -> error_term=1e6. cf will exceed 5.0.
+	got := libvpxCalcCorrectionFactor(1e6, 1.0, 0.40, 0.90, 100)
+	if got != 5.0 {
+		t.Fatalf("calc_correction_factor upper clamp = %v, want 5.0", got)
+	}
+}
+
+// TestLibvpxCalcCorrectionFactorClampsPowerTermAtPtHigh pins the
+// `power_term = (power_term > pt_high) ? pt_high : power_term` cap.
+// At Q=200, raw power_term = 0.4 + 2.0 = 2.4, clamped to pt_high=0.90.
+func TestLibvpxCalcCorrectionFactorClampsPowerTermAtPtHigh(t *testing.T) {
+	// err_per_mb=300, err_devisor=150 -> error_term=2.0.
+	// raw power_term=0.4+2.0=2.4 -> clamped to 0.90.
+	// cf = pow(2.0, 0.90) ~ 1.866.
+	got := libvpxCalcCorrectionFactor(300.0, 150.0, 0.40, 0.90, 200)
+	want := math.Pow(2.0, 0.90)
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("calc_correction_factor with clamped power = %v, want ~%v", got, want)
+	}
+}
+
+// TestLibvpxEstimateMaxQRollingRatioAdjustmentRatioBelowOneShrinks
+// pins the libvpx
+// `if (rolling_ratio < 0.95) est_max_qcorrection_factor -= 0.005`
+// branch.
+func TestLibvpxEstimateMaxQRollingRatioAdjustmentRatioBelowOneShrinks(t *testing.T) {
+	got := libvpxEstimateMaxQRollingRatioAdjustment(1.0, 900, 1000)
+	if got != 0.995 {
+		t.Fatalf("ratio<0.95 update = %v, want 0.995", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQRollingRatioAdjustmentRatioAboveOneGrows pins
+// the libvpx `if (rolling_ratio > 1.05) factor += 0.005` branch.
+func TestLibvpxEstimateMaxQRollingRatioAdjustmentRatioAboveOneGrows(t *testing.T) {
+	got := libvpxEstimateMaxQRollingRatioAdjustment(1.0, 1100, 1000)
+	if got != 1.005 {
+		t.Fatalf("ratio>1.05 update = %v, want 1.005", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQRollingRatioAdjustmentClamps01To10 pins the
+// libvpx `clamp(factor, 0.1, 10.0)` clamp.
+func TestLibvpxEstimateMaxQRollingRatioAdjustmentClamps01To10(t *testing.T) {
+	got := libvpxEstimateMaxQRollingRatioAdjustment(0.05, 900, 1000)
+	if got != 0.1 {
+		t.Fatalf("lower clamp = %v, want 0.1", got)
+	}
+	got = libvpxEstimateMaxQRollingRatioAdjustment(20.0, 1100, 1000)
+	if got != 10.0 {
+		t.Fatalf("upper clamp = %v, want 10.0", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQRollingRatioAdjustmentInRangeNoChange pins
+// the libvpx `else` branch: 0.95 <= ratio <= 1.05 leaves the factor
+// unchanged.
+func TestLibvpxEstimateMaxQRollingRatioAdjustmentInRangeNoChange(t *testing.T) {
+	got := libvpxEstimateMaxQRollingRatioAdjustment(1.0, 1000, 1000)
+	if got != 1.0 {
+		t.Fatalf("in-range update = %v, want 1.0", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQRollingRatioAdjustmentZeroTargetIsNoOp pins
+// the libvpx `if (rolling_target_bits > 0)` outer guard.
+func TestLibvpxEstimateMaxQRollingRatioAdjustmentZeroTargetIsNoOp(t *testing.T) {
+	got := libvpxEstimateMaxQRollingRatioAdjustment(2.5, 1000, 0)
+	if got != 2.5 {
+		t.Fatalf("zero-target update = %v, want 2.5 unchanged", got)
+	}
+}
+
 // TestLibvpxSectionStatsAccumulatesAndAverages pins the libvpx
 // FIRSTPASS_STATS accumulate_stats/avg_stats pattern: addFrame sums,
 // avg divides by count.
