@@ -264,6 +264,13 @@ type VP8Encoder struct {
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
 	tokenAbove               []vp8enc.TokenContextPlanes
 
+	interRDThreshMult      [libvpxInterModeCount]int
+	interRDThreshTouched   [libvpxInterModeCount]bool
+	interModeCheckFreq     [libvpxInterModeCount]int
+	interModeTestHitCounts [libvpxInterModeCount]int
+	interMBsTestedSoFar    int
+	interRDFrameActive     bool
+
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
 	lastRef   vp8common.FrameBuffer
@@ -340,6 +347,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		probSkipFalse:      128,
 		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
 	}
+	e.resetInterRDThresholdMultipliers()
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
 		return nil, err
@@ -564,6 +572,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
+	e.resetInterRDThresholdMultipliers()
+	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.frameCount++
@@ -1403,6 +1413,8 @@ func (e *VP8Encoder) Reset() {
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
+	e.resetInterRDThresholdMultipliers()
+	e.interRDFrameActive = false
 	e.probSkipFalse = 128
 	e.lastSkipFalseProbs = [3]uint8{}
 	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs

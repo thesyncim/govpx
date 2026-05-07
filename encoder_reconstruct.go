@@ -66,6 +66,9 @@ const (
 
 	libvpxInterModeThresholdDisabled = -1
 	libvpxSpeedMapMax                = 1 << 30
+	libvpxRDThreshMultStart          = 128
+	libvpxMinThreshMult              = 32
+	libvpxMaxThreshMult              = 512
 )
 
 const (
@@ -186,6 +189,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if refCount == 0 {
 		return ErrInvalidConfig
 	}
+	if e.interAnalysisUsesRDModeDecision() {
+		e.beginInterRDModeDecisionFrame()
+		defer e.endInterRDModeDecisionFrame()
+	}
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
 	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
 	var lastRefForActiveMap *interAnalysisReference
@@ -222,6 +229,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
+			}
+			if e.interAnalysisUsesRDModeDecision() {
+				e.beginInterRDModeDecisionMacroblock()
 			}
 			decision, ok := e.selectInterFrameModeDecision(
 				src, refs[:], refCount,
@@ -623,7 +633,125 @@ func (e *VP8Encoder) interModeRDThresholds(qIndex int) [libvpxInterModeCount]int
 	if e == nil {
 		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
 	}
-	return libvpxInterModeRDThresholds(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed)
+	baseline := libvpxInterModeRDThresholds(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed)
+	if !e.interRDFrameActive {
+		return baseline
+	}
+	var thresholds [libvpxInterModeCount]int
+	for i, value := range baseline {
+		if value == libvpxInterModeThresholdDisabled {
+			thresholds[i] = libvpxInterModeThresholdDisabled
+			continue
+		}
+		if e.interRDThreshTouched[i] {
+			thresholds[i] = (value >> 7) * e.interRDThreshMult[i]
+		} else {
+			thresholds[i] = value
+		}
+	}
+	return thresholds
+}
+
+func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
+	if e == nil {
+		return
+	}
+	for i := range e.interRDThreshMult {
+		e.interRDThreshMult[i] = libvpxRDThreshMultStart
+	}
+	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
+	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
+	e.interMBsTestedSoFar = 0
+}
+
+func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
+	if e == nil {
+		return
+	}
+	for i, mult := range e.interRDThreshMult {
+		if mult == 0 {
+			e.interRDThreshMult[i] = libvpxRDThreshMultStart
+		}
+	}
+	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
+	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
+	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
+	e.interMBsTestedSoFar = 0
+	e.interRDFrameActive = true
+}
+
+func (e *VP8Encoder) endInterRDModeDecisionFrame() {
+	if e == nil {
+		return
+	}
+	e.interRDFrameActive = false
+}
+
+func (e *VP8Encoder) beginInterRDModeDecisionMacroblock() {
+	if e == nil {
+		return
+	}
+	if !e.interRDFrameActive {
+		e.beginInterRDModeDecisionFrame()
+	}
+	e.interMBsTestedSoFar++
+}
+
+func (e *VP8Encoder) interRDModeTestAllowed(modeIndex int) bool {
+	if e == nil || !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return true
+	}
+	if e.interModeTestHitCounts[modeIndex] == 0 || e.interModeCheckFreq[modeIndex] <= 1 {
+		return true
+	}
+	if e.interMBsTestedSoFar > e.interModeCheckFreq[modeIndex]*e.interModeTestHitCounts[modeIndex] {
+		return true
+	}
+	e.raiseInterRDThreshold(modeIndex)
+	return false
+}
+
+func (e *VP8Encoder) recordInterRDModeTest(modeIndex int) {
+	if e == nil || !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	e.interModeTestHitCounts[modeIndex]++
+}
+
+func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
+	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
+		e.interRDThreshMult[modeIndex] -= 2
+	} else {
+		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
+	}
+	e.interRDThreshTouched[modeIndex] = true
+}
+
+func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
+	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	e.interRDThreshMult[modeIndex] += 4
+	if e.interRDThreshMult[modeIndex] > libvpxMaxThreshMult {
+		e.interRDThreshMult[modeIndex] = libvpxMaxThreshMult
+	}
+	e.interRDThreshTouched[modeIndex] = true
+}
+
+func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
+	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
+	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
+		e.interRDThreshMult[modeIndex] -= bestAdjustment
+	} else {
+		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
+	}
+	e.interRDThreshTouched[modeIndex] = true
 }
 
 func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadline, speed int) [libvpxInterModeCount]int {
@@ -687,6 +815,44 @@ func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxIn
 	return mult
 }
 
+func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterModeCount]int {
+	continuousSpeed := libvpxInterFrameContinuousSpeed(deadline, speed)
+	new1Speed := continuousSpeed
+	if deadline == DeadlineRealtime && speed == 10 {
+		new1Speed = 16
+	}
+	zn2 := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapZN2[:])
+	near2 := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapNear2[:])
+	vhBPred := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapVHBPred[:])
+	new1 := libvpxSpeedMap(new1Speed, libvpxModeCheckFreqMapNew1[:])
+	new2 := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapNew2[:])
+	split1 := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapSplit1[:])
+	split2 := libvpxSpeedMap(continuousSpeed, libvpxModeCheckFreqMapSplit2[:])
+
+	var freq [libvpxInterModeCount]int
+	freq[libvpxThrZero1] = 0
+	freq[libvpxThrNearest1] = 0
+	freq[libvpxThrNear1] = 0
+	freq[libvpxThrDC] = 0
+	freq[libvpxThrTMPred] = 0
+	freq[libvpxThrZero2] = zn2
+	freq[libvpxThrZero3] = zn2
+	freq[libvpxThrNearest2] = zn2
+	freq[libvpxThrNearest3] = zn2
+	freq[libvpxThrNear2] = near2
+	freq[libvpxThrNear3] = near2
+	freq[libvpxThrVPred] = vhBPred
+	freq[libvpxThrHPred] = vhBPred
+	freq[libvpxThrBPred] = vhBPred
+	freq[libvpxThrNew1] = new1
+	freq[libvpxThrNew2] = new2
+	freq[libvpxThrNew3] = new2
+	freq[libvpxThrSplit1] = split1
+	freq[libvpxThrSplit2] = split2
+	freq[libvpxThrSplit3] = split2
+	return freq
+}
+
 func libvpxInterFrameContinuousSpeed(deadline Deadline, speed int) int {
 	switch deadline {
 	case DeadlineBestQuality:
@@ -742,6 +908,34 @@ var libvpxThreshMultMapSplit1 = [...]int{
 
 var libvpxThreshMultMapSplit2 = [...]int{
 	5000, 1, 4500, 3, 20000, 4, 50000, 5, libvpxInterModeThresholdDisabled, 7, 10000, 8, 20000, 9, 50000, 10, libvpxInterModeThresholdDisabled, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapZN2 = [...]int{
+	0, 17, 2, 18, 4, 19, 8, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapVHBPred = [...]int{
+	0, 6, 2, 7, 0, 10, 2, 12, 4, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapNear2 = [...]int{
+	0, 6, 2, 7, 0, 10, 2, 17, 4, 18, 8, 19, 16, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapNew1 = [...]int{
+	0, 17, 2, 18, 4, 19, 8, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapNew2 = [...]int{
+	0, 6, 4, 7, 0, 10, 4, 17, 8, 18, 16, 19, 32, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapSplit1 = [...]int{
+	0, 3, 2, 4, 7, 8, 2, 9, 7, libvpxSpeedMapMax,
+}
+
+var libvpxModeCheckFreqMapSplit2 = [...]int{
+	0, 2, 2, 3, 4, 4, 15, 8, 4, 9, 15, libvpxSpeedMapMax,
 }
 
 func interFrameFullPixelSearchCandidateCount() int {
@@ -826,9 +1020,13 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
 ) (interFrameModeDecision, bool) {
+	if !e.interRDFrameActive {
+		e.beginInterRDModeDecisionMacroblock()
+	}
 	thresholds := e.interModeRDThresholds(qIndex)
 	bestSet := false
 	bestScore := maxInt()
+	bestModeIndex := -1
 	best := interFrameModeDecision{
 		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
 	}
@@ -849,15 +1047,23 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
 		if refSlot == 0 {
+			if !e.interRDModeTestAllowed(modeIndex) {
+				continue
+			}
+			e.recordInterRDModeTest(modeIndex)
 			mode, score, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestScore, aboveTok, leftTok, quant)
 			if !ok {
 				continue
 			}
 			mode.SegmentID = segmentID
 			if !bestSet || score < bestScore {
+				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
+				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode}
+			} else {
+				e.raiseInterRDThreshold(modeIndex)
 			}
 			continue
 		}
@@ -866,6 +1072,10 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		if !ok {
 			continue
 		}
+		if !e.interRDModeTestAllowed(modeIndex) {
+			continue
+		}
+		e.recordInterRDModeTest(modeIndex)
 		var mode vp8enc.InterFrameMacroblockMode
 		var score int
 		rdLoopSkip := false
@@ -882,16 +1092,23 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 		if rdLoopSkip || !bestSet || score < bestScore {
+			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score
+			bestModeIndex = modeIndex
 			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}}
+		} else {
+			e.raiseInterRDThreshold(modeIndex)
 		}
 		if rdLoopSkip {
-			return best, true
+			break
 		}
 	}
 	if !bestSet {
 		return interFrameModeDecision{}, false
+	}
+	if bestModeIndex >= 0 {
+		e.lowerBestInterRDThreshold(bestModeIndex)
 	}
 	return best, true
 }

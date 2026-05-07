@@ -235,11 +235,13 @@ the anchor and look for the surrounding mismatch.
     aligned. Full RD now walks libvpx's `MAX_MODES` / `vp8_mode_order` table,
     interleaves intra modes in that same loop, applies speed-feature baseline
     `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an
-    RD-loop stop, and keeps the RD-only NSTEP final one-pixel refining search
+    RD-loop stop, mutates `rd_thresh_mult` / hit-count mode gating across
+    tested modes, and keeps the RD-only NSTEP final one-pixel refining search
     separate from the high-speed non-RD picker.
-  - Missing: exact `get_reference_search_order`, sign-bias switching, hit-count
-    gating, threshold mutation from tested/skipped modes, active-map skip
-    short-circuiting, exact per-mode accounting, and recode-loop interactions.
+  - Missing: exact `get_reference_search_order`, sign-bias switching,
+    temporal-layer threshold tweaks, SplitMV subsearch threshold input,
+    active-map skip short-circuiting, exact per-mode accounting, and recode-loop
+    interactions.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.

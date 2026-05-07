@@ -303,6 +303,75 @@ func TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts(t *testing.T) {
 	}
 }
 
+func TestLibvpxInterModeCheckFrequenciesMirrorSpeedFeatures(t *testing.T) {
+	best := libvpxInterModeCheckFrequencies(DeadlineBestQuality, 8)
+	if best[libvpxThrZero2] != 0 || best[libvpxThrNew2] != 0 || best[libvpxThrSplit2] != 0 {
+		t.Fatalf("best-quality check frequencies = ZERO2:%d NEW2:%d SPLIT2:%d, want all zero", best[libvpxThrZero2], best[libvpxThrNew2], best[libvpxThrSplit2])
+	}
+
+	good := libvpxInterModeCheckFrequencies(DeadlineGoodQuality, 5)
+	if good[libvpxThrVPred] != 2 || good[libvpxThrNew2] != 4 || good[libvpxThrSplit2] != 15 {
+		t.Fatalf("good speed 5 frequencies = V:%d NEW2:%d SPLIT2:%d, want 2/4/15", good[libvpxThrVPred], good[libvpxThrNew2], good[libvpxThrSplit2])
+	}
+
+	realtime := libvpxInterModeCheckFrequencies(DeadlineRealtime, 10)
+	if realtime[libvpxThrZero2] != 2 || realtime[libvpxThrNew1] != 0 || realtime[libvpxThrNew2] != 8 {
+		t.Fatalf("realtime speed 10 frequencies = ZERO2:%d NEW1:%d NEW2:%d, want 2/0/8", realtime[libvpxThrZero2], realtime[libvpxThrNew1], realtime[libvpxThrNew2])
+	}
+}
+
+func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineBestQuality}}
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+
+	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineBestQuality, 0)
+	if got := e.interModeRDThresholds(40); got != baseline {
+		t.Fatalf("initial thresholds = %v, want baseline %v", got, baseline)
+	}
+
+	e.lowerInterRDThresholdForImprovement(libvpxThrNew1)
+	afterImprovement := e.interModeRDThresholds(40)
+	if got, want := afterImprovement[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*126; got != want {
+		t.Fatalf("improved NEW1 threshold = %d, want %d", got, want)
+	}
+
+	e.raiseInterRDThreshold(libvpxThrNew2)
+	afterRaise := e.interModeRDThresholds(40)
+	if got, want := afterRaise[libvpxThrNew2], (baseline[libvpxThrNew2]>>7)*132; got != want {
+		t.Fatalf("raised NEW2 threshold = %d, want %d", got, want)
+	}
+
+	e.lowerBestInterRDThreshold(libvpxThrNew1)
+	afterBest := e.interModeRDThresholds(40)
+	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*95; got != want {
+		t.Fatalf("best NEW1 threshold = %d, want %d", got, want)
+	}
+}
+
+func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
+	e := &VP8Encoder{}
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.interModeCheckFreq[libvpxThrNew2] = 4
+	e.interModeTestHitCounts[libvpxThrNew2] = 1
+	e.interMBsTestedSoFar = 4
+
+	if e.interRDModeTestAllowed(libvpxThrNew2) {
+		t.Fatalf("hit-count gate allowed mode at mbs_tested_so_far <= freq*hits")
+	}
+	if got := e.interRDThreshMult[libvpxThrNew2]; got != 132 {
+		t.Fatalf("NEW2 threshold mult after hit gate = %d, want 132", got)
+	}
+
+	e.interMBsTestedSoFar = 5
+	if !e.interRDModeTestAllowed(libvpxThrNew2) {
+		t.Fatalf("hit-count gate blocked mode after frequency window")
+	}
+}
+
 func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
