@@ -1379,12 +1379,12 @@ func TestCalcGFParamsBoostExtendsInterval(t *testing.T) {
 // equals kf_overspend_bits.
 func TestRateControlAccumulatesKeyFrameOverspend(t *testing.T) {
 	rc := rateControlState{
-		mode:             RateControlCBR,
-		minQuantizer:     4,
-		maxQuantizer:     56,
-		currentQuantizer: 30,
-		bitsPerFrame:     1000,
-		bufferLevelBits:  500,
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  30,
+		bitsPerFrame:      1000,
+		bufferLevelBits:   500,
 		maximumBufferBits: 5000,
 	}
 	// 2000 bytes = 16000 bits; perFrameBandwidth=1000 -> overspend=15000.
