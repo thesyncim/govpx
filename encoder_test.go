@@ -50,6 +50,27 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)
 	}
+
+	e, err := NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, NoiseSensitivity: 6, ARNRMaxFrames: 15})
+	if err != nil {
+		t.Fatalf("libvpx high denoise/ARNR bounds returned error: %v", err)
+	}
+	if e.opts.ARNRType != 3 {
+		t.Fatalf("default ARNR type = %d, want libvpx centered type 3", e.opts.ARNRType)
+	}
+
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, NoiseSensitivity: 7})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("noise sensitivity error = %v, want ErrInvalidConfig", err)
+	}
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ARNRMaxFrames: 16})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("ARNR max frames error = %v, want ErrInvalidConfig", err)
+	}
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ARNRType: 4})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("ARNR type error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
@@ -1340,6 +1361,15 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	if err := e.SetScreenContentMode(3); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetScreenContentMode out-of-range error = %v, want ErrInvalidConfig", err)
 	}
+	if err := e.SetNoiseSensitivity(7); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetNoiseSensitivity out-of-range error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetARNR(16, 3, 3); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetARNR max-frames error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetARNR(3, 3, 0); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetARNR type-zero error = %v, want ErrInvalidConfig", err)
+	}
 	if err := e.SetTokenPartitions(int(vp8common.EightPartition)); err != nil {
 		t.Fatalf("SetTokenPartitions returned error: %v", err)
 	}
@@ -1354,6 +1384,12 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	}
 	if err := e.SetAdaptiveKeyFrames(true); err != nil {
 		t.Fatalf("SetAdaptiveKeyFrames returned error: %v", err)
+	}
+	if err := e.SetNoiseSensitivity(6); err != nil {
+		t.Fatalf("SetNoiseSensitivity returned error: %v", err)
+	}
+	if err := e.SetARNR(15, 6, 3); err != nil {
+		t.Fatalf("SetARNR returned error: %v", err)
 	}
 
 	result, err := e.EncodeInto(make([]byte, 8192), testImage(16, 16), 0, 1, 0)

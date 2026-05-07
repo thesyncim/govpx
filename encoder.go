@@ -101,10 +101,11 @@ type EncoderOptions struct {
 	// Quality knobs.
 	Sharpness int
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
-	// 1=Y denoise, 2=YUV denoise, 3/4=more aggressive YUV denoise.
+	// 1=Y denoise, 2=YUV denoise, 3..6=more aggressive YUV denoise.
 	NoiseSensitivity int
 	// ARNRMaxFrames/ARNRStrength/ARNRType mirror libvpx's ARNR controls.
-	// ARNRType is 1=backward, 2=forward, 3=centered; 0 uses centered.
+	// ARNRType is 1=backward, 2=forward, 3=centered; zero-valued
+	// EncoderOptions default to libvpx's centered filter.
 	ARNRMaxFrames int
 	ARNRStrength  int
 	ARNRType      int
@@ -1199,7 +1200,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if level < 0 || level > 4 {
+	if level < 0 || level > 6 {
 		return ErrInvalidConfig
 	}
 	e.opts.NoiseSensitivity = level
@@ -1213,7 +1214,7 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if maxFrames < 0 || maxFrames > maxLookaheadFrames || strength < 0 || strength > 6 || filterType < 0 || filterType > 3 {
+	if maxFrames < 0 || maxFrames > maxARNRFrames || strength < 0 || strength > 6 || filterType < 1 || filterType > 3 {
 		return ErrInvalidConfig
 	}
 	e.opts.ARNRMaxFrames = maxFrames
@@ -1354,11 +1355,14 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.KeyFrameInterval < 0 || opts.LookaheadFrames < 0 || opts.LookaheadFrames > maxLookaheadFrames || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
+	if opts.ARNRType == 0 {
+		opts.ARNRType = 3
+	}
 	if opts.Sharpness < 0 || opts.Sharpness > 7 ||
-		opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 4 ||
-		opts.ARNRMaxFrames < 0 || opts.ARNRMaxFrames > maxLookaheadFrames ||
+		opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 6 ||
+		opts.ARNRMaxFrames < 0 || opts.ARNRMaxFrames > maxARNRFrames ||
 		opts.ARNRStrength < 0 || opts.ARNRStrength > 6 ||
-		opts.ARNRType < 0 || opts.ARNRType > 3 ||
+		opts.ARNRType < 1 || opts.ARNRType > 3 ||
 		opts.TwoPassVBRBiasPct < 0 || opts.TwoPassMinPct < 0 || opts.TwoPassMaxPct < 0 ||
 		opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 || opts.StaticThreshold < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig

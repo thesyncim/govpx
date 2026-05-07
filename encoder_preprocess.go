@@ -5,7 +5,10 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-const maxLookaheadFrames = 25
+const (
+	maxLookaheadFrames = 25
+	maxARNRFrames      = 15
+)
 
 type lookaheadEntry struct {
 	frame    vp8common.FrameBuffer
@@ -152,16 +155,13 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 
 func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags) bool {
 	maxFrames := e.opts.ARNRMaxFrames
-	if maxFrames > maxLookaheadFrames {
-		maxFrames = maxLookaheadFrames
+	if maxFrames > maxARNRFrames {
+		maxFrames = maxARNRFrames
 	}
 	if maxFrames <= 1 {
 		return false
 	}
 	arnrType := e.opts.ARNRType
-	if arnrType == 0 {
-		arnrType = 3
-	}
 	backward := 0
 	forward := 0
 	switch arnrType {
@@ -171,11 +171,13 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlag
 		}
 	case 2:
 		forward = min(e.lookaheadSize(), maxFrames-1)
-	default:
+	case 3:
 		if e.arnrLastReady {
 			backward = 1
 		}
 		forward = min(e.lookaheadSize(), maxFrames-1-backward)
+	default:
+		return false
 	}
 	if backward+forward == 0 {
 		return false
