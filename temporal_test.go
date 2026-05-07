@@ -310,6 +310,51 @@ func TestTemporalScalabilityDerivesLibvpxVP8RTCBitrates(t *testing.T) {
 	}
 }
 
+func TestTemporalLayerIDOverrideSupersedesPatternLayer(t *testing.T) {
+	var temporal temporalState
+	if err := temporal.configure(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}, 1200); err != nil {
+		t.Fatalf("configure returned error: %v", err)
+	}
+	if err := temporal.setLayerID(1); err != nil {
+		t.Fatalf("setLayerID returned error: %v", err)
+	}
+	meta := temporal.nextFrame(timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if meta.LayerID != 1 || meta.LayerCount != 2 || meta.LayerTargetBitrateKbps != 480 || meta.LayerFrameTargetBits != 32000 {
+		t.Fatalf("manual layer meta = id:%d count:%d target:%d frame:%d, want 1/2/480/32000", meta.LayerID, meta.LayerCount, meta.LayerTargetBitrateKbps, meta.LayerFrameTargetBits)
+	}
+	if meta.Flags != temporal.pattern.Flags[0] {
+		t.Fatalf("manual layer flags = 0x%x, want unchanged pattern flags 0x%x", uint32(meta.Flags), uint32(temporal.pattern.Flags[0]))
+	}
+
+	if err := temporal.setLayerID(0); err != nil {
+		t.Fatalf("setLayerID base returned error: %v", err)
+	}
+	meta = temporal.nextFrame(timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if meta.LayerID != 0 || meta.LayerTargetBitrateKbps != 720 || meta.LayerFrameTargetBits != 48000 {
+		t.Fatalf("manual base meta = id:%d target:%d frame:%d, want 0/720/48000", meta.LayerID, meta.LayerTargetBitrateKbps, meta.LayerFrameTargetBits)
+	}
+}
+
+func TestTemporalLayerIDValidationMirrorsLibvpx(t *testing.T) {
+	var temporal temporalState
+	if err := temporal.setLayerID(0); err != nil {
+		t.Fatalf("setLayerID one-layer returned error: %v", err)
+	}
+	if err := temporal.setLayerID(1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID one-layer high error = %v, want ErrInvalidConfig", err)
+	}
+	if err := temporal.setLayerID(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID negative error = %v, want ErrInvalidConfig", err)
+	}
+
+	if err := temporal.configure(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}, 1200); err != nil {
+		t.Fatalf("configure returned error: %v", err)
+	}
+	if err := temporal.setLayerID(2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID two-layer high error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func temporalTestFlags(flags ...EncodeFlags) EncodeFlags {
 	var out EncodeFlags
 	for _, flag := range flags {

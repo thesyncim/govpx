@@ -2719,6 +2719,60 @@ func TestSetTemporalScalabilityControlsNextFrames(t *testing.T) {
 	}
 }
 
+func TestSetTemporalLayerIDOverridesNextFrames(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 4096)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if !key.KeyFrame || key.TemporalLayerID != 0 || key.TL0PICIDX != 0 {
+		t.Fatalf("key temporal = key:%t id:%d tl0:%d, want key/0/0", key.KeyFrame, key.TemporalLayerID, key.TL0PICIDX)
+	}
+	if err := e.SetTemporalLayerID(0); err != nil {
+		t.Fatalf("SetTemporalLayerID returned error: %v", err)
+	}
+	base, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("manual base EncodeInto returned error: %v", err)
+	}
+	if base.TemporalLayerID != 0 || base.TL0PICIDX != 1 || base.TemporalLayerTargetBitrateKbps != 720 || base.TemporalLayerCumulativeBitrateKbps != 720 {
+		t.Fatalf("manual base temporal = id:%d tl0:%d target:%d cumulative:%d, want 0/1/720/720", base.TemporalLayerID, base.TL0PICIDX, base.TemporalLayerTargetBitrateKbps, base.TemporalLayerCumulativeBitrateKbps)
+	}
+	if err := e.SetTemporalLayerID(1); err != nil {
+		t.Fatalf("SetTemporalLayerID enhancement returned error: %v", err)
+	}
+	enhancement, err := e.EncodeInto(dst, src, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("manual enhancement EncodeInto returned error: %v", err)
+	}
+	if enhancement.TemporalLayerID != 1 || enhancement.TL0PICIDX != 1 || enhancement.TemporalLayerTargetBitrateKbps != 480 || enhancement.TemporalLayerCumulativeBitrateKbps != 1200 {
+		t.Fatalf("manual enhancement temporal = id:%d tl0:%d target:%d cumulative:%d, want 1/1/480/1200", enhancement.TemporalLayerID, enhancement.TL0PICIDX, enhancement.TemporalLayerTargetBitrateKbps, enhancement.TemporalLayerCumulativeBitrateKbps)
+	}
+}
+
+func TestSetTemporalLayerIDValidation(t *testing.T) {
+	e := newTestEncoder(t)
+	if err := e.SetTemporalLayerID(0); err != nil {
+		t.Fatalf("SetTemporalLayerID one-layer returned error: %v", err)
+	}
+	if err := e.SetTemporalLayerID(1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTemporalLayerID one-layer high error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}); err != nil {
+		t.Fatalf("SetTemporalScalability returned error: %v", err)
+	}
+	if err := e.SetTemporalLayerID(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTemporalLayerID negative error = %v, want ErrInvalidConfig", err)
+	}
+	if err := e.SetTemporalLayerID(2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTemporalLayerID two-layer high error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestEncodeIntoInterFrameCanSkipGoldenAndAltRefRefresh(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
@@ -2887,6 +2941,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetScreenContentMode", fn: func() { _ = e.SetScreenContentMode(1) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
 		{name: "SetTemporalScalability", fn: func() { _ = e.SetTemporalScalability(temporal) }},
+		{name: "SetTemporalLayerID", fn: func() { _ = e.SetTemporalLayerID(1) }},
 		{name: "SetDeadline", fn: func() { _ = e.SetDeadline(DeadlineRealtime) }},
 		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
 		{name: "SetKeyFrameInterval", fn: func() { _ = e.SetKeyFrameInterval(120) }},

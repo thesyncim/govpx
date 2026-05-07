@@ -49,7 +49,8 @@ Already established:
 - Encoder has basic realtime CBR, temporal layering controls, entropy refresh
   state, segmentation plumbing, token partitions, reconstruction, loop filter,
   SPLITMV emission across VP8 split partition shapes, rotating cyclic-refresh-style segmentation,
-  force-Golden/AltRef refresh flags, and libvpx decode acceptance tests.
+  temporal layer ID override, force-Golden/AltRef refresh flags, and libvpx
+  decode acceptance tests.
 - Decoder has broad smoke/oracle coverage but is not production parity yet.
 
 Use `UPSTREAM.md` for detailed subsystem status and known deviations.
@@ -106,7 +107,8 @@ Goal: make the realtime use case a first-class, tested configuration surface.
 
 Remaining work:
 
-- Expose missing libvpx-style temporal controls where they map cleanly to Go.
+- Expose missing libvpx-style temporal controls where they map cleanly to Go;
+  temporal layer ID override now exists.
 - Keep temporal pattern flags aligned with `vpx_temporal_svc_encoder.c`.
 - Test layer sync, TL0PICIDX, reference refreshes, and entropy
   refresh/no-refresh per layer pattern; packet refresh/entropy flags now cover

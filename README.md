@@ -20,8 +20,8 @@ replacement.
   split partition-shape selection
 - Token partitions, loop filtering, granular postprocess flags, runtime token
   partition/sharpness/screen-content/static-threshold controls, error-concealment decode
-  handling, LAST/GOLDEN/ALTREF reference selection and refresh flags, and entropy
-  update controls
+  handling, temporal layer ID control, LAST/GOLDEN/ALTREF reference selection
+  and refresh flags, and entropy update controls
 - Checked-in smoke vectors plus an exhaustive libvpx-backed parity gate
 
 ## Scope

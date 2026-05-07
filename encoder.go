@@ -915,6 +915,13 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	return nil
 }
 
+func (e *VP8Encoder) SetTemporalLayerID(layerID int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	return e.temporal.setLayerID(layerID)
+}
+
 func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	if e == nil || e.closed {
 		return ErrClosed

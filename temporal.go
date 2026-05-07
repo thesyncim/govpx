@@ -42,16 +42,17 @@ type temporalPattern struct {
 }
 
 type temporalState struct {
-	enabled     bool
-	autoBitrate bool
-	config      TemporalScalabilityConfig
-	pattern     temporalPattern
-	frameIndex  uint64
-	tl0PicIdx   uint8
-	tl0Valid    bool
-	refLayer    [temporalReferenceCount]int
-	accounting  [MaxTemporalLayers]temporalLayerAccounting
-	buffersSet  bool
+	enabled         bool
+	autoBitrate     bool
+	config          TemporalScalabilityConfig
+	pattern         temporalPattern
+	layerIDOverride int
+	frameIndex      uint64
+	tl0PicIdx       uint8
+	tl0Valid        bool
+	refLayer        [temporalReferenceCount]int
+	accounting      [MaxTemporalLayers]temporalLayerAccounting
+	buffersSet      bool
 }
 
 type temporalFrame struct {
@@ -106,6 +107,7 @@ func (t *temporalState) configure(cfg TemporalScalabilityConfig, totalBitrateKbp
 	t.autoBitrate = autoBitrate
 	t.config = normalized
 	t.pattern = pattern
+	t.layerIDOverride = -1
 	t.frameIndex = 0
 	t.tl0PicIdx = 0
 	t.tl0Valid = false
@@ -140,6 +142,9 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	patternIndex := int(t.frameIndex % uint64(t.pattern.Periodicity))
 	flagIndex := int(t.frameIndex % uint64(t.pattern.FlagPeriodicity))
 	layerID := t.pattern.LayerID[patternIndex]
+	if t.layerIDOverride >= 0 {
+		layerID = t.layerIDOverride
+	}
 	flags := t.pattern.Flags[flagIndex]
 	if t.config.Mode != TemporalLayeringFiveLayers && t.frameIndex > 0 && flagIndex == 0 {
 		flags &^= EncodeForceKeyFrame
@@ -361,6 +366,20 @@ func normalizeTemporalBitrates(cfg TemporalScalabilityConfig, layers int, totalB
 		}
 	}
 	return cfg, false, nil
+}
+
+func (t *temporalState) setLayerID(layerID int) error {
+	layers := 1
+	if t.enabled {
+		layers = t.pattern.Layers
+	}
+	if layerID < 0 || layerID >= layers {
+		return ErrInvalidConfig
+	}
+	if t.enabled {
+		t.layerIDOverride = layerID
+	}
+	return nil
 }
 
 func deriveTemporalBitrates(cfg *TemporalScalabilityConfig, layers int, totalBitrateKbps int) bool {
