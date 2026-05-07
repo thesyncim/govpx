@@ -514,6 +514,80 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxSectionStats accumulates the libvpx FIRSTPASS_STATS section
+// totals used by find_next_key_frame and define_gf_group to derive
+// section_intra_rating and section_max_qfactor. Mirrors libvpx's
+// FIRSTPASS_STATS accumulate_stats / avg_stats pattern: callers
+// call addFrame for each frame in the section and then call avg()
+// once before reading sectionIntra / sectionCoded.
+type libvpxSectionStats struct {
+	count        int
+	sectionIntra float64
+	sectionCoded float64
+}
+
+// addFrame mirrors libvpx's accumulate_stats over the per-frame
+// FIRSTPASS_STATS intra_error / coded_error fields.
+func (s *libvpxSectionStats) addFrame(intraError, codedError float64) {
+	s.count++
+	s.sectionIntra += intraError
+	s.sectionCoded += codedError
+}
+
+// avg mirrors libvpx's avg_stats: divides each accumulator by
+// `count`. Callers should call this exactly once before reading
+// sectionIntra / sectionCoded.
+func (s *libvpxSectionStats) avg() {
+	if s.count <= 0 {
+		return
+	}
+	s.sectionIntra /= float64(s.count)
+	s.sectionCoded /= float64(s.count)
+}
+
+// libvpxSectionIntraRating ports the libvpx vp8/encoder/firstpass.c
+// section_intra_rating computation:
+//
+//	section_intra_rating = sectionIntra / DOUBLE_DIVIDE_CHECK(sectionCoded)
+//
+// where DOUBLE_DIVIDE_CHECK(x) returns 1.0 when |x|<1e-12 and x
+// otherwise. Returns 0 when both error totals are 0 (libvpx asserts
+// non-empty section in normal flow). The libvpx field is unsigned int,
+// so the result is truncated to non-negative.
+func libvpxSectionIntraRating(sectionIntra, sectionCoded float64) int {
+	denom := sectionCoded
+	if denom < 1e-12 && denom > -1e-12 {
+		denom = 1.0
+	}
+	v := sectionIntra / denom
+	if v < 0 {
+		return 0
+	}
+	return int(v)
+}
+
+// libvpxSectionMaxQFactor ports the libvpx vp8/encoder/firstpass.c
+// section_max_qfactor formula:
+//
+//	Ratio = sectionIntra / DOUBLE_DIVIDE_CHECK(sectionCoded)
+//	section_max_qfactor = 1.0 - ((Ratio - 10.0) * 0.025)
+//	if section_max_qfactor < 0.80: section_max_qfactor = 0.80
+//
+// The 0.80 floor mirrors libvpx exactly. Returns 1.0 when both error
+// totals are 0 (libvpx's DOUBLE_DIVIDE_CHECK fallback).
+func libvpxSectionMaxQFactor(sectionIntra, sectionCoded float64) float64 {
+	denom := sectionCoded
+	if denom < 1e-12 && denom > -1e-12 {
+		denom = 1.0
+	}
+	ratio := sectionIntra / denom
+	factor := 1.0 - ((ratio - 10.0) * 0.025)
+	if factor < 0.80 {
+		factor = 0.80
+	}
+	return factor
+}
+
 // libvpxAssignStdFrameBits ports the libvpx vp8/encoder/firstpass.c
 // assign_std_frame_bits per-frame allocator inside a GF group:
 //

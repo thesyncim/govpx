@@ -468,6 +468,65 @@ func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
 	}
 }
 
+// TestLibvpxSectionStatsAccumulatesAndAverages pins the libvpx
+// FIRSTPASS_STATS accumulate_stats/avg_stats pattern: addFrame sums,
+// avg divides by count.
+func TestLibvpxSectionStatsAccumulatesAndAverages(t *testing.T) {
+	var s libvpxSectionStats
+	s.addFrame(1000, 100)
+	s.addFrame(2000, 200)
+	s.addFrame(3000, 300)
+	s.avg()
+	if s.sectionIntra != 2000 || s.sectionCoded != 200 {
+		t.Fatalf("avg = (%v, %v), want (2000, 200)", s.sectionIntra, s.sectionCoded)
+	}
+}
+
+// TestLibvpxSectionIntraRatingDivisionByZeroFallback pins libvpx's
+// DOUBLE_DIVIDE_CHECK fallback: when sectionCoded is ~0, the helper
+// substitutes 1.0 so the division does not blow up.
+func TestLibvpxSectionIntraRatingDivisionByZeroFallback(t *testing.T) {
+	if got := libvpxSectionIntraRating(100.0, 0.0); got != 100 {
+		t.Fatalf("intra_rating with coded=0 = %d, want 100 (DOUBLE_DIVIDE_CHECK fallback)", got)
+	}
+}
+
+// TestLibvpxSectionIntraRatingTruncatesToInt pins the libvpx
+// (unsigned int) cast.
+func TestLibvpxSectionIntraRatingTruncatesToInt(t *testing.T) {
+	if got := libvpxSectionIntraRating(1500.0, 200.0); got != 7 {
+		t.Fatalf("intra_rating(1500,200) = %d, want 7 (truncated 7.5)", got)
+	}
+}
+
+// TestLibvpxSectionMaxQFactorMatchesLibvpxFormula pins the libvpx
+// section_max_qfactor formula with the 0.80 floor:
+//
+//	factor = 1.0 - (Ratio - 10.0) * 0.025
+//	clamp(factor, 0.80, +inf)
+func TestLibvpxSectionMaxQFactorMatchesLibvpxFormula(t *testing.T) {
+	// Ratio=12 -> factor = 1.0 - 2.0*0.025 = 0.95 (no floor).
+	if got := libvpxSectionMaxQFactor(1200.0, 100.0); got != 0.95 {
+		t.Fatalf("section_max_qfactor(ratio=12) = %v, want 0.95", got)
+	}
+	// Ratio=10 -> factor = 1.0 (no scaling).
+	if got := libvpxSectionMaxQFactor(1000.0, 100.0); got != 1.0 {
+		t.Fatalf("section_max_qfactor(ratio=10) = %v, want 1.0", got)
+	}
+	// Ratio=20 -> factor = 1.0 - 10*0.025 = 0.75 -> floored to 0.80.
+	if got := libvpxSectionMaxQFactor(2000.0, 100.0); got != 0.80 {
+		t.Fatalf("section_max_qfactor(ratio=20) = %v, want 0.80 (floored)", got)
+	}
+}
+
+// TestLibvpxSectionMaxQFactorDivisionByZeroFallback pins the
+// DOUBLE_DIVIDE_CHECK fallback path.
+func TestLibvpxSectionMaxQFactorDivisionByZeroFallback(t *testing.T) {
+	if got := libvpxSectionMaxQFactor(10.0, 0.0); got != 1.0 {
+		t.Fatalf("section_max_qfactor(coded=0, intra=10) = %v, want 1.0", got)
+	}
+}
+
 // TestLibvpxAssignStdFrameBitsErrorFraction pins the libvpx
 // vp8/encoder/firstpass.c assign_std_frame_bits formula:
 //

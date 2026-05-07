@@ -364,11 +364,17 @@ the anchor and look for the surrounding mismatch.
     `target = gf_group_bits * (modified_err / gf_group_error_left)`,
     clamp(0, min(max_bits, gf_group_bits)), add min_frame_bandwidth,
     and add alt_extra_bits on odd frames_since_golden when
-    frames_till_gf_update_due > 0.
-  - Missing: section max-Q factor, active worst-Q estimates, VBR
-    min/max section limits beyond frame_max_bits, CBR buffer
-    adjustments inside Pass2Encode, and ARF pending decisions wired
-    into the encoder.
+    frames_till_gf_update_due > 0. `libvpxSectionStats` /
+    `libvpxSectionIntraRating` / `libvpxSectionMaxQFactor` port the
+    libvpx FIRSTPASS_STATS section accumulator pattern
+    (accumulate_stats / avg_stats), the section_intra_rating
+    `(unsigned int)(sectionIntra/sectionCoded)` cast with the
+    DOUBLE_DIVIDE_CHECK fallback, and the
+    `section_max_qfactor = 1.0 - (Ratio - 10.0) * 0.025` formula
+    with the libvpx 0.80 floor.
+  - Missing: active worst-Q estimates, VBR min/max section limits
+    beyond frame_max_bits, CBR buffer adjustments inside Pass2Encode,
+    and ARF pending decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
