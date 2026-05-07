@@ -13,6 +13,11 @@ the anchor and look for the surrounding mismatch.
   byte-for-byte identity. Future agents should prioritize changes that move
   visible quality, rate behavior, reference decisions, and mode/MV/residual
   choices toward libvpx.
+- In this checklist, "100% parity" means equivalent quality/rate and
+  quality-relevant encoder decisions on representative clips. It does not mean
+  every intermediate helper, search tie-break, or non-visible byte must be
+  bit-exact when the difference has no quality, rate, decoder-visible, or
+  future-decision effect.
 - Bitstream parity is required only where it matters or where deterministic
   settings make it the cheapest proof: frame headers, reference
   refresh/copy/sign-bias bits, packet validity, decoder MD5s, and tightly
@@ -35,8 +40,8 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 55-65% overall (point estimate ~60%),
-  or about 75% on the core one-pass quality path, weighted by libvpx LOC.
+- Encoder decision parity: roughly 65% overall, or about 75% on the core
+  one-pass quality path, weighted by libvpx LOC.
   This is an engineering estimate, not a measured percentage, because
   govpx still lacks the libvpx-side trace comparator needed to count
   matching frame/MB decisions; the govpx-side per-MB JSON Lines harness
@@ -427,18 +432,24 @@ the anchor and look for the surrounding mismatch.
     sub-MV label in `BModes`, and uses that label for SplitMV rate costing,
     MV-probability branch counting, and packet syntax instead of deriving the
     label from MV equality. NEW4X4 keeps libvpx's weight-102 vector cost, and
-    ABOVE4X4 is only selected when it is not the same MV as LEFT4X4. After the
-    Y split is committed, `selectInterFrameSplitMotionDecisionRD` reuses the
-    decoder's `ReconstructSplitMVInterMacroblock` to render the SPLITMV
-    luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
+    ABOVE4X4 is only selected when it is not the same MV as LEFT4X4. NEW4X4
+    full-pel search can now be centered independently from the coded
+    `bestRefMV` cost anchor, and compressor-speed BLOCK_4X4 searches reuse the
+    previous left/above block MV as libvpx does. Split NEW candidates now run
+    the libvpx-shaped fractional refinement path before selection, with
+    split-size subpel variance/SAD coverage for 16x8, 8x16, 8x8, and 4x4.
+    After the Y split is committed, `selectInterFrameSplitMotionDecisionRD`
+    reuses the decoder's `ReconstructSplitMVInterMacroblock` to render the
+    SPLITMV luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
     four covering 4x4 luma MVs via `splitChromaMotionVector`), then runs
     the same `quantizeEncodedBlock` block_type=3 (Y) / block_type=2 (UV)
     transform/quantize path the whole-MB inter case uses. The returned
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
-    Predictor/step reuse, token-context commit parity, and oracle-backed
-    label-level RD remain open.
+    The remaining predictor/step work is the libvpx speed-path 8x8 seed reuse
+    for 16x8/8x16 and related `step_param` derivation. Token-context commit
+    parity and oracle-backed label-level RD remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

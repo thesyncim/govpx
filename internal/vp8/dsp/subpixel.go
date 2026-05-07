@@ -27,6 +27,14 @@ func SixTapPredict4x4(src []byte, srcStride int, xoffset int, yoffset int, dst [
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 4, 4)
 }
 
+func SixTapPredict16x8(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 8)
+}
+
+func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 16)
+}
+
 func SixTapPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 4)
 }

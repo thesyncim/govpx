@@ -1075,6 +1075,139 @@ func TestSelectInterFrameSplitSubsetMotionModeTrialsReusableLabels(t *testing.T)
 	}
 }
 
+func TestSelectInterFrameSplitSubsetMotionModeRefinesNew4x4Subpixel(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((19 + row*17 + col*13 + row*col*3) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YFull[ref.Img.YOrigin-2*ref.Img.YStride-2:]
+	dsp.SixTapPredict4x4(refStart, ref.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 3,
+	}
+	width, height := splitMotionPartitionBlockSize(int(mode.Partition))
+
+	mv, bMode := selectInterFrameSplitSubsetMotionMode(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height, vp8enc.MotionVector{}, testInterSearchQIndex, nil, nil)
+
+	if bMode != vp8common.New4x4 || (int(mv.Row)&7 == 0 && int(mv.Col)&7 == 0) {
+		t.Fatalf("subset candidate = %+v/%v, want NEW4X4 subpixel MV", mv, bMode)
+	}
+	if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{Row: 2, Col: 2}); sad != 0 {
+		t.Fatalf("subpixel split SAD = %d, want exact predictor match", sad)
+	}
+}
+
+func TestSplitBlockSADUsesSubpixelPredictorForAllShapes(t *testing.T) {
+	cases := []struct {
+		name    string
+		block   int
+		width   int
+		height  int
+		predict func(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int)
+	}{
+		{name: "16x8", block: 0, width: 16, height: 8, predict: dsp.SixTapPredict16x8},
+		{name: "8x16", block: 0, width: 8, height: 16, predict: dsp.SixTapPredict8x16},
+		{name: "8x8", block: 0, width: 8, height: 8, predict: dsp.SixTapPredict8x8},
+		{name: "4x4", block: 5, width: 4, height: 4, predict: dsp.SixTapPredict4x4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := testImage(32, 32)
+			fillImage(src, 0, 90, 170)
+			ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+			for row := 0; row < ref.Img.CodedHeight; row++ {
+				for col := 0; col < ref.Img.CodedWidth; col++ {
+					ref.Img.Y[row*ref.Img.YStride+col] = byte((17 + row*19 + col*23 + row*col*11) & 0xff)
+				}
+			}
+			ref.ExtendBorders()
+
+			baseY := (tc.block >> 2) * 4
+			baseX := (tc.block & 3) * 4
+			refStart := ref.Img.YOrigin + (baseY-2)*ref.Img.YStride + baseX - 2
+			tc.predict(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[baseY*src.YStride+baseX:], src.YStride)
+
+			if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, tc.block, tc.width, tc.height, vp8enc.MotionVector{Row: 2, Col: 2}); sad != 0 {
+				t.Fatalf("splitBlockSAD = %d, want exact subpixel predictor match", sad)
+			}
+		})
+	}
+}
+
+func TestRefineInterFrameSplitBlockSubpixelMotionVectorUsesBilinearVariance(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*11 + col*7 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin
+	dsp.BilinearPredict4x4(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	mv, cost, ok := refineInterFrameSplitBlockSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext)
+
+	if !ok {
+		t.Fatalf("refineInterFrameSplitBlockSubpixelMotionVector returned ok=false")
+	}
+	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("mv = %+v, want +2,+2 quarter-pel candidate", mv)
+	}
+	if want := interMotionSearchErrorVectorCost(mv, vp8enc.MotionVector{}, testInterSearchQIndex, &vp8tables.DefaultMVContext); cost != want {
+		t.Fatalf("cost = %d, want zero distortion plus mv cost %d", cost, want)
+	}
+}
+
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*53 + col*97 + row*col*29 + col*col*7) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 4, 4, 4, 0, 12)
+	ref.ExtendBorders()
+
+	bestRefMV := vp8enc.MotionVector{}
+	reusedCenter := vp8enc.MotionVector{Col: 64}
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
+
+	if mv != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("search-centered split MV = %+v, want col +96", mv)
+	}
+	if noReuseMV == mv {
+		t.Fatalf("zero-centered search unexpectedly reached %+v; test no longer proves predictor reuse", mv)
+	}
+}
+
+func TestSplitMotionSubsetSearchCenterMatchesLibvpx4x4Reuse(t *testing.T) {
+	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
+	mode := vp8enc.InterFrameMacroblockMode{Partition: 3}
+	mode.BlockMV[0] = vp8enc.MotionVector{Col: 64}
+	mode.BlockMV[4] = vp8enc.MotionVector{Row: 32}
+
+	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 1); got != mode.BlockMV[0] {
+		t.Fatalf("subset 1 search center = %+v, want left block %+v", got, mode.BlockMV[0])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 8, &mode, bestRefMV, 1); got != mode.BlockMV[4] {
+		t.Fatalf("subset 8 search center = %+v, want above block %+v", got, mode.BlockMV[4])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 0); got != bestRefMV {
+		t.Fatalf("best-quality search center = %+v, want bestRefMV %+v", got, bestRefMV)
+	}
+}
+
 func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 	t.Run("horizontal", func(t *testing.T) {
 		src, ref := splitMotionSourceAndReference(t)

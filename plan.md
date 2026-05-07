@@ -13,6 +13,8 @@ muxing, and no libvpx C API clone.
   reference policy, mode/MV choices, and residual decisions. Do not chase
   byte-for-byte identity in paths that do not affect quality, decoder-visible
   output, future encoder decisions, or oracle diagnosis.
+- Treat "100% parity" as quality/rate and quality-relevant decision
+  equivalence, not universal bit-exactness.
 - Bit-exact output is still required where deterministic paths make it the
   right proof, especially packet validity, frame headers, reference
   refresh/copy/sign-bias bits, decoder MD5s, and low-level entropy writers.
@@ -58,9 +60,11 @@ lives in [Makefile](Makefile).
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
   per-subset LEFT/ABOVE/ZERO/NEW mode trials and explicit sub-MV labels are
-  now wired into selection, cost, MV-probability counting, and syntax.
-  Predictor/step reuse, token-context commit parity, and oracle-backed
-  label-level RD remain open.
+  now wired into selection, cost, MV-probability counting, and syntax. Split
+  NEW candidates now get fractional refinement, and compressor-speed 4x4
+  searches reuse the previous left/above block MV as the next search center.
+  8x8 seed/step reuse for 16x8/8x16, token-context commit parity, and
+  oracle-backed label-level RD remain open.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
