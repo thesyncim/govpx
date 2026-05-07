@@ -295,8 +295,10 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: full libvpx `diamond_search_sad` NSTEP/refining diamond
-    (govpx uses a small exhaustive integer-pel sweep), distinct
+  - Missing: wiring the shared libvpx-shaped `diamond_search_sad`
+    helper into first-pass motion search (the main encoder NSTEP/DIAMOND/HEX
+    full-pel helpers are in place, but first-pass still uses a small
+    exhaustive integer-pel sweep), distinct
     `last_frame_unscaled_source` raw buffer used by libvpx's
     `zz_motion_search` (govpx folds raw and reconstructed LAST into the
     same buffer), encode_breakout user-facing knob, terminal total-stats
@@ -449,7 +451,9 @@ the anchor and look for the surrounding mismatch.
     96, and RD subpel acceptance now has a dedicated helper instead of sharing
     the fast picker decision path. Whole-MB full-pel NSTEP/full/refine searches
     now keep libvpx's SAD-based site walk but return variance plus `mv_err_cost`
-    for completed searches; hex search remains on its libvpx SAD return path.
+    for completed searches; the alternate four-site DIAMOND table/path is
+    available for explicit libvpx-surface parity and future first-pass reuse;
+    hex search remains on its libvpx SAD return path.
     Encoder near/best MV helpers, mode validation, mode-probability contexts,
     packet writing, and MV-probability adaptation now apply libvpx-style
     reference sign bias before predictor dedupe/counting. Inter residual
