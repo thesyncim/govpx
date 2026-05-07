@@ -30,5 +30,5 @@ func LoopFilterHeaderForVersion(version int, header LoopFilterHeader) LoopFilter
 }
 
 func IsSupportedVersion(version int) bool {
-	return version >= 0 && version <= 3
+	return version >= 0 && version <= 7
 }

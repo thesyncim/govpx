@@ -348,15 +348,25 @@ func TestDecodeSkipsLoopFilterForNoLPFVersion(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsReservedVersion(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
+func TestDecodeOutputsDefaultVersionKeyFrames(t *testing.T) {
+	for _, version := range []int{4, 5, 6, 7} {
+		d, err := NewVP8Decoder(DecoderOptions{})
+		if err != nil {
+			t.Fatalf("NewVP8Decoder returned error: %v", err)
+		}
+		packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
 
-	err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 4, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("error = %v, want ErrUnsupportedFeature", err)
+		err = d.Decode(packet)
+		if err != nil {
+			t.Fatalf("version %d Decode error = %v, want nil", version, err)
+		}
+		frame, ok := d.NextFrame()
+		if !ok {
+			t.Fatalf("version %d NextFrame returned no frame", version)
+		}
+		if frame.Width != 16 || frame.Height != 16 {
+			t.Fatalf("version %d frame dimensions = %dx%d, want 16x16", version, frame.Width, frame.Height)
+		}
 	}
 }
 

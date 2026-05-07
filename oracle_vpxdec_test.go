@@ -180,6 +180,23 @@ func TestOracleLibvpxPostProcessMatchesProfile3Decoder(t *testing.T) {
 	assertFrameChecksumsEqual(t, "profile3 postprocess Decode", got, want)
 }
 
+func TestOracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
+	}
+	oracle := findChecksumOracle(t)
+	for _, version := range []int{4, 5, 6, 7} {
+		t.Run(fmt.Sprintf("version%d", version), func(t *testing.T) {
+			packet := vp8KeyFramePacketWithPayload(16, 16, 200, version, true)
+			ivf := makeSingleFrameIVF(16, 16, 30, 1, packet)
+
+			want := runLibvpxChecksumOracle(t, oracle, ivf)
+			got := decodeIVFChecksums(t, ivf)
+			assertFrameChecksumsEqual(t, "default version keyframe Decode", got, want)
+		})
+	}
+}
+
 func TestOracleLibvpxChecksumMatchesEncodeIntoBPredKeyFrame(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
