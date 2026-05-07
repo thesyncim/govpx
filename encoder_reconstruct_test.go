@@ -404,7 +404,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 
 	var scratch vp8dec.IntraReconstructionScratch
 	quant := testMacroblockQuant(20)
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, &quant, &pred.Img, &scratch)
+	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, nil, nil, &quant, &pred.Img, &scratch)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
@@ -428,7 +428,7 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	quant := testMacroblockQuant(4)
 	var scratch vp8dec.IntraReconstructionScratch
 
-	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, 0)
+	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0)
 
 	if !ok {
 		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")

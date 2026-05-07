@@ -1165,15 +1165,7 @@ func WriteInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partition
 }
 
 func resetTokenContext(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
-	if !is4x4 {
-		*above = TokenContextPlanes{}
-		*left = TokenContextPlanes{}
-		return
-	}
-
-	aboveY2, leftY2 := above.Y2, left.Y2
-	*above = TokenContextPlanes{Y2: aboveY2}
-	*left = TokenContextPlanes{Y2: leftY2}
+	ResetTokenContextPlanes(above, left, is4x4)
 }
 
 func validInterCoefficientTokenMode(mode *InterFrameMacroblockMode) bool {

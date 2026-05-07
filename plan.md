@@ -30,19 +30,14 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 
 ### Encoder Quality
 
-- B_PRED 4x4 and whole-block 16x16 token-context seeding from neighbor MB
-  EOBs (`above_context` / `left_context` per `rdopt.c
-  rd_pick_intra4x4mby_modes` and `vp8_rdcost_mby`); both currently seed with
-  zero. The MB-level RDCOST single-application and the `best_rd` per-block
-  early-exit are in place.
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
   per-call tree walks are functionally equivalent, but the libvpx pattern
   precomputes once per frame).
 - Faithful diamond / 3-step / hex motion search with the
   `vp8_init3smotion_compensation` search-site table; the `bestRefMV`
   centring, MV-cost ref, and sub-pel `±MAX_FULL_PEL_VAL` reject are in place
-  but the integer search is still an exhaustive ±8 sweep, not a stepped
-  diamond.
+  but the integer search is still an exhaustive sweep (±16 for whole-MB,
+  ±8 for SPLITMV), not a stepped diamond.
 - `sad_per_bit4lut` (mcomp.c) for SPLITMV-block SAD scoring.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage.
 - Exact loop-filter level search.

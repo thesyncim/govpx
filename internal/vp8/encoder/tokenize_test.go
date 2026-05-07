@@ -244,6 +244,59 @@ func TestWriteCoefficientMacroblockTokensCachedMatchesFallback(t *testing.T) {
 	}
 }
 
+func TestUpdateTokenContextPlanesFromCoefficientsMatchesWriter(t *testing.T) {
+	tests := []struct {
+		name  string
+		is4x4 bool
+		init  func(*MacroblockCoefficients)
+	}{
+		{
+			name: "whole",
+			init: func(coeffs *MacroblockCoefficients) {
+				coeffs.QCoeff[24][0] = 2
+				coeffs.QCoeff[0][1] = 1
+				coeffs.QCoeff[5][2] = -3
+				coeffs.QCoeff[16][0] = 4
+				coeffs.QCoeff[22][3] = -5
+			},
+		},
+		{
+			name:  "bpred",
+			is4x4: true,
+			init: func(coeffs *MacroblockCoefficients) {
+				coeffs.QCoeff[0][0] = 1
+				coeffs.QCoeff[7][4] = -2
+				coeffs.QCoeff[19][0] = 3
+				coeffs.QCoeff[23][5] = -4
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var coeffs MacroblockCoefficients
+			tt.init(&coeffs)
+			setAllMacroblockEOBs(&coeffs, tt.is4x4)
+
+			writerAbove := TokenContextPlanes{Y1: [4]uint8{1, 0, 1, 0}, U: [2]uint8{1, 0}, V: [2]uint8{0, 1}, Y2: 1}
+			writerLeft := TokenContextPlanes{Y1: [4]uint8{0, 1, 0, 1}, U: [2]uint8{0, 1}, V: [2]uint8{1, 0}, Y2: 0}
+			helperAbove := writerAbove
+			helperLeft := writerLeft
+
+			var w BoolWriter
+			buf := make([]byte, 4096)
+			w.Init(buf)
+			if err := WriteCoefficientMacroblockTokens(&w, &tables.DefaultCoefProbs, tt.is4x4, &writerAbove, &writerLeft, &coeffs); err != nil {
+				t.Fatalf("WriteCoefficientMacroblockTokens returned error: %v", err)
+			}
+			UpdateTokenContextPlanesFromCoefficients(&helperAbove, &helperLeft, tt.is4x4, &coeffs)
+
+			if helperAbove != writerAbove || helperLeft != writerLeft {
+				t.Fatalf("helper contexts = %+v/%+v, want writer %+v/%+v", helperAbove, helperLeft, writerAbove, writerLeft)
+			}
+		})
+	}
+}
+
 func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 1

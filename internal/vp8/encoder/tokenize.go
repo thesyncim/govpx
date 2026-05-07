@@ -417,6 +417,63 @@ func writeCoeffExtraBits(w *BoolWriter, token int, mag int) {
 	}
 }
 
+// ResetTokenContextPlanes applies the inter-frame mb_no_coeff_skip context
+// reset. Whole-block modes clear all contexts; 4x4 modes preserve Y2 because
+// no Y2 tokens are coded for the macroblock.
+func ResetTokenContextPlanes(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
+	if above == nil || left == nil {
+		return
+	}
+	if !is4x4 {
+		*above = TokenContextPlanes{}
+		*left = TokenContextPlanes{}
+		return
+	}
+	aboveY2, leftY2 := above.Y2, left.Y2
+	*above = TokenContextPlanes{Y2: aboveY2}
+	*left = TokenContextPlanes{Y2: leftY2}
+}
+
+// UpdateTokenContextPlanesFromCoefficients updates above/left token contexts
+// after a macroblock has been built, matching the EOB-derived updates inside
+// WriteCoefficientMacroblockTokens. Used by mode-decision to keep RD scoring
+// in step with libvpx's above_context / left_context plumbing across MBs.
+func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool, coeffs *MacroblockCoefficients) {
+	if above == nil || left == nil || coeffs == nil {
+		return
+	}
+	skipDC := 0
+	if !is4x4 {
+		eob := coeffs.BlockEOB(24, 0)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		above.Y2 = hasCoeffs
+		left.Y2 = hasCoeffs
+		skipDC = 1
+	}
+	for block := 0; block < 16; block++ {
+		eob := coeffs.BlockEOB(block, skipDC)
+		hasCoeffs := uint8(0)
+		if eob > skipDC {
+			hasCoeffs = 1
+		}
+		above.Y1[block&3] = hasCoeffs
+		left.Y1[(block&0x0c)>>2] = hasCoeffs
+	}
+	for block := 16; block < 24; block++ {
+		eob := coeffs.BlockEOB(block, 0)
+		a, l := tokenUVContextIndex(block)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		setTokenUVContext(above, a, hasCoeffs)
+		setTokenUVContext(left, l, hasCoeffs)
+	}
+}
+
 func tokenUVContextIndex(block int) (int, int) {
 	base := 0
 	if block > 19 {
