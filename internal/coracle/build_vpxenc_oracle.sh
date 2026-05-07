@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-improved-mv
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07-prob-state
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -105,6 +105,25 @@ static unsigned int govpx_plane_adler32(const unsigned char *plane,
             a = (a + p[col]) % GOVPX_ADLER_MOD;
             b = (b + a) % GOVPX_ADLER_MOD;
         }
+    }
+    return (b << 16) | a;
+}
+
+/* Adler-32 over a flat byte buffer. Used for compact frame-level
+ * probability-state digests (coef_probs, mode probs, MV probs). The govpx
+ * side mirrors the same hash via Go's hash/adler32 in encoder_oracle_trace.go
+ * so a one-byte divergence in any of the underlying tables surfaces as a
+ * single field-level diff in the comparator. */
+static unsigned int govpx_buf_adler32(const unsigned char *buf, size_t n) {
+    unsigned int a = 1;
+    unsigned int b = 0;
+    size_t i;
+    if (buf == NULL || n == 0) {
+        return (b << 16) | a; /* Adler32 of an empty buffer is 1. */
+    }
+    for (i = 0; i < n; ++i) {
+        a = (a + buf[i]) % GOVPX_ADLER_MOD;
+        b = (b + a) % GOVPX_ADLER_MOD;
     }
     return (b << 16) | a;
 }
@@ -327,6 +346,11 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
     MACROBLOCKD *xd;
     YV12_BUFFER_CONFIG *ref;
     unsigned int y_adler, u_adler, v_adler;
+    unsigned int coef_probs_adler;
+    unsigned int ymode_probs_adler;
+    unsigned int uv_mode_probs_adler;
+    unsigned int mv_probs_adler;
+    unsigned char mv_probs_buf[2 * 19];
     int mb_total;
     int i;
     int refresh_entropy_probs;
@@ -361,6 +385,28 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
          cm->frame_type == KEY_FRAME)
             ? 1
             : 0;
+    /* Probability-state digests. coef_probs is the full 4x8x3x11 table;
+     * ymode/uv_mode use the inter-frame mode probs (cm->fc.ymode_prob /
+     * cm->fc.uv_mode_prob). MV probs combine both components (row + col)
+     * so a single hash detects either-side drift. The govpx side mirrors
+     * each digest from `e.coefProbs`, `e.modeProbs.YMode`,
+     * `e.modeProbs.UVMode`, and `e.modeProbs.MV[0..1]` respectively. */
+    coef_probs_adler = govpx_buf_adler32(
+        (const unsigned char *)&cm->fc.coef_probs[0][0][0][0],
+        sizeof(cm->fc.coef_probs));
+    ymode_probs_adler = govpx_buf_adler32(
+        (const unsigned char *)&cm->fc.ymode_prob[0],
+        sizeof(cm->fc.ymode_prob));
+    uv_mode_probs_adler = govpx_buf_adler32(
+        (const unsigned char *)&cm->fc.uv_mode_prob[0],
+        sizeof(cm->fc.uv_mode_prob));
+    /* MV probs: pack components 0 and 1 into a contiguous buffer so the
+     * digest is order-independent of struct padding inside MV_CONTEXT. */
+    for (i = 0; i < 19; ++i) {
+        mv_probs_buf[i]      = (unsigned char)cm->fc.mvc[0].prob[i];
+        mv_probs_buf[19 + i] = (unsigned char)cm->fc.mvc[1].prob[i];
+    }
+    mv_probs_adler = govpx_buf_adler32(mv_probs_buf, sizeof(mv_probs_buf));
     fprintf(out,
             "{\"type\":\"frame\","
             "\"frame_index\":%llu,"
@@ -384,6 +430,13 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             "\"y_adler32\":%u,"
             "\"u_adler32\":%u,"
             "\"v_adler32\":%u,"
+            "\"coef_probs_adler\":%u,"
+            "\"ymode_probs_adler\":%u,"
+            "\"uv_mode_probs_adler\":%u,"
+            "\"mv_probs_adler\":%u,"
+            "\"prob_intra_coded\":%d,"
+            "\"prob_last_coded\":%d,"
+            "\"prob_gf_coded\":%d,"
             "\"size_bytes\":%zu}\n",
             govpx_oracle_state.frame_index,
             cm->frame_type == KEY_FRAME ? "key" : "inter",
@@ -406,6 +459,13 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             refresh_entropy_probs ? "true" : "false",
             default_coef_reset ? "true" : "false",
             y_adler, u_adler, v_adler,
+            coef_probs_adler,
+            ymode_probs_adler,
+            uv_mode_probs_adler,
+            mv_probs_adler,
+            cpi->prob_intra_coded,
+            cpi->prob_last_coded,
+            cpi->prob_gf_coded,
             frame_size);
     /* Flush per-MB rows captured during encode_mb_row (inter frames only). */
     if (cm->frame_type != KEY_FRAME && govpx_oracle_state.mb_rows != NULL) {

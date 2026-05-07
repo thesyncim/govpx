@@ -648,6 +648,113 @@ func TestCompareOracleTracesDetectsImprovedMVPredictorDivergence(t *testing.T) {
 	}
 }
 
+// frameRowProbState emits a "frame" row carrying the probability-state
+// digests (coef_probs_adler, ymode_probs_adler, uv_mode_probs_adler,
+// mv_probs_adler) and the per-frame reference probabilities
+// (prob_intra_coded, prob_last_coded, prob_gf_coded). The schema mirrors
+// oracleTraceFrameRow in encoder_oracle_trace.go and the libvpx-side row
+// in build_vpxenc_oracle.sh. Other frame-level fields stay at deterministic
+// defaults so the comparator's union-of-keys diff focuses on the
+// probability-state fields under test.
+func frameRowProbState(frameIndex, qIndex int, frameType string, coefAdler, ymodeAdler, uvModeAdler, mvAdler uint32, probIntra, probLast, probGF int) string {
+	return strings.Join([]string{
+		"{\"type\":\"frame\"",
+		fmt.Sprintf("\"frame_index\":%d", frameIndex),
+		fmt.Sprintf("\"frame_type\":%q", frameType),
+		fmt.Sprintf("\"q_index\":%d", qIndex),
+		"\"base_q_index\":40",
+		"\"loop_filter_level\":12",
+		"\"sharpness_level\":0",
+		"\"ref_lf_deltas\":[0,0,0,0]",
+		"\"mode_lf_deltas\":[0,0,0,0]",
+		"\"mode_ref_lf_delta_enabled\":false",
+		"\"mode_ref_lf_delta_update\":false",
+		"\"refresh_last\":true",
+		"\"refresh_golden\":false",
+		"\"refresh_altref\":false",
+		"\"sign_bias_golden\":false",
+		"\"sign_bias_altref\":false",
+		"\"segmentation_enabled\":false",
+		"\"refresh_entropy_probs\":true",
+		"\"default_coef_reset\":false",
+		"\"y_adler32\":0",
+		"\"u_adler32\":0",
+		"\"v_adler32\":0",
+		fmt.Sprintf("\"coef_probs_adler\":%d", coefAdler),
+		fmt.Sprintf("\"ymode_probs_adler\":%d", ymodeAdler),
+		fmt.Sprintf("\"uv_mode_probs_adler\":%d", uvModeAdler),
+		fmt.Sprintf("\"mv_probs_adler\":%d", mvAdler),
+		fmt.Sprintf("\"prob_intra_coded\":%d", probIntra),
+		fmt.Sprintf("\"prob_last_coded\":%d", probLast),
+		fmt.Sprintf("\"prob_gf_coded\":%d", probGF),
+		"\"size_bytes\":1234}",
+	}, ",")
+}
+
+// TestCompareOracleTracesDetectsProbabilityStateDivergence feeds two streams
+// whose frame rows agree on every header / loop-filter / reference field but
+// diverge on the coef_probs_adler digest (govpx says 0x11111111, libvpx says
+// 0x22222222 — modelling a per-byte drift in cm->fc.coef_probs that did not
+// touch any other table). The comparator must surface the field-level
+// mismatch with RowKind == "frame" so a future regression in
+// vp8_update_coef_probs (or its govpx counterpart) is caught even when the
+// MV / mode / reference probability digests still agree.
+func TestCompareOracleTracesDetectsProbabilityStateDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := frameRowProbState(0, 60, "inter",
+		0x11111111, 0x22223333, 0x44445555, 0x66667777,
+		63, 200, 220) + "\n"
+	libvpx := frameRowProbState(0, 60, "inter",
+		0x22222222, 0x22223333, 0x44445555, 0x66667777,
+		63, 200, 220) + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) == 0 {
+		t.Fatalf("expected divergences, got none")
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	d, ok := got["row=0/field=coef_probs_adler"]
+	if !ok {
+		t.Fatalf("missing coef_probs_adler divergence; got: %v", divKeys(div))
+	}
+	if d.RowKind != "frame" {
+		t.Errorf("RowKind=%q want frame", d.RowKind)
+	}
+	if d.FrameIndex != 0 {
+		t.Errorf("FrameIndex=%d want 0", d.FrameIndex)
+	}
+	if d.MBRow != -1 || d.MBCol != -1 {
+		t.Errorf("coords=(%d,%d) want (-1,-1)", d.MBRow, d.MBCol)
+	}
+	if gv, _ := d.Govpx.(float64); uint32(gv) != 0x11111111 {
+		t.Errorf("Govpx=%v want 0x11111111", d.Govpx)
+	}
+	if lv, _ := d.Libvpx.(float64); uint32(lv) != 0x22222222 {
+		t.Errorf("Libvpx=%v want 0x22222222", d.Libvpx)
+	}
+	// Sanity: the matching digests / ref probs must NOT show up as
+	// divergences since both sides emit identical values for them.
+	for _, key := range []string{
+		"row=0/field=ymode_probs_adler",
+		"row=0/field=uv_mode_probs_adler",
+		"row=0/field=mv_probs_adler",
+		"row=0/field=prob_intra_coded",
+		"row=0/field=prob_last_coded",
+		"row=0/field=prob_gf_coded",
+	} {
+		if _, has := got[key]; has {
+			t.Errorf("unexpected divergence for %s: %+v", key, got[key])
+		}
+	}
+}
+
 // divKey formats a divergence as "row=<idx>/field=<name>" for assertion
 // keys. Stream-level divergences (no field) collapse to "row=<idx>/<kind>".
 func divKey(d Divergence) string {

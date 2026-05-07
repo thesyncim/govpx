@@ -66,7 +66,30 @@ type oracleTraceFrameRow struct {
 	YAdler32             uint32  `json:"y_adler32"`
 	UAdler32             uint32  `json:"u_adler32"`
 	VAdler32             uint32  `json:"v_adler32"`
-	SizeBytes            int     `json:"size_bytes"`
+	// Probability-state digests. Each Adler32 is computed over the
+	// flat byte content of the corresponding probability table at the
+	// moment the frame is committed (after entropy updates have been
+	// applied). The libvpx-side oracle in
+	// internal/coracle/build_vpxenc_oracle.sh computes the same digests
+	// over `cm->fc.coef_probs`, `cm->fc.ymode_prob`,
+	// `cm->fc.uv_mode_prob`, and the row+col `cm->fc.mvc[].prob` arrays
+	// at the same emission point (tail of vp8_pack_bitstream). Any
+	// per-byte drift in any of those tables surfaces as a single
+	// field-level diff in the comparator.
+	CoefProbsAdler   uint32 `json:"coef_probs_adler"`
+	YModeProbsAdler  uint32 `json:"ymode_probs_adler"`
+	UVModeProbsAdler uint32 `json:"uv_mode_probs_adler"`
+	MVProbsAdler     uint32 `json:"mv_probs_adler"`
+	// Reference-frame coding probabilities at the same emission point.
+	// Mirror libvpx's `cpi->prob_intra_coded`, `cpi->prob_last_coded`,
+	// `cpi->prob_gf_coded` (vp8/encoder/onyx_int.h), which the encoder
+	// updates inside the recode loop via `update_rd_ref_frame_probs`.
+	// govpx tracks the same values through `e.refProbIntra`,
+	// `e.refProbLast`, `e.refProbGolden`.
+	ProbIntraCoded int `json:"prob_intra_coded"`
+	ProbLastCoded  int `json:"prob_last_coded"`
+	ProbGFCoded    int `json:"prob_gf_coded"`
+	SizeBytes      int `json:"size_bytes"`
 }
 
 // oracleTraceRateRow mirrors the libvpx-side "rate" row emitted from
@@ -244,7 +267,44 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 		row.FrameType = "inter"
 	}
 	row.YAdler32, row.UAdler32, row.VAdler32 = oracleTraceReferenceChecksums(&e.lastRef.Img)
+	row.CoefProbsAdler, row.YModeProbsAdler, row.UVModeProbsAdler, row.MVProbsAdler = e.oracleTraceProbabilityDigests()
+	row.ProbIntraCoded = int(e.refProbIntra)
+	row.ProbLastCoded = int(e.refProbLast)
+	row.ProbGFCoded = int(e.refProbGolden)
 	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+}
+
+// oracleTraceProbabilityDigests returns Adler32 digests over the encoder's
+// frame-level probability tables at the moment of emission. The four digests
+// align byte-for-byte with the libvpx-side hashes computed by the patched
+// vpxenc oracle (see internal/coracle/build_vpxenc_oracle.sh): the coef table
+// covers BLOCK_TYPES * COEF_BANDS * PREV_COEF_CONTEXTS * ENTROPY_NODES = 1056
+// bytes; the YMode / UVMode digests cover the inter-frame intra-mode probs
+// (4 / 3 bytes); the MV digest concatenates row+col probability components
+// (2 * 19 = 38 bytes) so a one-byte drift in either component is detected.
+func (e *VP8Encoder) oracleTraceProbabilityDigests() (uint32, uint32, uint32, uint32) {
+	var coefBuf [4 * 8 * 3 * 11]byte
+	off := 0
+	for block := 0; block < 4; block++ {
+		for band := 0; band < 8; band++ {
+			for ctx := 0; ctx < 3; ctx++ {
+				for node := 0; node < 11; node++ {
+					coefBuf[off] = e.coefProbs[block][band][ctx][node]
+					off++
+				}
+			}
+		}
+	}
+	coefHash := adler32.Checksum(coefBuf[:])
+	yModeHash := adler32.Checksum(e.modeProbs.YMode[:])
+	uvModeHash := adler32.Checksum(e.modeProbs.UVMode[:])
+	var mvBuf [2 * 19]byte
+	for i := 0; i < 19; i++ {
+		mvBuf[i] = e.modeProbs.MV[0][i]
+		mvBuf[19+i] = e.modeProbs.MV[1][i]
+	}
+	mvHash := adler32.Checksum(mvBuf[:])
+	return coefHash, yModeHash, uvModeHash, mvHash
 }
 
 // oracleTraceRateSummary is the slice of rate-control state callers pass to
