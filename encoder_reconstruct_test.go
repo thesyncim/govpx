@@ -1721,6 +1721,55 @@ func TestQuantizeOptimizedBlockKeepsDequantizedCoefficient(t *testing.T) {
 	}
 }
 
+func TestResetLibvpxSmallSecondOrderCoefficientsClearsTinyY2(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	qcoeff[0] = 3
+	dqcoeff[0] = 30
+
+	eob := resetLibvpxSmallSecondOrderCoefficients(&quant, &qcoeff, &dqcoeff, 1)
+
+	if eob != 0 || qcoeff[0] != 0 || dqcoeff[0] != 0 {
+		t.Fatalf("small Y2 reset = eob:%d q:%d dq:%d, want cleared", eob, qcoeff[0], dqcoeff[0])
+	}
+}
+
+func TestResetLibvpxSmallSecondOrderCoefficientsKeepsVisibleY2(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	qcoeff[0] = 4
+	dqcoeff[0] = 40
+
+	eob := resetLibvpxSmallSecondOrderCoefficients(&quant, &qcoeff, &dqcoeff, 1)
+
+	if eob != 1 || qcoeff[0] != 4 || dqcoeff[0] != 40 {
+		t.Fatalf("visible Y2 reset = eob:%d q:%d dq:%d, want preserved", eob, qcoeff[0], dqcoeff[0])
+	}
+}
+
+func TestResetLibvpxSmallSecondOrderCoefficientsHonorsDequantGuard(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 35
+	}
+	var qcoeff [16]int16
+	qcoeff[0] = 1
+
+	eob := resetLibvpxSmallSecondOrderCoefficients(&quant, &qcoeff, nil, 1)
+
+	if eob != 1 || qcoeff[0] != 1 {
+		t.Fatalf("guarded Y2 reset = eob:%d q:%d, want preserved when dequant >= 35", eob, qcoeff[0])
+	}
+}
+
 func testRegularBlockQuant(qIndex int, dequantValue int16) vp8enc.BlockQuant {
 	var dequant [16]int16
 	for i := range dequant {

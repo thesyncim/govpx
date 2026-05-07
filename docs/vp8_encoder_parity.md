@@ -24,7 +24,7 @@ the anchor and look for the surrounding mismatch.
 - Quality smoke parity: high on the current tiny corpus, but not complete. The
   current oracle cases are near-equal on SSIM, while motion still shows a max
   frame PSNR gap around 1.9 dB and a large bitrate delta. Current smoke numbers:
-  motion govpx/libvpx PSNR 49.19/50.35, bitrate 329.1/268.7 kbps; static
+  motion govpx/libvpx PSNR 49.19/50.35, bitrate 330.0/268.7 kbps; static
   govpx/libvpx PSNR 49.52/49.71, bitrate 366.5/372.3 kbps.
 - Encoder decision parity: roughly 45-55% complete. This is an engineering
   estimate, not a measured percentage, because govpx still lacks the trace
@@ -277,12 +277,14 @@ the anchor and look for the surrounding mismatch.
     [`quantizeOptimizedBlock`](../encoder_reconstruct.go),
     [`internal/vp8/encoder/quant.go`](../internal/vp8/encoder/quant.go).
   - libvpx: `encodemb.c` and `vp8_quantize.c`.
-  - Status: partial. Several optimized-block paths are tested, but full parity
-    needs every zbin/round/quant/dequant path, trellis decision, EOB handling,
-    and Y2/Y1/UV context behavior.
+  - Status: partial. Several optimized-block paths are tested, and the
+    post-optimization `check_reset_2nd_coeffs` behavior now clears tiny Y2
+    residuals that would inverse-transform to zero. Full parity still needs
+    every zbin/round/quant/dequant path, trellis decision, EOB handling, and
+    Y2/Y1/UV context behavior.
   - Missing: libvpx Viterbi trellis, `zbin_extra`, fast-vs-regular quantizer
     paths, `optimize_coefficients` gating, `RDTRUNC` tie-breaks,
-    `check_reset_2nd_coeffs`, and token-cost trace anchors.
+    and token-cost trace anchors.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin
     boosts, and coefficient patterns.

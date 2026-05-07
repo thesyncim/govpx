@@ -1218,6 +1218,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 	y2Ctx := int(y2Above + y2Left)
 	y2EOB := quantizeOptimizedBlock(coefProbs, qIndex, 1, y2Ctx, 0, 0, true, &y2Coeff, &quant.Y2, &y2Q, &y2DQ)
+	y2EOB = resetLibvpxSmallSecondOrderCoefficients(&quant.Y2, &y2Q, &y2DQ, y2EOB)
 	rate += coefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
 	y2Error := transformBlockError(&y2Coeff, &y2DQ)
 	distortion := ((mbblockError << 2) + y2Error) >> 4
@@ -3148,6 +3149,7 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 		eob := quantizeBlockWithZbin(&y2Coeff, &quant.Y2, qIndex, zbinModeBoost, &coeffs.QCoeff[24], &dq)
 		eob = optimizeQuantizedBlock(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, intra, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], eob)
+		eob = resetLibvpxSmallSecondOrderCoefficients(&quant.Y2, &coeffs.QCoeff[24], nil, eob)
 		coeffs.SetBlockEOB(24, eob)
 	} else {
 		coeffs.SetBlockEOB(24, 0)
@@ -3379,6 +3381,38 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 		}
 	}
 	return eob
+}
+
+// Ported from libvpx v1.16.0 vp8/encoder/encodemb.c
+// check_reset_2nd_coeffs. Very small Y2 residuals inverse-transform to a zero
+// pixel delta, so libvpx drops the whole second-order block after optimization.
+func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16, eob int) int {
+	if quant == nil || qcoeff == nil || eob <= 0 {
+		return eob
+	}
+	if quant.Dequant[0] >= 35 && quant.Dequant[1] >= 35 {
+		return eob
+	}
+	sum := 0
+	for pos := 0; pos < eob && pos < 16; pos++ {
+		rc := int(vp8tables.DefaultZigZag1D[pos])
+		coef := int(qcoeff[rc]) * int(quant.Dequant[rc])
+		if coef < 0 {
+			coef = -coef
+		}
+		sum += coef
+		if sum >= 35 {
+			return eob
+		}
+	}
+	for pos := 0; pos < eob && pos < 16; pos++ {
+		rc := int(vp8tables.DefaultZigZag1D[pos])
+		qcoeff[rc] = 0
+		if dqcoeff != nil {
+			dqcoeff[rc] = 0
+		}
+	}
+	return 0
 }
 
 func quantizedBlockError(coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, skipDC int) int {
