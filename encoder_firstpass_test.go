@@ -397,6 +397,60 @@ func TestTwoPassFramesToKeyClampsAtTwoIntervalsForAutoKey(t *testing.T) {
 	}
 }
 
+// TestTwoPassKFGroupModifiedErrorMatchesSumOfFrames pins libvpx's
+// inner accumulator: `kf_group_err += calculate_modified_err(this_frame)`
+// across the KF group.
+func TestTwoPassKFGroupModifiedErrorMatchesSumOfFrames(t *testing.T) {
+	stats := []FirstPassFrameStats{
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+		{IntraError: 1500, CodedError: 200, PcntInter: 0.85},
+		{IntraError: 800, CodedError: 50, PcntInter: 0.95},
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	want := twoPassModifiedError(stats[0], 50) + twoPassModifiedError(stats[1], 50) + twoPassModifiedError(stats[2], 50)
+	if got := ts.kfGroupModifiedError(0, 3); got != want {
+		t.Fatalf("kfGroupModifiedError = %v, want %v", got, want)
+	}
+}
+
+// TestTwoPassKFGroupBitsAllocatesByErrorRatio pins the libvpx allocation
+//
+//	kf_group_bits = bits_left * (kf_group_err / modified_error_left)
+//
+// clamped at max_bits_per_frame * frames_to_key.
+func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
+	stats := []FirstPassFrameStats{
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+		{IntraError: 1500, CodedError: 200, PcntInter: 0.85},
+		{IntraError: 800, CodedError: 50, PcntInter: 0.95},
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	groupErr := ts.kfGroupModifiedError(0, 3)
+	want := int64(float64(ts.bitsLeft) * (groupErr / ts.errorLeft))
+	if got := ts.kfGroupBits(0, 3, 0); got != want {
+		t.Fatalf("kfGroupBits without cap = %d, want %d", got, want)
+	}
+	// With max_bits_per_frame=100 and frames_to_key=3, the cap is 300.
+	if got := ts.kfGroupBits(0, 3, 100); got > 300 {
+		t.Fatalf("kfGroupBits with cap=100*3 = %d, want <= 300", got)
+	}
+}
+
+// TestTwoPassKFGroupBitsReturnsZeroWhenBitsExhausted pins the libvpx
+// `if (bits_left > 0 && modified_error_left > 0.0)` gate.
+func TestTwoPassKFGroupBitsReturnsZeroWhenBitsExhausted(t *testing.T) {
+	stats := []FirstPassFrameStats{{IntraError: 1000, CodedError: 100, PcntInter: 0.9}}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+	ts.bitsLeft = 0
+	if got := ts.kfGroupBits(0, 1, 0); got != 0 {
+		t.Fatalf("kfGroupBits with bits_left=0 = %d, want 0", got)
+	}
+}
+
 // TestTwoPassFramesToKeyHonoursTestCandidateKF pins the
 // libvpxTestCandidateKeyFrame predicate firing inside framesToKey.
 // Build stats where frame 6 is a clear scene cut (low intra/coded
