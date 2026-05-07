@@ -93,9 +93,10 @@ the anchor and look for the surrounding mismatch.
     `segmentation_enabled`, Y/U/V plane Adler32 reference checksums, and
     `size_bytes`; per-MB row (inter frames only) with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
-    `mv_col`, `skip`, `eob[0..24]`, and `eob_sum`. Rows are emitted in
-    deterministic raster scan order and only for the final committed
-    encode attempt (recoded attempts are discarded).
+    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, and improved-MV start fields.
+    Rows cover every committed inter-frame MB, including intra `B_PRED`
+    decisions, are emitted in deterministic raster scan order, and only for
+    the final committed encode attempt (recoded attempts are discarded).
   - Remaining: libvpx-side instrumentation in `encodeframe.c`,
     `pickinter.c`, `rdopt.c`, `ratectrl.c`, `onyx_if.c`, and
     `bitstream.c`, plus a comparator that diffs the JSON Lines stream
