@@ -76,6 +76,11 @@ Primary references:
   init); the keyframe-after-keyframe boost branch (`prob_intra_coded += 40`,
   `prob_last_coded = 200`, `prob_gf_coded = 1`) and `source_alt_ref_active`
   branch from `onyx_if.c` are still flat.
+- Inter RD now costs skip signaling from libvpx-style live
+  `prob_skip_false` history and uses the current coefficient probability base
+  for token-rate decisions; final coefficient optimization still uses the
+  default base pending tighter oracle parity. Remaining current-prob gaps are
+  primarily MV cost tables and broader libvpx mode-cost caching.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),

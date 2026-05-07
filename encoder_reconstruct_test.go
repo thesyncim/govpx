@@ -634,8 +634,9 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	pred := testVP8Frame(t, 16, 16, 128, 128, 128)
 	quant := testMacroblockQuant(4)
 	var scratch vp8dec.IntraReconstructionScratch
+	probs := vp8tables.DefaultCoefProbs
 
-	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0)
+	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0, &probs)
 
 	if !ok {
 		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")
@@ -1097,6 +1098,37 @@ func TestOptimizeQuantizedBlockDropsTrailingCoefficientWhenRateWins(t *testing.T
 
 	if eob != 1 || qcoeff[1] != 0 {
 		t.Fatalf("optimized eob/qcoeff = %d/%d, want trailing coefficient dropped", eob, qcoeff[1])
+	}
+}
+
+func TestOptimizeQuantizedBlockUsesProvidedCoefficientProbs(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	coeff[1] = 9
+	qcoeff[1] = 1
+
+	defaultQ := qcoeff
+	defaultEOB := optimizeQuantizedBlock(127, 0, 0, 1, false, &coeff, &quant, &defaultQ, 2)
+	if defaultEOB != 1 || defaultQ[1] != 0 {
+		t.Fatalf("default optimized eob/qcoeff = %d/%d, want trailing coefficient dropped", defaultEOB, defaultQ[1])
+	}
+
+	liveProbs := vp8tables.DefaultCoefProbs
+	liveProbs[0][1][0][0] = 1
+	liveProbs[0][1][0][1] = 1
+	liveProbs[0][1][0][2] = 255
+	nextBand := vp8tables.CoefBandsTable[2]
+	nextCtx := vp8tables.PrevTokenClass[vp8tables.OneToken]
+	liveProbs[0][nextBand][nextCtx][0] = 255
+
+	liveQ := qcoeff
+	liveEOB := optimizeQuantizedBlockWithProbs(&liveProbs, 127, 0, 0, 1, false, &coeff, &quant, &liveQ, 2)
+	if liveEOB != 2 || liveQ[1] != 1 {
+		t.Fatalf("live-prob optimized eob/qcoeff = %d/%d, want coefficient preserved", liveEOB, liveQ[1])
 	}
 }
 
