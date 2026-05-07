@@ -117,6 +117,20 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	}
 	info, err := PeekVP8StreamInfo(packet)
 	if err != nil {
+		if d.shouldConcealMissingFrameTag(packet) {
+			info := missingFrameConcealmentInfo()
+			frameInfo := d.finishConcealedFrame(info, pts)
+			d.frameReady = false
+			if frameInfo.ShowFrame {
+				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				if err != nil {
+					return err
+				}
+				d.lastFrame = publicImageFromVP8(output)
+				d.frameReady = true
+			}
+			return nil
+		}
 		return err
 	}
 	if d.needKey && !info.KeyFrame {
@@ -177,6 +191,23 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	}
 	info, err := PeekVP8StreamInfo(packet)
 	if err != nil {
+		if d.shouldConcealMissingFrameTag(packet) {
+			info := missingFrameConcealmentInfo()
+			outputWidth, outputHeight := d.outputDimensions(info)
+			if !dst.validForEncode(outputWidth, outputHeight) {
+				return FrameInfo{}, ErrInvalidConfig
+			}
+			frameInfo := d.finishConcealedFrame(info, pts)
+			d.frameReady = false
+			if frameInfo.ShowFrame {
+				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				if err != nil {
+					return FrameInfo{}, err
+				}
+				copyVP8ImageToPublic(dst, output)
+			}
+			return frameInfo, nil
+		}
 		return FrameInfo{}, err
 	}
 	if d.needKey && !info.KeyFrame {
@@ -314,6 +345,16 @@ func (opts DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
 
 func (opts DecoderOptions) effectiveErrorConcealment() bool {
 	return opts.ErrorConcealment || opts.ErrorResilient
+}
+
+func missingFrameConcealmentInfo() StreamInfo {
+	return StreamInfo{ShowFrame: true}
+}
+
+func (d *VP8Decoder) shouldConcealMissingFrameTag(packet []byte) bool {
+	return len(packet) < 3 &&
+		d.opts.effectiveErrorConcealment() &&
+		d.canConceal(missingFrameConcealmentInfo())
 }
 
 func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {

@@ -1249,6 +1249,36 @@ func TestDecodeErrorConcealmentOptionConcealsCorruptInterFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	if err := d.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	previous := d.lastRef.Img.Y[0]
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+
+	err = d.DecodeWithPTS([]byte{0x10, 0}, 102)
+	if err != nil {
+		t.Fatalf("missing tag DecodeWithPTS error = %v, want nil concealment", err)
+	}
+	if !d.lastInfo.Corrupted || d.lastInfo.PTS != 102 || d.lastInfo.Width != 16 || d.lastInfo.Height != 16 || !d.lastInfo.ShowFrame {
+		t.Fatalf("lastInfo = %+v, want visible corrupted concealed 16x16 PTS 102", d.lastInfo)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("concealed missing-tag NextFrame returned no frame")
+	}
+	if frame.Y[0] != previous {
+		t.Fatalf("concealed Y[0] = %d, want previous reference %d", frame.Y[0], previous)
+	}
+}
+
 func TestDecodeErrorResilientConcealmentDoesNotCommitProbabilityUpdates(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{ErrorResilient: true})
 	if err != nil {
@@ -1338,6 +1368,37 @@ func TestDecodeIntoErrorResilientConcealsCorruptInterFrame(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); ok {
 		t.Fatalf("DecodeInto concealment queued a NextFrame output")
+	}
+}
+
+func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	keyPacket := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	if err := d.Decode(keyPacket); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+	previous := d.lastRef.Img.Y[0]
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	dst := newTestImage(16, 16)
+	fillImage(dst, 7, 8, 9)
+
+	info, err := d.DecodeIntoWithPTS([]byte{0x10, 0}, &dst, 103)
+	if err != nil {
+		t.Fatalf("missing tag DecodeIntoWithPTS error = %v, want nil concealment", err)
+	}
+	if !info.Corrupted || info.PTS != 103 || info.Width != 16 || info.Height != 16 || !info.ShowFrame {
+		t.Fatalf("FrameInfo = %+v, want visible corrupted concealed 16x16 PTS 103", info)
+	}
+	if dst.Y[0] != previous {
+		t.Fatalf("concealed dst Y[0] = %d, want previous reference %d", dst.Y[0], previous)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatalf("DecodeInto missing-tag concealment queued a NextFrame output")
 	}
 }
 
@@ -1452,6 +1513,21 @@ func TestDecodeDoesNotConcealCorruptInterFrameWhenDisabled(t *testing.T) {
 	}
 	if err := d.Decode(vp8InterFramePacket(0, 0, true)); !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("corrupt inter error = %v, want ErrInvalidData", err)
+	}
+}
+
+func TestDecodeDoesNotConcealMissingFrameTagWhenDisabled(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("key Decode error = %v, want nil", err)
+	}
+
+	err = d.Decode([]byte{0x10, 0})
+	if !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("missing tag error = %v, want ErrInvalidData", err)
 	}
 }
 
