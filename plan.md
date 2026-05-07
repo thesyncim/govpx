@@ -49,7 +49,7 @@ Already established:
 - Encoder has basic realtime CBR, temporal layering controls, entropy refresh
   state, segmentation plumbing, token partitions, reconstruction, loop filter,
   SPLITMV emission across VP8 split partition shapes, rotating cyclic-refresh-style segmentation,
-  and libvpx decode acceptance tests.
+  force-Golden/AltRef refresh flags, and libvpx decode acceptance tests.
 - Decoder has broad smoke/oracle coverage but is not production parity yet.
 
 Use `UPSTREAM.md` for detailed subsystem status and known deviations.

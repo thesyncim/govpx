@@ -2193,6 +2193,69 @@ func TestEncodeIntoInterFramePreservesGoldenAndAltRefByDefault(t *testing.T) {
 	assertImagesEqual(t, "alt", keyFrame, publicImageFromVP8(&e.altRef.Img))
 }
 
+func TestEncodeIntoCanForceGoldenAndAltRefRefresh(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 91, 171)
+	keyPacket := make([]byte, 4096)
+	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyFrame := decodeSingleFrame(t, key.Data)
+	interPacket := make([]byte, 4096)
+
+	inter, err := e.EncodeInto(interPacket, second, 1, 1, EncodeForceGoldenFrame|EncodeForceAltRefFrame)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatalf("inter KeyFrame = true, want interframe")
+	}
+	state := packetState(t, inter.Data)
+	if !state.Refresh.RefreshLast || !state.Refresh.RefreshGolden || !state.Refresh.RefreshAltRef {
+		t.Fatalf("refresh flags = %+v, want last/golden/altref refresh", state.Refresh)
+	}
+	decoded := decodeFrameSequence(t, key.Data, inter.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertImagesEqual(t, "current", decoded[1], publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
+	assertImagesEqual(t, "golden", decoded[1], publicImageFromVP8(&e.goldenRef.Img))
+	assertImagesEqual(t, "alt", decoded[1], publicImageFromVP8(&e.altRef.Img))
+	if planeEqual(keyFrame.Y, keyFrame.YStride, e.goldenRef.Img.Y, e.goldenRef.Img.YStride, keyFrame.Width, keyFrame.Height) {
+		t.Fatalf("golden reference still matches keyframe after forced refresh")
+	}
+}
+
+func TestEncodeIntoRejectsConflictingForceReferenceFlags(t *testing.T) {
+	e := newTestEncoder(t)
+	src := testImage(16, 16)
+	fillImage(src, 220, 90, 170)
+	dst := make([]byte, 4096)
+
+	tests := []struct {
+		name  string
+		flags EncodeFlags
+	}{
+		{name: "golden", flags: EncodeForceGoldenFrame | EncodeNoUpdateGolden},
+		{name: "altref", flags: EncodeForceAltRefFrame | EncodeNoUpdateAltRef},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := e.EncodeInto(dst, src, 0, 1, tt.flags); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("EncodeInto error = %v, want ErrInvalidConfig", err)
+			}
+			if e.frameCount != 0 {
+				t.Fatalf("frameCount = %d, want no mutation after invalid flags", e.frameCount)
+			}
+		})
+	}
+}
+
 func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)

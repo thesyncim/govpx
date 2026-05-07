@@ -33,6 +33,9 @@ const (
 	EncodeNoUpdateAltRef
 
 	EncodeNoUpdateEntropy
+
+	EncodeForceGoldenFrame
+	EncodeForceAltRefFrame
 )
 
 type EncoderOptions struct {
@@ -241,6 +244,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
+	if err := validateEncodeFlags(flags); err != nil {
+		return EncodeResult{}, err
+	}
 	forcedKeyFrame := e.forceKeyFrameRequested(flags)
 	keyFrame := e.shouldEncodeKeyFrame(src, flags)
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
@@ -475,8 +481,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if temporalActive {
 		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	} else if goldenCBRRefresh {
+	} else if goldenCBRRefresh || flags&EncodeForceGoldenFrame != 0 {
 		cfg.RefreshGolden = true
+	}
+	if flags&EncodeForceAltRefFrame != 0 {
+		cfg.RefreshAltRef = true
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
@@ -606,6 +615,16 @@ func countSkippedInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int {
 		}
 	}
 	return count
+}
+
+func validateEncodeFlags(flags EncodeFlags) error {
+	if flags&EncodeForceGoldenFrame != 0 && flags&EncodeNoUpdateGolden != 0 {
+		return ErrInvalidConfig
+	}
+	if flags&EncodeForceAltRefFrame != 0 && flags&EncodeNoUpdateAltRef != 0 {
+		return ErrInvalidConfig
+	}
+	return nil
 }
 
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {
