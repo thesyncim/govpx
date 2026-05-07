@@ -566,10 +566,10 @@ func adaptZeroReferenceInterFrameModeProbabilities(rows int, cols int, refFrame 
 	default:
 		return
 	}
-	cfg.ProbSkipFalse = interFrameModeProbability(skipCounts, cfg.ProbSkipFalse)
-	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
-	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
-	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
+	cfg.ProbSkipFalse = interFrameSkipFalseProbability(skipCounts, cfg.ProbSkipFalse)
+	cfg.ProbIntra = interFrameRefProbability(intraCounts, cfg.ProbIntra)
+	cfg.ProbLast = interFrameRefProbability(lastCounts, cfg.ProbLast)
+	cfg.ProbGolden = interFrameRefProbability(goldenCounts, cfg.ProbGolden)
 }
 
 func adaptInterFrameModeProbabilities(rows int, cols int, modes []InterFrameMacroblockMode, cfg *InterFrameStateConfig) error {
@@ -654,22 +654,48 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 			}
 		}
 	}
-	cfg.ProbSkipFalse = interFrameModeProbability(skipCounts, cfg.ProbSkipFalse)
-	cfg.ProbIntra = interFrameModeProbability(intraCounts, cfg.ProbIntra)
-	cfg.ProbLast = interFrameModeProbability(lastCounts, cfg.ProbLast)
-	cfg.ProbGolden = interFrameModeProbability(goldenCounts, cfg.ProbGolden)
+	cfg.ProbSkipFalse = interFrameSkipFalseProbability(skipCounts, cfg.ProbSkipFalse)
+	cfg.ProbIntra = interFrameRefProbability(intraCounts, cfg.ProbIntra)
+	cfg.ProbLast = interFrameRefProbability(lastCounts, cfg.ProbLast)
+	cfg.ProbGolden = interFrameRefProbability(goldenCounts, cfg.ProbGolden)
 	frameMVProbs := adaptInterFrameMVProbabilitiesWithBase(&mvCounts, mvBase, cfg)
 	return frameMVProbs, nil
 }
 
-func interFrameModeProbability(counts [2]int, fallback uint8) uint8 {
-	if counts[0]+counts[1] == 0 {
+func interFrameSkipFalseProbability(counts [2]int, fallback uint8) uint8 {
+	total := counts[0] + counts[1]
+	if total == 0 {
 		if fallback == 0 {
 			return 128
 		}
 		return fallback
 	}
-	return coefficientProbabilityFromBranchCount(counts)
+	prob := counts[0] * 256 / total
+	if prob <= 1 {
+		return 1
+	}
+	if prob > 255 {
+		return 255
+	}
+	return uint8(prob)
+}
+
+func interFrameRefProbability(counts [2]int, fallback uint8) uint8 {
+	total := counts[0] + counts[1]
+	if total == 0 {
+		if fallback == 0 {
+			return 128
+		}
+		return fallback
+	}
+	prob := counts[0] * 255 / total
+	if prob <= 0 {
+		return 1
+	}
+	if prob > 255 {
+		return 255
+	}
+	return uint8(prob)
 }
 
 func adaptInterFrameMVProbabilities(counts *[2][tables.MVPCount][2]int, cfg *InterFrameStateConfig) {

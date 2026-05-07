@@ -68,14 +68,18 @@ func clampInterAnalysisSkipFalseProb(prob uint8) uint8 {
 	return prob
 }
 
-func (e *VP8Encoder) interFrameAnalysisSkipFalseProb(qIndex int, refreshGolden bool, refreshAltRef bool) uint8 {
+func (e *VP8Encoder) interFrameAnalysisSkipFalseProb(qIndex int, refreshGolden bool, refreshAltRef bool, singleLayerSrcAltRef bool) uint8 {
 	prob := e.baseSkipFalseProb(qIndex)
 	if e != nil {
 		if last := e.lastSkipFalseProbs[skipFalseReferenceIndex(refreshGolden, refreshAltRef)]; last != 0 {
 			prob = last
 		}
 	}
-	return clampInterAnalysisSkipFalseProb(prob)
+	prob = clampInterAnalysisSkipFalseProb(prob)
+	if singleLayerSrcAltRef {
+		return 1
+	}
+	return prob
 }
 
 func (e *VP8Encoder) commitInterFrameSkipFalseProb(attempt interFrameEncodeAttempt) {
@@ -130,7 +134,7 @@ func skipFalseProbabilityFromCounts(counts [2]int, fallback uint8) uint8 {
 		}
 		return fallback
 	}
-	prob := (counts[0]*256 + (total >> 1)) / total
+	prob := counts[0] * 256 / total
 	if prob <= 0 {
 		return 1
 	}
