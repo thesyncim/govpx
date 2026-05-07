@@ -35,13 +35,19 @@ func parsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition commo
 	}
 	firstEnd := frame.HeaderSize + frame.FirstPartitionSize
 	if firstEnd < frame.HeaderSize || firstEnd > len(packet) {
-		return ErrInvalidPartitionLayout
+		if !errorConcealment || firstEnd < frame.HeaderSize {
+			return ErrInvalidPartitionLayout
+		}
+		firstEnd = len(packet)
 	}
 
 	tokenCount := 1 << uint(tokenPartition)
 	sizeTableBytes := 3 * (tokenCount - 1)
 	if len(packet)-firstEnd < sizeTableBytes {
-		return ErrInvalidPartitionLayout
+		if !errorConcealment {
+			return ErrInvalidPartitionLayout
+		}
+		sizeTableBytes = len(packet) - firstEnd
 	}
 
 	out.First = packet[frame.HeaderSize:firstEnd]
@@ -50,6 +56,10 @@ func parsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition commo
 	sizeTable := packet[firstEnd : firstEnd+sizeTableBytes]
 	offset := firstEnd + sizeTableBytes
 	for i := 0; i < tokenCount-1; i++ {
+		if len(sizeTable) < (i+1)*3 {
+			out.Tokens[i] = packet[offset:]
+			return nil
+		}
 		size := readTokenPartitionSize(sizeTable[i*3:])
 		if size <= 0 || size > len(packet)-offset {
 			if errorConcealment {

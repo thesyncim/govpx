@@ -241,6 +241,61 @@ func TestDecodeTokenGridKeepsNonZeroResidualMacroblockUnskipped(t *testing.T) {
 	}
 }
 
+func TestDecodeTokenGridWithErrorConcealmentReturnsFirstResidualCorrupt(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	var readers [1]boolcoder.Decoder
+	if err := readers[0].Init(nil); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	modes := []MacroblockMode{{}, {}}
+	above := make([]EntropyContextPlanes, 2)
+	tokens := []MacroblockTokens{
+		{EOB: [25]uint8{24: 1}},
+		{EOB: [25]uint8{24: 1}},
+	}
+
+	total, firstCorrupt, err := DecodeTokenGridWithErrorConcealment(readers[:], 1, 2, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGridWithErrorConcealment returned error: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0 after corrupt residuals are thrown", total)
+	}
+	if firstCorrupt != 0 {
+		t.Fatalf("firstCorrupt = %d, want first macroblock", firstCorrupt)
+	}
+	if tokens[0] != (MacroblockTokens{}) || tokens[1] != (MacroblockTokens{}) {
+		t.Fatalf("tokens = %+v/%+v, want corrupt residuals cleared", tokens[0], tokens[1])
+	}
+	if !modes[0].MBSkipCoeff || !modes[1].MBSkipCoeff {
+		t.Fatalf("MBSkipCoeff = %v/%v, want corrupt residual macroblocks skipped", modes[0].MBSkipCoeff, modes[1].MBSkipCoeff)
+	}
+}
+
+func TestDecodeTokenGridWithErrorConcealmentMarksSkippedMacroblockCorrupt(t *testing.T) {
+	probs := uniformCoefficientProbs(128)
+	var readers [1]boolcoder.Decoder
+	if err := readers[0].Init(nil); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	modes := []MacroblockMode{{MBSkipCoeff: true}}
+	above := make([]EntropyContextPlanes, 1)
+	tokens := []MacroblockTokens{{EOB: [25]uint8{24: 1}}}
+
+	_, firstCorrupt, err := DecodeTokenGridWithErrorConcealment(readers[:], 1, 1, &probs, modes, above, tokens)
+
+	if err != nil {
+		t.Fatalf("DecodeTokenGridWithErrorConcealment returned error: %v", err)
+	}
+	if firstCorrupt != 0 {
+		t.Fatalf("firstCorrupt = %d, want skipped macroblock marked corrupt", firstCorrupt)
+	}
+	if tokens[0] != (MacroblockTokens{}) {
+		t.Fatalf("tokens = %+v, want corrupt skipped macroblock cleared", tokens[0])
+	}
+}
+
 func TestDecodeTokenGridResetsAboveContextsPerFrame(t *testing.T) {
 	probs := tables.DefaultCoefProbs
 	payload := encodeTokenRows(&probs, 1, 1, 1, []int{-1})

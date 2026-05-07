@@ -48,16 +48,19 @@ type DecoderOptions struct {
 }
 
 type VP8Decoder struct {
-	opts          DecoderOptions
-	closed        bool
-	needKey       bool
-	frameReady    bool
-	lastFrame     Image
-	lastInfo      FrameInfo
-	currentPTS    uint64
-	visibleFrames int
-	initialized   bool
-	ecActive      bool
+	opts            DecoderOptions
+	closed          bool
+	needKey         bool
+	frameReady      bool
+	lastFrame       Image
+	lastInfo        FrameInfo
+	currentPTS      uint64
+	visibleFrames   int
+	initialized     bool
+	ecActive        bool
+	frameCorrupt    bool
+	modesCorrupt    int
+	residualCorrupt int
 
 	frameWidth  int
 	frameHeight int
@@ -70,6 +73,7 @@ type VP8Decoder struct {
 	mbRows             int
 	mbCols             int
 	modes              []vp8dec.MacroblockMode
+	prevModes          []vp8dec.MacroblockMode
 	tokens             []vp8dec.MacroblockTokens
 	tokenAbove         []vp8dec.EntropyContextPlanes
 	frameHeader        vp8dec.FrameHeader
@@ -120,10 +124,13 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err != nil {
 		if d.shouldConcealMissingFrameTag(packet) {
 			info := missingFrameConcealmentInfo()
-			frameInfo := d.finishConcealedFrame(info, pts)
+			frameInfo, err := d.concealMissingInterFrame(info, pts)
+			if err != nil {
+				return err
+			}
 			d.frameReady = false
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
 				if err != nil {
 					return err
 				}
@@ -198,10 +205,13 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 			if !dst.validForEncode(outputWidth, outputHeight) {
 				return FrameInfo{}, ErrInvalidConfig
 			}
-			frameInfo := d.finishConcealedFrame(info, pts)
+			frameInfo, err := d.concealMissingInterFrame(info, pts)
+			if err != nil {
+				return FrameInfo{}, err
+			}
 			d.frameReady = false
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
 				if err != nil {
 					return FrameInfo{}, err
 				}
@@ -261,6 +271,9 @@ func (d *VP8Decoder) Reset() {
 	d.visibleFrames = 0
 	d.initialized = false
 	d.ecActive = false
+	d.frameCorrupt = false
+	d.modesCorrupt = 0
+	d.residualCorrupt = -1
 	d.previousQuant = vp8dec.QuantHeader{}
 	d.previousLoopFilter = vp8dec.LoopFilterHeader{}
 	d.state = vp8dec.StateHeader{}
@@ -277,6 +290,9 @@ func (d *VP8Decoder) Reset() {
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
 	for i := range d.segmentMap {
 		d.segmentMap[i] = 0
+	}
+	for i := range d.prevModes {
+		d.prevModes[i] = vp8dec.MacroblockMode{}
 	}
 	vp8dec.ResetModeProbs(&d.modeProbs)
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
@@ -296,6 +312,9 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
 	if errorConcealment {
 		d.ecActive = true
 	}
+	d.frameCorrupt = false
+	d.modesCorrupt = 0
+	d.residualCorrupt = -1
 	if err := d.parseState(packet, errorConcealment); err != nil {
 		return err
 	}
@@ -305,14 +324,35 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
 	if err := d.decodeModeGrid(info); err != nil {
 		return err
 	}
-	if err := d.decodeTokenGrid(errorConcealment); err != nil {
+	if errorConcealment && d.modesCorrupt < d.mbRows*d.mbCols {
+		if err := vp8dec.EstimateMissingMotionVectors(d.modes, d.prevModes, d.mbRows, d.mbCols, d.modesCorrupt); err != nil {
+			return ErrInvalidData
+		}
+		d.zeroCorruptMacroblockTokens(d.modesCorrupt)
+		applyCorruptInterFrameRefresh(&d.state)
+		d.frameCorrupt = true
+	}
+	if d.frameCorrupt {
+		if d.modesCorrupt > 0 {
+			if err := d.decodeTokenGrid(errorConcealment); err != nil {
+				return err
+			}
+		}
+		d.zeroCorruptMacroblockTokens(d.modesCorrupt)
+	} else if err := d.decodeTokenGrid(errorConcealment); err != nil {
 		return err
+	}
+	if d.residualCorrupt >= 0 {
+		d.zeroCorruptMacroblockTokens(d.residualCorrupt)
 	}
 	if err := d.reconstructFrame(info); err != nil {
 		return err
 	}
+	d.saveErrorConcealmentModes()
 	d.refreshReferences()
-	d.commitParsedState(info)
+	if !d.frameCorrupt {
+		d.commitParsedState(info)
+	}
 	return nil
 }
 
@@ -366,7 +406,7 @@ func (d *VP8Decoder) shouldConcealMissingFrameTag(packet []byte) bool {
 
 func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 	if !vp8dec.IsSupportedVersion(info.Profile) {
-		return ErrUnsupportedFeature
+		return ErrInvalidData
 	}
 	if !info.KeyFrame {
 		return nil
@@ -375,14 +415,14 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 		return ErrInvalidData
 	}
 	if d.opts.MaxWidth > 0 && info.Width > d.opts.MaxWidth {
-		return ErrUnsupportedFeature
+		return ErrFrameRejected
 	}
 	if d.opts.MaxHeight > 0 && info.Height > d.opts.MaxHeight {
-		return ErrUnsupportedFeature
+		return ErrFrameRejected
 	}
 	if d.initialized && d.opts.RejectResolutionChange {
 		if info.Width != d.lastInfo.Width || info.Height != d.lastInfo.Height {
-			return ErrUnsupportedFeature
+			return ErrFrameRejected
 		}
 	}
 	return nil
@@ -400,6 +440,7 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 		Height:    height,
 		KeyFrame:  info.KeyFrame,
 		ShowFrame: info.ShowFrame,
+		Corrupted: d.frameCorrupt,
 		PTS:       pts,
 	}
 	d.lastInfo = frameInfo
@@ -432,6 +473,32 @@ func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo
 		d.visibleFrames++
 	}
 	return frameInfo
+}
+
+func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (FrameInfo, error) {
+	d.state = vp8dec.StateHeader{}
+	d.frameHeader = vp8dec.FrameHeader{FrameType: vp8common.InterFrame, Profile: 0, ShowFrame: true}
+	for i := range d.tokens {
+		d.tokens[i] = vp8dec.MacroblockTokens{}
+	}
+	if err := vp8dec.EstimateMissingMotionVectors(d.modes, d.prevModes, d.mbRows, d.mbCols, 0); err != nil {
+		return FrameInfo{}, ErrInvalidData
+	}
+	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
+		return FrameInfo{}, err
+	}
+	copyFrameImage(&d.lastRef.Img, &d.current.Img)
+	d.lastRef.ExtendBorders()
+	d.saveErrorConcealmentModes()
+	return d.finishConcealedFrame(info, pts), nil
+}
+
+func (d *VP8Decoder) saveErrorConcealmentModes() {
+	if !d.opts.effectiveErrorConcealment() || len(d.prevModes) < len(d.modes) {
+		return
+	}
+	vp8dec.PrepareErrorConcealmentModes(d.modes)
+	copy(d.prevModes, d.modes)
 }
 
 func (d *VP8Decoder) outputFrameImage(info StreamInfo) (*vp8common.Image, error) {
@@ -505,9 +572,30 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 func (d *VP8Decoder) parseState(packet []byte, errorConcealment bool) error {
 	frameProbs := d.coefProbs
 	frameModeProbs := d.modeProbs
-	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
+	var frame vp8dec.FrameHeader
+	var state vp8dec.StateHeader
+	var modeReader boolcoder.Decoder
+	var err error
+	var stateCorrupted bool
+	if errorConcealment {
+		frame, state, modeReader, stateCorrupted, err = vp8dec.ParseStateHeaderWithErrorConcealment(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
+	} else {
+		frame, state, modeReader, err = vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
+	}
 	if err != nil {
 		return ErrInvalidData
+	}
+	if errorConcealment && !frame.KeyFrame() && frame.HeaderSize <= len(packet) && frame.FirstPartitionSize > len(packet)-frame.HeaderSize {
+		stateCorrupted = true
+	}
+	if stateCorrupted {
+		if !frame.KeyFrame() {
+			applyCorruptInterFrameRefresh(&state)
+		}
+		d.frameCorrupt = true
+		d.modesCorrupt = 0
+	} else {
+		d.modesCorrupt = d.mbRows * d.mbCols
 	}
 	previousSegmentation := d.segmentationState
 	if frame.KeyFrame() {
@@ -537,6 +625,15 @@ func (d *VP8Decoder) parseState(packet []byte, errorConcealment bool) error {
 	d.frameModeProbs = frameModeProbs
 	vp8dec.InitSegmentDequants(state.Quant, &state.Segmentation, &d.dequantTables, &d.dequants)
 	return nil
+}
+
+func applyCorruptInterFrameRefresh(state *vp8dec.StateHeader) {
+	state.Refresh.RefreshGolden = false
+	state.Refresh.RefreshAltRef = false
+	state.Refresh.CopyBufferToGolden = 0
+	state.Refresh.CopyBufferToAltRef = 0
+	state.Refresh.RefreshEntropyProbs = false
+	state.Refresh.RefreshLast = true
 }
 
 func (d *VP8Decoder) commitParsedState(info StreamInfo) {
@@ -574,11 +671,22 @@ func (d *VP8Decoder) decodeModeGrid(info StreamInfo) error {
 			return ErrInvalidData
 		}
 	} else {
-		if err := vp8dec.DecodeInterModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, &d.frameModeProbs, d.referenceSignBias(), d.modes); err != nil {
-			return ErrInvalidData
+		if d.opts.effectiveErrorConcealment() && d.ecActive {
+			firstCorrupt, err := vp8dec.DecodeInterModeGridWithErrorConcealment(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, &d.frameModeProbs, d.referenceSignBias(), d.modes)
+			if err != nil {
+				return ErrInvalidData
+			}
+			if firstCorrupt < d.modesCorrupt {
+				d.modesCorrupt = firstCorrupt
+				d.frameCorrupt = true
+			}
+		} else {
+			if err := vp8dec.DecodeInterModeGrid(&reader, d.mbRows, d.mbCols, &d.state.Segmentation, d.state.Mode, &d.frameModeProbs, d.referenceSignBias(), d.modes); err != nil {
+				return ErrInvalidData
+			}
 		}
 	}
-	if reader.Err() != nil {
+	if reader.Err() != nil && !(d.opts.effectiveErrorConcealment() && d.ecActive && !info.KeyFrame) {
 		return ErrInvalidData
 	}
 	d.modeReader = reader
@@ -594,19 +702,49 @@ func (d *VP8Decoder) referenceSignBias() [vp8common.MaxRefFrames]bool {
 
 func (d *VP8Decoder) decodeTokenGrid(errorConcealment bool) error {
 	readers := d.tokenReaders[:d.partitions.TokenCount]
+	if errorConcealment {
+		firstCorrupt, err := d.decodeTokenGridWithErrorConcealment(readers)
+		if err != nil {
+			return err
+		}
+		if firstCorrupt < d.mbRows*d.mbCols {
+			d.frameCorrupt = true
+			if d.residualCorrupt < 0 || firstCorrupt < d.residualCorrupt {
+				d.residualCorrupt = firstCorrupt
+			}
+		}
+		return nil
+	}
 	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.frameCoefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
 		return ErrInvalidData
 	}
-	readersToCheck := len(readers)
-	if errorConcealment && d.mbRows < readersToCheck {
-		readersToCheck = d.mbRows
-	}
-	for i := 0; i < readersToCheck; i++ {
+	for i := 0; i < len(readers); i++ {
 		if readers[i].Err() != nil {
 			return ErrInvalidData
 		}
 	}
 	return nil
+}
+
+func (d *VP8Decoder) decodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder) (int, error) {
+	_, firstCorrupt, err := vp8dec.DecodeTokenGridWithErrorConcealment(readers, d.mbRows, d.mbCols, &d.frameCoefProbs, d.modes, d.tokenAbove, d.tokens)
+	if err != nil {
+		return 0, ErrInvalidData
+	}
+	return firstCorrupt, nil
+}
+
+func (d *VP8Decoder) zeroCorruptMacroblockTokens(first int) {
+	if first < 0 {
+		first = 0
+	}
+	if first > len(d.tokens) {
+		return
+	}
+	for i := first; i < len(d.tokens); i++ {
+		d.tokens[i] = vp8dec.MacroblockTokens{}
+		d.modes[i].MBSkipCoeff = true
+	}
 }
 
 func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
@@ -704,6 +842,11 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 		d.modes = make([]vp8dec.MacroblockMode, count)
 	} else {
 		d.modes = d.modes[:count]
+	}
+	if cap(d.prevModes) < count {
+		d.prevModes = make([]vp8dec.MacroblockMode, count)
+	} else {
+		d.prevModes = d.prevModes[:count]
 	}
 	if cap(d.tokens) < count {
 		d.tokens = make([]vp8dec.MacroblockTokens, count)

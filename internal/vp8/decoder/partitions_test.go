@@ -120,8 +120,6 @@ func TestParsePartitionLayoutWithErrorConcealmentRejectsMalformedHeaderLayout(t 
 		part  common.TokenPartition
 	}{
 		{name: "bad partition enum", frame: frame, data: packet, part: common.TokenPartition(4)},
-		{name: "missing first partition", frame: FrameHeader{HeaderSize: frame.HeaderSize, FirstPartitionSize: len(packet)}, data: packet, part: common.OnePartition},
-		{name: "truncated size table", frame: frame, data: packet[:frame.HeaderSize+frame.FirstPartitionSize+2], part: common.TwoPartition},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -132,6 +130,29 @@ func TestParsePartitionLayoutWithErrorConcealmentRejectsMalformedHeaderLayout(t 
 			}
 			if layout.First != nil || layout.TokenCount != 0 || layout.Tokens[0] != nil {
 				t.Fatalf("layout = %+v, want zero after error", layout)
+			}
+		})
+	}
+}
+
+func TestParsePartitionLayoutWithErrorConcealmentClampsTruncatedHeaderLayout(t *testing.T) {
+	packet, frame := partitionPacket(t, common.TwoPartition, []byte{1, 2}, [][]byte{{3}, {4}})
+	tests := []struct {
+		name string
+		data []byte
+		part common.TokenPartition
+	}{
+		{name: "missing first partition tail", data: packet[:frame.HeaderSize+1], part: common.OnePartition},
+		{name: "truncated size table", data: packet[:frame.HeaderSize+frame.FirstPartitionSize+2], part: common.TwoPartition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var layout PartitionLayout
+			if err := ParsePartitionLayoutWithErrorConcealment(tt.data, frame, tt.part, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayoutWithErrorConcealment returned error: %v", err)
+			}
+			if layout.TokenCount != 1<<uint(tt.part) {
+				t.Fatalf("TokenCount = %d, want %d", layout.TokenCount, 1<<uint(tt.part))
 			}
 		})
 	}

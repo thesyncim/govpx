@@ -169,6 +169,44 @@ func DecodeInterModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation
 	return nil
 }
 
+func DecodeInterModeGridWithErrorConcealment(br *boolcoder.Decoder, rows int, cols int, segmentation *SegmentationHeader, modeHeader ModeHeader, probs *ModeProbs, signBias [common.MaxRefFrames]bool, modes []MacroblockMode) (int, error) {
+	if _, err := validateModeGrid(rows, cols, modes); err != nil {
+		return 0, err
+	}
+	required := rows * cols
+	firstCorrupt := required
+	if br.Err() != nil {
+		firstCorrupt = 0
+	}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			if index >= firstCorrupt {
+				continue
+			}
+			var above *MacroblockMode
+			var left *MacroblockMode
+			var aboveLeft *MacroblockMode
+			if row > 0 {
+				above = &modes[index-cols]
+			}
+			if col > 0 {
+				left = &modes[index-1]
+			}
+			if row > 0 && col > 0 {
+				aboveLeft = &modes[index-cols-1]
+			}
+			if err := decodeInterMacroblockAt(br, row, col, rows, cols, segmentation, modeHeader, probs, above, left, aboveLeft, signBias, &modes[index]); err != nil {
+				return 0, err
+			}
+			if br.Err() != nil {
+				firstCorrupt = index
+			}
+		}
+	}
+	return firstCorrupt, nil
+}
+
 func DecodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {
 	*out = MacroblockMode{}
 	decodeKeyFrameMacroblockMode(br, above, left, out)
