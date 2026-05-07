@@ -59,6 +59,9 @@ Primary references:
 
 ### Encoder Rate Control And Segmentation
 
+- Public 0..63 quantizers now map through libvpx `q_trans` into internal
+  0..127 VP8 qindex before rate-control, segmentation, loop-filter, and packet
+  writing; `EncodeResult.Quantizer` remains public-facing.
 - Exact cyclic/background refresh segmentation policy.
 - Segment-aware quantizer selection.
 - More complete CBR feedback behavior.

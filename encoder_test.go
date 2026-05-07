@@ -339,15 +339,15 @@ func TestEncodeIntoCQLevelSelectsQuantizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if key.Quantizer != 32 || packetBaseQIndex(t, key.Data) != 32 {
-		t.Fatalf("key quantizer = result:%d packet:%d, want CQ level 32", key.Quantizer, packetBaseQIndex(t, key.Data))
+	if key.Quantizer != 32 || packetBaseQIndex(t, key.Data) != libvpxPublicQuantizerToQIndex(32) {
+		t.Fatalf("key quantizer = result:%d packet:%d, want public CQ level 32 / qindex %d", key.Quantizer, packetBaseQIndex(t, key.Data), libvpxPublicQuantizerToQIndex(32))
 	}
 	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 1), 1, 1, 0)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
-	if inter.Quantizer != 32 || packetBaseQIndex(t, inter.Data) != 32 {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want CQ level 32", inter.Quantizer, packetBaseQIndex(t, inter.Data))
+	if inter.Quantizer != 32 || packetBaseQIndex(t, inter.Data) != libvpxPublicQuantizerToQIndex(32) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 32 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), libvpxPublicQuantizerToQIndex(32))
 	}
 }
 
@@ -367,8 +367,8 @@ func TestEncodeIntoCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
-	if e.opts.CQLevel != defaultCQLevel || e.rc.currentQuantizer != defaultCQLevel {
-		t.Fatalf("default CQ = opts:%d q:%d, want %d", e.opts.CQLevel, e.rc.currentQuantizer, defaultCQLevel)
+	if e.opts.CQLevel != defaultCQLevel || e.rc.currentQuantizer != libvpxPublicQuantizerToQIndex(defaultCQLevel) {
+		t.Fatalf("default CQ = opts:%d q:%d, want public %d / qindex %d", e.opts.CQLevel, e.rc.currentQuantizer, defaultCQLevel, libvpxPublicQuantizerToQIndex(defaultCQLevel))
 	}
 }
 
@@ -526,11 +526,11 @@ func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
 	if result.Quantizer <= 4 {
 		t.Fatalf("result quantizer = %d, want retry above initial 4", result.Quantizer)
 	}
-	if got := packetBaseQIndex(t, result.Data); got != result.Quantizer {
-		t.Fatalf("packet base q = %d, want result quantizer %d", got, result.Quantizer)
+	if got := packetBaseQIndex(t, result.Data); got != libvpxPublicQuantizerToQIndex(result.Quantizer) {
+		t.Fatalf("packet base q = %d, want public result quantizer %d mapped to qindex %d", got, result.Quantizer, libvpxPublicQuantizerToQIndex(result.Quantizer))
 	}
-	if e.rc.lastQuantizer != result.Quantizer {
-		t.Fatalf("last quantizer = %d, want committed frame quantizer %d", e.rc.lastQuantizer, result.Quantizer)
+	if e.rc.lastQuantizer != packetBaseQIndex(t, result.Data) {
+		t.Fatalf("last quantizer = %d, want committed packet qindex %d", e.rc.lastQuantizer, packetBaseQIndex(t, result.Data))
 	}
 	decoded := decodeSingleFrame(t, result.Data)
 	assertImagesEqual(t, "retried current", decoded, publicImageFromVP8(&e.current.Img))
@@ -564,8 +564,9 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
 		t.Fatalf("key segmentation = %+v, want map and data update", keyState.Segmentation)
 	}
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -10 {
-		t.Fatalf("key static segment alt-q = %d, want -10", got)
+	wantAltQ := int8(libvpxPublicQuantizerToQIndex(20)/2 - libvpxPublicQuantizerToQIndex(20))
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != wantAltQ {
+		t.Fatalf("key static segment alt-q = %d, want %d", got, wantAltQ)
 	}
 
 	d, err := NewVP8Decoder(DecoderOptions{})
@@ -1203,8 +1204,8 @@ func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
-	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != 28 {
-		t.Fatalf("quantizer = result:%d packet:%d, want CQ level 28", result.Quantizer, packetBaseQIndex(t, result.Data))
+	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != libvpxPublicQuantizerToQIndex(28) {
+		t.Fatalf("quantizer = result:%d packet:%d, want public CQ level 28 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), libvpxPublicQuantizerToQIndex(28))
 	}
 }
 
@@ -1231,8 +1232,8 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	if err := e.SetCQLevel(3); !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("below-min SetCQLevel error = %v, want ErrInvalidQuantizer", err)
 	}
-	if e.rc.cqLevel != 24 {
-		t.Fatalf("CQ level after rejected updates = %d, want 24", e.rc.cqLevel)
+	if e.rc.cqLevel != libvpxPublicQuantizerToQIndex(24) {
+		t.Fatalf("CQ level after rejected updates = %d, want qindex %d", e.rc.cqLevel, libvpxPublicQuantizerToQIndex(24))
 	}
 	if err := e.SetCQLevel(40); err != nil {
 		t.Fatalf("SetCQLevel returned error: %v", err)
@@ -1242,8 +1243,8 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
-	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != 40 {
-		t.Fatalf("quantizer = result:%d packet:%d, want CQ level 40", result.Quantizer, packetBaseQIndex(t, result.Data))
+	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != libvpxPublicQuantizerToQIndex(40) {
+		t.Fatalf("quantizer = result:%d packet:%d, want public CQ level 40 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), libvpxPublicQuantizerToQIndex(40))
 	}
 }
 
@@ -1393,8 +1394,12 @@ func TestSetRealtimeTargetRejectsCQBoundsWithoutMutation(t *testing.T) {
 	if err := e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 30}); !errors.Is(err, ErrInvalidQuantizer) {
 		t.Fatalf("SetRealtimeTarget error = %v, want ErrInvalidQuantizer", err)
 	}
-	if e.rc.minQuantizer != 4 || e.rc.maxQuantizer != 56 || e.rc.cqLevel != 24 {
-		t.Fatalf("rate control after rejected target = min:%d max:%d cq:%d, want 4/56/24", e.rc.minQuantizer, e.rc.maxQuantizer, e.rc.cqLevel)
+	if e.opts.MinQuantizer != 4 || e.opts.MaxQuantizer != 56 || e.opts.CQLevel != 24 ||
+		e.rc.minQuantizer != libvpxPublicQuantizerToQIndex(4) ||
+		e.rc.maxQuantizer != libvpxPublicQuantizerToQIndex(56) ||
+		e.rc.cqLevel != libvpxPublicQuantizerToQIndex(24) {
+		t.Fatalf("rate control after rejected target = opts:%d/%d/%d rc:%d/%d/%d, want public 4/56/24 mapped to qindex",
+			e.opts.MinQuantizer, e.opts.MaxQuantizer, e.opts.CQLevel, e.rc.minQuantizer, e.rc.maxQuantizer, e.rc.cqLevel)
 	}
 }
 
@@ -1719,8 +1724,8 @@ func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	keyState := parseEncoderStateHeader(t, key.Data)
-	if keyState.LoopFilter.Level != 7 || keyState.LoopFilter.SharpnessLevel != 0 {
-		t.Fatalf("key loop filter = %+v, want level 7 sharpness 0", keyState.LoopFilter)
+	if keyState.LoopFilter.Level != 9 || keyState.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("key loop filter = %+v, want level 9 sharpness 0", keyState.LoopFilter)
 	}
 	keyFrame := decodeSingleFrame(t, key.Data)
 	assertImagesEqual(t, "filtered key current", keyFrame, publicImageFromVP8(&e.current.Img))
@@ -1741,8 +1746,8 @@ func TestEncodeIntoSharpnessAppliesLoopFilterToReferences(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
 	interState := parseEncoderStateHeader(t, inter.Data)
-	if interState.LoopFilter.Level != 7 || interState.LoopFilter.SharpnessLevel != 3 {
-		t.Fatalf("inter loop filter = %+v, want level 7 sharpness 3", interState.LoopFilter)
+	if interState.LoopFilter.Level != 9 || interState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("inter loop filter = %+v, want level 9 sharpness 3", interState.LoopFilter)
 	}
 	decoded := decodeFrameSequence(t, key.Data, inter.Data)
 	assertImagesEqual(t, "filtered inter current", decoded[1], publicImageFromVP8(&e.current.Img))
@@ -1778,8 +1783,8 @@ func TestEncodeIntoDefaultSharpnessStillAppliesLoopFilter(t *testing.T) {
 		t.Fatalf("EncodeInto returned error: %v", err)
 	}
 	state := parseEncoderStateHeader(t, result.Data)
-	if state.LoopFilter.Level != 7 || state.LoopFilter.SharpnessLevel != 0 {
-		t.Fatalf("loop filter = %+v, want level 7 sharpness 0", state.LoopFilter)
+	if state.LoopFilter.Level != 9 || state.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("loop filter = %+v, want level 9 sharpness 0", state.LoopFilter)
 	}
 	decoded := decodeSingleFrame(t, result.Data)
 	assertImagesEqual(t, "default filtered current", decoded, publicImageFromVP8(&e.current.Img))

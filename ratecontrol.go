@@ -117,6 +117,13 @@ const (
 	libvpxMaxBPBFactor              = 50.0
 )
 
+var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
+	0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15, 17, 18, 19,
+	20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 35, 37, 39, 41,
+	43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 64, 67, 70, 73, 76, 79,
+	82, 85, 88, 91, 94, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124, 127,
+}
+
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
@@ -124,9 +131,9 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.mode = cfg.Mode
 	rc.minBitrateKbps = cfg.MinBitrateKbps
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
-	rc.minQuantizer = cfg.MinQuantizer
-	rc.maxQuantizer = cfg.MaxQuantizer
-	rc.cqLevel = normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
+	rc.minQuantizer = libvpxPublicQuantizerToQIndex(cfg.MinQuantizer)
+	rc.maxQuantizer = libvpxPublicQuantizerToQIndex(cfg.MaxQuantizer)
+	rc.cqLevel = libvpxPublicQuantizerToQIndex(normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer))
 	rc.undershootPct = normalizeRateControlPct(cfg.UndershootPct, defaultRateControlUndershootPct)
 	rc.overshootPct = normalizeRateControlPct(cfg.OvershootPct, defaultRateControlOvershootPct)
 	rc.bufferSizeMs = cfg.BufferSizeMs
@@ -135,10 +142,10 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
-	rc.avgFrameQuantizer = cfg.MaxQuantizer
+	rc.avgFrameQuantizer = rc.maxQuantizer
 	rc.normalInterQuantizerTotal = 0
 	rc.normalInterFrames = 0
-	rc.normalInterAvgQuantizer = cfg.MaxQuantizer
+	rc.normalInterAvgQuantizer = rc.maxQuantizer
 	rc.rateCorrectionFactor = 1.0
 	rc.keyFrameCorrectionFactor = 1.0
 	rc.goldenCorrectionFactor = 1.0
@@ -967,6 +974,25 @@ func normalizedCQLevel(level int, minQuantizer int) int {
 		return defaultCQLevel
 	}
 	return level
+}
+
+func libvpxPublicQuantizerToQIndex(q int) int {
+	if q < 0 {
+		return 0
+	}
+	if q > maxQuantizer {
+		return libvpxQuantizerTranslation[maxQuantizer]
+	}
+	return libvpxQuantizerTranslation[q]
+}
+
+func libvpxQIndexToPublicQuantizer(qIndex int) int {
+	for q, translated := range libvpxQuantizerTranslation {
+		if translated >= qIndex {
+			return q
+		}
+	}
+	return maxQuantizer
 }
 
 func normalizeRateControlPct(value int, fallback int) int {

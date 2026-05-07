@@ -301,7 +301,9 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.rc.lastQuantizer = e.rc.currentQuantizer
 	e.rc.lastInterQuantizer = e.rc.currentQuantizer
-	e.opts.CQLevel = e.rc.cqLevel
+	e.opts.MinQuantizer = cfg.MinQuantizer
+	e.opts.MaxQuantizer = cfg.MaxQuantizer
+	e.opts.CQLevel = normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
 	if err := e.temporal.configure(normalized.TemporalScalability, e.rc.targetBitrateKbps); err != nil {
 		return nil, err
 	}
@@ -405,7 +407,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		TwoPassFrameTargetBits:             twoPassTargetBits,
 		PTS:                                pts,
 		Duration:                           duration,
-		Quantizer:                          e.rc.currentQuantizer,
+		Quantizer:                          libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer),
 		TargetBitrateKbps:                  e.rc.targetBitrateKbps,
 		FrameTargetBits:                    e.rc.frameTargetBits,
 		BufferLevelBits:                    e.rc.bufferLevelBits,
@@ -440,7 +442,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.loopFilterLevel = attempt.Config.LoopFilterLevel
 		result.Data = dst[:attempt.Size]
 		result.SizeBytes = attempt.Size
-		result.Quantizer = finalQuantizer
+		result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 		result.Droppable = interFrameDroppable(attempt.Config)
 		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
 		e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
@@ -472,7 +474,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.loopFilterLevel = lfLevel
 	result.Data = dst[:n]
 	result.SizeBytes = n
-	result.Quantizer = finalQuantizer
+	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 	e.rc.postEncodeFrameWithPacketContext(n, true, false, required, !invisible)
 	if twoPassSceneCut {
 		e.twoPass.markKeyFrame(e.frameCount)
@@ -908,7 +910,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.MaxBitrateKbps = cfg.MaxBitrateKbps
 	e.opts.MinQuantizer = cfg.MinQuantizer
 	e.opts.MaxQuantizer = cfg.MaxQuantizer
-	e.opts.CQLevel = nextRC.cqLevel
+	e.opts.CQLevel = normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
 	e.opts.UndershootPct = cfg.UndershootPct
 	e.opts.OvershootPct = cfg.OvershootPct
 	e.opts.BufferSizeMs = cfg.BufferSizeMs
@@ -928,15 +930,16 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	if level < 0 || level > maxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if e.rc.mode == RateControlCQ && (level < e.rc.minQuantizer || level > e.rc.maxQuantizer) {
+	if e.rc.mode == RateControlCQ && (level < e.opts.MinQuantizer || level > e.opts.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	e.rc.cqLevel = level
+	qIndex := libvpxPublicQuantizerToQIndex(level)
+	e.rc.cqLevel = qIndex
 	e.opts.CQLevel = level
 	if e.rc.mode == RateControlCQ {
-		e.rc.currentQuantizer = level
-		e.rc.lastQuantizer = level
-		e.rc.lastInterQuantizer = level
+		e.rc.currentQuantizer = qIndex
+		e.rc.lastQuantizer = qIndex
+		e.rc.lastInterQuantizer = qIndex
 	}
 	return nil
 }
@@ -1038,8 +1041,8 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.TimebaseDen = target.FPS
 		e.timing = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
 	}
-	nextMinQuantizer := e.rc.minQuantizer
-	nextMaxQuantizer := e.rc.maxQuantizer
+	nextMinQuantizer := e.opts.MinQuantizer
+	nextMaxQuantizer := e.opts.MaxQuantizer
 	if target.MinQuantizer != 0 {
 		nextMinQuantizer = target.MinQuantizer
 	}
@@ -1049,11 +1052,13 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if nextMinQuantizer > nextMaxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if e.rc.mode == RateControlCQ && (e.rc.cqLevel < nextMinQuantizer || e.rc.cqLevel > nextMaxQuantizer) {
+	if e.rc.mode == RateControlCQ && (e.opts.CQLevel < nextMinQuantizer || e.opts.CQLevel > nextMaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	e.rc.minQuantizer = nextMinQuantizer
-	e.rc.maxQuantizer = nextMaxQuantizer
+	e.rc.minQuantizer = libvpxPublicQuantizerToQIndex(nextMinQuantizer)
+	e.rc.maxQuantizer = libvpxPublicQuantizerToQIndex(nextMaxQuantizer)
+	e.opts.MinQuantizer = nextMinQuantizer
+	e.opts.MaxQuantizer = nextMaxQuantizer
 	e.rc.clampQuantizer()
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel

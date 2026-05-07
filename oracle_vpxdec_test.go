@@ -1195,8 +1195,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if key.Quantizer != 36 || packetBaseQIndex(t, key.Data) != 36 {
-		t.Fatalf("key quantizer = result:%d packet:%d, want CQ level 36", key.Quantizer, packetBaseQIndex(t, key.Data))
+	if key.Quantizer != 36 || packetBaseQIndex(t, key.Data) != libvpxPublicQuantizerToQIndex(36) {
+		t.Fatalf("key quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", key.Quantizer, packetBaseQIndex(t, key.Data), libvpxPublicQuantizerToQIndex(36))
 	}
 	interPacket := make([]byte, 8192)
 	inter, err := e.EncodeInto(interPacket, rateControlTestFrame(32, 16, 1), 1, 1, 0)
@@ -1206,8 +1206,8 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want CQ interframe")
 	}
-	if inter.Quantizer != 36 || packetBaseQIndex(t, inter.Data) != 36 {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want CQ level 36", inter.Quantizer, packetBaseQIndex(t, inter.Data))
+	if inter.Quantizer != 36 || packetBaseQIndex(t, inter.Data) != libvpxPublicQuantizerToQIndex(36) {
+		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", inter.Quantizer, packetBaseQIndex(t, inter.Data), libvpxPublicQuantizerToQIndex(36))
 	}
 
 	ivf := makeIVF(32, 16, 30, 1, [][]byte{key.Data, inter.Data})

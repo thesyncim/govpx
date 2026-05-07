@@ -2,6 +2,29 @@ package govpx
 
 import "testing"
 
+func TestLibvpxPublicQuantizerTranslationTable(t *testing.T) {
+	tests := []struct {
+		public int
+		qIndex int
+	}{
+		{public: 0, qIndex: 0},
+		{public: 4, qIndex: 4},
+		{public: 10, qIndex: 12},
+		{public: 32, qIndex: 43},
+		{public: 36, qIndex: 51},
+		{public: 56, qIndex: 106},
+		{public: 63, qIndex: 127},
+	}
+	for _, tt := range tests {
+		if got := libvpxPublicQuantizerToQIndex(tt.public); got != tt.qIndex {
+			t.Fatalf("public q %d maps to qindex %d, want %d", tt.public, got, tt.qIndex)
+		}
+		if got := libvpxQIndexToPublicQuantizer(tt.qIndex); got != tt.public {
+			t.Fatalf("qindex %d maps to public q %d, want %d", tt.qIndex, got, tt.public)
+		}
+	}
+}
+
 func TestRateControlAdjustQuantizerUsesLibvpxOvershootBound(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
@@ -623,18 +646,19 @@ func TestRateControlCQUsesCQLevel(t *testing.T) {
 	rc.bufferLevelBits = 0
 
 	rc.beginFrame(false)
-	if rc.currentQuantizer != 32 {
-		t.Fatalf("beginFrame CQ quantizer = %d, want CQ level 32", rc.currentQuantizer)
+	cqQIndex := libvpxPublicQuantizerToQIndex(32)
+	if rc.currentQuantizer != cqQIndex {
+		t.Fatalf("beginFrame CQ quantizer = %d, want CQ level 32 mapped to qindex %d", rc.currentQuantizer, cqQIndex)
 	}
 	rc.postEncodeFrame(1<<20, false)
-	if rc.currentQuantizer <= 32 {
-		t.Fatalf("postEncodeFrame CQ quantizer = %d, want constrained increase above CQ level 32", rc.currentQuantizer)
+	if rc.currentQuantizer <= cqQIndex {
+		t.Fatalf("postEncodeFrame CQ quantizer = %d, want constrained increase above CQ qindex %d", rc.currentQuantizer, cqQIndex)
 	}
-	rc.currentQuantizer = 33
+	rc.currentQuantizer = cqQIndex + 1
 	rc.bufferLevelBits = 3000
 	rc.postEncodeFrame(1, false)
-	if rc.currentQuantizer != 32 {
-		t.Fatalf("undersized CQ quantizer = %d, want floor at CQ level 32", rc.currentQuantizer)
+	if rc.currentQuantizer != cqQIndex {
+		t.Fatalf("undersized CQ quantizer = %d, want floor at CQ qindex %d", rc.currentQuantizer, cqQIndex)
 	}
 }
 
@@ -652,8 +676,9 @@ func TestRateControlCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyConfig returned error: %v", err)
 	}
-	if rc.cqLevel != defaultCQLevel || rc.currentQuantizer != defaultCQLevel {
-		t.Fatalf("CQ default = level:%d q:%d, want %d", rc.cqLevel, rc.currentQuantizer, defaultCQLevel)
+	defaultQIndex := libvpxPublicQuantizerToQIndex(defaultCQLevel)
+	if rc.cqLevel != defaultQIndex || rc.currentQuantizer != defaultQIndex {
+		t.Fatalf("CQ default = level:%d q:%d, want qindex %d", rc.cqLevel, rc.currentQuantizer, defaultQIndex)
 	}
 }
 
