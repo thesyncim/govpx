@@ -1590,13 +1590,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	if bestModeIndex >= 0 {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
-	if best.useIntra {
-		uvMode, ok := e.predictFastIntraChromaMode(src, mbRow, mbCol)
-		if !ok {
-			return interFrameModeDecision{}, false
-		}
-		best.intraMode.UVMode = uvMode
-	}
 	if !best.useIntra {
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
 	}
@@ -1752,24 +1745,6 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	}
 	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
 	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), sse, true
-}
-
-func (e *VP8Encoder) predictFastIntraChromaMode(src vp8enc.SourceImage, mbRow int, mbCol int) (vp8common.MBPredictionMode, bool) {
-	bestMode := vp8common.DCPred
-	bestSet := false
-	bestDist := maxInt()
-	for _, uvMode := range wholeBlockIntraUVModeCandidates {
-		if !predictAnalysisChroma(&e.analysis.Img, mbRow, mbCol, uvMode, &e.reconstructScratch) {
-			return 0, false
-		}
-		dist := macroblockChromaSSE(src, &e.analysis.Img, mbRow, mbCol)
-		if !bestSet || dist < bestDist {
-			bestSet = true
-			bestMode = uvMode
-			bestDist = dist
-		}
-	}
-	return bestMode, bestSet
 }
 
 func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int) (vp8enc.InterFrameMacroblockMode, bool) {

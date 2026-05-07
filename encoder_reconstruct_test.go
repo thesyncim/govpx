@@ -2328,6 +2328,59 @@ func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T)
 	}
 }
 
+func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
+	e := &VP8Encoder{
+		opts:          EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		refProbIntra:  63,
+		refProbLast:   128,
+		refProbGolden: 128,
+		probSkipFalse: 128,
+	}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	if err := e.analysis.Resize(32, 32, 32, 32); err != nil {
+		t.Fatalf("analysis resize returned error: %v", err)
+	}
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 128, 128)
+	// Shape chroma predictor references so the old fast chroma search would
+	// prefer V_PRED over DC_PRED. Libvpx pickinter keeps UV at DC_PRED here.
+	for i := 0; i < 8; i++ {
+		e.analysis.Img.U[7*e.analysis.Img.UStride+8+i] = 40
+		e.analysis.Img.V[7*e.analysis.Img.VStride+8+i] = 40
+		e.analysis.Img.U[(8+i)*e.analysis.Img.UStride+7] = 220
+		e.analysis.Img.V[(8+i)*e.analysis.Img.VStride+7] = 220
+	}
+	e.analysis.ExtendBorders()
+
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	for row := 8; row < 16; row++ {
+		for col := 8; col < 16; col++ {
+			src.U[row*src.UStride+col] = 40
+			src.V[row*src.VStride+col] = 40
+		}
+	}
+	last := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < 32; row++ {
+		for col := 0; col < 32; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((row*29 + col*53 + 17) & 255)
+		}
+	}
+	last.ExtendBorders()
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 1, 1, 2, 2, testInterSearchQIndex, 0, nil, nil, nil, nil)
+
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if !decision.useIntra {
+		t.Fatalf("decision = %+v, want intra mode to exercise fast pickinter UV policy", decision)
+	}
+	if decision.intraMode.UVMode != vp8common.DCPred {
+		t.Fatalf("fast intra UV mode = %v, want libvpx pickinter DC_PRED", decision.intraMode.UVMode)
+	}
+}
+
 func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) {
 	e := &VP8Encoder{
 		opts:          EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},

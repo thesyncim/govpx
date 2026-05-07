@@ -791,6 +791,10 @@ the anchor and look for the surrounding mismatch.
     `rdopt.c`'s threshold-based chroma gate. Tests:
     `TestStaticInterFastEncodeBreakoutUsesPickinterChromaGate` and
     `TestSelectFastInterFrameModeDecisionStopsOnStaticEncodeBreakout`.
+    Fast-path intra candidates now keep `UVMode = DC_PRED` like
+    `vp8_pick_inter_mode`, instead of running a separate chroma predictor
+    search; pinned by
+    `TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode`.
     Full RD now walks libvpx's `MAX_MODES` /
     `vp8_mode_order` table,
     interleaves intra modes in that same loop, applies speed-feature baseline
