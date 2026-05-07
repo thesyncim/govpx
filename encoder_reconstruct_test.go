@@ -382,6 +382,23 @@ func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
 	}
 }
 
+func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.T) {
+	var thresholds [libvpxInterModeCount]int
+	thresholds[libvpxThrNew1] = 11
+	thresholds[libvpxThrNew2] = 22
+	thresholds[libvpxThrNew3] = 33
+
+	if got := libvpxSplitMVSubsearchThreshold(thresholds, 1); got != 11 {
+		t.Fatalf("slot 1 SplitMV threshold = %d, want THR_NEW1", got)
+	}
+	if got := libvpxSplitMVSubsearchThreshold(thresholds, 2); got != 22 {
+		t.Fatalf("slot 2 SplitMV threshold = %d, want THR_NEW2", got)
+	}
+	if got := libvpxSplitMVSubsearchThreshold(thresholds, 3); got != 33 {
+		t.Fatalf("slot 3 SplitMV threshold = %d, want THR_NEW3", got)
+	}
+}
+
 func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
@@ -393,6 +410,29 @@ func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	}
 	if _, _, ok := libvpxFastInterReferenceAt(refs[:], 2, 3); ok {
 		t.Fatalf("slot 3 ok=true, want disabled ALTREF slot to be skipped")
+	}
+}
+
+func TestLibvpxInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
+		{Frame: vp8common.AltRefFrame, Img: &vp8common.Image{}},
+	}
+	order := libvpxInterReferenceSearchOrder(refs[:], len(refs))
+	if order != [4]int{-1, 0, 1, -1} {
+		t.Fatalf("reference search order = %v, want compacted GOLDEN/ALT in slots 1/2", order)
+	}
+
+	ref, refIndex, ok := libvpxInterReferenceSearchAt(refs[:], order, 1)
+	if !ok || refIndex != 0 || ref.Frame != vp8common.GoldenFrame {
+		t.Fatalf("slot 1 = %+v index=%d ok=%t, want compacted GOLDEN", ref, refIndex, ok)
+	}
+	ref, refIndex, ok = libvpxInterReferenceSearchAt(refs[:], order, 2)
+	if !ok || refIndex != 1 || ref.Frame != vp8common.AltRefFrame {
+		t.Fatalf("slot 2 = %+v index=%d ok=%t, want compacted ALTREF", ref, refIndex, ok)
+	}
+	if _, _, ok := libvpxInterReferenceSearchAt(refs[:], order, 3); ok {
+		t.Fatalf("slot 3 ok=true, want no third enabled reference")
 	}
 }
 

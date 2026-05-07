@@ -237,10 +237,12 @@ the anchor and look for the surrounding mismatch.
     `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an
     RD-loop stop, mutates `rd_thresh_mult` / hit-count mode gating across
     tested modes, uses libvpx's static-breakout rate sentinel and inter-intra
-    RD penalty, and keeps the RD-only NSTEP `first_step` / final one-pixel
-    refining search separate from the high-speed non-RD picker.
-  - Missing: exact `get_reference_search_order`, sign-bias switching,
-    temporal-layer threshold tweaks, SplitMV subsearch threshold input,
+    RD penalty, keeps the RD-only NSTEP `first_step` / final one-pixel
+    refining search separate from the high-speed non-RD picker, and compacts
+    enabled LAST/GOLDEN/ALT references through the same four-slot reference
+    search map as `get_reference_search_order`.
+  - Missing: sign-bias switching, temporal-layer threshold tweaks, full
+    SplitMV label-level segmentation search with `THR_NEW1/2/3` gating,
     active-map skip short-circuiting, exact `other_cost` / Y-RD side accounting,
     and recode-loop interactions.
   - Done when per-MB traces match tested mode order, skipped modes, selected

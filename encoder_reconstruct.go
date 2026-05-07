@@ -1033,6 +1033,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		ok       bool
 		mv       vp8enc.MotionVector
 	}
+	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
@@ -1066,7 +1067,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 
-		ref, refIndex, ok := libvpxFastInterReferenceAt(refs, refCount, refSlot)
+		ref, refIndex, ok := libvpxInterReferenceSearchAt(refs, refSearchOrder, refSlot)
 		if !ok {
 			continue
 		}
@@ -1145,6 +1146,17 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	return bestMode, bestScore, false, bestSet
 }
 
+func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSlot int) int {
+	switch refSlot {
+	case 1:
+		return thresholds[libvpxThrNew1]
+	case 2:
+		return thresholds[libvpxThrNew2]
+	default:
+		return thresholds[libvpxThrNew3]
+	}
+}
+
 func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, bool) {
 	zbinOverQuant := 0
 	if e != nil {
@@ -1209,6 +1221,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		ok       bool
 		mv       vp8enc.MotionVector
 	}
+	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
@@ -1227,7 +1240,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 
-		ref, refIndex, ok := libvpxFastInterReferenceAt(refs, refCount, refSlot)
+		ref, refIndex, ok := libvpxInterReferenceSearchAt(refs, refSearchOrder, refSlot)
 		if !ok {
 			continue
 		}
@@ -1264,8 +1277,31 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 }
 
 func libvpxFastInterReferenceAt(refs []interAnalysisReference, refCount int, refSlot int) (interAnalysisReference, int, bool) {
-	refIndex := refSlot - 1
-	if refIndex < 0 || refIndex >= refCount || refIndex >= len(refs) || refs[refIndex].Img == nil {
+	return libvpxInterReferenceSearchAt(refs, libvpxInterReferenceSearchOrder(refs, refCount), refSlot)
+}
+
+func libvpxInterReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
+	order := [4]int{-1, -1, -1, -1}
+	searchSlot := 1
+	for refIndex := 0; refIndex < refCount && refIndex < len(refs) && searchSlot < len(order); refIndex++ {
+		if refs[refIndex].Img == nil {
+			continue
+		}
+		switch refs[refIndex].Frame {
+		case vp8common.LastFrame, vp8common.GoldenFrame, vp8common.AltRefFrame:
+			order[searchSlot] = refIndex
+			searchSlot++
+		}
+	}
+	return order
+}
+
+func libvpxInterReferenceSearchAt(refs []interAnalysisReference, searchOrder [4]int, refSlot int) (interAnalysisReference, int, bool) {
+	if refSlot <= 0 || refSlot >= len(searchOrder) {
+		return interAnalysisReference{}, 0, false
+	}
+	refIndex := searchOrder[refSlot]
+	if refIndex < 0 || refIndex >= len(refs) || refs[refIndex].Img == nil {
 		return interAnalysisReference{}, 0, false
 	}
 	return refs[refIndex], refIndex, true
