@@ -38,40 +38,75 @@ SSIM is already ahead. The framing below assumes the bench harness from
 
 ## Path A - speed (close 16x)
 
-The order below is pprof-leaf-driven; each step is conditional on the
-previous profile pass confirming it is still the top hot leaf.
+### Baseline profile (2026-05-07, arm64 / Apple Silicon)
 
-1. **Profile first.** Add a `-cpuprofile` flag to `cmd/govpx-bench` and
-   capture a 10-second flame graph at the baseline config. Document the
-   top 10 leaves before writing any assembly. Expected suspects:
-   `SAD16x16`, `SixTapPredict{16x16,8x8}`, `IDCT4x4Add`,
-   `MBLoopFilter*Edge`, `Variance16x16`, `IntraDCPredict16x16`,
-   `BilinearPredict*`, quantize/dequant inner loops.
-2. **SAD NEON (arm64) + SSE2 (amd64).** Highest-leverage single
-   function. Start with `SAD16x16`, then 8x16/16x8/8x8/4x4. Keep the
-   pure-Go path as the fallback under build-tag selection.
-   Anticipated win: 3-5x on motion-heavy frames.
-3. **Sub-pel NEON.** `SixTapPredict16x16/8x8/8x16/16x8/8x4/4x4` and the
-   bilinear variants - hottest functions in inter prediction.
-   Anticipated win: 2-4x on inter-coded macroblocks.
-4. **IDCT NEON.** `IDCT4x4Add` + `DCOnlyIDCT4x4Add`. Called per coded
-   block; cheap to vectorize, big aggregate.
-5. **Loop filter NEON.** `MBLoopFilter{Horizontal,Vertical}Edge` and
-   `LoopFilter{Horizontal,Vertical}Edge`, including the simple
-   variants. Loop filter is non-trivial fraction of post-encode time.
-6. **Variance / Walsh / Intra16x16.** Lower priority once 2-5 land,
-   but each is a few hundred lines of straightforward NEON.
-7. **Tighten the Go fallback.** Bounds-check elision (single
-   `_ = src[len-1]` at the top of inner loops), `unsafe.Add` for stride
-   arithmetic, eliminate `append` on hot paths, `sync.Pool` for
-   residual/token/tx buffers if the profile shows allocation pressure
-   (current `allocs_per_frame` is 1.1, fine, but internal pools may
-   churn beneath that number).
+Captured via `govpx-bench -width 320 -height 240 -frames 600 -fps 30
+-bitrate 800 -mode realtime -cpuprofile=...`. 17.87 s of samples over
+600 frames. Top 10 flat (self-time) leaves:
 
-Realistic target: scalar tightening 1.3-1.7x, SIMD on the top 5
-functions 5-8x. Combined ~7-12x, putting govpx in the 600-1100 fps
-range at 320x240. Reaching parity (1500 fps) likely needs the full
-DSP pack, not just the top 5.
+| % flat | function | category |
+| ---: | --- | --- |
+| 12.59 | `dsp.varianceBlock` | subpel variance |
+| 11.14 | `dsp.varFilterBlock2DBilinearSecondPass` | subpel variance bilinear |
+| 10.63 | `dsp.varFilterBlock2DBilinearFirstPass` | subpel variance bilinear |
+|  8.45 | `dsp.sixTapPredict` | inter subpel reconstruction |
+|  7.55 | `dsp.sadBlockLimit` | motion search SAD |
+|  3.13 | `encoder.FastQuantizeBlock` | quantization |
+|  2.57 | `encoder.findTreeToken` | entropy lookup |
+|  2.46 | `treeTokenCost` | RD cost |
+|  2.24 | `macroblockSADLimited` | motion search wrapper |
+|  1.57 | `dsp.subpelVariance` | subpel variance wrapper |
+
+Top-3 functions are all subpel variance work; together they are
+**34.4% of total CPU**. Adding `sixTapPredict` (8.5%) and `sadBlockLimit`
+(7.5%) brings the SIMDable top-5 to **50.4%**. IDCT, loop filter, and
+intra prediction are each <1.5% - **lower priority than the original
+plan assumed**.
+
+Cumulative: `selectFastInterFrameModeDecision` at 59.4% drives most of
+the work; mode decision calls into subpel variance to refine motion
+vectors, which is where the bilinear/variance hot path lives.
+`benchmarkQualityMetrics` (34.4% cum) is the bench encoding the same
+frames a second time for PSNR/SSIM - production usage would not pay
+this.
+
+### Reordered priorities
+
+1. **Subpel variance bilinear NEON (arm64) + SSE2 (amd64).** Three
+   functions: `varFilterBlock2DBilinearFirstPass`,
+   `varFilterBlock2DBilinearSecondPass`, `varianceBlock`. Together
+   34.4% of CPU. This is the single highest-leverage SIMD target.
+   Anticipated win: 3-5x on these functions = ~1.5-2x overall.
+2. **Six-tap NEON.** `dsp.sixTapPredict` is 8.5% flat. Same shape as
+   bilinear - vertical pass + horizontal pass + clamping. Used in
+   inter reconstruction once the MV is locked.
+3. **SAD NEON (arm64) + SSE2 (amd64).** `sadBlockLimit` (with the
+   early-exit limit) is 7.5%. Implement the limit-aware variant; the
+   plain SAD16x16 wraps it. Anticipated win: 4-6x on the function.
+4. **Quantize NEON.** `FastQuantizeBlock` is 3.1% - a per-coefficient
+   round + threshold + zigzag pack, vectorizes well into 8x16-bit
+   lanes.
+5. **Tighten scalar fallback.** Bounds-check elision (single
+   `_ = src[len-1]` hint at the top of inner loops), `unsafe.Add`
+   for stride math, avoid `[]byte` reslicing in inner loops. Apply
+   to `varianceBlock`, `sixTapPredict`, `sadBlockLimit`,
+   `findTreeToken`, `treeTokenCost`. Anticipated win: 1.2-1.5x even
+   without SIMD, by letting the Go compiler keep the inner loop in
+   registers.
+6. **Mode-decision pruning.** `selectFastInterFrameModeDecision` is
+   59.4% cum but only 0.7% flat - the work happens in its callees.
+   After steps 1-3, re-profile and look for whether any single
+   candidate MV explores too aggressively at speed=8. libvpx's
+   `vp8_mv_bit_cost` early-exit is in `mvCost`; verify ours matches.
+7. **Loop filter / IDCT / intra.** Each <1.5% flat. Skip until the
+   first-pass SIMD work lands.
+
+Realistic combined ceiling: scalar tightening 1.2-1.5x, SIMD on
+items 1-4 carries another 3-5x of those 50% of cycles, so overall
+~3-5x. That puts govpx in the 280-460 fps range at 320x240, still
+short of libvpx's 1517 but materially closer. The remaining gap is
+in the long tail; reaching parity needs the full DSP pack and likely
+mode-decision pruning.
 
 ## Path B - quality (close -2.4 dB)
 
@@ -127,21 +162,25 @@ remainder.
 
 ## Ordered task list
 
-1. Add `-cpuprofile`/`-memprofile` flags to `cmd/govpx-bench` and
-   capture the baseline flame graph. Document the top 10 leaves in
-   this file as the profile-driven plan-of-record.
-2. SAD16x16 NEON (arm64). Build-tag fallback to existing Go.
-3. SixTapPredict16x16/8x8 NEON.
-4. IDCT4x4Add + DCOnlyIDCT4x4Add NEON.
-5. MBLoopFilter*Edge NEON (all four edges).
-6. Variance16x16 + Walsh4x4 NEON.
+1. ~~Add `-cpuprofile`/`-memprofile` flags to `cmd/govpx-bench` and
+   capture the baseline flame graph.~~ **Done 2026-05-07** - see the
+   "Baseline profile" section above.
+2. Subpel-variance NEON (arm64) + SSE2 (amd64): `varianceBlock`,
+   `varFilterBlock2DBilinearFirstPass`,
+   `varFilterBlock2DBilinearSecondPass`. 34.4% of CPU; highest leverage.
+3. Six-tap NEON: `sixTapPredict` (8.5%).
+4. SAD NEON: `sadBlockLimit` (limit-aware variant; 7.5%).
+5. Quantize NEON: `FastQuantizeBlock` (3.1%).
+6. Tighten scalar fallbacks (BCE hints + `unsafe.Add` strides) for
+   the same hot functions, so non-arm64/non-amd64 builds also gain.
 7. Subpixel-filter parity oracle vs libvpx. Fix any mismatches.
 8. Quantizer/zbin parity test against libvpx's tables.
 9. Audit `encoder_skip.go` thresholds and `encoder_segmentation.go`
    cyclic-refresh wiring.
 10. Add Derf-collection corpus + 640x360 / 1280x720 bench targets.
-11. Repeat profile + iterate until govpx >= libvpx encode-fps and PSNR
-    within +-0.3 dB on the corpus.
+11. Repeat profile + iterate. After steps 2-5 the next biggest leaf
+    likely shifts; expect to add IDCT/loop-filter/intra NEON only if
+    they climb back into the top 10.
 
 ## Caveats
 

@@ -38,7 +38,8 @@ lives in [Makefile](Makefile).
   two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
   quality/rate-control tuning parity is still open. Current estimate is roughly
   65% overall encoder parity, or about 75% on the core one-pass quality path;
-  see the detailed checklist for caveats.
+  these are quality/rate-equivalence estimates, not bit-exactness percentages.
+  See the detailed checklist for caveats.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
