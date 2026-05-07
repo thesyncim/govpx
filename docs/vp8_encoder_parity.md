@@ -831,7 +831,16 @@ the anchor and look for the surrounding mismatch.
     SplitMV pruning. Temporal-layer RD thresholds now mirror libvpx's
     `closest_reference_frame` tweak for LAST+GOLDEN temporal layers, including
     frame-number tracking through refresh/copy updates and `/8` vs `/2`
-    reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`.
+    reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`. Realtime
+    `cpu-used > 6` also applies libvpx's previous-frame `error_bins`
+    feedback from `vp8_set_speed_features`: govpx snapshots the prior
+    `pickinter` distortion bins at frame start, resets the current bins,
+    and raises/lowerings `THR_NEAREST*`, `THR_NEAR*`, and `THR_NEW*` by
+    the same `Speed - 6` population threshold before per-MB mode tests.
+    Tests:
+    `TestLibvpxRealtimeAdaptiveInterModeThresholdMirrorsSpeedFeature`,
+    `TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins`, and
+    `TestFastInterModeErrorBinsResetAndClampLikeLibvpx`.
   - High-level sign-bias policy is now wired: frame headers derive
     `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
     `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,

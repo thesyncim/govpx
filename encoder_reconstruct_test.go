@@ -310,6 +310,87 @@ func TestLibvpxInterModeThresholdMultipliersMirrorSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestLibvpxRealtimeAdaptiveInterModeThresholdMirrorsSpeedFeature(t *testing.T) {
+	var empty [1024]uint32
+	if got, want := libvpxRealtimeAdaptiveInterModeThreshold(&empty, 100, 8, 0), 1023<<7; got != want {
+		t.Fatalf("empty error-bin threshold = %d, want %d", got, want)
+	}
+
+	var bins [1024]uint32
+	bins[0] = 90
+	bins[20] = 2
+	if got, want := libvpxRealtimeAdaptiveInterModeThreshold(&bins, 100, 8, 0), 19<<7; got != want {
+		t.Fatalf("populated error-bin threshold = %d, want %d", got, want)
+	}
+
+	var low [1024]uint32
+	low[15] = 1
+	if got := libvpxRealtimeAdaptiveInterModeThreshold(&low, 1, 8, 0); got != 2000 {
+		t.Fatalf("low adaptive threshold = %d, want libvpx 2000 floor", got)
+	}
+}
+
+func TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins(t *testing.T) {
+	var bins [1024]uint32
+	ctx := libvpxInterModeThresholdContext{
+		refFrameCount: 3,
+		totalMBs:      100,
+		errorBins:     &bins,
+	}
+	got := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 8, ctx)
+	if got[libvpxThrNew1] != 1023<<7 ||
+		got[libvpxThrNearest1] != (1023<<7)>>1 ||
+		got[libvpxThrNear1] != (1023<<7)>>1 {
+		t.Fatalf("slot-1 adaptive thresholds = NEW:%d NEAREST:%d NEAR:%d, want %d/%d/%d",
+			got[libvpxThrNew1], got[libvpxThrNearest1], got[libvpxThrNear1],
+			1023<<7, (1023<<7)>>1, (1023<<7)>>1)
+	}
+	if got[libvpxThrNew2] != (1023<<7)<<1 ||
+		got[libvpxThrNearest2] != 1023<<7 ||
+		got[libvpxThrNear2] != 1023<<7 {
+		t.Fatalf("slot-2 adaptive thresholds = NEW:%d NEAREST:%d NEAR:%d, want %d/%d/%d",
+			got[libvpxThrNew2], got[libvpxThrNearest2], got[libvpxThrNear2],
+			(1023<<7)<<1, 1023<<7, 1023<<7)
+	}
+	if got[libvpxThrNew3] == (1023<<7)<<1 {
+		t.Fatalf("slot-3 adaptive threshold changed with refFrameCount=3, want unchanged static map")
+	}
+}
+
+func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 160, Height: 160}}
+	e.recordFastInterModeErrorBin(64 << 7)
+	e.recordFastInterModeErrorBin(1 << 30)
+	if e.interModeErrorBins[64] != 1 || e.interModeErrorBins[1023] != 1 {
+		t.Fatalf("error bins[64]/[1023] = %d/%d, want 1/1", e.interModeErrorBins[64], e.interModeErrorBins[1023])
+	}
+	e.interModeErrorBins[0] = 90
+	e.interModeErrorBins[20] = 2
+	e.beginInterRDModeDecisionFrame()
+	if e.interModeErrorBins[64] != 0 || e.interModeErrorBins[1023] != 0 {
+		t.Fatalf("error bins after frame reset = %d/%d, want 0/0", e.interModeErrorBins[64], e.interModeErrorBins[1023])
+	}
+	if e.interModeSpeedErrorBins[64] != 1 || e.interModeSpeedErrorBins[1023] != 1 || e.interModeSpeedErrorBins[0] != 90 || e.interModeSpeedErrorBins[20] != 2 {
+		t.Fatalf("speed-feature error bins[64]/[1023]/[0]/[20] = %d/%d/%d/%d, want previous-frame 1/1/90/2",
+			e.interModeSpeedErrorBins[64], e.interModeSpeedErrorBins[1023], e.interModeSpeedErrorBins[0], e.interModeSpeedErrorBins[20])
+	}
+	var refImg vp8common.Image
+	refs := []interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &refImg},
+		{Frame: vp8common.GoldenFrame, Img: &refImg},
+	}
+	thresholds := e.interModeRDThresholdsForReferences(40, refs, len(refs))
+	qValue := vp8common.DCQuant(40, 0)
+	q := int(math.Pow(float64(qValue), 1.25))
+	if q < 8 {
+		q = 8
+	}
+	want := ((19 << 7) << 1) * q / 100
+	if thresholds[libvpxThrNew2] != want {
+		t.Fatalf("NEW2 threshold from previous-frame error bins = %d, want %d", thresholds[libvpxThrNew2], want)
+	}
+}
+
 func TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts(t *testing.T) {
 	qValue := vp8common.DCQuant(40, 0)
 	q := int(math.Pow(float64(qValue), 1.25))
@@ -1760,7 +1841,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 		}
 	}
 
-	mode, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
+	mode, _, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
 	if !ok {
 		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
 	}

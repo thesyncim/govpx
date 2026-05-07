@@ -515,6 +515,30 @@ func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int,
 	return false
 }
 
+func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount int) int {
+	limit := refCount
+	if limit > len(refs) {
+		limit = len(refs)
+	}
+	count := 0
+	for i := 0; i < limit; i++ {
+		if refs[i].Img != nil && refs[i].Frame >= vp8common.LastFrame && refs[i].Frame < vp8common.MaxRefFrames {
+			count++
+		}
+	}
+	return count
+}
+
+func (e *VP8Encoder) interAnalysisMacroblockCount() int {
+	if e == nil {
+		return 0
+	}
+	if e.opts.Width > 0 && e.opts.Height > 0 {
+		return encoderMacroblockCount(e.opts.Width, e.opts.Height)
+	}
+	return len(e.interFrameModes)
+}
+
 // Ported from libvpx v1.16.0 vp8/encoder/mcomp.c motion search.
 // vp8_hex_search finishes with an eight-step full-pixel diamond refinement.
 const interFrameFullPixelSearchRadius = 16
@@ -732,7 +756,11 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 		context.lastEnabled = interAnalysisReferencesInclude(refs, refCount, vp8common.LastFrame)
 		context.goldenEnabled = interAnalysisReferencesInclude(refs, refCount, vp8common.GoldenFrame)
 		context.closestRef = e.closestInterAnalysisReference(refs, refCount)
+		context.refFrameCount = 1 + interAnalysisValidReferenceCount(refs, refCount)
 	}
+	context.totalMBs = e.interAnalysisMacroblockCount()
+	context.staticThreshold = e.opts.StaticThreshold
+	context.errorBins = &e.interModeSpeedErrorBins
 	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
 	if !e.interRDFrameActive {
 		return baseline
@@ -788,6 +816,8 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
+	e.interModeSpeedErrorBins = e.interModeErrorBins
+	e.interModeErrorBins = [1024]uint32{}
 	e.interRDFrameActive = true
 }
 
@@ -878,6 +908,20 @@ func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
 	e.interRDThreshTouched[modeIndex] = true
 }
 
+func (e *VP8Encoder) recordFastInterModeErrorBin(distortion int) {
+	if e == nil {
+		return
+	}
+	if distortion < 0 {
+		distortion = 0
+	}
+	bin := distortion >> 7
+	if bin >= len(e.interModeErrorBins) {
+		bin = len(e.interModeErrorBins) - 1
+	}
+	e.interModeErrorBins[bin]++
+}
+
 func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadline, speed int) [libvpxInterModeCount]int {
 	return libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, deadline, speed, libvpxInterModeThresholdContext{})
 }
@@ -909,10 +953,14 @@ func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadli
 }
 
 type libvpxInterModeThresholdContext struct {
-	temporalLayers int
-	lastEnabled    bool
-	goldenEnabled  bool
-	closestRef     vp8common.MVReferenceFrame
+	temporalLayers  int
+	lastEnabled     bool
+	goldenEnabled   bool
+	closestRef      vp8common.MVReferenceFrame
+	refFrameCount   int
+	totalMBs        int
+	staticThreshold int
+	errorBins       *[1024]uint32
 }
 
 func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxInterModeCount]int {
@@ -960,7 +1008,64 @@ func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int,
 		mult[libvpxThrNearest2] >>= shift
 		mult[libvpxThrNear2] >>= shift
 	}
+	if deadline == DeadlineRealtime && speed > 6 && context.errorBins != nil && context.totalMBs > 0 {
+		thresh := libvpxRealtimeAdaptiveInterModeThreshold(context.errorBins, context.totalMBs, speed, context.staticThreshold)
+		if context.refFrameCount > 1 {
+			mult[libvpxThrNew1] = thresh
+			mult[libvpxThrNearest1] = thresh >> 1
+			mult[libvpxThrNear1] = thresh >> 1
+		}
+		if context.refFrameCount > 2 {
+			mult[libvpxThrNew2] = thresh << 1
+			mult[libvpxThrNearest2] = thresh
+			mult[libvpxThrNear2] = thresh
+		}
+		if context.refFrameCount > 3 {
+			mult[libvpxThrNew3] = thresh << 1
+			mult[libvpxThrNearest3] = thresh
+			mult[libvpxThrNear3] = thresh
+		}
+	}
 	return mult
+}
+
+func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs int, speed int, staticThreshold int) int {
+	if errorBins == nil || totalMBs <= 0 || speed <= 6 {
+		return 2000
+	}
+	min := 2000
+	if staticThreshold > min {
+		min = staticThreshold
+	}
+	min >>= 7
+	if min < 0 {
+		min = 0
+	}
+	if min > len(errorBins) {
+		min = len(errorBins)
+	}
+	totalSkip := 0
+	for i := 0; i < min; i++ {
+		totalSkip += int(errorBins[i])
+	}
+	remaining := totalMBs - totalSkip
+	if remaining < 0 {
+		remaining = 0
+	}
+	sum := 0
+	i := min
+	for ; i < len(errorBins); i++ {
+		sum += int(errorBins[i])
+		if int64(10*sum) >= int64(speed-6)*int64(remaining) {
+			break
+		}
+	}
+	i--
+	thresh := i << 7
+	if thresh < 2000 {
+		thresh = 2000
+	}
+	return thresh
 }
 
 func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterModeCount]int {
@@ -1504,6 +1609,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
+	bestDistortion := maxInt()
 	bestSSE := maxInt()
 	bestModeIndex := -1
 	best := interFrameModeDecision{}
@@ -1530,7 +1636,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
-			mode, score, sse, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE)
+			mode, score, distortion, sse, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE)
 			if !ok {
 				continue
 			}
@@ -1539,6 +1645,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
+				bestDistortion = distortion
 				bestSSE = sse
 				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode}
@@ -1565,7 +1672,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		mode.SegmentID = segmentID
-		score, sse, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant)
+		score, distortion, sse, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant)
 		if !ok {
 			continue
 		}
@@ -1573,6 +1680,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score
+			bestDistortion = distortion
 			bestSSE = sse
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = breakoutSkip
@@ -1590,6 +1698,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	if bestModeIndex >= 0 {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
+	e.recordFastInterModeErrorBin(bestDistortion)
 	if !best.useIntra {
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
 	}
@@ -1679,7 +1788,7 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 	}
 }
 
-func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, bool) {
+func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, int, bool) {
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -1688,18 +1797,18 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 		return e.estimateFastBPredIntraModeScore(src, mbRow, mbCol, qIndex, bestSSE)
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
 	}
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
 	}
 	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(mbMode)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), sse, true
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), variance, sse, true
 }
 
-func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, bool) {
+func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int) (vp8enc.InterFrameMacroblockMode, int, int, int, bool) {
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -1718,7 +1827,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		for _, bMode := range fastBPredIntraModeCandidates {
 			var blockPred [16]byte
 			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
-				return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+				return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
 			}
 			modeRate := bPredModeRate(false, bMode, vp8common.BDCPred, vp8common.BDCPred)
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
@@ -1736,7 +1845,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		rate += bestRate
 		distortion += bestDist
 		if distortion > bestSSE {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
 		}
 	}
 	yOff := mbRow*16*e.analysis.Img.YStride + mbCol*16
@@ -1744,7 +1853,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		copy(e.analysis.Img.Y[yOff+row*e.analysis.Img.YStride:], pred[row*16:row*16+16])
 	}
 	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), sse, true
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), variance, sse, true
 }
 
 func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int) (vp8enc.InterFrameMacroblockMode, bool) {
@@ -3376,18 +3485,18 @@ func (e *VP8Encoder) estimateFastInterModeScore(src vp8enc.SourceImage, ref *vp8
 	if e != nil && mode != nil {
 		refRate = e.interReferenceFrameRate(mode.RefFrame)
 	}
-	score, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
+	score, _, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
 	return score, ok
 }
 
 func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int) (int, bool) {
-	score, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
+	score, _, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
 	return score, ok
 }
 
-func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkip(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int, quant *vp8enc.MacroblockQuant) (int, int, bool, bool) {
+func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkip(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int, quant *vp8enc.MacroblockQuant) (int, int, int, bool, bool) {
 	if ref == nil || mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
-		return 0, 0, false, false
+		return 0, 0, 0, false, false
 	}
 	modeRate := e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	variance, sse := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mode.MV)
@@ -3416,7 +3525,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkip(src vp8e
 		score = (score * adj * e.denoiserPickmodeMVBias()) / 10000
 	}
 	breakoutSkip := staticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.opts.StaticThreshold, sse)
-	return score, sse, breakoutSkip, true
+	return score, variance, sse, breakoutSkip, true
 }
 
 func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {

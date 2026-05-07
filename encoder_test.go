@@ -2839,6 +2839,9 @@ func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *tes
 
 func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
+	if err := e.SetCPUUsed(3); err != nil {
+		t.Fatalf("SetCPUUsed returned error: %v", err)
+	}
 	first := testImage(32, 16)
 	fillImage(first, 0, 90, 170)
 	for row := 0; row < first.Height; row++ {

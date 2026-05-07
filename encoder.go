@@ -340,12 +340,14 @@ type VP8Encoder struct {
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
 	tokenAbove               []vp8enc.TokenContextPlanes
 
-	interRDThreshMult      [libvpxInterModeCount]int
-	interRDThreshTouched   [libvpxInterModeCount]bool
-	interModeCheckFreq     [libvpxInterModeCount]int
-	interModeTestHitCounts [libvpxInterModeCount]int
-	interMBsTestedSoFar    int
-	interRDFrameActive     bool
+	interRDThreshMult       [libvpxInterModeCount]int
+	interRDThreshTouched    [libvpxInterModeCount]bool
+	interModeCheckFreq      [libvpxInterModeCount]int
+	interModeTestHitCounts  [libvpxInterModeCount]int
+	interMBsTestedSoFar     int
+	interModeErrorBins      [1024]uint32
+	interModeSpeedErrorBins [1024]uint32
+	interRDFrameActive      bool
 
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
