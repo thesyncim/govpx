@@ -606,10 +606,31 @@ the anchor and look for the surrounding mismatch.
     `TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias`,
     `TestImprovedInterFrameSearchStartBiasesCurrentSlots`, and
     `TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots`.
-  - Missing: full SplitMV label-level RD search with `THR_NEW1/2/3` gating,
-    token-context commit parity, active-map skip short-circuiting, and
-    recode-loop interactions. Active-map behavior is tracked in the dedicated
-    active-map checklist item elsewhere.
+  - The full SplitMV label-level RD search now mirrors libvpx's
+    `rd_check_segment` per-label `LEFT4X4 / ABOVE4X4 / ZERO4X4 / NEW4X4`
+    trial structure with `THR_NEW1/2/3` gating: `selectRDInterFrameModeDecision`
+    pulls the SPLITMV+NEW threshold for each reference variant from the
+    same `interModeRDThresholdsForReferences` table, indexes it with
+    `libvpxRefSlotForFrame` (LAST→THR_NEW1, GOLDEN→THR_NEW2,
+    ALTREF→THR_NEW3) via the existing `libvpxSplitMVSubsearchThreshold`
+    helper, and feeds it through `selectInterFrameSplitMotionModeWithSearchAndThreshold`
+    as `mvthresh`. The per-label loop in
+    `selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold` then
+    short-circuits the NEW4X4 motion search using
+    `label_mv_thresh = mvthresh / label_count`, matching
+    `if (best_label_rd < label_mv_thresh) break;` from
+    `rd_check_segment` and using an RDCOST-shaped comparison so the
+    threshold scale lines up with libvpx's `rd_threshes`. The split RD
+    decision (`selectInterFrameSplitMotionDecisionRDWithThreshold`) now
+    also returns the full `other_cost` / Y-RD breakdown libvpx accumulates
+    in `vp8_rd_pick_inter_mode` after `vp8_rd_pick_best_mbsegmentation`:
+    `interSplitMVRDDecision` exposes `YRate`, `UVRate`, `OtherCost`,
+    `RefCost`, `TotalRate`, `Rate2`, `RD`, and `YRD`, satisfying the
+    `update_best_mode` invariant
+    `TotalRate = YRate + UVRate + OtherCost + RefCost`.
+  - Missing: token-context commit parity, active-map skip short-circuiting,
+    and recode-loop interactions. Active-map behavior is tracked in the
+    dedicated active-map checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -681,9 +702,28 @@ the anchor and look for the surrounding mismatch.
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
+    `THR_NEW1/2/3` NEW4X4 gating now flows from the encoder's
+    `interModeRDThresholdsForReferences` table through
+    `libvpxSplitMVSubsearchThreshold` (slot index from
+    `libvpxRefSlotForFrame`) into
+    `selectInterFrameSplitMotionModeWithSearchAndThreshold`, which divides
+    by `label_count` and per-label compares
+    `RDCOST(label_rate, label_SAD)` against the threshold to short-circuit
+    the NEW4X4 motion search — mirroring libvpx
+    `rd_check_segment`'s `if (best_label_rd < label_mv_thresh) break;`
+    guard. Exact `other_cost` / Y-RD side accounting is now exposed on
+    `interSplitMVRDDecision` via `OtherCost`, `RefCost`, `TotalRate`,
+    `Rate2`, `RD`, and `YRD`; `selectInterFrameSplitMotionDecisionRDWithThreshold`
+    populates them so callers reproduce
+    `update_best_mode`'s
+    `yrd = RDCOST(rate2 - rate_uv - other_cost - ref_cost,
+    distortion2 - distortion_uv)` decomposition without re-running the
+    picker. Tests:
+    `TestSelectInterFrameSplitMotionLabelLevelTrials`,
+    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`, and
+    `TestSelectInterFrameSplitMotionOtherCostBreakdown`.
     Remaining search-shape work is broader oracle coverage. Token-context
-    commit parity, `THR_NEW1/2/3` NEW4X4 gating, and oracle-backed label-level
-    RD remain open.
+    commit parity remains open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
