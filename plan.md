@@ -33,12 +33,12 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
   per-call tree walks are functionally equivalent, but the libvpx pattern
   precomputes once per frame).
-- Faithful diamond / 3-step motion search with the
-  `vp8_init3smotion_compensation` search-site table; the `bestRefMV`
-  centring, MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, and realtime
-  `CpuUsed > 4` `vp8_hex_search` path are in place, but the non-realtime
-  integer search is still an exhaustive sweep (±16 for whole-MB, ±8 for
-  SPLITMV), not a stepped diamond/NSTEP search.
+- Faithful remaining motion-search branches: the `bestRefMV` centring,
+  MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, libvpx NSTEP
+  `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
+  `vp8_hex_search` path are in place; remaining gaps are exact improved MV
+  predictor search-range adjustment, the alternate DIAMOND path, and SPLITMV
+  integer-search pruning/details.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage.
 - Exact loop-filter level search; previous filter-level carry and libvpx
   Q-based min/max clamps are in place, but the fast/full trial-filter search
