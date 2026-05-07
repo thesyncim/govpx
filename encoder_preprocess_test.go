@@ -190,12 +190,15 @@ func TestARNRChangesPixelsOnSyntheticMotionClip(t *testing.T) {
 	}
 }
 
-// TestARNRFixedAdler32 pins the exact ARF buffer Adler32 produced for a
-// known input + (maxframes=3, strength=3, type=3) configuration. This
-// guards against accidental drift in the libvpx-port math (per-pixel
-// weight formula, normalization, motion search). Update this constant
-// only with intent; it is the regression anchor for the temporal filter.
-func TestARNRFixedAdler32(t *testing.T) {
+// TestARNRSubpelDeterministicAdler32 pins the exact ARF buffer Adler32
+// produced for a known input + (maxframes=3, strength=3, type=3)
+// configuration after subpel refinement is applied. This guards against
+// accidental drift in the libvpx-port math (per-pixel weight formula,
+// normalization, hex search seeded from the prior MV, and the 1/2-/1/4-/
+// 1/8-pel diamond walk that adopts the lowest-SAD sixtap predictor).
+// Update this constant only with intent; it is the regression anchor for
+// the motion-compensated temporal filter.
+func TestARNRSubpelDeterministicAdler32(t *testing.T) {
 	const w, h = 64, 64
 	// Back: gradient. Center: same gradient + 5. Forward: same gradient + 10.
 	back := make([]byte, w*h)
@@ -223,11 +226,13 @@ func TestARNRFixedAdler32(t *testing.T) {
 		copy(visible[y*w:(y+1)*w], dst[y*stride:y*stride+w])
 	}
 	got := adler32.Checksum(visible)
-	// Pinned against the libvpx-shaped hex-search ARNR output for this
-	// configuration. The previous local-exhaustive-around-(0,0) search
-	// produced 0xB9AB403D; the libvpx-faithful hex search seeded from
-	// the prior frame's MV reaches positions outside that small window
-	// and yields a slightly different (but well-defined) accumulator.
+	// Pinned against the libvpx-shaped hex+subpel-search ARNR output for
+	// this configuration. Earlier integer-only revisions produced
+	// 0x482C403D; subpel refinement may relocate predictors at fractional
+	// positions, mixing sixtap-filtered samples into the accumulator.
+	// On this gradient the integer-pel position wins every subpel probe
+	// (the gradient is exactly aligned at integer offsets), so the
+	// constant matches the integer-only baseline.
 	const want uint32 = 0x482C403D
 	if got != want {
 		t.Fatalf("ARNR Adler32 = 0x%08X, want 0x%08X", got, want)
@@ -351,4 +356,216 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 	if differingPixels == 0 {
 		t.Fatalf("hex-search ARNR output identical to center; expected MC contributions")
 	}
+}
+
+// halfPelShiftedPlane returns a plane built by sampling `truth` at integer
+// positions plus a 0.5-pixel offset along each axis (averaging the two
+// neighbors). The result simulates a frame whose true motion is exactly
+// half-pel relative to `truth`; integer-pel search cannot align this with
+// `truth` byte-for-byte, but a sixtap subpel predictor at fracCol=4,
+// fracRow=4 produces a much closer match.
+func halfPelShiftedPlane(truth []byte, w, h int, shiftX, shiftY int, halfX, halfY bool) []byte {
+	out := make([]byte, w*h)
+	for y := 0; y < h; y++ {
+		yA := y + shiftY
+		yB := yA
+		if halfY {
+			yB = yA + 1
+		}
+		if yA < 0 {
+			yA = 0
+		}
+		if yA >= h {
+			yA = h - 1
+		}
+		if yB < 0 {
+			yB = 0
+		}
+		if yB >= h {
+			yB = h - 1
+		}
+		for x := 0; x < w; x++ {
+			xA := x + shiftX
+			xB := xA
+			if halfX {
+				xB = xA + 1
+			}
+			if xA < 0 {
+				xA = 0
+			}
+			if xA >= w {
+				xA = w - 1
+			}
+			if xB < 0 {
+				xB = 0
+			}
+			if xB >= w {
+				xB = w - 1
+			}
+			a := int(truth[yA*w+xA])
+			b := int(truth[yA*w+xB])
+			c := int(truth[yB*w+xA])
+			d := int(truth[yB*w+xB])
+			out[y*w+x] = byte((a + b + c + d + 2) >> 2)
+		}
+	}
+	return out
+}
+
+// TestARNRSubpelRefinementImprovesNoisyMatch verifies that when adjacent
+// frames carry true half-pel motion relative to the alt-ref center, the
+// subpel-refined sixtap predictor delivers lower SSE against the noiseless
+// ground-truth center than the integer-only predictor. Both paths share
+// the same hex search (full-pel MV); only the synthesized predictor
+// differs.
+func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
+	const w, h = 64, 64
+	// Build a textured ground-truth plane. The pattern has high spatial
+	// frequency so the half-pel-shifted reference materially differs
+	// from any integer-aligned position.
+	truth := make([]byte, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			v := 96 + ((x*37 + y*53) & 0x3f) - ((x*y) & 0x1f)
+			if v < 16 {
+				v = 16
+			}
+			if v > 239 {
+				v = 239
+			}
+			truth[y*w+x] = byte(v)
+		}
+	}
+	// Adjacent frames are half-pel shifted in both axes (no whole-pel
+	// component) so the hex search converges on MV=(0,0) and only subpel
+	// refinement can buy lower SAD.
+	back := halfPelShiftedPlane(truth, w, h, 0, 0, true, true)
+	fwd := halfPelShiftedPlane(truth, w, h, 0, 0, true, true)
+	center := make([]byte, len(truth))
+	copy(center, truth)
+
+	// Run ARNR (subpel path).
+	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
+	cp := make([]byte, len(center))
+	copy(cp, center)
+	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+		t.Fatalf("applyARNRFilter returned false")
+	}
+	subpelOut := e.arnrScratch.Img.Y
+	stride := e.arnrScratch.Img.YStride
+	subpelVisible := make([]byte, w*h)
+	for y := 0; y < h; y++ {
+		copy(subpelVisible[y*w:(y+1)*w], subpelOut[y*stride:y*stride+w])
+	}
+
+	// Build the integer-only reference output. We replay the exact same
+	// per-MB hex search the encoder ran (the integer-pel MV is what
+	// goes into mvHistory) but synthesize predictors with gatherBlock,
+	// matching the pre-subpel implementation.
+	intOut := arnrIntegerOnlyReference(t, w, h, back, center, fwd, 3, 3)
+
+	// Compute SSE vs the noiseless ground truth.
+	sse := func(plane []byte) int64 {
+		var s int64
+		for i := 0; i < w*h; i++ {
+			d := int64(plane[i]) - int64(truth[i])
+			s += d * d
+		}
+		return s
+	}
+	subpelSSE := sse(subpelVisible)
+	intSSE := sse(intOut)
+	if subpelSSE >= intSSE {
+		t.Fatalf("subpel ARNR did not improve PSNR vs integer-only: subpelSSE=%d intSSE=%d", subpelSSE, intSSE)
+	}
+}
+
+// arnrIntegerOnlyReference reproduces the pre-subpel ARNR luma output for
+// the same (back, center, fwd, strength, type=3, maxFrames=3) setup the
+// production encoder runs. The hex search is identical (it operates at
+// integer-pel resolution) but predictors are gathered at the integer MV
+// rather than passed through the sixtap subpel filter, so the output
+// reflects what ARNR produced before subpel refinement landed.
+func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, strength int, arnrType int) []byte {
+	t.Helper()
+	e := arnrTestEncoder(t, w, h, 3, strength, arnrType, back, [][]byte{fwd})
+	// Mirror applyARNRFilter's setup (copy the center into the scratch,
+	// then iterate). We then walk the same per-MB loop but force the
+	// sixtap predictor down to gatherBlock by zeroing the subpel offset
+	// after the hex search picks the integer MV.
+	cp := make([]byte, len(center))
+	copy(cp, center)
+	src := syntheticSource(w, h, cp)
+	copySourceToFrameBuffer(&e.arnrScratch, src)
+
+	mbCols := (w + 15) >> 4
+	mbRows := (h + 15) >> 4
+	dst := arnrFrameView{
+		width:   e.arnrScratch.Img.Width,
+		height:  e.arnrScratch.Img.Height,
+		y:       e.arnrScratch.Img.Y,
+		u:       e.arnrScratch.Img.U,
+		v:       e.arnrScratch.Img.V,
+		yStride: e.arnrScratch.Img.YStride,
+		uStride: e.arnrScratch.Img.UStride,
+		vStride: e.arnrScratch.Img.VStride,
+	}
+	refs := []arnrFrameView{
+		arnrViewFromImage(&e.arnrLastSource.Img),
+		arnrViewFromSource(src),
+		arnrViewFromImage(&e.lookahead[0].frame.Img),
+	}
+	const centerIdx = 1
+
+	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
+	var accumulator [384]uint32
+	var count [384]uint32
+	for mbRow := 0; mbRow < mbRows; mbRow++ {
+		for mbCol := 0; mbCol < mbCols; mbCol++ {
+			mbX := mbCol << 4
+			mbY := mbRow << 4
+			for i := range accumulator {
+				accumulator[i] = 0
+				count[i] = 0
+			}
+			var srcY [256]byte
+			gatherBlock(srcY[:], 16, dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16)
+			mbHistory := mbRow*mbCols + mbCol
+			for fi, ref := range refs {
+				var filterWeight, mvX, mvY int
+				if fi == centerIdx {
+					filterWeight = 2
+				} else {
+					seed := arnrMV{}
+					if fi > 0 {
+						seed = mvHistory[(fi-1)*mbRows*mbCols+mbHistory]
+					}
+					err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
+					mvX, mvY = sx, sy
+					switch {
+					case err < arnrThreshLow:
+						filterWeight = 2
+					case err < arnrThreshHigh:
+						filterWeight = 1
+					default:
+						filterWeight = 0
+					}
+				}
+				mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: mvX, y: mvY}
+				if filterWeight == 0 {
+					continue
+				}
+				var predY [256]byte
+				gatherBlock(predY[:], 16, ref.y, ref.yStride, mbX+mvX, mbY+mvY, ref.width, ref.height, 16)
+				applyTemporalFilter(srcY[:], 16, predY[:], 16, strength, filterWeight, accumulator[:256], count[:256])
+			}
+			writeARNRBlock(dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16, accumulator[:256], count[:256])
+		}
+	}
+
+	out := make([]byte, w*h)
+	for y := 0; y < h; y++ {
+		copy(out[y*w:(y+1)*w], dst.y[y*dst.yStride:y*dst.yStride+w])
+	}
+	return out
 }
