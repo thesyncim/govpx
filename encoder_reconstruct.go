@@ -1842,7 +1842,10 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.Sour
 		if e.macroblockIsSkin(mbRow, mbCol, mbCols) {
 			adj = 100
 		}
-		score = (score * adj) / 100
+		// libvpx denoiser pickmode_mv_bias: aggressive denoise scales ZEROMV
+		// down (multiplier=75) so ZEROMV-LAST is preferred for noisy areas.
+		// Non-aggressive denoise leaves the multiplier at 100.
+		score = (score * adj * e.denoiserPickmodeMVBias()) / 10000
 	}
 	return score, true
 }

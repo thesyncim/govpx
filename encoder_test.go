@@ -4343,3 +4343,114 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 		t.Fatalf("disabled active map still forced every MB to skip; want normal mode decision")
 	}
 }
+
+func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
+	cases := []struct {
+		level    int
+		wantMode int
+	}{
+		{0, 0},
+		{1, 1},
+		{2, 2},
+		{3, 3},
+		{4, 3},
+		{5, 3},
+		{6, 3},
+	}
+	for _, c := range cases {
+		if got := denoiserModeForSensitivity(c.level); got != c.wantMode {
+			t.Fatalf("noise_sensitivity %d -> mode %d, want %d", c.level, got, c.wantMode)
+		}
+	}
+}
+
+func TestDenoiserSetParametersMatchesLibvpxModes(t *testing.T) {
+	for _, mode := range []int{1, 2} {
+		kind, params := denoiserSetParameters(mode)
+		if mode == 1 && kind != denoiserOnYOnly {
+			t.Fatalf("mode=1 kind = %d, want denoiserOnYOnly", kind)
+		}
+		if mode == 2 && kind != denoiserOnYUV {
+			t.Fatalf("mode=2 kind = %d, want denoiserOnYUV", kind)
+		}
+		if params.scaleSSEThresh != 1 || params.scaleMotionThresh != 8 || params.scaleIncreaseFilter != 0 || params.denoiseMVBias != 95 || params.pickmodeMVBias != 100 || params.qpThresh != 0 {
+			t.Fatalf("non-aggressive params for mode=%d = %+v, want libvpx defaults", mode, params)
+		}
+	}
+	kind, params := denoiserSetParameters(3)
+	if kind != denoiserOnYUVAggressive {
+		t.Fatalf("mode=3 kind = %d, want denoiserOnYUVAggressive", kind)
+	}
+	if params.scaleSSEThresh != 2 || params.scaleMotionThresh != 16 || params.scaleIncreaseFilter != 1 || params.denoiseMVBias != 95 && params.denoiseMVBias != 60 || params.pickmodeMVBias != 75 || params.qpThresh != 80 || params.consecZeroLast != 15 {
+		t.Fatalf("aggressive params = %+v, want libvpx aggressive defaults", params)
+	}
+}
+
+func TestDenoiserFilterYReturnsCopyForSharpDifference(t *testing.T) {
+	// Pixels where source and mc_running_avg differ by huge amounts: filter
+	// should return COPY_BLOCK (sum_diff above threshold and delta>=4).
+	mc := make([]byte, 16*16)
+	avg := make([]byte, 16*16)
+	sig := make([]byte, 16*16)
+	for i := range mc {
+		mc[i] = 250
+	}
+	for i := range sig {
+		sig[i] = 0
+	}
+	if got := denoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false); got != denoiserCopyBlock {
+		t.Fatalf("max-divergence filter decision = %d, want COPY_BLOCK", got)
+	}
+}
+
+func TestDenoiserFilterYUsesMCWhenAbsdiffSmall(t *testing.T) {
+	// |diff| <= 3 path: running_avg should be set to mc_running_avg, and the
+	// filter should accept (FILTER_BLOCK).
+	mc := make([]byte, 16*16)
+	avg := make([]byte, 16*16)
+	sig := make([]byte, 16*16)
+	for i := range mc {
+		mc[i] = 130
+	}
+	for i := range sig {
+		sig[i] = 128
+	}
+	if got := denoiserFilterY(mc, 16, avg, 16, sig, 16, 0, false); got != denoiserFilterBlock {
+		t.Fatalf("small-diff filter decision = %d, want FILTER_BLOCK", got)
+	}
+	for i := range avg {
+		if avg[i] != 130 {
+			t.Fatalf("avg[%d] = %d, want 130 (mc value taken when |diff|<=3)", i, avg[i])
+		}
+	}
+}
+
+func TestDenoiserFilterUVCopiesNearNeutralBlocks(t *testing.T) {
+	// 8x8 block where chroma is near 128 across the board: libvpx returns
+	// COPY without filtering because |sum_block - 128*64| < threshold.
+	mc := make([]byte, 8*8)
+	avg := make([]byte, 8*8)
+	sig := make([]byte, 8*8)
+	for i := range sig {
+		sig[i] = 128
+	}
+	if got := denoiserFilterUV(mc, 8, avg, 8, sig, 8, 0, false); got != denoiserCopyBlock {
+		t.Fatalf("near-neutral UV filter = %d, want COPY_BLOCK", got)
+	}
+}
+
+func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.opts.NoiseSensitivity = 0
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("denoiser-off bias = %d, want 100", got)
+	}
+	e.opts.NoiseSensitivity = 2
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("YUV mode bias = %d, want 100", got)
+	}
+	e.opts.NoiseSensitivity = 3
+	if got := e.denoiserPickmodeMVBias(); got != 75 {
+		t.Fatalf("aggressive bias = %d, want 75", got)
+	}
+}

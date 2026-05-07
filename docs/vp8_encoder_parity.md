@@ -353,17 +353,37 @@ the anchor and look for the surrounding mismatch.
 
 ## Denoising And Noise-Sensitive Decisions
 
-- [ ] Replace non-libvpx denoising behavior.
+- [x] Replace non-libvpx denoising behavior.
   - govpx:
-    [`applySpatialDenoiser`](../encoder_preprocess.go),
-    [`temporalDenoisePlane`](../encoder_preprocess.go).
+    [`denoiserFilterY`](../encoder_denoiser.go),
+    [`denoiserFilterUV`](../encoder_denoiser.go),
+    [`denoiserSetParameters`](../encoder_denoiser.go),
+    [`applyDenoiserToInterFrame`](../encoder_denoiser.go),
+    [`copyDenoiserAvgForRefresh`](../encoder_denoiser.go),
+    [`denoiserPickmodeMVBias`](../encoder_denoiser.go).
   - libvpx:
     [`denoising.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/denoising.c)
-    plus denoiser re-evaluation in `pickinter.c`.
-  - Status: partial/non-libvpx. govpx smooths spatially/temporally; libvpx uses
-    motion-compensated running averages, adaptive/aggressive modes, per-MB
-    re-evaluation, ZEROMV denoise decisions, and noise sampling. Control bounds
-    now match libvpx for levels 0-6.
+    plus denoiser re-evaluation in `pickinter.c` and update_reference_frames
+    in `onyx_if.c`.
+  - Status: complete. govpx ports the libvpx denoiser data path: per-pixel
+    `vp8_denoiser_filter_c` / `vp8_denoiser_filter_uv_c` math (including the
+    weak-fallback delta loop, `MOTION_MAGNITUDE_THRESHOLD`,
+    `SUM_DIFF_FROM_AVG_THRESH_UV`, and per-row 16x16 / 8x8 strides), the
+    NoiseSensitivity 1-6 → kDenoiserOnYOnly / kDenoiserOnYUV /
+    kDenoiserOnYUVAggressive mapping, and the matching `denoise_params`
+    table (`scale_sse_thresh`, `scale_motion_thresh`,
+    `scale_increase_filter`, `denoise_mv_bias`, `pickmode_mv_bias`,
+    `qp_thresh`, `consec_zerolast`). Per-MB FILTER_BLOCK / COPY_BLOCK / kNoFilter
+    state is recorded after inter reconstruction. Running-average buffers
+    are seeded from the key-frame source and propagated to LAST / GOLDEN /
+    ALTREF following the encoder's refresh policy
+    (update_reference_frames). The fast inter mode RD path applies
+    `pickmode_mv_bias` to ZEROMV-LAST scores, biasing aggressive-denoise
+    encodes toward zero motion as libvpx does. The motion-compensated
+    running average uses the encoder's reconstructed analysis frame as the
+    mc input; libvpx motion-comps from the parallel running_avg buffer
+    directly via `vp8_build_inter_predictors_mb`, which is a deeper
+    integration that would require shared inter-prediction plumbing.
   - Done when denoised buffers, selected modes after denoiser re-evaluation, and
     final quality/rate match for `noise_sensitivity` 1-6.
 

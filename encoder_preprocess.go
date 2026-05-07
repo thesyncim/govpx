@@ -33,9 +33,6 @@ func (e *VP8Encoder) initPreprocessFrames(width int, height int) error {
 	if err := e.arnrLastSource.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
-	if err := e.denoiseRunningAvg.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
-	}
 	if err := e.firstPassLastRef.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
@@ -143,13 +140,18 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 			meta.arnrFiltered = true
 		}
 	}
-	if e.opts.NoiseSensitivity > 0 {
-		e.applySpatialDenoiser(src)
-		src = sourceImageFromVP8(&e.preprocess.Img)
-		meta.denoised = true
-	}
 	copySourceToFrameBuffer(&e.arnrLastSource, source)
 	e.arnrLastReady = true
+	if e.opts.NoiseSensitivity > 0 {
+		// Allocate the libvpx-style running average buffers and per-MB
+		// state map on first inter frame; the actual filter runs per-MB
+		// after mode decision in buildReconstructingInterFrameCoefficients.
+		_ = e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height)
+		mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
+		e.denoiser.mode = mode
+		_, e.denoiser.params = denoiserSetParameters(mode)
+		meta.denoised = true
+	}
 	return src, meta
 }
 
@@ -260,83 +262,6 @@ func temporalFilterWeight(center int, sample int, threshold int) int {
 		return 0
 	}
 	return threshold - diff
-}
-
-func (e *VP8Encoder) applySpatialDenoiser(src vp8enc.SourceImage) {
-	copySourceToFrameBuffer(&e.preprocess, src)
-	strength := e.opts.NoiseSensitivity
-	if strength < 1 {
-		return
-	}
-	spatialDenoisePlane(e.preprocess.Img.Y, e.preprocess.Img.YStride, src.Y, src.YStride, src.Width, src.Height, strength)
-	if strength >= 2 {
-		uvWidth := (src.Width + 1) >> 1
-		uvHeight := (src.Height + 1) >> 1
-		spatialDenoisePlane(e.preprocess.Img.U, e.preprocess.Img.UStride, src.U, src.UStride, uvWidth, uvHeight, strength-1)
-		spatialDenoisePlane(e.preprocess.Img.V, e.preprocess.Img.VStride, src.V, src.VStride, uvWidth, uvHeight, strength-1)
-	}
-	if e.denoiseReady {
-		temporalDenoisePlane(e.preprocess.Img.Y, e.preprocess.Img.YStride, e.denoiseRunningAvg.Img.Y, e.denoiseRunningAvg.Img.YStride, src.Width, src.Height, strength)
-		if strength >= 2 {
-			uvWidth := (src.Width + 1) >> 1
-			uvHeight := (src.Height + 1) >> 1
-			temporalDenoisePlane(e.preprocess.Img.U, e.preprocess.Img.UStride, e.denoiseRunningAvg.Img.U, e.denoiseRunningAvg.Img.UStride, uvWidth, uvHeight, strength)
-			temporalDenoisePlane(e.preprocess.Img.V, e.preprocess.Img.VStride, e.denoiseRunningAvg.Img.V, e.denoiseRunningAvg.Img.VStride, uvWidth, uvHeight, strength)
-		}
-	}
-	copyFrameImage(&e.denoiseRunningAvg.Img, &e.preprocess.Img)
-	e.denoiseRunningAvg.ExtendBorders()
-	e.denoiseReady = true
-	e.preprocess.ExtendBorders()
-}
-
-func spatialDenoisePlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, strength int) {
-	if width <= 2 || height <= 2 {
-		return
-	}
-	threshold := 6 + strength*4
-	for y := 1; y < height-1; y++ {
-		for x := 1; x < width-1; x++ {
-			center := int(src[y*srcStride+x])
-			sum := center * 4
-			count := 4
-			for yy := -1; yy <= 1; yy++ {
-				for xx := -1; xx <= 1; xx++ {
-					if yy == 0 && xx == 0 {
-						continue
-					}
-					v := int(src[(y+yy)*srcStride+x+xx])
-					diff := center - v
-					if diff < 0 {
-						diff = -diff
-					}
-					if diff <= threshold {
-						sum += v
-						count++
-					}
-				}
-			}
-			dst[y*dstStride+x] = byte((sum + count/2) / count)
-		}
-	}
-}
-
-func temporalDenoisePlane(dst []byte, dstStride int, avg []byte, avgStride int, width int, height int, strength int) {
-	threshold := 8 + strength*6
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			offset := y*dstStride + x
-			v := int(dst[offset])
-			a := int(avg[y*avgStride+x])
-			diff := v - a
-			if diff < 0 {
-				diff = -diff
-			}
-			if diff <= threshold {
-				dst[offset] = byte((3*a + v + 2) >> 2)
-			}
-		}
-	}
 }
 
 func copySourceToFrameBuffer(dst *vp8common.FrameBuffer, src vp8enc.SourceImage) {

@@ -232,8 +232,11 @@ type VP8Encoder struct {
 	arnrScratch       vp8common.FrameBuffer
 	arnrLastSource    vp8common.FrameBuffer
 	arnrLastReady     bool
-	denoiseRunningAvg vp8common.FrameBuffer
-	denoiseReady      bool
+	// libvpx-style temporal denoiser. Maintains a parallel running_avg
+	// stream (per reference) that mc-filters the source toward the picked
+	// motion-compensated prediction, plus a per-MB FILTER/COPY/NoFilter
+	// state machine. See vp8/encoder/denoising.c.
+	denoiser denoiserState
 
 	firstPassLastRef   vp8common.FrameBuffer
 	firstPassGoldenRef vp8common.FrameBuffer
@@ -526,6 +529,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
 	e.refreshKeyFrameReferencesFromAnalysis()
+	// Seed denoiser running averages from the key-frame source (libvpx
+	// onyx_if.c update_reference_frames key-frame branch).
+	e.initDenoiserAvgFromKeyFrame(source)
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
@@ -727,6 +733,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
+	// libvpx denoiser runs per-MB after mode decision and reconstruction.
+	// Output goes to denoiser.runningAvg[INTRA] which propagates to
+	// reference-aligned buffers in commitInterFrameAttempt.
+	e.applyDenoiserToInterFrame(source, rows, cols)
 	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
@@ -780,6 +790,10 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	} else {
 		e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
 	}
+	// Mirror libvpx onyx_if.c update_reference_frames denoiser branch: copy
+	// the denoised running_avg[INTRA] into LAST/GOLDEN/ALTREF running_avg
+	// buffers per the frame's refresh policy.
+	e.copyDenoiserAvgForRefresh(attempt.Config.RefreshLast, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
 	e.rememberLastFrameInterModes()
 }
 
@@ -1313,7 +1327,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	}
 	e.opts.NoiseSensitivity = level
 	if level == 0 {
-		e.denoiseReady = false
+		e.denoiser.reset()
 	}
 	return nil
 }
@@ -1358,7 +1372,7 @@ func (e *VP8Encoder) Reset() {
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0
 	e.arnrLastReady = false
-	e.denoiseReady = false
+	e.denoiser.reset()
 	e.firstPassCount = 0
 	clearCyclicRefreshMap(e.cyclicRefreshMap)
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
