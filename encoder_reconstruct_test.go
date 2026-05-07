@@ -692,6 +692,28 @@ func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
 	}
 }
 
+func TestInterFrameDiamondSearchSitesMirrorLibvpxDSMotionTable(t *testing.T) {
+	sites := interFrameDiamondSearchSites()
+	if len(sites) != 33 {
+		t.Fatalf("diamond search sites = %d, want 33", len(sites))
+	}
+	wantFirst := [...]vp8enc.MotionVector{
+		{},
+		{Row: -128},
+		{Row: 128},
+		{Col: -128},
+		{Col: 128},
+	}
+	for i, want := range wantFirst {
+		if sites[i] != want {
+			t.Fatalf("site[%d] = %+v, want %+v", i, sites[i], want)
+		}
+	}
+	if sites[29] != (vp8enc.MotionVector{Row: -1}) || sites[32] != (vp8enc.MotionVector{Col: 1}) {
+		t.Fatalf("final step sites = %+v/%+v, want -1 row and +1 col", sites[29], sites[32])
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 40, 90, 170)
@@ -804,6 +826,72 @@ func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *test
 
 	if mv != (vp8enc.MotionVector{Row: 32}) {
 		t.Fatalf("nstep full-pixel MV = %+v, want row +32 from libvpx search-site contraction", mv)
+	}
+}
+
+func TestSelectInterFrameFullPixelMotionVectorDiamondUsesLibvpxSearchSites(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 17, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((23 + row*71 + col*139 + row*col*41) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 129, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+
+	cfg := interAnalysisSearchConfig{
+		fullPixelSearch:       interAnalysisFullPixelSearchDiamond,
+		fullPixelSearchParam:  0,
+		fullPixelFurtherSteps: 7,
+		fractionalSearch:      interAnalysisFractionalSearchIterative,
+	}
+	mv, _ := selectInterFrameFullPixelMotionVectorWithSearch(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, cfg)
+
+	if mv != (vp8enc.MotionVector{Row: 32}) {
+		t.Fatalf("diamond full-pixel MV = %+v, want row +32 from libvpx four-site contraction", mv)
+	}
+}
+
+func TestSelectInterFrameFullPixelMotionVectorDiamondKeepsFourSitePath(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 17, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((31 + row*67 + col*149 + row*col*43) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 129, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+20)*last.Img.YStride+col+20] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+
+	nstepCfg := interAnalysisSearchConfig{
+		fullPixelSearch:       interAnalysisFullPixelSearchNstep,
+		fullPixelSearchParam:  0,
+		fullPixelFurtherSteps: 7,
+		fractionalSearch:      interAnalysisFractionalSearchIterative,
+	}
+	diamondCfg := nstepCfg
+	diamondCfg.fullPixelSearch = interAnalysisFullPixelSearchDiamond
+
+	source := sourceImageFromPublic(src)
+	nstepMV, _ := selectInterFrameFullPixelMotionVectorWithSearch(source, &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, nstepCfg)
+	diamondMV, _ := selectInterFrameFullPixelMotionVectorWithSearch(source, &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, diamondCfg)
+
+	if nstepMV != (vp8enc.MotionVector{Row: 32, Col: 32}) {
+		t.Fatalf("nstep full-pixel MV = %+v, want diagonal +32,+32", nstepMV)
+	}
+	if diamondMV == nstepMV {
+		t.Fatalf("diamond full-pixel MV = %+v, want four-site path distinct from NSTEP diagonal", diamondMV)
 	}
 }
 

@@ -38,7 +38,8 @@ lives in [Makefile](Makefile).
   two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
   quality/rate-control tuning parity is still open. Current estimate is roughly
   65% overall encoder parity, or about 75% on the core one-pass quality path;
-  see the detailed checklist for caveats.
+  these are quality/rate-equivalence estimates, not bit-exactness percentages.
+  See the detailed checklist for caveats.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
@@ -56,9 +57,10 @@ lives in [Makefile](Makefile).
   libvpx-style luma-variance pickinter scoring, applies pickinter's mode-loop
   threshold and hit-count model, and skips SPLITMV evaluation while preserving
   libvpx's test-count/threshold raise side effect; improved-MV oracle rows now
-  expose the govpx predictor slot, predictor MV, and search range. Remaining
-  gaps are the libvpx-side improved-MV comparator and the alternate DIAMOND
-  path.
+  expose the govpx predictor slot, predictor MV, and search range. The dormant
+  four-site DIAMOND table/path is also implemented for explicit libvpx-surface
+  parity and future first-pass reuse. Remaining gap is the libvpx-side
+  improved-MV comparator.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while

@@ -3,6 +3,9 @@ package govpx
 import (
 	"math"
 	"testing"
+
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // TestFirstPassStatsPopulatesLibvpxFields runs CollectFirstPassStats on a
@@ -221,7 +224,7 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 	// above when libvpx-parity work touches the first-pass scoring.
 	want := []expect{
 		// Frame 0: no LAST yet, so all motion-related fields are zero.
-		// IntraError = mbs * (variance + 1000) >> 8. The vertical ramp
+		// IntraError = mbs * (variance + 256) >> 8. The vertical ramp
 		// is constant within each row, so each MB's mean-luma SSE is
 		// nonzero; the values below are what the implementation
 		// produces.
@@ -255,6 +258,7 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 			ssimWeightedPredErr: firstPassRegressionExpectSSIM2,
 			pcntInter:           1.0,
 			pcntMotion:          1.0,
+			pcntSecondRef:       firstPassRegressionExpectPcntSecondRef2,
 			pcntNeutral:         0.0,
 			mvR:                 firstPassRegressionExpectMVr2,
 			mvRAbs:              firstPassRegressionExpectMVrAbs2,
@@ -323,6 +327,31 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 		if !closeTo(g.NewMVCount, w.newMVCount) {
 			t.Errorf("frame %d NewMVCount = %v, want %v", i, g.NewMVCount, w.newMVCount)
 		}
+	}
+}
+
+func TestFirstPassMotionSearchReturnsLibvpxSSECost(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 200, 128, 128)
+	ref := testVP8Frame(t, 16, 16, 199, 128, 128)
+	source := sourceImageFromPublic(src)
+
+	mv, cost, ok := firstPassMotionSearch(source, &ref.Img, 0, 0, vp8enc.MotionVector{}, 20)
+
+	if !ok {
+		t.Fatalf("firstPassMotionSearch returned ok=false")
+	}
+	if !mv.IsZero() {
+		t.Fatalf("first-pass MV = %+v, want zero", mv)
+	}
+	want := macroblockLumaSSE(source, &ref.Img, 0, 0, vp8enc.MotionVector{}) +
+		interMotionSearchErrorVectorCost(mv, vp8enc.MotionVector{}, 20, &vp8tables.DefaultMVContext)
+	if cost != want {
+		t.Fatalf("first-pass cost = %d, want SSE cost %d", cost, want)
+	}
+	variance, _ := macroblockLumaMotionVarianceSSE(source, &ref.Img, 0, 0, vp8enc.MotionVector{})
+	if cost == variance {
+		t.Fatalf("first-pass cost = variance %d, want libvpx vpx_mse16x16/SSE", variance)
 	}
 }
 
@@ -642,9 +671,9 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 	// Frame 6: simulate a scene cut by inverting intra/coded.
 	for i := 6; i <= 12; i++ {
 		stats[i] = FirstPassFrameStats{
-			IntraError: 100,
-			CodedError: 9000,
-			PcntInter:  0.05,
+			IntraError:    100,
+			CodedError:    9000,
+			PcntInter:     0.05,
 			PcntSecondRef: 0.0,
 			PcntNeutral:   0.0,
 		}
@@ -667,39 +696,42 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 // formulas in encoder_firstpass.go.
 //
 // Frame 0 has no LAST so MV stats are zero; coded_error == intra_error.
-// Frames 1 and 2 produce the same stats because the 2D ramp shifts by an
-// equal amount each step and motion search consistently finds (+1, +1).
+// Frames 1 and 2 produce the same LAST-reference motion stats because the 2D
+// ramp shifts by an equal amount each step and first-pass NSTEP search carries
+// the previous best MV across each row like libvpx. Frame 2 also sees the
+// initial GOLDEN reference for the second-ref experiment.
 //
 // Computation walkthrough (see encoder_firstpass.go for line refs):
 //   - 32x32 image -> 4 macroblocks (2x2)
-//   - intrapenalty = 1000 (govpx)
-//   - intra_error = sum(macroblockMeanLumaSSE + 1000) >> 8 = 1120
+//   - intrapenalty = 256
+//   - intra_error = sum(macroblockMeanLumaSSE + 256) >> 8 = 1109
 //   - simple_weight averages weight_table over the ramp (most pixels above
 //     code 64 -> weight 1.0); the actual average is captured in the SSIM
 //     constants below.
 const (
-	firstPassRegressionExpectIntraError0 = 1120.0
-	firstPassRegressionExpectIntraError1 = 1120.0
-	firstPassRegressionExpectIntraError2 = 1120.0
-	firstPassRegressionExpectCodedError1 = 4.0
-	firstPassRegressionExpectCodedError2 = 4.0
-	firstPassRegressionExpectSSIM0       = 1081.1595703125
-	firstPassRegressionExpectSSIM1       = 3.913330078125
-	firstPassRegressionExpectSSIM2       = 3.950439453125
-	firstPassRegressionExpectMVr1        = 8.0
-	firstPassRegressionExpectMVrAbs1     = 12.0
-	firstPassRegressionExpectMVc1        = 8.0
-	firstPassRegressionExpectMVcAbs1     = 16.0
-	firstPassRegressionExpectMVrv1       = 188.0
-	firstPassRegressionExpectMVcv1       = 348.0
-	firstPassRegressionExpectMVInOut1    = -0.5
-	firstPassRegressionExpectNewMV1      = 4.0
-	firstPassRegressionExpectMVr2        = 8.0
-	firstPassRegressionExpectMVrAbs2     = 12.0
-	firstPassRegressionExpectMVc2        = 8.0
-	firstPassRegressionExpectMVcAbs2     = 16.0
-	firstPassRegressionExpectMVrv2       = 188.0
-	firstPassRegressionExpectMVcv2       = 348.0
-	firstPassRegressionExpectMVInOut2    = -0.5
-	firstPassRegressionExpectNewMV2      = 4.0
+	firstPassRegressionExpectIntraError0    = 1109.0
+	firstPassRegressionExpectIntraError1    = 1109.0
+	firstPassRegressionExpectIntraError2    = 1109.0
+	firstPassRegressionExpectCodedError1    = 5.0
+	firstPassRegressionExpectCodedError2    = 5.0
+	firstPassRegressionExpectSSIM0          = 1070.5410388183593
+	firstPassRegressionExpectSSIM1          = 4.89166259765625
+	firstPassRegressionExpectSSIM2          = 4.93804931640625
+	firstPassRegressionExpectMVr1           = 16.0
+	firstPassRegressionExpectMVrAbs1        = 16.0
+	firstPassRegressionExpectMVc1           = -4.0
+	firstPassRegressionExpectMVcAbs1        = 16.0
+	firstPassRegressionExpectMVrv1          = 432.0
+	firstPassRegressionExpectMVcv1          = 447.0
+	firstPassRegressionExpectMVInOut1       = -0.5
+	firstPassRegressionExpectNewMV1         = 3.0
+	firstPassRegressionExpectPcntSecondRef2 = 0.25
+	firstPassRegressionExpectMVr2           = 16.0
+	firstPassRegressionExpectMVrAbs2        = 16.0
+	firstPassRegressionExpectMVc2           = -4.0
+	firstPassRegressionExpectMVcAbs2        = 16.0
+	firstPassRegressionExpectMVrv2          = 432.0
+	firstPassRegressionExpectMVcv2          = 447.0
+	firstPassRegressionExpectMVInOut2       = -0.5
+	firstPassRegressionExpectNewMV2         = 3.0
 )

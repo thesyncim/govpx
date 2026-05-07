@@ -167,10 +167,26 @@ the anchor and look for the surrounding mismatch.
     multiplier. Oversized frames at `active_worst_quality` now relax the active
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
-  - Missing: forced/auto key-frame recodes, entropy projected-size decisions,
-    full saved-coding-context restore coverage after failed attempts, and trace
-    coverage for GF/ARF zbin-over-quant cases once automatic ARF state is in
-    place.
+    The recode size-bounds comparison now subtracts
+    `vp8_estimate_entropy_savings` (ref-frame portion) from the
+    just-encoded size before deciding to recode, mirroring libvpx's
+    `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
+    via [`applyEntropySavingsToProjectedSize`](../encoder.go). The
+    libvpx `decide_key_frame` heuristic is ported as
+    [`libvpxDecideKeyFrame`](../encoder_entropy_savings.go), covering
+    the unconditional thresholds (this==100 && this>last+2 ||
+    this>95 && this>=last+5) and the GF-guarded second tier
+    (this>60 && this>2*last; this>75 && this>3/2*last;
+    this>90 && this>last+10) for the auto-key recode decision.
+  - Missing: wiring `libvpxDecideKeyFrame` into the encoder loop to
+    actually trigger the auto-key recode (currently the helper is
+    callable but no call site invokes it), tracking
+    `lastFramePercentIntra` for the heuristic's lookback, full
+    saved-coding-context restore coverage after failed attempts, the
+    coefficient-context portion of vp8_estimate_entropy_savings
+    (default_coef_context_savings / independent_coef_context_savings),
+    and trace coverage for GF/ARF zbin-over-quant cases once automatic
+    ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -310,10 +326,12 @@ the anchor and look for the surrounding mismatch.
     `pcnt_second_ref`, `pcnt_neutral`, plus the MV accumulation set
     (`MVr`/`MVc`/`mvr_abs`/`mvc_abs`/`MVrv`/`MVcv`/`mv_in_out_count`/
     `new_mv_count`). Each non-first frame runs an integer-pel zero-MV
-    `zz_motion_search` plus a small NSTEP stand-in `first_pass_motion_search`
-    against LAST and a zero-MV-only search against GOLDEN, applies the
-    libvpx `new_mv_mode_penalty=256` to motion-search results, and the
-    inter/neutral accept gate uses libvpx's
+    `zz_motion_search` plus a libvpx-shaped NSTEP `first_pass_motion_search`
+    against LAST, seeded by the previous accepted row MV with the libvpx
+    zero-MV retry when that seed is nonzero, and a zero-MV-only search against
+    GOLDEN. First-pass search uses SAD for the diamond walk, SSE plus MV error
+    cost for the final score, applies the libvpx `new_mv_mode_penalty=256` to
+    motion-search results, and the inter/neutral accept gate uses libvpx's
     `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
     The post-stats LAST->GOLDEN copy follows the libvpx
     `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
@@ -323,16 +341,11 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: full libvpx `diamond_search_sad` NSTEP/refining diamond
-    (govpx uses a small exhaustive integer-pel sweep), distinct
-    `last_frame_unscaled_source` raw buffer used by libvpx's
+  - Missing: distinct `last_frame_unscaled_source` raw buffer used by libvpx's
     `zz_motion_search` (govpx folds raw and reconstructed LAST into the
     same buffer), encode_breakout user-facing knob, terminal total-stats
-    packet/section accumulators, pinning the MV stats to libvpx's
-    `intrapenalty=256` (govpx still uses 1000 to keep
-    `libvpxTestCandidateKeyFrame` thresholds well-conditioned on
-    constant-luma synthetic test clips), and oracle-trace coverage on a
-    fixed Y4M corpus.
+    packet/section accumulators, and oracle-trace coverage on a fixed Y4M
+    corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
@@ -520,7 +533,9 @@ the anchor and look for the surrounding mismatch.
     96, and RD subpel acceptance now has a dedicated helper instead of sharing
     the fast picker decision path. Whole-MB full-pel NSTEP/full/refine searches
     now keep libvpx's SAD-based site walk but return variance plus `mv_err_cost`
-    for completed searches; hex search remains on its libvpx SAD return path.
+    for completed searches; the alternate four-site DIAMOND table/path is
+    available for explicit libvpx-surface parity and future first-pass reuse;
+    hex search remains on its libvpx SAD return path.
     Encoder near/best MV helpers, mode validation, mode-probability contexts,
     packet writing, and MV-probability adaptation now apply libvpx-style
     reference sign bias before predictor dedupe/counting. Inter residual

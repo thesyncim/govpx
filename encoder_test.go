@@ -3676,8 +3676,8 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 
 func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
 	const (
-		width  = 128
-		height = 128
+		width  = 256
+		height = 256
 	)
 	firstPass, err := NewVP8Encoder(EncoderOptions{
 		Width:             width,
@@ -3694,12 +3694,23 @@ func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
 	}
 	frames := make([]Image, 12)
 	stats := make([]FirstPassFrameStats, len(frames))
+	fillScene := func(img Image, base int) {
+		for y := 0; y < img.Height; y++ {
+			for x := 0; x < img.Width; x++ {
+				img.Y[y*img.YStride+x] = byte(base + ((x*17 + y*31 + x*y*3) & 63))
+			}
+		}
+		for i := range img.U {
+			img.U[i] = 90
+			img.V[i] = 170
+		}
+	}
 	for i := range frames {
 		frames[i] = testImage(width, height)
 		if i < 5 {
-			fillImage(frames[i], 20, 90, 170)
+			fillScene(frames[i], 20)
 		} else {
-			fillImage(frames[i], 230, 90, 170)
+			fillScene(frames[i], 150)
 		}
 		stats[i], err = firstPass.CollectFirstPassStats(frames[i], uint64(i), 1, 0)
 		if err != nil {
@@ -3707,7 +3718,7 @@ func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
 		}
 	}
 	if !libvpxTestCandidateKeyFrame(stats, 5) {
-		t.Fatalf("first-pass stats did not satisfy libvpx candidate keyframe test at scene cut")
+		t.Fatalf("first-pass stats did not satisfy libvpx candidate keyframe test at scene cut: prev=%+v cut=%+v next=%+v", stats[4], stats[5], stats[6])
 	}
 
 	e, err := NewVP8Encoder(EncoderOptions{
@@ -3726,7 +3737,7 @@ func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second-pass NewVP8Encoder returned error: %v", err)
 	}
-	dst := make([]byte, 256*1024)
+	dst := make([]byte, 512*1024)
 	var result EncodeResult
 	for i, frame := range frames[:6] {
 		result, err = e.EncodeInto(dst, frame, uint64(i), 1, 0)

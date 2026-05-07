@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,6 +159,8 @@ type benchConfigSummary struct {
 func main() {
 	cfg := benchConfig{}
 	autoCompare := false
+	cpuProfile := ""
+	memProfile := ""
 	flag.IntVar(&cfg.Width, "width", 64, "frame width")
 	flag.IntVar(&cfg.Height, "height", 64, "frame height")
 	flag.IntVar(&cfg.Frames, "frames", 30, "number of frames")
@@ -168,6 +171,8 @@ func main() {
 	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate vpxenc/vpxdec in PATH when -libvpx-vpxenc/-libvpx-oracle are unset, for an automatic libvpx comparison")
+	flag.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
+	flag.StringVar(&memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
 	flag.Parse()
 	if autoCompare {
 		if cfg.LibvpxVpxenc == "" {
@@ -184,12 +189,40 @@ func main() {
 		}
 	}
 
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "govpx-bench: create cpu profile: %v\n", err)
+			os.Exit(2)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "govpx-bench: start cpu profile: %v\n", err)
+			os.Exit(2)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	var report any
 	var err error
 	if cfg.Decode {
 		report, err = runDecodeBenchmark(cfg)
 	} else {
 		report, err = runBenchmark(cfg)
+	}
+	if memProfile != "" {
+		f, err := os.Create(memProfile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "govpx-bench: create mem profile: %v\n", err)
+			os.Exit(2)
+		}
+		runtime.GC()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			f.Close()
+			fmt.Fprintf(os.Stderr, "govpx-bench: write mem profile: %v\n", err)
+			os.Exit(2)
+		}
+		f.Close()
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "govpx-bench: %v\n", err)

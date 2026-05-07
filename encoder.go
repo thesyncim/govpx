@@ -271,6 +271,11 @@ type VP8Encoder struct {
 	// inert and the queue behaves normally.
 	autoAltRefPendingPush    lookaheadEntry
 	autoAltRefHasPendingPush bool
+	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
+	// this_frame_percent_intra against last_frame_percent_intra; track
+	// the rolling lookback here so the helper sees the same state libvpx
+	// would.
+	lastFramePercentIntra int
 	// libvpx also carries a skip-false probability for inter RD costing. The
 	// packet writer adapts the final value from this frame's skip counts; mode
 	// decision uses the previous refreshed reference's value, clamped away from
@@ -662,6 +667,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if required > 0 {
 			e.rc.thisFramePercentIntra = (100 * intra) / required
 		}
+		// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
+		// AFTER decide_key_frame consumes this_frame_percent_intra.
+		// Keep that ordering here: lastFramePercentIntra captures the
+		// just-encoded frame's value for the next frame's heuristic.
+		e.lastFramePercentIntra = e.rc.thisFramePercentIntra
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -725,6 +735,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// refresh) so the next GF section starts with a clean baseline.
 	e.rc.resetRecentRefFrameUsage(required)
 	e.rc.thisFramePercentIntra = 100
+	// libvpx vp8/encoder/onyx_if.c sets last_frame_percent_intra=100
+	// after every key frame, mirroring the encoder's expectation that
+	// the next inter frame starts from an "all-intra" baseline.
+	e.lastFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
@@ -980,7 +994,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 }
 
 func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
-	next, ok := e.rc.frameSizeRecodeQuantizerWithContext(sizeBytes, keyFrame, goldenFrame, macroblocks, recode)
+	// libvpx vp8/encoder/onyx_if.c subtracts vp8_estimate_entropy_savings
+	// from cpi->projected_frame_size before the recode size-bounds
+	// comparison. Mirror that here so over/undershoot decisions match.
+	adjustedSizeBytes := e.applyEntropySavingsToProjectedSize(sizeBytes, keyFrame, macroblocks)
+	next, ok := e.rc.frameSizeRecodeQuantizerWithContext(adjustedSizeBytes, keyFrame, goldenFrame, macroblocks, recode)
 	if !ok {
 		return false
 	}
@@ -991,6 +1009,36 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 	e.rc.currentQuantizer = next
 	e.rc.currentZbinOverQuant = recode.zbinOverQuant
 	return true
+}
+
+// applyEntropySavingsToProjectedSize ports the libvpx
+// vp8/encoder/onyx_if.c contract:
+//
+//	cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi);
+//	cpi->projected_frame_size = max(0, cpi->projected_frame_size);
+//
+// govpx applies only the ref-frame-cost portion of
+// vp8_estimate_entropy_savings (libvpxRefFrameEntropySavings); the
+// coefficient-context portion (default_coef_context_savings /
+// independent_coef_context_savings) is tracked separately under the
+// probability item. Returns the adjusted size in bytes for the recode
+// comparison.
+func (e *VP8Encoder) applyEntropySavingsToProjectedSize(sizeBytes int, keyFrame bool, macroblocks int) int {
+	if sizeBytes <= 0 || macroblocks <= 0 {
+		return sizeBytes
+	}
+	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	savingsBits := libvpxRefFrameEntropySavings(keyFrame, intra, last, golden, alt,
+		int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
+	if savingsBits <= 0 {
+		return sizeBytes
+	}
+	totalBits := encodedSizeBits(sizeBytes)
+	adjustedBits := totalBits - savingsBits
+	if adjustedBits <= 0 {
+		return 0
+	}
+	return adjustedBits / 8
 }
 
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
