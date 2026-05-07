@@ -189,9 +189,9 @@ Remaining work:
 - Complete exact libvpx golden-frame CBR boost heuristics; GF-CBR
   target/refresh control exists and now uses libvpx's cyclic refresh cadence,
   default unboosted refresh, and prior LAST/ZEROMV majority gate.
-- Implement VBR/two-pass planning if production parity requires VBR; opt-in
-  one-pass scene-cut keyframe detection now exists, but first-pass stats files
-  and two-pass allocation are not ported.
+- Tighten libvpx two-pass allocation details if exact vpxenc parity becomes a
+  production gate; first-pass stats collection, opt-in two-pass VBR frame
+  targeting, and libvpx-threshold scene-cut placement now exist.
 - Complete static-background segmentation policy; screen-content and
   static-threshold runtime controls plus skin/static-block classification for
   cyclic-refresh eligibility exist.
@@ -208,13 +208,15 @@ Useful references:
 
 Goal: support the libvpx tools that quality/rate-control depends on.
 
-Remaining work:
+Current status:
 
-- Lookahead buffer.
-- Alt-ref temporal filtering / ARNR.
-- Spatial denoiser.
-- Skin/static-region classification now feeds cyclic-refresh eligibility;
-  broader denoiser/mode-decision uses remain open.
+- Lookahead buffering exists behind `LookaheadFrames`, with `FlushInto` to drain
+  delayed frames.
+- ARNR-style temporal filtering exists behind `ARNRMaxFrames`,
+  `ARNRStrength`, and `ARNRType`.
+- Spatial/temporal denoising exists behind `NoiseSensitivity`.
+- Skin/static-region classification feeds cyclic-refresh eligibility; broader
+  denoiser/mode-decision feedback can still be tightened against libvpx.
 
 Useful references:
 
@@ -249,7 +251,8 @@ Useful references:
 3. Finish temporal SVC controls and oracle-backed realtime tests.
 4. Port encoder RD/mode-decision and motion-search parity.
 5. Port rate-control/segmentation behavior.
-6. Add lookahead, ARNR, denoising, and related controls.
+6. Tighten lookahead/ARNR/denoising and two-pass decisions against new oracle
+   cases as parity targets become stricter.
 7. Only then start dispatch/SIMD/threading/performance work.
 
 Every subgoal should end with:

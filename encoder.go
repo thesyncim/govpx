@@ -83,6 +83,10 @@ type EncoderOptions struct {
 
 	// GOP/keyframe behavior.
 	KeyFrameInterval int
+	// LookaheadFrames enables buffered encoding. When positive, EncodeInto
+	// queues input frames and returns ErrFrameNotReady until enough future
+	// frames are available; FlushInto drains the queue at end of stream.
+	LookaheadFrames int
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
 	// keyframe before rate control and mode decision run.
@@ -95,6 +99,19 @@ type EncoderOptions struct {
 
 	// Quality knobs.
 	Sharpness int
+	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
+	// 1=Y denoise, 2=YUV denoise, 3/4=more aggressive YUV denoise.
+	NoiseSensitivity int
+	// ARNRMaxFrames/ARNRStrength/ARNRType mirror libvpx's ARNR controls.
+	// ARNRType is 1=backward, 2=forward, 3=centered; 0 uses centered.
+	ARNRMaxFrames int
+	ARNRStrength  int
+	ARNRType      int
+	// TwoPassStats enables second-pass VBR planning when non-empty.
+	TwoPassStats      []FirstPassFrameStats
+	TwoPassVBRBiasPct int
+	TwoPassMinPct     int
+	TwoPassMaxPct     int
 	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
@@ -109,8 +126,19 @@ type EncodeResult struct {
 	// Droppable reports libvpx's encoded-frame discardability signal: true
 	// when the frame updates no reference, entropy, or segmentation state.
 	Droppable bool
-	// SceneCut reports that AdaptiveKeyFrames promoted this frame to a keyframe.
+	// SceneCut reports that adaptive or two-pass scene-cut logic promoted this
+	// frame to a keyframe.
 	SceneCut bool
+	// LookaheadDepth reports queued future frames remaining after this frame.
+	LookaheadDepth int
+	ARNRFiltered   bool
+	Denoised       bool
+	// FirstPassStats is populated from TwoPassStats when second-pass planning
+	// drives this frame.
+	FirstPassStats FirstPassFrameStats
+	// TwoPassFrameTargetBits reports the second-pass VBR target when
+	// TwoPassStats drives the frame.
+	TwoPassFrameTargetBits int
 
 	PTS      uint64
 	Duration uint64
@@ -160,6 +188,25 @@ type VP8Encoder struct {
 	consecZeroLast          []uint8
 	lastInterZeroMVCount    int
 	lastInterSkipCount      int
+
+	lookahead []lookaheadEntry
+
+	preprocess        vp8common.FrameBuffer
+	arnrScratch       vp8common.FrameBuffer
+	arnrLastSource    vp8common.FrameBuffer
+	arnrLastReady     bool
+	denoiseRunningAvg vp8common.FrameBuffer
+	denoiseReady      bool
+
+	firstPassLastRef   vp8common.FrameBuffer
+	firstPassGoldenRef vp8common.FrameBuffer
+	firstPassCount     uint64
+
+	twoPass twoPassState
+
+	lookaheadRead  int
+	lookaheadWrite int
+	lookaheadCount int
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
@@ -223,6 +270,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
 		return nil, err
 	}
+	if err := e.initPreprocessFrames(normalized.Width, normalized.Height); err != nil {
+		return nil, err
+	}
+	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
+		return nil, err
+	}
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
@@ -238,6 +291,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		return nil, err
 	}
 	e.opts.TemporalScalability = e.temporal.config
+	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	return e, nil
 }
 
@@ -251,7 +305,33 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if len(dst) == 0 {
 		return EncodeResult{}, ErrBufferTooSmall
 	}
+	if e.lookaheadEnabled() {
+		return e.encodeLookaheadInto(dst, src, pts, duration, flags)
+	}
+	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
+}
 
+func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
+	if e == nil || e.closed {
+		return EncodeResult{}, ErrClosed
+	}
+	if len(dst) == 0 {
+		return EncodeResult{}, ErrBufferTooSmall
+	}
+	if !e.lookaheadEnabled() || e.lookaheadSize() == 0 {
+		return EncodeResult{}, ErrFrameNotReady
+	}
+	entry, ok := e.popLookahead(true)
+	if !ok {
+		return EncodeResult{}, ErrFrameNotReady
+	}
+	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
+	e.clearPoppedLookahead(entry)
+	return result, err
+}
+
+func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
 	if err := validateEncodeFlags(flags); err != nil {
@@ -261,9 +341,16 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
 	required := rows * cols
-	source := sourceImageFromImage(src)
+	preprocessed, preprocessMeta := e.preprocessSource(source, flags, meta)
+	source = preprocessed
 	keyFrame := e.shouldEncodeKeyFrame(flags)
 	sceneCutKeyFrame := false
+	twoPassSceneCut := false
+	if !keyFrame && e.twoPass.shouldKeyFrame(e.frameCount, e.rc.framesSinceKeyframe, e.opts.KeyFrameInterval) {
+		keyFrame = true
+		sceneCutKeyFrame = true
+		twoPassSceneCut = true
+	}
 	if !keyFrame && e.shouldEncodeSceneCutKeyFrame(source, flags, temporalFrame.Enabled, rows, cols) {
 		keyFrame = true
 		sceneCutKeyFrame = true
@@ -284,6 +371,10 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 			timing:             e.timing,
 		})
 	}
+	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
+	if twoPassTargetBits > 0 {
+		e.rc.frameTargetBits = twoPassTargetBits
+	}
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
@@ -292,6 +383,11 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
 		SceneCut:                           sceneCutKeyFrame,
+		LookaheadDepth:                     preprocessMeta.lookaheadDepth,
+		ARNRFiltered:                       preprocessMeta.arnrFiltered,
+		Denoised:                           preprocessMeta.denoised,
+		FirstPassStats:                     e.twoPass.statsForFrame(e.frameCount),
+		TwoPassFrameTargetBits:             twoPassTargetBits,
 		PTS:                                pts,
 		Duration:                           duration,
 		Quantizer:                          e.rc.currentQuantizer,
@@ -308,6 +404,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	invisible := flags&EncodeInvisibleFrame != 0
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
+		e.twoPass.finishFrame(0)
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
@@ -330,6 +427,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.Quantizer = finalQuantizer
 		result.Droppable = interFrameDroppable(attempt.Config)
 		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
+		e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
 		e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
@@ -359,6 +457,10 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.SizeBytes = n
 	result.Quantizer = finalQuantizer
 	e.rc.postEncodeFrameWithPacketContext(n, true, false, required, !invisible)
+	if twoPassSceneCut {
+		e.twoPass.markKeyFrame(e.frameCount)
+	}
+	e.twoPass.finishFrame(encodedSizeBits(n))
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
@@ -972,6 +1074,42 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	return nil
 }
 
+func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if level < 0 || level > 4 {
+		return ErrInvalidConfig
+	}
+	e.opts.NoiseSensitivity = level
+	if level == 0 {
+		e.denoiseReady = false
+	}
+	return nil
+}
+
+func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if maxFrames < 0 || maxFrames > maxLookaheadFrames || strength < 0 || strength > 6 || filterType < 0 || filterType > 3 {
+		return ErrInvalidConfig
+	}
+	e.opts.ARNRMaxFrames = maxFrames
+	e.opts.ARNRStrength = strength
+	e.opts.ARNRType = filterType
+	return nil
+}
+
+func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.TwoPassStats = stats
+	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	return nil
+}
+
 func (e *VP8Encoder) ForceKeyFrame() {
 	if e == nil || e.closed {
 		return
@@ -986,6 +1124,12 @@ func (e *VP8Encoder) Reset() {
 	e.forceKeyFrame = false
 	e.frameCount = 0
 	e.cyclicRefreshIndex = 0
+	e.lookaheadRead = 0
+	e.lookaheadWrite = 0
+	e.lookaheadCount = 0
+	e.arnrLastReady = false
+	e.denoiseReady = false
+	e.firstPassCount = 0
 	clearCyclicRefreshMap(e.cyclicRefreshMap)
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	clearUint8Map(e.skinMap)
@@ -1020,6 +1164,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.refLayer = [temporalReferenceCount]int{}
 	e.temporal.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	e.temporal.buffersSet = false
+	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.current.Reset()
@@ -1081,10 +1226,16 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.CpuUsed < -16 || opts.CpuUsed > 16 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.KeyFrameInterval < 0 || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
+	if opts.KeyFrameInterval < 0 || opts.LookaheadFrames < 0 || opts.LookaheadFrames > maxLookaheadFrames || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.Sharpness < 0 || opts.Sharpness > 7 || opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 || opts.StaticThreshold < 0 {
+	if opts.Sharpness < 0 || opts.Sharpness > 7 ||
+		opts.NoiseSensitivity < 0 || opts.NoiseSensitivity > 4 ||
+		opts.ARNRMaxFrames < 0 || opts.ARNRMaxFrames > maxLookaheadFrames ||
+		opts.ARNRStrength < 0 || opts.ARNRStrength > 6 ||
+		opts.ARNRType < 0 || opts.ARNRType > 3 ||
+		opts.TwoPassVBRBiasPct < 0 || opts.TwoPassMinPct < 0 || opts.TwoPassMaxPct < 0 ||
+		opts.ScreenContentMode < 0 || opts.ScreenContentMode > 2 || opts.StaticThreshold < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 

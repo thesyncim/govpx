@@ -2995,6 +2995,168 @@ func TestEncodeIntoAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoLookaheadBuffersAndFlushes(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		KeyFrameInterval:    120,
+		LookaheadFrames:     2,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	third := testImage(16, 16)
+	fillImage(first, 30, 90, 170)
+	fillImage(second, 50, 90, 170)
+	fillImage(third, 70, 90, 170)
+
+	if _, err := e.EncodeInto(dst, first, 10, 1, 0); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("first EncodeInto error = %v, want ErrFrameNotReady", err)
+	}
+	result, err := e.EncodeInto(dst, second, 11, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame || result.PTS != 10 || result.LookaheadDepth != 1 {
+		t.Fatalf("second result = key:%t pts:%d depth:%d, want first queued keyframe with depth 1", result.KeyFrame, result.PTS, result.LookaheadDepth)
+	}
+	result, err = e.EncodeInto(dst, third, 12, 1, 0)
+	if err != nil {
+		t.Fatalf("third EncodeInto returned error: %v", err)
+	}
+	if result.PTS != 11 || result.LookaheadDepth != 1 {
+		t.Fatalf("third result pts/depth = %d/%d, want second queued frame/depth 1", result.PTS, result.LookaheadDepth)
+	}
+	result, err = e.FlushInto(dst)
+	if err != nil {
+		t.Fatalf("FlushInto returned error: %v", err)
+	}
+	if result.PTS != 12 || result.LookaheadDepth != 0 {
+		t.Fatalf("flush result pts/depth = %d/%d, want final queued frame/depth 0", result.PTS, result.LookaheadDepth)
+	}
+	if _, err := e.FlushInto(dst); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("empty FlushInto error = %v, want ErrFrameNotReady", err)
+	}
+}
+
+func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  120,
+		LookaheadFrames:   2,
+		ARNRMaxFrames:     3,
+		ARNRStrength:      6,
+		ARNRType:          2,
+		NoiseSensitivity:  2,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 8192)
+	noisy := testImage(16, 16)
+	clean := testImage(16, 16)
+	for i := range noisy.Y {
+		if i%2 == 0 {
+			noisy.Y[i] = 40
+		} else {
+			noisy.Y[i] = 60
+		}
+	}
+	fillImage(clean, 50, 90, 170)
+	if _, err := e.EncodeInto(dst, noisy, 0, 1, 0); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("first EncodeInto error = %v, want ErrFrameNotReady", err)
+	}
+	result, err := e.EncodeInto(dst, clean, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.ARNRFiltered || !result.Denoised {
+		t.Fatalf("preprocess flags = arnr:%t denoised:%t, want both", result.ARNRFiltered, result.Denoised)
+	}
+}
+
+func TestCollectFirstPassStatsAndTwoPassSceneCut(t *testing.T) {
+	const (
+		width  = 128
+		height = 128
+	)
+	firstPass, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  120,
+	})
+	if err != nil {
+		t.Fatalf("first-pass NewVP8Encoder returned error: %v", err)
+	}
+	frames := make([]Image, 12)
+	stats := make([]FirstPassFrameStats, len(frames))
+	for i := range frames {
+		frames[i] = testImage(width, height)
+		if i < 5 {
+			fillImage(frames[i], 20, 90, 170)
+		} else {
+			fillImage(frames[i], 230, 90, 170)
+		}
+		stats[i], err = firstPass.CollectFirstPassStats(frames[i], uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("CollectFirstPassStats %d returned error: %v", i, err)
+		}
+	}
+	if !libvpxTestCandidateKeyFrame(stats, 5) {
+		t.Fatalf("first-pass stats did not satisfy libvpx candidate keyframe test at scene cut")
+	}
+
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  120,
+		TwoPassStats:      stats,
+		TwoPassMinPct:     50,
+		TwoPassMaxPct:     200,
+	})
+	if err != nil {
+		t.Fatalf("second-pass NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 256*1024)
+	var result EncodeResult
+	for i, frame := range frames[:6] {
+		result, err = e.EncodeInto(dst, frame, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+	}
+	if !result.KeyFrame || !result.SceneCut || result.PTS != 5 || result.TwoPassFrameTargetBits == 0 {
+		t.Fatalf("scene-cut result = key:%t scene:%t pts:%d target:%d, want two-pass scene-cut keyframe", result.KeyFrame, result.SceneCut, result.PTS, result.TwoPassFrameTargetBits)
+	}
+}
+
 func TestConvertMacroblockCoefficientsOverwritesActiveSkippedDCBlock(t *testing.T) {
 	var src vp8enc.MacroblockCoefficients
 	var dst vp8dec.MacroblockTokens
@@ -3052,6 +3214,9 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetCPUUsed", fn: func() { _ = e.SetCPUUsed(8) }},
 		{name: "SetKeyFrameInterval", fn: func() { _ = e.SetKeyFrameInterval(120) }},
 		{name: "SetAdaptiveKeyFrames", fn: func() { _ = e.SetAdaptiveKeyFrames(true) }},
+		{name: "SetNoiseSensitivity", fn: func() { _ = e.SetNoiseSensitivity(2) }},
+		{name: "SetARNR", fn: func() { _ = e.SetARNR(3, 4, 3) }},
+		{name: "SetTwoPassStats", fn: func() { _ = e.SetTwoPassStats(nil) }},
 		{name: "ForceKeyFrame", fn: func() { e.ForceKeyFrame() }},
 		{name: "Reset", fn: func() { e.Reset() }},
 	}
