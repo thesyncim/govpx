@@ -118,7 +118,9 @@ type EncoderOptions struct {
 	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
-	StaticThreshold   int
+	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
+	// oxcf.encode_breakout for first-pass and inter-frame static skips.
+	StaticThreshold int
 
 	// OracleTraceWriter is an off-by-default oracle harness output. When
 	// non-nil, the encoder writes a deterministic JSON Lines trace describing

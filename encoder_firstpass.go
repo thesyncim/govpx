@@ -18,12 +18,6 @@ const (
 	// new_mv_mode_penalty added to motion_error after a successful diamond
 	// search in libvpx vp8/encoder/firstpass.c first_pass_motion_search.
 	libvpxFirstPassNewMVModePenalty = 256
-	// encode_breakout default for first-pass raw zero-motion early exit. The
-	// libvpx default oxcf.encode_breakout is 0 meaning "never break out". We
-	// preserve that default but expose the gate so the encode_breakout skip
-	// path is exercised exactly once with a non-zero threshold; the public
-	// API does not yet plumb the user-facing oxcf.encode_breakout knob.
-	libvpxFirstPassEncodeBreakout = 0
 	// libvpx first_pass_motion_search starts the NSTEP diamond at step_param=3
 	// rather than searching the full range.
 	libvpxFirstPassSearchStepParam = 3
@@ -106,6 +100,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 		return FirstPassFrameStats{Frame: e.firstPassCount, Count: 1}
 	}
 	intraPenalty := libvpxFirstPassIntraPenalty
+	encodeBreakout := e.opts.StaticThreshold
 	intraError := int64(0)
 	codedError := int64(0)
 	interCount := 0
@@ -150,7 +145,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 				rawMotionErr := zeroErr
 				motionErr := zeroErr
 
-				if rawMotionErr >= libvpxFirstPassEncodeBreakout {
+				if rawMotionErr >= encodeBreakout {
 					if mv, err, ok := firstPassMotionSearch(src, &e.firstPassLastRef.Img, row, col, bestRefMV, qIndex); ok {
 						err += libvpxFirstPassNewMVModePenalty
 						if err < motionErr {
