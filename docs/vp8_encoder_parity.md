@@ -516,9 +516,30 @@ the anchor and look for the surrounding mismatch.
     max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)`, walks Q with
     `calc_correction_factor`, then bumps Q (shrinking bits by 0.96
     per step) until MAXQ*2 if no Q in [0, MAXQ) satisfies the budget.
-  - Missing: broader VBR min/max section-limit application inside the
-    full Pass2Encode flow, CBR buffer adjustments inside Pass2Encode,
-    ARF pending decisions wired into the encoder, and the CQ floor application
+    `pass2VBRSectionLimits` ports the libvpx Pass2Encode VBR
+    section-limit application: per-frame target is clamped to
+    `[section_min_bits, section_max_bits]` where section_min is
+    `defaultTargetBits * two_pass_vbrmin_section / 100` (the
+    `cpi->min_frame_bandwidth` floor) and section_max is the live
+    `(bits_left/frames_left) * two_pass_vbrmax_section / 100`
+    (libvpx's `frame_max_bits` VBR branch). `frameTargetBits` now
+    routes both KF and non-KF allocations through the helper so the
+    section bounds are applied uniformly across the second-pass flow,
+    pinned by `TestPass2VBRSectionLimitClampsTarget`.
+    `pass2DetectARFPending` ports the libvpx
+    `define_gf_group` / `select_arf_period` ARF-pending decision: it
+    walks the upcoming GF window, accumulates the libvpx
+    `frame_boost = IIFACTOR * intra_error / coded_error` (clamped to
+    `GF_RMAX=48`) decayed by `get_prediction_decay_rate`, applies the
+    `i >= MIN_GF_INTERVAL`, `i <= frames_to_key - MIN_GF_INTERVAL`,
+    `next_frame.pcnt_inter > 0.75`, MV in/out, and `gfu_boost > 100`
+    gates, and reports the ARF interval. `pass2MaybeArmAltRefPending`
+    wires that decision into the encoder, calling
+    `scheduleAltRefSource` so the auto-ARF driver emits the hidden
+    alt-ref at the predicted offset; pinned by
+    `TestPass2ARFPendingTriggersFromHighMotionSection`.
+  - Missing: CBR buffer adjustments inside Pass2Encode and the CQ
+    floor application
     (`USAGE_CONSTRAINED_QUALITY -> max(Q, cq_target_quality)`)
     deferred to callers since it depends on encoder mode state.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
