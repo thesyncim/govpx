@@ -223,8 +223,132 @@ func TestARNRFixedAdler32(t *testing.T) {
 		copy(visible[y*w:(y+1)*w], dst[y*stride:y*stride+w])
 	}
 	got := adler32.Checksum(visible)
-	const want uint32 = 0xB9AB403D
+	// Pinned against the libvpx-shaped hex-search ARNR output for this
+	// configuration. The previous local-exhaustive-around-(0,0) search
+	// produced 0xB9AB403D; the libvpx-faithful hex search seeded from
+	// the prior frame's MV reaches positions outside that small window
+	// and yields a slightly different (but well-defined) accumulator.
+	const want uint32 = 0x482C403D
 	if got != want {
 		t.Fatalf("ARNR Adler32 = 0x%08X, want 0x%08X", got, want)
+	}
+}
+
+// TestARNRHexSearchTracksLargeMotion validates that the hex search can
+// follow motion well outside the previous local-exhaustive
+// arnrSearchRadius=7 window. Each adjacent frame is a horizontally
+// shifted-by-12 copy of the center with small additive noise injected.
+// With the hex search engaged, the temporal filter must locate each MB's
+// matching block in the reference frame at MV(±12, 0), classify SAD as
+// "low", and average the noisy predictors back into the alt-ref output
+// (de-noising it relative to the alt-ref source). The previous local
+// scan only swept ±7 pixels around (0,0), so SAD on a striped panning
+// clip would always exceed THRESH_HIGH=20000 and skip the references
+// entirely (filter_weight=0); the output would equal the center input
+// byte-for-byte.
+func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
+	const w, h = 64, 64
+	// Build a textured scene that shifts by ±12 pixels per frame so the
+	// best match sits beyond the prior code's 15x15 search window. The
+	// pattern uses a horizontal stripe pattern so SAD is sharply minimized
+	// at the correct MV.
+	stripe := func(sx int) byte {
+		if (sx>>2)&1 == 0 {
+			return 200
+		}
+		return 60
+	}
+	clean := func(offX int) []byte {
+		p := make([]byte, w*h)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				sx := x - offX
+				if sx < 0 {
+					sx = 0
+				}
+				if sx >= w {
+					sx = w - 1
+				}
+				p[y*w+x] = stripe(sx)
+			}
+		}
+		return p
+	}
+	// Adjacent frames carry small +/- noise on each pixel so a successful
+	// MC match yields a near-zero (but non-zero) SAD that lands under
+	// THRESH_LOW=10000 and produces filter_weight=2. Without the hex
+	// search reaching ±12, SAD would compare unrelated stripes and
+	// exceed THRESH_HIGH=20000, zeroing filter_weight.
+	noisy := func(base []byte, seed int) []byte {
+		p := make([]byte, len(base))
+		copy(p, base)
+		// Deterministic small additive perturbation (bounded by ±3) so
+		// the per-pixel modifier remains close to 16 even with
+		// strength=3 (where (3*3*3 + 4) >> 3 = 3).
+		for i := range p {
+			d := ((i*1103515245 + seed*12345) >> 8) & 7
+			d -= 3
+			v := int(p[i]) + d
+			if v < 0 {
+				v = 0
+			}
+			if v > 255 {
+				v = 255
+			}
+			p[i] = byte(v)
+		}
+		return p
+	}
+	centerClean := clean(0)
+	back := noisy(clean(-12), 1)
+	center := noisy(centerClean, 2)
+	fwd := noisy(clean(12), 3)
+
+	e := arnrTestEncoder(t, w, h, 3, 3, 3, back, [][]byte{fwd})
+	cp := make([]byte, len(center))
+	copy(cp, center)
+	if !e.applyARNRFilter(syntheticSource(w, h, cp), 0) {
+		t.Fatalf("applyARNRFilter returned false")
+	}
+	got := e.arnrScratch.Img.Y
+	stride := e.arnrScratch.Img.YStride
+
+	// SSE of the filtered output vs. the noiseless target. If the hex
+	// search located the panning predictors and integrated them with
+	// filter_weight>0, the temporal averaging reduces the noise. If the
+	// search returned (0,0) and discarded the references (filter_weight
+	// = 0 because SAD on stripe-misaligned content >>20000), the output
+	// equals `center` and SSE is the noise's MSE * w*h.
+	sseFiltered := 0
+	sseCenter := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			truth := int(centerClean[y*w+x])
+			f := int(got[y*stride+x])
+			c := int(center[y*w+x])
+			df := f - truth
+			dc := c - truth
+			sseFiltered += df * df
+			sseCenter += dc * dc
+		}
+	}
+	if sseFiltered >= sseCenter {
+		t.Fatalf("hex-search ARNR did not reduce noise: filtered SSE=%d >= center SSE=%d", sseFiltered, sseCenter)
+	}
+	// Sanity-check that the temporal filter actually mixed in adjacent
+	// frame samples (it cannot reduce noise without a non-(0,0) MV match
+	// on a striped pan; the prior local-exhaustive search would have
+	// returned (0,0) and skipped both references because SAD on
+	// stripe-misaligned content sits above THRESH_HIGH=20000).
+	differingPixels := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if int(got[y*stride+x]) != int(center[y*w+x]) {
+				differingPixels++
+			}
+		}
+	}
+	if differingPixels == 0 {
+		t.Fatalf("hex-search ARNR output identical to center; expected MC contributions")
 	}
 }

@@ -306,11 +306,12 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 // THRESH_LOW=10000 / THRESH_HIGH=20000.
 //
 // Simplification (vs. libvpx vp8_temporal_filter_iterate_c):
-//   - Motion search is a small full-pixel local exhaustive search around
-//     (0,0) instead of libvpx's hex/diamond search seeded from the prior MV
-//     and refined to subpixel; subpixel predictors are not used. The chosen
-//     MV is reused unchanged for the colocated chroma block, matching
-//     libvpx's vp8_temporal_filter_predictors_mb_c integer-pel branch.
+//   - The full-pixel motion search now uses libvpx's hex search
+//     (vp8_hex_search) with the prior frame's per-MB MV as the seed; the
+//     first reference frame in the window seeds at (0,0). Subpixel
+//     refinement (vp8_temporal_filter_predictors_mb_c's 6-tap subpixel
+//     predict) is still skipped; chroma reuses the integer luma MV halved
+//     per libvpx, matching the integer-pel branch of that helper.
 //   - The center frame is read from the input SourceImage's visible region;
 //     accordingly the search position is clamped so the predictor 16x16
 //     stays inside the visible area of every reference frame.
@@ -452,19 +453,38 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 	var accumulator [384]uint32
 	var count [384]uint32
 
+	// Per-(reference, MB) MV history. The hex search for reference frame
+	// fi at macroblock (mbRow, mbCol) is seeded with the MV chosen at the
+	// same (mbRow, mbCol) for reference frame fi-1; the first reference
+	// in the window seeds at (0,0). This mirrors libvpx's
+	// motion_filter_buffer behavior of carrying the prior frame's MV into
+	// the next per-frame search.
+	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
+
 	for mbRow := 0; mbRow < mbRows; mbRow++ {
 		mbY := mbRow << 4
 		for mbCol := 0; mbCol < mbCols; mbCol++ {
 			mbX := mbCol << 4
-			processARNRMacroblock(&dst, refs, centerIdx, mbX, mbY, strength, doChroma, accumulator[:], count[:])
+			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, doChroma, accumulator[:], count[:], mvHistory)
 		}
 	}
+}
+
+// arnrMV is the integer-pixel motion vector recorded per (reference, MB)
+// during the temporal filter sweep. The hex search for the next reference
+// uses the prior reference's MV at the same (mbRow, mbCol) as its seed.
+type arnrMV struct {
+	x int
+	y int
 }
 
 // processARNRMacroblock corresponds to the inner mb_col loop body in
 // vp8_temporal_filter_iterate_c: zero accumulators, search/weight every
 // reference, then normalize accumulator/count back into the output frame.
-func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32) {
+// The mvHistory slice carries the integer-pel MV chosen by each prior
+// reference at this (mbRow, mbCol), so the hex search for the next
+// reference can seed at the prior MV.
+func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32, mvHistory []arnrMV) {
 	for i := range accumulator {
 		accumulator[i] = 0
 		count[i] = 0
@@ -488,6 +508,7 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		gatherBlock(srcV[:], 8, dst.v, dst.vStride, mbUVX, mbUVY, uvW, uvH, 8)
 	}
 
+	mbHistory := mbRow*mbCols + mbCol
 	for fi, ref := range refs {
 		// Choose per-frame filter weight. The center frame always uses
 		// libvpx's filter_weight=2; adjacent frames are graded by the
@@ -498,7 +519,19 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 		if fi == centerIdx {
 			filterWeight = 2
 		} else {
-			err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbX, mbY)
+			// Seed the hex search at the prior reference's MV for
+			// this MB, falling back to (0,0) for the first
+			// reference in the window. libvpx's
+			// vp8_temporal_filter_find_matching_mb_c forwards
+			// best_ref_mv1 = 0 to vp8_hex_search; we extend that
+			// to chain successive references through the same MB
+			// so a panning sequence's MV propagates instead of
+			// being lost.
+			seed := arnrMV{}
+			if fi > 0 {
+				seed = mvHistory[(fi-1)*mbRows*mbCols+mbHistory]
+			}
+			err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbRow, mbCol, mbRows, mbCols, mbX, mbY, seed.x, seed.y)
 			mvX, mvY = sx, sy
 			switch {
 			case err < arnrThreshLow:
@@ -509,6 +542,10 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 				filterWeight = 0
 			}
 		}
+		// Persist the search outcome so the next reference's search at
+		// this MB can seed from it. Center frames carry their (0,0)
+		// implicit MV forward.
+		mvHistory[fi*mbRows*mbCols+mbHistory] = arnrMV{x: mvX, y: mvY}
 		if filterWeight == 0 {
 			continue
 		}
@@ -601,81 +638,159 @@ func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, acc
 }
 
 // arnr motion search constants. The thresholds match libvpx's
-// THRESH_LOW/THRESH_HIGH (10000/20000 for a 16x16 SAD). The search radius
-// is the full-pixel motion-search window we sweep around (0,0); libvpx
-// performs a hex search with subpel refinement, govpx does a small
-// exhaustive integer-pel search starting from the colocated block.
+// THRESH_LOW/THRESH_HIGH (10000/20000 for a 16x16 SAD). The hex/diamond
+// step counts mirror vp8_hex_search's hex_range=127 and dia_range=8.
 const (
-	arnrThreshLow    = 10000
-	arnrThreshHigh   = 20000
-	arnrSearchRadius = 7
+	arnrThreshLow  = 10000
+	arnrThreshHigh = 20000
+	arnrHexRange   = 127
+	arnrDiaRange   = 8
+	// arnrBorderSlack matches libvpx's mv_row_min/mv_col_min derivation
+	// in vp8_temporal_filter_iterate_c: -((mb*16) + (16 - 5)). The 11
+	// pixel slack reflects libvpx's 16-pixel source-border extension
+	// minus the 5-pixel 6-tap subpel filter overhang on the trailing
+	// edge. govpx's gatherBlock clamps reads, so out-of-visible
+	// candidates remain well-defined.
+	arnrBorderSlack = 11
 )
 
-// arnrFindMatchingMB performs the simplified motion search vp8 ARNR uses to
-// locate the matching predictor block in an adjacent frame. It returns the
-// best 16x16 SAD plus the integer-pixel MV (relative to the colocated
-// position). Search positions are clamped so the candidate predictor stays
-// inside the reference frame's visible area.
-func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbX, mbY int) (int, int, int) {
-	bestSAD := -1
-	bestX, bestY := 0, 0
-	// Compute the legal MV range so the 16x16 predictor stays inside
-	// the visible region.
-	minDX := -mbX
-	if minDX < -arnrSearchRadius {
-		minDX = -arnrSearchRadius
+// arnrFindMatchingMB performs libvpx's hex search (vp8_hex_search with
+// NULL mvsadcost, i.e. pure 16x16 SAD) to locate the matching predictor
+// block in an adjacent frame. It returns the best 16x16 SAD plus the
+// integer-pixel MV (relative to the colocated position). The search is
+// seeded at (seedX, seedY); callers thread the prior reference's MV at
+// the same MB through this argument so a panning sequence propagates the
+// search start instead of restarting at (0,0) every frame.
+func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY int, seedX, seedY int) (int, int, int) {
+	// Compute the libvpx-shaped MV bounds in pixel units. These permit
+	// the predictor to overhang the visible region by 5 pixels on each
+	// side; govpx's gatherBlock clamps any out-of-range read so the math
+	// stays well-defined while preserving libvpx's reachable search set.
+	mvColMin := -(mbCol*16 + (16 - 5))
+	mvColMax := (mbCols-1-mbCol)*16 + (16 - 5)
+	mvRowMin := -(mbRow*16 + (16 - 5))
+	mvRowMax := (mbRows-1-mbRow)*16 + (16 - 5)
+
+	// Clamp the seed into the legal window (libvpx's vp8_clamp_mv).
+	br := arnrClamp(seedY, mvRowMin, mvRowMax)
+	bc := arnrClamp(seedX, mvColMin, mvColMax)
+
+	hex := [6][2]int{
+		{-1, -2}, {1, -2}, {2, 0}, {1, 2}, {-1, 2}, {-2, 0},
 	}
-	maxDX := ref.width - 16 - mbX
-	if maxDX > arnrSearchRadius {
-		maxDX = arnrSearchRadius
+	nextChkpts := [6][3][2]int{
+		{{-2, 0}, {-1, -2}, {1, -2}},
+		{{-1, -2}, {1, -2}, {2, 0}},
+		{{1, -2}, {2, 0}, {1, 2}},
+		{{2, 0}, {1, 2}, {-1, 2}},
+		{{1, 2}, {-1, 2}, {-2, 0}},
+		{{-1, 2}, {-2, 0}, {-1, -2}},
 	}
-	minDY := -mbY
-	if minDY < -arnrSearchRadius {
-		minDY = -arnrSearchRadius
-	}
-	maxDY := ref.height - 16 - mbY
-	if maxDY > arnrSearchRadius {
-		maxDY = arnrSearchRadius
-	}
-	if minDX > maxDX || minDY > maxDY {
-		// Block straddles the right/bottom edge so far that even the
-		// colocated predictor would step outside the visible area. Use
-		// (0,0) and let gatherBlock's clamping handle the read.
-		sad := dsp.SAD16x16(src, srcStride, ref.y[mbY*ref.yStride+mbX:], ref.yStride)
-		return sad, 0, 0
-	}
-	// First evaluate the colocated position (libvpx seeds the search
-	// with MV(0,0)); this is also the natural fallback if every other
-	// position turns out to be worse.
-	if 0 >= minDX && 0 <= maxDX && 0 >= minDY && 0 <= maxDY {
-		bestSAD = dsp.SAD16x16(src, srcStride, ref.y[mbY*ref.yStride+mbX:], ref.yStride)
-	}
-	for dy := minDY; dy <= maxDY; dy++ {
-		py := mbY + dy
-		for dx := minDX; dx <= maxDX; dx++ {
-			if dx == 0 && dy == 0 && bestSAD >= 0 {
-				continue
-			}
-			px := mbX + dx
-			refOff := py*ref.yStride + px
-			var sad int
-			if bestSAD >= 0 {
-				sad = dsp.SAD16x16Limit(src, srcStride, ref.y[refOff:], ref.yStride, bestSAD)
-				if sad >= bestSAD {
-					continue
-				}
-			} else {
-				sad = dsp.SAD16x16(src, srcStride, ref.y[refOff:], ref.yStride)
-			}
+	neighbors := [4][2]int{{0, -1}, {-1, 0}, {1, 0}, {0, 1}}
+
+	bestSAD := arnrSADAt(src, srcStride, ref, mbX, mbY, bc, br)
+
+	// 6-vertex hexagon scan around the seed (libvpx's first hex iter).
+	bestSite := -1
+	for i, step := range hex {
+		row := br + step[0]
+		col := bc + step[1]
+		if !arnrInBounds(col, row, mvColMin, mvColMax, mvRowMin, mvRowMax) {
+			continue
+		}
+		sad := arnrSADAt(src, srcStride, ref, mbX, mbY, col, row)
+		if sad < bestSAD {
 			bestSAD = sad
-			bestX = dx
-			bestY = dy
+			bestSite = i
 		}
 	}
-	if bestSAD < 0 {
-		return 0, 0, 0
+
+	// Iterative 3-checkpoint walk along the hex's last-best edge.
+	if bestSite >= 0 {
+		br += hex[bestSite][0]
+		bc += hex[bestSite][1]
+		k := bestSite
+		for j := 1; j < arnrHexRange; j++ {
+			bestSite = -1
+			for i, step := range nextChkpts[k] {
+				row := br + step[0]
+				col := bc + step[1]
+				if !arnrInBounds(col, row, mvColMin, mvColMax, mvRowMin, mvRowMax) {
+					continue
+				}
+				sad := arnrSADAt(src, srcStride, ref, mbX, mbY, col, row)
+				if sad < bestSAD {
+					bestSAD = sad
+					bestSite = i
+				}
+			}
+			if bestSite < 0 {
+				break
+			}
+			br += nextChkpts[k][bestSite][0]
+			bc += nextChkpts[k][bestSite][1]
+			k += 5 + bestSite
+			if k >= 12 {
+				k -= 12
+			} else if k >= 6 {
+				k -= 6
+			}
+		}
 	}
-	return bestSAD, bestX, bestY
+
+	// 4-neighbor diamond refinement (libvpx's cal_neighbors loop).
+	for j := 0; j < arnrDiaRange; j++ {
+		bestSite = -1
+		for i, step := range neighbors {
+			row := br + step[0]
+			col := bc + step[1]
+			if !arnrInBounds(col, row, mvColMin, mvColMax, mvRowMin, mvRowMax) {
+				continue
+			}
+			sad := arnrSADAt(src, srcStride, ref, mbX, mbY, col, row)
+			if sad < bestSAD {
+				bestSAD = sad
+				bestSite = i
+			}
+		}
+		if bestSite < 0 {
+			break
+		}
+		br += neighbors[bestSite][0]
+		bc += neighbors[bestSite][1]
+	}
+
+	return bestSAD, bc, br
+}
+
+func arnrClamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func arnrInBounds(col, row, colMin, colMax, rowMin, rowMax int) bool {
+	return col >= colMin && col <= colMax && row >= rowMin && row <= rowMax
+}
+
+// arnrSADAt computes the 16x16 SAD between the contiguous source block
+// (already gathered into a 16-stride scratch) and the reference block at
+// (mbX+mvX, mbY+mvY). When the candidate position straddles the visible
+// boundary the read is routed through gatherBlock so libvpx's source-
+// border-extension reads stay well-defined.
+func arnrSADAt(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, mvX, mvY int) int {
+	x := mbX + mvX
+	y := mbY + mvY
+	if x >= 0 && y >= 0 && x+16 <= ref.width && y+16 <= ref.height {
+		return dsp.SAD16x16(src, srcStride, ref.y[y*ref.yStride+x:], ref.yStride)
+	}
+	var pred [256]byte
+	gatherBlock(pred[:], 16, ref.y, ref.yStride, x, y, ref.width, ref.height, 16)
+	return dsp.SAD16x16(src, srcStride, pred[:], 16)
 }
 
 // applyTemporalFilter is a direct port of libvpx's

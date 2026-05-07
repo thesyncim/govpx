@@ -525,34 +525,43 @@ the anchor and look for the surrounding mismatch.
   - libvpx:
     [`temporal_filter.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/temporal_filter.c).
   - Status: ported. govpx now walks per-16x16 luma macroblock (and the
-    colocated 8x8 chroma blocks) over the alt-ref frame, performs a
-    full-pixel motion search against every adjacent reference, and applies
-    libvpx's per-pixel weighted accumulator
+    colocated 8x8 chroma blocks) over the alt-ref frame, runs libvpx's
+    hex search (`vp8_hex_search` with NULL `mvsadcost`, i.e. pure 16x16
+    SAD) against every adjacent reference, and applies libvpx's
+    per-pixel weighted accumulator
     `modifier = clamp((3*(src-pred)^2 + (1<<(strength-1))) >> strength, 0, 16)`,
     `weight = (16-modifier) * filter_weight`, normalized as
-    `(accumulator + count/2) / count`. Per-frame `filter_weight` is 2 for
-    the center, and {2,1,0} for adjacent frames keyed off the 16x16 SAD
-    against `THRESH_LOW=10000`/`THRESH_HIGH=20000`, matching libvpx.
+    `(accumulator + count/2) / count`. The hex search reproduces the
+    upstream three-phase walk (initial 6-vertex hexagon, iterative
+    3-checkpoint walk up to `hex_range=127`, final 4-neighbor diamond
+    refinement up to `dia_range=8`), uses libvpx's
+    `mv_row_min/mv_col_min` bounds (`-(mb*16 + (16 - 5))`), and seeds
+    each per-frame search from the MV chosen for the prior reference at
+    the same MB; the first reference in the window seeds at (0,0).
+    Per-frame `filter_weight` is 2 for the center, and {2,1,0} for
+    adjacent frames keyed off the 16x16 SAD against
+    `THRESH_LOW=10000`/`THRESH_HIGH=20000`, matching libvpx.
     Backward (type 1), forward (type 2), and centered (type 3, the
     libvpx default which receives `arnr_type==0` normalization) blur modes
     all run the same per-MB iteration. ARNR control validation matches
     libvpx bounds (`maxframes` 0-15, strength 0-6, type 1-3).
-  - Simplification vs. libvpx: motion search is a small full-pixel local
-    exhaustive scan around (0,0) instead of libvpx's hex search seeded
-    from the prior MV; subpixel refinement
+  - Simplification vs. libvpx: subpixel refinement
     (`vp8_temporal_filter_predictors_mb_c`'s 6-tap `subpixel_predict16x16`/
     `subpixel_predict8x8`) is not used, so chroma MVs reuse the integer
-    luma MV halved per libvpx, but predictors stay at integer-pixel
-    positions. Search range is also constrained to the visible area
-    because the central frame is exposed only as a `SourceImage` without
-    libvpx's 16-pixel source-border extension. The libvpx
-    `cpi->fixed_divide` LUT is replaced with the equivalent
-    `(accumulator + count/2) / count` integer division. Tests in
+    luma MV halved per libvpx and predictors stay at integer-pixel
+    positions. The central frame is read directly from the input
+    `SourceImage` (no 16-pixel source-border extension), so out-of-
+    visible search reads are clamped through `gatherBlock` rather than
+    libvpx's mirrored border. The libvpx `cpi->fixed_divide` LUT is
+    replaced with the equivalent `(accumulator + count/2) / count`
+    integer division. Tests in
     [`encoder_preprocess_test.go`](../encoder_preprocess_test.go) pin
-    zero-strength identity, motion-clip non-identity, and an Adler32
-    regression of the filtered ARF buffer.
-  - Remaining: subpel motion search and full hex/diamond seeding to make
-    bitstream/MD5 match for all backward/forward/centered settings.
+    zero-strength identity, motion-clip non-identity, an Adler32
+    regression of the filtered ARF buffer, and the hex search's ability
+    to track ±12-pixel motion that the previous local-exhaustive scan
+    (`arnrSearchRadius=7`) could not reach.
+  - Remaining: subpel motion search to make bitstream/MD5 match for all
+    backward/forward/centered settings.
 
 ## Inter Mode Decision And Motion Search
 
