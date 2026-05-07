@@ -4707,3 +4707,149 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 		t.Fatalf("aggressive bias = %d, want 75", got)
 	}
 }
+
+// TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh verifies the
+// alt-ref-refresh branch of vp8/encoder/onyx_if.c update_rd_ref_frame_probs:
+// prob_intra is bumped by 40 (clamped to 255), prob_last forced to 200, and
+// prob_gf set to 1 only if source_alt_ref_active is true at RD time;
+// otherwise the trailing `if (!source_alt_ref_active) prob_gf = 255` clamps
+// prob_gf to 255 (since the alt-ref refresh transitions the flag *after* the
+// frame's RD).
+func TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128}
+	e.applyRdRefFrameProbHeuristics(true)
+	if e.refProbIntra != 103 {
+		t.Fatalf("alt-ref refresh prob_intra = %d, want 63+40=103", e.refProbIntra)
+	}
+	if e.refProbLast != 200 {
+		t.Fatalf("alt-ref refresh prob_last = %d, want 200", e.refProbLast)
+	}
+	// source_alt_ref_active was false before this frame, so the trailing
+	// libvpx override clamps prob_gf to 255.
+	if e.refProbGolden != 255 {
+		t.Fatalf("alt-ref refresh prob_gf = %d, want 255 (trailing clamp)", e.refProbGolden)
+	}
+
+	// When alt-ref was already active, the trailing clamp does not fire and
+	// prob_gf stays at the heuristic-set 1.
+	e2 := &VP8Encoder{refProbIntra: 230, refProbLast: 128, refProbGolden: 128, sourceAltRefActive: true}
+	e2.applyRdRefFrameProbHeuristics(true)
+	if e2.refProbIntra != 255 {
+		t.Fatalf("alt-ref refresh prob_intra clamp = %d, want 255", e2.refProbIntra)
+	}
+	if e2.refProbGolden != 1 {
+		t.Fatalf("alt-ref refresh prob_gf = %d, want 1", e2.refProbGolden)
+	}
+}
+
+// TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden verifies
+// the frames_since_golden==0 / ==1 branches of update_rd_ref_frame_probs.
+func TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden(t *testing.T) {
+	// frames_since_golden == 0: prob_last=214; trailing clamp forces
+	// prob_gf=255 because source_alt_ref_active is false.
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128, framesSinceGolden: 0}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbLast != 214 {
+		t.Fatalf("frames_since_golden=0 prob_last = %d, want 214", e.refProbLast)
+	}
+	if e.refProbGolden != 255 {
+		t.Fatalf("frames_since_golden=0 prob_gf = %d, want 255 (trailing clamp)", e.refProbGolden)
+	}
+
+	// frames_since_golden == 1: prob_last=192, prob_gf=220, but the trailing
+	// clamp overrides prob_gf to 255 when source_alt_ref_active is false.
+	e = &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128, framesSinceGolden: 1}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbLast != 192 {
+		t.Fatalf("frames_since_golden=1 prob_last = %d, want 192", e.refProbLast)
+	}
+	if e.refProbGolden != 255 {
+		t.Fatalf("frames_since_golden=1 prob_gf = %d, want 255 (trailing clamp)", e.refProbGolden)
+	}
+
+	// frames_since_golden == 1, source_alt_ref_active=true: prob_gf stays at
+	// the heuristic 220.
+	e = &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 128, framesSinceGolden: 1, sourceAltRefActive: true}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbGolden != 220 {
+		t.Fatalf("alt-ref active frames_since_golden=1 prob_gf = %d, want 220", e.refProbGolden)
+	}
+}
+
+// TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay verifies
+// the source_alt_ref_active branch (frames_since_golden>=2): prob_gf decays
+// by 20 per frame down to a floor of 10.
+func TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 100, framesSinceGolden: 5, sourceAltRefActive: true}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbGolden != 80 {
+		t.Fatalf("alt-ref active decay prob_gf = %d, want 100-20=80", e.refProbGolden)
+	}
+
+	// Floor clamp at 10.
+	e = &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 15, framesSinceGolden: 5, sourceAltRefActive: true}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbGolden != 10 {
+		t.Fatalf("alt-ref active decay floor prob_gf = %d, want 10", e.refProbGolden)
+	}
+
+	// frames_since_golden>=2 with source_alt_ref_active=false: no branch
+	// matched, trailing clamp sets prob_gf=255.
+	e = &VP8Encoder{refProbIntra: 63, refProbLast: 128, refProbGolden: 100, framesSinceGolden: 5, sourceAltRefActive: false}
+	e.applyRdRefFrameProbHeuristics(false)
+	if e.refProbGolden != 255 {
+		t.Fatalf("inactive alt-ref far-from-golden prob_gf = %d, want 255", e.refProbGolden)
+	}
+}
+
+// TestUpdateGoldenFrameStatsMirrorsLibvpxCounter verifies the lifecycle of
+// frames_since_golden / source_alt_ref_active matches libvpx's
+// update_alt_ref_frame_stats / update_golden_frame_stats: refreshing alt-ref
+// resets frames_since_golden and sets source_alt_ref_active=true; refreshing
+// golden resets frames_since_golden and clears source_alt_ref_active; plain
+// inter frames increment the counter.
+func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
+	e := &VP8Encoder{}
+
+	// Plain inter frame increments frames_since_golden.
+	e.updateGoldenFrameStats(false, false)
+	if e.framesSinceGolden != 1 || e.sourceAltRefActive {
+		t.Fatalf("plain inter -> {framesSinceGolden:%d sourceAltRefActive:%v}, want {1 false}",
+			e.framesSinceGolden, e.sourceAltRefActive)
+	}
+	e.updateGoldenFrameStats(false, false)
+	if e.framesSinceGolden != 2 {
+		t.Fatalf("two plain inters frames_since_golden = %d, want 2", e.framesSinceGolden)
+	}
+
+	// Refresh alt-ref: counter resets, alt-ref becomes active.
+	e.updateGoldenFrameStats(false, true)
+	if e.framesSinceGolden != 0 || !e.sourceAltRefActive {
+		t.Fatalf("alt-ref refresh -> {%d %v}, want {0 true}", e.framesSinceGolden, e.sourceAltRefActive)
+	}
+
+	// Plain inter after alt-ref keeps alt-ref active and increments counter.
+	e.updateGoldenFrameStats(false, false)
+	if e.framesSinceGolden != 1 || !e.sourceAltRefActive {
+		t.Fatalf("post-altref inter -> {%d %v}, want {1 true}", e.framesSinceGolden, e.sourceAltRefActive)
+	}
+
+	// Refresh golden: counter resets, alt-ref active clears (no auto-arf
+	// pending in govpx).
+	e.updateGoldenFrameStats(true, false)
+	if e.framesSinceGolden != 0 || e.sourceAltRefActive {
+		t.Fatalf("golden refresh -> {%d %v}, want {0 false}", e.framesSinceGolden, e.sourceAltRefActive)
+	}
+}
+
+// TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch verifies the key-frame
+// reset branch of libvpx onyx_if.c: source_alt_ref_active and
+// frames_since_golden are zeroed.
+func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
+	e := &VP8Encoder{framesSinceGolden: 7, sourceAltRefActive: true}
+	e.resetGoldenFrameStats()
+	if e.framesSinceGolden != 0 || e.sourceAltRefActive {
+		t.Fatalf("post-keyframe state = {%d %v}, want {0 false}",
+			e.framesSinceGolden, e.sourceAltRefActive)
+	}
+}
