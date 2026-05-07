@@ -173,7 +173,10 @@ the anchor and look for the surrounding mismatch.
   - govpx:
     [`encodeKeyFrameWithQuantizerFeedback`](../encoder.go),
     [`encodeInterFrameWithQuantizerFeedback`](../encoder.go),
-    [`frameSizeRecodeQuantizerWithContext`](../ratecontrol.go).
+    [`frameSizeRecodeQuantizerWithContext`](../ratecontrol.go),
+    [`saveCodingContext`](../encoder.go),
+    [`restoreCodingContext`](../encoder.go),
+    [`forcedKeyFrameRecodeQuantizer`](../ratecontrol.go).
   - libvpx:
     [`onyx_if.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c)
     `encode_frame_to_data_rate`.
@@ -208,8 +211,26 @@ the anchor and look for the surrounding mismatch.
     the same source is encoded as a key frame. `lastFramePercentIntra`
     is tracked after the decision so the next frame sees the libvpx
     lookback value.
-  - Missing: full saved-coding-context restore coverage after failed
-    attempts and trace coverage for GF/ARF zbin-over-quant cases once
+    The recode loop now snapshots cpi->coding_context before the do-loop
+    and restores it on every rejected attempt, mirroring libvpx's
+    `vp8_save_coding_context` / `vp8_restore_coding_context` contract:
+    `frames_since_key`, `filter_level`, `frames_till_gf_update_due`,
+    `frames_since_golden`, `this_frame_percent_intra`, MV/Y/UV/B mode
+    probability tables, coefficient probability tables, ref-frame and
+    skip-false probability state, and the per-reference
+    `last_skip_false_probs` history are all included in the snapshot.
+    Forced key frames (`this_key_frame_forced`) now feed the SS-error
+    feedback Q-adjustment branch from `encode_frame_to_data_rate`
+    around line 4065: when the just-encoded forced KF's
+    `vp8_calc_ss_err` against the source is more than `ambient_err *
+    7/8`, govpx lowers `q_high` to (Q-1) and reseeds Q to
+    `(q_high + q_low) >> 1`; when it is less than `ambient_err / 2`,
+    `q_low` is raised to (Q+1) and Q to `(q_high + q_low + 1) >> 1`,
+    with the loop terminating when Q stops changing. `ambient_err`
+    itself is captured at the end of the frame preceding a forced KF
+    via the libvpx `next_key_frame_forced` branch
+    (`encode_frame_to_data_rate` around line 4282).
+  - Missing: trace coverage for GF/ARF zbin-over-quant cases once
     automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
