@@ -334,7 +334,7 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 	return count
 }
 
-// Ported from libvpx v1.16.0 vp8/encoder/mcomp.c fractional motion search.
+// Ported from libvpx v1.16.0 vp8/encoder/mcomp.c motion search.
 // vp8_hex_search finishes with an eight-step full-pixel diamond refinement.
 const interFrameFullPixelSearchRadius = 16
 const interFrameMVSearchRange = interFrameFullPixelSearchRadius * 8
@@ -342,6 +342,59 @@ const interFrameSplitMVSearchRange = 8 * 8
 const interFrameMVFullPixelStep = 8
 const interFrameSubpixelSearchMaxCandidates = 31
 const interFrameMotionCandidateMax = 15
+const interFrameMaxMVSearchSteps = 8
+const interFrameMaxFullPelVal = (1 << interFrameMaxMVSearchSteps) - 1
+const interFrameUMVBorderPixels = 32
+
+type interAnalysisFullPixelSearchMethod uint8
+
+const (
+	interAnalysisFullPixelSearchExhaustive interAnalysisFullPixelSearchMethod = iota
+	interAnalysisFullPixelSearchHex
+)
+
+type interAnalysisFractionalSearchMethod uint8
+
+const (
+	interAnalysisFractionalSearchIterative interAnalysisFractionalSearchMethod = iota
+	interAnalysisFractionalSearchStep
+	interAnalysisFractionalSearchHalf
+	interAnalysisFractionalSearchSkip
+)
+
+type interAnalysisSearchConfig struct {
+	fullPixelSearch  interAnalysisFullPixelSearchMethod
+	fractionalSearch interAnalysisFractionalSearchMethod
+}
+
+func defaultInterAnalysisSearchConfig() interAnalysisSearchConfig {
+	return interAnalysisSearchConfig{
+		fullPixelSearch:  interAnalysisFullPixelSearchExhaustive,
+		fractionalSearch: interAnalysisFractionalSearchIterative,
+	}
+}
+
+// interAnalysisSearchConfig mirrors the VP8 speed-feature branch in
+// onyx_if.c: realtime speed > 4 uses vp8_hex_search and disables the
+// iterative sub-pixel function pointer.
+func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
+	cfg := defaultInterAnalysisSearchConfig()
+	if e == nil || e.opts.Deadline != DeadlineRealtime {
+		return cfg
+	}
+	speed := e.opts.CpuUsed
+	if speed > 4 {
+		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
+		cfg.fractionalSearch = interAnalysisFractionalSearchStep
+	}
+	if speed > 8 {
+		cfg.fractionalSearch = interAnalysisFractionalSearchHalf
+	}
+	if speed >= 15 {
+		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
+	}
+	return cfg
+}
 
 func interFrameFullPixelSearchCandidateCount() int {
 	axis := (2*interFrameMVSearchRange)/interFrameMVFullPixelStep + 1
@@ -353,16 +406,20 @@ func interFrameSubpixelSearchCandidateCount() int {
 }
 
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbRows int, mbCols int, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int) (interAnalysisReference, vp8enc.MotionVector) {
+	return selectInterFrameReferenceMotionVectorWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, qIndex, defaultInterAnalysisSearchConfig())
+}
+
+func selectInterFrameReferenceMotionVectorWithSearch(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbRows int, mbCols int, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, search interAnalysisSearchConfig) (interAnalysisReference, vp8enc.MotionVector) {
 	bestRef := refs[0]
 	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, bestRef.Frame, mbRow, mbCol, mbRows, mbCols)
-	best, bestCost := selectInterFrameMotionVector(src, bestRef.Img, mbRow, mbCol, bestRefMV, qIndex)
+	best, bestCost := selectInterFrameMotionVectorWithSearch(src, bestRef.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search)
 	if bestCost == 0 {
 		return bestRef, best
 	}
 	for refIndex := 1; refIndex < refCount; refIndex++ {
 		ref := refs[refIndex]
 		refMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
-		mv, cost := selectInterFrameMotionVector(src, ref.Img, mbRow, mbCol, refMV, qIndex)
+		mv, cost := selectInterFrameMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, refMV, qIndex, search)
 		if cost < bestCost {
 			bestRef = ref
 			best = mv
@@ -433,7 +490,7 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 	quant *vp8enc.MacroblockQuant,
 ) (interAnalysisReference, vp8enc.InterFrameMacroblockMode, int, bool) {
 	var candidates [interFrameMotionCandidateMax]interAnalysisMotionCandidate
-	candidateCount := collectInterFrameMotionCandidates(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &candidates)
+	candidateCount := collectInterFrameMotionCandidatesWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, e.interAnalysisSearchConfig(), &candidates)
 	if candidateCount == 0 {
 		return interAnalysisReference{}, vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -550,6 +607,16 @@ func collectInterFrameMotionCandidates(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
 ) int {
+	return collectInterFrameMotionCandidatesWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, defaultInterAnalysisSearchConfig(), candidates)
+}
+
+func collectInterFrameMotionCandidatesWithSearch(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	search interAnalysisSearchConfig,
+	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
+) int {
 	if candidates == nil {
 		return 0
 	}
@@ -561,12 +628,12 @@ func collectInterFrameMotionCandidates(
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, nearest)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, near)
 		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
-		fullMV, fullCost := selectInterFrameFullPixelMotionVector(src, ref.Img, mbRow, mbCol, bestRefMV, qIndex)
+		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, fullMV)
 		if fullCost == 0 {
 			continue
 		}
-		refinedMV, _, ok := iterativeInterFrameSubpixelMotionVector(src, ref.Img, mbRow, mbCol, fullMV, bestRefMV, qIndex)
+		refinedMV, _, ok := refineInterFrameSubpixelMotionVector(src, ref.Img, mbRow, mbCol, fullMV, bestRefMV, qIndex, search)
 		if ok && refinedMV != fullMV {
 			count = appendInterAnalysisMotionCandidate(candidates, count, ref, refinedMV)
 		}
@@ -1189,12 +1256,16 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 }
 
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
-	best, bestCost := selectInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, bestRefMV, qIndex)
+	return selectInterFrameMotionVectorWithSearch(src, ref, mbRow, mbCol, 0, 0, bestRefMV, qIndex, defaultInterAnalysisSearchConfig())
+}
+
+func selectInterFrameMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
+	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearch(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search)
 	if bestCost == 0 {
 		return best, bestCost
 	}
 	bestRD := interMotionRDScore(src, ref, mbRow, mbCol, best, qIndex)
-	if refined, _, ok := iterativeInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex); ok {
+	if refined, _, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search); ok {
 		refinedRD := interMotionRDScore(src, ref, mbRow, mbCol, refined, qIndex)
 		if refinedRD < bestRD {
 			best = refined
@@ -1206,15 +1277,27 @@ func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 
 // selectInterFrameFullPixelMotionVector centers the integer-pel search at
 // bestRefMV (libvpx pickinter.c uses `mvp_full = bestRefMV >> 3`) and charges
-// the candidate's MV-cost against bestRefMV instead of (0,0). The exhaustive
-// sweep is kept; a faithful diamond/3-step port is still a deferred follow-up.
+// the candidate's MV-cost against bestRefMV instead of (0,0). The default path
+// keeps the exhaustive sweep for existing parity coverage; realtime speed > 4
+// uses vp8_hex_search.
 func selectInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearch(src, ref, mbRow, mbCol, 0, 0, bestRefMV, qIndex, defaultInterAnalysisSearchConfig())
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
 	centerRow := int(bestRefMV.Row) & ^7
 	centerCol := int(bestRefMV.Col) & ^7
 	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
+	bounds := interFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+		best = bounds.clampEighth(best)
+	}
 	bestCost := interMotionSearchCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
 	if bestCost == 0 {
 		return best, bestCost
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+		return hexInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestCost, bestRefMV, qIndex, bounds)
 	}
 	return exhaustiveInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestCost, bestRefMV, qIndex)
 }
@@ -1263,6 +1346,239 @@ func exhaustiveInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8c
 		}
 	}
 	return best, bestCost
+}
+
+type interFrameFullPixelBounds struct {
+	rowMin int
+	rowMax int
+	colMin int
+	colMax int
+}
+
+func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) interFrameFullPixelBounds {
+	bounds := interFrameFullPixelBounds{
+		rowMin: ((int(bestRefMV.Row) + 7) >> 3) - interFrameMaxFullPelVal,
+		rowMax: (int(bestRefMV.Row) >> 3) + interFrameMaxFullPelVal,
+		colMin: ((int(bestRefMV.Col) + 7) >> 3) - interFrameMaxFullPelVal,
+		colMax: (int(bestRefMV.Col) >> 3) + interFrameMaxFullPelVal,
+	}
+	if mbRows > 0 {
+		umv := interFrameUMVBorderPixels - 16
+		rowMin := -((mbRow * 16) + umv)
+		rowMax := ((mbRows - 1 - mbRow) * 16) + umv
+		if bounds.rowMin < rowMin {
+			bounds.rowMin = rowMin
+		}
+		if bounds.rowMax > rowMax {
+			bounds.rowMax = rowMax
+		}
+	}
+	if mbCols > 0 {
+		umv := interFrameUMVBorderPixels - 16
+		colMin := -((mbCol * 16) + umv)
+		colMax := ((mbCols - 1 - mbCol) * 16) + umv
+		if bounds.colMin < colMin {
+			bounds.colMin = colMin
+		}
+		if bounds.colMax > colMax {
+			bounds.colMax = colMax
+		}
+	}
+	return bounds
+}
+
+func (b interFrameFullPixelBounds) containsFullPel(row int, col int) bool {
+	return row >= b.rowMin && row <= b.rowMax && col >= b.colMin && col <= b.colMax
+}
+
+func (b interFrameFullPixelBounds) clampEighth(mv vp8enc.MotionVector) vp8enc.MotionVector {
+	row := int(mv.Row) >> 3
+	col := int(mv.Col) >> 3
+	if row < b.rowMin {
+		row = b.rowMin
+	} else if row > b.rowMax {
+		row = b.rowMax
+	}
+	if col < b.colMin {
+		col = b.colMin
+	} else if col > b.colMax {
+		col = b.colMax
+	}
+	return vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
+}
+
+func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds) (vp8enc.MotionVector, int) {
+	hex := [...]vp8enc.MotionVector{
+		{Row: -1, Col: -2},
+		{Row: 1, Col: -2},
+		{Row: 2, Col: 0},
+		{Row: 1, Col: 2},
+		{Row: -1, Col: 2},
+		{Row: -2, Col: 0},
+	}
+	nextCheckpoints := [...][3]vp8enc.MotionVector{
+		{{Row: -2, Col: 0}, {Row: -1, Col: -2}, {Row: 1, Col: -2}},
+		{{Row: -1, Col: -2}, {Row: 1, Col: -2}, {Row: 2, Col: 0}},
+		{{Row: 1, Col: -2}, {Row: 2, Col: 0}, {Row: 1, Col: 2}},
+		{{Row: 2, Col: 0}, {Row: 1, Col: 2}, {Row: -1, Col: 2}},
+		{{Row: 1, Col: 2}, {Row: -1, Col: 2}, {Row: -2, Col: 0}},
+		{{Row: -1, Col: 2}, {Row: -2, Col: 0}, {Row: -1, Col: -2}},
+	}
+	neighbors := [...]vp8enc.MotionVector{
+		{Row: 0, Col: -1},
+		{Row: -1, Col: 0},
+		{Row: 1, Col: 0},
+		{Row: 0, Col: 1},
+	}
+
+	br := int(best.Row) >> 3
+	bc := int(best.Col) >> 3
+	bestSite := -1
+	for i, step := range hex {
+		row := br + int(step.Row)
+		col := bc + int(step.Col)
+		if !bounds.containsFullPel(row, col) {
+			continue
+		}
+		mv := vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
+		cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost, bestRefMV, qIndex)
+		if cost < bestCost {
+			best = mv
+			bestCost = cost
+			bestSite = i
+		}
+	}
+	if bestSite >= 0 {
+		br = int(best.Row) >> 3
+		bc = int(best.Col) >> 3
+		k := bestSite
+		for j := 1; j < 127; j++ {
+			bestSite = -1
+			for i, step := range nextCheckpoints[k] {
+				row := br + int(step.Row)
+				col := bc + int(step.Col)
+				if !bounds.containsFullPel(row, col) {
+					continue
+				}
+				mv := vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
+				cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost, bestRefMV, qIndex)
+				if cost < bestCost {
+					best = mv
+					bestCost = cost
+					bestSite = i
+				}
+			}
+			if bestSite < 0 {
+				break
+			}
+			br = int(best.Row) >> 3
+			bc = int(best.Col) >> 3
+			k += 5 + bestSite
+			if k >= 12 {
+				k -= 12
+			} else if k >= 6 {
+				k -= 6
+			}
+		}
+	}
+
+	br = int(best.Row) >> 3
+	bc = int(best.Col) >> 3
+	for j := 0; j < 8; j++ {
+		bestSite = -1
+		for i, step := range neighbors {
+			row := br + int(step.Row)
+			col := bc + int(step.Col)
+			if !bounds.containsFullPel(row, col) {
+				continue
+			}
+			mv := vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
+			cost := interMotionSearchCostLimited(src, ref, mbRow, mbCol, mv, bestCost, bestRefMV, qIndex)
+			if cost < bestCost {
+				best = mv
+				bestCost = cost
+				bestSite = i
+			}
+		}
+		if bestSite < 0 {
+			break
+		}
+		br = int(best.Row) >> 3
+		bc = int(best.Col) >> 3
+	}
+	return best, bestCost
+}
+
+func refineInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int, bool) {
+	switch search.fractionalSearch {
+	case interAnalysisFractionalSearchStep:
+		return stepInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, true)
+	case interAnalysisFractionalSearchHalf:
+		return stepInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, false)
+	case interAnalysisFractionalSearchSkip:
+		return vp8enc.MotionVector{}, 0, false
+	default:
+		return iterativeInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
+	}
+}
+
+func stepInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, quarter bool) (vp8enc.MotionVector, int, bool) {
+	if int(best.Row)&7 != 0 || int(best.Col)&7 != 0 {
+		return vp8enc.MotionVector{}, 0, false
+	}
+	bestRow := (int(best.Row) >> 3) * 4
+	bestCol := (int(best.Col) >> 3) * 4
+	bestCost, ok := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, bestRow, bestCol, bestRefMV, qIndex)
+	if !ok {
+		return vp8enc.MotionVector{}, 0, false
+	}
+	bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(src, ref, mbRow, mbCol, bestRow, bestCol, 2, bestCost, bestRefMV, qIndex)
+	if quarter {
+		bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(src, ref, mbRow, mbCol, bestRow, bestCol, 1, bestCost, bestRefMV, qIndex)
+	}
+	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
+	if !interFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
+		return vp8enc.MotionVector{}, 0, false
+	}
+	return finalMV, bestCost, true
+}
+
+func stepInterFrameSubpixelDirectionalSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, startRow int, startCol int, step int, bestCost int, bestRefMV vp8enc.MotionVector, qIndex int) (int, int, int) {
+	bestRow := startRow
+	bestCol := startCol
+	leftCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow, startCol-step, bestRefMV, qIndex)
+	rightCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow, startCol+step, bestRefMV, qIndex)
+	upCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow-step, startCol, bestRefMV, qIndex)
+	downCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow+step, startCol, bestRefMV, qIndex)
+	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, leftCost, startRow, startCol-step)
+	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, rightCost, startRow, startCol+step)
+	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, upCost, startRow-step, startCol)
+	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, downCost, startRow+step, startCol)
+
+	diagRow := startRow - step
+	if upCost >= downCost {
+		diagRow = startRow + step
+	}
+	diagCol := startCol - step
+	if leftCost >= rightCost {
+		diagCol = startCol + step
+	}
+	diagCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, diagRow, diagCol, bestRefMV, qIndex)
+	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, diagCost, diagRow, diagCol)
+	return bestCost, bestRow, bestCol
+}
+
+func interFrameSubpixelMotionVectorInRange(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector) bool {
+	maxFullPelEighths := interFrameMaxFullPelVal << 3
+	rowDelta := int(mv.Row) - int(bestRefMV.Row)
+	colDelta := int(mv.Col) - int(bestRefMV.Col)
+	if rowDelta < 0 {
+		rowDelta = -rowDelta
+	}
+	if colDelta < 0 {
+		colDelta = -colDelta
+	}
+	return rowDelta <= maxFullPelEighths && colDelta <= maxFullPelEighths
 }
 
 // iterativeInterFrameSubpixelMotionVector performs the libvpx half- then
@@ -1342,16 +1658,7 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 	}
 
 	finalMV := vp8enc.MotionVector{Row: int16(br * 2), Col: int16(bc * 2)}
-	const maxFullPelEighths = 255 << 3
-	rowDelta := int(finalMV.Row) - int(bestRefMV.Row)
-	colDelta := int(finalMV.Col) - int(bestRefMV.Col)
-	if rowDelta < 0 {
-		rowDelta = -rowDelta
-	}
-	if colDelta < 0 {
-		colDelta = -colDelta
-	}
-	if rowDelta > maxFullPelEighths || colDelta > maxFullPelEighths {
+	if !interFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
 		return vp8enc.MotionVector{}, 0, false
 	}
 	return finalMV, bestCost, true

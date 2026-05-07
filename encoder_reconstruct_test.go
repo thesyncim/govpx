@@ -17,6 +17,61 @@ var benchmarkBool bool
 
 const testInterSearchQIndex = 20
 
+func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) {
+	tests := []struct {
+		name       string
+		deadline   Deadline
+		cpuUsed    int
+		fullPixel  interAnalysisFullPixelSearchMethod
+		fractional interAnalysisFractionalSearchMethod
+	}{
+		{
+			name:       "good keeps exhaustive iterative",
+			deadline:   DeadlineGoodQuality,
+			cpuUsed:    8,
+			fullPixel:  interAnalysisFullPixelSearchExhaustive,
+			fractional: interAnalysisFractionalSearchIterative,
+		},
+		{
+			name:       "realtime speed four keeps nstep-equivalent baseline",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    4,
+			fullPixel:  interAnalysisFullPixelSearchExhaustive,
+			fractional: interAnalysisFractionalSearchIterative,
+		},
+		{
+			name:       "realtime speed five switches to hex and step subpixel",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    5,
+			fullPixel:  interAnalysisFullPixelSearchHex,
+			fractional: interAnalysisFractionalSearchStep,
+		},
+		{
+			name:       "realtime speed nine keeps hex and half-pixel only",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    9,
+			fullPixel:  interAnalysisFullPixelSearchHex,
+			fractional: interAnalysisFractionalSearchHalf,
+		},
+		{
+			name:       "realtime speed fifteen skips fractional search",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    15,
+			fullPixel:  interAnalysisFullPixelSearchHex,
+			fractional: interAnalysisFractionalSearchSkip,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			cfg := e.interAnalysisSearchConfig()
+			if cfg.fullPixelSearch != tt.fullPixel || cfg.fractionalSearch != tt.fractional {
+				t.Fatalf("config = {%d %d}, want {%d %d}", cfg.fullPixelSearch, cfg.fractionalSearch, tt.fullPixel, tt.fractional)
+			}
+		})
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 40, 90, 170)
@@ -70,6 +125,36 @@ func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.
 
 	if ref.Frame != vp8common.LastFrame || mv != (vp8enc.MotionVector{Row: 16}) {
 		t.Fatalf("selection = %v %+v, want last row +16 from libvpx hex ring", ref.Frame, mv)
+	}
+}
+
+func TestSelectInterFrameFullPixelMotionVectorRealtimeHexWalksNextCheckpoints(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 13, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((19 + row*73 + col*151 + row*col*37) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 127, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			v := src.Y[(row+16)*src.YStride+col+16]
+			last.Img.Y[(row+18)*last.Img.YStride+col+16] = v ^ 1
+		}
+	}
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+
+	cfg := interAnalysisSearchConfig{fullPixelSearch: interAnalysisFullPixelSearchHex, fractionalSearch: interAnalysisFractionalSearchStep}
+	mv, _ := selectInterFrameFullPixelMotionVectorWithSearch(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, cfg)
+
+	if mv != (vp8enc.MotionVector{Row: 32}) {
+		t.Fatalf("hex full-pixel MV = %+v, want row +32 from libvpx next_chkpts walk", mv)
 	}
 }
 
