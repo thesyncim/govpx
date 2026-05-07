@@ -741,10 +741,19 @@ the anchor and look for the surrounding mismatch.
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay`,
     `TestUpdateGoldenFrameStatsMirrorsLibvpxCounter`,
     `TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch`.
-  - Missing: independent coefficient-context handling for error-resilient
-    partitions, key-frame forced coef-prob updates, projected entropy
-    savings in recode decisions, and exact zero-reference/alt-ref
-    skip-probability edge cases.
+    The ref-frame entropy-savings half of `vp8_estimate_entropy_savings`
+    is now ported as `libvpxCalcRefFrameCosts` and
+    `libvpxRefFrameEntropySavings` in
+    [`encoder_entropy_savings.go`](../encoder_entropy_savings.go),
+    matching the libvpx `cost_zero(p)/cost_one(p) = ProbCost[p]/[255-p]`
+    formula and the new_intra=1 floor / new_last/new_garf=128 fallbacks
+    for empty distributions.
+  - Missing: wiring `libvpxRefFrameEntropySavings` (and the coefficient
+    portion of `vp8_estimate_entropy_savings`) into the recode-loop
+    `projected_frame_size` adjustment, independent coefficient-context
+    handling for error-resilient partitions, key-frame forced coef-prob
+    updates, and exact zero-reference/alt-ref skip-probability edge
+    cases.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.
