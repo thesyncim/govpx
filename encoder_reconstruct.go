@@ -1992,49 +1992,92 @@ func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8commo
 	return treeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
 }
 
+// coefficientBlockTokenRate ports libvpx's vp8/encoder/rdopt.c:cost_coeffs.
+// It returns the entropy-coded token cost (in 1/256-bit units) of the given
+// quantized coefficient block, including the implicit "skip_eob_node" elision
+// libvpx applies when the previous token had prev_token_class == 0 (i.e. the
+// previous coefficient was a ZERO_TOKEN) and the current coefficient is past
+// the first band of the plane.
+//
+// Equivalent libvpx loop body:
+//
+//	for (; c < eob; ++c) {
+//	    cost += token_costs[type][bands[c]][pt][token(qcoeff[zigzag[c]])];
+//	    cost += dct_value_cost[v];
+//	    pt = prev_token_class[token];
+//	}
+//	if (c < 16) cost += token_costs[type][bands[c]][pt][EOB];
+//
+// where token_costs[type][band][0][...] for band > (type == 0 ? 1 : 0) uses the
+// non-EOB subtree only (matching skip_eob_node = (pt == 0) in tokenize.c). All
+// other (type, band, pt) combinations include the EOB-vs-not bit.
 func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
 	if probs == nil || qcoeff == nil || blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
 		return maxInt() / 4
 	}
-	p := (*probs)[blockType][skipDC][ctx]
-	if eob <= skipDC {
-		return treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+	if eob < skipDC {
+		eob = skipDC
+	}
+	if eob > 16 {
+		eob = 16
 	}
 
-	cost := boolBitCost(p[0], 1)
-	for pos := skipDC; pos < 16; pos++ {
+	pt := ctx
+	cost := 0
+	pos := skipDC
+	for pos < eob {
+		band := int(vp8tables.CoefBandsTable[pos])
+		p := (*probs)[blockType][band][pt]
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
+		var token int
 		if coeff == 0 {
-			cost += boolBitCost(p[1], 0)
-			if pos == 15 {
-				return cost
-			}
-			p = (*probs)[blockType][vp8tables.CoefBandsTable[pos+1]][0]
-			continue
-		}
-
-		token, mag, ok := coefficientTokenMagnitude(coeff)
-		if !ok {
-			return maxInt() / 4
-		}
-		cost += nonZeroCoeffTokenRate(p, token)
-		if coeff < 0 {
-			cost += boolBitCost(128, 1)
+			token = vp8tables.ZeroToken
+			cost += coefTokenCostElided(p, token, blockType, band, pt)
 		} else {
-			cost += boolBitCost(128, 0)
+			t, mag, ok := coefficientTokenMagnitude(coeff)
+			if !ok {
+				return maxInt() / 4
+			}
+			token = t
+			cost += coefTokenCostElided(p, token, blockType, band, pt)
+			if coeff < 0 {
+				cost += boolBitCost(128, 1)
+			} else {
+				cost += boolBitCost(128, 0)
+			}
+			cost += coefficientExtraBitsRate(token, mag)
 		}
-		cost += coefficientExtraBitsRate(token, mag)
-		if pos == 15 {
-			return cost
-		}
-		p = (*probs)[blockType][vp8tables.CoefBandsTable[pos+1]][vp8tables.PrevTokenClass[token]]
-		if pos+1 == eob {
-			cost += treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
-			return cost
-		}
+		pt = int(vp8tables.PrevTokenClass[token])
+		pos++
+	}
+	if pos < 16 {
+		band := int(vp8tables.CoefBandsTable[pos])
+		p := (*probs)[blockType][band][pt]
+		cost += treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
 	}
 	return cost
+}
+
+// coefTokenCostElided returns the token cost charged at one coefficient
+// position. It mirrors libvpx's `token_costs` table: when the prior token's
+// prev_token_class is 0 (a ZERO_TOKEN) and the current band is past the
+// plane's first encoded band, the EOB-vs-not bit is elided and only the
+// non-EOB subtree cost is charged. Otherwise the full tree cost is charged.
+func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
+	threshold := 0
+	if blockType == 0 {
+		threshold = 1
+	}
+	full := treeTokenCost(vp8tables.CoefTree[:], probs[:], token)
+	if pt == 0 && band > threshold {
+		nonEOB := boolBitCost(probs[0], 1)
+		if full <= nonEOB {
+			return maxInt() / 4
+		}
+		return full - nonEOB
+	}
+	return full
 }
 
 func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {

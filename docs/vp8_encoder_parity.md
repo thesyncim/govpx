@@ -318,7 +318,13 @@ the anchor and look for the surrounding mismatch.
     clears tiny Y2 residuals that would inverse-transform to zero. Regular
     quantization applies libvpx `zbin_extra` for mode boost plus
     `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses
-    it like libvpx.
+    it like libvpx. The whole-block coefficient rate
+    (`coefficientBlockTokenRate`) is anchored against libvpx's
+    `cost_coeffs`, including the `skip_eob_node` subtree elision when the
+    prior token's `prev_token_class == 0` and the band exceeds the plane
+    threshold, by `TestCoefCoeffsParityMatchesReferenceWalk` and
+    `TestCoefCoeffsParityIncrementalMatchesWholeBlock` in
+    `encoder_cost_coeffs_parity_test.go`.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
