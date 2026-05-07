@@ -4131,3 +4131,89 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 		t.Fatalf("YRD = %d, RD = %d, want YRD < RD when UV rate is non-zero", decision.YRD, decision.RD)
 	}
 }
+
+// TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock asserts that
+// the inter mode dispatcher mirrors libvpx's evaluate_inter_mode /
+// evaluate_inter_mode_rd active_ptr early exits: when active_map[r][c]==0 the
+// picker must return a ZEROMV/LAST decision with skip=1 and segment=0 without
+// running any of the per-mode RD evaluations (i.e. no mode-test counter is
+// incremented and no threshold is touched).
+func TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock(t *testing.T) {
+	const w, h = 32, 16
+	e := newSizedTestEncoder(t, w, h)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	const mbRows, mbCols = 1, 2
+	mask := []uint8{0, 1}
+	if err := e.SetActiveMap(mask, mbRows, mbCols); err != nil {
+		t.Fatalf("SetActiveMap returned error: %v", err)
+	}
+	if !e.activeMapEnabled {
+		t.Fatalf("activeMapEnabled = false after SetActiveMap, want true")
+	}
+	src := testImage(w, h)
+	fillImage(src, 128, 90, 170)
+	last := testVP8Frame(t, w, h, 64, 96, 160)
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((row*53 + col*97 + 7) & 255)
+		}
+	}
+	last.ExtendBorders()
+	refs := [...]interAnalysisReference{{
+		Frame:      vp8common.LastFrame,
+		Img:        &last.Img,
+		RefRateSet: true,
+		RefRate:    1 << 20,
+	}}
+	quant := testRegularMacroblockQuant(t, testInterSearchQIndex)
+
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.beginInterRDModeDecisionMacroblock()
+	beforeMBs := e.interMBsTestedSoFar
+	beforeHits := e.interModeTestHitCounts
+	beforeTouched := e.interRDThreshTouched
+
+	decision, ok := e.selectInterFrameModeDecision(
+		sourceImageFromPublic(src), refs[:], len(refs),
+		0, 0, mbRows, mbCols,
+		testInterSearchQIndex, vp8enc.SegmentationConfig{}, 0,
+		nil, nil, nil, nil, nil, &quant,
+	)
+
+	if !ok {
+		t.Fatalf("dispatcher returned ok=false for inactive MB")
+	}
+	if decision.useIntra {
+		t.Fatalf("decision.useIntra = true, want false (inactive MB must defer to LAST/ZEROMV)")
+	}
+	if decision.interMode.RefFrame != vp8common.LastFrame {
+		t.Fatalf("interMode.RefFrame = %v, want LAST", decision.interMode.RefFrame)
+	}
+	if decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("interMode.Mode = %v, want ZEROMV", decision.interMode.Mode)
+	}
+	if decision.interMode.MV != (vp8enc.MotionVector{}) {
+		t.Fatalf("interMode.MV = %+v, want zero", decision.interMode.MV)
+	}
+	if !decision.interMode.MBSkipCoeff {
+		t.Fatalf("interMode.MBSkipCoeff = false, want true")
+	}
+	if decision.interMode.SegmentID != 0 {
+		t.Fatalf("interMode.SegmentID = %d, want 0", decision.interMode.SegmentID)
+	}
+	if !decision.cyclicRefreshEligible() {
+		t.Fatalf("cyclicRefreshEligible = false, want true for ZEROMV/LAST")
+	}
+	if e.interMBsTestedSoFar != beforeMBs {
+		t.Fatalf("interMBsTestedSoFar = %d, want %d (no per-MB picker increment on short-circuit)", e.interMBsTestedSoFar, beforeMBs)
+	}
+	if e.interModeTestHitCounts != beforeHits {
+		t.Fatalf("interModeTestHitCounts changed; short-circuit must skip the mode loop entirely")
+	}
+	if e.interRDThreshTouched != beforeTouched {
+		t.Fatalf("interRDThreshTouched changed; short-circuit must not touch RD thresholds")
+	}
+}

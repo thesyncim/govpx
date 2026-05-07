@@ -686,9 +686,20 @@ the anchor and look for the surrounding mismatch.
     `RefCost`, `TotalRate`, `Rate2`, `RD`, and `YRD`, satisfying the
     `update_best_mode` invariant
     `TotalRate = YRate + UVRate + OtherCost + RefCost`.
-  - Missing: token-context commit parity, active-map skip short-circuiting,
-    and recode-loop interactions. Active-map behavior is tracked in the
-    dedicated active-map checklist item elsewhere.
+  - Active-map skip short-circuiting now lives at the
+    `selectInterFrameModeDecision` dispatcher: when
+    `activeMapEnabled && activeMap[r*cols+c] == 0`, the picker returns the
+    libvpx ZEROMV/LAST decision (skip=1, segment=0, MV=0) without entering
+    either the fast or full RD inner loops, mirroring the
+    `cpi->active_map_enabled && x->active_ptr[0] == 0` early exits in
+    `evaluate_inter_mode` (`pickinter.c`) and `evaluate_inter_mode_rd`
+    (`rdopt.c`). The per-frame loop's existing
+    `encodeInactiveInterMacroblock` short-circuit is preserved; the
+    dispatcher gate also keeps unit-level callers aligned without skipping
+    the per-MB skip-encoding helper.
+  - Missing: token-context commit parity and recode-loop interactions.
+    Active-map behavior is tracked in the dedicated active-map checklist
+    item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
