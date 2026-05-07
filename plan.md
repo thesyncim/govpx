@@ -1,249 +1,93 @@
-# govpx parity plan
+# govpx VP8 parity tracker
 
-This file is intentionally small. The original project spec was useful for
-bootstrapping, but the tree now contains the API, package layout, oracle tools,
-and most baseline codec scaffolding. Treat this as the current roadmap for
-closing the remaining gap to libvpx VP8 parity.
+Reference: libvpx v1.16.0. Scope: VP8 only, pure Go, no cgo, no VP9/AV1/WebM
+muxing, and no libvpx C API clone.
 
-Frozen reference: libvpx v1.16.0.
+## Gates
 
-## Rules
+- Full parity/production gate: `make verify-production`
+- Decoder-only proof gate: `make verify-decoder-parity`
+- Focused work should add or extend oracle coverage before claiming support.
+- Correctness and libvpx parity come before performance.
+- Every safe point should end with `make verify-production` and
+  `git status --short`.
 
-1. Correctness and libvpx parity come before performance.
-2. No cgo in govpx.
-3. No heap allocations after initialization in hot paths:
-   `Decode`, `DecodeInto`, `NextFrame`, `EncodeInto`, runtime controls,
-   `ForceKeyFrame`, `Reset`, and internal per-frame loops. Normal and temporal
-   encode paths have explicit zero-allocation regression tests.
-4. Port algorithms from libvpx source, but write idiomatic Go.
-5. Every meaningful parity change lands with tests.
-6. Public APIs return stable Go errors instead of panics.
-7. SIMD, threading, and speed work wait until parity gates prove behavior.
-8. Core package remains VP8-only: no VP9, AV1, WebM, or libvpx C API clone.
+Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
+[Makefile](Makefile).
 
-## Verification Gates
+## Current Status
 
-Run the automated gate before committing parity work:
+- Decoder: no known behavioral parity gap for the supported VP8 surface covered
+  by `make verify-decoder-parity`.
+- Encoder: functional and oracle-guarded for many paths, but still missing exact
+  libvpx quality/rate-control/preprocessing parity.
+- Performance: intentionally deferred until parity gates are strong enough to
+  catch regressions.
 
-```sh
-make verify-production
-```
+## Missing VP8 Features
 
-That target builds optimized pinned libvpx tools, fetches the required libvpx
-VP8 corpus/source data under ignored build directories, runs normal Go tests,
-and runs oracle-backed `TestOracle*` checks.
+### Encoder Quality
 
-For decoder-only parity proof:
+- Full exact intra mode analysis, especially B_PRED 4x4 selection.
+- Exact libvpx RD scoring and mode-cost parity.
+- Exact inter candidate pruning/costing.
+- Exact NEWMV search/pruning parity.
+- Remaining SPLITMV RD/mode-cost parity and oracle coverage.
+- Exact loop-filter level search.
 
-```sh
-make verify-decoder-parity
-```
+Primary references:
+[encodeintra.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeintra.c),
+[pickinter.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/pickinter.c),
+[rdopt.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/rdopt.c),
+[mcomp.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/mcomp.c),
+[modecosts.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/modecosts.c),
+[picklpf.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/picklpf.c),
+[bitstream.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/bitstream.c).
 
-That target runs normal Go tests plus the decoder oracle suite: libvpx VP8
-external valid corpus, invalid rejection corpus, generated feature corpus,
-postprocess modes, error-concealment modes, and keyframe resolution-change
-coverage.
+### Encoder Rate Control And Segmentation
 
-For focused work, use the closest package tests first, then the full gate.
-New bitstream features should add or extend oracle coverage.
+- Exact cyclic/background refresh segmentation policy.
+- Segment-aware quantizer selection.
+- More complete CBR feedback behavior.
+- Exact constrained-quality behavior.
+- Remaining one-pass CBR and golden-frame correction-factor branches.
+- Fixed-Q and two-pass branches if those modes become production requirements.
+- VBR/two-pass planning.
+- Adaptive keyframe / scene-cut behavior.
+- Static-background segmentation policy.
 
-## Current Baseline
+Primary references:
+[ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),
+[encodeframe.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeframe.c),
+[segmentation.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/segmentation.c),
+[firstpass.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/firstpass.c),
+[onyx_if.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c).
 
-Already established:
-
-- Module/package/commands use `github.com/thesyncim/govpx`.
-- Public decoder and encoder APIs exist.
-- Pure-Go VP8 decoder and encoder paths exist.
-- IVF/test helpers and libvpx oracle tooling exist.
-- Makefile owns normal tests, oracle tests, optimized libvpx builds, and test
-  corpus fetching.
-- Encoder has basic realtime CBR, temporal layering controls, entropy refresh
-  state, segmentation plumbing, token partitions, reconstruction, loop filter,
-  SPLITMV emission across VP8 split partition shapes, rotating cyclic-refresh-style segmentation,
-  temporal layer ID override, force-Golden/AltRef refresh flags, and libvpx
-  decode acceptance tests.
-- Decoder has no known behavioral parity gap for the supported VP8 surface
-  covered by `make verify-decoder-parity`.
-
-Use `UPSTREAM.md` for detailed subsystem status and known deviations.
-
-## Remaining Parity Work
-
-### 1. Conformance First
-
-Goal: prove current behavior against libvpx before widening features.
-
-- Expand required libvpx VP8 decoder corpus coverage.
-- Require the full current libvpx v1.16.0 VP8 decoder IVF subset in the
-  production oracle gate: 58 VP80 vectors plus 2 invalid rejection vectors.
-- Keep invalid-stream rejection parity required in CI/oracle runs.
-- Add generated streams for every feature edge before claiming support.
-- For encoder validation, compare govpx and libvpx outputs through the same
-  libvpx decode/checksum/PSNR/SSIM/bitrate gates; the production gate requires
-  at least two external VP8 encoder source clips.
-
-Useful references:
-
-- `test/test-data.mk`
-- `test/test_vector_test.cc`
-- `test/vp8_fragments_test.cc`
-- `test/vp8_ratectrl_rtc_test.cc`
-
-### 2. Decoder Parity
-
-Goal: keep decoder behavior aligned with libvpx and prevent regressions.
-
-Current proof surface:
-
-- Required libvpx VP8 external corpus: 58 valid VP80 IVF vectors, covering
-  comprehensive, intra, inter, segmentation, partition, sharpness, and small
-  size fixtures. Both `Decode` and `DecodeInto` are checksummed against
-  libvpx.
-- Required invalid-stream corpus: 2 invalid VP8 IVF vectors rejected like
-  libvpx by both decode entry points.
-- Generated libvpx feature corpus: profile 0/1/2/3, narrow dimensions,
-  one/two/four/eight token partitions including active eight-partition row
-  cycling, error-resilient streams, cyclic-refresh segmentation, sharpness,
-  and static-threshold streams.
-- Targeted oracle tests: postprocess deblock/demacroblock/MFQE/ADDNOISE,
-  active error concealment, malformed token partitions, missing token
-  partition concealment, truncated-frame rejection, and keyframe
-  resolution-change buffer reinitialization.
-
-No known decoder behavioral parity gaps remain for the supported VP8 surface
-covered by `make verify-decoder-parity`. This is an oracle-backed empirical
-claim, not a formal proof over every possible malformed byte stream.
-
-Useful references:
-
-- `vp8/decoder/error_concealment.c`
-- `vp8/decoder/dboolhuff.c`
-- `vp8/decoder/decodeframe.c`
-- `vp8/decoder/onyxd_if.c`
-- `vp8/common/postproc.c`
-- `vpx_scale/yv12scaler.c`
-
-### 3. Realtime Temporal SVC
-
-Goal: make the realtime use case a first-class, tested configuration surface.
-
-Remaining work:
-
-- Expose missing libvpx-style temporal controls where they map cleanly to Go;
-  temporal layer ID override now exists.
-- Keep temporal pattern flags aligned with `vpx_temporal_svc_encoder.c`.
-- Test layer sync, TL0PICIDX, reference refreshes, and entropy
-  refresh/no-refresh per layer pattern; packet refresh/entropy flags now cover
-  all libvpx example temporal patterns, and libvpx-style droppable encoded-frame
-  metadata plus per-frame incremental/cumulative layer bitrate targets and
-  per-layer buffer state are now reported; libvpx-style per-layer
-  input/encoded/cumulative bit counters are reported with cumulative buffer
-  updates for encoded and dropped frames.
-- Add oracle-backed realtime/SVC encode validation clips; generated temporal
-  streams now cover base-layer and full-sequence decode parity, and external
-  libvpx temporal SVC example layer streams are decoded through the oracle gate.
-- Verify per-layer buffer behavior against external libvpx oracle streams.
-
-Useful references:
-
-- `examples/vpx_temporal_svc_encoder.c`
-- `vp8/encoder/onyx_if.c`
-- `vp8/encoder/ratectrl.c`
-
-### 4. Encoder Quality Parity
-
-Goal: make govpx output look like libvpx VP8 before optimizing speed.
-
-High-priority gaps:
-
-- Full intra mode analysis, especially B_PRED 4x4 mode selection.
-- Finish exact libvpx RD scoring; Q-derived lambda plus skip/reference/
-  inter-mode/MV/token bit costs exist for current scalar analysis paths.
-- Finish exact libvpx inter candidate pruning/costing; explicit ZEROMV,
-  NEARESTMV, NEARMV, NEWMV, and SPLITMV RD candidates exist.
-- Finish exact libvpx NEWMV search/pruning strategy; exhaustive full-pixel
-  search plus libvpx-style iterative half/quarter-pel subpixel variance
-  refinement already exists.
-- Remaining SPLITMV libvpx RD/mode-cost parity and oracle coverage.
-- Exact libvpx loop-filter level search; default-on filtering now uses the
-  libvpx base-q initial level and keyframe sharpness reset.
-- Token-partition writer coverage now spans neutral/zero/coefficient keyframes
-  and zero/coefficient interframes across two/four/eight token partitions.
-
-Useful references:
-
-- `vp8/encoder/pickinter.c`
-- `vp8/encoder/picklpf.c`
-- `vp8/encoder/rdopt.c`
-- `vp8/encoder/mcomp.c`
-- `vp8/encoder/modecosts.c`
-- `vp8/encoder/bitstream.c`
-
-### 5. Encoder Rate Control And Segmentation
-
-Goal: close the loop between measured frame size, quantizer choice, and
-segment-aware decisions.
-
-Remaining work:
-
-- Complete exact libvpx cyclic/background refresh segmentation policy; rotating
-  cyclic-refresh-style segment maps now use libvpx's default CBR/error-resilient
-  enablement, temporal-layer MB cadence, screen-content cadence/disable rules,
-  Q/2-Q ALT_Q boost, eligibility map, one-frame clean-block cooldown,
-  count-derived segment tree probabilities, base temporal-layer gating, and
-  screen-content inter-Q drop limiting.
-- Make quantizer selection segment-aware.
-- Implement libvpx CBR feedback more completely.
-- Complete exact libvpx constrained-quality bitrate behavior for
-  `RateControlCQ`; initial CQLevel quantizer floor/control and bounded
-  overshoot feedback exist.
-- Finish remaining one-pass CBR/golden-frame correction-factor branching; initial
-  bits-per-macroblock quantizer regulation, libvpx frame-size bounds, and
-  libvpx-style buffer-fullness target scaling, initialized/reset rolling bit
-  monitors and correction factors, non-show-frame overhead accounting including
-  temporal-layer buffers, negative CBR buffer-debt/drop threshold handling,
-  temporal-layer frame-size bounds, runtime bitrate buffer preservation, and
-  bounded feedback exist.
-- Complete fixed-Q/two-pass keyframe target branches if those modes become
-  production requirements; one-pass first and later keyframe target sizing now
-  mirrors libvpx's buffer, framerate, Q-adjustment, and separation rules.
-- Complete exact libvpx golden-frame CBR boost heuristics; GF-CBR
-  target/refresh control exists and now uses libvpx's cyclic refresh cadence,
-  default unboosted refresh, and prior LAST/ZEROMV majority gate.
-- Implement VBR/two-pass planning if production parity requires VBR.
-- Add adaptive keyframe/scene-cut behavior.
-- Complete static-background segmentation policy; screen-content and
-  static-threshold runtime controls exist.
-
-Useful references:
-
-- `vp8/encoder/ratectrl.c`
-- `vp8/encoder/vp8_cyclic_refresh.c`
-- `vp8/encoder/segmentation.c`
-- `vp8/encoder/firstpass.c`
-- `vp8/encoder/onyx_if.c`
-
-### 6. Encoder Preprocessing
-
-Goal: support the libvpx tools that quality/rate-control depends on.
-
-Remaining work:
+### Encoder Preprocessing
 
 - Lookahead buffer.
 - Alt-ref temporal filtering / ARNR.
 - Spatial denoiser.
 - Skin/static-region classification if needed for segmentation parity.
 
-Useful references:
+Primary references:
+[lookahead.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/lookahead.c),
+[temporal_filter.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/temporal_filter.c),
+[denoising.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/denoising.c),
+[vp8_skin_detection.c](internal/coracle/build/libvpx-v1.16.0/vp8/common/vp8_skin_detection.c).
 
-- `vp8/encoder/lookahead.c`
-- `vp8/encoder/temporal_filter.c`
-- `vp8/encoder/denoising.c`
-- `vp8/encoder/vp8_skin_detection.c`
+### Realtime Temporal/SVC
 
-### 7. Performance Later
+- Expose remaining libvpx-style temporal controls where they map cleanly to Go.
+- Tighten per-layer buffer behavior against external libvpx oracle streams.
+- Keep temporal pattern flags aligned with the libvpx example encoder.
 
-Do this only after parity gates are strong enough to catch regressions.
+Primary references:
+[vpx_temporal_svc_encoder.c](internal/coracle/build/libvpx-v1.16.0/examples/vpx_temporal_svc_encoder.c),
+[onyx_if.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c),
+[ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c).
+
+### Performance After Parity
 
 - DSP dispatch layer.
 - amd64 SSE2 and arm64 NEON kernels.
@@ -251,30 +95,19 @@ Do this only after parity gates are strong enough to catch regressions.
 - Encoder row threading.
 - Motion-search speed-feature tuning.
 
-Useful references:
-
-- `vp8/common/rtcd_defs.pl`
-- `vpx_dsp/vpx_dsp_rtcd_defs.pl`
-- `vp8/common/x86/`
-- `vp8/common/arm/`
-- `vp8/encoder/x86/`
-- `vpx_dsp/x86/`
+Primary references:
+[rtcd_defs.pl](internal/coracle/build/libvpx-v1.16.0/vp8/common/rtcd_defs.pl),
+[vpx_dsp_rtcd_defs.pl](internal/coracle/build/libvpx-v1.16.0/vpx_dsp/vpx_dsp_rtcd_defs.pl),
+[vp8/common/x86](internal/coracle/build/libvpx-v1.16.0/vp8/common/x86),
+[vp8/common/arm](internal/coracle/build/libvpx-v1.16.0/vp8/common/arm),
+[vp8/encoder/x86](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/x86),
+[vpx_dsp/x86](internal/coracle/build/libvpx-v1.16.0/vpx_dsp/x86).
 
 ## Execution Order
 
-1. Strengthen conformance gates for the feature being touched.
-2. Keep closing decoder oracle gaps before encoder parity work.
-3. Finish temporal SVC controls and oracle-backed realtime tests.
-4. Port encoder RD/mode-decision and motion-search parity.
-5. Port rate-control/segmentation behavior.
-6. Add lookahead, ARNR, denoising, and related controls.
-7. Only then start dispatch/SIMD/threading/performance work.
-
-Every subgoal should end with:
-
-```sh
-make verify-production
-git status --short
-```
-
-Update `UPSTREAM.md` when a subsystem changes status.
+1. Keep decoder parity green with `make verify-decoder-parity`.
+2. Finish realtime/SVC controls and oracle-backed layer-buffer parity.
+3. Port encoder RD/mode-decision and motion-search parity.
+4. Port rate-control and segmentation behavior.
+5. Add lookahead, ARNR, denoising, and related preprocessing.
+6. Only then start dispatch/SIMD/threading/performance work.
