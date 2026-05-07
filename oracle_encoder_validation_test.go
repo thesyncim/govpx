@@ -41,6 +41,7 @@ type encoderValidationCase struct {
 	maxFrameSSIMGap float64
 	maxRateHigh     float64
 	maxRateLow      float64
+	maxRateGapPct   float64
 
 	wantTokenPartition            vp8common.TokenPartition
 	checkTokenPartition           bool
@@ -103,6 +104,7 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			maxFrameSSIMGap:               0.002,
 			maxRateHigh:                   250.0,
 			maxRateLow:                    95.0,
+			maxRateGapPct:                 35.0,
 			wantTokenPartition:            vp8common.EightPartition,
 			checkTokenPartition:           true,
 			checkAllTokenPartitionsActive: true,
@@ -134,19 +136,20 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			maxFrameSSIMGap:         0.002,
 			maxRateHigh:             250.0,
 			maxRateLow:              95.0,
+			maxRateGapPct:           5.0,
 			checkSegmentationHeader: true,
 			checkInterFrames:        true,
 		},
-		qualityValidationCase("best-quality-panning", DeadlineBestQuality, 0, 47.4, 47.1, 0.6, 0.7),
-		qualityValidationCase("good-quality-rd-panning", DeadlineGoodQuality, 3, 47.9, 47.6, 1.0, 1.2),
-		qualityValidationCase("good-quality-fast-panning", DeadlineGoodQuality, 4, 47.9, 47.6, 1.0, 1.2),
-		realtimeSpeedValidationCase(0, 47.9, 47.6, 0.8, 0.8),
-		realtimeSpeedValidationCase(3, 47.9, 47.6, 0.8, 0.8),
-		realtimeSpeedValidationCase(4, 47.9, 47.6, 0.4, 0.4),
-		realtimeSpeedValidationCase(5, 47.9, 47.6, 0.4, 0.4),
-		realtimeSpeedValidationCase(8, 47.9, 47.6, 0.4, 0.4),
-		realtimeSpeedValidationCase(9, 47.9, 47.6, 0.4, 0.4),
-		realtimeSpeedValidationCase(15, 47.9, 47.6, 0.4, 0.4),
+		qualityValidationCase("best-quality-panning", DeadlineBestQuality, 0, 47.4, 47.1, 0.6, 0.7, 8.0),
+		qualityValidationCase("good-quality-rd-panning", DeadlineGoodQuality, 3, 47.9, 47.6, 1.0, 1.2, 5.0),
+		qualityValidationCase("good-quality-fast-panning", DeadlineGoodQuality, 4, 47.9, 47.6, 1.0, 1.2, 5.0),
+		realtimeSpeedValidationCase(0, 47.9, 47.6, 0.8, 0.8, 12.0),
+		realtimeSpeedValidationCase(3, 47.9, 47.6, 0.8, 0.8, 8.0),
+		realtimeSpeedValidationCase(4, 47.9, 47.6, 0.4, 0.4, 5.0),
+		realtimeSpeedValidationCase(5, 47.9, 47.6, 0.4, 0.4, 5.0),
+		realtimeSpeedValidationCase(8, 47.9, 47.6, 0.4, 0.4, 5.0),
+		realtimeSpeedValidationCase(9, 47.9, 47.6, 0.4, 0.4, 5.0),
+		realtimeSpeedValidationCase(15, 47.9, 47.6, 0.4, 0.4, 5.0),
 	}
 
 	for _, tc := range cases {
@@ -172,11 +175,12 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			assertEncoderValidationQuality(t, "libvpx", libvpxQuality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
 			assertEncoderValidationRate(t, "libvpx", libvpxOutputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
 			assertEncoderValidationQualityGap(t, got.quality, libvpxQuality, tc)
+			assertEncoderValidationRateGap(t, got.outputKbps, libvpxOutputKbps, tc)
 		})
 	}
 }
 
-func qualityValidationCase(name string, deadline Deadline, cpuUsed int, minPSNR float64, minFramePSNR float64, maxPSNRGap float64, maxFramePSNRGap float64) encoderValidationCase {
+func qualityValidationCase(name string, deadline Deadline, cpuUsed int, minPSNR float64, minFramePSNR float64, maxPSNRGap float64, maxFramePSNRGap float64, maxRateGapPct float64) encoderValidationCase {
 	return encoderValidationCase{
 		name:       name,
 		width:      64,
@@ -199,11 +203,12 @@ func qualityValidationCase(name string, deadline Deadline, cpuUsed int, minPSNR 
 		maxFrameSSIMGap:  0.004,
 		maxRateHigh:      260.0,
 		maxRateLow:       80.0,
+		maxRateGapPct:    maxRateGapPct,
 		checkInterFrames: true,
 	}
 }
 
-func realtimeSpeedValidationCase(cpuUsed int, minPSNR float64, minFramePSNR float64, maxPSNRGap float64, maxFramePSNRGap float64) encoderValidationCase {
+func realtimeSpeedValidationCase(cpuUsed int, minPSNR float64, minFramePSNR float64, maxPSNRGap float64, maxFramePSNRGap float64, maxRateGapPct float64) encoderValidationCase {
 	return encoderValidationCase{
 		name:       "realtime-cpu-used-" + strconv.Itoa(cpuUsed) + "-panning",
 		width:      64,
@@ -225,6 +230,7 @@ func realtimeSpeedValidationCase(cpuUsed int, minPSNR float64, minFramePSNR floa
 		maxFrameSSIMGap:  0.004,
 		maxRateHigh:      260.0,
 		maxRateLow:       80.0,
+		maxRateGapPct:    maxRateGapPct,
 		checkInterFrames: true,
 	}
 }
@@ -704,6 +710,21 @@ func assertEncoderValidationRate(t *testing.T, label string, outputKbps float64,
 	errorPct := (outputKbps - float64(targetKbps)) * 100 / float64(targetKbps)
 	if errorPct < -maxLowPct || errorPct > maxHighPct {
 		t.Fatalf("%s output bitrate = %.1f kbps target=%d error=%.1f%%, allowed -%.1f%%/+%.1f%%", label, outputKbps, targetKbps, errorPct, maxLowPct, maxHighPct)
+	}
+}
+
+func assertEncoderValidationRateGap(t *testing.T, gotKbps float64, libvpxKbps float64, tc encoderValidationCase) {
+	t.Helper()
+	if tc.maxRateGapPct <= 0 {
+		return
+	}
+	if libvpxKbps <= 0 {
+		t.Fatalf("libvpx output bitrate = %.1f kbps, cannot compute direct rate gap", libvpxKbps)
+	}
+	gapPct := math.Abs(gotKbps-libvpxKbps) * 100 / libvpxKbps
+	if gapPct > tc.maxRateGapPct {
+		t.Fatalf("govpx output bitrate = %.1f kbps, libvpx = %.1f kbps, direct gap %.1f%% exceeds %.1f%%",
+			gotKbps, libvpxKbps, gapPct, tc.maxRateGapPct)
 	}
 }
 

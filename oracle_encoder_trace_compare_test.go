@@ -1,0 +1,235 @@
+package govpx
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/coracle"
+)
+
+func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		width      = 64
+		height     = 64
+		fps        = 30
+		targetKbps = 700
+		frames     = 6
+	)
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           3,
+		KeyFrameInterval:  999,
+	}
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
+	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
+	govpxProjected := projectOracleDecisionTrace(t, govpxTrace)
+	libvpxProjected := projectOracleDecisionTrace(t, libvpxTrace)
+	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{MaxDivergences: 8})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 0 {
+		t.Fatalf("projected encoder decision trace diverged:\n%s", formatOracleTraceDivergences(div))
+	}
+}
+
+func findVpxencOracle(t *testing.T) string {
+	t.Helper()
+	if path := os.Getenv("GOVPX_VPXENC_ORACLE"); path != "" {
+		return path
+	}
+	local := filepath.Join("internal", "coracle", "build", "vpxenc-oracle")
+	info, err := os.Stat(local)
+	if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		return local
+	}
+	t.Skip("set GOVPX_VPXENC_ORACLE to the patched libvpx vpxenc oracle binary")
+	return ""
+}
+
+func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image) []byte {
+	t.Helper()
+	var trace bytes.Buffer
+	opts.OracleTraceWriter = &trace
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, opts.Width*opts.Height*3)
+	for i, source := range sources {
+		result, err := enc.EncodeInto(packet, source, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeInto frame %d dropped, want trace corpus without drops", i)
+		}
+	}
+	return append([]byte(nil), trace.Bytes()...)
+}
+
+func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	yuvPath := filepath.Join(dir, name+".yuv")
+	ivfPath := filepath.Join(dir, name+".ivf")
+	tracePath := filepath.Join(dir, name+".jsonl")
+	writeEncoderValidationI420(t, yuvPath, sources)
+	deadlineArg := "--good"
+	switch opts.Deadline {
+	case DeadlineBestQuality:
+		deadlineArg = "--best"
+	case DeadlineRealtime:
+		deadlineArg = "--rt"
+	}
+	args := []string{
+		"--codec=vp8",
+		"--ivf",
+		"--quiet",
+		deadlineArg,
+		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
+		"--lag-in-frames=0",
+		"--auto-alt-ref=0",
+		"--kf-min-dist=999",
+		"--kf-max-dist=999",
+		"--target-bitrate=" + strconv.Itoa(targetKbps),
+		"--min-q=4",
+		"--max-q=56",
+		"--i420",
+		"--width=" + strconv.Itoa(opts.Width),
+		"--height=" + strconv.Itoa(opts.Height),
+		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
+		"--limit=" + strconv.Itoa(len(sources)),
+		"--output=" + ivfPath,
+	}
+	args = append(args, extraArgs...)
+	args = append(args, yuvPath)
+	cmd := exec.Command(vpxencOracle, args...)
+	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, out)
+	}
+	trace, err := os.ReadFile(tracePath)
+	if err != nil {
+		t.Fatalf("ReadFile %s returned error: %v", tracePath, err)
+	}
+	return trace
+}
+
+func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
+	t.Helper()
+	keep := map[string]map[string]bool{
+		"rate": {
+			"type":                 true,
+			"frame_index":          true,
+			"frame_type":           true,
+			"q_index":              true,
+			"active_worst_quality": true,
+			"active_best_quality":  true,
+			"zbin_over_quant":      true,
+		},
+		"recode": {
+			"type":        true,
+			"frame_index": true,
+			"loop_count":  true,
+			"final_q":     true,
+			"reason":      true,
+		},
+		"frame": {
+			"type":                  true,
+			"frame_index":           true,
+			"frame_type":            true,
+			"q_index":               true,
+			"base_q_index":          true,
+			"loop_filter_level":     true,
+			"refresh_last":          true,
+			"refresh_golden":        true,
+			"refresh_altref":        true,
+			"sign_bias_golden":      true,
+			"sign_bias_altref":      true,
+			"refresh_entropy_probs": true,
+			"default_coef_reset":    true,
+		},
+	}
+	var out bytes.Buffer
+	scan := bufio.NewScanner(bytes.NewReader(trace))
+	for scan.Scan() {
+		var row map[string]any
+		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
+			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
+		}
+		typ, _ := row["type"].(string)
+		fields := keep[typ]
+		if len(fields) == 0 {
+			continue
+		}
+		projected := make(map[string]any, len(fields))
+		for field := range fields {
+			if v, ok := row[field]; ok {
+				projected[field] = v
+			}
+		}
+		encoded, err := json.Marshal(projected)
+		if err != nil {
+			t.Fatalf("Marshal projected trace row returned error: %v", err)
+		}
+		out.Write(encoded)
+		out.WriteByte('\n')
+	}
+	if err := scan.Err(); err != nil {
+		t.Fatalf("scan trace: %v", err)
+	}
+	return out.Bytes()
+}
+
+func formatOracleTraceDivergences(div []coracle.Divergence) string {
+	var buf bytes.Buffer
+	for _, d := range div {
+		buf.WriteString("row=")
+		buf.WriteString(strconv.Itoa(d.RowIndex))
+		buf.WriteString(" kind=")
+		buf.WriteString(d.RowKind)
+		buf.WriteString(" frame=")
+		buf.WriteString(strconv.FormatInt(d.FrameIndex, 10))
+		buf.WriteString(" field=")
+		buf.WriteString(d.Field)
+		buf.WriteString(" govpx=")
+		buf.WriteString(strconv.Quote(toTraceValueString(d.Govpx)))
+		buf.WriteString(" libvpx=")
+		buf.WriteString(strconv.Quote(toTraceValueString(d.Libvpx)))
+		buf.WriteByte('\n')
+	}
+	return buf.String()
+}
+
+func toTraceValueString(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "<invalid>"
+	}
+	return string(b)
+}

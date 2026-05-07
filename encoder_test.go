@@ -335,6 +335,40 @@ func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoOnePassVBRDoesNotRefreshGoldenImmediatelyAfterKey(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           3,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 64*64*3)
+	if _, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, 0), 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	inter, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if state.Refresh.RefreshGolden {
+		t.Fatalf("frame-1 VBR refresh_golden = true, want false until libvpx DEFAULT_GF_INTERVAL countdown expires")
+	}
+	if e.rc.framesTillGFUpdateDue != libvpxDefaultGFInterval-2 {
+		t.Fatalf("framesTillGFUpdateDue = %d, want %d after key decrement plus one inter frame",
+			e.rc.framesTillGFUpdateDue, libvpxDefaultGFInterval-2)
+	}
+}
+
 func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

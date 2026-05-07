@@ -78,8 +78,9 @@ into `vp8/encoder/encodeframe.c` (per-MB capture inside `encode_mb_row`) and
 To capture both traces and diff them:
 
 ```sh
-# govpx side: use any encode driver that wires OracleTraceWriter to a file.
-go test -run TestOracleEncoder -coracle ./...   # example; see oracle tests
+# govpx side: the production oracle gate now runs a projected decision trace
+# compare via TestOracleEncoderTraceDecisionCompare.
+make oracle-test
 
 # libvpx side: run the patched binary with the env var set.
 GOVPX_ORACLE_TRACE_OUT=/tmp/libvpx.jsonl \
@@ -89,9 +90,13 @@ GOVPX_ORACLE_TRACE_OUT=/tmp/libvpx.jsonl \
 # coracle.CompareOracleTraces(govpxR, libvpxR, coracle.CompareOptions{}).
 ```
 
-Automation that runs both sides under CI is intentionally not wired up yet:
-the libvpx build requires network access (to fetch the v1.16.0 tarball) and
-several minutes of CPU. The Go-side `CompareOracleTraces` helper is fully
-covered by `TestCompareOracleTraces*` in `oracle_compare_test.go` and
-exercises only synthetic JSON Lines inputs, so it runs in the standard
-`go test ./...` flow without depending on the patched binary.
+`make verify-production` builds both stock `vpxenc` and the patched
+`vpxenc-oracle`, exports `GOVPX_VPXENC_ORACLE`, and runs
+`TestOracleEncoderTraceDecisionCompare`. The production gate currently compares
+a projected frame/rate decision subset (Q, active bounds, zbin-over-quant,
+refresh/sign-bias flags, and recode identity) rather than full per-MB residual
+rows; broader candidate-level and residual trace matching remains tracked in
+the VP8 encoder parity plan. The Go-side `CompareOracleTraces` helper is also
+covered by `TestCompareOracleTraces*` in `oracle_compare_test.go` against
+synthetic JSON Lines inputs, so comparator regressions still run in the
+standard `go test ./...` flow without depending on the patched binary.

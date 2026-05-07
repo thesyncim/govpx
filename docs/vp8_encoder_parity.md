@@ -42,20 +42,22 @@ the anchor and look for the surrounding mismatch.
   external Y4M/YUV sources, panning clips across best/good/realtime deadlines,
   and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15. These are smoke gates, not
   the full representative 100% parity corpus.
-- Encoder decision parity: roughly 70% overall, or about 80% on the core
+- Encoder decision parity: roughly 72% overall, or about 82% on the core
   one-pass quality path, weighted by libvpx LOC. This is still an engineering
-  estimate, not a measured percentage: `CompareOracleTraces` exists, but the
-  corpus driver / CI gate that counts matching frame, rate, recode, candidate,
-  and MB decisions is still missing.
+  estimate, not a measured percentage: `CompareOracleTraces` is now wired into
+  the production oracle gate for a projected frame/rate decision subset, but
+  the full corpus driver that counts matching candidate and MB decisions is
+  still missing.
 - The largest remaining parity weights are first-pass/two-pass proof against a
   libvpx first-pass oracle, candidate-level inter-mode tracing, rejected
   recode-attempt tracing, automatic hidden-ARF/ARNR border proof, rate
   parity tracking vs libvpx output bitrate/frame sizes, and remaining
   quality-relevant entropy/refresh edge cases.
-- If only three more things are fixed, they should be: (1) wire the
-  govpx/libvpx trace comparator into the corpus gate, (2) replace
+- If only three more things are fixed, they should be: (1) add
+  candidate-level inter-mode / motion-search trace rows, (2) replace
   self-captured first-pass fixtures with libvpx first-pass oracle fixtures,
-  and (3) add candidate-level inter-mode / motion-search trace rows.
+  and (3) close the remaining direct rate-control trace gaps such as
+  one-pass VBR `this_frame_target` and rejected recode-attempt rows.
 
 ## Acceptance Gates
 
@@ -103,14 +105,15 @@ the anchor and look for the surrounding mismatch.
 - [ ] For each vector record the required metric gate: PSNR/SSIM tolerance,
   direct govpx-vs-libvpx bitrate tolerance, per-frame-size tolerance,
   reference checksum requirement, and which trace fields must match exactly.
-  Existing rate assertions check each encoder against target bitrate; direct
-  govpx-vs-libvpx output-kbps and frame-size delta gates are still missing.
+  Existing synthetic smoke vectors now include direct govpx-vs-libvpx
+  output-kbps tolerances. External-source direct rate gates and per-frame-size
+  delta gates are still missing.
 
 ## Quality Gap Ledger
 
 | Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated, not 100% corpus | mode-loop / MV / rate-control deltas | candidate mode rows, direct bitrate deltas |
+| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / rate-control deltas | candidate mode rows, `this_frame_target`, per-frame-size deltas |
 | first-pass Y4M corpus | two-pass stats | self-captured fixture | missing libvpx oracle fixture | unknown | open | firstpass scoring / GOLDEN selection | first-pass oracle rows |
 | ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
 
@@ -118,7 +121,7 @@ the anchor and look for the surrounding mismatch.
 
 | Date | Commit | Gate | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 2026-05-08 | local parity stack | `make verify-production` | pass | Update this row after each full gate run with the exact commit. |
+| 2026-05-08 | local parity stack | `make verify-production` | pass | Includes projected trace decision compare and direct synthetic output-kbps gates; update with exact commit after commit. |
 
 ## Accepted Non-Bitexact Differences
 
@@ -208,11 +211,19 @@ the anchor and look for the surrounding mismatch.
     [`encoder_oracle_trace.go`](../encoder_oracle_trace.go) and feeds
     the reference probs from `e.refProbIntra` / `e.refProbLast` /
     `e.refProbGolden`.
+  - Covered now (production trace gate): `make verify-production` builds
+    `vpxenc-oracle`, exports `GOVPX_VPXENC_ORACLE`, and runs
+    `TestOracleEncoderTraceDecisionCompare` on a small one-pass VBR panning
+    clip. The enforced projection compares Q, active best/worst bounds,
+    zbin-over-quant, refresh/sign-bias flags, frame identity, and recode row
+    identity. It intentionally does not compare `this_frame_target`,
+    projected size, byte counts, probability digests, reference checksums, or
+    per-MB residuals yet; those remain open quality/rate diagnosis fields.
   - Remaining: per-frame segmentation tree probabilities (the per-MB
     `segment_id` already lands in the row schema, but the frame-level
-    tree-probability bytes are not yet captured); a CI driver that runs
-    both sides under `make verify-production` so divergences gate
-    merges; and tightening govpx's recode reason classifier once the
+    tree-probability bytes are not yet captured); a broader corpus trace
+    driver that counts matching candidate, MB, residual, and frame-size
+    decisions; and tightening govpx's recode reason classifier once the
     alt-ref / forced-key recode branches are in place.
   - Done when comparable JSON/CSV rows expose frame state, rate-control state,
     per-MB mode decision, residual decision, probabilities, segmentation, loop
@@ -229,11 +240,12 @@ the anchor and look for the surrounding mismatch.
     walks both streams and reports field-level divergences (with row
     index, frame index, MB coordinates, field name, and both decoded
     values).
-  - Remaining: a CI hook that fails on the first divergence, plus
-    libvpx-side coverage of the partition / segmentation-tree fields
-    once the govpx-side schema grows to include them. The rate-control
-    state and recode-reason coverage is in place via the `rate` and
-    `recode` rows emitted from
+  - Remaining: broadening the production trace gate from the current projected
+    frame/rate decision subset to candidate-level, full per-MB residual, and
+    frame-size fields; plus libvpx-side coverage of the partition /
+    segmentation-tree fields once the govpx-side schema grows to include
+    them. The rate-control state and recode-reason coverage is in place via the
+    `rate` and `recode` rows emitted from
     [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
     and the matching emitters in
     [`encoder_oracle_trace.go`](../encoder_oracle_trace.go); the
@@ -460,7 +472,12 @@ the anchor and look for the surrounding mismatch.
     `pct_intra<15 || gf_frame_usage>=5`, funneling the result through
     the same code path as CBR so the rate-control bookkeeping, header
     copy semantics, and post-pack GF overspend accumulation apply
-    uniformly.
+    uniformly. One-pass VBR/CQ construction now also seeds libvpx's
+    provisional `DEFAULT_GF_INTERVAL` countdown before the first key frame,
+    and the key-frame GOLDEN refresh decrements that countdown, preventing the
+    non-libvpx immediate frame-1 GOLDEN refresh; pinned by
+    `TestEncodeIntoOnePassVBRDoesNotRefreshGoldenImmediatelyAfterKey` and the
+    projected trace gate.
   - Out of scope (deferred): temporal-layer propagation of KF/GF
     overspend through libvpx's per-layer `layer_context` state (govpx
     already mirrors the single-layer-vs-multi-layer KF split toggle

@@ -553,6 +553,13 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// that so calc_pframe_target_size's min_frame_target floor and
 	// calcGFParams allocation_chunks see the same value.
 	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, normalized.TwoPassMinPct)
+	// libvpx's one-pass VBR/CQ setup seeds a provisional GF countdown from
+	// DEFAULT_GF_INTERVAL before the first key frame. The key-frame GOLDEN
+	// refresh then decrements it, preventing an immediate frame-1 auto_gold
+	// refresh.
+	if e.rc.mode != RateControlCBR && len(normalized.TwoPassStats) == 0 {
+		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+	}
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -950,6 +957,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// recent_ref_frame_usage counters to 1 each (the same as a GF
 	// refresh) so the next GF section starts with a clean baseline.
 	e.rc.resetRecentRefFrameUsage(required)
+	if e.rc.framesTillGFUpdateDue > 0 {
+		e.rc.currentGFInterval = e.rc.framesTillGFUpdateDue
+		e.rc.framesTillGFUpdateDue--
+	}
 	e.rc.thisFramePercentIntra = 100
 	// libvpx vp8/encoder/onyx_if.c sets last_frame_percent_intra=100
 	// after every key frame, mirroring the encoder's expectation that
