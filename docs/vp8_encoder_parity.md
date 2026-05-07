@@ -252,12 +252,14 @@ the anchor and look for the surrounding mismatch.
     scoring now uses libvpx-shaped transform-domain accounting: `rate2`,
     default no-skip `other_cost`, skip backout when `tteob == 0`,
     split Y/UV token rates and distortions, and Y-only `yrd` for intra4x4 /
-    SplitMV pruning.
-  - Missing: high-level sign-bias policy/reference switching, temporal-layer
-    threshold tweaks, full SplitMV label-level segmentation search with
-    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
-    interactions. Active-map behavior is tracked in the dedicated active-map
-    checklist item elsewhere.
+    SplitMV pruning. Temporal-layer RD thresholds now mirror libvpx's
+    `closest_reference_frame` tweak for LAST+GOLDEN temporal layers, including
+    frame-number tracking through refresh/copy updates and `/8` vs `/2`
+    reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`.
+  - Missing: high-level sign-bias policy/reference switching, full SplitMV
+    label-level segmentation search with `THR_NEW1/2/3` gating, active-map skip
+    short-circuiting, and recode-loop interactions. Active-map behavior is
+    tracked in the dedicated active-map checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.

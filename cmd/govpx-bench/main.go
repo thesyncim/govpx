@@ -69,16 +69,16 @@ type benchReport struct {
 // "did we beat libvpx?" snapshot without diffing the full reference
 // block manually.
 type comparisonReport struct {
-	BitrateRatioVsReference  float64 `json:"bitrate_ratio_vs_reference"`
-	BitrateDeltaKbps         float64 `json:"bitrate_delta_kbps"`
-	BitrateErrorPctDelta     float64 `json:"bitrate_error_pct_delta"`
-	PSNRDeltaDB              float64 `json:"psnr_delta_db"`
-	SSIMDelta                float64 `json:"ssim_delta"`
-	EncodeFPSRatio           float64 `json:"encode_fps_ratio_vs_reference"`
-	NSPerFrameRatio          float64 `json:"ns_per_frame_ratio_vs_reference"`
-	OutputBytesRatio         float64 `json:"output_bytes_ratio_vs_reference"`
-	AvgInterBytesRatio       float64 `json:"avg_interframe_bytes_ratio_vs_reference"`
-	KeyframeBytesRatio       float64 `json:"keyframe_bytes_ratio_vs_reference"`
+	BitrateRatioVsReference float64 `json:"bitrate_ratio_vs_reference"`
+	BitrateDeltaKbps        float64 `json:"bitrate_delta_kbps"`
+	BitrateErrorPctDelta    float64 `json:"bitrate_error_pct_delta"`
+	PSNRDeltaDB             float64 `json:"psnr_delta_db"`
+	SSIMDelta               float64 `json:"ssim_delta"`
+	EncodeFPSRatio          float64 `json:"encode_fps_ratio_vs_reference"`
+	NSPerFrameRatio         float64 `json:"ns_per_frame_ratio_vs_reference"`
+	OutputBytesRatio        float64 `json:"output_bytes_ratio_vs_reference"`
+	AvgInterBytesRatio      float64 `json:"avg_interframe_bytes_ratio_vs_reference"`
+	KeyframeBytesRatio      float64 `json:"keyframe_bytes_ratio_vs_reference"`
 }
 
 type referenceReport struct {

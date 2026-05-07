@@ -283,6 +283,10 @@ type VP8Encoder struct {
 	lastRef   vp8common.FrameBuffer
 	goldenRef vp8common.FrameBuffer
 	altRef    vp8common.FrameBuffer
+	// Mirrors libvpx cpi->current_ref_frames[] for closest-reference policy.
+	// Values are frameCount values from the encoded frame that last refreshed
+	// or was copied into each reference buffer.
+	referenceFrameNumbers [vp8common.MaxRefFrames]uint64
 	// Mirrors libvpx gold_is_last / alt_is_last / gold_is_alt. These flags
 	// prune duplicate reference candidates after refreshes make buffers alias.
 	goldenRefAliasesLast bool
@@ -1522,6 +1526,7 @@ func (e *VP8Encoder) Reset() {
 	e.goldenRefAliasesLast = false
 	e.altRefAliasesLast = false
 	e.goldenRefAliasesAlt = false
+	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
@@ -2015,6 +2020,7 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.goldenRefAliasesLast = true
 	e.altRefAliasesLast = true
 	e.goldenRefAliasesAlt = true
+	e.updateKeyFrameReferenceFrameNumbers()
 }
 
 func (e *VP8Encoder) rememberLastFrameInterModes() {
@@ -2045,6 +2051,7 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 		e.altRef.ExtendBorders()
 	}
 	e.updateInterReferenceAliases(cfg)
+	e.updateInterReferenceFrameNumbers(cfg)
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
@@ -2064,6 +2071,7 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 		e.altRef.ExtendBorders()
 	}
 	e.updateInterReferenceAliases(cfg)
+	e.updateInterReferenceFrameNumbers(cfg)
 }
 
 func (e *VP8Encoder) updateInterReferenceAliases(cfg vp8enc.InterFrameStateConfig) {
@@ -2100,6 +2108,49 @@ func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) 
 	case 2:
 		copyFrameImage(&e.goldenRef.Img, &e.altRef.Img)
 		e.goldenRef.ExtendBorders()
+	}
+}
+
+func (e *VP8Encoder) updateKeyFrameReferenceFrameNumbers() {
+	if e == nil {
+		return
+	}
+	frameNumber := e.frameCount
+	e.referenceFrameNumbers[vp8common.LastFrame] = frameNumber
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = frameNumber
+	e.referenceFrameNumbers[vp8common.AltRefFrame] = frameNumber
+}
+
+func (e *VP8Encoder) updateInterReferenceFrameNumbers(cfg vp8enc.InterFrameStateConfig) {
+	if e == nil {
+		return
+	}
+	frameNumber := e.frameCount
+
+	if cfg.RefreshAltRef {
+		e.referenceFrameNumbers[vp8common.AltRefFrame] = frameNumber
+	} else {
+		switch cfg.CopyBufferToAltRef {
+		case 1:
+			e.referenceFrameNumbers[vp8common.AltRefFrame] = e.referenceFrameNumbers[vp8common.LastFrame]
+		case 2:
+			e.referenceFrameNumbers[vp8common.AltRefFrame] = e.referenceFrameNumbers[vp8common.GoldenFrame]
+		}
+	}
+
+	if cfg.RefreshGolden {
+		e.referenceFrameNumbers[vp8common.GoldenFrame] = frameNumber
+	} else {
+		switch cfg.CopyBufferToGolden {
+		case 1:
+			e.referenceFrameNumbers[vp8common.GoldenFrame] = e.referenceFrameNumbers[vp8common.LastFrame]
+		case 2:
+			e.referenceFrameNumbers[vp8common.GoldenFrame] = e.referenceFrameNumbers[vp8common.AltRefFrame]
+		}
+	}
+
+	if cfg.RefreshLast {
+		e.referenceFrameNumbers[vp8common.LastFrame] = frameNumber
 	}
 }
 
