@@ -119,6 +119,10 @@ Primary references:
 - Encoder oracle validation now drives libvpx with the case's configured
   deadline and `CpuUsed`, so realtime quality gaps are measured against the
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.
+- First-pass stats now keep libvpx-style raw previous source for
+  `zz_motion_search` / `encode_breakout` separately from the reconstructed
+  first-pass LAST reference used by motion search. Remaining first-pass gaps
+  are terminal total/section stats and fixed-corpus oracle trace coverage.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),
