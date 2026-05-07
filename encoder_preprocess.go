@@ -86,15 +86,33 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 	return result, err
 }
 
+// pushLookahead enqueues a source frame into the lookahead queue. It mirrors
+// libvpx vp8_lookahead_push (vp8/encoder/lookahead.c): the queue is capped at
+// max_sz - 1 entries (where max_sz = LookaheadFrames + 1, the extra slot keeps
+// the most recently popped buffer addressable for backward peek), and overflow
+// pushes are rejected with ErrFrameNotReady. When the queue is configured for a
+// single buffer (max_sz == 1), the active map is enabled, and the frame carries
+// no key/golden/alt-ref flags, only the active macroblock columns are copied
+// into the destination buffer; otherwise the full frame is copied. Active-map
+// driven partial copies follow libvpx's row-major mb_cols layout, with each
+// active run copied as a 16-pixel-tall rectangle.
 func (e *VP8Encoder) pushLookahead(src vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags) error {
 	if !e.lookaheadEnabled() {
 		return ErrInvalidConfig
 	}
-	if e.lookaheadCount >= len(e.lookahead)-1 {
+	// libvpx: if (ctx->sz + 2 > ctx->max_sz) return 1;
+	// max_sz = depth + 1, so the largest accepted sz before push is depth - 1
+	// (post-push max sz is depth = LookaheadFrames).
+	if e.lookaheadCount+2 > len(e.lookahead) {
 		return ErrFrameNotReady
 	}
 	entry := &e.lookahead[e.lookaheadWrite]
-	copySourceToFrameBuffer(&entry.frame, src)
+	useActiveMapPartialCopy := len(e.lookahead) == 1 && e.activeMapEnabled && flags == 0 && len(e.activeMap) > 0
+	if useActiveMapPartialCopy {
+		copySourceToFrameBufferActive(&entry.frame, src, e.activeMap, encoderMacroblockRows(src.Height), encoderMacroblockCols(src.Width))
+	} else {
+		copySourceToFrameBuffer(&entry.frame, src)
+	}
 	entry.pts = pts
 	entry.duration = duration
 	if entry.duration == 0 {
@@ -109,11 +127,16 @@ func (e *VP8Encoder) pushLookahead(src vp8enc.SourceImage, pts uint64, duration 
 	return nil
 }
 
+// popLookahead dequeues the next source frame, matching libvpx
+// vp8_lookahead_pop. When drain is false a frame is only returned once the
+// queue is full (sz == max_sz - 1), implementing the configured lag. When
+// drain is true the queue is flushed entry-by-entry until empty (EOS path).
 func (e *VP8Encoder) popLookahead(drain bool) (*lookaheadEntry, bool) {
 	if !e.lookaheadEnabled() {
 		return nil, false
 	}
-	if e.lookaheadCount == 0 || (!drain && e.lookaheadCount < e.opts.LookaheadFrames) {
+	// libvpx: if (ctx->sz && (drain || ctx->sz == ctx->max_sz - 1))
+	if e.lookaheadCount == 0 || (!drain && e.lookaheadCount != len(e.lookahead)-1) {
 		return nil, false
 	}
 	entry := &e.lookahead[e.lookaheadRead]
@@ -125,11 +148,118 @@ func (e *VP8Encoder) popLookahead(drain bool) (*lookaheadEntry, bool) {
 	return entry, true
 }
 
+// peekLookahead returns the entry at the given offset from the head of the
+// queue. When forward is true the offset is measured forward from the next
+// frame to be popped (index 0 == next, index 1 == one frame in the future,
+// etc.) and out-of-range indices return nil, matching libvpx
+// vp8_lookahead_peek's PEEK_FORWARD branch. When forward is false only
+// index == 1 is supported (libvpx asserts the same constraint) and the
+// returned entry is the slot one position before the read index, i.e., the
+// most recently popped buffer; this is the buffer first-pass uses as the
+// previous-source reference. nil is returned for unsupported backward
+// indices.
+func (e *VP8Encoder) peekLookahead(index int, forward bool) *lookaheadEntry {
+	if !e.lookaheadEnabled() || len(e.lookahead) == 0 {
+		return nil
+	}
+	if forward {
+		if index < 0 || index >= e.lookaheadCount {
+			return nil
+		}
+		// libvpx: assert(index < ctx->max_sz - 1).
+		if index >= len(e.lookahead)-1 {
+			return nil
+		}
+		pos := e.lookaheadRead + index
+		if pos >= len(e.lookahead) {
+			pos -= len(e.lookahead)
+		}
+		return &e.lookahead[pos]
+	}
+	// Backward peek: libvpx only supports index == 1 (asserts this). The
+	// returned slot is read_idx - 1 with wraparound; libvpx leaves popped
+	// buffers in place, so this exposes the previous source frame.
+	if index != 1 {
+		return nil
+	}
+	pos := e.lookaheadRead - 1
+	if pos < 0 {
+		pos += len(e.lookahead)
+	}
+	return &e.lookahead[pos]
+}
+
+// lookaheadDepth mirrors libvpx vp8_lookahead_depth (number of frames
+// currently buffered).
+func (e *VP8Encoder) lookaheadDepth() int {
+	if !e.lookaheadEnabled() {
+		return 0
+	}
+	return e.lookaheadCount
+}
+
 func (e *VP8Encoder) clearPoppedLookahead(entry *lookaheadEntry) {
 	if entry == nil {
 		return
 	}
 	entry.pts, entry.duration, entry.flags = 0, 0, 0
+}
+
+// copySourceToFrameBufferActive performs the active-map-aware partial frame
+// copy from libvpx vp8_lookahead_push. activeMap is a row-major mb_rows*mb_cols
+// array; non-zero cells mark active macroblocks. For each active run within a
+// row, a 16-pixel-tall band of luma plus the colocated chroma is copied from
+// src into dst; inactive macroblocks retain whatever the destination buffer
+// already held. Border extension follows the full copy path.
+func copySourceToFrameBufferActive(dst *vp8common.FrameBuffer, src vp8enc.SourceImage, activeMap []uint8, mbRows int, mbCols int) {
+	if len(activeMap) < mbRows*mbCols {
+		copySourceToFrameBuffer(dst, src)
+		return
+	}
+	for row := 0; row < mbRows; row++ {
+		col := 0
+		for col < mbCols {
+			// Skip leading inactive cells.
+			for col < mbCols && activeMap[row*mbCols+col] == 0 {
+				col++
+			}
+			if col >= mbCols {
+				break
+			}
+			runStart := col
+			for col < mbCols && activeMap[row*mbCols+col] != 0 {
+				col++
+			}
+			runEnd := col
+			copyActiveLumaRect(dst.Img.Y, dst.Img.YStride, src.Y, src.YStride, src.Width, src.Height, row<<4, runStart<<4, 16, (runEnd-runStart)<<4)
+			copyActiveChromaRect(dst.Img.U, dst.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1, row<<3, runStart<<3, 8, (runEnd-runStart)<<3)
+			copyActiveChromaRect(dst.Img.V, dst.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1, row<<3, runStart<<3, 8, (runEnd-runStart)<<3)
+		}
+	}
+	padFrameVisibleToCoded(&dst.Img)
+	dst.ExtendBorders()
+}
+
+func copyActiveLumaRect(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, y0 int, x0 int, h int, w int) {
+	copyActivePlaneRect(dst, dstStride, src, srcStride, width, height, y0, x0, h, w)
+}
+
+func copyActiveChromaRect(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, y0 int, x0 int, h int, w int) {
+	copyActivePlaneRect(dst, dstStride, src, srcStride, width, height, y0, x0, h, w)
+}
+
+func copyActivePlaneRect(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, y0 int, x0 int, h int, w int) {
+	yEnd := y0 + h
+	if yEnd > height {
+		yEnd = height
+	}
+	xEnd := x0 + w
+	if xEnd > width {
+		xEnd = width
+	}
+	for y := y0; y < yEnd; y++ {
+		copy(dst[y*dstStride+x0:y*dstStride+xEnd], src[y*srcStride+x0:y*srcStride+xEnd])
+	}
 }
 
 func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFlags, meta encodeSourceMetadata) (vp8enc.SourceImage, encodeSourceMetadata) {
@@ -198,15 +328,12 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlag
 	return true
 }
 
+// lookaheadFutureEntry mirrors libvpx vp8_lookahead_peek with PEEK_FORWARD,
+// returning the entry index frames into the future from the next pop. nil is
+// returned for out-of-range indices. ARNR uses this to walk the alt-ref
+// candidate window starting at the current frame's successor.
 func (e *VP8Encoder) lookaheadFutureEntry(index int) *lookaheadEntry {
-	if index < 0 || index >= e.lookaheadCount || len(e.lookahead) == 0 {
-		return nil
-	}
-	pos := e.lookaheadRead + index
-	for pos >= len(e.lookahead) {
-		pos -= len(e.lookahead)
-	}
-	return &e.lookahead[pos]
+	return e.peekLookahead(index, true)
 }
 
 func temporalFilterPlane(dst []byte, dstStride int, center []byte, centerStride int, width int, height int, strength int, back []byte, backStride int, useBack bool, future func(int) *lookaheadEntry, forward int, planeID int) {

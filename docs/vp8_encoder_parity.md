@@ -226,17 +226,37 @@ the anchor and look for the surrounding mismatch.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded output
     match libvpx with alternate-reference enabled.
 
-- [ ] Align lookahead queue semantics.
+- [x] Align lookahead queue semantics.
   - govpx: [`pushLookahead`](../encoder_preprocess.go),
-    [`popLookahead`](../encoder_preprocess.go), and
-    [`lookaheadFutureEntry`](../encoder_preprocess.go).
-  - libvpx: `lookahead.c`.
-  - Status: partial. govpx queues and drains frames for delayed encode, but
-    libvpx also defines exact forward/backward peek semantics, active-map copy
-    behavior, first-pass backward-source use, lag clamp behavior, and ARF future
-    source selection.
-  - Done when queue depth, pop/drain timing, timestamps, flags, peeks, EOS
-    flushing, and active-map copies match libvpx.
+    [`popLookahead`](../encoder_preprocess.go),
+    [`peekLookahead`](../encoder_preprocess.go),
+    [`lookaheadDepth`](../encoder_preprocess.go),
+    [`lookaheadFutureEntry`](../encoder_preprocess.go), and
+    [`copySourceToFrameBufferActive`](../encoder_preprocess.go).
+  - libvpx: `lookahead.c` (`vp8_lookahead_init`, `vp8_lookahead_push`,
+    `vp8_lookahead_pop`, `vp8_lookahead_peek`, `vp8_lookahead_depth`).
+  - Status: complete. The queue is allocated with `LookaheadFrames + 1`
+    buffers to mirror libvpx's `max_sz = depth + 1` (the trailing slot keeps
+    the most recently popped entry addressable). `pushLookahead` rejects with
+    `ErrFrameNotReady` when `sz + 2 > max_sz` (libvpx's lag clamp) and applies
+    the active-map-aware partial copy when `max_sz == 1`, the active map is
+    enabled, and the frame carries no key/golden/alt-ref flags; otherwise the
+    full source is copied. `popLookahead(false)` only releases when
+    `sz == max_sz - 1`, while `popLookahead(true)` drains entry-by-entry to
+    flush the queue at end-of-stream. `peekLookahead(index, forward)` mirrors
+    `vp8_lookahead_peek`: PEEK_FORWARD returns the entry at offset `index`
+    from the read head with libvpx's `index < max_sz - 1` and
+    `index < sz` guards (returning nil out of range), and PEEK_BACKWARD only
+    accepts `index == 1` and exposes the previous-source slot used by
+    first-pass. `lookaheadDepth` matches `vp8_lookahead_depth`. ARF future
+    source selection still goes through `lookaheadFutureEntry`, which now
+    delegates to the same forward-peek implementation. Tests in
+    `encoder_lookahead_test.go` pin the lag clamp on overflow push, the
+    full-then-drain cycle, forward peek at depth 0/1/N-1/N (nil at N), the
+    backward peek `index == 1` aliasing for the most recently popped frame,
+    rejection of unsupported backward indices, the active-map row-walk's
+    multi-run copy semantics, and `lookaheadDepth` accounting through
+    push/drain.
 
 - [ ] Replace simplified ARNR with libvpx motion-compensated temporal filter.
   - govpx: [`applyARNRFilter`](../encoder_preprocess.go).
