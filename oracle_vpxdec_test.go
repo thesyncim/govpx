@@ -139,6 +139,21 @@ func TestOracleLibvpxExtendedDecodeModesAvailable(t *testing.T) {
 	assertFrameChecksumsEqual(t, "error-concealment clean decode", concealment, normal)
 }
 
+func TestOracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
+	}
+	oracle := findChecksumOracle(t)
+	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	first := vp8InterFirstPartitionLastZeroMVWithTokenPartition(vp8common.TwoPartition, true)
+	inter := vp8InterFramePacketWithTokenPartitions(first, 10, []byte{0})
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, inter})
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-error-concealment", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{ErrorConcealment: true})
+	assertFrameChecksumsEqual(t, "error-concealment malformed unused token partition", got, want)
+}
+
 func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")

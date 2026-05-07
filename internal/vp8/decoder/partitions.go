@@ -18,6 +18,14 @@ type PartitionLayout struct {
 }
 
 func ParsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition common.TokenPartition, out *PartitionLayout) error {
+	return parsePartitionLayout(packet, frame, tokenPartition, false, out)
+}
+
+func ParsePartitionLayoutWithErrorConcealment(packet []byte, frame FrameHeader, tokenPartition common.TokenPartition, out *PartitionLayout) error {
+	return parsePartitionLayout(packet, frame, tokenPartition, true, out)
+}
+
+func parsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition common.TokenPartition, errorConcealment bool, out *PartitionLayout) error {
 	*out = PartitionLayout{}
 	if tokenPartition < common.OnePartition || tokenPartition > common.EightPartition {
 		return ErrInvalidPartitionLayout
@@ -44,6 +52,10 @@ func ParsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition commo
 	for i := 0; i < tokenCount-1; i++ {
 		size := readTokenPartitionSize(sizeTable[i*3:])
 		if size <= 0 || size > len(packet)-offset {
+			if errorConcealment {
+				out.Tokens[i] = packet[offset:]
+				return nil
+			}
 			*out = PartitionLayout{}
 			return ErrInvalidPartitionLayout
 		}
@@ -53,6 +65,9 @@ func ParsePartitionLayout(packet []byte, frame FrameHeader, tokenPartition commo
 
 	lastSize := len(packet) - offset
 	if lastSize <= 0 {
+		if errorConcealment {
+			return nil
+		}
 		*out = PartitionLayout{}
 		return ErrInvalidPartitionLayout
 	}

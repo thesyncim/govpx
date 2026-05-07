@@ -70,11 +70,90 @@ func TestParsePartitionLayoutRejectsMalformed(t *testing.T) {
 	}
 }
 
+func TestParsePartitionLayoutWithErrorConcealmentClampsMalformedTokenSize(t *testing.T) {
+	packet, frame := partitionPacket(t, common.TwoPartition, []byte{1, 2}, [][]byte{{3}, {4}})
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "too long", data: corruptTokenSize(packet, frame, 10)},
+		{name: "zero", data: corruptTokenSize(packet, frame, 0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var layout PartitionLayout
+			if err := ParsePartitionLayoutWithErrorConcealment(tt.data, frame, common.TwoPartition, &layout); err != nil {
+				t.Fatalf("ParsePartitionLayoutWithErrorConcealment returned error: %v", err)
+			}
+			if layout.TokenCount != 2 {
+				t.Fatalf("TokenCount = %d, want 2", layout.TokenCount)
+			}
+			if !bytes.Equal(layout.First, []byte{1, 2}) {
+				t.Fatalf("first = %v, want [1 2]", layout.First)
+			}
+			if !bytes.Equal(layout.Tokens[0], []byte{3, 4}) || len(layout.Tokens[1]) != 0 {
+				t.Fatalf("tokens = %v/%v, want clamped remaining bytes and empty missing partition", layout.Tokens[0], layout.Tokens[1])
+			}
+		})
+	}
+}
+
+func TestParsePartitionLayoutWithErrorConcealmentAllowsEmptyImplicitPartition(t *testing.T) {
+	packet, frame := partitionPacket(t, common.TwoPartition, []byte{1, 2}, [][]byte{{3}, {4}})
+	packet = packet[:len(packet)-1]
+	var layout PartitionLayout
+
+	if err := ParsePartitionLayoutWithErrorConcealment(packet, frame, common.TwoPartition, &layout); err != nil {
+		t.Fatalf("ParsePartitionLayoutWithErrorConcealment returned error: %v", err)
+	}
+	if !bytes.Equal(layout.Tokens[0], []byte{3}) || len(layout.Tokens[1]) != 0 {
+		t.Fatalf("tokens = %v/%v, want valid first token and empty implicit token", layout.Tokens[0], layout.Tokens[1])
+	}
+}
+
+func TestParsePartitionLayoutWithErrorConcealmentRejectsMalformedHeaderLayout(t *testing.T) {
+	packet, frame := partitionPacket(t, common.TwoPartition, []byte{1, 2}, [][]byte{{3}, {4}})
+	tests := []struct {
+		name  string
+		frame FrameHeader
+		data  []byte
+		part  common.TokenPartition
+	}{
+		{name: "bad partition enum", frame: frame, data: packet, part: common.TokenPartition(4)},
+		{name: "missing first partition", frame: FrameHeader{HeaderSize: frame.HeaderSize, FirstPartitionSize: len(packet)}, data: packet, part: common.OnePartition},
+		{name: "truncated size table", frame: frame, data: packet[:frame.HeaderSize+frame.FirstPartitionSize+2], part: common.TwoPartition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var layout PartitionLayout
+			err := ParsePartitionLayoutWithErrorConcealment(tt.data, tt.frame, tt.part, &layout)
+			if !errors.Is(err, ErrInvalidPartitionLayout) {
+				t.Fatalf("error = %v, want ErrInvalidPartitionLayout", err)
+			}
+			if layout.First != nil || layout.TokenCount != 0 || layout.Tokens[0] != nil {
+				t.Fatalf("layout = %+v, want zero after error", layout)
+			}
+		})
+	}
+}
+
 func TestParsePartitionLayoutAllocatesZero(t *testing.T) {
 	packet, frame := partitionPacket(t, common.FourPartition, []byte{1, 2}, [][]byte{{3}, {4}, {5}, {6}})
 	var layout PartitionLayout
 	allocs := testing.AllocsPerRun(1000, func() {
 		_ = ParsePartitionLayout(packet, frame, common.FourPartition, &layout)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func TestParsePartitionLayoutWithErrorConcealmentAllocatesZero(t *testing.T) {
+	packet, frame := partitionPacket(t, common.TwoPartition, []byte{1, 2}, [][]byte{{3}, {4}})
+	packet = corruptTokenSize(packet, frame, 10)
+	var layout PartitionLayout
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = ParsePartitionLayoutWithErrorConcealment(packet, frame, common.TwoPartition, &layout)
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)

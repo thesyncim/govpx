@@ -290,7 +290,8 @@ func (d *VP8Decoder) Close() error {
 }
 
 func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
-	if err := d.parseState(packet); err != nil {
+	errorConcealment := d.opts.effectiveErrorConcealment() && d.canConceal(info)
+	if err := d.parseState(packet, errorConcealment); err != nil {
 		return err
 	}
 	if err := d.ensureFrameBuffers(info); err != nil {
@@ -299,7 +300,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
 	if err := d.decodeModeGrid(info); err != nil {
 		return err
 	}
-	if err := d.decodeTokenGrid(); err != nil {
+	if err := d.decodeTokenGrid(errorConcealment); err != nil {
 		return err
 	}
 	if err := d.reconstructFrame(info); err != nil {
@@ -495,7 +496,7 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	return nil
 }
 
-func (d *VP8Decoder) parseState(packet []byte) error {
+func (d *VP8Decoder) parseState(packet []byte, errorConcealment bool) error {
 	frameProbs := d.coefProbs
 	frameModeProbs := d.modeProbs
 	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
@@ -508,7 +509,13 @@ func (d *VP8Decoder) parseState(packet []byte) error {
 	}
 	state.Segmentation = mergeSegmentationHeader(previousSegmentation, state.Segmentation)
 	var partitions vp8dec.PartitionLayout
-	if err := vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &partitions); err != nil {
+	var partitionErr error
+	if errorConcealment {
+		partitionErr = vp8dec.ParsePartitionLayoutWithErrorConcealment(packet, frame, state.TokenPartition, &partitions)
+	} else {
+		partitionErr = vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &partitions)
+	}
+	if partitionErr != nil {
 		return ErrInvalidData
 	}
 	for i := 0; i < partitions.TokenCount; i++ {
@@ -579,12 +586,16 @@ func (d *VP8Decoder) referenceSignBias() [vp8common.MaxRefFrames]bool {
 	return signBias
 }
 
-func (d *VP8Decoder) decodeTokenGrid() error {
+func (d *VP8Decoder) decodeTokenGrid(errorConcealment bool) error {
 	readers := d.tokenReaders[:d.partitions.TokenCount]
 	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.frameCoefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
 		return ErrInvalidData
 	}
-	for i := range readers {
+	readersToCheck := len(readers)
+	if errorConcealment && d.mbRows < readersToCheck {
+		readersToCheck = d.mbRows
+	}
+	for i := 0; i < readersToCheck; i++ {
 		if readers[i].Err() != nil {
 			return ErrInvalidData
 		}

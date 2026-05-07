@@ -669,7 +669,18 @@ func vp8InterFramePacketWithFirstPartition(first []byte) []byte {
 	return append(packet, make([]byte, 10000)...)
 }
 
+func vp8InterFramePacketWithTokenPartitions(first []byte, firstTokenSize int, tokens []byte) []byte {
+	packet := vp8InterFramePacket(len(first), 0, true)
+	packet = append(packet, first...)
+	packet = append(packet, byte(firstTokenSize), byte(firstTokenSize>>8), byte(firstTokenSize>>16))
+	return append(packet, tokens...)
+}
+
 func vp8InterFirstPartitionLastZeroMV() []byte {
+	return vp8InterFirstPartitionLastZeroMVWithTokenPartition(vp8common.OnePartition, false)
+}
+
+func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common.TokenPartition, skipCoeff bool) []byte {
 	var w vp8TestBoolWriter
 	w.init()
 	w.writeBool(0, 128)
@@ -677,7 +688,7 @@ func vp8InterFirstPartitionLastZeroMV() []byte {
 	w.writeLiteral(0, 6)
 	w.writeLiteral(0, 3)
 	w.writeBool(0, 128)
-	w.writeLiteral(0, 2)
+	w.writeLiteral(uint32(tokenPartition), 2)
 	w.writeLiteral(0, 7)
 	for i := 0; i < 5; i++ {
 		w.writeBool(0, 128)
@@ -693,7 +704,12 @@ func vp8InterFirstPartitionLastZeroMV() []byte {
 	w.writeBool(0, 128)
 
 	writeNoCoefficientProbabilityUpdates(&w)
-	w.writeBool(0, 128)
+	if skipCoeff {
+		w.writeBool(1, 128)
+		w.writeLiteral(128, 8)
+	} else {
+		w.writeBool(0, 128)
+	}
 	w.writeLiteral(128, 8)
 	w.writeLiteral(128, 8)
 	w.writeLiteral(128, 8)
@@ -705,6 +721,9 @@ func vp8InterFirstPartitionLastZeroMV() []byte {
 		}
 	}
 
+	if skipCoeff {
+		w.writeBool(1, 128)
+	}
 	w.writeBool(1, 128)
 	w.writeBool(0, 128)
 	w.writeBool(0, vp8tables.InterModeContexts[0][0])
@@ -1021,6 +1040,60 @@ func TestDecodeParsesInterModeGrid(t *testing.T) {
 	}
 	if frame.Y[0] != 77 || frame.U[0] != 77 || frame.V[0] != 77 {
 		t.Fatalf("inter frame samples = %d/%d/%d, want copied last ref 77", frame.Y[0], frame.U[0], frame.V[0])
+	}
+}
+
+func TestDecodeErrorConcealmentClampsUnusedMalformedTokenPartition(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("keyframe Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("keyframe NextFrame returned no frame")
+	}
+	fillVP8Image(&d.lastRef.Img, 77)
+	first := vp8InterFirstPartitionLastZeroMVWithTokenPartition(vp8common.TwoPartition, true)
+	packet := vp8InterFramePacketWithTokenPartitions(first, 10, []byte{0})
+
+	err = d.DecodeWithPTS(packet, 202)
+	if err != nil {
+		t.Fatalf("inter DecodeWithPTS error = %v, want nil", err)
+	}
+	if d.lastInfo.Corrupted || d.lastInfo.PTS != 202 {
+		t.Fatalf("lastInfo = %+v, want clean decoded inter frame PTS 202", d.lastInfo)
+	}
+	if d.partitions.TokenCount != 2 || len(d.partitions.Tokens[0]) != 1 || len(d.partitions.Tokens[1]) != 0 {
+		t.Fatalf("token partitions = count:%d lens:%d/%d, want clamped one-byte first and empty unused second", d.partitions.TokenCount, len(d.partitions.Tokens[0]), len(d.partitions.Tokens[1]))
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatalf("NextFrame returned no inter frame")
+	}
+	if frame.Y[0] != 77 || frame.U[0] != 77 || frame.V[0] != 77 {
+		t.Fatalf("inter frame samples = %d/%d/%d, want copied last ref 77", frame.Y[0], frame.U[0], frame.V[0])
+	}
+}
+
+func TestDecodeRejectsMalformedTokenPartitionWhenConcealmentDisabled(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
+		t.Fatalf("keyframe Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("keyframe NextFrame returned no frame")
+	}
+	first := vp8InterFirstPartitionLastZeroMVWithTokenPartition(vp8common.TwoPartition, true)
+	packet := vp8InterFramePacketWithTokenPartitions(first, 10, []byte{0})
+
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("inter Decode error = %v, want ErrInvalidData", err)
 	}
 }
 
