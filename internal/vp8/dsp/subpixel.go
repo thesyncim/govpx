@@ -44,6 +44,9 @@ func SixTapPredict8x8(src []byte, srcStride int, xoffset int, yoffset int, dst [
 }
 
 func SixTapPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if sixTapPredict16x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 16)
 }
 
