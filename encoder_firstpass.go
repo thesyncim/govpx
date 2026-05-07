@@ -950,6 +950,16 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+func (t *twoPassState) chargeAltRefFrameBits(actualBits int) {
+	if !t.enabled() {
+		return
+	}
+	t.bitsLeft -= int64(actualBits)
+	if t.bitsLeft < 0 {
+		t.bitsLeft = 0
+	}
+}
+
 // libvpxEstimateMaxQ ports the libvpx vp8/encoder/firstpass.c
 // estimate_max_q Q-search loop: walk Q from maxq_min_limit upward
 // computing

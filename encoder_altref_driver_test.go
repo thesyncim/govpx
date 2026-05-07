@@ -295,6 +295,71 @@ func TestTwoPassAutoAltRefDoesNotScheduleWhenStatsRejectARF(t *testing.T) {
 	}
 }
 
+func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 4)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:          1200 + float64(i*100),
+			CodedError:          350 + float64(i*50),
+			SSIMWeightedPredErr: 350 + float64(i*50),
+			PcntInter:           0.75,
+			Count:               1,
+			Duration:            1,
+		}
+	}
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 500,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  120,
+		TwoPassStats:      FinalizeFirstPassStats(stats),
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 1<<16)
+	keySrc := sourceImageFromImage(movingBarTestImage(32, 32, 0))
+	altSrc := sourceImageFromImage(movingBarTestImage(32, 32, 1))
+	showSrc := sourceImageFromImage(movingBarTestImage(32, 32, 2))
+
+	key, err := e.encodeSourceInto(dst, keySrc, 0, 1, 0, encodeSourceMetadata{})
+	if err != nil {
+		t.Fatalf("key encodeSourceInto returned error: %v", err)
+	}
+	if !key.KeyFrame || e.frameCount != 1 || e.twoPass.frameIndex != 1 {
+		t.Fatalf("after key = key:%t frameCount:%d twoPass:%d, want true/1/1", key.KeyFrame, e.frameCount, e.twoPass.frameIndex)
+	}
+	afterKeyBitsLeft := e.twoPass.bitsLeft
+
+	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+	if err != nil {
+		t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
+	}
+	if hidden.KeyFrame || hidden.SizeBytes == 0 {
+		t.Fatalf("hidden ARF result = key:%t size:%d, want non-key packet", hidden.KeyFrame, hidden.SizeBytes)
+	}
+	wantBitsLeft := afterKeyBitsLeft - int64(encodedSizeBits(hidden.SizeBytes))
+	if wantBitsLeft < 0 {
+		wantBitsLeft = 0
+	}
+	if e.frameCount != 1 || e.twoPass.frameIndex != 1 || e.twoPass.bitsLeft != wantBitsLeft {
+		t.Fatalf("after hidden ARF = frameCount:%d twoPass:%d bitsLeft:%d, want 1/1/%d",
+			e.frameCount, e.twoPass.frameIndex, e.twoPass.bitsLeft, wantBitsLeft)
+	}
+
+	visible, err := e.encodeSourceInto(dst, showSrc, 2, 1, 0, encodeSourceMetadata{})
+	if err != nil {
+		t.Fatalf("visible encodeSourceInto returned error: %v", err)
+	}
+	if visible.KeyFrame || e.frameCount != 2 || e.twoPass.frameIndex != 2 {
+		t.Fatalf("after visible = key:%t frameCount:%d twoPass:%d, want false/2/2", visible.KeyFrame, e.frameCount, e.twoPass.frameIndex)
+	}
+}
+
 // cloneAutoAltRefImage deep-copies a returned decoder Image so subsequent
 // NextFrame calls cannot overwrite the buffers.
 func cloneAutoAltRefImage(src Image) Image {

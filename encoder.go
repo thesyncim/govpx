@@ -663,6 +663,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		goldenCBRRefresh = true
 	}
 	invisible := flags&EncodeInvisibleFrame != 0
+	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
 	sourceIsAltRef := !temporalFrame.Enabled && !invisible && e.isSrcFrameAltRef(pts)
 	finishSourceAltRef := func() {
 		if sourceIsAltRef {
@@ -821,7 +822,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 			result.Droppable = interFrameDroppable(attempt.Config)
 			e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
-			e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
+			if hiddenAltRefFrame {
+				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
+			} else {
+				e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
+			}
 			e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			e.forceKeyFrame = false
@@ -880,7 +885,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// frame will be a forced KF so the forced-KF recode branch has a
 			// baseline to compare against.
 			e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
-			e.frameCount++
+			if !hiddenAltRefFrame {
+				e.frameCount++
+			}
 			finishSourceAltRef()
 			return result, nil
 		}

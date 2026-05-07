@@ -496,6 +496,46 @@ func TestTwoPassFramesToKeyClampsAtTwoIntervalsForAutoKey(t *testing.T) {
 	}
 }
 
+// TestTwoPassAltRefBitChargeDoesNotAdvanceStats pins libvpx Pass2Encode:
+// hidden ARF packets subtract from twopass.bits_left, but because
+// refresh_alt_ref_frame skips vp8_second_pass and show_frame is false they do
+// not consume the visible-frame first-pass stats index.
+func TestTwoPassAltRefBitChargeDoesNotAdvanceStats(t *testing.T) {
+	stats := []FirstPassFrameStats{
+		{IntraError: 1000, CodedError: 100, PcntInter: 0.9},
+		{IntraError: 1500, CodedError: 200, PcntInter: 0.85},
+		{IntraError: 800, CodedError: 50, PcntInter: 0.95},
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 50, 50, 200)
+
+	initialBits := ts.bitsLeft
+	initialError := ts.errorLeft
+	frame0Error := ts.modifiedError(stats[0])
+
+	ts.chargeAltRefFrameBits(123)
+	if ts.frameIndex != 0 {
+		t.Fatalf("frameIndex after hidden ARF charge = %d, want 0", ts.frameIndex)
+	}
+	if ts.errorLeft != initialError {
+		t.Fatalf("errorLeft after hidden ARF charge = %v, want unchanged %v", ts.errorLeft, initialError)
+	}
+	if ts.bitsLeft != initialBits-123 {
+		t.Fatalf("bitsLeft after hidden ARF charge = %d, want %d", ts.bitsLeft, initialBits-123)
+	}
+
+	ts.finishFrame(77)
+	if ts.frameIndex != 1 {
+		t.Fatalf("frameIndex after visible frame = %d, want 1", ts.frameIndex)
+	}
+	if ts.errorLeft != initialError-frame0Error {
+		t.Fatalf("errorLeft after visible frame = %v, want %v", ts.errorLeft, initialError-frame0Error)
+	}
+	if ts.bitsLeft != initialBits-200 {
+		t.Fatalf("bitsLeft after visible frame = %d, want %d", ts.bitsLeft, initialBits-200)
+	}
+}
+
 // TestTwoPassKFGroupModifiedErrorMatchesSumOfFrames pins libvpx's
 // inner accumulator: `kf_group_err += calculate_modified_err(this_frame)`
 // across the KF group.

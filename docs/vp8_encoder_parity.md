@@ -600,6 +600,12 @@ the anchor and look for the surrounding mismatch.
     two-pass section that rejects ARF cannot be overridden by the eager
     fallback; pinned by `TestPass2ARFPendingTriggersFromHighMotionSection`
     and `TestTwoPassAutoAltRefDoesNotScheduleWhenStatsRejectARF`.
+    Hidden ARF packets now mirror libvpx `Pass2Encode`: packet bytes are
+    charged against `twopass.bits_left`, but `refresh_alt_ref_frame` skips
+    `vp8_second_pass` and `show_frame=0` leaves the visible first-pass
+    stats index unchanged; pinned by
+    `TestTwoPassAltRefBitChargeDoesNotAdvanceStats` and
+    `TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`.
     `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR
     (`USAGE_STREAM_FROM_SERVER`) per-frame target re-clamp: after the
     second-pass error-fraction allocation overrides the one-pass
@@ -661,11 +667,15 @@ the anchor and look for the surrounding mismatch.
     `EncodeInto` calls drain the stash, encode the head as the deferred
     show frame, and re-stash the new caller input, leaving the encoder
     permanently shifted by one call until `FlushInto` consumes the
-    remaining entries.
+    remaining entries. Hidden ARFs also follow libvpx's frame-counter
+    semantics: the packet is not a real show frame, so it does not advance
+    `current_video_frame` / govpx `frameCount`; only the packet bits are
+    charged in two-pass mode.
   - Tests:
     [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
-    [`TestAutoAltRefDriverSignBiasUpdatesPostHidden`](../encoder_altref_driver_test.go).
+    [`TestAutoAltRefDriverSignBiasUpdatesPostHidden`](../encoder_altref_driver_test.go),
+    [`TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`](../encoder_altref_driver_test.go).
   - Simplification vs. libvpx: in one-pass mode govpx schedules every
     `DEFAULT_GF_INTERVAL`-bounded interval as soon as the lookahead has
     enough entries; two-pass mode uses the FIRSTPASS_STATS-driven
