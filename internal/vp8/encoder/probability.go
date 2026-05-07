@@ -42,6 +42,15 @@ func WriteCoefficientProbabilityUpdates(w *BoolWriter, updates *CoefficientProba
 	return w.Err()
 }
 
+// BuildKeyFrameCoefficientProbabilityUpdates ports the default
+// (non-error-resilient) branch of libvpx vp8_update_coef_probs for key frames.
+// The libvpx default-path loop emits an update only when
+// prob_update_savings > 0 for that (i,j,k,t); the per-(k,t) "force when
+// newp != *Pold on key frames" branch lives behind
+// VPX_ERROR_RESILIENT_PARTITIONS (bitstream.c:924-928) and is handled by
+// BuildKeyFrameCoefficientProbabilityUpdatesIndependent. The libvpx default
+// path treats key frames identically to inter frames at the savings step, so
+// no extra force-emit is applied here — matching the bitstream libvpx writes.
 func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
 	var counts coefficientBranchCounts
 	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
@@ -264,6 +273,14 @@ func buildInterCoefficientBranchCounts(rows int, cols int, modes []InterFrameMac
 	return nil
 }
 
+// coefficientProbabilityUpdatesFromCounts ports libvpx's default coefficient
+// probability update walk in vp8_update_coef_probs (bitstream.c:865-950) for
+// the non-error-resilient case. The per-(i,j,k,t) update fires only when
+// prob_update_savings>0; the libvpx "force on key frames when newp != *Pold"
+// branch at bitstream.c:920-928 is gated on
+// VPX_ERROR_RESILIENT_PARTITIONS && frame_type == KEY_FRAME, so it does not
+// apply here — that case is handled by
+// coefficientProbabilityUpdatesFromCountsIndependent.
 func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
 	if base == nil || counts == nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
