@@ -1510,7 +1510,7 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 	if mode.Partition >= vp8tables.NumMBSplits {
 		return 1 << 30
 	}
-	cost := 0
+	cost := mbSplitPartitionRate(mode.Partition)
 	partitions := int(vp8tables.MBSplitCount[mode.Partition])
 	for subset := 0; subset < partitions; subset++ {
 		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
@@ -1534,9 +1534,16 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 		}
 		cost += analysisBoolBitCost(probs[2], 1)
 		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
-		cost += interMotionVectorCost(delta)
+		cost += splitMotionVectorCost(delta)
 	}
 	return cost
+}
+
+func mbSplitPartitionRate(partition uint8) int {
+	if partition >= vp8tables.NumMBSplits {
+		return maxInt() / 4
+	}
+	return treeTokenCost(vp8tables.MBSplitTree[:], vp8tables.MBSplitProbs[:], int(partition))
 }
 
 func analysisSplitLeftMV(cur *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {
@@ -1590,6 +1597,11 @@ func analysisBoolBitCost(prob uint8, bit int) int {
 
 func interMotionVectorCost(mv vp8enc.MotionVector) int {
 	return vp8enc.MotionVectorCost(mv)
+}
+
+func splitMotionVectorCost(mv vp8enc.MotionVector) int {
+	probs := vp8tables.DefaultMVContext
+	return vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, &probs, 102)
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {

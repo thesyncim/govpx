@@ -691,6 +691,56 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	}
 }
 
+func TestMBSplitPartitionRateMirrorsWriterBranches(t *testing.T) {
+	tests := []struct {
+		partition uint8
+		want      int
+	}{
+		{partition: 3, want: boolBitCost(vp8tables.MBSplitProbs[0], 0)},
+		{partition: 2, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 0)},
+		{partition: 0, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 1) + boolBitCost(vp8tables.MBSplitProbs[2], 0)},
+		{partition: 1, want: boolBitCost(vp8tables.MBSplitProbs[0], 1) + boolBitCost(vp8tables.MBSplitProbs[1], 1) + boolBitCost(vp8tables.MBSplitProbs[2], 1)},
+	}
+	for _, tt := range tests {
+		if got := mbSplitPartitionRate(tt.partition); got != tt.want {
+			t.Fatalf("partition %d rate = %d, want %d", tt.partition, got, tt.want)
+		}
+	}
+}
+
+func TestSplitMotionModeVectorCostChargesPartitionAndNew4x4Weight(t *testing.T) {
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 2,
+	}
+	fillInterFrameSplitSubset(&mode, 0, vp8enc.MotionVector{Col: 16})
+	fillInterFrameSplitSubset(&mode, 1, vp8enc.MotionVector{Row: 16})
+	fillInterFrameSplitSubset(&mode, 2, vp8enc.MotionVector{Col: -16})
+	fillInterFrameSplitSubset(&mode, 3, vp8enc.MotionVector{Row: -16})
+
+	mvProbs := vp8tables.DefaultMVContext
+	best := vp8enc.MotionVector{Col: 8}
+	want := mbSplitPartitionRate(mode.Partition)
+	partitions := int(vp8tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := analysisSplitLeftMV(&mode, nil, block)
+		aboveMV := analysisSplitAboveMV(&mode, nil, block)
+		target := mode.BlockMV[block]
+		probs := analysisSubMVRefProbs(leftMV, aboveMV)
+		want += boolBitCost(probs[0], 1)
+		want += boolBitCost(probs[1], 1)
+		want += boolBitCost(probs[2], 1)
+		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
+		want += vp8enc.MotionVectorBitCost(delta, vp8enc.MotionVector{}, &mvProbs, 102)
+	}
+
+	if got := splitMotionModeVectorCost(&mode, nil, nil, best); got != want {
+		t.Fatalf("split vector cost = %d, want partition + NEW4X4 weight-102 cost %d", got, want)
+	}
+}
+
 // TestInterReferenceFrameRateUsesLivePrevFrameProbs locks in libvpx parity for
 // vp8_calc_ref_frame_costs: ref-frame selection bits are charged against the
 // previous frame's prob_last_coded / prob_gf_coded, not a static 128 prior.
