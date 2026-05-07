@@ -299,6 +299,54 @@ func TestRateControlFrameSizeRecodeTracksZbinOverQuantBounds(t *testing.T) {
 	}
 }
 
+func TestRateControlFrameSizeRecodeRelaxesActiveWorstOnOvershoot(t *testing.T) {
+	rc := rateControlState{
+		mode:                 RateControlCBR,
+		minQuantizer:         4,
+		maxQuantizer:         100,
+		currentQuantizer:     80,
+		bitsPerFrame:         1000,
+		frameTargetBits:      1000,
+		rateCorrectionFactor: 1.0,
+	}
+	recode := frameSizeRecodeState{
+		qLow:             40,
+		qHigh:            80,
+		correctionFactor: 1.0,
+	}
+
+	got, ok := rc.frameSizeRecodeQuantizerWithContext(300, false, false, 60, &recode)
+
+	if !ok || got <= 80 || recode.qHigh != 100 || !recode.activeWorstQChanged || !rc.activeWorstQChanged {
+		t.Fatalf("active-worst recode = q:%d ok:%t state:%+v rcChanged:%t, want relaxed q_high and recode", got, ok, recode, rc.activeWorstQChanged)
+	}
+	if recode.correctionFactor != 1.0 {
+		t.Fatalf("active-worst correction factor = %g, want unchanged when active worst changed", recode.correctionFactor)
+	}
+}
+
+func TestRateControlPostEncodeSkipsCorrectionAfterActiveWorstChange(t *testing.T) {
+	rc := rateControlState{
+		mode:                 RateControlCBR,
+		minQuantizer:         4,
+		maxQuantizer:         100,
+		currentQuantizer:     80,
+		bitsPerFrame:         1000,
+		frameTargetBits:      1000,
+		rateCorrectionFactor: 1.0,
+		activeWorstQChanged:  true,
+	}
+
+	rc.postEncodeFrameWithContext(300, false, false, 60)
+
+	if rc.rateCorrectionFactor != 1.0 {
+		t.Fatalf("rate correction factor = %g, want unchanged after active-worst change", rc.rateCorrectionFactor)
+	}
+	if rc.activeWorstQChanged {
+		t.Fatalf("activeWorstQChanged still set after post encode")
+	}
+}
+
 func TestRateControlActiveQuantizerBoundsUseLibvpxWarmupTables(t *testing.T) {
 	rc := rateControlState{
 		mode:                     RateControlCBR,

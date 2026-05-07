@@ -88,11 +88,13 @@ the anchor and look for the surrounding mismatch.
     and `zbin_over_quant` low/high state for max-Q retries. Initial and retry Q
     regulation compute the libvpx zbin over-quant value, including the GF/ARF
     cap, and the accepted attempt applies it to coefficient zbin and the RD
-    multiplier.
-  - Missing: `active_worst_qchanged`, forced/auto key-frame recodes, entropy
-    projected-size decisions, full saved-coding-context restore coverage after
-    failed attempts, and trace coverage for GF/ARF zbin-over-quant cases once
-    automatic ARF state is in place.
+    multiplier. Oversized frames at `active_worst_quality` now relax the active
+    worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
+    rate-correction-factor updates for that loop.
+  - Missing: forced/auto key-frame recodes, entropy projected-size decisions,
+    full saved-coding-context restore coverage after failed attempts, and trace
+    coverage for GF/ARF zbin-over-quant cases once automatic ARF state is in
+    place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 

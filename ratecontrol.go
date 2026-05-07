@@ -106,6 +106,7 @@ type rateControlState struct {
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64
 	currentZbinOverQuant     int
+	activeWorstQChanged      bool
 }
 
 const (
@@ -365,6 +366,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFram
 	if targetBits <= 0 {
 		return
 	}
+	rc.activeWorstQChanged = false
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(keyFrame, goldenFrame)
 	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
@@ -527,7 +529,10 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
-	rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
+	if !rc.activeWorstQChanged {
+		rc.updateRateCorrectionFactor(actualBits, keyFrame, goldenFrame, macroblocks)
+	}
+	rc.activeWorstQChanged = false
 	rc.updateRollingBitAverages(actualBits, targetBits)
 	if showFrame {
 		rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
@@ -714,14 +719,15 @@ func (rc *rateControlState) resetRollingBitAverages() {
 }
 
 type frameSizeRecodeState struct {
-	qLow             int
-	qHigh            int
-	zbinOQLow        int
-	zbinOQHigh       int
-	zbinOverQuant    int
-	correctionFactor float64
-	overshootSeen    bool
-	undershootSeen   bool
+	qLow                int
+	qHigh               int
+	zbinOQLow           int
+	zbinOQHigh          int
+	zbinOverQuant       int
+	correctionFactor    float64
+	activeWorstQChanged bool
+	overshootSeen       bool
+	undershootSeen      bool
 }
 
 func (rc *rateControlState) newFrameSizeRecodeState(keyFrame bool, goldenFrame bool) frameSizeRecodeState {
@@ -749,6 +755,8 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 	}
 	actualBits := encodedSizeBits(sizeBytes)
 	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
+	recode.activeWorstQChanged = rc.relaxActiveWorstQuantizerForOvershoot(actualBits, overshootLimit, q, recode)
+	rc.activeWorstQChanged = recode.activeWorstQChanged
 	if !rc.shouldRecodeFrameSize(actualBits, undershootLimit, overshootLimit, q, keyFrame, goldenFrame, recode) {
 		return rc.clampedFrameQuantizerValue(q), false
 	}
@@ -764,7 +772,9 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 			recode.zbinOQLow = min(recode.zbinOverQuant+1, recode.zbinOQHigh)
 		}
 		if recode.undershootSeen {
-			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			if !recode.activeWorstQChanged {
+				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			}
 			next = (recode.qHigh + recode.qLow + 1) / 2
 			if next < vp8MaxQIndex {
 				recode.zbinOverQuant = 0
@@ -773,7 +783,9 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 				recode.zbinOverQuant = (recode.zbinOQHigh + recode.zbinOQLow) / 2
 			}
 		} else {
-			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			if !recode.activeWorstQChanged {
+				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			}
 			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
 			if next < vp8MaxQIndex {
 				recode.zbinOverQuant = 0
@@ -789,7 +801,9 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 			recode.qHigh = recode.qLow
 		}
 		if recode.overshootSeen {
-			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			if !recode.activeWorstQChanged {
+				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			}
 			next = (recode.qHigh + recode.qLow) / 2
 			if next < vp8MaxQIndex {
 				recode.zbinOverQuant = 0
@@ -797,7 +811,9 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 				recode.zbinOverQuant = (recode.zbinOQHigh + recode.zbinOQLow) / 2
 			}
 		} else {
-			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			if !recode.activeWorstQChanged {
+				recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			}
 			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
 			if next < vp8MaxQIndex {
 				recode.zbinOverQuant = 0
@@ -822,6 +838,26 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 		recode.zbinOverQuant = 0
 	}
 	return rc.clampedFrameQuantizerValue(next), true
+}
+
+func (rc *rateControlState) relaxActiveWorstQuantizerForOvershoot(actualBits int, overshootLimit int, q int, recode *frameSizeRecodeState) bool {
+	if recode == nil || actualBits <= overshootLimit || overshootLimit <= 0 {
+		return false
+	}
+	if q != recode.qHigh || recode.qHigh >= rc.maxQuantizer {
+		return false
+	}
+	overSizePercent := ((actualBits - overshootLimit) * 100) / overshootLimit
+	changed := false
+	for recode.qHigh < rc.maxQuantizer && overSizePercent > 0 {
+		recode.qHigh++
+		overSizePercent = (overSizePercent * 96) / 100
+		changed = true
+	}
+	if recode.qHigh < recode.qLow {
+		recode.qHigh = recode.qLow
+	}
+	return changed
 }
 
 func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimit int, overshootLimit int, q int, keyFrame bool, goldenFrame bool, recode *frameSizeRecodeState) bool {
