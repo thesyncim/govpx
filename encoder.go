@@ -198,6 +198,18 @@ type VP8Encoder struct {
 	activeMap        []uint8
 	activeMapEnabled bool
 
+	// libvpx dot-artifact suppression: count of MBs that have biased
+	// against ZEROMV-LAST this frame (capped at MBs/10), and the current
+	// frame's temporal layer ID. See vp8/encoder/pickinter.c
+	// check_dot_artifact_candidate. consecZeroLastMVBias mirrors
+	// cpi->consec_zero_last_mvbias and resets to 0 on any MB that was
+	// dot-suppression-checked this frame, so the threshold gate gives the
+	// same MB a fresh chance after num_frames have passed.
+	mbsZeroLastDotSuppress int
+	currentTemporalLayer   int
+	consecZeroLastMVBias   []uint8
+	dotArtifactChecked     []bool
+
 	// Cross-frame inter-mode reference-frame probabilities. libvpx
 	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
 	// inter frame from observed mb_ref_frame counts (see
@@ -293,6 +305,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		cyclicRefreshAttemptMap: make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		skinMap:                 make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		consecZeroLast:          make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		consecZeroLastMVBias:    make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		dotArtifactChecked:      make([]bool, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		activeMap:               make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
@@ -382,6 +396,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if err := validateEncodeFlags(flags); err != nil {
 		return EncodeResult{}, err
 	}
+	e.currentTemporalLayer = 0
+	if temporalFrame.Enabled {
+		e.currentTemporalLayer = temporalFrame.LayerID
+	}
+	e.mbsZeroLastDotSuppress = 0
 	forcedKeyFrame := e.forceKeyFrameRequested(flags)
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
@@ -513,6 +532,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
 	clearUint8Map(e.consecZeroLast)
+	clearUint8Map(e.consecZeroLastMVBias)
+	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
@@ -1323,6 +1344,8 @@ func (e *VP8Encoder) Reset() {
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
 	clearUint8Map(e.skinMap)
 	clearUint8Map(e.consecZeroLast)
+	clearUint8Map(e.consecZeroLastMVBias)
+	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false

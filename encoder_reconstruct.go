@@ -1828,10 +1828,34 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.Sour
 	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	variance, _ := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mode.MV)
 	score := rdModeScore(qIndex, modeRate, variance)
-	if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV && e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
-		score = (score * fastZeroMVLastRDAdjustment(mbRow, mbCol, above, left, aboveLeft)) / 100
+	if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+		adj := 100
+		if e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
+			adj = fastZeroMVLastRDAdjustment(mbRow, mbCol, above, left, aboveLeft)
+		}
+		// Dot-artifact bias overrides the local-motion reduction with a 1.5x
+		// penalty (libvpx pickinter.c). Skin macroblocks reset the multiplier
+		// to 100 so face-coloured blocks aren't pushed off ZEROMV-LAST.
+		if e.checkDotArtifactCandidateY(src, ref, mbRow, mbCol, mbRows, mbCols) {
+			adj = 150
+		}
+		if e.macroblockIsSkin(mbRow, mbCol, mbCols) {
+			adj = 100
+		}
+		score = (score * adj) / 100
 	}
 	return score, true
+}
+
+func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
+	if e == nil || len(e.skinMap) == 0 {
+		return false
+	}
+	index := mbRow*mbCols + mbCol
+	if index < 0 || index >= len(e.skinMap) {
+		return false
+	}
+	return e.skinMap[index] != 0
 }
 
 func (e *VP8Encoder) fastZeroMVLastAdjustmentEligible(mbRows int, mbCols int) bool {

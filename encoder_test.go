@@ -3937,6 +3937,148 @@ func planeBlockEqual(a []byte, aStride int, b []byte, bStride int, planeWidth in
 	return true
 }
 
+func TestMacroblockCornerGradientMatchesLibvpxFormula(t *testing.T) {
+	// 16x16 plane with stride 16: every value 50 except the top-left corner pixel = 90.
+	// Top-left corner (offRow=0, offCol=0, sgnRow=1, sgnCol=1) should yield max(|90-50|, ...) = 40.
+	plane := make([]byte, 16*16)
+	for i := range plane {
+		plane[i] = 50
+	}
+	plane[0] = 90
+	if got := macroblockCornerGradient(plane, 16, 0, 0, 1, 1); got != 40 {
+		t.Fatalf("top-left gradient = %d, want 40", got)
+	}
+	// Flat plane: all corners should yield 0.
+	for i := range plane {
+		plane[i] = 50
+	}
+	if got := macroblockCornerGradient(plane, 16, 0, 15, 1, -1); got != 0 {
+		t.Fatalf("flat top-right gradient = %d, want 0", got)
+	}
+}
+
+func TestDotArtifactCornerCandidateYDetectsSharpRefAndFlatSrc(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 128, 128, 128)
+	last := vp8common.FrameBuffer{}
+	if err := last.Resize(16, 16, 16, 16); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	// Flat last reference: not a candidate.
+	for i := range last.Img.Y {
+		last.Img.Y[i] = 128
+	}
+	if dotArtifactCornerCandidateY(sourceImageFromPublic(src), &last.Img, 0, 0) {
+		t.Fatalf("flat last_ref should not be a dot-artifact candidate")
+	}
+	// Sharp gradient at top-left corner of last_ref: should be a candidate.
+	last.Img.Y[0] = 200
+	if !dotArtifactCornerCandidateY(sourceImageFromPublic(src), &last.Img, 0, 0) {
+		t.Fatalf("sharp last_ref corner over flat src should be a candidate")
+	}
+	// If source also has sharp gradient, no longer a candidate.
+	src.Y[0] = 200
+	if dotArtifactCornerCandidateY(sourceImageFromPublic(src), &last.Img, 0, 0) {
+		t.Fatalf("matching sharp source should suppress candidate")
+	}
+}
+
+func TestCheckDotArtifactCandidateGatesOnLayerScreenContentAndConsecZeroLast(t *testing.T) {
+	// Use a 64x64 encoder (16 MBs => cap = 16/10 = 1) so the cap is non-zero.
+	e := newSizedTestEncoder(t, 64, 64)
+	src := testImage(64, 64)
+	fillImage(src, 128, 128, 128)
+	for i := range e.lastRef.Img.Y {
+		e.lastRef.Img.Y[i] = 128
+	}
+	// Sharp top-left corner of MB(0,0) on last_ref Y plane.
+	e.lastRef.Img.Y[0] = 230
+
+	// mvbias counter below threshold => not a candidate.
+	e.consecZeroLastMVBias[0] = 5
+	if e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("low consec_zero_last_mvbias should not trigger dot-artifact bias")
+	}
+	if e.dotArtifactChecked[0] {
+		t.Fatalf("ineligible MB should not set dotArtifactChecked")
+	}
+	// Above threshold => candidate; sets the per-MB checked flag.
+	e.consecZeroLastMVBias[0] = 50
+	e.mbsZeroLastDotSuppress = 0
+	if !e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("high mvbias counter with sharp last_ref should be a candidate")
+	}
+	if !e.dotArtifactChecked[0] {
+		t.Fatalf("eligible MB should set dotArtifactChecked")
+	}
+	if e.mbsZeroLastDotSuppress != 1 {
+		t.Fatalf("mbsZeroLastDotSuppress = %d, want 1 after candidate", e.mbsZeroLastDotSuppress)
+	}
+	// Screen content disables it.
+	e.mbsZeroLastDotSuppress = 0
+	e.opts.ScreenContentMode = 1
+	if e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("screen content should disable dot-artifact bias")
+	}
+	e.opts.ScreenContentMode = 0
+	// Non-base layer disables it.
+	e.currentTemporalLayer = 1
+	if e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("non-base temporal layer should disable dot-artifact bias")
+	}
+	e.currentTemporalLayer = 0
+	// Cap reached.
+	e.mbsZeroLastDotSuppress = 1
+	if e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("cap-reached suppression should disable further bias")
+	}
+}
+
+func TestCheckDotArtifactCandidateChecksUVChannelsWhenYIsFlat(t *testing.T) {
+	e := newSizedTestEncoder(t, 64, 64)
+	src := testImage(64, 64)
+	fillImage(src, 128, 128, 128)
+	// Flat Y on last_ref so Y check returns false.
+	for i := range e.lastRef.Img.Y {
+		e.lastRef.Img.Y[i] = 128
+	}
+	// Sharp top-left corner on U plane only.
+	for i := range e.lastRef.Img.U {
+		e.lastRef.Img.U[i] = 128
+	}
+	for i := range e.lastRef.Img.V {
+		e.lastRef.Img.V[i] = 128
+	}
+	e.lastRef.Img.U[0] = 230
+	e.consecZeroLastMVBias[0] = 50
+	if !e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("sharp U-plane corner should trigger dot-artifact bias when Y is flat")
+	}
+	// Reset and probe V plane only.
+	e.lastRef.Img.U[0] = 128
+	e.lastRef.Img.V[0] = 230
+	e.mbsZeroLastDotSuppress = 0
+	if !e.checkDotArtifactCandidate(sourceImageFromPublic(src), &e.lastRef.Img, 0, 0, 4, 4) {
+		t.Fatalf("sharp V-plane corner should trigger dot-artifact bias when Y/U are flat")
+	}
+}
+
+func TestUpdateConsecutiveZeroLastWithDotSuppressResetsCheckedMBs(t *testing.T) {
+	counters := []uint8{40, 25}
+	dotChecked := []bool{true, false}
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+	}
+	updateConsecutiveZeroLastWithDotSuppress(modes, counters, dotChecked)
+	if counters[0] != 0 {
+		t.Fatalf("dot-checked counter[0] = %d, want reset to 0", counters[0])
+	}
+	if counters[1] != 26 {
+		t.Fatalf("non-checked counter[1] = %d, want incremented to 26", counters[1])
+	}
+}
+
 func TestSetActiveMapValidation(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	mapBytes := make([]byte, 4)

@@ -223,6 +223,8 @@ func (e *VP8Encoder) updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblo
 		return
 	}
 	updateConsecutiveZeroLast(modes, e.consecZeroLast)
+	updateConsecutiveZeroLastWithDotSuppress(modes, e.consecZeroLastMVBias, e.dotArtifactChecked)
+	clearBoolMap(e.dotArtifactChecked)
 }
 
 func updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode, counters []uint8) {
@@ -239,9 +241,37 @@ func updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode, counters
 	}
 }
 
+// updateConsecutiveZeroLastWithDotSuppress mirrors libvpx's
+// consec_zero_last_mvbias counter: like consec_zero_last, but any MB that
+// was checked for dot-artifact suppression this frame has the counter zeroed
+// so the threshold gate gives the same MB a fresh chance after the next
+// num_frames have passed.
+func updateConsecutiveZeroLastWithDotSuppress(modes []vp8enc.InterFrameMacroblockMode, counters []uint8, dotChecked []bool) {
+	count := min(len(modes), len(counters))
+	for index := 0; index < count; index++ {
+		mode := modes[index]
+		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+			if counters[index] < 255 {
+				counters[index]++
+			}
+		} else {
+			counters[index] = 0
+		}
+		if index < len(dotChecked) && dotChecked[index] {
+			counters[index] = 0
+		}
+	}
+}
+
 func clearCyclicRefreshMap(refreshMap []int8) {
 	for i := range refreshMap {
 		refreshMap[i] = 0
+	}
+}
+
+func clearBoolMap(values []bool) {
+	for i := range values {
+		values[i] = false
 	}
 }
 
@@ -472,3 +502,136 @@ var skinMean = [5][2]int{
 
 var skinInvCov = [4]int{4107, 1663, 1663, 2157}
 var skinThreshold = [6]int{1570636, 1400000, 800000, 800000, 800000, 800000}
+
+// dotArtifactCandidate matches libvpx's check_dot_artifact_candidate
+// (vp8/encoder/pickinter.c): a base-layer macroblock that has been ZEROMV-LAST
+// for at least dotArtifactConsecZeroLastFrames consecutive frames and whose
+// LAST reference shows a sharp corner gradient while the source remains flat
+// is flagged as a candidate. Candidate count is capped per frame at MBs/10
+// to avoid runaway suppression.
+const (
+	dotArtifactCornerGradLast      = 6
+	dotArtifactCornerGradSource    = 3
+	dotArtifactConsecZeroLastBase  = 30
+	dotArtifactConsecZeroLastLayer = 20
+	dotArtifactSuppressCapDivisor  = 10
+)
+
+// checkDotArtifactCandidate matches libvpx's check_dot_artifact_candidate
+// (vp8/encoder/pickinter.c): tests Y, then U, then V channel corner gradients
+// and triggers a 1.5x ZEROMV-LAST RD penalty when the LAST reference shows a
+// sharp corner gradient while the source remains flat. Eligibility uses
+// consec_zero_last_mvbias (the bias-only counter), which is reset for any
+// MB this function checks so a triggered MB gets a fresh num_frames window.
+func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
+	if e == nil || lastRef == nil {
+		return false
+	}
+	if e.opts.ScreenContentMode != 0 {
+		return false
+	}
+	if e.currentTemporalLayer != 0 {
+		return false
+	}
+	totalMBs := mbRows * mbCols
+	if totalMBs <= 0 {
+		return false
+	}
+	cap := totalMBs / dotArtifactSuppressCapDivisor
+	if e.mbsZeroLastDotSuppress >= cap {
+		return false
+	}
+	index := mbRow*mbCols + mbCol
+	if index < 0 || index >= len(e.consecZeroLastMVBias) {
+		return false
+	}
+	threshold := dotArtifactConsecZeroLastBase
+	if e.temporal.enabled && e.temporal.pattern.Layers > 1 {
+		threshold = dotArtifactConsecZeroLastLayer
+	}
+	if int(e.consecZeroLastMVBias[index]) <= threshold {
+		return false
+	}
+	// Mark this MB as checked so its mvbias counter resets at frame end,
+	// regardless of whether the corner test below ultimately triggers.
+	if index < len(e.dotArtifactChecked) {
+		e.dotArtifactChecked[index] = true
+	}
+	if dotArtifactCornerCandidateY(src, lastRef, mbRow, mbCol) ||
+		dotArtifactCornerCandidateUV(src.U, src.UStride, lastRef.U, lastRef.UStride, mbRow, mbCol) ||
+		dotArtifactCornerCandidateUV(src.V, src.VStride, lastRef.V, lastRef.VStride, mbRow, mbCol) {
+		e.mbsZeroLastDotSuppress++
+		return true
+	}
+	return false
+}
+
+// checkDotArtifactCandidateY is retained for back-compat and forwards to the
+// full Y+UV check.
+func (e *VP8Encoder) checkDotArtifactCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
+	return e.checkDotArtifactCandidate(src, lastRef, mbRow, mbCol, mbRows, mbCols)
+}
+
+func dotArtifactCornerCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int) bool {
+	if lastRef == nil || src.Y == nil {
+		return false
+	}
+	srcOff := mbRow*16*src.YStride + mbCol*16
+	refOff := mbRow*16*lastRef.YStride + mbCol*16
+	return dotArtifactCornerCheck(src.Y[srcOff:], src.YStride, lastRef.Y[refOff:], lastRef.YStride, 15)
+}
+
+func dotArtifactCornerCandidateUV(srcPlane []byte, srcStride int, lastPlane []byte, lastStride int, mbRow int, mbCol int) bool {
+	if srcPlane == nil || lastPlane == nil {
+		return false
+	}
+	srcOff := mbRow*8*srcStride + mbCol*8
+	refOff := mbRow*8*lastStride + mbCol*8
+	return dotArtifactCornerCheck(srcPlane[srcOff:], srcStride, lastPlane[refOff:], lastStride, 7)
+}
+
+func dotArtifactCornerCheck(srcMB []byte, srcStride int, refMB []byte, refStride int, shift int) bool {
+	corners := [4][4]int{
+		{0, 0, 1, 1},
+		{0, shift, 1, -1},
+		{shift, 0, -1, 1},
+		{shift, shift, -1, -1},
+	}
+	for _, c := range corners {
+		gradLast := macroblockCornerGradient(refMB, refStride, c[0], c[1], c[2], c[3])
+		gradSrc := macroblockCornerGradient(srcMB, srcStride, c[0], c[1], c[2], c[3])
+		if gradLast >= dotArtifactCornerGradLast && gradSrc <= dotArtifactCornerGradSource {
+			return true
+		}
+	}
+	return false
+}
+
+// macroblockCornerGradient mirrors libvpx pickinter.c macroblock_corner_grad:
+// max absolute delta from one corner pixel to its three immediate neighbours
+// in the directions specified by sgnRow/sgnCol.
+func macroblockCornerGradient(plane []byte, stride int, offRow int, offCol int, sgnRow int, sgnCol int) int {
+	y1 := int(plane[offRow*stride+offCol])
+	y2 := int(plane[offRow*stride+offCol+sgnCol])
+	y3 := int(plane[(offRow+sgnRow)*stride+offCol])
+	y4 := int(plane[(offRow+sgnRow)*stride+offCol+sgnCol])
+	d1 := y1 - y2
+	if d1 < 0 {
+		d1 = -d1
+	}
+	d2 := y1 - y3
+	if d2 < 0 {
+		d2 = -d2
+	}
+	d3 := y1 - y4
+	if d3 < 0 {
+		d3 = -d3
+	}
+	if d2 > d1 {
+		d1 = d2
+	}
+	if d3 > d1 {
+		d1 = d3
+	}
+	return d1
+}

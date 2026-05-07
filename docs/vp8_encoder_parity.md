@@ -315,13 +315,20 @@ the anchor and look for the surrounding mismatch.
 - [ ] Port skin map and dot-artifact bias.
   - govpx:
     [`computeSkinMap`](../encoder_segmentation.go),
-    [`classifyStaticSegmentationBlocks`](../encoder_segmentation.go).
+    [`classifyStaticSegmentationBlocks`](../encoder_segmentation.go),
+    [`checkDotArtifactCandidate`](../encoder_segmentation.go),
+    [`updateConsecutiveZeroLastWithDotSuppress`](../encoder_segmentation.go).
   - libvpx: dot artifact logic in `pickinter.c` and skin detection in
     `common/vp8_skin_detection.c`.
-  - Status: partial/missing. govpx computes a skin map and uses it to mask
-    cyclic-refresh candidates only when static threshold is enabled and screen
-    content mode is off. Dot-artifact RD biasing is missing, and libvpx's
-    `SKIN_8X8` behavior for small frames is not matched.
+  - Status: partial. govpx computes a skin map and uses it to mask
+    cyclic-refresh candidates and reset the ZEROMV-LAST RD multiplier to 100
+    on skin macroblocks. The dot-artifact corner-gradient detector now runs
+    on Y, U, and V planes with a 1.5x ZEROMV-LAST penalty gated on base
+    layer, non-screen-content, and the libvpx MBs/10 suppression cap. The
+    second `consec_zero_last_mvbias` counter is tracked separately and reset
+    on any MB that this frame's dot-artifact eligibility check inspected, so
+    the threshold gate gives the same MB a fresh num_frames window. Remaining
+    work is `SKIN_8X8` 8x8-tile behavior for small frames.
   - Done when per-MB skin/dot flags and resulting RD adjustments match on face,
     noisy-flat, and screen-dot patterns.
 
