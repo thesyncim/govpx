@@ -3098,6 +3098,10 @@ func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockTy
 	return full
 }
 
+func coefficientTokenCost(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
+	return coefTokenCostElided(probs, token, blockType, band, pt)
+}
+
 func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
 	cost := treeTokenCost(vp8tables.CoefTree[:], probs[:], token)
 	nonEOBRate := boolBitCost(probs[0], 1)
@@ -5710,8 +5714,9 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 // optimizeQuantizedBlock ports libvpx v1.16.0 vp8/encoder/encodemb.c optimize_b.
 // It walks the quantized block from eob-1 down to skipDC, builds a 2-state
 // Viterbi trellis exploring (keep current value) vs (shift |x| toward 0 when
-// the dequant boundary allows), and applies the path that minimizes the libvpx
-// RDCOST. Tied RDCOSTs use the libvpx RDTRUNC tie-break.
+// the dequant boundary allows), scores transitions with libvpx's token_costs
+// subtree elision, and applies the path that minimizes the libvpx RDCOST. Tied
+// RDCOSTs use the libvpx RDTRUNC tie-break.
 func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, eob int) int {
 	if coeff == nil || quant == nil || qcoeff == nil || eob <= skipDC {
 		return eob
@@ -5760,8 +5765,8 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 				band := int(vp8tables.CoefBandsTable[i+1])
 				pt := int(vp8tables.PrevTokenClass[t0])
 				p := (*coefProbs)[blockType][band][pt]
-				rate0 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][0].token))
-				rate1 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][1].token))
+				rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
+				rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 			}
 
 			rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
@@ -5835,12 +5840,12 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 				if t0 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t0])
 					p := (*coefProbs)[blockType][band][pt]
-					rate0 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][0].token))
+					rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
 				}
 				if t1 != vp8tables.DCTEOBToken {
 					pt := int(vp8tables.PrevTokenClass[t1])
 					p := (*coefProbs)[blockType][band][pt]
-					rate1 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][1].token))
+					rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 				}
 			}
 
@@ -5882,11 +5887,11 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 			t0Tok := int(tokens[next][0].token)
 			t1Tok := int(tokens[next][1].token)
 			if t0Tok != vp8tables.DCTEOBToken {
-				tokens[next][0].rate += treeTokenCost(vp8tables.CoefTree[:], p[:], t0Tok)
+				tokens[next][0].rate += coefficientTokenCost(p, t0Tok, blockType, band, 0)
 				tokens[next][0].token = int8(vp8tables.ZeroToken)
 			}
 			if t1Tok != vp8tables.DCTEOBToken {
-				tokens[next][1].rate += treeTokenCost(vp8tables.CoefTree[:], p[:], t1Tok)
+				tokens[next][1].rate += coefficientTokenCost(p, t1Tok, blockType, band, 0)
 				tokens[next][1].token = int8(vp8tables.ZeroToken)
 			}
 		}
@@ -5898,8 +5903,8 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 	error0 := tokens[next][0].error
 	error1 := tokens[next][1].error
 	p := (*coefProbs)[blockType][band][ctx]
-	rate0 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][0].token))
-	rate1 += treeTokenCost(vp8tables.CoefTree[:], p[:], int(tokens[next][1].token))
+	rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, ctx)
+	rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, ctx)
 	rdCost0 := libvpxRDCost(rdMult, rdDiv, rate0, error0)
 	rdCost1 := libvpxRDCost(rdMult, rdDiv, rate1, error1)
 	if rdCost0 == rdCost1 {

@@ -3194,6 +3194,33 @@ func TestOptimizeQuantizedBlockUsesProvidedCoefficientProbs(t *testing.T) {
 	}
 }
 
+func TestOptimizeQuantizedBlockUsesElidedPostZeroTokenCost(t *testing.T) {
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	rc1 := int(vp8tables.DefaultZigZag1D[1])
+	rc2 := int(vp8tables.DefaultZigZag1D[2])
+	coeff[rc1] = 9
+	qcoeff[rc1] = 1
+	coeff[rc2] = 10
+	qcoeff[rc2] = 1
+
+	probs := vp8tables.DefaultCoefProbs
+	band := int(vp8tables.CoefBandsTable[2])
+	// Make the root non-EOB bit expensive. libvpx's token_costs elides that
+	// bit after a ZERO_TOKEN in this band; the old raw tree cost keeps q1.
+	probs[0][band][0][0] = 255
+
+	eob := optimizeQuantizedBlock(&probs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 3)
+
+	if eob != 3 || qcoeff[rc1] != 0 || qcoeff[rc2] != 1 {
+		t.Fatalf("optimized eob/q1/q2 = %d/%d/%d, want post-zero coefficient kept with leading coeff dropped", eob, qcoeff[rc1], qcoeff[rc2])
+	}
+}
+
 func TestOptimizeQuantizedBlockKeepsCoefficientWhenDistortionDominates(t *testing.T) {
 	var quant vp8enc.BlockQuant
 	for i := range quant.Dequant {
@@ -3964,6 +3991,33 @@ func TestCoefficientBlockTokenTraceSingleNonZeroAtSkipDC(t *testing.T) {
 	}
 	if sum != wantTotal {
 		t.Fatalf("sum of per-position rates = %d, want %d", sum, wantTotal)
+	}
+}
+
+func TestCoefficientBlockTokenTracePostZeroElidesEOBNode(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var qcoeff [16]int16
+	qcoeff[vp8tables.DefaultZigZag1D[2]] = 2
+
+	trace, gotTotal := coefficientBlockTokenTrace(&probs, 0, 0, 1, &qcoeff, 3)
+	wantTotal := coefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 3)
+	if gotTotal != wantTotal {
+		t.Fatalf("trace total = %d, want %d", gotTotal, wantTotal)
+	}
+	if len(trace) != 3 {
+		t.Fatalf("trace length = %d, want zero, nonzero, EOB entries", len(trace))
+	}
+
+	entry := trace[1]
+	if entry.Position != 2 || entry.Token != vp8tables.TwoToken || entry.PrevTokenClass != 0 {
+		t.Fatalf("post-zero entry = %+v, want position 2 TwoToken with prev-token class 0", entry)
+	}
+	band := int(vp8tables.CoefBandsTable[2])
+	p := probs[0][band][0]
+	full := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.TwoToken)
+	want := full - boolBitCost(p[0], 1)
+	if entry.TokenRate != want {
+		t.Fatalf("post-zero token rate = %d, want elided subtree cost %d (full %d)", entry.TokenRate, want, full)
 	}
 }
 

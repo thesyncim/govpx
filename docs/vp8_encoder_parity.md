@@ -42,7 +42,7 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 67% overall, or about 77% on the core
+- Encoder decision parity: roughly 68% overall, or about 78% on the core
   one-pass quality path, weighted by libvpx LOC.
   This is an engineering estimate, not a measured percentage, because
   govpx still lacks the libvpx-side trace comparator needed to count
@@ -1081,7 +1081,8 @@ the anchor and look for the surrounding mismatch.
     to `i0`, the shift-toward-zero shortcut gated on overshoots inside one
     quant step (`|x|*dq` in `(|c|, |c|+dq)`), plane-specific `Y1/Y2/UV`
     rdmult, the intra `(rdmult * 9) >> 4` scaling, the `RDTRUNC` tie-break
-    when two trellis paths share an RDCOST, and EOB rollback by backtrace.
+    when two trellis paths share an RDCOST, EOB rollback by backtrace, and
+    libvpx `token_costs` subtree elision for post-zero trellis transitions.
     Fast-vs-regular quantizer selection follows the libvpx speed-feature
     gates, RD scoring uses the same unoptimized fast/regular quantizer
     family, and the post-optimization `check_reset_2nd_coeffs` behavior
@@ -1097,11 +1098,15 @@ the anchor and look for the surrounding mismatch.
     prior token's `prev_token_class == 0` and the band exceeds the plane
     threshold, by `TestCoefCoeffsParityMatchesReferenceWalk` and
     `TestCoefCoeffsParityIncrementalMatchesWholeBlock` in
-    `encoder_cost_coeffs_parity_test.go`.
+    `encoder_cost_coeffs_parity_test.go`. Focused optimizer and trace tests
+    now pin the same elided cost path through `optimizeQuantizedBlock`:
+    `TestOptimizeQuantizedBlockUsesElidedPostZeroTokenCost` and
+    `TestCoefficientBlockTokenTracePostZeroElidesEOBNode`.
   - Required/keep: libvpx Viterbi trellis coefficient optimization, including
     `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
-    expose) and per-coefficient token-cost trace anchors for oracle parity.
+    expose) and exhaustive libvpx-side small-block oracle comparison for
+    per-coefficient qcoeff/dqcoeff/EOB/rate/reconstruction parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin
     boosts, and coefficient patterns.
