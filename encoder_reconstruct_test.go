@@ -352,6 +352,156 @@ func TestLibvpxInterModeCheckFrequenciesMirrorSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestLibvpxInterModeThresholdMultipliersTemporalLayerTweaks(t *testing.T) {
+	baseline := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 6)
+	unchanged := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 1,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.GoldenFrame,
+	})
+	if unchanged != baseline {
+		t.Fatalf("one-layer temporal multipliers changed: %v want %v", unchanged, baseline)
+	}
+
+	tooFast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 7, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.GoldenFrame,
+	})
+	if want := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 7); tooFast != want {
+		t.Fatalf("speed 7 temporal multipliers changed: %v want %v", tooFast, want)
+	}
+
+	missingGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		closestRef:     vp8common.LastFrame,
+	})
+	if missingGolden != baseline {
+		t.Fatalf("missing-GOLDEN temporal multipliers changed: %v want %v", missingGolden, baseline)
+	}
+
+	closestGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.GoldenFrame,
+	})
+	if got, want := closestGolden[libvpxThrZero2], baseline[libvpxThrZero2]>>3; got != want {
+		t.Fatalf("closest GOLDEN ZERO2 = %d, want %d", got, want)
+	}
+	if got, want := closestGolden[libvpxThrNearest2], baseline[libvpxThrNearest2]>>3; got != want {
+		t.Fatalf("closest GOLDEN NEAREST2 = %d, want %d", got, want)
+	}
+	if got, want := closestGolden[libvpxThrNear2], baseline[libvpxThrNear2]>>3; got != want {
+		t.Fatalf("closest GOLDEN NEAR2 = %d, want %d", got, want)
+	}
+	if closestGolden[libvpxThrZero3] != baseline[libvpxThrZero3] || closestGolden[libvpxThrNew2] != baseline[libvpxThrNew2] {
+		t.Fatalf("temporal tweak touched unrelated thresholds ZERO3:%d/%d NEW2:%d/%d", closestGolden[libvpxThrZero3], baseline[libvpxThrZero3], closestGolden[libvpxThrNew2], baseline[libvpxThrNew2])
+	}
+
+	closestLast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.LastFrame,
+	})
+	if got, want := closestLast[libvpxThrZero2], baseline[libvpxThrZero2]>>1; got != want {
+		t.Fatalf("closest LAST ZERO2 = %d, want %d", got, want)
+	}
+}
+
+func TestClosestInterAnalysisReferenceUsesLibvpxFrameNumbers(t *testing.T) {
+	e := &VP8Encoder{}
+	e.referenceFrameNumbers[vp8common.LastFrame] = 7
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = 9
+	e.referenceFrameNumbers[vp8common.AltRefFrame] = 8
+	refs := []interAnalysisReference{
+		{Frame: vp8common.LastFrame},
+		{Frame: vp8common.GoldenFrame},
+		{Frame: vp8common.AltRefFrame},
+	}
+	if got := e.closestInterAnalysisReference(refs, len(refs)); got != vp8common.GoldenFrame {
+		t.Fatalf("closest ref = %v, want GOLDEN", got)
+	}
+
+	e.referenceFrameNumbers[vp8common.LastFrame] = 9
+	if got := e.closestInterAnalysisReference(refs, len(refs)); got != vp8common.LastFrame {
+		t.Fatalf("closest tie ref = %v, want LAST", got)
+	}
+
+	refs = refs[1:]
+	if got := e.closestInterAnalysisReference(refs, len(refs)); got != vp8common.GoldenFrame {
+		t.Fatalf("closest tie without LAST = %v, want GOLDEN", got)
+	}
+}
+
+func TestInterReferenceFrameNumbersMirrorLibvpxRefreshAndCopy(t *testing.T) {
+	e := &VP8Encoder{}
+	e.frameCount = 4
+	e.referenceFrameNumbers[vp8common.LastFrame] = 1
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = 2
+	e.referenceFrameNumbers[vp8common.AltRefFrame] = 3
+
+	e.updateInterReferenceFrameNumbers(vp8enc.InterFrameStateConfig{
+		RefreshLast:        true,
+		RefreshGolden:      true,
+		CopyBufferToAltRef: 2,
+	})
+
+	if got, want := e.referenceFrameNumbers[vp8common.AltRefFrame], uint64(2); got != want {
+		t.Fatalf("ALT frame number after old-GF copy = %d, want %d", got, want)
+	}
+	if got, want := e.referenceFrameNumbers[vp8common.GoldenFrame], uint64(4); got != want {
+		t.Fatalf("GOLDEN frame number after refresh = %d, want %d", got, want)
+	}
+	if got, want := e.referenceFrameNumbers[vp8common.LastFrame], uint64(4); got != want {
+		t.Fatalf("LAST frame number after refresh = %d, want %d", got, want)
+	}
+}
+
+func TestInterModeRDThresholdsUseTemporalClosestReference(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{
+		Deadline: DeadlineRealtime,
+		CpuUsed:  6,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringTwoLayers,
+		},
+	}}
+	refs := []interAnalysisReference{
+		{Frame: vp8common.LastFrame},
+		{Frame: vp8common.GoldenFrame},
+	}
+	e.referenceFrameNumbers[vp8common.LastFrame] = 7
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = 9
+
+	got := e.interModeRDThresholdsForReferences(40, refs, len(refs))
+	want := libvpxInterModeRDThresholdsForContext(40, 0, DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.GoldenFrame,
+	})
+	if got[libvpxThrZero2] != want[libvpxThrZero2] || got[libvpxThrNearest2] != want[libvpxThrNearest2] || got[libvpxThrNear2] != want[libvpxThrNear2] {
+		t.Fatalf("closest GOLDEN temporal thresholds ZERO2/NEAREST2/NEAR2 = %d/%d/%d, want %d/%d/%d", got[libvpxThrZero2], got[libvpxThrNearest2], got[libvpxThrNear2], want[libvpxThrZero2], want[libvpxThrNearest2], want[libvpxThrNear2])
+	}
+
+	e.referenceFrameNumbers[vp8common.LastFrame] = 10
+	got = e.interModeRDThresholdsForReferences(40, refs, len(refs))
+	want = libvpxInterModeRDThresholdsForContext(40, 0, DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+		temporalLayers: 2,
+		lastEnabled:    true,
+		goldenEnabled:  true,
+		closestRef:     vp8common.LastFrame,
+	})
+	if got[libvpxThrZero2] != want[libvpxThrZero2] {
+		t.Fatalf("closest LAST temporal ZERO2 threshold = %d, want %d", got[libvpxThrZero2], want[libvpxThrZero2])
+	}
+}
+
 func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineBestQuality}}
 	e.resetInterRDThresholdMultipliers()

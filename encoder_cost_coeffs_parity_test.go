@@ -127,17 +127,17 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 
 	cases := []vec{
 		{
-			name: "early-eob-type3-ctx0",
+			name:      "early-eob-type3-ctx0",
 			blockType: 3, ctx: 0, skipDC: 0,
 			qcoeff: build(pair{0, 1}),
 		},
 		{
-			name: "early-eob-type0-ctx2-skipDC",
+			name:      "early-eob-type0-ctx2-skipDC",
 			blockType: 0, ctx: 2, skipDC: 1,
 			qcoeff: build(pair{1, -3}),
 		},
 		{
-			name: "first-zero-then-nonzero-type2",
+			name:      "first-zero-then-nonzero-type2",
 			blockType: 2, ctx: 1, skipDC: 0,
 			qcoeff: build(pair{1, 5}, pair{2, -2}),
 		},
@@ -157,7 +157,7 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 			qcoeff: [16]int16{1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1},
 		},
 		{
-			name: "eob-at-15-type0",
+			name:      "eob-at-15-type0",
 			blockType: 0, ctx: 0, skipDC: 1,
 			qcoeff: build(pair{1, 2}, pair{15, -7}),
 		},
@@ -187,12 +187,12 @@ func TestCoefCoeffsParityMatchesReferenceWalk(t *testing.T) {
 			qcoeff: build(pair{2, 2}),
 		},
 		{
-			name: "all-zero-block-type1",
+			name:      "all-zero-block-type1",
 			blockType: 1, ctx: 1, skipDC: 0,
 			qcoeff: [16]int16{},
 		},
 		{
-			name: "all-zero-block-type0",
+			name:      "all-zero-block-type0",
 			blockType: 0, ctx: 0, skipDC: 1,
 			qcoeff: [16]int16{},
 		},

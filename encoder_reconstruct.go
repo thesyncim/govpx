@@ -457,6 +457,43 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 	return count
 }
 
+func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference, refCount int) vp8common.MVReferenceFrame {
+	if e == nil {
+		return vp8common.LastFrame
+	}
+	closest := vp8common.IntraFrame
+	limit := refCount
+	if limit > len(refs) {
+		limit = len(refs)
+	}
+	for i := 0; i < limit; i++ {
+		refFrame := refs[i].Frame
+		if refFrame < vp8common.LastFrame || refFrame >= vp8common.MaxRefFrames {
+			continue
+		}
+		if closest == vp8common.IntraFrame || e.referenceFrameNumbers[refFrame] > e.referenceFrameNumbers[closest] {
+			closest = refFrame
+		}
+	}
+	if closest == vp8common.IntraFrame {
+		return vp8common.LastFrame
+	}
+	return closest
+}
+
+func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int, frame vp8common.MVReferenceFrame) bool {
+	limit := refCount
+	if limit > len(refs) {
+		limit = len(refs)
+	}
+	for i := 0; i < limit; i++ {
+		if refs[i].Frame == frame {
+			return true
+		}
+	}
+	return false
+}
+
 // Ported from libvpx v1.16.0 vp8/encoder/mcomp.c motion search.
 // vp8_hex_search finishes with an eight-step full-pixel diamond refinement.
 const interFrameFullPixelSearchRadius = 16
@@ -659,10 +696,21 @@ func libvpxInterFrameImprovedMVPrediction(deadline Deadline, speed int) bool {
 }
 
 func (e *VP8Encoder) interModeRDThresholds(qIndex int) [libvpxInterModeCount]int {
+	return e.interModeRDThresholdsForReferences(qIndex, nil, 0)
+}
+
+func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
 	if e == nil {
 		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
 	}
-	baseline := libvpxInterModeRDThresholds(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed)
+	context := libvpxInterModeThresholdContext{}
+	if refCount > 0 {
+		context.temporalLayers = e.libvpxTemporalLayerCount()
+		context.lastEnabled = interAnalysisReferencesInclude(refs, refCount, vp8common.LastFrame)
+		context.goldenEnabled = interAnalysisReferencesInclude(refs, refCount, vp8common.GoldenFrame)
+		context.closestRef = e.closestInterAnalysisReference(refs, refCount)
+	}
+	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
 	if !e.interRDFrameActive {
 		return baseline
 	}
@@ -679,6 +727,17 @@ func (e *VP8Encoder) interModeRDThresholds(qIndex int) [libvpxInterModeCount]int
 		}
 	}
 	return thresholds
+}
+
+func (e *VP8Encoder) libvpxTemporalLayerCount() int {
+	if e == nil || !e.opts.TemporalScalability.Enabled {
+		return 1
+	}
+	pattern, ok := temporalLayeringPattern(e.opts.TemporalScalability.Mode)
+	if !ok {
+		return 1
+	}
+	return pattern.Layers
 }
 
 func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
@@ -784,7 +843,11 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 }
 
 func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadline, speed int) [libvpxInterModeCount]int {
-	multipliers := libvpxInterModeThresholdMultipliers(deadline, speed)
+	return libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, deadline, speed, libvpxInterModeThresholdContext{})
+}
+
+func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
+	multipliers := libvpxInterModeThresholdMultipliersForContext(deadline, speed, context)
 	qValue := vp8common.DCQuant(qIndex, 0)
 	if qValue > 160 {
 		qValue = 160
@@ -809,7 +872,18 @@ func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadlin
 	return thresholds
 }
 
+type libvpxInterModeThresholdContext struct {
+	temporalLayers int
+	lastEnabled    bool
+	goldenEnabled  bool
+	closestRef     vp8common.MVReferenceFrame
+}
+
 func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxInterModeCount]int {
+	return libvpxInterModeThresholdMultipliersForContext(deadline, speed, libvpxInterModeThresholdContext{})
+}
+
+func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	continuousSpeed := libvpxInterFrameContinuousSpeed(deadline, speed)
 	znn := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapZNN[:])
 	vhPred := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapVHPred[:])
@@ -841,6 +915,15 @@ func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxIn
 	mult[libvpxThrSplit1] = split1
 	mult[libvpxThrSplit2] = split2
 	mult[libvpxThrSplit3] = split2
+	if context.temporalLayers > 1 && speed <= 6 && context.lastEnabled && context.goldenEnabled {
+		shift := 1
+		if context.closestRef == vp8common.GoldenFrame {
+			shift = 3
+		}
+		mult[libvpxThrZero2] >>= shift
+		mult[libvpxThrNearest2] >>= shift
+		mult[libvpxThrNear2] >>= shift
+	}
 	return mult
 }
 
@@ -1057,7 +1140,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	thresholds := e.interModeRDThresholds(qIndex)
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestYRD := maxInt()
