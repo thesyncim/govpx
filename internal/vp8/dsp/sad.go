@@ -27,6 +27,9 @@ func SAD4x4(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, height int) int {
+	if width == 16 && height == 16 {
+		return sadBlock16x16(src, srcStride, ref, refStride)
+	}
 	sad := 0
 	for y := 0; y < height; y++ {
 		srcRow := src[y*srcStride:]
@@ -43,6 +46,9 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 }
 
 func sadBlockLimit(src []byte, srcStride int, ref []byte, refStride int, width int, height int, limit int) int {
+	if width == 16 && height == 16 {
+		return sadBlock16x16Limit(src, srcStride, ref, refStride, limit)
+	}
 	sad := 0
 	for y := 0; y < height; y++ {
 		srcRow := src[y*srcStride:]
