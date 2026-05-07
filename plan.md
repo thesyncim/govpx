@@ -131,8 +131,12 @@ Primary references:
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.
 - First-pass stats now keep libvpx-style raw previous source for
   `zz_motion_search` / `encode_breakout` separately from the reconstructed
-  first-pass LAST reference used by motion search. Remaining first-pass gaps
-  are terminal total/section stats and fixed-corpus oracle trace coverage.
+  first-pass LAST reference used by motion search. Two-pass configuration now
+  consumes libvpx terminal total stats when present and synthesizes the same
+  totals when callers provide per-frame stats only, so modified-error
+  allocation uses the libvpx total `ssim_weighted_pred_err` / `count` model.
+  Remaining first-pass gaps are section stats and fixed-corpus oracle trace
+  coverage.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),

@@ -371,8 +371,8 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: terminal total-stats packet/section accumulators and oracle-trace
-    coverage on a fixed Y4M corpus.
+  - Missing: section accumulators and oracle-trace coverage on a fixed Y4M
+    corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
@@ -416,7 +416,13 @@ the anchor and look for the surrounding mismatch.
     The non-key `twoPassState.frameTargetBits` path now uses that live
     VBR cap, so the target ceiling tracks current surplus/deficit bits
     instead of the initial average frame target. These helpers also feed
-    the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
+    the `kfGroupBits` and `libvpxGFGroupBits` ceilings. Second-pass
+    configuration now consumes the libvpx first-pass terminal total-stats
+    packet when present, excludes it from the encoded-frame count and bit
+    budget, synthesizes totals when callers provide per-frame stats only, and
+    routes modified-error allocation through the terminal total's
+    `ssim_weighted_pred_err`/`count`. `TestTwoPassConfigureConsumesTerminalTotalStats`
+    and `TestTwoPassConfigureSynthesizesTotalStatsWhenMissing` pin both paths.
     `libvpxAssignStdFrameBits` ports the libvpx
     `assign_std_frame_bits` per-frame allocator inside a GF group:
     `target = gf_group_bits * (modified_err / gf_group_error_left)`,

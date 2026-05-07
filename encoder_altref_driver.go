@@ -285,4 +285,3 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	}
 	return result, true, nil
 }
-

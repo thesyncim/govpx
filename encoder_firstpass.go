@@ -517,6 +517,7 @@ func abs32(v int32) int32 {
 
 type twoPassState struct {
 	stats       []FirstPassFrameStats
+	totalStats  FirstPassFrameStats
 	bitsLeft    int64
 	errorLeft   float64
 	frameIndex  uint64
@@ -531,8 +532,11 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	if len(stats) == 0 || bitsPerFrame <= 0 {
 		return
 	}
-	t.stats = stats
-	t.bitsLeft = int64(bitsPerFrame) * int64(len(stats))
+	t.stats, t.totalStats = normalizeTwoPassStats(stats)
+	if len(t.stats) == 0 {
+		return
+	}
+	t.bitsLeft = int64(bitsPerFrame) * int64(len(t.stats))
 	t.vbrBiasPct = biasPct
 	if t.vbrBiasPct <= 0 {
 		t.vbrBiasPct = 50
@@ -545,8 +549,8 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	if t.maxPct <= 0 {
 		t.maxPct = 200
 	}
-	for i := range stats {
-		t.errorLeft += twoPassModifiedError(stats[i], t.vbrBiasPct)
+	for i := range t.stats {
+		t.errorLeft += t.modifiedError(t.stats[i])
 	}
 }
 
@@ -578,7 +582,7 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 	if !t.enabled() || frame >= uint64(len(t.stats)) || defaultTargetBits <= 0 {
 		return 0
 	}
-	modErr := twoPassModifiedError(t.stats[frame], t.vbrBiasPct)
+	modErr := t.modifiedError(t.stats[frame])
 	if modErr <= 0 || t.errorLeft <= 0 || t.bitsLeft <= 0 {
 		return defaultTargetBits
 	}
@@ -614,7 +618,7 @@ func (t *twoPassState) finishFrame(actualBits int) {
 		return
 	}
 	if t.frameIndex < uint64(len(t.stats)) {
-		t.errorLeft -= twoPassModifiedError(t.stats[t.frameIndex], t.vbrBiasPct)
+		t.errorLeft -= t.modifiedError(t.stats[t.frameIndex])
 		if t.errorLeft < 0 {
 			t.errorLeft = 0
 		}
@@ -1116,7 +1120,7 @@ func (t *twoPassState) kfGroupModifiedError(frame uint64, framesToKey int) float
 	}
 	var sum float64
 	for i := frame; i < end; i++ {
-		sum += twoPassModifiedError(t.stats[i], t.vbrBiasPct)
+		sum += t.modifiedError(t.stats[i])
 	}
 	return sum
 }
@@ -1284,6 +1288,49 @@ func libvpxCalculateModifiedErr(thisErr float64, totalSSIMErr float64, count flo
 	}
 	pow := float64(vbrBiasPct) / 100.0
 	return avErr * math.Pow(thisErr/avDenom, pow)
+}
+
+func normalizeTwoPassStats(stats []FirstPassFrameStats) ([]FirstPassFrameStats, FirstPassFrameStats) {
+	if len(stats) == 0 {
+		return nil, FirstPassFrameStats{}
+	}
+	if len(stats) > 1 {
+		last := stats[len(stats)-1]
+		if last.Count > 1 && math.Abs(last.Count-float64(len(stats)-1)) < 1e-9 {
+			return stats[:len(stats)-1], last
+		}
+	}
+	var total FirstPassFrameStats
+	for i := range stats {
+		total.Frame += stats[i].Frame
+		total.IntraError += stats[i].IntraError
+		total.CodedError += stats[i].CodedError
+		total.SSIMWeightedPredErr += stats[i].SSIMWeightedPredErr
+		total.PcntInter += stats[i].PcntInter
+		total.PcntMotion += stats[i].PcntMotion
+		total.PcntSecondRef += stats[i].PcntSecondRef
+		total.PcntNeutral += stats[i].PcntNeutral
+		total.MVr += stats[i].MVr
+		total.MVrAbs += stats[i].MVrAbs
+		total.MVc += stats[i].MVc
+		total.MVcAbs += stats[i].MVcAbs
+		total.MVrv += stats[i].MVrv
+		total.MVcv += stats[i].MVcv
+		total.MVInOutCount += stats[i].MVInOutCount
+		total.NewMVCount += stats[i].NewMVCount
+		total.Duration += stats[i].Duration
+		total.Count += stats[i].Count
+	}
+	return stats, total
+}
+
+func (t *twoPassState) modifiedError(stats FirstPassFrameStats) float64 {
+	if t.totalStats.Count > 0 && t.totalStats.SSIMWeightedPredErr > 0 && stats.SSIMWeightedPredErr > 0 {
+		if err := libvpxCalculateModifiedErr(stats.SSIMWeightedPredErr, t.totalStats.SSIMWeightedPredErr, t.totalStats.Count, t.vbrBiasPct); err > 0 {
+			return err
+		}
+	}
+	return twoPassModifiedError(stats, t.vbrBiasPct)
 }
 
 func twoPassModifiedError(stats FirstPassFrameStats, biasPct int) float64 {
