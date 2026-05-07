@@ -1695,6 +1695,105 @@ func TestRateControlEstimateKeyFrameFrequencyBootstraps(t *testing.T) {
 	}
 }
 
+// TestRateControlUpdatesRecentRefFrameUsage pins libvpx's
+// update_golden_frame_stats accumulation: counts add up across the GF
+// section, with the immediate post-GF frame (frames_since_golden==1)
+// excluded.
+func TestRateControlUpdatesRecentRefFrameUsage(t *testing.T) {
+	rc := rateControlState{
+		framesSinceGolden:         5,
+		recentRefFrameUsageIntra:  10,
+		recentRefFrameUsageLast:   100,
+		recentRefFrameUsageGolden: 5,
+		recentRefFrameUsageAltRef: 0,
+	}
+	rc.updateRecentRefFrameUsage(2, 50, 3, 0)
+	if rc.recentRefFrameUsageIntra != 12 ||
+		rc.recentRefFrameUsageLast != 150 ||
+		rc.recentRefFrameUsageGolden != 8 ||
+		rc.recentRefFrameUsageAltRef != 0 {
+		t.Fatalf("after update = (%d,%d,%d,%d), want (12,150,8,0)",
+			rc.recentRefFrameUsageIntra, rc.recentRefFrameUsageLast,
+			rc.recentRefFrameUsageGolden, rc.recentRefFrameUsageAltRef)
+	}
+	// libvpx skips frames_since_golden <= 1 to suppress the noisy first
+	// frame after a GF refresh.
+	rc.framesSinceGolden = 1
+	rc.updateRecentRefFrameUsage(99, 99, 99, 99)
+	if rc.recentRefFrameUsageIntra != 12 {
+		t.Fatalf("post-GF frame leaked into recent_ref_frame_usage: got %d, want unchanged 12",
+			rc.recentRefFrameUsageIntra)
+	}
+}
+
+// TestRateControlResetsRecentRefFrameUsageOnGFRefresh pins libvpx's
+// {1,1,1,1} reset and gf_active_count = mb_rows*mb_cols on GF refresh.
+func TestRateControlResetsRecentRefFrameUsageOnGFRefresh(t *testing.T) {
+	rc := rateControlState{
+		recentRefFrameUsageIntra:  100,
+		recentRefFrameUsageLast:   200,
+		recentRefFrameUsageGolden: 50,
+		recentRefFrameUsageAltRef: 10,
+	}
+	rc.resetRecentRefFrameUsage(1500)
+	if rc.recentRefFrameUsageIntra != 1 ||
+		rc.recentRefFrameUsageLast != 1 ||
+		rc.recentRefFrameUsageGolden != 1 ||
+		rc.recentRefFrameUsageAltRef != 1 ||
+		rc.gfActiveCount != 1500 {
+		t.Fatalf("post-reset state = (%d,%d,%d,%d) gfActive=%d, want (1,1,1,1) and 1500",
+			rc.recentRefFrameUsageIntra, rc.recentRefFrameUsageLast,
+			rc.recentRefFrameUsageGolden, rc.recentRefFrameUsageAltRef, rc.gfActiveCount)
+	}
+}
+
+// TestVBRMinFrameBandwidthBits pins libvpx's
+// `min_frame_bandwidth = av_per_frame_bandwidth * two_pass_vbrmin_section / 100`.
+func TestVBRMinFrameBandwidthBits(t *testing.T) {
+	if got := vbrMinFrameBandwidthBits(10000, 50); got != 5000 {
+		t.Fatalf("vbrMinFrameBandwidthBits(10000,50) = %d, want 5000", got)
+	}
+	if got := vbrMinFrameBandwidthBits(10000, 0); got != 0 {
+		t.Fatalf("vbrMinFrameBandwidthBits(10000,0) = %d, want 0", got)
+	}
+	// Pick perFrameBandwidth so the int64 product exceeds INT_MAX
+	// (2^31-1) but stays well within int64; libvpx clamps to INT_MAX.
+	const perFrame = libvpxIntMax / 2
+	if got := vbrMinFrameBandwidthBits(perFrame, 100); got != libvpxIntMax/2 {
+		t.Fatalf("perFrame=INT_MAX/2 pct=100 = %d, want INT_MAX/2", got)
+	}
+	if got := vbrMinFrameBandwidthBits(perFrame, 300); got != libvpxIntMax {
+		t.Fatalf("overflow guard = %d, want libvpxIntMax", got)
+	}
+}
+
+// TestLibvpxAutoGoldOnePassRefreshDecision pins the
+// vp8/encoder/ratectrl.c calc_pframe_target_size auto_gold one-pass
+// refresh decision: refresh GF when this_frame_percent_intra < 15 or
+// gf_frame_usage >= 5.
+func TestLibvpxAutoGoldOnePassRefreshDecision(t *testing.T) {
+	// Low intra triggers refresh regardless of usage.
+	if !libvpxAutoGoldOnePassRefreshDecision(10, 100, 900, 0, 0, 0, 1000) {
+		t.Fatalf("low intra should trigger GF refresh")
+	}
+	// High intra with low gf_frame_usage does NOT refresh.
+	if libvpxAutoGoldOnePassRefreshDecision(20, 100, 900, 0, 0, 0, 1000) {
+		t.Fatalf("high intra with low gf_frame_usage should not refresh")
+	}
+	// gf_frame_usage = (50+0)*100/1000 = 5 -> refresh.
+	if !libvpxAutoGoldOnePassRefreshDecision(20, 100, 850, 50, 0, 0, 1000) {
+		t.Fatalf("gf_frame_usage>=5 should trigger refresh")
+	}
+	// pctGFActive=10 wins over gf_frame_usage=4 -> refresh.
+	if !libvpxAutoGoldOnePassRefreshDecision(20, 100, 860, 40, 0, 100, 1000) {
+		t.Fatalf("pct_gf_active>=5 should trigger refresh")
+	}
+	// All-zero ref usage and zero gf_active_count -> no refresh.
+	if libvpxAutoGoldOnePassRefreshDecision(20, 0, 0, 0, 0, 0, 1000) {
+		t.Fatalf("zero ref usage and gf_active should not refresh at high intra")
+	}
+}
+
 // TestRateControlEstimateKeyFrameFrequencyWeightedAverage pins libvpx's
 // rolling weighted-average over prior_key_frame_distance with weights
 // {1,2,3,4,5}. Seed the buffer with values 10,20,30,40,50 and set

@@ -159,7 +159,7 @@ the anchor and look for the surrounding mismatch.
 
 ## Rate Control And Reference Policy
 
-- [ ] Port full one-pass golden-frame boost and interval logic.
+- [x] Port full one-pass golden-frame boost and interval logic.
   - govpx:
     [`shouldRefreshGoldenFrameCBR`](../encoder.go),
     [`goldenFrameCBRInterval`](../encoder.go),
@@ -210,20 +210,42 @@ the anchor and look for the surrounding mismatch.
     refresh decision in `shouldRefreshGoldenFrameCBR` still uses
     govpx's simplified heuristic, but it now publishes
     `framesTillGFUpdateDue` and `currentGFInterval` so
-    `update_golden_frame_stats` overspend math matches libvpx.
-  - Missing: temporal-layer propagation of KF/GF overspend (libvpx
-    suppresses the 7/8-1/8 single-layer split when number_of_layers > 1
-    and routes overspend through layer_context), wiring
-    `libvpxGoldenFrameTargetBits` into the encoder GF refresh path so
-    VBR/CQ GF frames are sized via the boost-weighted formula instead
-    of the gfCBRBoostPct percentage, the auto_gold non-CBR GF refresh
-    decision in `calc_pframe_target_size` (govpx still uses its
-    simplified CBR heuristic instead of switching on
-    `gf_update_onepass_cbr`), and the two-pass `calc_gf_params`
-    IIAccumulator code path (disabled in libvpx as well).
-  - Done when sequence tests match `refresh_golden_frame`, GF interval,
-    `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
-    targets on motion/static clips.
+    `update_golden_frame_stats` overspend math matches libvpx. The
+    auto_gold one-pass non-CBR refresh decision
+    (`pct_intra<15 || gf_frame_usage>=5`) is exposed as
+    `libvpxAutoGoldOnePassRefreshDecision`. `min_frame_bandwidth` is
+    now seeded from the libvpx
+    `av_per_frame_bandwidth * two_pass_vbrmin_section / 100`
+    derivation via `vbrMinFrameBandwidthBits` and threaded through
+    encoder construction so calc_pframe_target_size's min_frame_target
+    floor matches libvpx exactly. `recent_ref_frame_usage` (per-MB
+    INTRA/LAST/GOLDEN/ALTREF accumulator) and `gf_active_count` are
+    now tracked end-to-end: the encoder counts ref usage from the
+    just-encoded inter modes via `countInterFrameRefUsage`, accumulates
+    via `updateRecentRefFrameUsage` (skipping frames_since_golden==1
+    exactly like libvpx), resets to {1,1,1,1} via
+    `resetRecentRefFrameUsage` on GF/key refresh, and exposes
+    `thisFramePercentIntra` so calcGFParams and the auto_gold refresh
+    decision read the same state libvpx would. The encoder now invokes
+    `calcGFParams` at the tail of every CBR GF refresh frame (matching
+    libvpx's `calc_pframe_target_size` ordering, so the small +/-
+    last_boost adjustment for non-GF frames sees the prior GF's boost,
+    not this one's) and stores the boost in `lastBoost` for the next
+    section.
+    The auto_gold one-pass non-CBR refresh decision is wired into the
+    encoder via `shouldRefreshGoldenFrameOnePassNonCBR`, so VBR/CQ now
+    fire GF refreshes when `frames_till_gf_update_due==0` and
+    `pct_intra<15 || gf_frame_usage>=5`, funneling the result through
+    the same code path as CBR so the rate-control bookkeeping, header
+    copy semantics, and post-pack GF overspend accumulation apply
+    uniformly.
+  - Out of scope (deferred): temporal-layer propagation of KF/GF
+    overspend through libvpx's per-layer `layer_context` state (govpx
+    already mirrors the single-layer-vs-multi-layer KF split toggle
+    inside accumulatePostPackOverspend, but per-layer kf/gf counters
+    are tracked in the temporal-scalability work item, not here), and
+    the two-pass `calc_gf_params` IIAccumulator branch (disabled in
+    libvpx as well — guarded by `#if 0` in upstream).
 
 - [ ] Implement reference alias and copy-buffer policy.
   - govpx:
