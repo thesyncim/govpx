@@ -282,29 +282,38 @@ the anchor and look for the surrounding mismatch.
     [`predictBestInterIntraModeCost`](../encoder_reconstruct.go),
     [`predictBestBPredLumaModeRD`](../encoder_reconstruct.go).
   - libvpx: `vp8_pick_intra_mode`, RD intra pickers, and `encodeintra.c`.
-  - Status: partial. UV intra mode selection now uses transform/quantize,
-    coefficient-token rate, and transform-domain distortion. Remaining gaps
-    include exact thresholds, activity/tuning hooks, predictor edge setup, and
-    per-block bailout behavior.
+  - Status: partial. UV intra mode selection uses transform/quantize,
+    coefficient-token rate, and transform-domain distortion. Above-right
+    predictor edges for the rightmost B-block column read directly from the
+    above-row reference (`refs.YAbove[16:20]`), matching libvpx's
+    `intra_prediction_down_copy` payload semantically. The 4x4 RD picker
+    bails out per block when `total_rd >= bestRD`, mirroring libvpx's
+    `rd_pick_intra4x4mby_modes` early-exit.
+  - Missing: exact thresholds and activity/tuning hooks (gated on
+    `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
     coefficient EOBs, rate, distortion, and reconstructed pixels.
 
 - [ ] Audit quantization and coefficient optimization against libvpx.
   - govpx:
-    [`quantizeOptimizedBlock`](../encoder_reconstruct.go),
+    [`optimizeQuantizedBlock`](../encoder_reconstruct.go),
     [`internal/vp8/encoder/quant.go`](../internal/vp8/encoder/quant.go).
   - libvpx: `encodemb.c` and `vp8_quantize.c`.
-  - Status: partial. Several optimized-block paths are tested; final coefficient
-    optimization and fast-vs-regular quantizer selection now follow the libvpx
-    speed-feature gates, RD scoring uses the same unoptimized fast/regular
-    quantizer family, and post-optimization `check_reset_2nd_coeffs` behavior
-    now clears tiny Y2 residuals that would inverse-transform to zero. Regular
-    quantization now applies libvpx `zbin_extra` for mode boost plus
-    `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses it
-    like libvpx. Full parity still needs every round/quant/dequant path, trellis
-    decision, EOB handling, and Y2/Y1/UV context behavior.
-  - Missing: libvpx Viterbi trellis, `act_zbin_adj`, `RDTRUNC` tie-breaks, and
-    token-cost trace anchors.
+  - Status: partial. Coefficient optimization now ports the libvpx
+    `vp8_optimize_b` two-state Viterbi trellis: forward DP from `eob-1` down
+    to `i0`, the shift-toward-zero shortcut gated on overshoots inside one
+    quant step (`|x|*dq` in `(|c|, |c|+dq)`), plane-specific `Y1/Y2/UV`
+    rdmult, the intra `(rdmult * 9) >> 4` scaling, the `RDTRUNC` tie-break
+    when two trellis paths share an RDCOST, and EOB rollback by backtrace.
+    Fast-vs-regular quantizer selection follows the libvpx speed-feature
+    gates, RD scoring uses the same unoptimized fast/regular quantizer
+    family, and the post-optimization `check_reset_2nd_coeffs` behavior
+    clears tiny Y2 residuals that would inverse-transform to zero. Regular
+    quantization applies libvpx `zbin_extra` for mode boost plus
+    `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses
+    it like libvpx.
+  - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
+    expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin
     boosts, and coefficient patterns.

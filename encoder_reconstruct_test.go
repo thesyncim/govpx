@@ -1889,6 +1889,51 @@ func TestOptimizeQuantizedBlockKeepsCoefficientWhenDistortionDominates(t *testin
 	}
 }
 
+func TestOptimizeQuantizedBlockKeepsUndershootCoefficient(t *testing.T) {
+	// Undershoot |x|*dq=10 < |c|=11: the libvpx Viterbi only considers the
+	// shift-toward-zero shortcut for overshoots inside one quant step, so the
+	// trailing coefficient must stay even though the greedy optimizer would
+	// drop it.
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	coeff[1] = 11
+	qcoeff[1] = 1
+
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 2)
+
+	if eob != 2 || qcoeff[1] != 1 {
+		t.Fatalf("optimized eob/qcoeff = %d/%d, want libvpx Viterbi to keep undershoot coefficient", eob, qcoeff[1])
+	}
+}
+
+func TestOptimizeQuantizedBlockShortensTrailingZerosWithInteriorRetained(t *testing.T) {
+	// First non-zero overshoots inside one quant step (Viterbi keeps it via the
+	// shortcut), trailing non-zero overshoots and is rate-dominated, so the
+	// trellis drops only the trailing coefficient and pulls EOB back.
+	var quant vp8enc.BlockQuant
+	for i := range quant.Dequant {
+		quant.Dequant[i] = 10
+	}
+	var coeff [16]int16
+	var qcoeff [16]int16
+	rc1 := int(vp8tables.DefaultZigZag1D[1])
+	rc2 := int(vp8tables.DefaultZigZag1D[2])
+	coeff[rc1] = 60
+	qcoeff[rc1] = 6
+	coeff[rc2] = 9
+	qcoeff[rc2] = 1
+
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 3)
+
+	if eob != 2 || qcoeff[rc1] != 6 || qcoeff[rc2] != 0 {
+		t.Fatalf("trellis output eob/q1/q2 = %d/%d/%d, want trailing dropped while interior retained", eob, qcoeff[rc1], qcoeff[rc2])
+	}
+}
+
 func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	quant := testRegularBlockQuant(80, 100)
 	var coeff [16]int16
@@ -1959,7 +2004,9 @@ func TestQuantizeOptimizedBlockUpdatesDequantizedCoefficients(t *testing.T) {
 	var qcoeff [16]int16
 	var dqcoeff [16]int16
 	rc := int(vp8tables.DefaultZigZag1D[1])
-	coeff[rc] = 11
+	// Overshoot inside one quant step: |x|*dq=10 > |c|=9 < |c|+dq=19, so the
+	// libvpx Viterbi trellis explores the shift-toward-zero shortcut.
+	coeff[rc] = 9
 
 	eob := quantizeOptimizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, &coeff, &quant, &qcoeff, &dqcoeff)
 
@@ -1991,7 +2038,10 @@ func TestQuantizeEncodedBlockHonorsOptimizeGate(t *testing.T) {
 	var plainQ [16]int16
 	var plainDQ [16]int16
 	rc := int(vp8tables.DefaultZigZag1D[1])
-	coeff[rc] = 11
+	// Overshoot inside one quant step (|x|*dq=10 > |c|=9 < |c|+dq=19): the
+	// optimize path's libvpx Viterbi shortcut picks x=0; the plain path keeps
+	// the unoptimized x=1.
+	coeff[rc] = 9
 
 	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
 	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, false, false, &coeff, &quant, &plainQ, &plainDQ)
