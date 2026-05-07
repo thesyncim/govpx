@@ -35,30 +35,27 @@ the anchor and look for the surrounding mismatch.
 ## Current Estimate
 
 - Production validity: high. `make verify-production` passes against pinned
-  libvpx v1.16.0 tools and corpus minima.
-- Quality smoke parity: high on the current tiny corpus, but not complete. The
-  current oracle cases are near-equal on SSIM, while motion still shows a max
-  frame PSNR gap around 1.4 dB and a large bitrate delta. Current smoke numbers:
-  motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
-  govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
-  govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 69% overall, or about 79% on the core
-  one-pass quality path, weighted by libvpx LOC.
-  This is an engineering estimate, not a measured percentage, because
-  govpx still lacks the libvpx-side trace comparator needed to count
-  matching frame/MB decisions; the govpx-side per-MB JSON Lines harness
-  is in place.
-- The largest single remaining parity weight is `firstpass.c` (~2500 LOC
-  equivalent unimplemented). Other heavy areas: automatic hidden-ARF
-  scheduling, motion-compensated ARNR temporal filter, full GF boost
-  tables and `kf_overspend_bits`/`gf_overspend_bits` rate-control
-  bookkeeping, remaining entropy-refresh edge cases, and the libvpx-side
-  oracle comparator.
-- If only three more things are fixed, they should be: (1) the libvpx-side
-  oracle comparator paired with the existing govpx trace, (2) a proper
-  `firstpass.c` port covering motion search, MV variance, simple_weight,
-  and the section accumulators, and (3) automatic hidden-ARF scheduling
-  plus motion-compensated ARNR.
+  libvpx v1.16.0 tools and corpus minima when last run for the current parity
+  stack; update the "Last Measured" row below whenever this gate is rerun.
+- Quality smoke parity: high on the enforced smoke corpus, but not complete.
+  The current gates cover token partitions, static-threshold behavior,
+  external Y4M/YUV sources, panning clips across best/good/realtime deadlines,
+  and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15. These are smoke gates, not
+  the full representative 100% parity corpus.
+- Encoder decision parity: roughly 70% overall, or about 80% on the core
+  one-pass quality path, weighted by libvpx LOC. This is still an engineering
+  estimate, not a measured percentage: `CompareOracleTraces` exists, but the
+  corpus driver / CI gate that counts matching frame, rate, recode, candidate,
+  and MB decisions is still missing.
+- The largest remaining parity weights are first-pass/two-pass proof against a
+  libvpx first-pass oracle, candidate-level inter-mode tracing, rejected
+  recode-attempt tracing, automatic hidden-ARF/ARNR border proof, rate
+  parity tracking vs libvpx output bitrate/frame sizes, and remaining
+  quality-relevant entropy/refresh edge cases.
+- If only three more things are fixed, they should be: (1) wire the
+  govpx/libvpx trace comparator into the corpus gate, (2) replace
+  self-captured first-pass fixtures with libvpx first-pass oracle fixtures,
+  and (3) add candidate-level inter-mode / motion-search trace rows.
 
 ## Acceptance Gates
 
@@ -88,15 +85,40 @@ the anchor and look for the surrounding mismatch.
 
 ## Corpus And Tolerance Matrix
 
-- [ ] Define the representative clip/config matrix for 100% parity: static,
-  pan, zoom, edge motion, scene cut, high motion, noisy, screen/static content,
-  odd dimensions, non-multiple-of-16 dimensions, low/high bitrate, CBR/VBR/CQ,
+- [~] Current enforced smoke vectors:
+  - `motion-eight-token-partitions`: motion clip with token-partition coverage;
+    PSNR/SSIM/frame-gap and rate-to-target bounds live in
+    [`oracle_encoder_validation_test.go`](../oracle_encoder_validation_test.go).
+  - panning best/good/realtime cases: best, good RD, good fast-pick, and
+    realtime `CpuUsed` 0/3/4/5/8/9/15 are covered by the same validation test
+    file and helper tolerances.
+  - external Y4M/YUV source smoke: covered by
+    [`oracle_encoder_external_test.go`](../oracle_encoder_external_test.go).
+- [ ] Expand this into the representative 100% corpus: static, pan, zoom, edge
+  motion, scene cut, high motion, noisy, screen/static content, odd dimensions,
+  non-multiple-of-16 dimensions, low/high bitrate, CBR/VBR/CQ,
   best/good/realtime deadlines, CPU-used bands, token partitions,
   error-resilient mode, lookahead, ARF/ARNR, two-pass, frame dropping, and
   temporal layers.
 - [ ] For each vector record the required metric gate: PSNR/SSIM tolerance,
-  bitrate tolerance, frame-size tolerance, reference checksum requirement, and
-  which trace fields must match exactly.
+  direct govpx-vs-libvpx bitrate tolerance, per-frame-size tolerance,
+  reference checksum requirement, and which trace fields must match exactly.
+  Existing rate assertions check each encoder against target bitrate; direct
+  govpx-vs-libvpx output-kbps and frame-size delta gates are still missing.
+
+## Quality Gap Ledger
+
+| Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated, not 100% corpus | mode-loop / MV / rate-control deltas | candidate mode rows, direct bitrate deltas |
+| first-pass Y4M corpus | two-pass stats | self-captured fixture | missing libvpx oracle fixture | unknown | open | firstpass scoring / GOLDEN selection | first-pass oracle rows |
+| ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
+
+## Last Measured
+
+| Date | Commit | Gate | Result | Notes |
+| --- | --- | --- | --- | --- |
+| 2026-05-08 | local parity stack | `make verify-production` | pass | Update this row after each full gate run with the exact commit. |
 
 ## Accepted Non-Bitexact Differences
 
@@ -910,6 +932,14 @@ the anchor and look for the surrounding mismatch.
     `TestLibvpxRealtimeAdaptiveInterModeThresholdMirrorsSpeedFeature`,
     `TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins`, and
     `TestFastInterModeErrorBinsResetAndClampLikeLibvpx`.
+    Deadline / speed-feature plumbing now follows libvpx's mode-specific
+    `cpu-used` range: realtime accepts `[-16,16]`, while good-quality mode is
+    clamped to `[-5,5]` before search-step, RD-threshold, coefficient
+    optimization, fast-quant, block-4x4-search, and loop-filter fast-search
+    gates are evaluated. Constructor, `SetCPUUsed`, and `SetDeadline` all store
+    the libvpx-effective value; pinned by
+    `TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp` and the good-mode
+    case in `TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds`.
   - High-level sign-bias policy is now wired: frame headers derive
     `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
     `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,
@@ -1354,6 +1384,11 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] Audit `vp8_set_speed_features` behavior across deadline and CPU-used
   values.
+  - Status: partial. Good-quality `CpuUsed` is now clamped to libvpx's
+    `[-5,5]` range before speed-feature gates run; realtime keeps `[-16,16]`.
+    Remaining work is candidate-level proof of mode-loop scoring, threshold
+    mutation, and skipped-mode decisions across the representative speed
+    matrix.
   - Done when speed-feature-selected search methods, RD thresholds, quantizer
     family, coefficient optimization gates, subpel settings, static breakout,
     and mode-loop decisions match libvpx for best/good/realtime speeds.

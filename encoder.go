@@ -2102,6 +2102,7 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 		return ErrInvalidConfig
 	}
 	e.opts.Deadline = deadline
+	e.opts.CpuUsed = libvpxEffectiveCPUUsed(deadline, e.opts.CpuUsed)
 	return nil
 }
 
@@ -2112,8 +2113,32 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	if cpuUsed < -16 || cpuUsed > 16 {
 		return ErrInvalidConfig
 	}
-	e.opts.CpuUsed = cpuUsed
+	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
 	return nil
+}
+
+func (e *VP8Encoder) libvpxCPUUsed() int {
+	if e == nil {
+		return 0
+	}
+	return libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+}
+
+func libvpxEffectiveCPUUsed(deadline Deadline, cpuUsed int) int {
+	if cpuUsed < -16 {
+		cpuUsed = -16
+	} else if cpuUsed > 16 {
+		cpuUsed = 16
+	}
+	if deadline == DeadlineGoodQuality {
+		if cpuUsed < -5 {
+			return -5
+		}
+		if cpuUsed > 5 {
+			return 5
+		}
+	}
+	return cpuUsed
 }
 
 func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
@@ -2334,6 +2359,7 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.CpuUsed < -16 || opts.CpuUsed > 16 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
+	opts.CpuUsed = libvpxEffectiveCPUUsed(opts.Deadline, opts.CpuUsed)
 	if opts.KeyFrameInterval < 0 || opts.LookaheadFrames < 0 || opts.LookaheadFrames > maxLookaheadFrames || opts.TokenPartitions < int(vp8common.OnePartition) || opts.TokenPartitions > int(vp8common.EightPartition) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
@@ -2441,7 +2467,7 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 }
 
 func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
-	return e != nil && e.opts.Deadline == DeadlineRealtime && e.opts.CpuUsed >= 14
+	return e != nil && e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 14
 }
 
 func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
@@ -2468,7 +2494,7 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	if e == nil {
 		return false
 	}
-	speed := e.opts.CpuUsed
+	speed := e.libvpxCPUUsed()
 	switch e.opts.Deadline {
 	case DeadlineGoodQuality:
 		return speed > 4

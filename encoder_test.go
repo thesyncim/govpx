@@ -73,6 +73,72 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	}
 }
 
+func TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp(t *testing.T) {
+	base := EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	}
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     int
+	}{
+		{name: "good clamps high", deadline: DeadlineGoodQuality, cpuUsed: 16, want: 5},
+		{name: "good clamps low", deadline: DeadlineGoodQuality, cpuUsed: -16, want: -5},
+		{name: "realtime keeps high", deadline: DeadlineRealtime, cpuUsed: 16, want: 16},
+		{name: "best keeps high", deadline: DeadlineBestQuality, cpuUsed: 16, want: 16},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := base
+			opts.Deadline = tt.deadline
+			opts.CpuUsed = tt.cpuUsed
+			e, err := NewVP8Encoder(opts)
+			if err != nil {
+				t.Fatalf("NewVP8Encoder returned error: %v", err)
+			}
+			if got := e.opts.CpuUsed; got != tt.want {
+				t.Fatalf("CpuUsed = %d, want %d", got, tt.want)
+			}
+		})
+	}
+
+	e, err := NewVP8Encoder(base)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(good) returned error: %v", err)
+	}
+	if err := e.SetCPUUsed(16); err != nil {
+		t.Fatalf("SetCPUUsed(16) returned error: %v", err)
+	}
+	if got := e.opts.CpuUsed; got != 5 {
+		t.Fatalf("good SetCPUUsed stored %d, want clamped 5", got)
+	}
+	if err := e.SetDeadline(DeadlineRealtime); err != nil {
+		t.Fatalf("SetDeadline(realtime) returned error: %v", err)
+	}
+	if err := e.SetCPUUsed(16); err != nil {
+		t.Fatalf("realtime SetCPUUsed(16) returned error: %v", err)
+	}
+	if got := e.opts.CpuUsed; got != 16 {
+		t.Fatalf("realtime SetCPUUsed stored %d, want 16", got)
+	}
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(good) returned error: %v", err)
+	}
+	if got := e.opts.CpuUsed; got != 5 {
+		t.Fatalf("SetDeadline(good) stored %d, want clamped 5", got)
+	}
+}
+
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	e := newTestEncoder(t)
 
