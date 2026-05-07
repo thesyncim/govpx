@@ -332,8 +332,10 @@ func encoderSegmentationToDecoder(segmentation vp8enc.SegmentationConfig) vp8dec
 }
 
 type interAnalysisReference struct {
-	Frame vp8common.MVReferenceFrame
-	Img   *vp8common.Image
+	Frame      vp8common.MVReferenceFrame
+	Img        *vp8common.Image
+	RefRate    int
+	RefRateSet bool
 }
 
 type interAnalysisMotionCandidate struct {
@@ -343,16 +345,17 @@ type interAnalysisMotionCandidate struct {
 
 func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAnalysisReference) int {
 	count := 0
+	lastRate, goldenRate, altRate := e.interReferenceFrameRatesForFlags(flags)
 	if flags&EncodeNoReferenceLast == 0 {
-		refs[count] = interAnalysisReference{Frame: vp8common.LastFrame, Img: &e.lastRef.Img}
+		refs[count] = interAnalysisReference{Frame: vp8common.LastFrame, Img: &e.lastRef.Img, RefRate: lastRate, RefRateSet: true}
 		count++
 	}
 	if flags&EncodeNoReferenceGolden == 0 {
-		refs[count] = interAnalysisReference{Frame: vp8common.GoldenFrame, Img: &e.goldenRef.Img}
+		refs[count] = interAnalysisReference{Frame: vp8common.GoldenFrame, Img: &e.goldenRef.Img, RefRate: goldenRate, RefRateSet: true}
 		count++
 	}
 	if flags&EncodeNoReferenceAltRef == 0 {
-		refs[count] = interAnalysisReference{Frame: vp8common.AltRefFrame, Img: &e.altRef.Img}
+		refs[count] = interAnalysisReference{Frame: vp8common.AltRefFrame, Img: &e.altRef.Img, RefRate: altRate, RefRateSet: true}
 		count++
 	}
 	return count
@@ -650,7 +653,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		mode.SegmentID = segmentID
-		score, ok := e.estimateFastInterModeScore(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex)
+		score, ok := e.estimateFastInterModeScoreWithReferenceRate(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref))
 		if !ok {
 			continue
 		}
@@ -839,7 +842,7 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 		candidate := candidates[candidateIndex]
 		mode := vp8enc.InterFrameMotionModeForVectorAt(candidate.Ref.Frame, candidate.MV, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		mode.SegmentID = segmentID
-		score, ok := e.estimateInterResidualRDScore(src, candidate.Ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID)
+		score, ok := e.estimateInterResidualRDScoreWithReferenceRate(src, candidate.Ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(candidate.Ref))
 		if !ok {
 			continue
 		}
@@ -859,7 +862,7 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 				return vp8enc.InterFrameMacroblockMode{}, 0, false
 			}
 			mode.SegmentID = segmentID
-			score, ok := e.estimateInterResidualRDScore(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID)
+			score, ok := e.estimateInterResidualRDScoreWithReferenceRate(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
 			if !ok {
 				return vp8enc.InterFrameMacroblockMode{}, 0, false
 			}
@@ -1633,6 +1636,14 @@ func interMotionRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 }
 
 func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8) (int, bool) {
+	refRate := 1 << 30
+	if e != nil && mode != nil {
+		refRate = e.interReferenceFrameRate(mode.RefFrame)
+	}
+	return e.estimateInterResidualRDScoreWithReferenceRate(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, refRate)
+}
+
+func (e *VP8Encoder) estimateInterResidualRDScoreWithReferenceRate(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (int, bool) {
 	if ref == nil || mode == nil || quant == nil || segmentID >= vp8common.MaxMBSegments {
 		return 0, false
 	}
@@ -1645,7 +1656,7 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 		return 0, false
 	}
 
-	modeRate := e.interMotionModeRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
 	skipScore := rdModeScore(qIndex, modeRate+e.interMacroblockSkipRate(true), predictionDist)
 	if staticInterEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
@@ -1674,10 +1685,18 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 }
 
 func (e *VP8Encoder) estimateFastInterModeScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int) (int, bool) {
+	refRate := 1 << 30
+	if e != nil && mode != nil {
+		refRate = e.interReferenceFrameRate(mode.RefFrame)
+	}
+	return e.estimateFastInterModeScoreWithReferenceRate(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate)
+}
+
+func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int) (int, bool) {
 	if ref == nil || mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
 		return 0, false
 	}
-	modeRate := e.interMotionModeRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	variance, _ := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mode.MV)
 	score := rdModeScore(qIndex, modeRate, variance)
 	if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV && e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
@@ -2517,8 +2536,18 @@ func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, 
 	if mode.RefFrame == vp8common.IntraFrame {
 		return boolBitCost(e.refProbIntra, 0)
 	}
+	return e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, e.interReferenceFrameRate(mode.RefFrame))
+}
+
+func (e *VP8Encoder) interMotionModeRateWithReferenceRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, refRate int) int {
+	if mode == nil {
+		return 1 << 30
+	}
+	if mode.RefFrame == vp8common.IntraFrame {
+		return boolBitCost(e.refProbIntra, 0)
+	}
 	return boolBitCost(e.refProbIntra, 1) +
-		e.interReferenceFrameRate(mode.RefFrame) +
+		refRate +
 		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame)) +
 		interMotionModeVectorCost(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV)
 }
@@ -2527,13 +2556,55 @@ func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, 
 // the LAST/GOLDEN/ALTREF tree uses the previous-frame prob_last_coded and
 // prob_gf_coded, NOT a per-frame static 128.
 func (e *VP8Encoder) interReferenceFrameRate(refFrame vp8common.MVReferenceFrame) int {
+	return interReferenceFrameRateWithProbs(refFrame, e.refProbLast, e.refProbGolden)
+}
+
+func (e *VP8Encoder) interReferenceFrameRateForReference(ref interAnalysisReference) int {
+	if ref.RefRateSet {
+		return ref.RefRate
+	}
+	return e.interReferenceFrameRate(ref.Frame)
+}
+
+func (e *VP8Encoder) interReferenceFrameRatesForFlags(flags EncodeFlags) (last int, golden int, alt int) {
+	probLast := e.refProbLast
+	probGolden := e.refProbGolden
+	lastEnabled := flags&EncodeNoReferenceLast == 0
+	goldenEnabled := flags&EncodeNoReferenceGolden == 0
+	altEnabled := flags&EncodeNoReferenceAltRef == 0
+	temporalSingleRef := e.interReferenceFrameRatesUseTemporalSingleRefSpecialCase()
+	switch {
+	case lastEnabled && !goldenEnabled && !altEnabled:
+		probLast = 255
+		probGolden = 128
+	case temporalSingleRef && !lastEnabled && goldenEnabled && !altEnabled:
+		probLast = 1
+		probGolden = 255
+	case temporalSingleRef && !lastEnabled && !goldenEnabled && altEnabled:
+		probLast = 1
+		probGolden = 1
+	}
+	return interReferenceFrameRateWithProbs(vp8common.LastFrame, probLast, probGolden),
+		interReferenceFrameRateWithProbs(vp8common.GoldenFrame, probLast, probGolden),
+		interReferenceFrameRateWithProbs(vp8common.AltRefFrame, probLast, probGolden)
+}
+
+func (e *VP8Encoder) interReferenceFrameRatesUseTemporalSingleRefSpecialCase() bool {
+	if e == nil || !e.opts.TemporalScalability.Enabled {
+		return false
+	}
+	pattern, ok := temporalLayeringPattern(e.opts.TemporalScalability.Mode)
+	return ok && pattern.Layers > 1
+}
+
+func interReferenceFrameRateWithProbs(refFrame vp8common.MVReferenceFrame, probLast uint8, probGolden uint8) int {
 	switch refFrame {
 	case vp8common.LastFrame:
-		return boolBitCost(e.refProbLast, 0)
+		return boolBitCost(probLast, 0)
 	case vp8common.GoldenFrame:
-		return boolBitCost(e.refProbLast, 1) + boolBitCost(e.refProbGolden, 0)
+		return boolBitCost(probLast, 1) + boolBitCost(probGolden, 0)
 	case vp8common.AltRefFrame:
-		return boolBitCost(e.refProbLast, 1) + boolBitCost(e.refProbGolden, 1)
+		return boolBitCost(probLast, 1) + boolBitCost(probGolden, 1)
 	default:
 		return 1 << 30
 	}

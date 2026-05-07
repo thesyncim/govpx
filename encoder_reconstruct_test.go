@@ -1351,6 +1351,53 @@ func TestInterReferenceFrameRateUsesLivePrevFrameProbs(t *testing.T) {
 	}
 }
 
+func TestInterReferenceFrameRatesForFlagsMirrorLibvpxSingleReferenceSpecialCases(t *testing.T) {
+	e := &VP8Encoder{refProbLast: 200, refProbGolden: 90}
+	last, golden, alt := e.interReferenceFrameRatesForFlags(0)
+	if want := boolBitCost(200, 0); last != want {
+		t.Fatalf("all-ref LAST rate = %d, want %d", last, want)
+	}
+	if want := boolBitCost(200, 1) + boolBitCost(90, 0); golden != want {
+		t.Fatalf("all-ref GOLDEN rate = %d, want %d", golden, want)
+	}
+	if want := boolBitCost(200, 1) + boolBitCost(90, 1); alt != want {
+		t.Fatalf("all-ref ALTREF rate = %d, want %d", alt, want)
+	}
+
+	last, _, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceGolden | EncodeNoReferenceAltRef)
+	if want := boolBitCost(255, 0); last != want {
+		t.Fatalf("single-LAST rate = %d, want libvpx special-case %d", last, want)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer}
+	_, golden, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceAltRef)
+	if want := boolBitCost(200, 1) + boolBitCost(90, 0); golden != want {
+		t.Fatalf("one-layer single-GOLDEN rate = %d, want non-temporal live cost %d", golden, want)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
+	_, golden, _ = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceAltRef)
+	if want := boolBitCost(1, 1) + boolBitCost(255, 0); golden != want {
+		t.Fatalf("temporal single-GOLDEN rate = %d, want libvpx special-case %d", golden, want)
+	}
+	_, _, alt = e.interReferenceFrameRatesForFlags(EncodeNoReferenceLast | EncodeNoReferenceGolden)
+	if want := boolBitCost(1, 1) + boolBitCost(1, 1); alt != want {
+		t.Fatalf("temporal single-ALTREF rate = %d, want libvpx special-case %d", alt, want)
+	}
+}
+
+func TestInterAnalysisReferencesCarryLibvpxFlagSpecificReferenceRates(t *testing.T) {
+	e := &VP8Encoder{refProbLast: 200, refProbGolden: 90}
+	var refs [3]interAnalysisReference
+	count := e.interAnalysisReferences(EncodeNoReferenceGolden|EncodeNoReferenceAltRef, &refs)
+	if count != 1 || refs[0].Frame != vp8common.LastFrame || !refs[0].RefRateSet {
+		t.Fatalf("single-LAST refs = count:%d ref:%+v, want one LAST with explicit rate", count, refs[0])
+	}
+	if want := boolBitCost(255, 0); refs[0].RefRate != want {
+		t.Fatalf("single-LAST carried rate = %d, want %d", refs[0].RefRate, want)
+	}
+}
+
 func TestRdBlockScoreAppliesLibvpxPlaneAndIntraMultipliers(t *testing.T) {
 	if got := rdBlockScore(40, 4, false, 100, 20); got != 79 {
 		t.Fatalf("inter block rd = %d, want 79", got)
