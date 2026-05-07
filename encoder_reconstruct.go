@@ -522,6 +522,7 @@ type interAnalysisFullPixelSearchMethod uint8
 const (
 	interAnalysisFullPixelSearchExhaustive interAnalysisFullPixelSearchMethod = iota
 	interAnalysisFullPixelSearchNstep
+	interAnalysisFullPixelSearchDiamond
 	interAnalysisFullPixelSearchHex
 )
 
@@ -3136,6 +3137,9 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src vp8enc.Sou
 	if search.fullPixelSearch == interAnalysisFullPixelSearchNstep {
 		return nstepInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds, search, mvProbs)
 	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchDiamond {
+		return diamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds, search, mvProbs)
+	}
 	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
 		return hexInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds)
 	}
@@ -3759,6 +3763,16 @@ type interFrameNstepSearchResult struct {
 }
 
 func nstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	sites := interFrameNstepSearchSites()
+	return steppedDiamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, search, sites[:], 8, mvProbs)
+}
+
+func diamondInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	sites := interFrameDiamondSearchSites()
+	return steppedDiamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, search, sites[:], 4, mvProbs)
+}
+
+func steppedDiamondInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, sites []vp8enc.MotionVector, sitesPerStep int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
 	stepParam := search.fullPixelSearchParam
 	if stepParam < 0 {
 		stepParam = 0
@@ -3766,7 +3780,7 @@ func nstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common
 		stepParam = interFrameMaxMVSearchSteps - 1
 	}
 
-	result := diamondNstepInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, stepParam, mvProbs)
+	result := diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites, sitesPerStep, stepParam, mvProbs)
 	best := result.mv
 	bestCost := result.cost
 	n := result.num00
@@ -3781,7 +3795,7 @@ func nstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common
 			num00--
 			continue
 		}
-		candidate := diamondNstepInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, stepParam+n, mvProbs)
+		candidate := diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites, sitesPerStep, stepParam+n, mvProbs)
 		num00 = candidate.num00
 		if search.fullPixelFinalRefine && num00 > search.fullPixelFurtherSteps-n {
 			doRefine = false
@@ -3799,6 +3813,13 @@ func nstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common
 
 func diamondNstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, searchParam int, mvProbs *[2][vp8tables.MVPCount]uint8) interFrameNstepSearchResult {
 	sites := interFrameNstepSearchSites()
+	return diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites[:], 8, searchParam, mvProbs)
+}
+
+func diamondSearchSitesInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, sites []vp8enc.MotionVector, sitesPerStep int, searchParam int, mvProbs *[2][vp8tables.MVPCount]uint8) interFrameNstepSearchResult {
+	if sitesPerStep <= 0 || len(sites) < 1+sitesPerStep {
+		return interFrameNstepSearchResult{mv: center, cost: interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, center, bestRefMV, qIndex, mvProbs)}
+	}
 	if searchParam < 0 {
 		searchParam = 0
 	} else if searchParam >= interFrameMaxMVSearchSteps {
@@ -3807,15 +3828,19 @@ func diamondNstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp
 	best := center
 	bestWalkCost := centerWalkCost
 	start := center
-	startIndex := searchParam * 8
-	totalSteps := (len(sites) / 8) - searchParam
+	startIndex := searchParam * sitesPerStep
+	totalSteps := (len(sites) / sitesPerStep) - searchParam
 	i := 1
 	bestSite := 0
 	lastSite := 0
 	num00 := 0
 	for step := 0; step < totalSteps; step++ {
-		for j := 0; j < 8; j++ {
-			site := sites[startIndex+i]
+		for j := 0; j < sitesPerStep; j++ {
+			siteIndex := startIndex + i
+			if siteIndex >= len(sites) {
+				break
+			}
+			site := sites[siteIndex]
 			row := (int(best.Row) >> 3) + int(site.Row)
 			col := (int(best.Col) >> 3) + int(site.Col)
 			if bounds.containsFullPelStrict(row, col) {
@@ -3898,6 +3923,22 @@ func interFrameNstepSearchSites() [1 + interFrameMaxMVSearchSteps*8]vp8enc.Motio
 		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(-length)}
 		count++
 		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(length)}
+		count++
+	}
+	return sites
+}
+
+func interFrameDiamondSearchSites() [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector {
+	var sites [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector
+	count := 1
+	for length := 1 << (interFrameMaxMVSearchSteps - 1); length > 0; length /= 2 {
+		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: 0}
+		count++
+		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: 0}
+		count++
+		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(-length)}
+		count++
+		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(length)}
 		count++
 	}
 	return sites
