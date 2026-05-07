@@ -1695,6 +1695,58 @@ func TestRateControlEstimateKeyFrameFrequencyBootstraps(t *testing.T) {
 	}
 }
 
+// TestRateControlUpdatesRecentRefFrameUsage pins libvpx's
+// update_golden_frame_stats accumulation: counts add up across the GF
+// section, with the immediate post-GF frame (frames_since_golden==1)
+// excluded.
+func TestRateControlUpdatesRecentRefFrameUsage(t *testing.T) {
+	rc := rateControlState{
+		framesSinceGolden:         5,
+		recentRefFrameUsageIntra:  10,
+		recentRefFrameUsageLast:   100,
+		recentRefFrameUsageGolden: 5,
+		recentRefFrameUsageAltRef: 0,
+	}
+	rc.updateRecentRefFrameUsage(2, 50, 3, 0)
+	if rc.recentRefFrameUsageIntra != 12 ||
+		rc.recentRefFrameUsageLast != 150 ||
+		rc.recentRefFrameUsageGolden != 8 ||
+		rc.recentRefFrameUsageAltRef != 0 {
+		t.Fatalf("after update = (%d,%d,%d,%d), want (12,150,8,0)",
+			rc.recentRefFrameUsageIntra, rc.recentRefFrameUsageLast,
+			rc.recentRefFrameUsageGolden, rc.recentRefFrameUsageAltRef)
+	}
+	// libvpx skips frames_since_golden <= 1 to suppress the noisy first
+	// frame after a GF refresh.
+	rc.framesSinceGolden = 1
+	rc.updateRecentRefFrameUsage(99, 99, 99, 99)
+	if rc.recentRefFrameUsageIntra != 12 {
+		t.Fatalf("post-GF frame leaked into recent_ref_frame_usage: got %d, want unchanged 12",
+			rc.recentRefFrameUsageIntra)
+	}
+}
+
+// TestRateControlResetsRecentRefFrameUsageOnGFRefresh pins libvpx's
+// {1,1,1,1} reset and gf_active_count = mb_rows*mb_cols on GF refresh.
+func TestRateControlResetsRecentRefFrameUsageOnGFRefresh(t *testing.T) {
+	rc := rateControlState{
+		recentRefFrameUsageIntra:  100,
+		recentRefFrameUsageLast:   200,
+		recentRefFrameUsageGolden: 50,
+		recentRefFrameUsageAltRef: 10,
+	}
+	rc.resetRecentRefFrameUsage(1500)
+	if rc.recentRefFrameUsageIntra != 1 ||
+		rc.recentRefFrameUsageLast != 1 ||
+		rc.recentRefFrameUsageGolden != 1 ||
+		rc.recentRefFrameUsageAltRef != 1 ||
+		rc.gfActiveCount != 1500 {
+		t.Fatalf("post-reset state = (%d,%d,%d,%d) gfActive=%d, want (1,1,1,1) and 1500",
+			rc.recentRefFrameUsageIntra, rc.recentRefFrameUsageLast,
+			rc.recentRefFrameUsageGolden, rc.recentRefFrameUsageAltRef, rc.gfActiveCount)
+	}
+}
+
 // TestVBRMinFrameBandwidthBits pins libvpx's
 // `min_frame_bandwidth = av_per_frame_bandwidth * two_pass_vbrmin_section / 100`.
 func TestVBRMinFrameBandwidthBits(t *testing.T) {

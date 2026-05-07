@@ -122,6 +122,16 @@ type rateControlState struct {
 	keyFrameCount          int
 	keyFrameFrequency      int
 	priorKeyFrameDistance  [keyFrameContextSize]int
+
+	// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats accumulates
+	// per-MB ref-frame usage across the GF section so calc_gf_params and
+	// the calc_pframe_target_size auto_gold decision can read it.
+	recentRefFrameUsageIntra   int
+	recentRefFrameUsageLast    int
+	recentRefFrameUsageGolden  int
+	recentRefFrameUsageAltRef  int
+	gfActiveCount              int
+	thisFramePercentIntra      int
 }
 
 const (
@@ -2018,6 +2028,47 @@ func libvpxGoldenFrameTargetBits(boost int, framesTillGFUpdateDue int, interFram
 		return boost * (bitsInSection / allocationChunks)
 	}
 	return (boost * bitsInSection) / allocationChunks
+}
+
+// updateRecentRefFrameUsage mirrors the libvpx
+// vp8/encoder/onyx_if.c update_golden_frame_stats branch:
+//
+//	if (cpi->frames_since_golden > 1) {
+//	    cpi->recent_ref_frame_usage[INTRA_FRAME] +=
+//	        cpi->mb.count_mb_ref_frame_usage[INTRA_FRAME];
+//	    ...
+//	}
+//
+// Counts from the just-encoded frame are accumulated into the rolling
+// `recent_ref_frame_usage` totals (skipping the first frame after a GF
+// to suppress noise). On GF refresh, libvpx resets these counters to 1
+// each (handled separately, in resetGoldenFrameStats below).
+func (rc *rateControlState) updateRecentRefFrameUsage(intra, last, golden, alt int) {
+	if rc.framesSinceGolden <= 1 {
+		return
+	}
+	rc.recentRefFrameUsageIntra = saturatingAdd(rc.recentRefFrameUsageIntra, intra)
+	rc.recentRefFrameUsageLast = saturatingAdd(rc.recentRefFrameUsageLast, last)
+	rc.recentRefFrameUsageGolden = saturatingAdd(rc.recentRefFrameUsageGolden, golden)
+	rc.recentRefFrameUsageAltRef = saturatingAdd(rc.recentRefFrameUsageAltRef, alt)
+}
+
+// resetRecentRefFrameUsage mirrors libvpx's GF refresh reset:
+//
+//	cpi->recent_ref_frame_usage[INTRA_FRAME] = 1;
+//	cpi->recent_ref_frame_usage[LAST_FRAME]  = 1;
+//	cpi->recent_ref_frame_usage[GOLDEN_FRAME]= 1;
+//	cpi->recent_ref_frame_usage[ALTREF_FRAME]= 1;
+//
+// (vp8/encoder/onyx_if.c update_golden_frame_stats refresh branch).
+// Also resets gfActiveCount to the full MB count via the active_flags
+// memset in libvpx; the caller passes that count.
+func (rc *rateControlState) resetRecentRefFrameUsage(macroblocks int) {
+	rc.recentRefFrameUsageIntra = 1
+	rc.recentRefFrameUsageLast = 1
+	rc.recentRefFrameUsageGolden = 1
+	rc.recentRefFrameUsageAltRef = 1
+	rc.gfActiveCount = macroblocks
 }
 
 // vbrMinFrameBandwidthBits ports the libvpx

@@ -579,6 +579,21 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 		e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+		// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
+		// per-frame ref usage so calc_gf_params and the auto_gold
+		// refresh decision read the same `recent_ref_frame_usage`
+		// libvpx would. On GF refresh the encoder resets the counters
+		// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
+		// counts accumulate (skipping the immediate post-GF frame).
+		intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+		if attempt.Config.RefreshGolden {
+			e.rc.resetRecentRefFrameUsage(required)
+		} else {
+			e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+		}
+		if required > 0 {
+			e.rc.thisFramePercentIntra = (100 * intra) / required
+		}
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -637,6 +652,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
+	// libvpx vp8/encoder/onyx_if.c key-frame path resets the rolling
+	// recent_ref_frame_usage counters to 1 each (the same as a GF
+	// refresh) so the next GF section starts with a clean baseline.
+	e.rc.resetRecentRefFrameUsage(required)
+	e.rc.thisFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
@@ -1122,6 +1142,32 @@ func countSkippedInterFrameModes(modes []vp8enc.InterFrameMacroblockMode) int {
 		}
 	}
 	return count
+}
+
+// countInterFrameRefUsage mirrors libvpx's count_mb_ref_frame_usage: a
+// per-MB tally of which reference each MB selected (intra, last, golden,
+// altref). The four return values match the libvpx INTRA/LAST/GOLDEN/ALTREF
+// indexing of cpi->mb.count_mb_ref_frame_usage. Modes with intra
+// prediction (Mode < NearestMV, i.e. DCPred/VPred/HPred/TMPred/BPred)
+// count as INTRA_FRAME in libvpx; otherwise the MB carries an inter ref.
+func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, last, golden, alt int) {
+	for _, mode := range modes {
+		if mode.Mode < vp8common.NearestMV {
+			intra++
+			continue
+		}
+		switch mode.RefFrame {
+		case vp8common.LastFrame:
+			last++
+		case vp8common.GoldenFrame:
+			golden++
+		case vp8common.AltRefFrame:
+			alt++
+		default:
+			intra++
+		}
+	}
+	return intra, last, golden, alt
 }
 
 func validateEncodeFlags(flags EncodeFlags) error {
