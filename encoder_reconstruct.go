@@ -1292,7 +1292,8 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		var yrd int
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
-			mode, score, yrd, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
+			mode, score, yrd, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
 			if ok {
@@ -1333,7 +1334,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-	qIndex int, segmentID uint8, bestYRD int,
+	qIndex int, segmentID uint8, bestYRD int, mvthresh int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
@@ -1345,8 +1346,6 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	// (1=LAST, 2=GOLDEN, 3=ALTREF) and feeds it into
 	// vp8_rd_pick_best_mbsegmentation as bsi->mvthresh, which the per-label
 	// loop divides by label_count to gate NEW4X4 motion searches.
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, []interAnalysisReference{ref}, 1)
-	mvthresh := libvpxSplitMVSubsearchThreshold(thresholds, libvpxRefSlotForFrame(ref.Frame))
 	bestSet := false
 	bestScore := maxInt()
 	bestPartitionYRD := maxInt()
@@ -1382,6 +1381,11 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	return bestMode, bestScore, bestPartitionYRD, false, bestSet
 }
 
+func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	return libvpxSplitMVSubsearchThreshold(thresholds, refSlot)
+}
+
 func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSlot int) int {
 	switch refSlot {
 	case 1:
@@ -1390,24 +1394,6 @@ func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSl
 		return thresholds[libvpxThrNew2]
 	default:
 		return thresholds[libvpxThrNew3]
-	}
-}
-
-// libvpxRefSlotForFrame mirrors libvpx's vp8_ref_frame_order encoding for
-// the SPLITMV branch lookup: LAST_FRAME -> 1, GOLDEN_FRAME -> 2,
-// ALTREF_FRAME -> 3 (the three NEWMV reference slots in
-// vp8_rd_pick_inter_mode that map onto THR_NEW1 / THR_NEW2 / THR_NEW3 from
-// rd_threshes).
-func libvpxRefSlotForFrame(frame vp8common.MVReferenceFrame) int {
-	switch frame {
-	case vp8common.LastFrame:
-		return 1
-	case vp8common.GoldenFrame:
-		return 2
-	case vp8common.AltRefFrame:
-		return 3
-	default:
-		return 0
 	}
 }
 
@@ -1879,7 +1865,7 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	bestMode := vp8common.Left4x4
 	bestSAD := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV)
 	bestCost := bestSAD + splitSubMotionLabelSearchCostWithContext(bestMode, leftMV, aboveMV, qIndex)
-	bestLabelRate := splitSubMotionLabelCostWithProbs(bestMode, libvpxDefaultSubMVRefProbs)
+	bestLabelRate := splitSubMotionLabelRate(bestMode, leftMV, aboveMV)
 	bestLabelDist := bestSAD
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
@@ -1889,7 +1875,7 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 			bestCost = cost
 			bestMV = mv
 			bestMode = candidateMode
-			bestLabelRate = splitSubMotionLabelCostWithProbs(candidateMode, libvpxDefaultSubMVRefProbs)
+			bestLabelRate = splitSubMotionLabelRate(candidateMode, leftMV, aboveMV)
 			bestLabelDist = sad
 		}
 	}
