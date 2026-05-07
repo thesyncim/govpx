@@ -254,6 +254,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	cols := encoderMacroblockCols(e.opts.Width)
 	required := rows * cols
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
+	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount: temporalFrame.LayerCount,
@@ -270,7 +271,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
-	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, goldenCBRRefresh, required, e.opts.ScreenContentMode)
+	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
@@ -311,7 +312,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	}
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
 	if !keyFrame {
-		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, staticSegmentationAllowed)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -321,7 +322,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		result.SizeBytes = attempt.Size
 		result.Quantizer = finalQuantizer
 		result.Droppable = interFrameDroppable(attempt.Config)
-		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, goldenCBRRefresh, required, !invisible)
+		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
 		e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
@@ -455,13 +456,13 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	return n, nil
 }
 
-func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
 	for attempt := 0; ; attempt++ {
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, goldenCBRRefresh) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, boostedReferenceFrame) {
 			return result, nil
 		}
 	}
@@ -625,6 +626,10 @@ func validateEncodeFlags(flags EncodeFlags) error {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func boostedReferenceRateControlFrame(goldenCBRRefresh bool, flags EncodeFlags) bool {
+	return goldenCBRRefresh || flags&(EncodeForceGoldenFrame|EncodeForceAltRefFrame) != 0
 }
 
 func (e *VP8Encoder) shouldEncodeKeyFrame(src Image, flags EncodeFlags) bool {

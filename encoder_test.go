@@ -2256,6 +2256,21 @@ func TestEncodeIntoRejectsConflictingForceReferenceFlags(t *testing.T) {
 	}
 }
 
+func TestBoostedReferenceRateControlFrameMirrorsLibvpxRefreshFlags(t *testing.T) {
+	if !boostedReferenceRateControlFrame(true, 0) {
+		t.Fatalf("golden CBR refresh = false, want boosted reference rate-control frame")
+	}
+	if !boostedReferenceRateControlFrame(false, EncodeForceGoldenFrame) {
+		t.Fatalf("force golden refresh = false, want boosted reference rate-control frame")
+	}
+	if !boostedReferenceRateControlFrame(false, EncodeForceAltRefFrame) {
+		t.Fatalf("force altref refresh = false, want boosted reference rate-control frame")
+	}
+	if boostedReferenceRateControlFrame(false, EncodeNoUpdateGolden|EncodeNoUpdateAltRef) {
+		t.Fatalf("no-update flags = true, want normal inter rate-control frame")
+	}
+}
+
 func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)
