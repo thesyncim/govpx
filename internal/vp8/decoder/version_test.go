@@ -13,7 +13,7 @@ func TestInterPredictionConfigForVersion(t *testing.T) {
 		{version: 0, lfType: NormalLoopFilter, ok: true},
 		{version: 1, want: InterPredictionConfig{UseBilinear: true}, lfType: SimpleLoopFilter, ok: true},
 		{version: 2, want: InterPredictionConfig{UseBilinear: true}, noLF: true, lfType: NormalLoopFilter, ok: true},
-		{version: 3, want: InterPredictionConfig{UseBilinear: true, FullPixel: true}, noLF: true, lfType: NormalLoopFilter, ok: true},
+		{version: 3, want: InterPredictionConfig{UseBilinear: true, FullPixel: true}, noLF: true, lfType: SimpleLoopFilter, ok: true},
 		{version: 4},
 	}
 

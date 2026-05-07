@@ -23,7 +23,7 @@ func VersionSkipsLoopFilter(version int) bool {
 }
 
 func LoopFilterHeaderForVersion(version int, header LoopFilterHeader) LoopFilterHeader {
-	if version == 1 {
+	if version == 1 || version == 3 {
 		header.Type = SimpleLoopFilter
 	}
 	return header
