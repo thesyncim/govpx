@@ -291,8 +291,10 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 // the colocated 8x8 chroma blocks) in the center frame it searches the
 // adjacent backward/forward source frames for a matching block and weights
 // each predictor pixel by libvpx's
-//   modifier = clamp((3*(src-pred)^2 + rounding) >> strength, 0, 16)
-//   weight   = (16 - modifier) * filter_weight
+//
+//	modifier = clamp((3*(src-pred)^2 + rounding) >> strength, 0, 16)
+//	weight   = (16 - modifier) * filter_weight
+//
 // The center frame contributes with filter_weight=2 (as in libvpx); adjacent
 // frames pick filter_weight in {2,1,0} based on the 16x16 SAD threshold pair
 // THRESH_LOW=10000 / THRESH_HIGH=20000.
@@ -672,9 +674,11 @@ func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbX, mbY i
 
 // applyTemporalFilter is a direct port of libvpx's
 // vp8_temporal_filter_apply_c. The integer formula approximates
-//   coeff = (3 * (src - pred)^2) / 2^strength
-//   modifier = clamp(round(coeff), 0, 16)
-//   weight   = (16 - modifier) * filter_weight
+//
+//	coeff = (3 * (src - pred)^2) / 2^strength
+//	modifier = clamp(round(coeff), 0, 16)
+//	weight   = (16 - modifier) * filter_weight
+//
 // and accumulates count/accumulator for downstream normalization.
 func applyTemporalFilter(src []byte, srcStride int, pred []byte, predStride int, strength int, filterWeight int, accumulator []uint32, count []uint32) {
 	rounding := 0

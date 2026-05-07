@@ -427,7 +427,7 @@ func WriteInterPredictionMode(w *BoolWriter, counts InterModeCounts, mode common
 }
 
 func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode, best MotionVector) error {
-	if w == nil || probs == nil || !validSplitMVMode(mode) {
+	if w == nil || probs == nil || !validSplitMVModeWithContext(mode, left, above) {
 		return ErrInvalidPacketConfig
 	}
 	if !writeMBSplit(w, int(mode.Partition)) {
@@ -439,7 +439,11 @@ func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mo
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]
-		if err := writeSubMotionVector(w, probs, target, leftMV, aboveMV, best); err != nil {
+		bMode := mode.BModes[block]
+		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
+			return ErrInvalidPacketConfig
+		}
+		if err := writeSubMotionVector(w, probs, bMode, target, leftMV, aboveMV, best); err != nil {
 			return err
 		}
 	}
@@ -467,25 +471,37 @@ func writeMBSplit(w *BoolWriter, partition int) bool {
 	return w.Err() == nil
 }
 
-func writeSubMotionVector(w *BoolWriter, probs *[2][tables.MVPCount]uint8, target MotionVector, left MotionVector, above MotionVector, best MotionVector) error {
+func writeSubMotionVector(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mode common.BPredictionMode, target MotionVector, left MotionVector, above MotionVector, best MotionVector) error {
 	subProbs := subMVRefProbs(left, above)
-	if target == left {
-		w.WriteBool(0, subProbs[0])
+	if !writeSubMotionVectorReference(w, mode, subProbs) {
+		return ErrInvalidPacketConfig
+	}
+	if mode != common.New4x4 {
 		return w.Err()
 	}
-	w.WriteBool(1, subProbs[0])
-	if target == above {
-		w.WriteBool(0, subProbs[1])
-		return w.Err()
-	}
-	w.WriteBool(1, subProbs[1])
-	if target.IsZero() {
-		w.WriteBool(0, subProbs[2])
-		return w.Err()
-	}
-	w.WriteBool(1, subProbs[2])
 	delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
 	return WriteMotionVector(w, probs, delta)
+}
+
+func writeSubMotionVectorReference(w *BoolWriter, mode common.BPredictionMode, probs [3]uint8) bool {
+	switch mode {
+	case common.Left4x4:
+		w.WriteBool(0, probs[0])
+	case common.Above4x4:
+		w.WriteBool(1, probs[0])
+		w.WriteBool(0, probs[1])
+	case common.Zero4x4:
+		w.WriteBool(1, probs[0])
+		w.WriteBool(1, probs[1])
+		w.WriteBool(0, probs[2])
+	case common.New4x4:
+		w.WriteBool(1, probs[0])
+		w.WriteBool(1, probs[1])
+		w.WriteBool(1, probs[2])
+	default:
+		return false
+	}
+	return w.Err() == nil
 }
 
 func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) bool {
@@ -947,7 +963,7 @@ func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *Inte
 	case common.NewMV:
 		return true
 	case common.SplitMV:
-		return validSplitMVMode(mode)
+		return validSplitMVModeWithContext(mode, left, above)
 	default:
 		return false
 	}
@@ -965,6 +981,9 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 		if mv.Row&1 != 0 || mv.Col&1 != 0 {
 			return false
 		}
+		if mode.BModes[block] < common.Left4x4 || mode.BModes[block] > common.New4x4 {
+			return false
+		}
 		fillStart := subset * fillCount
 		for i := 0; i < fillCount; i++ {
 			if mode.BlockMV[tables.MBSplitFillOffset[mode.Partition][fillStart+i]] != mv {
@@ -973,6 +992,22 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 		}
 	}
 	return mode.MV == mode.BlockMV[15]
+}
+
+func validSplitMVModeWithContext(mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode) bool {
+	if !validSplitMVMode(mode) {
+		return false
+	}
+	partitions := int(tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := splitLeftMV(mode, left, block)
+		aboveMV := splitAboveMV(mode, above, block)
+		if !splitSubMotionLabelMatchesMV(mode.BModes[block], mode.BlockMV[block], leftMV, aboveMV) {
+			return false
+		}
+	}
+	return true
 }
 
 func clampInterMotionVectorToModeEdges(mv MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
@@ -1062,7 +1097,7 @@ func subMVRefProbs(left MotionVector, above MotionVector) [3]uint8 {
 }
 
 func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode, best MotionVector) error {
-	if counts == nil || !validSplitMVMode(mode) {
+	if counts == nil || !validSplitMVModeWithContext(mode, left, above) {
 		return ErrInvalidPacketConfig
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
@@ -1071,7 +1106,11 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]
-		if target == leftMV || target == aboveMV || target.IsZero() {
+		bMode := mode.BModes[block]
+		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
+			return ErrInvalidPacketConfig
+		}
+		if bMode != common.New4x4 {
 			continue
 		}
 		delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
@@ -1080,6 +1119,21 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 		}
 	}
 	return nil
+}
+
+func splitSubMotionLabelMatchesMV(mode common.BPredictionMode, target MotionVector, left MotionVector, above MotionVector) bool {
+	switch mode {
+	case common.Left4x4:
+		return target == left
+	case common.Above4x4:
+		return above != left && target == above
+	case common.Zero4x4:
+		return target.IsZero()
+	case common.New4x4:
+		return true
+	default:
+		return false
+	}
 }
 
 func validInterIntraMacroblockMode(mode *InterFrameMacroblockMode) bool {

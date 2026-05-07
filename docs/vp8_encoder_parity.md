@@ -379,10 +379,10 @@ the anchor and look for the surrounding mismatch.
     `TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias`,
     `TestImprovedInterFrameSearchStartBiasesCurrentSlots`, and
     `TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots`.
-  - Missing: full SplitMV label-level segmentation search with
-    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
-    interactions. Active-map behavior is tracked in the dedicated active-map
-    checklist item elsewhere.
+  - Missing: full SplitMV label-level RD search with `THR_NEW1/2/3` gating,
+    token-context commit parity, active-map skip short-circuiting, and
+    recode-loop interactions. Active-map behavior is tracked in the dedicated
+    active-map checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -422,8 +422,13 @@ the anchor and look for the surrounding mismatch.
     calls `rd_inter4x4_uv` (`vp8_build_inter4x4_predictors_mbuv` ->
     `vp8_subtract_mbuv` -> `vp8_transform_mbuv` -> `vp8_quantize_mbuv` ->
     `rd_cost_mbuv`).
-  - Status: partial. Partition order/pruning is aligned. After the Y split
-    is committed, `selectInterFrameSplitMotionDecisionRD` reuses the
+  - Status: partial. Partition order/pruning is aligned. Per-subset motion
+    selection now trials LEFT/ABOVE/ZERO/NEW labels, stores the explicit
+    sub-MV label in `BModes`, and uses that label for SplitMV rate costing,
+    MV-probability branch counting, and packet syntax instead of deriving the
+    label from MV equality. NEW4X4 keeps libvpx's weight-102 vector cost, and
+    ABOVE4X4 is only selected when it is not the same MV as LEFT4X4. After the
+    Y split is committed, `selectInterFrameSplitMotionDecisionRD` reuses the
     decoder's `ReconstructSplitMVInterMacroblock` to render the SPLITMV
     luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
     four covering 4x4 luma MVs via `splitChromaMotionVector`), then runs
@@ -432,8 +437,8 @@ the anchor and look for the surrounding mismatch.
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
-    Per-subset LEFT/ABOVE/ZERO/NEW trials, predictor reuse, and label entropy
-    contexts remain open.
+    Predictor/step reuse, token-context commit parity, and oracle-backed
+    label-level RD remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

@@ -1052,6 +1052,29 @@ func TestSelectInterFrameSplitMotionModeFindsQuadrantMotion(t *testing.T) {
 	}
 }
 
+func TestSelectInterFrameSplitSubsetMotionModeTrialsReusableLabels(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < 32; row++ {
+		copy(src.Y[row*src.YStride:row*src.YStride+32], ref.Img.Y[row*ref.Img.YStride:row*ref.Img.YStride+32])
+	}
+	ref.ExtendBorders()
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 2,
+	}
+	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	width, height := splitMotionPartitionBlockSize(int(mode.Partition))
+
+	mv, bMode := selectInterFrameSplitSubsetMotionMode(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height, vp8enc.MotionVector{}, testInterSearchQIndex, &left, &above)
+
+	if mv != (vp8enc.MotionVector{}) || bMode != vp8common.Above4x4 {
+		t.Fatalf("subset candidate = %+v/%v, want ABOVE4X4 zero-MV reuse", mv, bMode)
+	}
+}
+
 func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 	t.Run("horizontal", func(t *testing.T) {
 		src, ref := splitMotionSourceAndReference(t)
@@ -2192,6 +2215,27 @@ func TestSplitMotionModeVectorCostChargesPartitionAndNew4x4Weight(t *testing.T) 
 	liveProbs[1][0] = 1
 	if liveCost := splitMotionModeVectorCost(&mode, nil, nil, best, &liveProbs); liveCost == defaultCost {
 		t.Fatalf("live split vector cost = default cost %d, want MV probs to affect SPLITMV sub-vector cost", liveCost)
+	}
+}
+
+func TestSplitMotionModeVectorCostUsesExplicitSubMVLabel(t *testing.T) {
+	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 0,
+	}
+	fillInterFrameSplitSubsetWithMode(&mode, 0, left.MV, vp8common.New4x4)
+	fillInterFrameSplitSubsetWithMode(&mode, 1, left.MV, vp8common.Left4x4)
+	mode.MV = mode.BlockMV[15]
+	mvProbs := vp8tables.DefaultMVContext
+
+	newCost := splitMotionModeVectorCost(&mode, &left, nil, vp8enc.MotionVector{}, &mvProbs)
+	mode.BModes[0] = vp8common.Left4x4
+	leftCost := splitMotionModeVectorCost(&mode, &left, nil, vp8enc.MotionVector{}, &mvProbs)
+
+	if newCost <= leftCost {
+		t.Fatalf("explicit NEW4X4 cost = %d, want greater than LEFT4X4 cost %d for same MV", newCost, leftCost)
 	}
 }
 

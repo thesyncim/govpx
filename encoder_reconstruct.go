@@ -1258,7 +1258,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	bestPartitionYRD := maxInt()
 	var bestMode vp8enc.InterFrameMacroblockMode
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
-		mode, ok := selectInterFrameSplitMotionMode(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition)
+		mode, ok := selectInterFrameSplitMotionModeWithContext(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above)
 		if !ok {
 			continue
 		}
@@ -1614,6 +1614,10 @@ func (e *VP8Encoder) predictFastIntraChromaMode(src vp8enc.SourceImage, mbRow in
 }
 
 func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int) (vp8enc.InterFrameMacroblockMode, bool) {
+	return selectInterFrameSplitMotionModeWithContext(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, nil, nil)
+}
+
+func selectInterFrameSplitMotionModeWithContext(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode) (vp8enc.InterFrameMacroblockMode, bool) {
 	if ref == nil || refFrame == vp8common.IntraFrame || partition < 0 || partition >= vp8tables.NumMBSplits {
 		return vp8enc.InterFrameMacroblockMode{}, false
 	}
@@ -1626,20 +1630,55 @@ func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Imag
 	allSame := true
 	width, height := splitMotionPartitionBlockSize(partition)
 	for subset := 0; subset < int(vp8tables.MBSplitCount[mode.Partition]); subset++ {
-		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
-		mv, _ := selectInterFrameSplitBlockFullPixelMotionVector(src, ref, mbRow, mbCol, block, width, height, bestRefMV, qIndex)
+		mv, bMode := selectInterFrameSplitSubsetMotionMode(src, ref, mbRow, mbCol, &mode, subset, width, height, bestRefMV, qIndex, left, above)
 		if subset == 0 {
 			first = mv
 		} else if mv != first {
 			allSame = false
 		}
-		fillInterFrameSplitSubset(&mode, subset, mv)
+		fillInterFrameSplitSubsetWithMode(&mode, subset, mv, bMode)
 	}
 	mode.MV = mode.BlockMV[15]
 	if allSame {
 		return vp8enc.InterFrameMacroblockMode{}, false
 	}
 	return mode, true
+}
+
+func selectInterFrameSplitSubsetMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, subset int, width int, height int, bestRefMV vp8enc.MotionVector, qIndex int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode) (vp8enc.MotionVector, vp8common.BPredictionMode) {
+	block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+	leftMV := analysisSplitLeftMV(mode, left, block)
+	aboveMV := analysisSplitAboveMV(mode, above, block)
+	bestMV := leftMV
+	bestMode := vp8common.Left4x4
+	bestCost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV) + splitSubMotionLabelSearchCost(bestMode, qIndex)
+
+	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
+		cost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + splitSubMotionLabelSearchCost(candidateMode, qIndex)
+		if cost < bestCost {
+			bestCost = cost
+			bestMV = mv
+			bestMode = candidateMode
+		}
+	}
+
+	if aboveMV != leftMV {
+		tryCandidate(vp8common.Above4x4, aboveMV)
+	}
+	tryCandidate(vp8common.Zero4x4, vp8enc.MotionVector{})
+	newMV, newCost := selectInterFrameSplitBlockFullPixelMotionVector(src, ref, mbRow, mbCol, block, width, height, bestRefMV, qIndex)
+	newCost += splitSubMotionLabelSearchCost(vp8common.New4x4, qIndex)
+	if newCost < bestCost {
+		bestMV = newMV
+		bestMode = vp8common.New4x4
+	}
+
+	return bestMV, bestMode
+}
+
+func splitSubMotionLabelSearchCost(mode vp8common.BPredictionMode, qIndex int) int {
+	cost := splitSubMotionLabelCostWithProbs(mode, libvpxDefaultSubMVRefProbs)
+	return (cost*libvpxSADPerBit4(qIndex) + 128) >> 8
 }
 
 // interSplitMVRDDecision mirrors libvpx's RATE_DISTORTION accounting after a
@@ -1736,10 +1775,25 @@ func splitMotionPartitionBlockSize(partition int) (int, int) {
 }
 
 func fillInterFrameSplitSubset(mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector) {
-	fillCount := int(vp8tables.MBSplitFillCount[mode.Partition])
-	fillStart := subset * fillCount
-	for i := 0; i < fillCount; i++ {
-		mode.BlockMV[vp8tables.MBSplitFillOffset[mode.Partition][fillStart+i]] = mv
+	fillInterFrameSplitSubsetWithMode(mode, subset, mv, vp8common.New4x4)
+}
+
+func fillInterFrameSplitSubsetWithMode(mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, firstMode vp8common.BPredictionMode) {
+	if mode == nil || mode.Partition >= vp8tables.NumMBSplits {
+		return
+	}
+	for block := 0; block < 16; block++ {
+		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
+			continue
+		}
+		bMode := firstMode
+		if block&3 != 0 && int(vp8tables.MBSplits[mode.Partition][block-1]) == subset {
+			bMode = vp8common.Left4x4
+		} else if block>>2 != 0 && int(vp8tables.MBSplits[mode.Partition][block-4]) == subset {
+			bMode = vp8common.Above4x4
+		}
+		mode.BlockMV[block] = mv
+		mode.BModes[block] = bMode
 	}
 }
 
@@ -3857,26 +3911,45 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 		leftMV := analysisSplitLeftMV(mode, left, block)
 		aboveMV := analysisSplitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]
-		probs := analysisSubMVRefProbs(leftMV, aboveMV)
-		if target == leftMV {
-			cost += analysisBoolBitCost(probs[0], 0)
-			continue
+		bMode := mode.BModes[block]
+		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
+			return maxInt() / 4
 		}
-		cost += analysisBoolBitCost(probs[0], 1)
-		if target == aboveMV {
-			cost += analysisBoolBitCost(probs[1], 0)
-			continue
+		cost += splitSubMotionLabelRate(bMode, leftMV, aboveMV)
+		if bMode == vp8common.New4x4 {
+			delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
+			cost += splitMotionVectorCost(delta, mvProbs)
 		}
-		cost += analysisBoolBitCost(probs[1], 1)
-		if target.IsZero() {
-			cost += analysisBoolBitCost(probs[2], 0)
-			continue
-		}
-		cost += analysisBoolBitCost(probs[2], 1)
-		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
-		cost += splitMotionVectorCost(delta, mvProbs)
 	}
 	return cost
+}
+
+var libvpxDefaultSubMVRefProbs = [3]uint8{180, 162, 25}
+
+func splitSubMotionLabelRate(mode vp8common.BPredictionMode, left vp8enc.MotionVector, above vp8enc.MotionVector) int {
+	return splitSubMotionLabelCostWithProbs(mode, analysisSubMVRefProbs(left, above))
+}
+
+func splitSubMotionLabelCostWithProbs(mode vp8common.BPredictionMode, probs [3]uint8) int {
+	if mode < vp8common.Left4x4 || mode > vp8common.New4x4 {
+		return maxInt() / 4
+	}
+	return treeTokenCost(vp8tables.SubMVRefTree[:], probs[:], int(mode))
+}
+
+func splitSubMotionLabelMatchesMV(mode vp8common.BPredictionMode, target vp8enc.MotionVector, left vp8enc.MotionVector, above vp8enc.MotionVector) bool {
+	switch mode {
+	case vp8common.Left4x4:
+		return target == left
+	case vp8common.Above4x4:
+		return above != left && target == above
+	case vp8common.Zero4x4:
+		return target.IsZero()
+	case vp8common.New4x4:
+		return true
+	default:
+		return false
+	}
 }
 
 func mbSplitPartitionRate(partition uint8) int {

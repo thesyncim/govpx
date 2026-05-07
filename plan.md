@@ -57,8 +57,10 @@ lives in [Makefile](Makefile).
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
-  per-subset LEFT/ABOVE/ZERO/NEW mode trials and predictor/step reuse remain
-  open.
+  per-subset LEFT/ABOVE/ZERO/NEW mode trials and explicit sub-MV labels are
+  now wired into selection, cost, MV-probability counting, and syntax.
+  Predictor/step reuse, token-context commit parity, and oracle-backed
+  label-level RD remain open.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact

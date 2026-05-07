@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -860,6 +861,73 @@ func TestWriteCoefficientInterFrameDecodesSplitMV(t *testing.T) {
 	}
 }
 
+func TestSplitMotionVectorSyntaxUsesExplicitSubMVLabel(t *testing.T) {
+	left := InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.NewMV, MV: MotionVector{Col: 16}}
+	newLabelMode := explicitSplitLabelTestMode(common.New4x4, left.MV)
+	leftLabelMode := explicitSplitLabelTestMode(common.Left4x4, left.MV)
+
+	newPayload := splitMotionVectorPayload(t, &newLabelMode, &left)
+	leftPayload := splitMotionVectorPayload(t, &leftLabelMode, &left)
+	if bytes.Equal(newPayload, leftPayload) {
+		t.Fatalf("NEW4X4 and LEFT4X4 payloads matched; want explicit sub-MV label to affect syntax")
+	}
+
+	var newCounts [2][tables.MVPCount][2]int
+	if err := countSplitMotionVectorBranches(&newCounts, &newLabelMode, &left, nil, MotionVector{}); err != nil {
+		t.Fatalf("countSplitMotionVectorBranches NEW4X4: %v", err)
+	}
+	var leftCounts [2][tables.MVPCount][2]int
+	if err := countSplitMotionVectorBranches(&leftCounts, &leftLabelMode, &left, nil, MotionVector{}); err != nil {
+		t.Fatalf("countSplitMotionVectorBranches LEFT4X4: %v", err)
+	}
+	if motionBranchCountTotal(newCounts) == 0 {
+		t.Fatalf("NEW4X4 branch count total = 0, want MV delta counted even when target equals left")
+	}
+	if motionBranchCountTotal(leftCounts) != 0 {
+		t.Fatalf("LEFT4X4 branch count total = %d, want no MV delta counted", motionBranchCountTotal(leftCounts))
+	}
+}
+
+func explicitSplitLabelTestMode(label common.BPredictionMode, mv MotionVector) InterFrameMacroblockMode {
+	mode := InterFrameMacroblockMode{
+		RefFrame:  common.LastFrame,
+		Mode:      common.SplitMV,
+		Partition: 0,
+	}
+	fillEncoderSplitSubset(&mode, 0, mv)
+	fillEncoderSplitSubset(&mode, 1, mv)
+	mode.BModes[0] = label
+	mode.BModes[8] = common.Left4x4
+	mode.MV = mode.BlockMV[15]
+	return mode
+}
+
+func splitMotionVectorPayload(t *testing.T, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode) []byte {
+	t.Helper()
+	var w BoolWriter
+	buf := make([]byte, 128)
+	mvProbs := tables.DefaultMVContext
+	w.Init(buf)
+	if err := WriteSplitMotionVectors(&w, &mvProbs, mode, left, nil, MotionVector{}); err != nil {
+		t.Fatalf("WriteSplitMotionVectors: %v", err)
+	}
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error: %v", err)
+	}
+	return append([]byte(nil), w.Bytes()...)
+}
+
+func motionBranchCountTotal(counts [2][tables.MVPCount][2]int) int {
+	total := 0
+	for plane := range counts {
+		for idx := range counts[plane] {
+			total += counts[plane][idx][0] + counts[plane][idx][1]
+		}
+	}
+	return total
+}
+
 func TestWriteCoefficientInterFrameClampsNewMVBestPredictor(t *testing.T) {
 	modes := []InterFrameMacroblockMode{
 		{Mode: common.ZeroMV, MBSkipCoeff: true},
@@ -897,7 +965,15 @@ func fillEncoderSplitSubset(mode *InterFrameMacroblockMode, subset int, mv Motio
 	fillCount := int(tables.MBSplitFillCount[mode.Partition])
 	fillStart := subset * fillCount
 	for i := 0; i < fillCount; i++ {
-		mode.BlockMV[tables.MBSplitFillOffset[mode.Partition][fillStart+i]] = mv
+		block := int(tables.MBSplitFillOffset[mode.Partition][fillStart+i])
+		bMode := common.New4x4
+		if block&3 != 0 && tables.MBSplits[mode.Partition][block-1] == uint8(subset) {
+			bMode = common.Left4x4
+		} else if block>>2 != 0 && tables.MBSplits[mode.Partition][block-4] == uint8(subset) {
+			bMode = common.Above4x4
+		}
+		mode.BlockMV[block] = mv
+		mode.BModes[block] = bMode
 	}
 }
 
