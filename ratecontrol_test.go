@@ -257,6 +257,33 @@ func TestRateControlUpdatesSeparateLibvpxCorrectionFactors(t *testing.T) {
 	}
 }
 
+func TestRateControlUnboostedGoldenFrameUsesLibvpxInterCorrectionFactor(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		minQuantizer:           4,
+		maxQuantizer:           56,
+		currentQuantizer:       24,
+		bitsPerFrame:           12000,
+		frameTargetBits:        12000,
+		bufferOptimalBits:      60000,
+		bufferLevelBits:        48000,
+		undershootPct:          defaultRateControlUndershootPct,
+		overshootPct:           defaultRateControlOvershootPct,
+		gfCBRBoostPct:          100,
+		rateCorrectionFactor:   1.0,
+		goldenCorrectionFactor: 1.0,
+	}
+
+	rc.postEncodeFrameWithContext(3000, false, true, 60)
+
+	if rc.rateCorrectionFactor != 1.25 {
+		t.Fatalf("inter correction factor = %g, want 1.25 for gf_noboost_onepass_cbr", rc.rateCorrectionFactor)
+	}
+	if rc.goldenCorrectionFactor != 1.0 {
+		t.Fatalf("golden correction factor = %g, want unchanged 1.0", rc.goldenCorrectionFactor)
+	}
+}
+
 func TestRateControlPostEncodeTracksLibvpxQuantizerAverages(t *testing.T) {
 	rc := rateControlState{
 		mode:                    RateControlCBR,
