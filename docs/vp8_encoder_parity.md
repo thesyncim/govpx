@@ -1052,11 +1052,16 @@ the anchor and look for the surrounding mismatch.
     now driven by both the post-frame fresh-from-counts update
     (`updateRefFrameProbsFromAttempt`, the equivalent of libvpx's
     `vp8_convert_rfct_to_prob`) and the pre-frame heuristic bump above.
-    The conversion follows libvpx's gate: normal single-layer inter frames,
-    including zero-reference shortcuts, convert ref counts, while single-layer
-    GF/ARF refresh frames keep the prior probabilities for the next frame's
-    refresh heuristic; temporal multi-layer frames convert even across GF/ARF
-    refreshes.
+    The conversion follows libvpx's gate and exact count math: normal
+    single-layer inter frames, including zero-reference shortcuts, convert ref
+    counts with libvpx's floor `*255/denom` formula, while single-layer GF/ARF
+    refresh frames keep the prior probabilities for the next frame's refresh
+    heuristic; temporal multi-layer frames convert even across GF/ARF
+    refreshes. Skip-false probability updates now use libvpx's floor
+    `false_count*256/total_mbs` packet formula, and the analysis-time
+    `prob_skip_false` path forces `1` for the visible single-layer source
+    frame that matches a pending auto-ARF source, after the normal history
+    lookup and 5..250 clamp.
     Tests:
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefRefresh`,
     `TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxFramesSinceGolden`,
@@ -1066,7 +1071,11 @@ the anchor and look for the surrounding mismatch.
     `TestIndependentCoefContextSavingsHandComputed`,
     `TestIndependentCoefContextDivergesFromDefault`,
     `TestIndependentCoefContextKeyFrameForcesEqualization`,
-    `TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce`.
+    `TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce`,
+    `TestInterFrameAnalysisSkipFalseProbMirrorsLibvpxHistorySelection`,
+    `TestInterFrameModeSkipFalseProbabilityMatchesWriterCounts`,
+    `TestAdaptInterFrameModeProbabilities`, and
+    `TestWriteCoefficientInterFrameEmitsAdaptedModeProbabilities`.
     The ref-frame entropy-savings half of `vp8_estimate_entropy_savings`
     is now ported as `libvpxCalcRefFrameCosts` and
     `libvpxRefFrameEntropySavings` in
@@ -1085,8 +1094,8 @@ the anchor and look for the surrounding mismatch.
     `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
     `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
     `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`.
-  - Missing: exact alt-ref skip-probability edge cases and libvpx-side trace
-    anchors for the error-resilient key-frame default-coef-count reset.
+  - Missing: libvpx-side trace anchors for the error-resilient key-frame
+    default-coef-count reset.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.

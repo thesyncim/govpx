@@ -122,10 +122,12 @@ Primary references:
   the current MV probability base. Recode size checks now subtract libvpx-style
   ref-frame and coefficient-context entropy savings, including
   error-resilient independent contexts, before deciding whether to retry.
-  Remaining current-prob work is mostly broader libvpx mode-cost caching,
-  exact per-frame mode-table setup, and oracle coverage; zero-reference
-  shortcut frames now feed libvpx-style ref-count probability conversion for
-  the next frame.
+  Skip/ref-frame probability headers now use libvpx's exact floor formulas,
+  and visible single-layer auto-ARF source frames force analysis
+  `prob_skip_false=1` like libvpx. Remaining current-prob work is mostly
+  broader libvpx mode-cost caching, exact per-frame mode-table setup, and
+  oracle coverage; zero-reference shortcut frames now feed libvpx-style
+  ref-count probability conversion for the next frame.
 - Encoder oracle validation now drives libvpx with the case's configured
   deadline and `CpuUsed`, so realtime quality gaps are measured against the
   matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.

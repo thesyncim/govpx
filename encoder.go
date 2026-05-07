@@ -564,6 +564,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
 		goldenCBRRefresh = true
 	}
+	invisible := flags&EncodeInvisibleFrame != 0
+	sourceIsAltRef := !temporalFrame.Enabled && !invisible && e.isSrcFrameAltRef(pts)
+	finishSourceAltRef := func() {
+		if sourceIsAltRef {
+			e.altRefSourceValid = false
+			e.altRefSourcePTS = 0
+		}
+	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
 	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
@@ -640,7 +648,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		TemporalLayerTargetBitrateKbps:     temporalFrame.LayerTargetBitrateKbps,
 		TemporalLayerCumulativeBitrateKbps: temporalFrame.LayerCumulativeBitrateKbps,
 	}
-	invisible := flags&EncodeInvisibleFrame != 0
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
 		e.twoPass.finishFrame(0)
@@ -654,12 +661,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
 		e.frameCount++
+		finishSourceAltRef()
 		return result, nil
 	}
 
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
 	if !keyFrame {
-		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed)
+		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
 			return EncodeResult{}, err
 		}
@@ -749,6 +757,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			})
 			e.flushOracleMBTraceBuffer()
 			e.frameCount++
+			finishSourceAltRef()
 			return result, nil
 		}
 	}
@@ -813,6 +822,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		SizeBytes:     keyAttempt.Size,
 	})
 	e.frameCount++
+	finishSourceAltRef()
 	return result, nil
 }
 
@@ -839,7 +849,7 @@ func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
 }
 
 func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
-	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false, true)
+	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false, true, false)
 	if err != nil {
 		return 0, err
 	}
@@ -920,12 +930,12 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
 }
 
-func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(false, boostedReferenceFrame)
 	e.oracleTraceRecodeLoopCount = 0
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -935,7 +945,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	}
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -967,7 +977,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// before validation: assert(!cm->copy_buffer_to_arf) on hidden ARF
 	// frames and clear both copy fields on the deferred show frame.
 	suppressInterFrameCopyBuffersOnAltRefEdges(&cfg, e.isSrcFrameAltRef(e.currentSourcePTS))
-	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef)
+	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef, sourceIsAltRef)
 	previousProbSkipFalse := e.probSkipFalse
 	e.probSkipFalse = cfg.ProbSkipFalse
 	defer func() {

@@ -94,8 +94,8 @@ func TestAdaptInterFrameModeProbabilities(t *testing.T) {
 		t.Fatalf("adaptInterFrameModeProbabilities returned error: %v", err)
 	}
 
-	if cfg.ProbSkipFalse != 64 || cfg.ProbIntra != 64 || cfg.ProbLast != 85 || cfg.ProbGolden != 128 {
-		t.Fatalf("mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/64/85/128",
+	if cfg.ProbSkipFalse != 64 || cfg.ProbIntra != 63 || cfg.ProbLast != 85 || cfg.ProbGolden != 127 {
+		t.Fatalf("mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/63/85/127",
 			cfg.ProbSkipFalse, cfg.ProbIntra, cfg.ProbLast, cfg.ProbGolden)
 	}
 }
@@ -123,8 +123,8 @@ func TestWriteCoefficientInterFrameEmitsAdaptedModeProbabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
 	}
-	if state.Mode.ProbSkipFalse != 64 || state.Mode.ProbIntra != 64 || state.Mode.ProbLast != 85 || state.Mode.ProbGolden != 128 {
-		t.Fatalf("parsed mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/64/85/128",
+	if state.Mode.ProbSkipFalse != 64 || state.Mode.ProbIntra != 63 || state.Mode.ProbLast != 85 || state.Mode.ProbGolden != 127 {
+		t.Fatalf("parsed mode probabilities = skip:%d intra:%d last:%d golden:%d, want 64/63/85/127",
 			state.Mode.ProbSkipFalse, state.Mode.ProbIntra, state.Mode.ProbLast, state.Mode.ProbGolden)
 	}
 }

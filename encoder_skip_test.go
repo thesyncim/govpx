@@ -31,22 +31,25 @@ func TestLibvpxBaseSkipFalseProbTable(t *testing.T) {
 
 func TestInterFrameAnalysisSkipFalseProbMirrorsLibvpxHistorySelection(t *testing.T) {
 	e := &VP8Encoder{baseSkipFalseProbs: libvpxBaseSkipFalseProbs}
-	if got := e.interFrameAnalysisSkipFalseProb(0, false, false); got != 250 {
+	if got := e.interFrameAnalysisSkipFalseProb(0, false, false, false); got != 250 {
 		t.Fatalf("base skip false prob = %d, want q0 base clamped to 250", got)
 	}
-	if got := e.interFrameAnalysisSkipFalseProb(127, false, false); got != 16 {
+	if got := e.interFrameAnalysisSkipFalseProb(127, false, false, false); got != 16 {
 		t.Fatalf("base skip false prob = %d, want q127 base 16", got)
 	}
 
 	e.lastSkipFalseProbs = [3]uint8{77, 66, 3}
-	if got := e.interFrameAnalysisSkipFalseProb(127, false, false); got != 77 {
+	if got := e.interFrameAnalysisSkipFalseProb(127, false, false, false); got != 77 {
 		t.Fatalf("last-frame skip false prob = %d, want 77", got)
 	}
-	if got := e.interFrameAnalysisSkipFalseProb(127, true, false); got != 66 {
+	if got := e.interFrameAnalysisSkipFalseProb(127, true, false, false); got != 66 {
 		t.Fatalf("golden skip false prob = %d, want 66", got)
 	}
-	if got := e.interFrameAnalysisSkipFalseProb(127, false, true); got != 5 {
+	if got := e.interFrameAnalysisSkipFalseProb(127, false, true, false); got != 5 {
 		t.Fatalf("altref skip false prob = %d, want clamp-to-5", got)
+	}
+	if got := e.interFrameAnalysisSkipFalseProb(127, false, true, true); got != 1 {
+		t.Fatalf("visible alt-ref source skip false prob = %d, want forced 1", got)
 	}
 }
 
@@ -59,6 +62,14 @@ func TestInterFrameModeSkipFalseProbabilityMatchesWriterCounts(t *testing.T) {
 	}
 	if got := interFrameModeSkipFalseProbability(1, 4, modes, 128); got != 64 {
 		t.Fatalf("skip false prob = %d, want 64", got)
+	}
+	modes = []vp8enc.InterFrameMacroblockMode{
+		{MBSkipCoeff: false},
+		{MBSkipCoeff: false},
+		{MBSkipCoeff: true},
+	}
+	if got := interFrameModeSkipFalseProbability(1, 3, modes, 128); got != 170 {
+		t.Fatalf("2/3 skip false prob = %d, want libvpx floor 170", got)
 	}
 	if got := interFrameModeSkipFalseProbability(1, 0, nil, 77); got != 77 {
 		t.Fatalf("empty skip false prob = %d, want fallback", got)
