@@ -149,18 +149,19 @@ type oracleTraceRecodeRow struct {
 
 // oracleTraceMBRow is the per-macroblock oracle trace row (inter frames only).
 type oracleTraceMBRow struct {
-	Type       string    `json:"type"`
-	FrameIndex uint64    `json:"frame_index"`
-	MBRow      int       `json:"mb_row"`
-	MBCol      int       `json:"mb_col"`
-	SegmentID  int       `json:"segment_id"`
-	Mode       string    `json:"mode"`
-	RefFrame   string    `json:"ref_frame"`
-	MVRow      int16     `json:"mv_row"`
-	MVCol      int16     `json:"mv_col"`
-	Skip       bool      `json:"skip"`
-	EOB        [25]uint8 `json:"eob"`
-	EOBSum     int       `json:"eob_sum"`
+	Type       string        `json:"type"`
+	FrameIndex uint64        `json:"frame_index"`
+	MBRow      int           `json:"mb_row"`
+	MBCol      int           `json:"mb_col"`
+	SegmentID  int           `json:"segment_id"`
+	Mode       string        `json:"mode"`
+	RefFrame   string        `json:"ref_frame"`
+	MVRow      int16         `json:"mv_row"`
+	MVCol      int16         `json:"mv_col"`
+	Skip       bool          `json:"skip"`
+	EOB        [25]uint8     `json:"eob"`
+	EOBSum     int           `json:"eob_sum"`
+	QCoeff     [25][16]int16 `json:"qcoeff"`
 
 	ImprovedMVStart        bool  `json:"improved_mv_start"`
 	ImprovedMVNearSADIndex int   `json:"improved_mv_near_sadidx"`
@@ -507,6 +508,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	sum := 0
 	for i := 0; i < 25; i++ {
 		row.EOB[i] = coeffs.EOB[i]
+		row.QCoeff[i] = coeffs.QCoeff[i]
 		sum += int(coeffs.EOB[i])
 	}
 	row.EOBSum = sum

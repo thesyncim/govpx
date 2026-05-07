@@ -182,7 +182,7 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		for _, key := range []string{
 			"segment_id", "mode", "ref_frame",
 			"mv_row", "mv_col", "skip",
-			"eob", "eob_sum",
+			"eob", "eob_sum", "qcoeff",
 			"improved_mv_start", "improved_mv_near_sadidx",
 			"improved_mv_row", "improved_mv_col", "improved_mv_sr",
 		} {
@@ -196,6 +196,17 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		}
 		if len(eob) != 25 {
 			t.Fatalf("mb[%d].eob length = %d, want 25", i, len(eob))
+		}
+		qcoeff, ok := row["qcoeff"].([]interface{})
+		if !ok {
+			t.Fatalf("mb[%d].qcoeff is not an array: %T", i, row["qcoeff"])
+		}
+		if len(qcoeff) != 25 {
+			t.Fatalf("mb[%d].qcoeff length = %d, want 25", i, len(qcoeff))
+		}
+		firstBlock, ok := qcoeff[0].([]interface{})
+		if !ok || len(firstBlock) != 16 {
+			t.Fatalf("mb[%d].qcoeff[0] shape = %T/%d, want 16 coefficients", i, qcoeff[0], len(firstBlock))
 		}
 	}
 }
@@ -215,6 +226,7 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 		ImprovedMVPredictor:    vp8enc.MotionVector{Row: 16, Col: -16},
 	}
 	var coeffs vp8enc.MacroblockCoefficients
+	coeffs.QCoeff[2][3] = -7
 
 	e.emitOracleMBTrace(1, 2, &mode, &coeffs)
 	e.flushOracleMBTraceBuffer()
@@ -241,6 +253,11 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	}
 	if got := row["improved_mv_sr"].(float64); got != 2 {
 		t.Fatalf("improved_mv_sr = %v, want 2", got)
+	}
+	qcoeff := row["qcoeff"].([]interface{})
+	block2 := qcoeff[2].([]interface{})
+	if got := block2[3].(float64); got != -7 {
+		t.Fatalf("qcoeff[2][3] = %v, want -7", got)
 	}
 }
 

@@ -138,6 +138,7 @@ typedef struct {
     int skip;
     unsigned char eobs[25];
     int eob_sum;
+    short qcoeff[25][16];
     /* Improved-MV predictor fields. Mirror the govpx-side oracleTraceMBRow
      * fields populated by attachImprovedMVTrace in encoder_reconstruct.go.
      * `improved_mv_start` is true only when the chosen NEWMV ref had its
@@ -279,6 +280,7 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     MACROBLOCKD *xd;
     int idx;
     int i;
+    int j;
     int sum;
     govpx_mb_row_t *row;
 
@@ -311,6 +313,9 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         unsigned char e = (unsigned char)xd->eobs[i];
         row->eobs[i] = e;
         sum += (int)e;
+        for (j = 0; j < 16; ++j) {
+            row->qcoeff[i][j] = xd->block[i].qcoeff[j];
+        }
     }
     row->eob_sum = sum;
     /* Improved-MV trace: only NEWMV uses the vp8_mv_pred predictor; for
@@ -472,7 +477,7 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
         mb_total = cm->mb_rows * cm->mb_cols;
         for (i = 0; i < mb_total; ++i) {
             govpx_mb_row_t *r = &govpx_oracle_state.mb_rows[i];
-            int mb_row, mb_col, j;
+            int mb_row, mb_col, j, k;
             if (!r->valid) {
                 continue;
             }
@@ -501,12 +506,23 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             }
             fprintf(out,
                     "],\"eob_sum\":%d,"
+                    "\"qcoeff\":[",
+                    r->eob_sum);
+            for (j = 0; j < 25; ++j) {
+                fprintf(out, "%s[", j == 0 ? "" : ",");
+                for (k = 0; k < 16; ++k) {
+                    fprintf(out, "%s%d", k == 0 ? "" : ",",
+                            (int)r->qcoeff[j][k]);
+                }
+                fprintf(out, "]");
+            }
+            fprintf(out,
+                    "],"
                     "\"improved_mv_start\":%s,"
                     "\"improved_mv_near_sadidx\":%d,"
                     "\"improved_mv_row\":%d,"
                     "\"improved_mv_col\":%d,"
                     "\"improved_mv_sr\":%d}\n",
-                    r->eob_sum,
                     r->improved_mv_start ? "true" : "false",
                     r->improved_mv_near_sadidx,
                     r->improved_mv_row,

@@ -99,7 +99,8 @@ the anchor and look for the surrounding mismatch.
     (`prob_intra_coded`, `prob_last_coded`, `prob_gf_coded`), and
     `size_bytes`; per-MB row (inter frames only) with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
-    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, and improved-MV start fields.
+    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, `qcoeff[25][16]`, and
+    improved-MV start fields.
     Rows cover every committed inter-frame MB, including intra `B_PRED`
     decisions, are emitted in deterministic raster scan order, and only for
     the final committed encode attempt (recoded attempts are discarded).
@@ -136,8 +137,9 @@ the anchor and look for the surrounding mismatch.
     libvpx alt-ref / forced-key-frame branches.
   - Covered now (residual + probability state): per-MB residual decisions
     are covered by the existing `mode`, `ref_frame`, `mv_row`, `mv_col`,
-    `skip`, `eob[0..24]`, and `eob_sum` fields, captured at the same
-    point libvpx commits the chosen mode (after `vp8_pick_inter_mode` /
+    `skip`, `eob[0..24]`, `eob_sum`, and `qcoeff[25][16]` fields,
+    captured at the same point libvpx commits the chosen mode (after
+    `vp8_pick_inter_mode` /
     `vp8_rd_pick_inter_mode` write into `mb->e_mbd.mode_info_context->mbmi`
     and the macroblock has been tokenized). Frame-level probability state
     is captured at the tail of `vp8_pack_bitstream` as four Adler32
