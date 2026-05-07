@@ -867,8 +867,16 @@ the anchor and look for the surrounding mismatch.
     neighbor no longer leaks a stale MV into the median fallback. Govpx-side
     oracle MB rows now expose `improved_mv_near_sadidx`,
     `improved_mv_row`/`improved_mv_col`, and `improved_mv_sr` for NEWMV
-    candidates that used improved-MV prediction. Remaining validation work is
-    the matching libvpx-side trace/comparator for those fields.
+    candidates that used improved-MV prediction, and the libvpx-side
+    patched `vpxenc-oracle` (see
+    [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh))
+    now emits the same fields per MB by instrumenting `vp8_mv_pred` to
+    record the matched `near_sadidx[i]` slot, `mvp.row`/`mvp.col`, and
+    `*sr` per candidate ref and reading the slot for the chosen NEWMV ref
+    in the encodeframe.c capture hook. The comparator's union-of-keys
+    diff (`internal/coracle/oracle_compare.go`) catches per-field
+    divergence on these new keys automatically; pinned by
+    `TestCompareOracleTracesDetectsImprovedMVPredictorDivergence`.
     End-to-end quality smoke now covers best-quality panning, good-quality RD
     and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case. A new
