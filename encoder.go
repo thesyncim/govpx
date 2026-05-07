@@ -227,8 +227,12 @@ type VP8Encoder struct {
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
-	keyFrameCoeffs  []vp8enc.MacroblockCoefficients
-	tokenAbove      []vp8enc.TokenContextPlanes
+	// libvpx's improved MV predictor reads the previous inter frame's
+	// MODE_INFO grid (lfmv/lf_ref_frame) when the last coded frame was inter.
+	lastFrameInterModes      []vp8enc.InterFrameMacroblockMode
+	lastFrameInterModesValid bool
+	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
+	tokenAbove               []vp8enc.TokenContextPlanes
 
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
@@ -278,6 +282,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		consecZeroLast:          make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		lastFrameInterModes:     make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
@@ -714,9 +719,10 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.updateRefFrameProbsFromAttempt(attempt)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
-		return
+	} else {
+		e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
 	}
-	e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
+	e.rememberLastFrameInterModes()
 }
 
 // updateRefFrameProbsFromAttempt mirrors libvpx vp8_estimate_entropy_savings'
@@ -1241,6 +1247,7 @@ func (e *VP8Encoder) Reset() {
 	clearUint8Map(e.consecZeroLast)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
+	e.lastFrameInterModesValid = false
 	e.probSkipFalse = 128
 	e.lastSkipFalseProbs = [3]uint8{}
 	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs
@@ -1730,6 +1737,18 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.goldenRef.ExtendBorders()
 	copyFrameImage(&e.altRef.Img, &e.current.Img)
 	e.altRef.ExtendBorders()
+	e.lastFrameInterModesValid = false
+}
+
+func (e *VP8Encoder) rememberLastFrameInterModes() {
+	if e == nil || len(e.interFrameModes) == 0 {
+		return
+	}
+	if len(e.lastFrameInterModes) != len(e.interFrameModes) {
+		e.lastFrameInterModes = make([]vp8enc.InterFrameMacroblockMode, len(e.interFrameModes))
+	}
+	copy(e.lastFrameInterModes, e.interFrameModes)
+	e.lastFrameInterModesValid = true
 }
 
 func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame) {

@@ -391,6 +391,9 @@ type interAnalysisSearchConfig struct {
 	fullPixelSearch       interAnalysisFullPixelSearchMethod
 	fullPixelSearchParam  int
 	fullPixelFurtherSteps int
+	fullPixelSpeed        int
+	fullPixelSpeedAdjust  int
+	improvedMVPrediction  bool
 	fractionalSearch      interAnalysisFractionalSearchMethod
 }
 
@@ -417,6 +420,9 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	cfg.fullPixelSearch = interAnalysisFullPixelSearchNstep
 	cfg.fullPixelSearchParam = libvpxInterFrameSearchParam(e.opts.Deadline, e.opts.CpuUsed)
 	cfg.fullPixelFurtherSteps = libvpxInterFrameFurtherSteps(e.opts.CpuUsed, cfg.fullPixelSearchParam)
+	cfg.fullPixelSpeed = e.opts.CpuUsed
+	cfg.fullPixelSpeedAdjust = libvpxInterFrameSpeedAdjust(e.opts.CpuUsed)
+	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPrediction(e.opts.Deadline, e.opts.CpuUsed)
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
@@ -503,6 +509,10 @@ func libvpxInterFrameFurtherSteps(speed int, stepParam int) int {
 		return 0
 	}
 	return further
+}
+
+func libvpxInterFrameImprovedMVPrediction(deadline Deadline, speed int) bool {
+	return deadline != DeadlineRealtime || speed <= 6
 }
 
 func interFrameFullPixelSearchCandidateCount() int {
@@ -705,7 +715,9 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		candidate := &newMVCandidates[refIndex]
 		if !candidate.searched {
 			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
-			mv, _ := selectInterFrameMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, e.interAnalysisSearchConfig(), &e.modeProbs.MV)
+			search := e.interAnalysisSearchConfig()
+			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			mv, _ := selectInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
 			candidate.searched = true
 			candidate.ok = !mv.IsZero()
 			candidate.mv = mv
@@ -807,7 +819,7 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 	quant *vp8enc.MacroblockQuant,
 ) (interAnalysisReference, vp8enc.InterFrameMacroblockMode, int, bool) {
 	var candidates [interFrameMotionCandidateMax]interAnalysisMotionCandidate
-	candidateCount := collectInterFrameMotionCandidatesWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, e.interAnalysisSearchConfig(), &e.modeProbs.MV, &candidates)
+	candidateCount := e.collectInterFrameMotionCandidatesWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, e.interAnalysisSearchConfig(), &e.modeProbs.MV, &candidates)
 	if candidateCount == 0 {
 		return interAnalysisReference{}, vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -987,6 +999,28 @@ func collectInterFrameMotionCandidatesWithSearch(
 	mvProbs *[2][vp8tables.MVPCount]uint8,
 	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
 ) int {
+	return collectInterFrameMotionCandidatesWithEncoder(nil, src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, search, mvProbs, candidates)
+}
+
+func (e *VP8Encoder) collectInterFrameMotionCandidatesWithSearch(
+	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	search interAnalysisSearchConfig,
+	mvProbs *[2][vp8tables.MVPCount]uint8,
+	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
+) int {
+	return collectInterFrameMotionCandidatesWithEncoder(e, src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, search, mvProbs, candidates)
+}
+
+func collectInterFrameMotionCandidatesWithEncoder(
+	e *VP8Encoder, src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	search interAnalysisSearchConfig,
+	mvProbs *[2][vp8tables.MVPCount]uint8,
+	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
+) int {
 	if candidates == nil || mvProbs == nil {
 		return 0
 	}
@@ -998,7 +1032,11 @@ func collectInterFrameMotionCandidatesWithSearch(
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, nearest)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, near)
 		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
-		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search)
+		start := interFrameSearchStart{}
+		if e != nil {
+			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+		}
+		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, fullMV)
 		if fullCost == 0 {
 			continue
@@ -1696,7 +1734,11 @@ func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 }
 
 func selectInterFrameMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearch(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search)
+	return selectInterFrameMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{}, mvProbs)
+}
+
+func selectInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start)
 	if bestCost == 0 {
 		return best, bestCost
 	}
@@ -1721,8 +1763,17 @@ func selectInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8commo
 }
 
 func selectInterFrameFullPixelMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
-	centerRow := int(bestRefMV.Row) & ^7
-	centerCol := int(bestRefMV.Col) & ^7
+	return selectInterFrameFullPixelMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{})
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart) (vp8enc.MotionVector, int) {
+	searchStart := bestRefMV
+	if start.ok && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+		searchStart = start.mv
+		search = search.adjustedForImprovedMVStart(start)
+	}
+	centerRow := int(searchStart.Row) & ^7
+	centerCol := int(searchStart.Col) & ^7
 	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
 	bounds := interFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
 	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
@@ -1739,6 +1790,142 @@ func selectInterFrameFullPixelMotionVectorWithSearch(src vp8enc.SourceImage, ref
 		return hexInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestCost, bestRefMV, qIndex, bounds)
 	}
 	return exhaustiveInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestCost, bestRefMV, qIndex)
+}
+
+type interFrameSearchStart struct {
+	mv vp8enc.MotionVector
+	sr int
+	ok bool
+}
+
+func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFrameSearchStart) interAnalysisSearchConfig {
+	if !start.ok {
+		return search
+	}
+	stepParam := start.sr + search.fullPixelSpeedAdjust
+	if stepParam > search.fullPixelSearchParam {
+		if stepParam >= interFrameMaxMVSearchSteps {
+			stepParam = interFrameMaxMVSearchSteps - 1
+		}
+		search.fullPixelSearchParam = stepParam
+		search.fullPixelFurtherSteps = libvpxInterFrameFurtherSteps(search.fullPixelSpeed, stepParam)
+	}
+	return search
+}
+
+type improvedInterFrameMVSlot struct {
+	mv       vp8enc.MotionVector
+	refFrame vp8common.MVReferenceFrame
+	sad      int
+}
+
+func (e *VP8Encoder) improvedInterFrameSearchStart(
+	src vp8enc.SourceImage, refFrame vp8common.MVReferenceFrame,
+	mbRow int, mbCol int, mbRows int, mbCols int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	search interAnalysisSearchConfig,
+) interFrameSearchStart {
+	if e == nil || !search.improvedMVPrediction || refFrame == vp8common.IntraFrame {
+		return interFrameSearchStart{}
+	}
+	var slots [8]improvedInterFrameMVSlot
+	slotCount := 3
+	fillImprovedInterFrameCurrentMVSlot(&slots[0], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above)
+	fillImprovedInterFrameCurrentMVSlot(&slots[1], src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left)
+	fillImprovedInterFrameCurrentMVSlot(&slots[2], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft)
+	if e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols && mbRows > 0 && mbCols > 0 {
+		slotCount = 8
+		fillImprovedInterFrameLastMVSlot(&slots[3], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+		fillImprovedInterFrameLastMVSlot(&slots[4], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+		fillImprovedInterFrameLastMVSlot(&slots[5], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+		fillImprovedInterFrameLastMVSlot(&slots[6], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+		fillImprovedInterFrameLastMVSlot(&slots[7], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+	}
+	order := improvedInterFrameMVSlotOrder(slots, slotCount)
+	for rank := 0; rank < slotCount; rank++ {
+		slot := slots[order[rank]]
+		if slot.refFrame == refFrame {
+			sr := 2
+			if rank < 3 {
+				sr = 3
+			}
+			return interFrameSearchStart{mv: slot.mv, sr: sr, ok: true}
+		}
+	}
+	mv := improvedInterFrameMVMedian(slots, slotCount)
+	return interFrameSearchStart{mv: mv, sr: 0, ok: true}
+}
+
+func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode) {
+	*slot = improvedInterFrameMVSlot{sad: maxInt()}
+	if mode == nil || refMbRow < 0 || refMbCol < 0 {
+		return
+	}
+	slot.mv = mode.MV
+	slot.refFrame = convertInterFrameReference(mode)
+	if slot.refFrame != vp8common.IntraFrame {
+		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+	}
+}
+
+func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+	*slot = improvedInterFrameMVSlot{sad: maxInt()}
+	if refMbRow < 0 || refMbCol < 0 || refMbRow >= mbRows || refMbCol >= mbCols {
+		return
+	}
+	index := refMbRow*mbCols + refMbCol
+	if index < 0 || index >= len(modes) {
+		return
+	}
+	mode := &modes[index]
+	slot.mv = mode.MV
+	slot.refFrame = convertInterFrameReference(mode)
+	if slot.refFrame != vp8common.IntraFrame {
+		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+	}
+}
+
+func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int) [8]int {
+	var order [8]int
+	for i := 0; i < count && i < len(order); i++ {
+		order[i] = i
+	}
+	for i := 1; i < count && i < len(order); i++ {
+		idx := order[i]
+		sad := slots[idx].sad
+		j := i - 1
+		for ; j >= 0 && sad < slots[order[j]].sad; j-- {
+			order[j+1] = order[j]
+		}
+		order[j+1] = idx
+	}
+	return order
+}
+
+func improvedInterFrameMVMedian(slots [8]improvedInterFrameMVSlot, count int) vp8enc.MotionVector {
+	if count <= 0 {
+		return vp8enc.MotionVector{}
+	}
+	var rows [8]int
+	var cols [8]int
+	for i := 0; i < count && i < len(slots); i++ {
+		rows[i] = int(slots[i].mv.Row)
+		cols[i] = int(slots[i].mv.Col)
+	}
+	insertionSortInts(rows[:count])
+	insertionSortInts(cols[:count])
+	return vp8enc.MotionVector{Row: int16(rows[count/2]), Col: int16(cols[count/2])}
+}
+
+func insertionSortInts(values []int) {
+	for i := 1; i < len(values); i++ {
+		v := values[i]
+		j := i - 1
+		for ; j >= 0 && v < values[j]; j-- {
+			values[j+1] = values[j]
+		}
+		values[j+1] = v
+	}
 }
 
 func selectInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
@@ -3186,6 +3373,38 @@ func macroblockCoefficientUVContextIndex(block int) (int, int) {
 func macroblockImageSSE(src vp8enc.SourceImage, img *vp8common.Image, mbRow int, mbCol int) int {
 	return macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{}) +
 		macroblockChromaSSE(src, img, mbRow, mbCol)
+}
+
+func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int) int {
+	if img == nil {
+		return maxInt()
+	}
+	baseY := srcMbRow * 16
+	baseX := srcMbCol * 16
+	refBaseY := refMbRow * 16
+	refBaseX := refMbCol * 16
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+16 <= src.Height && baseX+16 <= src.Width &&
+		refBaseY >= 0 && refBaseX >= 0 &&
+		refBaseY+16 <= img.CodedHeight && refBaseX+16 <= img.CodedWidth {
+		return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[refBaseY*img.YStride+refBaseX:], img.YStride)
+	}
+
+	sad := 0
+	for row := 0; row < 16; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(refBaseY+row, img.CodedHeight)
+		for col := 0; col < 16; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(refBaseX+col, img.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[refY*img.YStride+refX])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+	}
+	return sad
 }
 
 func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, scratch *vp8dec.IntraReconstructionScratch) bool {

@@ -15,8 +15,10 @@ muxing, and no libvpx C API clone.
 - Every safe point should end with `make verify-production` and
   `git status --short`.
 
-Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
-[Makefile](Makefile).
+Status details live in [UPSTREAM.md](UPSTREAM.md). The detailed checklist for
+100% encoder decision parity lives in
+[docs/vp8_encoder_parity.md](docs/vp8_encoder_parity.md). Build/test wiring
+lives in [Makefile](Makefile).
 
 ## Current Status
 

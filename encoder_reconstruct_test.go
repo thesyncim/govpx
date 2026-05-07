@@ -25,8 +25,19 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 		fullPixel  interAnalysisFullPixelSearchMethod
 		stepParam  int
 		further    int
+		improved   bool
 		fractional interAnalysisFractionalSearchMethod
 	}{
+		{
+			name:       "best uses nstep iterative",
+			deadline:   DeadlineBestQuality,
+			cpuUsed:    8,
+			fullPixel:  interAnalysisFullPixelSearchNstep,
+			stepParam:  3,
+			further:    0,
+			improved:   true,
+			fractional: interAnalysisFractionalSearchIterative,
+		},
 		{
 			name:       "good uses nstep iterative",
 			deadline:   DeadlineGoodQuality,
@@ -34,6 +45,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchNstep,
 			stepParam:  4,
 			further:    0,
+			improved:   true,
 			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
@@ -43,6 +55,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchNstep,
 			stepParam:  2,
 			further:    5,
+			improved:   true,
 			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
@@ -52,6 +65,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  2,
 			further:    5,
+			improved:   true,
 			fractional: interAnalysisFractionalSearchStep,
 		},
 		{
@@ -61,6 +75,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  4,
 			further:    0,
+			improved:   false,
 			fractional: interAnalysisFractionalSearchHalf,
 		},
 		{
@@ -70,6 +85,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  4,
 			further:    0,
+			improved:   false,
 			fractional: interAnalysisFractionalSearchSkip,
 		},
 	}
@@ -77,8 +93,29 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
 			cfg := e.interAnalysisSearchConfig()
-			if cfg.fullPixelSearch != tt.fullPixel || cfg.fullPixelSearchParam != tt.stepParam || cfg.fullPixelFurtherSteps != tt.further || cfg.fractionalSearch != tt.fractional {
-				t.Fatalf("config = {%d %d %d %d}, want {%d %d %d %d}", cfg.fullPixelSearch, cfg.fullPixelSearchParam, cfg.fullPixelFurtherSteps, cfg.fractionalSearch, tt.fullPixel, tt.stepParam, tt.further, tt.fractional)
+			if cfg.fullPixelSearch != tt.fullPixel || cfg.fullPixelSearchParam != tt.stepParam || cfg.fullPixelFurtherSteps != tt.further || cfg.improvedMVPrediction != tt.improved || cfg.fractionalSearch != tt.fractional {
+				t.Fatalf("config = {%d %d %d %t %d}, want {%d %d %d %t %d}", cfg.fullPixelSearch, cfg.fullPixelSearchParam, cfg.fullPixelFurtherSteps, cfg.improvedMVPrediction, cfg.fractionalSearch, tt.fullPixel, tt.stepParam, tt.further, tt.improved, tt.fractional)
+			}
+		})
+	}
+}
+
+func TestInterFrameImprovedMVPredictionGateMirrorsLibvpxQualities(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality keeps improved MV prediction", deadline: DeadlineBestQuality, cpuUsed: 15, want: true},
+		{name: "good quality keeps improved MV prediction", deadline: DeadlineGoodQuality, cpuUsed: 8, want: true},
+		{name: "realtime speed six keeps improved MV prediction", deadline: DeadlineRealtime, cpuUsed: 6, want: true},
+		{name: "realtime speed seven disables improved MV prediction", deadline: DeadlineRealtime, cpuUsed: 7, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := libvpxInterFrameImprovedMVPrediction(tt.deadline, tt.cpuUsed); got != tt.want {
+				t.Fatalf("improved MV prediction = %t, want %t", got, tt.want)
 			}
 		})
 	}
@@ -345,6 +382,118 @@ func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *test
 
 	if mv != (vp8enc.MotionVector{Row: 32}) {
 		t.Fatalf("nstep full-pixel MV = %+v, want row +32 from libvpx search-site contraction", mv)
+	}
+}
+
+func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 17, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((41 + row*19 + col*31 + row*col*7) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 129, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+
+	bestRefMV := vp8enc.MotionVector{}
+	start := interFrameSearchStart{mv: vp8enc.MotionVector{Row: 32}, sr: 3, ok: true}
+	cfg := interAnalysisSearchConfig{
+		fullPixelSearch:       interAnalysisFullPixelSearchNstep,
+		fullPixelSearchParam:  interFrameMaxMVSearchSteps - 1,
+		fullPixelFurtherSteps: 0,
+		fullPixelSpeed:        8,
+		fullPixelSpeedAdjust:  3,
+		improvedMVPrediction:  true,
+		fractionalSearch:      interAnalysisFractionalSearchIterative,
+	}
+	mv, cost := selectInterFrameFullPixelMotionVectorWithSearchStart(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, bestRefMV, testInterSearchQIndex, cfg, start)
+
+	if mv != start.mv {
+		t.Fatalf("full-pixel MV = %+v, want improved search start %+v", mv, start.mv)
+	}
+	wantCost := interMotionSearchCost(sourceImageFromPublic(src), &last.Img, 1, 1, start.mv, bestRefMV, testInterSearchQIndex)
+	if cost != wantCost {
+		t.Fatalf("full-pixel cost = %d, want MV cost charged against bestRefMV = %d", cost, wantCost)
+	}
+}
+
+func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 8, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((73 + row*43 + col*17 + row*col*11) & 255)
+		}
+	}
+
+	analysis := testVP8Frame(t, 64, 64, 211, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			srcPixel := src.Y[(row+16)*src.YStride+col+16]
+			analysis.Img.Y[(row+16)*analysis.Img.YStride+col] = srcPixel
+			analysis.Img.Y[row*analysis.Img.YStride+col+16] = srcPixel ^ 0xff
+		}
+	}
+	e := &VP8Encoder{analysis: analysis}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 8}}
+	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 40}}
+	aboveLeft := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: -24}}
+	search := interAnalysisSearchConfig{
+		fullPixelSearch:       interAnalysisFullPixelSearchHex,
+		fullPixelSearchParam:  2,
+		fullPixelFurtherSteps: 5,
+		fullPixelSpeed:        5,
+		fullPixelSpeedAdjust:  2,
+		improvedMVPrediction:  true,
+	}
+
+	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, &above, &left, &aboveLeft, search)
+	if !start.ok || start.mv != left.MV || start.sr != 3 {
+		t.Fatalf("improved search start = %+v, want left MV %+v with sr 3", start, left.MV)
+	}
+	adjusted := search.adjustedForImprovedMVStart(start)
+	if adjusted.fullPixelSearchParam != 5 || adjusted.fullPixelFurtherSteps != 2 {
+		t.Fatalf("adjusted search = step %d further %d, want step 5 further 2", adjusted.fullPixelSearchParam, adjusted.fullPixelFurtherSteps)
+	}
+
+	search.improvedMVPrediction = false
+	if disabled := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, &above, &left, &aboveLeft, search); disabled.ok {
+		t.Fatalf("disabled improved search start = %+v, want not set", disabled)
+	}
+}
+
+func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 19, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = byte((31 + row*29 + col*13 + row*col*5) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 151, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+16)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+	e := &VP8Encoder{
+		lastRef:                  last,
+		lastFrameInterModes:      make([]vp8enc.InterFrameMacroblockMode, 16),
+		lastFrameInterModesValid: true,
+	}
+	e.lastFrameInterModes[1*4+1] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 56, Col: -8}}
+	search := interAnalysisSearchConfig{improvedMVPrediction: true}
+
+	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, search)
+	if !start.ok || start.mv != e.lastFrameInterModes[1*4+1].MV || start.sr != 3 {
+		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, e.lastFrameInterModes[1*4+1].MV)
 	}
 }
 
