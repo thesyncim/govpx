@@ -315,23 +315,25 @@ the anchor and look for the surrounding mismatch.
     segment IDs match for CBR, error-resilient, temporal, and screen-content
     modes.
 
-- [ ] Port skin map and dot-artifact bias.
+- [x] Port skin map and dot-artifact bias.
   - govpx:
     [`computeSkinMap`](../encoder_segmentation.go),
+    [`computeSkin8x8Block`](../encoder_segmentation.go),
     [`classifyStaticSegmentationBlocks`](../encoder_segmentation.go),
     [`checkDotArtifactCandidate`](../encoder_segmentation.go),
     [`updateConsecutiveZeroLastWithDotSuppress`](../encoder_segmentation.go).
   - libvpx: dot artifact logic in `pickinter.c` and skin detection in
     `common/vp8_skin_detection.c`.
-  - Status: partial. govpx computes a skin map and uses it to mask
+  - Status: complete. govpx computes a skin map (SKIN_16X16 for frames above
+    352x288, SKIN_8X8 four-sub-block detector with the libvpx
+    `num_skin >= 2` threshold for smaller frames) and uses it to mask
     cyclic-refresh candidates and reset the ZEROMV-LAST RD multiplier to 100
-    on skin macroblocks. The dot-artifact corner-gradient detector now runs
-    on Y, U, and V planes with a 1.5x ZEROMV-LAST penalty gated on base
-    layer, non-screen-content, and the libvpx MBs/10 suppression cap. The
-    second `consec_zero_last_mvbias` counter is tracked separately and reset
-    on any MB that this frame's dot-artifact eligibility check inspected, so
-    the threshold gate gives the same MB a fresh num_frames window. Remaining
-    work is `SKIN_8X8` 8x8-tile behavior for small frames.
+    on skin macroblocks. The dot-artifact corner-gradient detector runs on Y,
+    U, and V planes with a 1.5x ZEROMV-LAST penalty gated on base layer,
+    non-screen-content, and the libvpx MBs/10 suppression cap. The second
+    `consec_zero_last_mvbias` counter is tracked separately and reset on any
+    MB that this frame's dot-artifact eligibility check inspected, so the
+    threshold gate gives the same MB a fresh num_frames window.
   - Done when per-MB skin/dot flags and resulting RD adjustments match on face,
     noisy-flat, and screen-dot patterns.
 

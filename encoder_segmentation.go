@@ -348,6 +348,11 @@ func cyclicRefreshMaxMBsPerFrameForLayers(rows int, cols int, layers int) int {
 	}
 }
 
+// skinDetectionMaxSmallFrame matches libvpx's CIF threshold (352*288). Frames
+// at or below this size use the SKIN_8X8 detector that subdivides each MB
+// into four 8x8 sub-blocks; larger frames use the SKIN_16X16 single-sample.
+const skinDetectionMaxSmallFrame = 352 * 288
+
 func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast []uint8, skinMap []uint8) {
 	count := rows * cols
 	if count <= 0 || len(skinMap) < count || src.Width <= 0 || src.Height <= 0 {
@@ -355,17 +360,24 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 	}
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
+	useSkin8x8 := src.Width*src.Height <= skinDetectionMaxSmallFrame
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
-			y := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, row*16+7, col*16+7)
-			u := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, row*8+3, col*8+3)
-			v := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, row*8+3, col*8+3)
 			consecutive := 0
 			if len(consecZeroLast) > index {
 				consecutive = int(consecZeroLast[index])
 			}
-			if computeSkinBlock(y, u, v, consecutive, 0) {
+			var skin bool
+			if useSkin8x8 {
+				skin = computeSkin8x8Block(src, uvWidth, uvHeight, row, col, consecutive)
+			} else {
+				y := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, row*16+7, col*16+7)
+				u := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, row*8+3, col*8+3)
+				v := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, row*8+3, col*8+3)
+				skin = computeSkinBlock(y, u, v, consecutive, 0)
+			}
+			if skin {
 				skinMap[index] = 1
 			} else {
 				skinMap[index] = 0
@@ -373,6 +385,37 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 		}
 	}
 	smoothSkinMap(rows, cols, skinMap[:count])
+}
+
+// computeSkin8x8Block mirrors libvpx vp8_compute_skin_block in SKIN_8X8 mode:
+// each MB is split into four 8x8 sub-blocks; for each sub-block we sample the
+// center 2x2 average (Y at offset (3,3), UV at (1,1)) and run the skin-pixel
+// test. The MB is classified skin if at least two of its sub-blocks are skin.
+func computeSkin8x8Block(src vp8enc.SourceImage, uvWidth int, uvHeight int, mbRow int, mbCol int, consecZeroLast int) bool {
+	if consecZeroLast > 60 {
+		return false
+	}
+	motion := 1
+	if consecZeroLast > 25 {
+		motion = 0
+	}
+	numSkin := 0
+	for sb := 0; sb < 4; sb++ {
+		yRow := mbRow*16 + (sb>>1)*8 + 3
+		yCol := mbCol*16 + (sb&1)*8 + 3
+		uvRow := mbRow*8 + (sb>>1)*4 + 1
+		uvCol := mbCol*8 + (sb&1)*4 + 1
+		ySample := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, yRow, yCol)
+		uSample := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, uvRow, uvCol)
+		vSample := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, uvRow, uvCol)
+		if skinPixel(ySample, uSample, vSample, motion) {
+			numSkin++
+			if numSkin >= 2 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x int) int {
