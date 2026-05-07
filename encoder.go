@@ -5,6 +5,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -228,6 +229,7 @@ type VP8Encoder struct {
 	goldenRef vp8common.FrameBuffer
 	altRef    vp8common.FrameBuffer
 
+	loopFilterPick     vp8common.FrameBuffer
 	reconstructModes   []vp8dec.MacroblockMode
 	reconstructTokens  []vp8dec.MacroblockTokens
 	dequantTables      vp8common.FrameDequantTables
@@ -555,6 +557,10 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return 0, 0, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
+	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required)
+	if err != nil {
+		return 0, 0, err
+	}
 	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required); err != nil {
 		return 0, 0, err
 	}
@@ -649,6 +655,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
+	}
+	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required)
+	if err != nil {
+		return interFrameEncodeAttempt{}, err
 	}
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required); err != nil {
 		return interFrameEncodeAttempt{}, err
@@ -1355,6 +1365,9 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	if err := e.altRef.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	if err := e.loopFilterPick.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
 	return nil
 }
 
@@ -1372,6 +1385,234 @@ func (e *VP8Encoder) encoderLoopFilter(frameType vp8common.FrameType) (uint8, ui
 		sharpness = 0
 	}
 	return uint8(level), uint8(sharpness)
+}
+
+func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+	if len(e.reconstructModes) < required {
+		return 0, ErrInvalidConfig
+	}
+	if seedLevel == 0 {
+		return 0, nil
+	}
+	if e.loopFilterUsesFastSearch() {
+		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required)
+	}
+	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required)
+}
+
+func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
+	if e == nil {
+		return false
+	}
+	speed := e.opts.CpuUsed
+	switch e.opts.Deadline {
+	case DeadlineGoodQuality:
+		return speed > 4
+	case DeadlineRealtime:
+		return speed == 3 || speed > 4
+	default:
+		return false
+	}
+}
+
+func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
+	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
+	bestLevel := level
+	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true)
+	if err != nil {
+		return 0, err
+	}
+
+	filtLevel := level - loopFilterSearchStep(level)
+	for filtLevel >= minLevel {
+		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true)
+		if err != nil {
+			return 0, err
+		}
+		if filtErr < bestErr {
+			bestErr = filtErr
+			bestLevel = filtLevel
+		} else {
+			break
+		}
+		filtLevel -= loopFilterSearchStep(filtLevel)
+	}
+
+	filtLevel = level + loopFilterSearchStep(filtLevel)
+	if bestLevel == level {
+		bestErr -= bestErr >> 10
+		for filtLevel < maxLevel {
+			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true)
+			if err != nil {
+				return 0, err
+			}
+			if filtErr < bestErr {
+				bestErr = filtErr - (filtErr >> 10)
+				bestLevel = filtLevel
+			} else {
+				break
+			}
+			filtLevel += loopFilterSearchStep(filtLevel)
+		}
+	}
+	return uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel)), nil
+}
+
+func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
+	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
+	filterStep := 4
+	if filtMid >= 16 {
+		filterStep = filtMid / 4
+	}
+	ssErr := [vp8common.MaxLoopFilter + 1]int{}
+	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
+	score := func(level int) (int, error) {
+		if ssSet[level] {
+			return ssErr[level], nil
+		}
+		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false)
+		if err != nil {
+			return 0, err
+		}
+		ssErr[level] = trialErr
+		ssSet[level] = true
+		return trialErr, nil
+	}
+
+	bestErr, err := score(filtMid)
+	if err != nil {
+		return 0, err
+	}
+	filtBest := filtMid
+	filtDirection := 0
+	for filterStep > 0 {
+		bias := 0
+		filtHigh := filtMid + filterStep
+		if filtHigh > maxLevel {
+			filtHigh = maxLevel
+		}
+		filtLow := filtMid - filterStep
+		if filtLow < minLevel {
+			filtLow = minLevel
+		}
+
+		if filtDirection <= 0 && filtLow != filtMid {
+			filtErr, err := score(filtLow)
+			if err != nil {
+				return 0, err
+			}
+			if filtErr-bias < bestErr {
+				if filtErr < bestErr {
+					bestErr = filtErr
+				}
+				filtBest = filtLow
+			}
+		}
+		if filtDirection >= 0 && filtHigh != filtMid {
+			filtErr, err := score(filtHigh)
+			if err != nil {
+				return 0, err
+			}
+			if filtErr < bestErr-bias {
+				bestErr = filtErr
+				filtBest = filtHigh
+			}
+		}
+		if filtBest == filtMid {
+			filterStep /= 2
+			filtDirection = 0
+		} else {
+			if filtBest < filtMid {
+				filtDirection = -1
+			} else {
+				filtDirection = 1
+			}
+			filtMid = filtBest
+		}
+	}
+	return uint8(filtBest), nil
+}
+
+func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool) (int, error) {
+	copyFrameImage(&e.loopFilterPick.Img, &e.analysis.Img)
+	if level > 0 {
+		header := vp8dec.LoopFilterHeader{Level: uint8(level), SharpnessLevel: sharpness}
+		if err := vp8dec.ApplyLoopFilter(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
+			return 0, ErrInvalidConfig
+		}
+	}
+	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, partial), nil
+}
+
+func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, cols int, partial bool) int {
+	startRow, rowCount := 0, rows
+	if partial {
+		startRow, rowCount = loopFilterPartialFrameWindow(rows)
+	}
+	total := 0
+	for mbRow := startRow; mbRow < startRow+rowCount && mbRow < rows; mbRow++ {
+		baseY := mbRow * 16
+		for mbCol := 0; mbCol < cols; mbCol++ {
+			baseX := mbCol * 16
+			if baseY+16 <= src.Height && baseX+16 <= src.Width && baseY+16 <= img.CodedHeight && baseX+16 <= img.CodedWidth {
+				total += dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[baseY*img.YStride+baseX:], img.YStride)
+				continue
+			}
+			total += loopFilterLumaBlockSSE(src, img, baseY, baseX)
+		}
+	}
+	return total
+}
+
+func loopFilterLumaBlockSSE(src vp8enc.SourceImage, img *vp8common.Image, baseY int, baseX int) int {
+	sse := 0
+	for row := 0; row < 16; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		imgY := clampEncodeCoord(baseY+row, img.CodedHeight)
+		for col := 0; col < 16; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			imgX := clampEncodeCoord(baseX+col, img.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[imgY*img.YStride+imgX])
+			sse += diff * diff
+		}
+	}
+	return sse
+}
+
+func loopFilterPartialFrameWindow(rows int) (int, int) {
+	if rows <= 0 {
+		return 0, 0
+	}
+	start := rows / 2
+	count := rows / vp8common.PartialFrameFraction
+	if count == 0 {
+		count = 1
+	}
+	if start+count > rows {
+		count = rows - start
+	}
+	return start, count
+}
+
+func loopFilterSearchStep(level int) int {
+	if level > 10 {
+		return 2
+	}
+	return 1
+}
+
+func clampLoopFilterPickLevel(level int, minLevel int, maxLevel int) int {
+	if level < minLevel {
+		return minLevel
+	}
+	if level > maxLevel {
+		return maxLevel
+	}
+	return level
 }
 
 func libvpxClampLoopFilterLevel(qIndex int, level int) int {

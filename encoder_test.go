@@ -1827,6 +1827,74 @@ func TestEncoderLoopFilterUsesPreviousInterLevelWithLibvpxClamp(t *testing.T) {
 	}
 }
 
+func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality uses full search", deadline: DeadlineBestQuality, cpuUsed: 8, want: false},
+		{name: "good speed four uses full search", deadline: DeadlineGoodQuality, cpuUsed: 4, want: false},
+		{name: "good speed five uses fast search", deadline: DeadlineGoodQuality, cpuUsed: 5, want: true},
+		{name: "realtime speed two uses full search", deadline: DeadlineRealtime, cpuUsed: 2, want: false},
+		{name: "realtime speed three uses fast search", deadline: DeadlineRealtime, cpuUsed: 3, want: true},
+		{name: "realtime speed four uses full search", deadline: DeadlineRealtime, cpuUsed: 4, want: false},
+		{name: "realtime speed five uses fast search", deadline: DeadlineRealtime, cpuUsed: 5, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			if got := e.loopFilterUsesFastSearch(); got != tt.want {
+				t.Fatalf("fast search = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoopFilterPartialFrameWindowMirrorsLibvpxMiddleSlice(t *testing.T) {
+	tests := []struct {
+		rows      int
+		wantStart int
+		wantCount int
+	}{
+		{rows: 0, wantStart: 0, wantCount: 0},
+		{rows: 1, wantStart: 0, wantCount: 1},
+		{rows: 2, wantStart: 1, wantCount: 1},
+		{rows: 4, wantStart: 2, wantCount: 1},
+		{rows: 8, wantStart: 4, wantCount: 1},
+		{rows: 16, wantStart: 8, wantCount: 2},
+	}
+	for _, tt := range tests {
+		start, count := loopFilterPartialFrameWindow(tt.rows)
+		if start != tt.wantStart || count != tt.wantCount {
+			t.Fatalf("rows=%d partial window = %d,%d want %d,%d", tt.rows, start, count, tt.wantStart, tt.wantCount)
+		}
+	}
+}
+
+func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 20, 128, 128)
+	ref := testVP8Frame(t, 64, 64, 20, 128, 128)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 64; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = 100
+		}
+	}
+	for row := 32; row < 48; row++ {
+		for col := 0; col < 64; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = 23
+		}
+	}
+
+	got := loopFilterLumaSSE(sourceImageFromPublic(src), &ref.Img, 4, 4, true)
+	want := 4 * 16 * 16 * 3 * 3
+	if got != want {
+		t.Fatalf("partial luma SSE = %d, want %d", got, want)
+	}
+}
+
 func TestEncodeIntoUsesSourcePixels(t *testing.T) {
 	darkEncoder := newTestEncoder(t)
 	brightEncoder := newTestEncoder(t)

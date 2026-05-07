@@ -43,9 +43,10 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place, while per-subset
   LEFT/ABOVE/ZERO/NEW mode trials and predictor/step reuse remain open.
-- Exact loop-filter level search; previous filter-level carry and libvpx
-  Q-based min/max clamps are in place, but the fast/full trial-filter search
-  and partial-frame SSE scoring are still open.
+- Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
+  min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
+  scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
+  simple-filter/version behavior remain open.
 
 Primary references:
 [encodeintra.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeintra.c),
