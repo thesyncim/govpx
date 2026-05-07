@@ -1804,6 +1804,29 @@ func TestLibvpxInitialLoopFilterLevelUsesBaseQThreeEighths(t *testing.T) {
 	}
 }
 
+func TestEncoderLoopFilterUsesPreviousInterLevelWithLibvpxClamp(t *testing.T) {
+	e := &VP8Encoder{
+		opts:            EncoderOptions{Sharpness: 3},
+		rc:              rateControlState{currentQuantizer: 40},
+		loopFilterLevel: 13,
+	}
+	level, sharpness := e.encoderLoopFilter(vp8common.InterFrame)
+	if level != 13 || sharpness != 3 {
+		t.Fatalf("inter loop filter = level:%d sharpness:%d, want previous 13 sharpness 3", level, sharpness)
+	}
+
+	e.loopFilterLevel = 0
+	level, _ = e.encoderLoopFilter(vp8common.InterFrame)
+	if level != 5 {
+		t.Fatalf("clamped inter loop filter level = %d, want libvpx min q/8 = 5", level)
+	}
+
+	level, sharpness = e.encoderLoopFilter(vp8common.KeyFrame)
+	if level != 15 || sharpness != 0 {
+		t.Fatalf("key loop filter = level:%d sharpness:%d, want q*3/8=15 sharpness 0", level, sharpness)
+	}
+}
+
 func TestEncodeIntoUsesSourcePixels(t *testing.T) {
 	darkEncoder := newTestEncoder(t)
 	brightEncoder := newTestEncoder(t)

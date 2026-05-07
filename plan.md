@@ -40,7 +40,9 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
   integer search is still an exhaustive sweep (±16 for whole-MB, ±8 for
   SPLITMV), not a stepped diamond/NSTEP search.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage.
-- Exact loop-filter level search.
+- Exact loop-filter level search; previous filter-level carry and libvpx
+  Q-based min/max clamps are in place, but the fast/full trial-filter search
+  and partial-frame SSE scoring are still open.
 
 Primary references:
 [encodeintra.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeintra.c),
