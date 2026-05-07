@@ -42,7 +42,7 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 66% overall, or about 76% on the core
+- Encoder decision parity: roughly 67% overall, or about 77% on the core
   one-pass quality path, weighted by libvpx LOC.
   This is an engineering estimate, not a measured percentage, because
   govpx still lacks the libvpx-side trace comparator needed to count
@@ -996,11 +996,15 @@ the anchor and look for the surrounding mismatch.
     `libvpxSplitMVSubsearchThreshold` (slot index from the compacted libvpx
     reference search order, not the absolute LAST/GOLDEN/ALTREF enum) into
     `selectInterFrameSplitMotionModeWithSearchAndThreshold`, which divides
-    by `label_count` and per-label compares and ranks
-    `RDCOST(label_rate + NEW_MV_rate, label_SAD)` to short-circuit
-    the NEW4X4 motion search and pick LEFT/ABOVE/ZERO/NEW labels — mirroring libvpx
-    `rd_check_segment`'s `if (best_label_rd < label_mv_thresh) break;`
-    guard. Exact `other_cost` / Y-RD side accounting is now exposed on
+    by `label_count` and uses the same per-label NEW4X4 gate as libvpx
+    `rd_check_segment`'s `if (best_label_rd < label_mv_thresh) break;`.
+    In the RD mode loop those label candidates are now ranked with
+    luma transform/quant/token RD rather than SAD: each LEFT/ABOVE/ZERO/NEW
+    candidate runs the Y_WITH_DC 4x4 blocks in its label through
+    `quantizeEncodedBlock`, adds `coefficientBlockTokenRate`, accumulates
+    `transformBlockError >> 2`, and commits the winning temporary token
+    contexts before the next label, including the early NEW-gate return.
+    Exact `other_cost` / Y-RD side accounting is now exposed on
     `interSplitMVRDDecision` via `OtherCost`, `RefCost`, `TotalRate`,
     `Rate2`, `RD`, and `YRD`; `selectInterFrameSplitMotionDecisionRDWithThreshold`
     populates them so callers reproduce
@@ -1022,10 +1026,12 @@ the anchor and look for the surrounding mismatch.
     `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`,
     `TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD`,
     `TestSelectInterFrameSplitMotionOtherCostBreakdown`,
+    `TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate`,
+    `TestSplitMotionLabelRDCommitsContextsBeforeNewGate`,
     `TestSplitMVDecisionRDUsesTransformDomainRate`, and
     `TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError`.
-    Remaining full label-RD work is broader oracle coverage. Token-context
-    commit parity remains open.
+    Remaining full label-RD work is broader oracle coverage and a fixture
+    that demonstrates a SAD-winner / transform-RD-winner split choice.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

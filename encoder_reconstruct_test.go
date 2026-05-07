@@ -4754,6 +4754,54 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 	return sourceImageFromPublic(src), &ref.Img, pred, quant, splitRDQIndex
 }
 
+func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
+	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
+	var ev splitMotionLabelRDEvaluator
+	if !initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false) {
+		t.Fatalf("initSplitMotionLabelRDEvaluator returned false")
+	}
+	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
+	mv := vp8enc.MotionVector{Col: 8}
+	labelRate := splitSubMotionLabelRate(vp8common.New4x4, vp8enc.MotionVector{}, vp8enc.MotionVector{})
+	labelRate += splitMotionVectorCost(mv, &vp8tables.DefaultMVContext)
+
+	rate, dist, nextAbove, nextLeft, ok := ev.rateDistortion(src, ref, 0, 0, qIndex, &quant, &vp8tables.DefaultCoefProbs, &mode, 0, mv, labelRate)
+	if !ok {
+		t.Fatalf("rateDistortion returned ok=false")
+	}
+	if rate <= labelRate {
+		t.Fatalf("rate = %d, want token rate added above label-only rate %d", rate, labelRate)
+	}
+	if dist <= 0 {
+		t.Fatalf("distortion = %d, want transform-domain residual distortion", dist)
+	}
+	if nextAbove == ([4]uint8{}) || nextLeft == ([4]uint8{}) {
+		t.Fatalf("next contexts = above %v left %v, want cost_coeffs-style token context updates", nextAbove, nextLeft)
+	}
+}
+
+func TestSplitMotionLabelRDCommitsContextsBeforeNewGate(t *testing.T) {
+	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
+	var ev splitMotionLabelRDEvaluator
+	initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false)
+	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
+	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(
+		src, ref, 0, 0, &mode, 0, 16, 8,
+		vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, false,
+		qIndex, nil, nil, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext,
+		maxInt(), &ev, &quant, &vp8tables.DefaultCoefProbs,
+	)
+	if bMode == vp8common.New4x4 {
+		t.Fatalf("bMode = NEW4X4 with max label threshold; expected pre-NEW gate to return an existing label")
+	}
+	if mv != (vp8enc.MotionVector{}) {
+		t.Fatalf("mv = %+v, want pre-NEW gated existing-label MV", mv)
+	}
+	if ev.yAbove == ([4]uint8{}) || ev.yLeft == ([4]uint8{}) {
+		t.Fatalf("committed contexts = above %v left %v, want rd_check_segment-style context commit before NEW gate", ev.yAbove, ev.yLeft)
+	}
+}
+
 // TestSplitMVDecisionRDUsesTransformDomainRate pins
 // selectInterFrameSplitMotionDecisionRDWithThreshold's rate accounting to
 // libvpx's rd_check_segment + vp8_rd_pick_inter_mode SPLITMV path. After

@@ -426,7 +426,7 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 	truth := make([]byte, w*h)
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			v := 96 + ((x*37 + y*53) & 0x3f) - ((x*y) & 0x1f)
+			v := 96 + ((x*37 + y*53) & 0x3f) - ((x * y) & 0x1f)
 			if v < 16 {
 				v = 16
 			}

@@ -1353,7 +1353,9 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var splitSeeds splitMotionSearchSeeds
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
-		mode, ok := selectInterFrameSplitMotionModeWithSearchAndThreshold(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh)
+		var labelRD splitMotionLabelRDEvaluator
+		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuant(), false)
+		mode, ok := selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, &e.coefProbs)
 		if !ok {
 			continue
 		}
@@ -1799,6 +1801,10 @@ func selectInterFrameSplitMotionModeWithSearch(src vp8enc.SourceImage, ref *vp8c
 // mvthresh == 0 disables the gate, which is the historical behavior used by
 // callers that do not yet route the libvpx rd_threshes table through here.
 func selectInterFrameSplitMotionModeWithSearchAndThreshold(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8, mvthresh int) (vp8enc.InterFrameMacroblockMode, bool) {
+	return selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, search, compressorSpeed, seeds, mvProbs, mvthresh, nil, nil, nil)
+}
+
+func selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8, mvthresh int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (vp8enc.InterFrameMacroblockMode, bool) {
 	if ref == nil || refFrame == vp8common.IntraFrame || partition < 0 || partition >= vp8tables.NumMBSplits {
 		return vp8enc.InterFrameMacroblockMode{}, false
 	}
@@ -1816,7 +1822,7 @@ func selectInterFrameSplitMotionModeWithSearchAndThreshold(src vp8enc.SourceImag
 		searchCenter := splitMotionSubsetSearchCenter(partition, subset, &mode, bestRefMV, compressorSpeed, seeds)
 		stepParam := splitMotionSubsetSearchStepParam(partition, subset, compressorSpeed, seeds)
 		fullSearchFallback := splitMotionSubsetFullSearchFallback(compressorSpeed)
-		mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src, ref, mbRow, mbCol, &mode, subset, width, height, bestRefMV, searchCenter, stepParam, fullSearchFallback, qIndex, left, above, search, mvProbs, labelMVThresh)
+		mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(src, ref, mbRow, mbCol, &mode, subset, width, height, bestRefMV, searchCenter, stepParam, fullSearchFallback, qIndex, left, above, search, mvProbs, labelMVThresh, labelRD, quant, coefProbs)
 		if subset == 0 {
 			first = mv
 		} else if mv != first {
@@ -1861,25 +1867,31 @@ func selectInterFrameSplitSubsetMotionModeWithSearch(src vp8enc.SourceImage, ref
 // — matching `if (best_label_rd < label_mv_thresh) break;` in libvpx.
 //
 // Candidate ranking uses the same RDCOST(rate, distortion) shape as
-// rd_check_segment. The current distortion proxy is the label SAD; full
-// transform/token segment RD remains tracked in the parity checklist.
+// rd_check_segment. The default helper keeps the cheap historical SAD
+// distortion proxy; the RD mode loop passes a splitMotionLabelRDEvaluator so
+// each label candidate is ranked with transform-domain token RD like libvpx.
 func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, subset int, width int, height int, bestRefMV vp8enc.MotionVector, searchCenter vp8enc.MotionVector, stepParam int, fullSearchFallback bool, qIndex int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8, labelMVThresh int) (vp8enc.MotionVector, vp8common.BPredictionMode) {
+	return selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(src, ref, mbRow, mbCol, mode, subset, width, height, bestRefMV, searchCenter, stepParam, fullSearchFallback, qIndex, left, above, search, mvProbs, labelMVThresh, nil, nil, nil)
+}
+
+func selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, subset int, width int, height int, bestRefMV vp8enc.MotionVector, searchCenter vp8enc.MotionVector, stepParam int, fullSearchFallback bool, qIndex int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8, labelMVThresh int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (vp8enc.MotionVector, vp8common.BPredictionMode) {
 	block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
 	leftMV := analysisSplitLeftMV(mode, left, block)
 	aboveMV := analysisSplitAboveMV(mode, above, block)
 	bestMV := leftMV
 	bestMode := vp8common.Left4x4
-	bestSAD := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV)
-	bestRD := splitMotionLabelRDScore(qIndex, splitSubMotionLabelRate(bestMode, leftMV, aboveMV), bestSAD)
+	bestRD, bestAbove, bestLeft, bestHasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, bestMode, bestMV, qIndex, splitSubMotionLabelRate(bestMode, leftMV, aboveMV), labelRD, quant, coefProbs)
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
-		sad := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv)
 		rate := splitSubMotionLabelRate(candidateMode, leftMV, aboveMV)
-		rd := splitMotionLabelRDScore(qIndex, rate, sad)
+		rd, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, candidateMode, mv, qIndex, rate, labelRD, quant, coefProbs)
 		if rd < bestRD {
 			bestRD = rd
 			bestMV = mv
 			bestMode = candidateMode
+			bestAbove = nextAbove
+			bestLeft = nextLeft
+			bestHasContexts = hasContexts
 		}
 	}
 
@@ -1895,6 +1907,10 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	// always running the NEW4X4 search. We compare in RDCOST space so
 	// the threshold matches the libvpx rd_threshes scale.
 	if labelMVThresh > 0 && bestRD < labelMVThresh {
+		if labelRD != nil && bestHasContexts {
+			labelRD.yAbove = bestAbove
+			labelRD.yLeft = bestLeft
+		}
 		return bestMV, bestMode
 	}
 
@@ -1905,18 +1921,158 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	newRate := splitSubMotionLabelRate(vp8common.New4x4, leftMV, aboveMV)
 	delta := vp8enc.MotionVector{Row: int16(int(newMV.Row) - int(bestRefMV.Row)), Col: int16(int(newMV.Col) - int(bestRefMV.Col))}
 	newRate += splitMotionVectorCost(delta, mvProbs)
-	newDist := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, newMV)
-	newRD := splitMotionLabelRDScore(qIndex, newRate, newDist)
+	newRD, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, vp8common.New4x4, newMV, qIndex, newRate, labelRD, quant, coefProbs)
 	if newRD < bestRD {
 		bestMV = newMV
 		bestMode = vp8common.New4x4
+		bestAbove = nextAbove
+		bestLeft = nextLeft
+		bestHasContexts = hasContexts
+	}
+	if labelRD != nil && bestHasContexts {
+		labelRD.yAbove = bestAbove
+		labelRD.yLeft = bestLeft
 	}
 
 	return bestMV, bestMode
 }
 
+func splitMotionLabelCandidateRD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mode *vp8enc.InterFrameMacroblockMode, subset int, candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector, qIndex int, rate int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (int, [4]uint8, [4]uint8, bool) {
+	if labelRD != nil {
+		if labelRate, labelDist, nextAbove, nextLeft, ok := labelRD.rateDistortion(src, ref, mbRow, mbCol, qIndex, quant, coefProbs, mode, subset, mv, rate); ok {
+			return rdModeScoreWithZbin(qIndex, labelRD.zbinOverQuant, labelRate, labelDist), nextAbove, nextLeft, true
+		}
+	}
+	sad := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv)
+	return splitMotionLabelRDScore(qIndex, rate, sad), [4]uint8{}, [4]uint8{}, false
+}
+
 func splitMotionLabelRDScore(qIndex int, rate int, distortion int) int {
 	return rdModeScoreWithZbin(qIndex, 0, rate, distortion)
+}
+
+type splitMotionLabelRDEvaluator struct {
+	zbinOverQuant int
+	fastQuant     bool
+	optimize      bool
+	yAbove        [4]uint8
+	yLeft         [4]uint8
+}
+
+func initSplitMotionLabelRDEvaluator(ev *splitMotionLabelRDEvaluator, zbinOverQuant int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, fastQuant bool, optimize bool) bool {
+	if ev == nil {
+		return false
+	}
+	*ev = splitMotionLabelRDEvaluator{
+		zbinOverQuant: zbinOverQuant,
+		fastQuant:     fastQuant,
+		optimize:      optimize,
+	}
+	if aboveTok != nil {
+		ev.yAbove = aboveTok.Y1
+	}
+	if leftTok != nil {
+		ev.yLeft = leftTok.Y1
+	}
+	return true
+}
+
+func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, labelRate int) (int, int, [4]uint8, [4]uint8, bool) {
+	if ev == nil || ref == nil || quant == nil || coefProbs == nil || mode == nil || mode.Partition >= vp8tables.NumMBSplits {
+		return 0, 0, [4]uint8{}, [4]uint8{}, false
+	}
+	nextAbove := ev.yAbove
+	nextLeft := ev.yLeft
+	rate := labelRate
+	distortion := 0
+	for block := 0; block < 16; block++ {
+		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
+			continue
+		}
+		var pred [16]byte
+		if !predictSplitMotionBlock4x4(ref, mbRow, mbCol, block, mv, &pred) {
+			return 0, 0, [4]uint8{}, [4]uint8{}, false
+		}
+		var input [16]int16
+		fillSplitMotionResidual4x4(src, mbRow, mbCol, block, &pred, &input)
+		var dct [16]int16
+		var qcoeff [16]int16
+		var dqcoeff [16]int16
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		a := block & 3
+		l := (block & 0x0c) >> 2
+		ctx := int(nextAbove[a] + nextLeft[l])
+		eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, ev.zbinOverQuant, splitInterModeZbinBoost, false, ev.fastQuant, ev.optimize, &dct, &quant.Y1, &qcoeff, &dqcoeff)
+		rate += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &qcoeff, eob)
+		distortion += transformBlockError(&dct, &dqcoeff)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		nextAbove[a] = hasCoeffs
+		nextLeft[l] = hasCoeffs
+	}
+	return rate, distortion >> 2, nextAbove, nextLeft, true
+}
+
+func predictSplitMotionBlock4x4(ref *vp8common.Image, mbRow int, mbCol int, block int, mv vp8enc.MotionVector, out *[16]byte) bool {
+	if ref == nil || out == nil {
+		return false
+	}
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	mvY := int(mv.Row >> 3)
+	mvX := int(mv.Col >> 3)
+	refBaseY := baseY + mvY
+	refBaseX := baseX + mvX
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	if xOffset|yOffset != 0 {
+		return predictSplitMotionSubpixelBlock4x4(ref, refBaseY, refBaseX, xOffset, yOffset, out)
+	}
+	if refBaseY >= 0 && refBaseX >= 0 && refBaseY+4 <= ref.CodedHeight && refBaseX+4 <= ref.CodedWidth {
+		for row := 0; row < 4; row++ {
+			copy(out[row*4:row*4+4], ref.Y[(refBaseY+row)*ref.YStride+refBaseX:])
+		}
+		return true
+	}
+	for row := 0; row < 4; row++ {
+		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		for col := 0; col < 4; col++ {
+			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			out[row*4+col] = ref.Y[refY*ref.YStride+refX]
+		}
+	}
+	return true
+}
+
+func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refBaseX int, xOffset int, yOffset int, out *[16]byte) bool {
+	if ref == nil || out == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
+		return false
+	}
+	if refBaseY < -ref.YBorder+2 || refBaseX < -ref.YBorder+2 ||
+		refBaseY+7 > ref.CodedHeight+ref.YBorder ||
+		refBaseX+7 > ref.CodedWidth+ref.YBorder {
+		return false
+	}
+	start := ref.YOrigin + (refBaseY-2)*ref.YStride + refBaseX - 2
+	if start < 0 || start+8*ref.YStride+9 > len(ref.YFull) {
+		return false
+	}
+	dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, out[:], 4)
+	return true
+}
+
+func fillSplitMotionResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred *[16]byte, out *[16]int16) {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	for row := 0; row < 4; row++ {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := 0; col < 4; col++ {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*4+col]))
+		}
+	}
 }
 
 type splitMotionSearchSeeds struct {
