@@ -4853,3 +4853,70 @@ func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
 			e.framesSinceGolden, e.sourceAltRefActive)
 	}
 }
+
+func TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    120,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	keySrc := testImage(16, 16)
+	altSrc := testImage(16, 16)
+	interSrc := testImage(16, 16)
+	fillImage(keySrc, 220, 90, 170)
+	fillImage(altSrc, 40, 91, 171)
+	fillImage(interSrc, 60, 92, 172)
+	dst := make([]byte, 4096)
+
+	if _, err := e.EncodeInto(dst, keySrc, 0, 1, EncodeForceKeyFrame); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	altRefresh, err := e.EncodeInto(dst, altSrc, 1, 1, EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("alt refresh EncodeInto returned error: %v", err)
+	}
+	altState := packetState(t, altRefresh.Data)
+	if altState.Refresh.AltRefSignBias {
+		t.Fatalf("alt-refresh frame AltRefSignBias = true, want false before update_alt_ref_frame_stats activates ALTREF")
+	}
+	if !e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive = false after ALTREF refresh, want true")
+	}
+	if len(altRefresh.Data) == 0 {
+		t.Fatalf("alt refresh wrote no packet data")
+	}
+
+	inter, err := e.EncodeInto(dst, interSrc, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("post-altref inter EncodeInto returned error: %v", err)
+	}
+	interState := packetState(t, inter.Data)
+	if !interState.Refresh.AltRefSignBias || interState.Refresh.GoldenSignBias {
+		t.Fatalf("post-altref sign bias = golden:%v alt:%v, want golden:false alt:true", interState.Refresh.GoldenSignBias, interState.Refresh.AltRefSignBias)
+	}
+
+	golden, err := e.EncodeInto(dst, interSrc, 3, 1, EncodeForceGoldenFrame)
+	if err != nil {
+		t.Fatalf("golden refresh EncodeInto returned error: %v", err)
+	}
+	goldenState := packetState(t, golden.Data)
+	if !goldenState.Refresh.AltRefSignBias {
+		t.Fatalf("golden-refresh frame AltRefSignBias = false, want true while ALTREF was active for this frame")
+	}
+	if e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive = true after GOLDEN refresh, want false")
+	}
+}

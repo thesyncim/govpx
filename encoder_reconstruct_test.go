@@ -920,6 +920,50 @@ func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T)
 	}
 }
 
+func TestImprovedInterFrameSearchStartBiasesCurrentSlots(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 80, 90, 170)
+	analysis := testVP8Frame(t, 32, 32, 80, 90, 170)
+	e := &VP8Encoder{analysis: analysis, sourceAltRefActive: true}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	left := above
+	aboveLeft := above
+
+	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, 2, 2, &above, &left, &aboveLeft, interAnalysisSearchConfig{improvedMVPrediction: true})
+	if !start.ok || start.sr != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
+		t.Fatalf("sign-biased current-frame start = %+v, want median col -16 with sr 0", start)
+	}
+}
+
+func TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots(t *testing.T) {
+	const mbRows, mbCols = 3, 3
+	src := testImage(mbCols*16, mbRows*16)
+	fillImage(src, 72, 90, 170)
+	last := testVP8Frame(t, mbCols*16, mbRows*16, 72, 90, 170)
+	modes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
+	for _, index := range []int{
+		1*mbCols + 1,
+		0*mbCols + 1,
+		1*mbCols + 0,
+		1*mbCols + 2,
+		2*mbCols + 1,
+	} {
+		modes[index] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	}
+	e := &VP8Encoder{
+		lastRef:                  last,
+		lastFrameInterModes:      modes,
+		lastFrameInterModeBias:   make([]bool, len(modes)),
+		lastFrameInterModesValid: true,
+		sourceAltRefActive:       true,
+	}
+
+	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, nil, nil, nil, interAnalysisSearchConfig{improvedMVPrediction: true})
+	if !start.ok || start.sr != 0 || start.mv != (vp8enc.MotionVector{Col: -16}) {
+		t.Fatalf("sign-biased previous-frame start = %+v, want median col -16 with sr 0", start)
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
@@ -1583,6 +1627,45 @@ func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	}
 	if rdRate := e.interMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate); got == rdRate {
 		t.Fatalf("fast NEWMV mode rate = RD rate %d, want separate pickinter weight", rdRate)
+	}
+}
+
+func TestEncoderInterMotionModeRateUsesAltRefSignBias(t *testing.T) {
+	e := &VP8Encoder{
+		refProbIntra:       63,
+		refProbLast:        128,
+		refProbGolden:      128,
+		sourceAltRefActive: true,
+	}
+	e.modeProbs.MV = vp8tables.DefaultMVContext
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.AltRefFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: -24}}
+	refRate := 23
+
+	signBias := e.interFrameSignBias()
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, signBias)
+	vectorCost := interMotionModeVectorCostWithNewMVWeightAndSignBias(&mode, &above, nil, nil, 0, 0, 1, 2, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight, signBias)
+	wantVectorCost := vp8enc.MotionVectorBitCost(mode.MV, vp8enc.MotionVector{Col: -16}, &vp8tables.DefaultMVContext, libvpxRDNewMVBitCostWeight)
+	if vectorCost != wantVectorCost {
+		t.Fatalf("sign-biased NEWMV vector cost = %d, want cost against inverted best ref MV %d", vectorCost, wantVectorCost)
+	}
+
+	want := boolBitCost(63, 1) +
+		refRate +
+		interPredictionModeRate(vp8common.NewMV, counts) +
+		vectorCost
+	if got := e.interMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 2, refRate); got != want {
+		t.Fatalf("sign-biased inter mode rate = %d, want %d", got, want)
+	}
+}
+
+func TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias(t *testing.T) {
+	e := &VP8Encoder{sourceAltRefActive: true}
+	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
+
+	nearest, near := e.interAnalysisReferenceMotionPredictors(vp8common.AltRefFrame, &above, nil, nil, 0, 0, 1, 2)
+	if nearest != (vp8enc.MotionVector{Col: -16}) || !near.IsZero() {
+		t.Fatalf("ALTREF predictors = %+v/%+v, want inverted nearest col -16 and zero near", nearest, near)
 	}
 }
 

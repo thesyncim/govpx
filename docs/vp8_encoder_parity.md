@@ -209,10 +209,12 @@ the anchor and look for the surrounding mismatch.
     policy in `ratectrl.c`.
   - Status: missing/partial. govpx supports explicit invisible/force ARF flags
     but not libvpx hidden-ARF insertion and later show-frame handling.
-  - Missing: `source_alt_ref_pending`, `source_alt_ref_active`,
-    `alt_ref_source`, `is_src_frame_alt_ref`, hidden-frame insertion from future
-    lookahead, later source-frame show handling, and altref sign-bias/reference
-    state updates.
+    `sourceAltRefActive` now mirrors the libvpx lifecycle for explicit ALTREF
+    refreshes, key-frame resets, and GOLDEN refresh clears, and the inter-frame
+    header writes ALTREF sign bias from that state.
+  - Missing: `source_alt_ref_pending`, automatic `alt_ref_source` selection,
+    `is_src_frame_alt_ref`, hidden-frame insertion from future lookahead, and
+    later source-frame show handling.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded output
     match libvpx with alternate-reference enabled.
 
@@ -275,10 +277,21 @@ the anchor and look for the surrounding mismatch.
     `closest_reference_frame` tweak for LAST+GOLDEN temporal layers, including
     frame-number tracking through refresh/copy updates and `/8` vs `/2`
     reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`.
-  - Missing: high-level sign-bias policy/reference switching, full SplitMV
-    label-level segmentation search with `THR_NEW1/2/3` gating, active-map skip
-    short-circuiting, and recode-loop interactions. Active-map behavior is
-    tracked in the dedicated active-map checklist item elsewhere.
+  - High-level sign-bias policy is now wired: frame headers derive
+    `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
+    `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,
+    mode-rate counts and NEWMV vector costs use the same sign-biased anchors as
+    the writer, and previous-frame improved-MV slots store the prior frame's
+    sign-bias state. Tests:
+    `TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive`,
+    `TestEncoderInterMotionModeRateUsesAltRefSignBias`,
+    `TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias`,
+    `TestImprovedInterFrameSearchStartBiasesCurrentSlots`, and
+    `TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots`.
+  - Missing: full SplitMV label-level segmentation search with
+    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
+    interactions. Active-map behavior is tracked in the dedicated active-map
+    checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -291,14 +304,15 @@ the anchor and look for the surrounding mismatch.
     `vp8_mv_pred` and `vp8_cal_sad` in `rdopt.c`.
   - Status: partial. Current-frame SAD ordering, previous inter-frame mode/MV
     grid, libvpx realtime gate, and low-level sign-biased near/best MV
-    predictor helpers are present. Border-mode-info indexing now mirrors
+    predictor helpers are present, and high-level predictor search now uses
+    the current frame's sign-bias map plus the saved previous-frame slot bias.
+    Border-mode-info indexing now mirrors
     libvpx's calloc-zeroed sentinel rows/columns: nil current-frame
     above/left/above-left and out-of-range previous-frame
     above/left/right/below neighbors collapse to `INTRA_FRAME` /
     `mv == 0` / `near_sad == INT_MAX` slots, and an intra current-frame
     neighbor no longer leaks a stale MV into the median fallback. Remaining
-    work is high-level sign-bias policy/reference switching and oracle
-    traces for `near_sadidx`, predictor MV, and `sr`.
+    work is oracle traces for `near_sadidx`, predictor MV, and `sr`.
     End-to-end quality smoke now covers best-quality panning, good-quality RD
     and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case. A new

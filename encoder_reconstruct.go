@@ -1251,7 +1251,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
 ) (vp8enc.InterFrameMacroblockMode, int, int, bool, bool) {
-	signBias := defaultInterFrameSignBias()
+	signBias := e.interFrameSignBias()
 	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	bestSet := false
 	bestScore := maxInt()
@@ -1345,7 +1345,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 	case vp8common.ZeroMV:
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
 	case vp8common.NearestMV, vp8common.NearMV:
-		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		nearest, near := e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
@@ -1360,7 +1360,8 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		}
 		candidate := &newMVCandidates[refIndex]
 		if !candidate.searched {
-			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+			signBias := e.interFrameSignBias()
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectRDInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
@@ -1492,7 +1493,7 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 	case vp8common.ZeroMV:
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
 	case vp8common.NearestMV, vp8common.NearMV:
-		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		nearest, near := e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
@@ -1507,7 +1508,8 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		}
 		candidate := &newMVCandidates[refIndex]
 		if !candidate.searched {
-			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+			signBias := e.interFrameSignBias()
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
@@ -1705,13 +1707,17 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		return 0
 	}
 	count := 0
+	signBias := defaultInterFrameSignBias()
+	if e != nil {
+		signBias = e.interFrameSignBias()
+	}
 	for refIndex := 0; refIndex < refCount && refIndex < len(refs); refIndex++ {
 		ref := refs[refIndex]
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, vp8enc.MotionVector{})
-		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		nearest, near := interAnalysisReferenceMotionPredictorsWithSignBias(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, signBias)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, nearest)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, near)
-		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 		start := interFrameSearchStart{}
 		if e != nil {
 			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
@@ -1730,7 +1736,15 @@ func collectInterFrameMotionCandidatesWithEncoder(
 }
 
 func interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
-	return vp8enc.InterFrameNearMotionVectorsAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+	return interAnalysisReferenceMotionPredictorsWithSignBias(refFrame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+}
+
+func (e *VP8Encoder) interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
+	return interAnalysisReferenceMotionPredictorsWithSignBias(refFrame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, e.interFrameSignBias())
+}
+
+func interAnalysisReferenceMotionPredictorsWithSignBias(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, signBias [vp8common.MaxRefFrames]bool) (vp8enc.MotionVector, vp8enc.MotionVector) {
+	return vp8enc.InterFrameNearMotionVectorsAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols, signBias)
 }
 
 func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate, count int, ref interAnalysisReference, mv vp8enc.MotionVector) int {
@@ -2815,6 +2829,7 @@ func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFr
 type improvedInterFrameMVSlot struct {
 	mv       vp8enc.MotionVector
 	refFrame vp8common.MVReferenceFrame
+	signBias bool
 	sad      int
 }
 
@@ -2829,17 +2844,19 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	}
 	var slots [8]improvedInterFrameMVSlot
 	slotCount := 3
-	fillImprovedInterFrameCurrentMVSlot(&slots[0], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above)
-	fillImprovedInterFrameCurrentMVSlot(&slots[1], src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left)
-	fillImprovedInterFrameCurrentMVSlot(&slots[2], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft)
+	signBias := e.interFrameSignBias()
+	fillImprovedInterFrameCurrentMVSlot(&slots[0], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above, signBias)
+	fillImprovedInterFrameCurrentMVSlot(&slots[1], src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left, signBias)
+	fillImprovedInterFrameCurrentMVSlot(&slots[2], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft, signBias)
 	if e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols && mbRows > 0 && mbCols > 0 {
 		slotCount = 8
-		fillImprovedInterFrameLastMVSlot(&slots[3], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
-		fillImprovedInterFrameLastMVSlot(&slots[4], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
-		fillImprovedInterFrameLastMVSlot(&slots[5], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
-		fillImprovedInterFrameLastMVSlot(&slots[6], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
-		fillImprovedInterFrameLastMVSlot(&slots[7], src, &e.lastRef.Img, e.lastFrameInterModes, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		fillImprovedInterFrameLastMVSlot(&slots[3], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+		fillImprovedInterFrameLastMVSlot(&slots[4], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+		fillImprovedInterFrameLastMVSlot(&slots[5], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+		fillImprovedInterFrameLastMVSlot(&slots[6], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+		fillImprovedInterFrameLastMVSlot(&slots[7], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
 	}
+	biasImprovedInterFrameMVSlots(&slots, slotCount, refFrame, signBias, mbRow, mbCol, mbRows, mbCols)
 	order := improvedInterFrameMVSlotOrder(slots, slotCount)
 	for rank := 0; rank < slotCount; rank++ {
 		slot := slots[order[rank]]
@@ -2855,7 +2872,7 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	return interFrameSearchStart{mv: mv, sr: 0, ok: true}
 }
 
-func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode) {
+func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a nil
 	// pointer (border MB) corresponds to libvpx's calloc-zeroed mode_info
 	// sentinel row/column where ref_frame == INTRA_FRAME and mv == 0, and
@@ -2865,6 +2882,9 @@ func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8
 		return
 	}
 	slot.refFrame = convertInterFrameReference(mode)
+	if slot.refFrame > vp8common.IntraFrame && slot.refFrame < vp8common.MaxRefFrames {
+		slot.signBias = signBias[slot.refFrame]
+	}
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero when the neighbor is intra; do
 		// the same here regardless of any stale MV field on the mode entry.
@@ -2874,7 +2894,7 @@ func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8
 	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
-func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the previous frame:
 	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
 	// sentinel rows (top/bottom) and columns (left/right) which are
@@ -2890,6 +2910,9 @@ func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc
 	}
 	mode := &modes[index]
 	slot.refFrame = convertInterFrameReference(mode)
+	if index < len(modeBias) {
+		slot.signBias = modeBias[index]
+	}
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero for intra last-frame slots even
 		// though it still increments vcnt; mirror that exactly.
@@ -2897,6 +2920,48 @@ func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc
 	}
 	slot.mv = mode.MV
 	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+}
+
+func biasImprovedInterFrameMVSlots(slots *[8]improvedInterFrameMVSlot, count int, refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool, mbRow int, mbCol int, mbRows int, mbCols int) {
+	if slots == nil || refFrame <= vp8common.IntraFrame || refFrame >= vp8common.MaxRefFrames {
+		return
+	}
+	targetBias := signBias[refFrame]
+	for i := 0; i < count && i < len(slots); i++ {
+		slot := &slots[i]
+		if slot.refFrame == vp8common.IntraFrame {
+			continue
+		}
+		if slot.signBias != targetBias {
+			slot.mv.Row = -slot.mv.Row
+			slot.mv.Col = -slot.mv.Col
+		}
+		slot.mv = clampInterFrameModeMotionVector(slot.mv, mbRow, mbCol, mbRows, mbCols)
+	}
+}
+
+func clampInterFrameModeMotionVector(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) vp8enc.MotionVector {
+	if mbRows <= 0 || mbCols <= 0 {
+		return mv
+	}
+	top := -(mbRow * 16) << 3
+	bottom := (mbRows - 1 - mbRow) * 16 << 3
+	left := -(mbCol * 16) << 3
+	right := (mbCols - 1 - mbCol) * 16 << 3
+	return vp8enc.MotionVector{
+		Row: int16(clampInterFrameModeMotionVectorComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampInterFrameModeMotionVectorComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampInterFrameModeMotionVectorComponent(v int, lowEdge int, highEdge int) int {
+	if v < lowEdge-(16<<3) {
+		return lowEdge - (16 << 3)
+	}
+	if v > highEdge+(16<<3) {
+		return highEdge + (16 << 3)
+	}
+	return v
 }
 
 func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int) [8]int {
@@ -3535,13 +3600,17 @@ func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8
 }
 
 func interMotionModeVectorCostWithNewMVWeight(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int) int {
+	return interMotionModeVectorCostWithNewMVWeightAndSignBias(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, mvProbs, newMVWeight, defaultInterFrameSignBias())
+}
+
+func interMotionModeVectorCostWithNewMVWeightAndSignBias(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8, newMVWeight int, signBias [vp8common.MaxRefFrames]bool) int {
 	if mode == nil || mode.RefFrame == vp8common.IntraFrame {
 		return 0
 	}
 	if mvProbs == nil {
 		return maxInt() / 4
 	}
-	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
+	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols, signBias)
 	if mode.Mode == vp8common.SplitMV {
 		return splitMotionModeVectorCost(mode, left, above, best, mvProbs)
 	}
@@ -3604,10 +3673,11 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndNewMVWeight(mode *vp
 	if mode.RefFrame == vp8common.IntraFrame {
 		return boolBitCost(e.refProbIntra, 0)
 	}
+	signBias := e.interFrameSignBias()
 	return boolBitCost(e.refProbIntra, 1) +
 		refRate +
-		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame, defaultInterFrameSignBias())) +
-		interMotionModeVectorCostWithNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight)
+		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame, signBias)) +
+		interMotionModeVectorCostWithNewMVWeightAndSignBias(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight, signBias)
 }
 
 // interReferenceFrameRate ports libvpx vp8_calc_ref_frame_costs (bitstream.c):
