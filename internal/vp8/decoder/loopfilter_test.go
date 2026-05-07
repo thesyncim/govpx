@@ -138,6 +138,99 @@ func BenchmarkApplyLoopFilterSimple(b *testing.B) {
 	}
 }
 
+func TestApplyLoopFilterPartialMatchesFullOnLumaWindow(t *testing.T) {
+	const cols, rows = 4, 8
+	full := newLoopFilterFrame(t, cols*16, rows*16)
+	partial := newLoopFilterFrame(t, cols*16, rows*16)
+	fillLoopFilterMacroblockColumns(&full.Img, 100, 110, 80, 90)
+	fillLoopFilterMacroblockColumns(&partial.Img, 100, 110, 80, 90)
+	// Tweak per-row content so each MB row has a distinct horizontal edge.
+	for r := 0; r < rows; r++ {
+		base := r * 16
+		for y := base; y < base+16; y++ {
+			row := y * full.Img.YStride
+			for x := 0; x < full.Img.CodedWidth; x++ {
+				v := byte(50 + (r*7+x)%80)
+				full.Img.Y[row+x] = v
+				partial.Img.Y[row+x] = v
+			}
+		}
+	}
+
+	modes := make([]MacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred, RefFrame: common.IntraFrame}
+	}
+	header := LoopFilterHeader{Type: NormalLoopFilter, Level: 24}
+	startRow, rowCount := rows/2, rows/8
+	if rowCount == 0 {
+		rowCount = 1
+	}
+
+	var fullLFI, partialLFI common.LoopFilterInfo
+	if err := ApplyLoopFilter(&full.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &fullLFI); err != nil {
+		t.Fatalf("ApplyLoopFilter returned error: %v", err)
+	}
+	if err := ApplyLoopFilterPartial(&partial.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &partialLFI, startRow, rowCount); err != nil {
+		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
+	}
+
+	// Compare only the inner rows of the partial window. The bottom 4 luma
+	// lines of the last MB row in the window are touched by the next MB
+	// row's mbh in the full-frame filter; the partial filter intentionally
+	// stops at the window edge so they would not match.
+	for r := startRow; r < startRow+rowCount; r++ {
+		baseY := r * 16
+		endY := baseY + 16
+		if r == startRow+rowCount-1 {
+			endY -= 4
+		}
+		for y := baseY; y < endY; y++ {
+			fullRow := y * full.Img.YStride
+			partRow := y * partial.Img.YStride
+			for x := 0; x < full.Img.CodedWidth; x++ {
+				if full.Img.Y[fullRow+x] != partial.Img.Y[partRow+x] {
+					t.Fatalf("luma mismatch at row=%d col=%d: full=%d partial=%d", y, x, full.Img.Y[fullRow+x], partial.Img.Y[partRow+x])
+				}
+			}
+		}
+	}
+}
+
+func TestApplyLoopFilterPartialIgnoresChroma(t *testing.T) {
+	const cols, rows = 2, 4
+	fb := newLoopFilterFrame(t, cols*16, rows*16)
+	fillLoopFilterMacroblockColumns(&fb.Img, 100, 110, 80, 90)
+	uBefore := append([]byte(nil), fb.Img.U...)
+	vBefore := append([]byte(nil), fb.Img.V...)
+	modes := make([]MacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred, RefFrame: common.IntraFrame}
+	}
+	header := LoopFilterHeader{Type: NormalLoopFilter, Level: 24}
+	var lfi common.LoopFilterInfo
+
+	if err := ApplyLoopFilterPartial(&fb.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &lfi, rows/2, 1); err != nil {
+		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
+	}
+	for i := range uBefore {
+		if fb.Img.U[i] != uBefore[i] || fb.Img.V[i] != vBefore[i] {
+			t.Fatalf("partial loop filter modified chroma at %d (u=%d/%d v=%d/%d)", i, uBefore[i], fb.Img.U[i], vBefore[i], fb.Img.V[i])
+		}
+	}
+}
+
+func TestApplyLoopFilterPartialZeroLevelNoop(t *testing.T) {
+	const cols, rows = 2, 4
+	fb := newLoopFilterFrame(t, cols*16, rows*16)
+	fillLoopFilterMacroblockColumns(&fb.Img, 100, 110, 80, 90)
+	modes := make([]MacroblockMode, rows*cols)
+	var lfi common.LoopFilterInfo
+	if err := ApplyLoopFilterPartial(&fb.Img, rows, cols, modes, common.InterFrame, LoopFilterHeader{Level: 0}, SegmentationHeader{}, &lfi, rows/2, 1); err != nil {
+		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
+	}
+}
+
 func loopFilterBenchmarkModes(rows int, cols int) []MacroblockMode {
 	modes := make([]MacroblockMode, rows*cols)
 	for i := range modes {

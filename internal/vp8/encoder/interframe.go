@@ -179,6 +179,11 @@ type InterFrameMacroblockMode struct {
 	MV          MotionVector
 	Partition   uint8
 	BlockMV     [16]MotionVector
+
+	ImprovedMVStart        bool
+	ImprovedMVNearSADIndex int8
+	ImprovedMVSR           int8
+	ImprovedMVPredictor    MotionVector
 }
 
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {

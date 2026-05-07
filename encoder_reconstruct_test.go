@@ -571,6 +571,27 @@ func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.
 	}
 }
 
+func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
+	tests := []struct {
+		sr   int
+		want int
+	}{
+		{sr: 0, want: 7},
+		{sr: 1, want: 7},
+		{sr: 2, want: 6},
+		{sr: 3, want: 6},
+		{sr: 4, want: 5},
+		{sr: 127, want: 1},
+		{sr: 128, want: 0},
+		{sr: 512, want: 0},
+	}
+	for _, tt := range tests {
+		if got := libvpxSplitMVStepParamFromSeedDistance(tt.sr); got != tt.want {
+			t.Fatalf("step_param(%d) = %d, want %d", tt.sr, got, tt.want)
+		}
+	}
+}
+
 func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
@@ -880,6 +901,9 @@ func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.
 	if !start.ok || start.mv != left.MV || start.sr != 3 {
 		t.Fatalf("improved search start = %+v, want left MV %+v with sr 3", start, left.MV)
 	}
+	if start.nearSADIndex != 1 {
+		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndex)
+	}
 	adjusted := search.adjustedForImprovedMVStart(start)
 	if adjusted.fullPixelSearchParam != 5 || adjusted.fullPixelFurtherSteps != 2 {
 		t.Fatalf("adjusted search = step %d further %d, want step 5 further 2", adjusted.fullPixelSearchParam, adjusted.fullPixelFurtherSteps)
@@ -917,6 +941,9 @@ func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T)
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, search)
 	if !start.ok || start.mv != e.lastFrameInterModes[1*4+1].MV || start.sr != 3 {
 		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, e.lastFrameInterModes[1*4+1].MV)
+	}
+	if start.nearSADIndex != 3 {
+		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndex)
 	}
 }
 
@@ -1072,6 +1099,242 @@ func TestSelectInterFrameSplitSubsetMotionModeTrialsReusableLabels(t *testing.T)
 
 	if mv != (vp8enc.MotionVector{}) || bMode != vp8common.Above4x4 {
 		t.Fatalf("subset candidate = %+v/%v, want ABOVE4X4 zero-MV reuse", mv, bMode)
+	}
+}
+
+func TestSelectInterFrameSplitSubsetMotionModeRefinesNew4x4Subpixel(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 13, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((19 + row*17 + col*13 + row*col*3) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YFull[ref.Img.YOrigin-2*ref.Img.YStride-2:]
+	dsp.SixTapPredict4x4(refStart, ref.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 3,
+	}
+	width, height := splitMotionPartitionBlockSize(int(mode.Partition))
+
+	mv, bMode := selectInterFrameSplitSubsetMotionMode(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height, vp8enc.MotionVector{}, testInterSearchQIndex, nil, nil)
+
+	if bMode != vp8common.New4x4 || (int(mv.Row)&7 == 0 && int(mv.Col)&7 == 0) {
+		t.Fatalf("subset candidate = %+v/%v, want NEW4X4 subpixel MV", mv, bMode)
+	}
+	if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{Row: 2, Col: 2}); sad != 0 {
+		t.Fatalf("subpixel split SAD = %d, want exact predictor match", sad)
+	}
+}
+
+func TestSplitBlockSADUsesSubpixelPredictorForAllShapes(t *testing.T) {
+	cases := []struct {
+		name    string
+		block   int
+		width   int
+		height  int
+		predict func(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int)
+	}{
+		{name: "16x8", block: 0, width: 16, height: 8, predict: dsp.SixTapPredict16x8},
+		{name: "8x16", block: 0, width: 8, height: 16, predict: dsp.SixTapPredict8x16},
+		{name: "8x8", block: 0, width: 8, height: 8, predict: dsp.SixTapPredict8x8},
+		{name: "4x4", block: 5, width: 4, height: 4, predict: dsp.SixTapPredict4x4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := testImage(32, 32)
+			fillImage(src, 0, 90, 170)
+			ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+			for row := 0; row < ref.Img.CodedHeight; row++ {
+				for col := 0; col < ref.Img.CodedWidth; col++ {
+					ref.Img.Y[row*ref.Img.YStride+col] = byte((17 + row*19 + col*23 + row*col*11) & 0xff)
+				}
+			}
+			ref.ExtendBorders()
+
+			baseY := (tc.block >> 2) * 4
+			baseX := (tc.block & 3) * 4
+			refStart := ref.Img.YOrigin + (baseY-2)*ref.Img.YStride + baseX - 2
+			tc.predict(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[baseY*src.YStride+baseX:], src.YStride)
+
+			if sad := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, 0, 0, tc.block, tc.width, tc.height, vp8enc.MotionVector{Row: 2, Col: 2}); sad != 0 {
+				t.Fatalf("splitBlockSAD = %d, want exact subpixel predictor match", sad)
+			}
+		})
+	}
+}
+
+func TestRefineInterFrameSplitBlockSubpixelMotionVectorUsesBilinearVariance(t *testing.T) {
+	src := testImage(32, 32)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*11 + col*7 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin
+	dsp.BilinearPredict4x4(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	mv, cost, ok := refineInterFrameSplitBlockSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext)
+
+	if !ok {
+		t.Fatalf("refineInterFrameSplitBlockSubpixelMotionVector returned ok=false")
+	}
+	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("mv = %+v, want +2,+2 quarter-pel candidate", mv)
+	}
+	if want := interMotionSearchErrorVectorCost(mv, vp8enc.MotionVector{}, testInterSearchQIndex, &vp8tables.DefaultMVContext); cost != want {
+		t.Fatalf("cost = %d, want zero distortion plus mv cost %d", cost, want)
+	}
+}
+
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*53 + col*97 + row*col*29 + col*col*7) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 4, 4, 4, 0, 12)
+	ref.ExtendBorders()
+
+	bestRefMV := vp8enc.MotionVector{}
+	reusedCenter := vp8enc.MotionVector{Col: 64}
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
+
+	if mv != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("search-centered split MV = %+v, want col +96", mv)
+	}
+	if noReuseMV == mv {
+		t.Fatalf("zero-centered search unexpectedly reached %+v; test no longer proves predictor reuse", mv)
+	}
+}
+
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*67 + col*43 + row*col*19 + col*col*5) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 4, 4, 0, 2)
+	ref.ExtendBorders()
+
+	source := sourceImageFromPublic(src)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7)
+
+	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
+		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
+	}
+	if stepOneMV == stepTwoMV {
+		t.Fatalf("step_param 7 reached %+v; want smaller diamond window than step_param 6", stepOneMV)
+	}
+}
+
+func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*71 + col*37 + row*col*17 + col*col*11) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 9)
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 0)
+	ref.ExtendBorders()
+	seeds := splitMotionSearchSeeds{
+		valid: true,
+		mv: [4]vp8enc.MotionVector{
+			{Col: 64},
+			{},
+			{Col: 64},
+			{},
+		},
+	}
+
+	mode, ok := selectInterFrameSplitMotionModeWithSearch(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, 0, 1, nil, nil, defaultInterAnalysisSearchConfig(), 1, &seeds, &vp8tables.DefaultMVContext)
+
+	if !ok || mode.Partition != 1 {
+		t.Fatalf("mode = %+v ok=%t, want 8x16 SplitMV", mode, ok)
+	}
+	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 72}) {
+		t.Fatalf("seeded 8x16 left MV = %+v, want col +72", mode.BlockMV[0])
+	}
+	if mode.BlockMV[2] != (vp8enc.MotionVector{}) {
+		t.Fatalf("8x16 right MV = %+v, want zero", mode.BlockMV[2])
+	}
+}
+
+func TestSplitMotionSubsetSearchCenterMatchesLibvpxSeedReuse(t *testing.T) {
+	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
+	mode := vp8enc.InterFrameMacroblockMode{Partition: 3}
+	mode.BlockMV[0] = vp8enc.MotionVector{Col: 64}
+	mode.BlockMV[4] = vp8enc.MotionVector{Row: 32}
+	seeds := splitMotionSearchSeeds{
+		valid: true,
+		mv: [4]vp8enc.MotionVector{
+			{Col: 16},
+			{Col: 24},
+			{Row: 32},
+			{Row: 40},
+		},
+	}
+
+	if got := splitMotionSubsetSearchCenter(1, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("8x16 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(1, 1, &mode, bestRefMV, 1, &seeds); got != seeds.mv[1] {
+		t.Fatalf("8x16 subset 1 search center = %+v, want 8x8 seed %+v", got, seeds.mv[1])
+	}
+	if got := splitMotionSubsetSearchCenter(0, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("16x8 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(0, 1, &mode, bestRefMV, 1, &seeds); got != seeds.mv[2] {
+		t.Fatalf("16x8 subset 1 search center = %+v, want 8x8 seed %+v", got, seeds.mv[2])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 0, &mode, bestRefMV, 1, &seeds); got != seeds.mv[0] {
+		t.Fatalf("4x4 subset 0 search center = %+v, want 8x8 seed %+v", got, seeds.mv[0])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 1, &mode, bestRefMV, 1, &seeds); got != mode.BlockMV[0] {
+		t.Fatalf("subset 1 search center = %+v, want left block %+v", got, mode.BlockMV[0])
+	}
+	if got := splitMotionSubsetSearchCenter(3, 8, &mode, bestRefMV, 1, &seeds); got != mode.BlockMV[4] {
+		t.Fatalf("subset 8 search center = %+v, want above block %+v", got, mode.BlockMV[4])
+	}
+	if got := splitMotionSubsetSearchCenter(1, 1, &mode, bestRefMV, 0, &seeds); got != bestRefMV {
+		t.Fatalf("best-quality search center = %+v, want bestRefMV %+v", got, bestRefMV)
+	}
+}
+
+func TestSplitMotionSearchSeedsFrom8x8UsesLibvpxBlocks(t *testing.T) {
+	mode := vp8enc.InterFrameMacroblockMode{
+		Mode:      vp8common.SplitMV,
+		Partition: 2,
+	}
+	mode.BlockMV[0] = vp8enc.MotionVector{Col: 16}
+	mode.BlockMV[2] = vp8enc.MotionVector{Col: 24}
+	mode.BlockMV[8] = vp8enc.MotionVector{Row: 32}
+	mode.BlockMV[10] = vp8enc.MotionVector{Row: 40}
+
+	seeds := splitMotionSearchSeedsFrom8x8(&mode)
+
+	if !seeds.valid {
+		t.Fatalf("8x8 seeds are not valid")
+	}
+	want := [4]vp8enc.MotionVector{mode.BlockMV[0], mode.BlockMV[2], mode.BlockMV[8], mode.BlockMV[10]}
+	if seeds.mv != want {
+		t.Fatalf("seeds = %+v, want %+v", seeds.mv, want)
+	}
+	if seeds.step8x16 != [2]int{5, 5} || seeds.step16x8 != [2]int{7, 7} {
+		t.Fatalf("seed steps 8x16=%v 16x8=%v, want [5 5] and [7 7]", seeds.step8x16, seeds.step16x8)
 	}
 }
 
@@ -1788,6 +2051,7 @@ func TestInterModeForRDLoopEntryAllowsZeroNewMVOnFlatMatch(t *testing.T) {
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 
 	mode, ok := e.interModeForRDLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)
@@ -1813,6 +2077,7 @@ func TestFastInterModeForLoopEntryRejectsZeroNewMVOnFlatMatch(t *testing.T) {
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
+		start    interFrameSearchStart
 	}
 
 	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, 1, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates)

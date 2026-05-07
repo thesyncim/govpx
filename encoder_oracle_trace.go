@@ -60,6 +60,12 @@ type oracleTraceMBRow struct {
 	Skip       bool      `json:"skip"`
 	EOB        [25]uint8 `json:"eob"`
 	EOBSum     int       `json:"eob_sum"`
+
+	ImprovedMVStart        bool  `json:"improved_mv_start"`
+	ImprovedMVNearSADIndex int   `json:"improved_mv_near_sadidx"`
+	ImprovedMVRow          int16 `json:"improved_mv_row"`
+	ImprovedMVCol          int16 `json:"improved_mv_col"`
+	ImprovedMVSR           int   `json:"improved_mv_sr"`
 }
 
 // oracleTraceEnabled reports whether the encoder is configured to emit the
@@ -168,6 +174,16 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		MVRow:      mode.MV.Row,
 		MVCol:      mode.MV.Col,
 		Skip:       mode.MBSkipCoeff,
+
+		ImprovedMVNearSADIndex: -1,
+		ImprovedMVSR:           -1,
+	}
+	if mode.ImprovedMVStart {
+		row.ImprovedMVStart = true
+		row.ImprovedMVNearSADIndex = int(mode.ImprovedMVNearSADIndex)
+		row.ImprovedMVRow = mode.ImprovedMVPredictor.Row
+		row.ImprovedMVCol = mode.ImprovedMVPredictor.Col
+		row.ImprovedMVSR = int(mode.ImprovedMVSR)
 	}
 	sum := 0
 	for i := 0; i < 25; i++ {

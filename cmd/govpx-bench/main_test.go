@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	govpx "github.com/thesyncim/govpx"
 )
@@ -86,6 +87,38 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	wantPSNRDelta := report.PSNR - report.Reference.PSNR
 	if report.Comparison.PSNRDeltaDB != wantPSNRDelta {
 		t.Fatalf("comparison psnr delta = %f, want %f", report.Comparison.PSNRDeltaDB, wantPSNRDelta)
+	}
+
+	// The fake vpxenc emits a vpxenc-style progress line, so the bench
+	// should pick up the parsed encode-only timing rather than falling
+	// back to the wall clock. Wall and overhead must still be reported
+	// for transparency, and the parity flags should travel with the
+	// reference report so consumers can verify what was passed to
+	// libvpx.
+	if report.Reference.TimingSource != "vpxenc-stats" {
+		t.Fatalf("timing source = %q, want %q (parser fell back)", report.Reference.TimingSource, "vpxenc-stats")
+	}
+	if report.Reference.WallNSPerFrame <= 0 || report.Reference.WallEncodeFPS <= 0 {
+		t.Fatalf("wall timing = ns:%d fps:%f, want positive values", report.Reference.WallNSPerFrame, report.Reference.WallEncodeFPS)
+	}
+	if report.Reference.WallNSPerFrame < report.Reference.NSPerFrame {
+		t.Fatalf("wall %d < encode %d, want wall >= encode (subprocess overhead is non-negative)", report.Reference.WallNSPerFrame, report.Reference.NSPerFrame)
+	}
+	if report.Reference.SubprocessOverheadNS < 0 {
+		t.Fatalf("subprocess overhead = %d, want >= 0", report.Reference.SubprocessOverheadNS)
+	}
+	hasFlag := func(want string) bool {
+		for _, f := range report.Reference.ParityFlags {
+			if f == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"--end-usage=cbr", "--passes=1", "--lag-in-frames=0"} {
+		if !hasFlag(want) {
+			t.Fatalf("parity flags missing %q\nhave: %v", want, report.Reference.ParityFlags)
+		}
 	}
 }
 
@@ -234,6 +267,122 @@ func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
 	}
 }
 
+func TestParseVpxencEncodeTimeUnits(t *testing.T) {
+	tests := []struct {
+		name      string
+		stderr    string
+		ok        bool
+		frames    int
+		totalNS   int64
+		bytesWant int
+	}{
+		{
+			name:      "microseconds",
+			stderr:    "\rPass 1/1 frame    1/0      0B       0 us 0.00 fps   \rPass 1/1 frame    3/3   1234B   45000 us  66.67 fps   \n",
+			ok:        true,
+			frames:    3,
+			totalNS:   45_000 * int64(time.Microsecond),
+			bytesWant: 1234,
+		},
+		{
+			name:      "milliseconds-when-long",
+			stderr:    "Pass 1/1 frame   30/30 567890B   12345 ms   2.43 fps   \n",
+			ok:        true,
+			frames:    30,
+			totalNS:   12_345 * int64(time.Millisecond),
+			bytesWant: 567890,
+		},
+		{
+			name:   "no-progress-output",
+			stderr: "some unrelated logging\nthat does not match\n",
+			ok:     false,
+		},
+		{
+			name:   "frames-zero",
+			stderr: "Pass 1/1 frame    0/0      0B       0 us 0.00 fps   \n",
+			ok:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseVpxencEncodeTime([]byte(tt.stderr))
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.ok, got)
+			}
+			if !ok {
+				return
+			}
+			if got.frames != tt.frames {
+				t.Fatalf("frames = %d, want %d", got.frames, tt.frames)
+			}
+			if got.totalNS != tt.totalNS {
+				t.Fatalf("totalNS = %d, want %d", got.totalNS, tt.totalNS)
+			}
+			if got.bytes != tt.bytesWant {
+				t.Fatalf("bytes = %d, want %d", got.bytes, tt.bytesWant)
+			}
+		})
+	}
+}
+
+func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
+	cfg := benchConfig{Width: 64, Height: 64, Frames: 30, FPS: 30, BitrateKbps: 1200, Mode: "realtime"}
+	parity := parityFor(cfg)
+	flags := libvpxParityFlags(cfg, parity, "--rt")
+
+	required := []string{
+		"--passes=1",
+		"--lag-in-frames=0",
+		"--end-usage=cbr",
+		fmt.Sprintf("--target-bitrate=%d", cfg.BitrateKbps),
+		fmt.Sprintf("--min-q=%d", parity.MinQuantizer),
+		fmt.Sprintf("--max-q=%d", parity.MaxQuantizer),
+		fmt.Sprintf("--kf-min-dist=%d", parity.KeyFrameInterval),
+		fmt.Sprintf("--kf-max-dist=%d", parity.KeyFrameInterval),
+		fmt.Sprintf("--buf-sz=%d", parity.BufferSizeMs),
+		fmt.Sprintf("--buf-initial-sz=%d", parity.BufferInitialSizeMs),
+		fmt.Sprintf("--buf-optimal-sz=%d", parity.BufferOptimalSizeMs),
+		fmt.Sprintf("--undershoot-pct=%d", parity.UndershootPct),
+		fmt.Sprintf("--overshoot-pct=%d", parity.OvershootPct),
+		fmt.Sprintf("--threads=%d", parity.Threads),
+		"--noise-sensitivity=0",
+		"--rt",
+		fmt.Sprintf("--cpu-used=%d", parity.CpuUsed),
+	}
+	have := make(map[string]bool, len(flags))
+	for _, f := range flags {
+		have[f] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			t.Fatalf("parity flags missing %q\nhave: %v", want, flags)
+		}
+	}
+}
+
+func TestParityForMatchesEncoderDefaults(t *testing.T) {
+	// Sanity check that benchConfig.FPS feeds the kf interval and that
+	// the parity defaults match the values the bench encoder uses.
+	got := parityFor(benchConfig{FPS: 24})
+	if got.KeyFrameInterval != 24 {
+		t.Fatalf("KeyFrameInterval = %d, want 24", got.KeyFrameInterval)
+	}
+	if got.MinQuantizer != 4 || got.MaxQuantizer != 56 {
+		t.Fatalf("quantizer range = [%d,%d], want [4,56]", got.MinQuantizer, got.MaxQuantizer)
+	}
+	if got.BufferSizeMs != 600 || got.BufferInitialSizeMs != 400 || got.BufferOptimalSizeMs != 500 {
+		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want 600/400/500", got.BufferSizeMs, got.BufferInitialSizeMs, got.BufferOptimalSizeMs)
+	}
+	if got.CpuUsed != 8 || got.Threads != 1 {
+		t.Fatalf("cpu/threads = %d/%d, want 8/1", got.CpuUsed, got.Threads)
+	}
+
+	// Zero FPS falls back to a sane default rather than passing 0 to libvpx.
+	if parityFor(benchConfig{FPS: 0}).KeyFrameInterval == 0 {
+		t.Fatalf("KeyFrameInterval falls back when FPS is 0")
+	}
+}
+
 func TestRunBenchmarkRejectsBadConfig(t *testing.T) {
 	if _, err := runBenchmark(benchConfig{Width: 16, Height: 16, Frames: 1, FPS: 30, BitrateKbps: 1200, Mode: "slow"}); err == nil {
 		t.Fatalf("runBenchmark accepted unsupported mode")
@@ -354,6 +503,13 @@ func TestFakeVpxencHelper(t *testing.T) {
 		fmt.Fprintf(os.Stderr, "fake vpxenc write output: %v\n", err)
 		os.Exit(1)
 	}
+	// Mimic vpxenc's per-pass progress output so the bench's stderr
+	// parser has something deterministic to read. 1000 us per frame is
+	// arbitrary but small enough to leave room for non-zero subprocess
+	// overhead in the wall-clock measurement.
+	const usPerFrame = 1000
+	totalUS := usPerFrame * limit
+	fmt.Fprintf(os.Stderr, "Pass 1/1 frame %4d/%-4d %7dB %7d us %7.2f fps    \n", limit, limit, 0, totalUS, 1e6/float64(usPerFrame))
 	os.Exit(0)
 }
 

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 // TestOracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
@@ -147,6 +150,8 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			"segment_id", "mode", "ref_frame",
 			"mv_row", "mv_col", "skip",
 			"eob", "eob_sum",
+			"improved_mv_start", "improved_mv_near_sadidx",
+			"improved_mv_row", "improved_mv_col", "improved_mv_sr",
 		} {
 			if _, ok := row[key]; !ok {
 				t.Fatalf("mb[%d] missing field %q", i, key)
@@ -159,6 +164,50 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		if len(eob) != 25 {
 			t.Fatalf("mb[%d].eob length = %d, want 25", i, len(eob))
 		}
+	}
+}
+
+func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
+	var buf bytes.Buffer
+	e := &VP8Encoder{
+		opts: EncoderOptions{OracleTraceWriter: &buf},
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:               vp8common.LastFrame,
+		Mode:                   vp8common.NewMV,
+		MV:                     vp8enc.MotionVector{Row: 24, Col: -8},
+		ImprovedMVStart:        true,
+		ImprovedMVNearSADIndex: 3,
+		ImprovedMVSR:           2,
+		ImprovedMVPredictor:    vp8enc.MotionVector{Row: 16, Col: -16},
+	}
+	var coeffs vp8enc.MacroblockCoefficients
+
+	e.emitOracleMBTrace(1, 2, &mode, &coeffs)
+	e.flushOracleMBTraceBuffer()
+
+	lines := splitNonEmptyLines(buf.Bytes())
+	if len(lines) != 1 {
+		t.Fatalf("trace rows = %d, want 1", len(lines))
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(lines[0], &row); err != nil {
+		t.Fatalf("trace row is not valid JSON: %v", err)
+	}
+	if got := row["improved_mv_start"]; got != true {
+		t.Fatalf("improved_mv_start = %v, want true", got)
+	}
+	if got := row["improved_mv_near_sadidx"].(float64); got != 3 {
+		t.Fatalf("improved_mv_near_sadidx = %v, want 3", got)
+	}
+	if got := row["improved_mv_row"].(float64); got != 16 {
+		t.Fatalf("improved_mv_row = %v, want 16", got)
+	}
+	if got := row["improved_mv_col"].(float64); got != -16 {
+		t.Fatalf("improved_mv_col = %v, want -16", got)
+	}
+	if got := row["improved_mv_sr"].(float64); got != 2 {
+		t.Fatalf("improved_mv_sr = %v, want 2", got)
 	}
 }
 

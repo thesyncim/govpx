@@ -1960,6 +1960,17 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 }
 
 func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool) (int, error) {
+	if partial {
+		startRow, rowCount := loopFilterPartialFrameWindow(rows)
+		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
+		if level > 0 {
+			header := e.encoderLoopFilterHeader(uint8(level), sharpness)
+			if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo, startRow, rowCount); err != nil {
+				return 0, ErrInvalidConfig
+			}
+		}
+		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true), nil
+	}
 	copyFrameImage(&e.loopFilterPick.Img, &e.analysis.Img)
 	if level > 0 {
 		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
@@ -1967,7 +1978,45 @@ func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp
 			return 0, ErrInvalidConfig
 		}
 	}
-	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, partial), nil
+	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, false), nil
+}
+
+// copyLoopFilterPartialLuma refreshes the luma plane window the partial-frame
+// loop-filter trial reads. It mirrors libvpx's yv12_copy_partial_frame: copy
+// the [startRow, startRow+rowCount) MB rows plus 4 luma lines above so the
+// macroblock horizontal edge filter has fresh context to read.
+func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, startRow int, rowCount int) {
+	if rowCount <= 0 {
+		return
+	}
+	startY := startRow * 16
+	if startY > 4 {
+		startY -= 4
+	} else {
+		startY = 0
+	}
+	endY := (startRow + rowCount) * 16
+	if endY > src.CodedHeight {
+		endY = src.CodedHeight
+	}
+	if endY > dst.CodedHeight {
+		endY = dst.CodedHeight
+	}
+	if endY <= startY {
+		return
+	}
+	width := src.CodedWidth
+	if dst.CodedWidth < width {
+		width = dst.CodedWidth
+	}
+	if src.YStride == dst.YStride && width == src.YStride {
+		// Fast path: contiguous copy when strides and full coded width match.
+		copy(dst.Y[startY*dst.YStride:endY*dst.YStride], src.Y[startY*src.YStride:endY*src.YStride])
+		return
+	}
+	for row := startY; row < endY; row++ {
+		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
+	}
 }
 
 func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, cols int, partial bool) int {
