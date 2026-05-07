@@ -187,8 +187,7 @@ the anchor and look for the surrounding mismatch.
     is tracked after the decision so the next frame sees the libvpx
     lookback value.
   - Missing: full saved-coding-context restore coverage after failed
-    attempts, independent coefficient-context savings for error-resilient
-    partitions, and trace coverage for GF/ARF zbin-over-quant cases once
+    attempts and trace coverage for GF/ARF zbin-over-quant cases once
     automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
@@ -901,10 +900,13 @@ the anchor and look for the surrounding mismatch.
     k, and every k context is updated together when aggregate savings >0
     or (on key frames) when the shared new prob differs from that k's old
     prob. Wiring lives in `WriteCoefficientInterFrameWithProbabilityBase`
-    / `WriteCoefficientKeyFrameWithProbabilityBase` via the new
+    / `WriteCoefficientKeyFrameWithProbabilityBase` via the
     `IndependentContexts` field on `InterFrameStateConfig` /
     `KeyFrameStateConfig`, fed from `EncoderOptions.ErrorResilient` in
-    [`encoder.go`](../encoder.go).
+    [`encoder.go`](../encoder.go). Error-resilient key frames now force
+    `RefreshEntropyProbs=true` like libvpx, while error-resilient inter
+    frames keep transient independent-context coefficient updates without
+    committing them to the next frame's persistent entropy state.
     Reference-frame *probabilities*
     (`prob_intra`/`prob_last`/`prob_gf`) are per-reference state and are
     now driven by both the post-frame fresh-from-counts update
@@ -933,13 +935,17 @@ the anchor and look for the surrounding mismatch.
     for empty distributions. Default coefficient-context savings reuse
     the coefficient branch-count/probability update walk and are wired
     into the recode-loop `projected_frame_size` adjustment. Independent
-    coefficient-context handling for error-resilient partitions is also
-    in place via `BuildInterCoefficientProbabilityUpdatesIndependent` /
-    `BuildKeyFrameCoefficientProbabilityUpdatesIndependent` (see
-    `internal/vp8/encoder/probability.go`), gated on
+    coefficient-context savings for error-resilient partitions are also
+    wired into that recode adjustment through
+    `KeyFrameCoefficientEntropySavingsIndependent` /
+    `InterCoefficientEntropySavingsIndependent`, gated on
     `EncoderOptions.ErrorResilient`.
-  - Missing: key-frame forced coef-prob updates, and exact alt-ref
-    skip-probability edge cases.
+    Additional tests:
+    `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
+    `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
+    `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`.
+  - Missing: exact alt-ref skip-probability edge cases and libvpx-side trace
+    anchors for the error-resilient key-frame default-coef-count reset.
   - Done when every frame matches coefficient probs, MV probs, ref probs,
     refresh entropy bit, projected entropy savings, and next-frame mode-cost
     inputs.

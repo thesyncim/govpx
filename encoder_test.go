@@ -2681,7 +2681,11 @@ func TestEncodeIntoInterFrameCanChooseBPredIntraAfterRDScoring(t *testing.T) {
 }
 
 func TestEncodeIntoInterFrameCodesLargeUniformResidual(t *testing.T) {
-	e := newTestEncoder(t)
+	// This test pins residual inter coding for the normal entropy path.
+	// Error-resilient key frames intentionally refresh independent coefficient
+	// contexts like libvpx, which can make this synthetic single-MB fixture pick
+	// an intra inter-frame mode instead.
+	e := newEntropyRefreshTestEncoder(t, false)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
 	}
@@ -2703,8 +2707,11 @@ func TestEncodeIntoInterFrameCodesLargeUniformResidual(t *testing.T) {
 	if inter.KeyFrame {
 		t.Fatalf("inter KeyFrame = true, want interframe")
 	}
-	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV {
-		t.Fatalf("mode[0] = %+v, want LAST/ZEROMV residual macroblock", e.interFrameModes[0])
+	if e.interFrameModes[0].RefFrame != vp8common.LastFrame || e.interFrameModes[0].MBSkipCoeff || !e.interFrameModes[0].MV.IsZero() {
+		t.Fatalf("mode[0] = %+v, want LAST zero-motion residual macroblock", e.interFrameModes[0])
+	}
+	if e.interFrameModes[0].Mode != vp8common.ZeroMV && e.interFrameModes[0].Mode != vp8common.NewMV {
+		t.Fatalf("mode[0] = %+v, want LAST zero-motion residual mode", e.interFrameModes[0])
 	}
 	decoded := decodeFrameSequence(t, key.Data, inter.Data)
 	if len(decoded) != 2 {
@@ -3260,7 +3267,7 @@ func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoErrorResilientSuppressesEntropyRefresh(t *testing.T) {
+func TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, true)
 	src := testImage(16, 16)
 	fillImage(src, 180, 90, 170)
@@ -3270,15 +3277,67 @@ func TestEncodeIntoErrorResilientSuppressesEntropyRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if packetState(t, key.Data).Refresh.RefreshEntropyProbs {
-		t.Fatalf("error-resilient key refresh entropy = true, want false")
+	keyState := packetState(t, key.Data)
+	if !keyState.Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient key refresh entropy = false, want libvpx forced true")
 	}
+	if keyState.Probability.UpdateCount == 0 {
+		t.Fatalf("error-resilient key coefficient updates = 0, want independent-context updates")
+	}
+	committedKeyProbs := e.coefProbs
+	if committedKeyProbs == vp8tables.DefaultCoefProbs {
+		t.Fatalf("error-resilient key did not commit coefficient probabilities")
+	}
+
 	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 2), 1, 1, 0)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
 	if packetState(t, inter.Data).Refresh.RefreshEntropyProbs {
 		t.Fatalf("error-resilient inter refresh entropy = true, want false")
+	}
+	if e.coefProbs != committedKeyProbs {
+		t.Fatalf("error-resilient inter committed transient coefficient probabilities")
+	}
+}
+
+func TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient(t *testing.T) {
+	e := &VP8Encoder{
+		opts: EncoderOptions{
+			Width:          16,
+			Height:         16,
+			ErrorResilient: true,
+		},
+		coefProbs: vp8tables.DefaultCoefProbs,
+		interFrameModes: []vp8enc.InterFrameMacroblockMode{{
+			RefFrame: vp8common.LastFrame,
+			Mode:     vp8common.ZeroMV,
+		}},
+		keyFrameCoeffs: make([]vp8enc.MacroblockCoefficients, 1),
+		tokenAbove:     make([]vp8enc.TokenContextPlanes, 1),
+	}
+	for block := 0; block < vp8tables.BlockTypes; block++ {
+		for band := 0; band < vp8tables.CoefBands; band++ {
+			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < vp8tables.EntropyNodes; node++ {
+					e.coefProbs[block][band][ctx][node] = 1
+				}
+			}
+		}
+	}
+	e.keyFrameCoeffs[0].QCoeff[0][0] = 1
+	e.keyFrameCoeffs[0].SetBlockEOB(0, 1)
+	got := e.coefficientEntropySavingsBits(false, 1)
+	above := make([]vp8enc.TokenContextPlanes, 1)
+	want, err := vp8enc.InterCoefficientEntropySavingsIndependent(1, 1, e.interFrameModes, e.keyFrameCoeffs, above, &e.coefProbs)
+	if err != nil {
+		t.Fatalf("InterCoefficientEntropySavingsIndependent returned error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("error-resilient coefficient entropy savings = %d, want independent-context savings %d", got, want)
+	}
+	if got == 0 {
+		t.Fatalf("error-resilient coefficient entropy savings = 0, want recode accounting to include independent-context branch")
 	}
 }
 
