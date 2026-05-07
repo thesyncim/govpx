@@ -25,6 +25,9 @@ func benchSrc16x16() ([]byte, []byte) {
 	return src, ref
 }
 
+// BenchmarkBilinearSecondPass16Specialised measures the dispatched
+// path - on arm64 this routes through the NEON assembly, on every
+// other platform it routes through the scalar specialisation.
 func BenchmarkBilinearSecondPass16Specialised(b *testing.B) {
 	var src [17 * 16]uint16
 	for i := range src {
@@ -35,6 +38,22 @@ func BenchmarkBilinearSecondPass16Specialised(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		varFilterBlock2DBilinearSecondPass16(&src, dst, 16, filter)
+	}
+}
+
+// BenchmarkBilinearSecondPass16Scalar always runs the scalar
+// specialisation, even on arm64. Lets us compare the NEON win over
+// the scalar baseline without the build-tag dance.
+func BenchmarkBilinearSecondPass16Scalar(b *testing.B) {
+	var src [17 * 16]uint16
+	for i := range src {
+		src[i] = uint16(i)
+	}
+	dst := make([]byte, 16*16)
+	filter := tables.BilinearFilters[5]
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		varFilterBlock2DBilinearSecondPass16Scalar(&src, dst, 16, filter)
 	}
 }
 

@@ -26,7 +26,12 @@ import "github.com/thesyncim/govpx/internal/vp8/tables"
 // already close enough to its ceiling that further pure-Go gains are
 // unlikely.
 
-func varFilterBlock2DBilinearSecondPass16(src *[17 * 16]uint16, dst []byte, height int, filter [2]int16) {
+// varFilterBlock2DBilinearSecondPass16Scalar is the pure-Go reference
+// implementation. The arch-specific files (variance_16x16_arm64.go +
+// variance_16x16_arm64.s, variance_16x16_other.go) wrap it as
+// varFilterBlock2DBilinearSecondPass16 and dispatch to NEON where
+// available. Tests use this scalar version as the parity oracle.
+func varFilterBlock2DBilinearSecondPass16Scalar(src *[17 * 16]uint16, dst []byte, height int, filter [2]int16) {
 	f0 := int(filter[0])
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
