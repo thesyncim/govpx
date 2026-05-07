@@ -2020,6 +2020,54 @@ func libvpxGoldenFrameTargetBits(boost int, framesTillGFUpdateDue int, interFram
 	return (boost * bitsInSection) / allocationChunks
 }
 
+// vbrMinFrameBandwidthBits ports the libvpx
+// vp8/encoder/onyx_if.c min_frame_bandwidth derivation:
+//
+//	cpi->min_frame_bandwidth = (int)VPXMIN(
+//	    (int64_t)cpi->av_per_frame_bandwidth * cpi->oxcf.two_pass_vbrmin_section / 100,
+//	    INT_MAX);
+//
+// pct == 0 disables the minimum (returns 0).
+func vbrMinFrameBandwidthBits(perFrameBandwidth int, pct int) int {
+	if perFrameBandwidth <= 0 || pct <= 0 {
+		return 0
+	}
+	v := int64(perFrameBandwidth) * int64(pct) / 100
+	if v > int64(libvpxIntMax) {
+		return libvpxIntMax
+	}
+	return int(v)
+}
+
+// libvpxAutoGoldOnePassRefreshDecision ports the libvpx one-pass auto_gold
+// GF refresh decision from vp8/encoder/ratectrl.c calc_pframe_target_size.
+// Excerpt:
+//
+//	if ((cpi->pass == 0) &&
+//	    (cpi->this_frame_percent_intra < 15 || gf_frame_usage >= 5)) {
+//	    cpi->common.refresh_golden_frame = 1;
+//	}
+//
+// gf_frame_usage is computed exactly the same way as inside calcGFParams
+// (max of (golden+altref)*100/total_recent_ref_usage and
+// 100*gf_active_count/MBs). Returns true when libvpx would force a GF
+// refresh on this frame.
+func libvpxAutoGoldOnePassRefreshDecision(thisFramePercentIntra int, recentRefIntra, recentRefLast, recentRefGolden, recentRefAltRef, gfActiveCount, macroblocks int) bool {
+	totMBs := recentRefIntra + recentRefLast + recentRefGolden + recentRefAltRef
+	gfFrameUsage := 0
+	if totMBs > 0 {
+		gfFrameUsage = (recentRefGolden + recentRefAltRef) * 100 / totMBs
+	}
+	pctGFActive := 0
+	if macroblocks > 0 {
+		pctGFActive = (100 * gfActiveCount) / macroblocks
+	}
+	if pctGFActive > gfFrameUsage {
+		gfFrameUsage = pctGFActive
+	}
+	return thisFramePercentIntra < 15 || gfFrameUsage >= 5
+}
+
 // pickFrameSize ports vp8/encoder/ratectrl.c vp8_pick_frame_size: the
 // unified KF/p-frame target dispatcher. It returns true when the frame
 // should be encoded and false when libvpx would set cpi->drop_frame and

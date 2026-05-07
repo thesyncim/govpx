@@ -395,6 +395,11 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	// cpi->oxcf.key_freq for the first-keyframe bootstrap; seed it so
 	// kf_bitrate_adjustment matches libvpx for early frames.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
+	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
+	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
+	// that so calc_pframe_target_size's min_frame_target floor and
+	// calcGFParams allocation_chunks see the same value.
+	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, normalized.TwoPassMinPct)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {

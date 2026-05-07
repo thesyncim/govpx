@@ -204,17 +204,28 @@ the anchor and look for the surrounding mismatch.
     refresh decision in `shouldRefreshGoldenFrameCBR` still uses
     govpx's simplified heuristic, but it now publishes
     `framesTillGFUpdateDue` and `currentGFInterval` so
-    `update_golden_frame_stats` overspend math matches libvpx.
-  - Missing: temporal-layer propagation of KF/GF overspend (libvpx
-    suppresses the 7/8-1/8 single-layer split when number_of_layers > 1
-    and routes overspend through layer_context), wiring
-    `libvpxGoldenFrameTargetBits` into the encoder GF refresh path so
-    VBR/CQ GF frames are sized via the boost-weighted formula instead
-    of the gfCBRBoostPct percentage, the auto_gold non-CBR GF refresh
-    decision in `calc_pframe_target_size` (govpx still uses its
-    simplified CBR heuristic instead of switching on
-    `gf_update_onepass_cbr`), and the two-pass `calc_gf_params`
-    IIAccumulator code path (disabled in libvpx as well).
+    `update_golden_frame_stats` overspend math matches libvpx. The
+    auto_gold one-pass non-CBR refresh decision
+    (`pct_intra<15 || gf_frame_usage>=5`) is exposed as
+    `libvpxAutoGoldOnePassRefreshDecision` for callers that supply
+    recent_ref_frame_usage and gf_active_count. `min_frame_bandwidth`
+    is now seeded from the libvpx
+    `av_per_frame_bandwidth * two_pass_vbrmin_section / 100`
+    derivation via `vbrMinFrameBandwidthBits` and threaded through
+    encoder construction so calc_pframe_target_size's min_frame_target
+    floor matches libvpx exactly.
+  - Missing: temporal-layer propagation of KF/GF overspend through
+    libvpx's per-layer `layer_context` state (govpx already mirrors
+    the single-layer-vs-multi-layer KF split toggle inside
+    accumulatePostPackOverspend, but does not yet maintain per-layer
+    overspend counters), wiring `libvpxGoldenFrameTargetBits` and
+    `libvpxAutoGoldOnePassRefreshDecision` into the encoder GF refresh
+    path so VBR/CQ GF frames are sized via the boost-weighted formula
+    and the recent-ref-usage refresh decision (currently the encoder
+    only uses the simplified CBR heuristic), tracking
+    `recent_ref_frame_usage` and `gf_active_count` to feed those
+    helpers, and the two-pass `calc_gf_params` IIAccumulator code path
+    (disabled in libvpx as well).
   - Done when sequence tests match `refresh_golden_frame`, GF interval,
     `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
     targets on motion/static clips.
