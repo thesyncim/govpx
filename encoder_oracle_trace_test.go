@@ -211,6 +211,52 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	}
 }
 
+func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
+	const w, h = 16, 32
+	var buf bytes.Buffer
+	e := newSizedTestEncoder(t, w, h)
+	e.opts.OracleTraceWriter = &buf
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	first := testImage(w, h)
+	fillImage(first, 0, 90, 170)
+	second := rateControlTestFrame(w, h, 0)
+
+	packet := make([]byte, 8192)
+	if _, err := e.EncodeInto(packet, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if _, err := e.EncodeInto(packet, second, 1, 1, 0); err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if e.interFrameModes[1].RefFrame != vp8common.IntraFrame || e.interFrameModes[1].Mode != vp8common.BPred {
+		t.Fatalf("inter mode[1] = %+v, want INTRA_FRAME/B_PRED", e.interFrameModes[1])
+	}
+
+	mbRows := 0
+	sawBPred := false
+	for i, line := range splitNonEmptyLines(buf.Bytes()) {
+		var row map[string]interface{}
+		if err := json.Unmarshal(line, &row); err != nil {
+			t.Fatalf("trace line %d invalid JSON: %v", i, err)
+		}
+		if row["type"] != "mb" {
+			continue
+		}
+		mbRows++
+		if row["mode"] == "B_PRED" && row["ref_frame"] == "INTRA_FRAME" {
+			sawBPred = true
+		}
+	}
+	if mbRows != 2 {
+		t.Fatalf("inter MB trace rows = %d, want 2 for 16x32 frame", mbRows)
+	}
+	if !sawBPred {
+		t.Fatalf("trace did not include inter-frame INTRA_FRAME/B_PRED macroblock")
+	}
+}
+
 // TestOracleTraceWriterNilProducesNoOverhead verifies that omitting
 // OracleTraceWriter results in no writer activity and that the encoded byte
 // stream is identical to a baseline run with the same configuration.

@@ -1207,14 +1207,18 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 
 	bestRefMV := vp8enc.MotionVector{}
 	reusedCenter := vp8enc.MotionVector{Col: 64}
-	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0)
-	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0, 5, false)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0, 5, false)
+	bestQualityMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
 
 	if mv != (vp8enc.MotionVector{Col: 96}) {
 		t.Fatalf("search-centered split MV = %+v, want col +96", mv)
 	}
 	if noReuseMV == mv {
 		t.Fatalf("zero-centered search unexpectedly reached %+v; test no longer proves predictor reuse", mv)
+	}
+	if bestQualityMV != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("best-quality full-search fallback MV = %+v, want col +96", bestQualityMV)
 	}
 }
 
@@ -1229,8 +1233,8 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing
 	ref.ExtendBorders()
 
 	source := sourceImageFromPublic(src)
-	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6)
-	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6, false)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7, false)
 
 	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
 		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
@@ -1590,6 +1594,46 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	}
 	if mode.BModes[0] != vp8common.BHEPred {
 		t.Fatalf("B mode[0] = %v, want B_HE_PRED", mode.BModes[0])
+	}
+}
+
+func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	src := testImage(32, 32)
+	fillImage(src, 128, 128, 128)
+	e.analysis = testVP8Frame(t, 32, 32, 128, 128, 128)
+	for i := 0; i < 16; i++ {
+		e.analysis.Img.Y[15*e.analysis.Img.YStride+16+i] = byte(30 + i*11)
+		e.analysis.Img.Y[(16+i)*e.analysis.Img.YStride+15] = byte(220 - i*9)
+	}
+	e.analysis.ExtendBorders()
+
+	var genScratch vp8dec.IntraReconstructionScratch
+	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, 1, 1, &genScratch.Refs)
+	yOff := 16*e.analysis.Img.YStride + 16
+	y := e.analysis.Img.Y[yOff:]
+	for block := 0; block < 16; block++ {
+		var blockPred [16]byte
+		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			t.Fatalf("predictAnalysisBPredBlock returned false")
+		}
+		copyBPredBlock(blockPred[:], 4, y, e.analysis.Img.YStride, block)
+		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
+	}
+	for row := 16; row < 32; row++ {
+		for col := 16; col < 32; col++ {
+			e.analysis.Img.Y[row*e.analysis.Img.YStride+col] = 128
+		}
+	}
+
+	mode, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
+	if !ok {
+		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
+	}
+	for block, bMode := range mode.BModes {
+		if bMode > vp8common.BHEPred {
+			t.Fatalf("fast B mode[%d] = %v, want libvpx non-RD candidate <= B_HE_PRED", block, bMode)
+		}
 	}
 }
 

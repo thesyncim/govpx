@@ -93,9 +93,10 @@ the anchor and look for the surrounding mismatch.
     `segmentation_enabled`, Y/U/V plane Adler32 reference checksums, and
     `size_bytes`; per-MB row (inter frames only) with `frame_index`,
     `mb_row`, `mb_col`, `segment_id`, `mode`, `ref_frame`, `mv_row`,
-    `mv_col`, `skip`, `eob[0..24]`, and `eob_sum`. Rows are emitted in
-    deterministic raster scan order and only for the final committed
-    encode attempt (recoded attempts are discarded).
+    `mv_col`, `skip`, `eob[0..24]`, `eob_sum`, and improved-MV start fields.
+    Rows cover every committed inter-frame MB, including intra `B_PRED`
+    decisions, are emitted in deterministic raster scan order, and only for
+    the final committed encode attempt (recoded attempts are discarded).
   - Remaining: libvpx-side instrumentation in `encodeframe.c`,
     `pickinter.c`, `rdopt.c`, `ratectrl.c`, `onyx_if.c`, and
     `bitstream.c`, plus a comparator that diffs the JSON Lines stream
@@ -514,7 +515,10 @@ the anchor and look for the surrounding mismatch.
     while keeping NEW4X4 coding cost anchored to `bestRefMV`; the saved
     8x8-pair distance now drives libvpx's `vp8_cal_step_param` model, and
     speed-path SplitMV NEW searches use the same NSTEP diamond/further-step
-    search shape instead of the older fixed exhaustive window.
+    search shape instead of the older fixed exhaustive window. Best-quality
+    SplitMV NEW searches now use the same NSTEP base plus libvpx's conditional
+    `vp8_full_search_sad`-style distance-16 fallback when the split-shape
+    shifted error remains above 4000.
     After the Y split is committed, `selectInterFrameSplitMotionDecisionRD`
     reuses the decoder's `ReconstructSplitMVInterMacroblock` to render the
     SPLITMV luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
@@ -524,9 +528,9 @@ the anchor and look for the surrounding mismatch.
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
-    Remaining search-shape work is exact best-quality full-search fallback and
-    broader oracle coverage. Token-context commit parity and oracle-backed
-    label-level RD remain open.
+    Remaining search-shape work is broader oracle coverage. Token-context
+    commit parity, `THR_NEW1/2/3` NEW4X4 gating, and oracle-backed label-level
+    RD remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
@@ -551,7 +555,9 @@ the anchor and look for the surrounding mismatch.
     (`predictBestWholeBlockIntraModeRD`) has parity coverage in
     `encoder_intra16x16_picker_test.go` that pins the Y mode iteration order,
     mbmode_cost addition, token context seeding, and Y/UV rate-distortion
-    breakdowns against libvpx `rd_pick_intra16x16mby_mode`.
+    breakdowns against libvpx `rd_pick_intra16x16mby_mode`. The non-RD
+    inter-frame B_PRED picker now uses libvpx's cheaper `B_DC_PRED..B_HE_PRED`
+    candidate set instead of the full RD-only 10-mode set.
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,

@@ -66,9 +66,10 @@ lives in [Makefile](Makefile).
   searches reuse the previous left/above block MV as the next search center.
   Speed-path 8x8 seed reuse for 16x8/8x16 search centers is in place, and the
   saved 8x8-pair distances now feed libvpx-style `vp8_cal_step_param` values
-  into NSTEP diamond/further-step SplitMV NEW searches. Remaining gaps are
-  exact best-quality full-search fallback coverage, token-context commit
-  parity, and oracle-backed label-level RD.
+  into NSTEP diamond/further-step SplitMV NEW searches. Best-quality SplitMV
+  NEW searches now also use libvpx's conditional distance-16 full-search
+  fallback. Remaining gaps are token-context commit parity, `THR_NEW1/2/3`
+  NEW4X4 gating, and oracle-backed label-level RD.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
