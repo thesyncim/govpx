@@ -40,6 +40,12 @@ func (e *VP8Encoder) initPreprocessFrames(width int, height int) error {
 	if err := e.firstPassGoldenRef.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	if err := e.firstPassLastSource.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
+	if err := e.firstPassNewRef.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
 	return nil
 }
 
