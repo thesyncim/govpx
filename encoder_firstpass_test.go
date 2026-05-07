@@ -468,9 +468,9 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 	// Frame 6: simulate a scene cut by inverting intra/coded.
 	for i := 6; i <= 12; i++ {
 		stats[i] = FirstPassFrameStats{
-			IntraError: 100,
-			CodedError: 9000,
-			PcntInter:  0.05,
+			IntraError:    100,
+			CodedError:    9000,
+			PcntInter:     0.05,
 			PcntSecondRef: 0.0,
 			PcntNeutral:   0.0,
 		}
