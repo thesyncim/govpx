@@ -243,6 +243,17 @@ type VP8Encoder struct {
 	// for the lifecycle of those counters.
 	framesSinceGolden  int
 	sourceAltRefActive bool
+	// libvpx vp8/encoder/onyx_if.c automatic ARF scheduling state:
+	// source_alt_ref_pending is set when the encoder has decided to
+	// insert a hidden ARF on a future frame; alt_ref_source identifies
+	// the lookahead entry that will become the ARF source so the
+	// later show-frame can detect is_src_frame_alt_ref.
+	// framesTillAltRefFrame counts down from the current ARF section
+	// length so the encoder knows when to emit the hidden frame.
+	sourceAltRefPending   bool
+	altRefSourcePTS       uint64
+	altRefSourceValid     bool
+	framesTillAltRefFrame int
 	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
 	// this_frame_percent_intra against last_frame_percent_intra; track
 	// the rolling lookback here so the helper sees the same state libvpx
@@ -1131,27 +1142,66 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 	if refreshAltRef {
 		e.framesSinceGolden = 0
 		e.sourceAltRefActive = true
+		// libvpx vp8/encoder/onyx_if.c update_alt_ref_frame_stats clears
+		// source_alt_ref_pending after the hidden ARF is encoded.
+		e.sourceAltRefPending = false
 		return
 	}
 	if refreshGolden {
 		e.framesSinceGolden = 0
-		// Without a pending alt-ref schedule, refreshing golden clears the
-		// active alt-ref (libvpx onyx_if.c: `if (!source_alt_ref_pending)
-		// source_alt_ref_active = 0`).
-		e.sourceAltRefActive = false
+		// libvpx onyx_if.c: `if (!source_alt_ref_pending)
+		// source_alt_ref_active = 0`. Refreshing golden in the absence of
+		// a pending alt-ref schedule clears the active alt-ref.
+		if !e.sourceAltRefPending {
+			e.sourceAltRefActive = false
+		}
 		return
 	}
 	if e.framesSinceGolden < int(^uint(0)>>1) {
 		e.framesSinceGolden++
 	}
+	// libvpx onyx_if.c counts down frames_till_alt_ref_frame on every
+	// non-refresh inter frame; when it hits 0 the encoder consumes the
+	// pending ARF on the next frame.
+	if e.framesTillAltRefFrame > 0 {
+		e.framesTillAltRefFrame--
+	}
 }
 
 // resetGoldenFrameStats mirrors libvpx's key-frame branch in onyx_if.c, which
 // clears source_alt_ref_active and resets frames_since_golden so the next
-// inter frame's RD scoring starts from a clean slate.
+// inter frame's RD scoring starts from a clean slate. libvpx also clears
+// source_alt_ref_pending and resets frames_till_alt_ref_frame on key frame
+// reset since the prior ARF schedule is invalidated.
 func (e *VP8Encoder) resetGoldenFrameStats() {
 	e.framesSinceGolden = 0
 	e.sourceAltRefActive = false
+	e.sourceAltRefPending = false
+	e.altRefSourceValid = false
+	e.framesTillAltRefFrame = 0
+}
+
+// scheduleAltRefSource ports the libvpx
+// vp8/encoder/onyx_if.c automatic ARF scheduling decision: when an ARF
+// is pending and the lookahead has the future source available, the
+// encoder marks the lookahead entry as the alt_ref_source and arms the
+// hidden-frame insertion. This helper just records the schedule; the
+// actual hidden-frame encode path is a follow-up.
+func (e *VP8Encoder) scheduleAltRefSource(altRefSourcePTS uint64, framesTillUpdate int) {
+	e.sourceAltRefPending = true
+	e.altRefSourcePTS = altRefSourcePTS
+	e.altRefSourceValid = true
+	e.framesTillAltRefFrame = framesTillUpdate
+}
+
+// isSrcFrameAltRef ports the libvpx is_src_frame_alt_ref check:
+// after popping a lookahead entry, the encoder marks it as the ARF
+// source frame if its PTS matches the previously scheduled
+// alt_ref_source. The check is gated on altRefSourceValid because
+// scheduleAltRefSource has not yet been called for the first ARF
+// section (libvpx's `cpi->alt_ref_source != NULL` guard).
+func (e *VP8Encoder) isSrcFrameAltRef(framePTS uint64) bool {
+	return e.altRefSourceValid && framePTS == e.altRefSourcePTS
 }
 
 func (e *VP8Encoder) interFrameSignBias() [vp8common.MaxRefFrames]bool {

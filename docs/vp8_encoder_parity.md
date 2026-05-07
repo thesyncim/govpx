@@ -420,10 +420,23 @@ the anchor and look for the surrounding mismatch.
     but not libvpx hidden-ARF insertion and later show-frame handling.
     `sourceAltRefActive` now mirrors the libvpx lifecycle for explicit ALTREF
     refreshes, key-frame resets, and GOLDEN refresh clears, and the inter-frame
-    header writes ALTREF sign bias from that state.
-  - Missing: `source_alt_ref_pending`, automatic `alt_ref_source` selection,
-    `is_src_frame_alt_ref`, hidden-frame insertion from future lookahead, and
-    later source-frame show handling.
+    header writes ALTREF sign bias from that state. `sourceAltRefPending`,
+    `altRefSourcePTS`, and `framesTillAltRefFrame` are tracked end-to-end:
+    `scheduleAltRefSource` arms the pending flag and counter (mirroring
+    libvpx's `cpi->source_alt_ref_pending=1; cpi->alt_ref_source=source`),
+    `isSrcFrameAltRef` mirrors the
+    `is_src_frame_alt_ref = (alt_ref_source != NULL && source ==
+    alt_ref_source)` check, and `updateGoldenFrameStats` counts down
+    `frames_till_alt_ref_frame`, clears the pending flag on a successful
+    ALTREF refresh, and gates the `source_alt_ref_active = 0` clear on a
+    GOLDEN refresh by libvpx's `if (!source_alt_ref_pending)` predicate.
+  - Missing: caller wiring of `scheduleAltRefSource` from
+    `vp8_get_compressed_data` lookahead-peek logic (the helpers above are
+    callable but no encoder call site invokes them yet), automatic
+    `alt_ref_source` selection from the lookahead future-peek, hidden-frame
+    insertion that emits an invisible ALTREF before the show frame, and
+    later source-frame show handling that reuses the lookahead entry as
+    the visible frame after `is_src_frame_alt_ref` fires.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded output
     match libvpx with alternate-reference enabled.
 

@@ -5066,11 +5066,103 @@ func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
 // reset branch of libvpx onyx_if.c: source_alt_ref_active and
 // frames_since_golden are zeroed.
 func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
-	e := &VP8Encoder{framesSinceGolden: 7, sourceAltRefActive: true}
+	e := &VP8Encoder{
+		framesSinceGolden:     7,
+		sourceAltRefActive:    true,
+		sourceAltRefPending:   true,
+		altRefSourceValid:     true,
+		framesTillAltRefFrame: 5,
+	}
 	e.resetGoldenFrameStats()
-	if e.framesSinceGolden != 0 || e.sourceAltRefActive {
-		t.Fatalf("post-keyframe state = {%d %v}, want {0 false}",
-			e.framesSinceGolden, e.sourceAltRefActive)
+	if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
+		e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
+		t.Fatalf("post-keyframe state = {fsg:%d active:%v pending:%v valid:%v till:%d}, want all-zero",
+			e.framesSinceGolden, e.sourceAltRefActive, e.sourceAltRefPending,
+			e.altRefSourceValid, e.framesTillAltRefFrame)
+	}
+}
+
+// TestScheduleAltRefSourceArmsPendingFlagAndPTS pins the libvpx
+// `cpi->source_alt_ref_pending = 1; cpi->alt_ref_source = source` set
+// inside vp8_get_compressed_data: scheduling the ARF arms the pending
+// flag, records the PTS, and primes frames_till_alt_ref_frame.
+func TestScheduleAltRefSourceArmsPendingFlagAndPTS(t *testing.T) {
+	var e VP8Encoder
+	e.scheduleAltRefSource(1234, 7)
+	if !e.sourceAltRefPending {
+		t.Fatalf("sourceAltRefPending after schedule = false, want true")
+	}
+	if !e.altRefSourceValid || e.altRefSourcePTS != 1234 {
+		t.Fatalf("altRefSourcePTS = %d valid=%v, want 1234 valid=true",
+			e.altRefSourcePTS, e.altRefSourceValid)
+	}
+	if e.framesTillAltRefFrame != 7 {
+		t.Fatalf("framesTillAltRefFrame = %d, want 7", e.framesTillAltRefFrame)
+	}
+}
+
+// TestIsSrcFrameAltRefMatchesScheduledPTS pins the libvpx
+// is_src_frame_alt_ref = (alt_ref_source != NULL && source ==
+// alt_ref_source) check.
+func TestIsSrcFrameAltRefMatchesScheduledPTS(t *testing.T) {
+	var e VP8Encoder
+	if e.isSrcFrameAltRef(1234) {
+		t.Fatalf("unscheduled frame should not match")
+	}
+	e.scheduleAltRefSource(1234, 7)
+	if !e.isSrcFrameAltRef(1234) {
+		t.Fatalf("scheduled PTS should match")
+	}
+	if e.isSrcFrameAltRef(9999) {
+		t.Fatalf("non-matching PTS should not be ARF source")
+	}
+}
+
+// TestUpdateGoldenFrameStatsCountsDownAltRefFrame pins the libvpx
+// `if (cpi->frames_till_alt_ref_frame) cpi->frames_till_alt_ref_frame--`
+// counter.
+func TestUpdateGoldenFrameStatsCountsDownAltRefFrame(t *testing.T) {
+	var e VP8Encoder
+	e.scheduleAltRefSource(1234, 3)
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 2 {
+		t.Fatalf("frames_till_alt_ref_frame after first inter = %d, want 2", e.framesTillAltRefFrame)
+	}
+	e.updateGoldenFrameStats(false, false)
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 0 {
+		t.Fatalf("frames_till_alt_ref_frame after 3 inters = %d, want 0", e.framesTillAltRefFrame)
+	}
+	// Counter should not go negative.
+	e.updateGoldenFrameStats(false, false)
+	if e.framesTillAltRefFrame != 0 {
+		t.Fatalf("frames_till_alt_ref_frame after underflow = %d, want 0 floor", e.framesTillAltRefFrame)
+	}
+}
+
+// TestUpdateGoldenFrameStatsAltRefRefreshClearsPending pins the libvpx
+// update_alt_ref_frame_stats branch: a successful ARF refresh consumes
+// the pending flag.
+func TestUpdateGoldenFrameStatsAltRefRefreshClearsPending(t *testing.T) {
+	e := &VP8Encoder{sourceAltRefPending: true, framesTillAltRefFrame: 2}
+	e.updateGoldenFrameStats(false, true)
+	if e.sourceAltRefPending {
+		t.Fatalf("sourceAltRefPending after ARF refresh = true, want false (consumed)")
+	}
+	if !e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive after ARF refresh = false, want true")
+	}
+}
+
+// TestUpdateGoldenFrameStatsGoldenRefreshKeepsActiveOnPending pins the
+// libvpx `if (!source_alt_ref_pending) source_alt_ref_active = 0`
+// branch: when an ARF is still pending, refreshing GOLDEN does not
+// clear the active flag.
+func TestUpdateGoldenFrameStatsGoldenRefreshKeepsActiveOnPending(t *testing.T) {
+	e := &VP8Encoder{sourceAltRefActive: true, sourceAltRefPending: true}
+	e.updateGoldenFrameStats(true, false)
+	if !e.sourceAltRefActive {
+		t.Fatalf("sourceAltRefActive after GF refresh with ARF pending = false, want true (gated)")
 	}
 }
 
