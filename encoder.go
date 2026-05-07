@@ -241,6 +241,11 @@ type VP8Encoder struct {
 	// for the lifecycle of those counters.
 	framesSinceGolden  int
 	sourceAltRefActive bool
+	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
+	// this_frame_percent_intra against last_frame_percent_intra; track
+	// the rolling lookback here so the helper sees the same state libvpx
+	// would.
+	lastFramePercentIntra int
 	// libvpx also carries a skip-false probability for inter RD costing. The
 	// packet writer adapts the final value from this frame's skip counts; mode
 	// decision uses the previous refreshed reference's value, clamped away from
@@ -626,6 +631,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if required > 0 {
 			e.rc.thisFramePercentIntra = (100 * intra) / required
 		}
+		// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
+		// AFTER decide_key_frame consumes this_frame_percent_intra.
+		// Keep that ordering here: lastFramePercentIntra captures the
+		// just-encoded frame's value for the next frame's heuristic.
+		e.lastFramePercentIntra = e.rc.thisFramePercentIntra
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -689,6 +699,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// refresh) so the next GF section starts with a clean baseline.
 	e.rc.resetRecentRefFrameUsage(required)
 	e.rc.thisFramePercentIntra = 100
+	// libvpx vp8/encoder/onyx_if.c sets last_frame_percent_intra=100
+	// after every key frame, mirroring the encoder's expectation that
+	// the next inter frame starts from an "all-intra" baseline.
+	e.lastFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
