@@ -256,6 +256,10 @@ type VP8Encoder struct {
 	altRefSourcePTS       uint64
 	altRefSourceValid     bool
 	framesTillAltRefFrame int
+	// currentSourcePTS mirrors libvpx onyx_if.c's per-frame
+	// `cpi->source` PTS so isSrcFrameAltRef can detect the deferred
+	// show frame after a hidden ARF.
+	currentSourcePTS uint64
 	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
 	// this_frame_percent_intra against last_frame_percent_intra; track
 	// the rolling lookback here so the helper sees the same state libvpx
@@ -488,6 +492,7 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 }
 
 func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
+	e.currentSourcePTS = pts
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
 	if err := validateEncodeFlags(flags); err != nil {
@@ -926,6 +931,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(e.opts.ErrorResilient, goldenCBRRefresh, flags) {
 		cfg.CopyBufferToAltRef = 2
 	}
+	// Enforce libvpx onyx_if.c update_reference_frames ARF invariants
+	// before validation: assert(!cm->copy_buffer_to_arf) on hidden ARF
+	// frames and clear both copy fields on the deferred show frame.
+	suppressInterFrameCopyBuffersOnAltRefEdges(&cfg, e.isSrcFrameAltRef(e.currentSourcePTS))
 	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef)
 	previousProbSkipFalse := e.probSkipFalse
 	e.probSkipFalse = cfg.ProbSkipFalse
@@ -1438,6 +1447,26 @@ func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRe
 		return false
 	}
 	return flags&(EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef|EncodeForceGoldenFrame|EncodeForceAltRefFrame) == 0
+}
+
+// suppressInterFrameCopyBuffersOnAltRefEdges enforces libvpx
+// onyx_if.c update_reference_frames invariants for the ARF edge cases:
+// hidden ARF frames assert `!cm->copy_buffer_to_arf` (the ARF buffer
+// is populated by the frame itself), and the deferred show frame
+// after a hidden ARF (is_src_frame_alt_ref) leaves both
+// copy_buffer_to_arf and copy_buffer_to_gf at their zero default
+// because the references are already correctly populated.
+func suppressInterFrameCopyBuffersOnAltRefEdges(cfg *vp8enc.InterFrameStateConfig, isSrcFrameAltRef bool) {
+	if cfg == nil {
+		return
+	}
+	if cfg.RefreshAltRef {
+		cfg.CopyBufferToAltRef = 0
+	}
+	if isSrcFrameAltRef {
+		cfg.CopyBufferToAltRef = 0
+		cfg.CopyBufferToGolden = 0
+	}
 }
 
 func (e *VP8Encoder) anyInterReferenceAvailable(flags EncodeFlags) bool {
