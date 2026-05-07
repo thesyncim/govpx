@@ -8,6 +8,7 @@ var (
 	ErrNeedKeyFrame       = errors.New("govpx: need VP8 keyframe")
 	ErrFrameNotReady      = errors.New("govpx: frame not ready")
 	ErrBufferTooSmall     = errors.New("govpx: output buffer too small")
+	ErrFrameRejected      = errors.New("govpx: VP8 frame rejected by decoder options")
 
 	ErrInvalidConfig    = errors.New("govpx: invalid config")
 	ErrInvalidBitrate   = errors.New("govpx: invalid bitrate")

@@ -198,6 +198,47 @@ func TestOracleLibvpxErrorConcealmentRejectsTruncatedKeyFrameHeader(t *testing.T
 	}
 }
 
+func TestOracleLibvpxErrorConcealmentConcealsMissingTokenPartition(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
+	}
+	oracle := findChecksumOracle(t)
+	frames := mustDecodeSmokeIVFFrames(t, govpxNewMVIVFHex, 2)
+	truncatedInter := frames[1][:17]
+	ivf := makeIVF(32, 16, 30, 1, [][]byte{frames[0], frames[1], truncatedInter})
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode-error-concealment", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{ErrorConcealment: true})
+	assertFrameChecksumsEqual(t, "active error-concealment missing token partition", got, want)
+	if len(got) != 3 {
+		t.Fatalf("concealed frame count = %d, want 3", len(got))
+	}
+	if got[2].MD5 == got[1].MD5 {
+		t.Fatalf("concealed frame copied LAST exactly, want libvpx prediction reconstruction")
+	}
+}
+
+func TestOracleLibvpxKeyFrameResolutionChange(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle resolution-change tests")
+	}
+	oracle := findChecksumOracle(t)
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{
+		vp8KeyFramePacketWithPayload(16, 16, 200, 0, true),
+		vp8KeyFramePacketWithPayload(32, 16, 200, 0, true),
+	})
+
+	want := runLibvpxChecksumOracleMode(t, oracle, "decode", ivf)
+	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{})
+	assertFrameChecksumsEqual(t, "keyframe resolution change", got, want)
+	if len(got) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(got))
+	}
+	if got[1].Width != 32 || got[1].Height != 16 {
+		t.Fatalf("resolution-change frame = %dx%d, want 32x16", got[1].Width, got[1].Height)
+	}
+}
+
 func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
@@ -1819,13 +1860,10 @@ func decodeIVFChecksumsWithOptions(t *testing.T, ivf []byte, opts DecoderOptions
 		if err != nil {
 			t.Fatalf("NextIVFFrame[%d] returned error: %v", inputIndex, err)
 		}
-		info, err := PeekVP8StreamInfo(frame.Data)
-		if err != nil {
-			t.Fatalf("PeekVP8StreamInfo[%d] returned error: %v", inputIndex, err)
-		}
 		if err := d.Decode(frame.Data); err != nil {
 			t.Fatalf("Decode frame %d returned error: %v", inputIndex, err)
 		}
+		info := d.lastInfo
 		img, ok := d.NextFrame()
 		if info.ShowFrame {
 			if !ok {

@@ -386,8 +386,8 @@ func TestDecodeRejectsConfiguredSizeLimits(t *testing.T) {
 			}
 
 			err = d.Decode(vp8KeyFramePacketWithPayload(16, 16, 200, 0, true))
-			if !errors.Is(err, ErrUnsupportedFeature) {
-				t.Fatalf("Decode error = %v, want ErrUnsupportedFeature", err)
+			if !errors.Is(err, ErrFrameRejected) {
+				t.Fatalf("Decode error = %v, want ErrFrameRejected", err)
 			}
 		})
 	}
@@ -403,8 +403,8 @@ func TestDecodeRejectsConfiguredResolutionChange(t *testing.T) {
 	}
 
 	err = d.Decode(vp8KeyFramePacketWithPayload(32, 16, 200, 0, true))
-	if !errors.Is(err, ErrUnsupportedFeature) {
-		t.Fatalf("resolution-change Decode error = %v, want ErrUnsupportedFeature", err)
+	if !errors.Is(err, ErrFrameRejected) {
+		t.Fatalf("resolution-change Decode error = %v, want ErrFrameRejected", err)
 	}
 }
 

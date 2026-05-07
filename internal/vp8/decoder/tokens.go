@@ -140,6 +140,63 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 	return total, nil
 }
 
+func DecodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder, rows int, cols int, probs *tables.CoefficientProbs, modes []MacroblockMode, above []EntropyContextPlanes, tokens []MacroblockTokens) (int, int, error) {
+	if rows < 0 || cols < 0 {
+		return 0, 0, ErrTokenGridBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return 0, 0, ErrTokenGridBufferTooSmall
+	}
+	required := rows * cols
+	if len(modes) < required || len(tokens) < required || len(above) < cols {
+		return 0, 0, ErrTokenGridBufferTooSmall
+	}
+	partitions := len(readers)
+	if partitions != 1 && partitions != 2 && partitions != 4 && partitions != 8 {
+		return 0, 0, ErrTokenGridBufferTooSmall
+	}
+
+	for col := 0; col < cols; col++ {
+		above[col] = EntropyContextPlanes{}
+	}
+
+	total := 0
+	firstCorrupt := required
+	frameCorruptResidual := false
+	for row := 0; row < rows; row++ {
+		rowPartition := row & (partitions - 1)
+		rowStart := row * cols
+		rowModes := modes[rowStart : rowStart+cols]
+		rowTokens := tokens[rowStart : rowStart+cols]
+		left := EntropyContextPlanes{}
+		for col := 0; col < cols; col++ {
+			index := rowStart + col
+			mode := &rowModes[col]
+			token := &rowTokens[col]
+			reader := &readers[rowPartition]
+			if mode.MBSkipCoeff {
+				clearMacroblockTokens(token)
+				ResetMacroblockTokenContext(&above[col], &left, mode.Is4x4)
+			} else if !frameCorruptResidual && reader.Err() == nil {
+				eobTotal := DecodeMacroblockTokens(reader, probs, mode.Is4x4, &above[col], &left, token)
+				if eobTotal == 0 {
+					mode.MBSkipCoeff = true
+				}
+				total += eobTotal
+			}
+			if frameCorruptResidual || reader.Err() != nil {
+				frameCorruptResidual = true
+				if index < firstCorrupt {
+					firstCorrupt = index
+				}
+				clearMacroblockTokens(token)
+				mode.MBSkipCoeff = true
+			}
+		}
+	}
+	return total, firstCorrupt, nil
+}
+
 func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, blockType int, ctx int, n int, out *[16]int16) int {
 	p := (*probs)[blockType][n][ctx]
 	if br.ReadBool(p[0]) == 0 {

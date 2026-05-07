@@ -79,18 +79,23 @@ Useful references:
 
 ### 2. Decoder Parity
 
-Goal: remove unsupported-feature exits and match libvpx behavior on valid VP8.
+Goal: keep decoder behavior aligned with libvpx on valid VP8 while expanding
+oracle coverage for damaged-stream and edge-case inputs.
 
 High-priority gaps:
 
-- Full error concealment for corrupt/truncated partitions; decoder API now has
-  a libvpx-style `ErrorConcealment` option alias for the existing concealment path.
+- Broaden active error-concealment corpus coverage around multi-partition and
+  multi-fragment damaged streams; the decoder now has libvpx-style
+  `ErrorConcealment`, missing-MV estimation, corrupt residual concealment, and
+  missing-frame-tag concealment paths.
 - Remaining postprocess corpus edges beyond the current oracle-backed
   deblock/demacroblock, ADDNOISE, and MFQE smoke coverage.
 - Multi-token-partition decode edge cases.
-- Remaining profile/segmentation/loop-filter/header feature edges that still
-  return `ErrUnsupportedFeature`.
-- Resolution-change/reference-rescale behavior after scaler support exists.
+- Remaining profile/segmentation/loop-filter/header edge cases that need
+  additional libvpx oracle fixtures.
+- Resolution-change behavior is covered for keyframe buffer reinitialization;
+  keep scaler/reference-rescale notes tied to any future non-raw-output scaler
+  API work.
 
 Useful references:
 
@@ -241,7 +246,7 @@ Useful references:
 ## Execution Order
 
 1. Strengthen conformance gates for the feature being touched.
-2. Fix decoder unsupported-feature/error-concealment gaps.
+2. Keep closing decoder oracle gaps before encoder parity work.
 3. Finish temporal SVC controls and oracle-backed realtime tests.
 4. Port encoder RD/mode-decision and motion-search parity.
 5. Port rate-control/segmentation behavior.

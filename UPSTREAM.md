@@ -54,8 +54,8 @@ grant. This repository keeps libvpx license and patent notices in
 | Frame memory | macroblock-padded, border-addressable frame buffers scaffolded |
 | Bool decoder/writer | bool decoder scaffolded |
 | Header parsing | frame tag and uncompressed keyframe header scaffolded |
-| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup with libvpx-style row-edge extension, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, keyframe resolution-change buffer reinitialization, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, default and granular deblock/demacroblock postprocess output, MFQE postprocess, optional ADDNOISE luma postprocess, and narrow frame output scaffolded |
-| Token and mode parsing | tree reader, partition layout with two/four/eight token-reader row cycling, coefficient/mode probability state, macroblock coefficient token traversal/grid, keyframe/inter macroblock mode grids, near-MV selection, split-MV parsing, and motion-vector decoding scaffolded |
+| Decoder state and reconstruction | state headers, segment dequant setup, macroblock residual transform, residual pixel add, intra predictor reference setup with libvpx-style row-edge extension, intra macroblock grid reconstruction, whole-block intra prediction/reconstruction, B_PRED 4x4 prediction/reconstruction, keyframe/inter reference refresh, keyframe resolution-change buffer reinitialization with oracle coverage, version-specific inter prediction flags, extended-border whole-macroblock and SplitMV inter prediction/reconstruction, active error-concealment prediction reconstruction for corrupt residuals, default and granular deblock/demacroblock postprocess output, MFQE postprocess, optional ADDNOISE luma postprocess, and narrow frame output scaffolded |
+| Token and mode parsing | tree reader, partition layout with two/four/eight token-reader row cycling, coefficient/mode probability state, macroblock coefficient token traversal/grid including error-concealment residual-corruption tracking, keyframe/inter macroblock mode grids including error-concealment mode-corruption tracking, near-MV selection, split-MV parsing, motion-vector decoding, and active error-concealment missing-MV estimation scaffolded |
 | Scalar DSP | clip/copy/reconstruction, SAD 16x16/16x8/8x16/8x8/4x4 with bounded 16x16 early-out, variance/SSE 16x16/16x8/8x16/8x8/8x4/4x8/4x4, bilinear subpel variance, bilinear/six-tap subpixel prediction, dequant, IDCT4x4, IWHT4x4, and intra predictors scaffolded |
 | Loop filter | scalar edge primitives, limit table setup, and decoder frame traversal scaffolded |
 | Encoder rate-control API | target bits, buffer model, libvpx one-pass keyframe target sizing/boosts, libvpx-style droppable encoded-frame metadata, max-intra-bitrate keyframe target cap, CBR golden-frame refresh/boost with libvpx cyclic-refresh cadence and LAST/ZEROMV refresh gating, libvpx cyclic-refresh MB cadence by temporal-layer count including screen-content mode cadence, low-buffer debt clamp, and screen-content inter-Q drop limiting, libvpx temporal layer ID override, temporal input/encoded/cumulative bit counters, and cumulative layer-buffer updates reported from encode results, libvpx bits-per-macroblock quantizer regulation plus buffer-fullness target scaling, initialized/reset rolling bit monitors and correction factors, non-show-frame overhead accounting including temporal-layer buffers, negative CBR buffer-debt/drop threshold handling, temporal-layer frame-size bounds, runtime bitrate buffer preservation, and bounded correction-factor feedback for one-pass CBR frames, libvpx frame-size bounds for bounded pre-commit quantizer feedback, post-frame quantizer feedback, bounded CBR frame dropping, CQLevel constrained-quality quantizer floor/control, and deterministic clip-level bitrate tracking tests scaffolded |
@@ -67,13 +67,13 @@ grant. This repository keeps libvpx license and patent notices in
 ## Known Deviations
 
 - `Decode` and `DecodeInto` cover VP8 versions 0-7, token partitions,
-  keyframes, interframes, SplitMV, narrow error-resilient inter-frame
-  concealment, default and granular deblock/demacroblock post-processing,
-  libvpx-style MFQE, and optional luma ADDNOISE using libvpx-compatible libc
-  rand streams for the supported oracle platforms. Full active
-  error-concealment missing-MV estimation for corrupt interframes is still
-  incomplete. Caller-configured size/resolution limits return
-  `ErrUnsupportedFeature`.
+  keyframes, interframes, SplitMV, error-resilient and active error
+  concealment, keyframe resolution changes, default and granular
+  deblock/demacroblock post-processing, libvpx-style MFQE, and optional luma
+  ADDNOISE using libvpx-compatible libc rand streams for the supported oracle
+  platforms. Caller-configured size/resolution rejections return
+  `ErrFrameRejected`; `ErrUnsupportedFeature` is retained only for API
+  compatibility.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes,
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,

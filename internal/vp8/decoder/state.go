@@ -39,6 +39,27 @@ func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader
 }
 
 func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
+	return parseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, previousLoopFilter, probs, modeProbs, false)
+}
+
+func ParseStateHeaderWithErrorConcealment(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, bool, error) {
+	frame, state, br, err := parseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, previousLoopFilter, probs, modeProbs, true)
+	if err != nil {
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, false, err
+	}
+	corrupted := br.Err() != nil
+	if corrupted && !frame.KeyFrame() {
+		state.Refresh.RefreshGolden = false
+		state.Refresh.RefreshAltRef = false
+		state.Refresh.CopyBufferToGolden = 0
+		state.Refresh.CopyBufferToAltRef = 0
+		state.Refresh.RefreshEntropyProbs = false
+		state.Refresh.RefreshLast = true
+	}
+	return frame, state, br, corrupted, nil
+}
+
+func parseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs, errorConcealment bool) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	frame, err := ParseFrameHeader(packet)
 	if err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
@@ -48,7 +69,10 @@ func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuan
 	}
 	firstPartitionEnd := frame.HeaderSize + frame.FirstPartitionSize
 	if frame.FirstPartitionSize <= 0 || firstPartitionEnd < frame.HeaderSize || firstPartitionEnd > len(packet) {
-		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
+		if !errorConcealment || frame.FirstPartitionSize < 0 || firstPartitionEnd < frame.HeaderSize {
+			return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
+		}
+		firstPartitionEnd = len(packet)
 	}
 
 	var br boolcoder.Decoder
@@ -78,7 +102,7 @@ func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuan
 	state.Probability = parseCoefficientProbabilityHeaderInto(&br, probs)
 	state.Mode = parseModeHeaderInto(&br, frame.KeyFrame(), modeProbs)
 
-	if br.Err() != nil {
+	if br.Err() != nil && !errorConcealment {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrTruncatedStateHeader
 	}
 	return frame, state, br, nil
