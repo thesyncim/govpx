@@ -435,8 +435,11 @@ the anchor and look for the surrounding mismatch.
     above/left/above-left and out-of-range previous-frame
     above/left/right/below neighbors collapse to `INTRA_FRAME` /
     `mv == 0` / `near_sad == INT_MAX` slots, and an intra current-frame
-    neighbor no longer leaks a stale MV into the median fallback. Remaining
-    work is oracle traces for `near_sadidx`, predictor MV, and `sr`.
+    neighbor no longer leaks a stale MV into the median fallback. Govpx-side
+    oracle MB rows now expose `improved_mv_near_sadidx`,
+    `improved_mv_row`/`improved_mv_col`, and `improved_mv_sr` for NEWMV
+    candidates that used improved-MV prediction. Remaining validation work is
+    the matching libvpx-side trace/comparator for those fields.
     End-to-end quality smoke now covers best-quality panning, good-quality RD
     and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case. A new

@@ -54,8 +54,9 @@ lives in [Makefile](Makefile).
   `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
   `vp8_hex_search` path are in place. The realtime/non-RD branch now uses
   libvpx-style luma-variance pickinter scoring and skips SPLITMV evaluation;
-  remaining gaps are exact improved MV predictor search-range adjustment, the
-  alternate DIAMOND path, and the full 20-entry mode-loop threshold model.
+  improved-MV oracle rows now expose the govpx predictor slot, predictor MV,
+  and search range. Remaining gaps are the libvpx-side improved-MV comparator,
+  the alternate DIAMOND path, and the full 20-entry mode-loop threshold model.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
