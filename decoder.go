@@ -57,6 +57,7 @@ type VP8Decoder struct {
 	currentPTS    uint64
 	visibleFrames int
 	initialized   bool
+	ecActive      bool
 
 	frameWidth  int
 	frameHeight int
@@ -259,6 +260,7 @@ func (d *VP8Decoder) Reset() {
 	d.currentPTS = 0
 	d.visibleFrames = 0
 	d.initialized = false
+	d.ecActive = false
 	d.previousQuant = vp8dec.QuantHeader{}
 	d.previousLoopFilter = vp8dec.LoopFilterHeader{}
 	d.state = vp8dec.StateHeader{}
@@ -291,6 +293,9 @@ func (d *VP8Decoder) Close() error {
 
 func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
 	errorConcealment := d.opts.effectiveErrorConcealment() && d.canConceal(info)
+	if errorConcealment {
+		d.ecActive = true
+	}
 	if err := d.parseState(packet, errorConcealment); err != nil {
 		return err
 	}
@@ -355,6 +360,7 @@ func missingFrameConcealmentInfo() StreamInfo {
 func (d *VP8Decoder) shouldConcealMissingFrameTag(packet []byte) bool {
 	return len(packet) < 3 &&
 		d.opts.effectiveErrorConcealment() &&
+		d.ecActive &&
 		d.canConceal(missingFrameConcealmentInfo())
 }
 

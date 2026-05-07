@@ -1345,8 +1345,19 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
+	if err := d.DecodeWithPTS([]byte{0x11, 0}, 101); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("initial missing tag DecodeWithPTS error = %v, want ErrInvalidData before EC is active", err)
+	}
+	fillVP8Image(&d.lastRef.Img, 77)
+	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+		t.Fatalf("priming inter Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("priming inter NextFrame returned no frame")
+	}
+	previous = d.lastRef.Img.Y[0]
 
-	err = d.DecodeWithPTS([]byte{0x10, 0}, 102)
+	err = d.DecodeWithPTS([]byte{0x11, 0}, 102)
 	if err != nil {
 		t.Fatalf("missing tag DecodeWithPTS error = %v, want nil concealment", err)
 	}
@@ -1467,10 +1478,18 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
+	fillVP8Image(&d.lastRef.Img, 77)
+	if err := d.Decode(vp8InterFramePacketWithFirstPartition(vp8InterFirstPartitionLastZeroMV())); err != nil {
+		t.Fatalf("priming inter Decode error = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("priming inter NextFrame returned no frame")
+	}
+	previous = d.lastRef.Img.Y[0]
 	dst := newTestImage(16, 16)
 	fillImage(dst, 7, 8, 9)
 
-	info, err := d.DecodeIntoWithPTS([]byte{0x10, 0}, &dst, 103)
+	info, err := d.DecodeIntoWithPTS([]byte{0x11, 0}, &dst, 103)
 	if err != nil {
 		t.Fatalf("missing tag DecodeIntoWithPTS error = %v, want nil concealment", err)
 	}

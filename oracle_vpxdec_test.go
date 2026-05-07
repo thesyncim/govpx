@@ -154,6 +154,33 @@ func TestOracleLibvpxErrorConcealmentClampsUnusedMalformedTokenPartition(t *test
 	assertFrameChecksumsEqual(t, "error-concealment malformed unused token partition", got, want)
 }
 
+func TestOracleLibvpxErrorConcealmentRejectsInitialTruncatedInterFrameTag(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle error-concealment tests")
+	}
+	oracle := findChecksumOracle(t)
+	key := vp8KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	truncatedInter := []byte{0x11, 0}
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key, truncatedInter})
+
+	if err := runLibvpxChecksumOracleModeExpectError(t, oracle, "decode-error-concealment", ivf); err == nil {
+		t.Fatalf("libvpx error-concealment oracle accepted initial truncated inter frame tag, want error")
+	}
+	d, err := NewVP8Decoder(DecoderOptions{ErrorConcealment: true})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("key Decode returned error: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatalf("key NextFrame returned no frame")
+	}
+	if err := d.Decode(truncatedInter); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("truncated inter Decode error = %v, want ErrInvalidData", err)
+	}
+}
+
 func TestOracleLibvpxPostProcessMatchesDecoder(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle postprocess tests")
@@ -1666,6 +1693,15 @@ func runLibvpxChecksumOracleMode(t *testing.T, oracle string, mode string, ivf [
 	return runLibvpxChecksumOracleFileMode(t, oracle, mode, path)
 }
 
+func runLibvpxChecksumOracleModeExpectError(t *testing.T, oracle string, mode string, ivf []byte) error {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "govpx-"+mode+".ivf")
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	return runLibvpxChecksumOracleFileModeExpectError(t, oracle, mode, path)
+}
+
 func runLibvpxChecksumOracleFile(t *testing.T, oracle string, path string) []testutil.FrameChecksum {
 	t.Helper()
 	return runLibvpxChecksumOracleFileMode(t, oracle, "decode", path)
@@ -1690,7 +1726,12 @@ func runLibvpxChecksumOracleFileMode(t *testing.T, oracle string, mode string, p
 
 func runLibvpxChecksumOracleFileExpectError(t *testing.T, oracle string, path string) error {
 	t.Helper()
-	cmd := exec.Command(oracle, "decode", path)
+	return runLibvpxChecksumOracleFileModeExpectError(t, oracle, "decode", path)
+}
+
+func runLibvpxChecksumOracleFileModeExpectError(t *testing.T, oracle string, mode string, path string) error {
+	t.Helper()
+	cmd := exec.Command(oracle, mode, path)
 	out, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
