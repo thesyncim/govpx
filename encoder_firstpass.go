@@ -514,6 +514,67 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxCalcCorrectionFactor ports the libvpx
+// vp8/encoder/firstpass.c calc_correction_factor:
+//
+//	error_term = err_per_mb / err_devisor
+//	power_term = clamp(pt_low + Q*0.01, +inf, pt_high)
+//	correction_factor = pow(error_term, power_term)
+//	clamp(correction_factor, 0.05, 5.0)
+//
+// Used by estimate_max_q / estimate_min_q / estimate_q to compute
+// the per-Q rate model correction.
+func libvpxCalcCorrectionFactor(errPerMB float64, errDevisor float64, ptLow float64, ptHigh float64, Q int) float64 {
+	if errDevisor == 0 {
+		errDevisor = 1.0
+	}
+	errorTerm := errPerMB / errDevisor
+	powerTerm := ptLow + float64(Q)*0.01
+	if powerTerm > ptHigh {
+		powerTerm = ptHigh
+	}
+	cf := math.Pow(errorTerm, powerTerm)
+	if cf < 0.05 {
+		return 0.05
+	}
+	if cf > 5.0 {
+		return 5.0
+	}
+	return cf
+}
+
+// libvpxEstimateMaxQRollingRatioAdjustment ports the rolling
+// est_max_qcorrection_factor update from estimate_max_q:
+//
+//	rolling_ratio = rolling_actual_bits / rolling_target_bits
+//	if ratio < 0.95: factor -= 0.005
+//	if ratio > 1.05: factor += 0.005
+//	clamp(factor, 0.1, 10.0)
+//
+// Returns the updated factor. Caller passes the previous factor and
+// the rolling stats; the inner libvpx gate
+// `(rolling_target_bits > 0) && (active_worst_quality < worst_quality)`
+// is enforced by the caller.
+func libvpxEstimateMaxQRollingRatioAdjustment(prevFactor float64, rollingActualBits int, rollingTargetBits int) float64 {
+	if rollingTargetBits <= 0 {
+		return prevFactor
+	}
+	ratio := float64(rollingActualBits) / float64(rollingTargetBits)
+	factor := prevFactor
+	if ratio < 0.95 {
+		factor -= 0.005
+	} else if ratio > 1.05 {
+		factor += 0.005
+	}
+	if factor < 0.1 {
+		factor = 0.1
+	}
+	if factor > 10.0 {
+		factor = 10.0
+	}
+	return factor
+}
+
 // libvpxSectionStats accumulates the libvpx FIRSTPASS_STATS section
 // totals used by find_next_key_frame and define_gf_group to derive
 // section_intra_rating and section_max_qfactor. Mirrors libvpx's
