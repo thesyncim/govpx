@@ -180,8 +180,9 @@ Remaining work:
   libvpx-style buffer-fullness target scaling, initialized/reset rolling bit
   monitors and correction factors, non-show-frame overhead accounting including
   temporal-layer buffers, negative CBR buffer-debt/drop threshold handling,
-  temporal-layer frame-size bounds, runtime bitrate buffer preservation, and
-  bounded feedback exist.
+  temporal-layer frame-size bounds, runtime bitrate buffer preservation,
+  bounded feedback, CQ/VBR bits-per-macroblock quantizer regulation, and
+  libvpx-style boosted-golden correction-factor branching exist.
 - Complete fixed-Q/two-pass keyframe target branches if those modes become
   production requirements; one-pass first and later keyframe target sizing now
   mirrors libvpx's buffer, framerate, Q-adjustment, and separation rules.
@@ -191,7 +192,8 @@ Remaining work:
 - Implement VBR/two-pass planning if production parity requires VBR.
 - Add adaptive keyframe/scene-cut behavior.
 - Complete static-background segmentation policy; screen-content and
-  static-threshold runtime controls exist.
+  static-threshold runtime controls plus skin/static-block classification for
+  cyclic-refresh eligibility exist.
 
 Useful references:
 
@@ -210,7 +212,8 @@ Remaining work:
 - Lookahead buffer.
 - Alt-ref temporal filtering / ARNR.
 - Spatial denoiser.
-- Skin/static-region classification if needed for segmentation parity.
+- Skin/static-region classification now feeds cyclic-refresh eligibility;
+  broader denoiser/mode-decision uses remain open.
 
 Useful references:
 

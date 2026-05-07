@@ -817,6 +817,60 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testin
 	}
 }
 
+func TestCyclicRefreshStaticClassificationMasksSkinBlocks(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               160,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := testImage(160, 64)
+	fillImage(src, 128, 128, 128)
+	fillMacroblock(src, 0, 0, 120, 117, 150)
+	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
+
+	next := e.assignInterFrameStaticSegments(sourceImageFromPublic(src), 4, 10, modes)
+
+	if e.skinMap[0] != 1 {
+		t.Fatalf("skinMap[0] = %d, want libvpx skin classification", e.skinMap[0])
+	}
+	if modes[0].SegmentID != 0 || modes[1].SegmentID != staticSegmentID || modes[2].SegmentID != staticSegmentID {
+		t.Fatalf("segment IDs = %d/%d/%d, want skin block masked and next two refreshed", modes[0].SegmentID, modes[1].SegmentID, modes[2].SegmentID)
+	}
+	if next != 3 {
+		t.Fatalf("next cyclic refresh index = %d, want 3 after masked skin block", next)
+	}
+}
+
+func TestUpdateConsecutiveZeroLastMirrorsLibvpxCounter(t *testing.T) {
+	counters := []uint8{0, 254, 7}
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+	}
+
+	updateConsecutiveZeroLast(modes, counters)
+	updateConsecutiveZeroLast(modes, counters)
+
+	want := []uint8{2, 255, 0}
+	for i := range want {
+		if counters[i] != want[i] {
+			t.Fatalf("counter[%d] = %d, want %d", i, counters[i], want[i])
+		}
+	}
+}
+
 func TestUpdateCyclicRefreshMapFromInterFrameMirrorsLibvpxStates(t *testing.T) {
 	refreshMap := []int8{0, 1, 0, 0}
 	modes := []vp8enc.InterFrameMacroblockMode{
@@ -881,7 +935,9 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	packet := make([]byte, 65536)
-	key, err := e.EncodeInto(packet, rateControlTestFrame(80, 64, 0), 0, 1, 0)
+	keySource := testImage(80, 64)
+	fillImage(keySource, 128, 128, 128)
+	key, err := e.EncodeInto(packet, keySource, 0, 1, 0)
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
@@ -3221,6 +3277,26 @@ func fillImage(img Image, y byte, u byte, v byte) {
 	}
 	for i := range img.V {
 		img.V[i] = v
+	}
+}
+
+func fillMacroblock(img Image, mbRow int, mbCol int, y byte, u byte, v byte) {
+	y0 := mbRow * 16
+	x0 := mbCol * 16
+	for row := y0; row < y0+16 && row < img.Height; row++ {
+		for col := x0; col < x0+16 && col < img.Width; col++ {
+			img.Y[row*img.YStride+col] = y
+		}
+	}
+	uvHeight := (img.Height + 1) >> 1
+	uvWidth := (img.Width + 1) >> 1
+	uvY0 := mbRow * 8
+	uvX0 := mbCol * 8
+	for row := uvY0; row < uvY0+8 && row < uvHeight; row++ {
+		for col := uvX0; col < uvX0+8 && col < uvWidth; col++ {
+			img.U[row*img.UStride+col] = u
+			img.V[row*img.VStride+col] = v
+		}
 	}
 }
 

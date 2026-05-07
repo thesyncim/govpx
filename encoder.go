@@ -150,6 +150,8 @@ type VP8Encoder struct {
 	cyclicRefreshIndex      int
 	cyclicRefreshMap        []int8
 	cyclicRefreshAttemptMap []int8
+	skinMap                 []uint8
+	consecZeroLast          []uint8
 	lastInterZeroMVCount    int
 	lastInterSkipCount      int
 
@@ -200,6 +202,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		timing:                  timing,
 		cyclicRefreshMap:        make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		cyclicRefreshAttemptMap: make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		skinMap:                 make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		consecZeroLast:          make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
@@ -331,6 +335,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		}
 		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+		e.updateConsecutiveZeroLast(e.interFrameModes[:required])
 		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 			Last:   attempt.Config.RefreshLast,
 			Golden: attempt.Config.RefreshGolden,
@@ -355,6 +360,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
 	e.cyclicRefreshIndex = 0
+	clearUint8Map(e.consecZeroLast)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
@@ -515,7 +521,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	var err error
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	if segmentation.Enabled {
-		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(rows, cols, e.interFrameModes[:required])
+		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
 		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
 		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
@@ -971,6 +977,8 @@ func (e *VP8Encoder) Reset() {
 	e.cyclicRefreshIndex = 0
 	clearCyclicRefreshMap(e.cyclicRefreshMap)
 	clearCyclicRefreshMap(e.cyclicRefreshAttemptMap)
+	clearUint8Map(e.skinMap)
+	clearUint8Map(e.consecZeroLast)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.rc.framesSinceKeyframe = 0
