@@ -66,6 +66,11 @@ type InterFrameStateConfig struct {
 	MVUpdateCount int
 }
 
+const mvEventCount = mvComponentMax*2 + 1
+
+type motionVectorComponentEvents [mvEventCount]int
+type motionVectorEventCounts [2]motionVectorComponentEvents
+
 func DefaultInterFrameStateConfig(baseQIndex uint8) InterFrameStateConfig {
 	return InterFrameStateConfig{
 		TokenPartition: common.OnePartition,
@@ -615,7 +620,7 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 	var goldenCounts [2]int
 	var yModeCounts [tables.YModeProbCount][2]int
 	var uvModeCounts [tables.UVModeProbCount][2]int
-	var mvCounts [2][tables.MVPCount][2]int
+	var mvEvents motionVectorEventCounts
 	signBias := interFrameSignBias(*cfg)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
@@ -672,12 +677,12 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 			case common.NewMV:
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
-				if err := countMotionVectorBranches(&mvCounts, delta); err != nil {
+				if err := countMotionVectorEvents(&mvEvents, delta); err != nil {
 					return [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, err
 				}
 			case common.SplitMV:
 				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
-				if err := countSplitMotionVectorBranches(&mvCounts, mode, left, above, best); err != nil {
+				if err := countSplitMotionVectorEvents(&mvEvents, mode, left, above, best); err != nil {
 					return [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, err
 				}
 			}
@@ -689,6 +694,7 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 	cfg.ProbGolden = interFrameRefProbability(goldenCounts, cfg.ProbGolden)
 	frameYModeProbs := adaptInterFrameYModeProbabilitiesWithBase(&yModeCounts, yModeBase, cfg)
 	frameUVModeProbs := adaptInterFrameUVModeProbabilitiesWithBase(&uvModeCounts, uvModeBase, cfg)
+	mvCounts := motionVectorBranchCountsFromEvents(&mvEvents)
 	frameMVProbs := adaptInterFrameMVProbabilitiesWithBase(&mvCounts, mvBase, cfg)
 	return frameYModeProbs, frameUVModeProbs, frameMVProbs, nil
 }
@@ -769,20 +775,21 @@ func adaptInterFrameMVProbabilitiesWithBase(counts *[2][tables.MVPCount][2]int, 
 }
 
 func motionVectorProbabilityFromBranchCount(counts [2]int) uint8 {
-	prob := coefficientProbabilityFromBranchCount(counts)
-	if prob <= 1 {
+	total := counts[0] + counts[1]
+	if total <= 0 {
+		return 128
+	}
+	prob := (counts[0] * 255 / total) &^ 1
+	if prob == 0 {
 		return 1
 	}
-	if prob >= 254 {
-		return 254
-	}
-	return prob &^ 1
+	return uint8(prob)
 }
 
 func motionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb uint8, updateProb uint8) int {
 	oldBits := coefficientBranchCost(counts, oldProb)
 	newBits := coefficientBranchCost(counts, newProb)
-	updateBits := 7 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0)) >> 8)
+	updateBits := 7 - 1 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0) + 128) >> 8)
 	return oldBits - newBits - updateBits
 }
 
@@ -888,6 +895,79 @@ func countMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mv MotionVect
 	return nil
 }
 
+func countMotionVectorEvents(events *motionVectorEventCounts, mv MotionVector) error {
+	if events == nil || mv.Row&1 != 0 || mv.Col&1 != 0 {
+		return ErrInvalidPacketConfig
+	}
+	row := int(mv.Row / 2)
+	col := int(mv.Col / 2)
+	if !validMotionVectorEventComponent(row) || !validMotionVectorEventComponent(col) {
+		return nil
+	}
+	(*events)[0][mvComponentMax+row]++
+	(*events)[1][mvComponentMax+col]++
+	return nil
+}
+
+func validMotionVectorEventComponent(component int) bool {
+	return component >= -mvComponentMax && component <= mvComponentMax
+}
+
+func motionVectorBranchCountsFromEvents(events *motionVectorEventCounts) [2][tables.MVPCount][2]int {
+	var counts [2][tables.MVPCount][2]int
+	if events == nil {
+		return counts
+	}
+	for component := range counts {
+		counts[component] = motionVectorComponentBranchCountsFromEvents(&(*events)[component])
+	}
+	return counts
+}
+
+func motionVectorComponentBranchCountsFromEvents(events *motionVectorComponentEvents) [tables.MVPCount][2]int {
+	var counts [tables.MVPCount][2]int
+	if events == nil {
+		return counts
+	}
+	var shortDistribution [mvNumShort]int
+	for magnitude := 0; magnitude <= mvComponentMax; magnitude++ {
+		positive := (*events)[mvComponentMax+magnitude]
+		negative := 0
+		if magnitude != 0 {
+			negative = (*events)[mvComponentMax-magnitude]
+		}
+		total := positive + negative
+		if total == 0 {
+			continue
+		}
+		if magnitude == 0 {
+			counts[mvProbIsShort][0] += total
+			shortDistribution[0] += total
+			continue
+		}
+		counts[mvProbSign][0] += positive
+		counts[mvProbSign][1] += negative
+		if magnitude < mvNumShort {
+			counts[mvProbIsShort][0] += total
+			shortDistribution[magnitude] += total
+			continue
+		}
+		counts[mvProbIsShort][1] += total
+		for bit := mvLongWidth - 1; bit >= 0; bit-- {
+			counts[mvProbBits+bit][(magnitude>>bit)&1] += total
+		}
+	}
+	for token, total := range shortDistribution {
+		if total == 0 {
+			continue
+		}
+		if !countTreeTokenBranchesWeighted(counts[mvProbShort:], tables.SmallMVTree[:], smallMVTokens[token], total) {
+			return [tables.MVPCount][2]int{}
+		}
+	}
+	return counts
+}
+
 func countMVComponentBranches(counts *[tables.MVPCount][2]int, component int) bool {
 	negative := component < 0
 	if negative {
@@ -947,6 +1027,30 @@ func countTreeTokenBranches(counts []([2]int), tree []int16, token TreeToken) bo
 		}
 		bit := int((token.Value >> uint(bitIndex)) & 1)
 		counts[probIndex][bit]++
+		next := tree[int(node)+bit]
+		if next <= 0 {
+			return bitIndex == 0
+		}
+		node = next
+	}
+	return false
+}
+
+func countTreeTokenBranchesWeighted(counts []([2]int), tree []int16, token TreeToken, weight int) bool {
+	if weight < 0 {
+		return false
+	}
+	if weight == 0 {
+		return true
+	}
+	node := int16(0)
+	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
+		probIndex := int(node >> 1)
+		if probIndex < 0 || probIndex >= len(counts) || int(node)+1 >= len(tree) {
+			return false
+		}
+		bit := int((token.Value >> uint(bitIndex)) & 1)
+		counts[probIndex][bit] += weight
 		next := tree[int(node)+bit]
 		if next <= 0 {
 			return bitIndex == 0
@@ -1269,6 +1373,31 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 		}
 		delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
 		if err := countMotionVectorBranches(counts, delta); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func countSplitMotionVectorEvents(events *motionVectorEventCounts, mode *InterFrameMacroblockMode, left *InterFrameMacroblockMode, above *InterFrameMacroblockMode, best MotionVector) error {
+	if events == nil || !validSplitMVModeWithContext(mode, left, above) {
+		return ErrInvalidPacketConfig
+	}
+	partitions := int(tables.MBSplitCount[mode.Partition])
+	for subset := 0; subset < partitions; subset++ {
+		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		leftMV := splitLeftMV(mode, left, block)
+		aboveMV := splitAboveMV(mode, above, block)
+		target := mode.BlockMV[block]
+		bMode := mode.BModes[block]
+		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
+			return ErrInvalidPacketConfig
+		}
+		if bMode != common.New4x4 {
+			continue
+		}
+		delta := MotionVector{Row: target.Row - best.Row, Col: target.Col - best.Col}
+		if err := countMotionVectorEvents(events, delta); err != nil {
 			return err
 		}
 	}

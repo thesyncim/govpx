@@ -198,6 +198,115 @@ func TestAdaptInterFrameMVProbabilities(t *testing.T) {
 	}
 }
 
+func TestMotionVectorProbabilityFromBranchCountMatchesLibvpxCalcProb(t *testing.T) {
+	tests := []struct {
+		name   string
+		counts [2]int
+		want   uint8
+	}{
+		{name: "zero", counts: [2]int{}, want: 128},
+		{name: "balanced", counts: [2]int{1, 1}, want: 126},
+		{name: "all zero branches", counts: [2]int{0, 16}, want: 1},
+		{name: "all one branches", counts: [2]int{16, 0}, want: 254},
+		{name: "skewed rounds down to even", counts: [2]int{5, 7}, want: 106},
+	}
+	for _, tt := range tests {
+		if got := motionVectorProbabilityFromBranchCount(tt.counts); got != tt.want {
+			t.Fatalf("%s: motionVectorProbabilityFromBranchCount(%v) = %d, want %d",
+				tt.name, tt.counts, got, tt.want)
+		}
+	}
+}
+
+func TestMotionVectorProbabilityUpdateSavingsMatchesLibvpxCorrection(t *testing.T) {
+	counts := [2]int{7, 13}
+	oldProb := uint8(164)
+	newProb := uint8(88)
+	updateProb := uint8(231)
+	got := motionVectorProbabilityUpdateSavings(counts, oldProb, newProb, updateProb)
+	want := libvpxMotionVectorProbabilityUpdateSavings(counts, oldProb, newProb, updateProb)
+	if got != want {
+		t.Fatalf("motionVectorProbabilityUpdateSavings = %d, want libvpx correction %d", got, want)
+	}
+
+	legacyUpdateBits := 7 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0)) >> 8)
+	libvpxUpdateBits := 7 - 1 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0) + 128) >> 8)
+	if legacyUpdateBits == libvpxUpdateBits {
+		t.Fatalf("test case does not exercise MV_PROB_UPDATE_CORRECTION: legacy=%d libvpx=%d",
+			legacyUpdateBits, libvpxUpdateBits)
+	}
+}
+
+func libvpxMotionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb uint8, updateProb uint8) int {
+	oldBits := coefficientBranchCost(counts, oldProb)
+	newBits := coefficientBranchCost(counts, newProb)
+	updateBits := 7 - 1 + ((coefficientBitCost(updateProb, 1) - coefficientBitCost(updateProb, 0) + 128) >> 8)
+	return oldBits - newBits - updateBits
+}
+
+func TestMotionVectorEventBranchCountsIncludeImplicitLongBit3(t *testing.T) {
+	var events motionVectorEventCounts
+	for i := 0; i < 64; i++ {
+		if err := countMotionVectorEvents(&events, MotionVector{Col: 16}); err != nil {
+			t.Fatalf("countMotionVectorEvents returned error: %v", err)
+		}
+	}
+	counts := motionVectorBranchCountsFromEvents(&events)
+	if got, want := counts[1][mvProbBits+3], [2]int{0, 64}; got != want {
+		t.Fatalf("event-derived col bit3 counts = %v, want %v", got, want)
+	}
+
+	var syntaxCounts [2][tables.MVPCount][2]int
+	for i := 0; i < 64; i++ {
+		if err := countMotionVectorBranches(&syntaxCounts, MotionVector{Col: 16}); err != nil {
+			t.Fatalf("countMotionVectorBranches returned error: %v", err)
+		}
+	}
+	if got := syntaxCounts[1][mvProbBits+3]; got != ([2]int{}) {
+		t.Fatalf("syntax col bit3 counts = %v, want omitted bit3 syntax branch", got)
+	}
+}
+
+func TestAdaptInterFrameModeProbabilitiesUsesMVEventDistribution(t *testing.T) {
+	const cols = 512
+	modes := make([]InterFrameMacroblockMode, cols)
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV, MBSkipCoeff: true}
+		if i%2 == 0 {
+			modes[i] = InterFrameMacroblockMode{Mode: common.NewMV, MV: MotionVector{Col: 16}, MBSkipCoeff: true}
+		}
+	}
+	cfg := DefaultInterFrameStateConfig(20)
+
+	got, err := adaptInterFrameModeProbabilitiesWithMVBase(1, cols, modes, tables.DefaultMVContext, &cfg)
+	if err != nil {
+		t.Fatalf("adaptInterFrameModeProbabilitiesWithMVBase returned error: %v", err)
+	}
+
+	var events motionVectorEventCounts
+	var syntaxCounts [2][tables.MVPCount][2]int
+	for i := 0; i < cols; i += 2 {
+		if err := countMotionVectorEvents(&events, MotionVector{Col: 16}); err != nil {
+			t.Fatalf("count event MV branches returned error: %v", err)
+		}
+		if err := countMotionVectorBranches(&syntaxCounts, MotionVector{Col: 16}); err != nil {
+			t.Fatalf("count syntax MV branches returned error: %v", err)
+		}
+	}
+	wantCounts := motionVectorBranchCountsFromEvents(&events)
+	wantCfg := DefaultInterFrameStateConfig(20)
+	want := adaptInterFrameMVProbabilitiesWithBase(&wantCounts, tables.DefaultMVContext, &wantCfg)
+	if got != want {
+		t.Fatalf("frame MV probs = %v, want event-derived counts %v", got, want)
+	}
+
+	syntaxCfg := DefaultInterFrameStateConfig(20)
+	syntax := adaptInterFrameMVProbabilitiesWithBase(&syntaxCounts, tables.DefaultMVContext, &syntaxCfg)
+	if got == syntax {
+		t.Fatalf("frame MV probs matched syntax branch counts, want libvpx MVcount distribution")
+	}
+}
+
 func TestWriteCoefficientInterFrameEmitsMVProbabilityUpdates(t *testing.T) {
 	const rows, cols = 16, 4
 	modes := make([]InterFrameMacroblockMode, rows*cols)
@@ -247,34 +356,36 @@ func TestAdaptInterFrameModeProbabilitiesCountsSignBiasedNewMVPredictor(t *testi
 		t.Fatalf("adaptInterFrameModeProbabilitiesWithMVBase returned error: %v", err)
 	}
 
-	var wantCounts [2][tables.MVPCount][2]int
-	if err := countMotionVectorBranches(&wantCounts, MotionVector{Col: 16}); err != nil {
-		t.Fatalf("count first MV branches returned error: %v", err)
+	var wantEvents motionVectorEventCounts
+	if err := countMotionVectorEvents(&wantEvents, MotionVector{Col: 16}); err != nil {
+		t.Fatalf("count first MV event returned error: %v", err)
 	}
 	for i := 1; i < len(modes); i++ {
-		if err := countMotionVectorBranches(&wantCounts, MotionVector{}); err != nil {
-			t.Fatalf("count biased MV branches returned error: %v", err)
+		if err := countMotionVectorEvents(&wantEvents, MotionVector{}); err != nil {
+			t.Fatalf("count biased MV event returned error: %v", err)
 		}
 	}
+	wantCounts := motionVectorBranchCountsFromEvents(&wantEvents)
 	wantCfg := DefaultInterFrameStateConfig(20)
 	want := adaptInterFrameMVProbabilitiesWithBase(&wantCounts, tables.DefaultMVContext, &wantCfg)
 	if got != want {
 		t.Fatalf("frame MV probs = %v, want sign-biased predictor counts %v", got, want)
 	}
 
-	var noBiasCounts [2][tables.MVPCount][2]int
-	if err := countMotionVectorBranches(&noBiasCounts, MotionVector{Col: 16}); err != nil {
-		t.Fatalf("count first no-bias MV branches returned error: %v", err)
+	var noBiasEvents motionVectorEventCounts
+	if err := countMotionVectorEvents(&noBiasEvents, MotionVector{Col: 16}); err != nil {
+		t.Fatalf("count first no-bias MV event returned error: %v", err)
 	}
 	for i := 1; i < len(modes); i++ {
 		delta := MotionVector{Col: 32}
 		if modes[i].RefFrame == common.GoldenFrame {
 			delta.Col = -32
 		}
-		if err := countMotionVectorBranches(&noBiasCounts, delta); err != nil {
-			t.Fatalf("count no-bias MV branches returned error: %v", err)
+		if err := countMotionVectorEvents(&noBiasEvents, delta); err != nil {
+			t.Fatalf("count no-bias MV event returned error: %v", err)
 		}
 	}
+	noBiasCounts := motionVectorBranchCountsFromEvents(&noBiasEvents)
 	noBiasCfg := DefaultInterFrameStateConfig(20)
 	noBias := adaptInterFrameMVProbabilitiesWithBase(&noBiasCounts, tables.DefaultMVContext, &noBiasCfg)
 	if got == noBias {

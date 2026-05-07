@@ -42,7 +42,7 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 68% overall, or about 78% on the core
+- Encoder decision parity: roughly 69% overall, or about 79% on the core
   one-pass quality path, weighted by libvpx LOC.
   This is an engineering estimate, not a measured percentage, because
   govpx still lacks the libvpx-side trace comparator needed to count
@@ -76,6 +76,35 @@ the anchor and look for the surrounding mismatch.
   tolerances for quality-relevant behavior: rate-control attempts, recode
   reasons, Q choices, entropy save/restore, mode/ref/MV choices, segmentation
   IDs, loop filter, and token probabilities.
+- [ ] Quality/rate acceptance is corpus- and mode-specific. For each gate
+  vector, govpx must fall within the documented PSNR/SSIM and bitrate
+  tolerances vs. libvpx v1.16.0, or match the libvpx decision trace for the
+  known driver of the delta. Full encoded-byte equality is required only for
+  named deterministic syntax/state vectors.
+- [ ] Every intentional non-bitexact difference must be listed in
+  "Accepted Non-Bitexact Differences" with affected paths, measured
+  quality/rate delta, decision/state evidence, and rationale that it cannot
+  affect future encoder decisions.
+
+## Corpus And Tolerance Matrix
+
+- [ ] Define the representative clip/config matrix for 100% parity: static,
+  pan, zoom, edge motion, scene cut, high motion, noisy, screen/static content,
+  odd dimensions, non-multiple-of-16 dimensions, low/high bitrate, CBR/VBR/CQ,
+  best/good/realtime deadlines, CPU-used bands, token partitions,
+  error-resilient mode, lookahead, ARF/ARNR, two-pass, frame dropping, and
+  temporal layers.
+- [ ] For each vector record the required metric gate: PSNR/SSIM tolerance,
+  bitrate tolerance, frame-size tolerance, reference checksum requirement, and
+  which trace fields must match exactly.
+
+## Accepted Non-Bitexact Differences
+
+- [ ] Add entries only after measurement. Each entry must include the affected
+  path, clip/config scope, PSNR/SSIM and bitrate delta, trace evidence, and why
+  the difference cannot affect future encoder decisions.
+- [ ] Review existing "simplification vs. libvpx" notes and either move them
+  back to open parity work or promote them here with measurements.
 
 ## Validation Harness
 
@@ -271,6 +300,20 @@ the anchor and look for the surrounding mismatch.
     the diff path on synthetic JSONL.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
+
+- [ ] Extend oracle coverage to key-frame MB rows, candidate-level mode-loop
+  rows, and rejected recode attempts.
+  - Done when key frames expose Y mode, UV mode, B modes, token contexts,
+    qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
+    inter candidate rows expose tested/skipped modes, thresholds, MV
+    predictors, search range, rate/distortion/RD, and skip decisions; and
+    recode rows expose every attempted Q, q_low/q_high, projected size,
+    entropy savings, zbin state, and rejection reason.
+
+- [ ] Wire govpx/libvpx trace comparison into CI for the corpus matrix.
+  - Done when `make verify-production` fails on the first non-ignored
+    divergence, and `IgnoreFields` is used only for entries documented in
+    "Accepted Non-Bitexact Differences".
 
 - [ ] Align active best/worst quantizer selection.
   - govpx:
@@ -733,7 +776,7 @@ the anchor and look for the surrounding mismatch.
     multi-run copy semantics, and `lookaheadDepth` accounting through
     push/drain.
 
-- [x] Replace simplified ARNR with libvpx motion-compensated temporal filter.
+- [~] Replace simplified ARNR with libvpx motion-compensated temporal filter.
   - govpx: [`applyARNRFilter`](../encoder_preprocess.go),
     [`iterateTemporalFilter`](../encoder_preprocess.go),
     [`applyTemporalFilter`](../encoder_preprocess.go),
@@ -743,8 +786,9 @@ the anchor and look for the surrounding mismatch.
     [`arnrPredictChroma8x8`](../encoder_preprocess.go).
   - libvpx:
     [`temporal_filter.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/temporal_filter.c).
-  - Status: ported. govpx now walks per-16x16 luma macroblock (and the
-    colocated 8x8 chroma blocks) over the alt-ref frame, runs libvpx's
+  - Status: ported with one open source-buffer proof. govpx now walks
+    per-16x16 luma macroblock (and the colocated 8x8 chroma blocks) over
+    the alt-ref frame, runs libvpx's
     hex search (`vp8_hex_search` with NULL `mvsadcost`, i.e. pure 16x16
     SAD) against every adjacent reference, refines that integer-pel MV
     through libvpx's 1/2-, 1/4-, and 1/8-pel diamond walk
@@ -791,13 +835,19 @@ the anchor and look for the surrounding mismatch.
     on a half-pel-shifted noisy clip yields lower SSE vs ground truth
     than the integer-only baseline
     (`TestARNRSubpelRefinementImprovesNoisyMatch`).
+  - Remaining:
+    prove or port libvpx ARNR border/`alt_ref_buffer` semantics. Done when
+    ARNR-filtered buffers and downstream visible-frame quality/rate match
+    libvpx on border-sensitive clips, or the difference is documented in
+    "Accepted Non-Bitexact Differences".
 
 ## Inter Mode Decision And Motion Search
 
 - [ ] Complete full RD inter-mode loop parity.
   - govpx:
     [`selectInterFrameModeDecision`](../encoder_reconstruct.go),
-    [`selectBestInterFrameMode`](../encoder_reconstruct.go).
+    [`selectRDInterFrameModeDecision`](../encoder_reconstruct.go),
+    [`selectFastInterFrameModeDecision`](../encoder_reconstruct.go).
   - libvpx:
     [`rdopt.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/rdopt.c)
     `vp8_rd_pick_inter_mode` and
@@ -1107,7 +1157,10 @@ the anchor and look for the surrounding mismatch.
     `TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty` and
     `TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts`.
   - Missing: exact thresholds and activity/tuning hooks (gated on
-    `VP8_TUNE_SSIM`, which govpx does not expose).
+    `VP8_TUNE_SSIM`, which govpx does not expose), plus key-frame per-MB
+    oracle trace coverage. Either document SSIM tuning as explicitly
+    unsupported in "Accepted Non-Bitexact Differences" or expose a tune
+    option and match libvpx's activity masking and `act_zbin_adj` behavior.
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,
     coefficient EOBs, rate, distortion, and reconstructed pixels.
 
@@ -1153,7 +1206,10 @@ the anchor and look for the surrounding mismatch.
     `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and exhaustive libvpx-side small-block oracle comparison for
-    per-coefficient qcoeff/dqcoeff/EOB/rate/reconstruction parity.
+    per-coefficient qcoeff/dqcoeff/EOB/rate/reconstruction parity. Test
+    vectors should cover block types, skip-DC states, representative Q values,
+    zbin settings, coefficient patterns around threshold/category boundaries,
+    trailing-zero EOB rollback, and Y2 reset behavior.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin
     boosts, and coefficient patterns.
@@ -1234,7 +1290,7 @@ the anchor and look for the surrounding mismatch.
 
 ## Denoising And Noise-Sensitive Decisions
 
-- [x] Replace non-libvpx denoising behavior.
+- [~] Replace non-libvpx denoising behavior.
   - govpx:
     [`denoiserFilterY`](../encoder_denoiser.go),
     [`denoiserFilterUV`](../encoder_denoiser.go),
@@ -1246,7 +1302,7 @@ the anchor and look for the surrounding mismatch.
     [`denoising.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/denoising.c)
     plus denoiser re-evaluation in `pickinter.c` and update_reference_frames
     in `onyx_if.c`.
-  - Status: complete. govpx ports the libvpx denoiser data path: per-pixel
+  - Status: partial. govpx ports the libvpx denoiser data path: per-pixel
     `vp8_denoiser_filter_c` / `vp8_denoiser_filter_uv_c` math (including the
     weak-fallback delta loop, `MOTION_MAGNITUDE_THRESHOLD`,
     `SUM_DIFF_FROM_AVG_THRESH_UV`, and per-row 16x16 / 8x8 strides), the
@@ -1265,8 +1321,50 @@ the anchor and look for the surrounding mismatch.
     mc input; libvpx motion-comps from the parallel running_avg buffer
     directly via `vp8_build_inter_predictors_mb`, which is a deeper
     integration that would require shared inter-prediction plumbing.
+  - Remaining:
+    prove or port libvpx denoiser `running_avg` motion-comp integration. Done
+    when denoised buffers, denoiser re-evaluation decisions, and final
+    quality/rate match libvpx for `noise_sensitivity` 1-6 on moving noisy
+    clips, or the difference is documented in
+    "Accepted Non-Bitexact Differences".
   - Done when denoised buffers, selected modes after denoiser re-evaluation, and
     final quality/rate match for `noise_sensitivity` 1-6.
+
+## Temporal, Speed, And Packetization
+
+- [ ] Audit temporal-layer parity end-to-end.
+  - Done when layer pattern, flags, TL0PICIDX, sync flags, per-layer buffers,
+    reference refresh/copy policy, per-layer rate targets, dropped-frame
+    accounting, and subsequent mode decisions match libvpx on all exposed
+    temporal modes.
+
+- [ ] Audit CBR drop-frame and buffer-pressure behavior.
+  - Done when drop/no-drop decisions, buffer level, force-max-Q aftermath,
+    result flags, rate recovery, and next-frame Q/target decisions match libvpx.
+
+- [ ] Audit `vp8_set_speed_features` behavior across deadline and CPU-used
+  values.
+  - Done when speed-feature-selected search methods, RD thresholds, quantizer
+    family, coefficient optimization gates, subpel settings, static breakout,
+    and mode-loop decisions match libvpx for best/good/realtime speeds.
+
+- [ ] Audit public reconfiguration controls against libvpx controls.
+  - Done when midstream bitrate, rate-control, CQ, deadline, CPU-used,
+    keyframe interval, force-keyframe, screen-content, static-threshold,
+    token-partition, sharpness, reset, and close/reopen behavior either matches
+    empirical libvpx or is documented as intentionally unexposed.
+
+- [ ] Audit VP8 packetization and token-partition parity.
+  - Done when frame tag, version, show/invisible flags, partition count,
+    partition sizes, boolcoder carry/flush behavior, token row-to-partition
+    assignment, and packet validity match libvpx for deterministic vectors.
+
+- [ ] Audit source padding, border extension, odd-size frames, and ARNR source
+  buffer semantics.
+  - Done when edge-motion, odd-dimension, and non-multiple-of-16 clips produce
+    libvpx-equivalent motion decisions and quality/rate, or any remaining
+    source-border difference is documented in "Accepted Non-Bitexact
+    Differences".
 
 ## Probability, Entropy, And Header State
 
@@ -1422,13 +1520,29 @@ the anchor and look for the surrounding mismatch.
     `RefreshEntropyProbs` is true. Inter-intra RD and fast intra scoring now
     use the same live Y/UV probability tables for mode costs, matching the
     packet writer's current-frame state.
+    MV probability adaptation now mirrors libvpx's `MVcount` distribution
+    path instead of reusing the literal syntax branch counter: NEWMV and
+    SplitMV/NEW4X4 deltas are first accumulated into signed component event
+    buckets, then expanded with the same short-vector tree distribution and
+    long-vector bit counts used by `write_component_probs`. This intentionally
+    counts the implicit long-vector bit 3 for event magnitudes 8..15 even
+    though that bit is not always present in the coded MV syntax, matching
+    libvpx's probability refresh model. MV probability fitting and update
+    gating also use `encodemv.c`'s MV-specific `calc_prob`
+    (`ct[0] * 255 / total`, even-clamped) and
+    `MV_PROB_UPDATE_CORRECTION` cost term rather than the coefficient-probability
+    helper.
     Additional tests:
     `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
     `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
     `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`,
     `TestWriteCoefficientInterFrameEmitsInterIntraModeProbabilityUpdates`,
     `TestCommitInterFrameEntropyRefreshesInterIntraModeProbs`, and
-    `TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs`.
+    `TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs`,
+    `TestMotionVectorProbabilityFromBranchCountMatchesLibvpxCalcProb`,
+    `TestMotionVectorProbabilityUpdateSavingsMatchesLibvpxCorrection`,
+    `TestMotionVectorEventBranchCountsIncludeImplicitLongBit3`, and
+    `TestAdaptInterFrameModeProbabilitiesUsesMVEventDistribution`.
     The oracle trace's "frame" row now carries the
     `refresh_entropy_probs` decision (after libvpx's
     `vp8_pack_bitstream` error-resilient override around
