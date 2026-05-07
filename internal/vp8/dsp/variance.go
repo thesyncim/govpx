@@ -140,6 +140,10 @@ func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]
 }
 
 func varFilterBlock2DBilinearSecondPass(src *[17 * 16]uint16, dst []byte, srcStride int, pixelStep int, height int, width int, filter [2]int16) {
+	if width == 16 && srcStride == 16 && pixelStep == 16 {
+		varFilterBlock2DBilinearSecondPass16(src, dst, height, filter)
+		return
+	}
 	for y := 0; y < height; y++ {
 		srcRow := y * srcStride
 		dstRow := y * width
