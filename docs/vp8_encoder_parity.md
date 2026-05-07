@@ -327,11 +327,12 @@ the anchor and look for the surrounding mismatch.
   - libvpx: inactive MB early exit in `pickinter.c` and `vp8_set_active_map` in
     `onyx_if.c`.
   - Status: partial. Public `SetActiveMap` exists; inactive inter MBs skip
-    mode decision and code as ZEROMV-LAST with skip=1, segment 0. Remaining
-    work is oracle trace coverage and integration with multi-threaded
-    encodeframe paths.
-  - Done when inactive macroblocks skip mode decision, code as skipped, preserve
-    pixels/references, and match active-map oracle vectors.
+    mode decision, code as ZEROMV-LAST with skip=1/segment 0, and have unit
+    coverage proving decoded inactive pixels preserve the previous LAST
+    reconstruction while active neighbors update. Remaining work is oracle
+    trace coverage and integration with multi-threaded encodeframe paths.
+  - Done when inactive macroblocks match active-map oracle vectors across
+    single-threaded and threaded encodeframe paths.
 
 ## Denoising And Noise-Sensitive Decisions
 

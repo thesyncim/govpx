@@ -3877,6 +3877,66 @@ func assertPlaneEqual(t *testing.T, name string, want []byte, wantStride int, go
 	}
 }
 
+func assertMacroblockEqual(t *testing.T, name string, want Image, got Image, mbRow int, mbCol int) {
+	t.Helper()
+	if got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf("%s dimensions = %dx%d, want %dx%d", name, got.Width, got.Height, want.Width, want.Height)
+	}
+	assertPlaneBlockEqual(t, name+" Y", want.Y, want.YStride, got.Y, got.YStride, want.Width, want.Height, mbRow*16, mbCol*16, 16, 16)
+	uvWidth := (want.Width + 1) >> 1
+	uvHeight := (want.Height + 1) >> 1
+	assertPlaneBlockEqual(t, name+" U", want.U, want.UStride, got.U, got.UStride, uvWidth, uvHeight, mbRow*8, mbCol*8, 8, 8)
+	assertPlaneBlockEqual(t, name+" V", want.V, want.VStride, got.V, got.VStride, uvWidth, uvHeight, mbRow*8, mbCol*8, 8, 8)
+}
+
+func assertMacroblockDifferent(t *testing.T, name string, a Image, b Image, mbRow int, mbCol int) {
+	t.Helper()
+	if a.Width != b.Width || a.Height != b.Height {
+		t.Fatalf("%s dimensions differ: %dx%d vs %dx%d", name, a.Width, a.Height, b.Width, b.Height)
+	}
+	if macroblockEqual(a, b, mbRow, mbCol) {
+		t.Fatalf("%s macroblock (%d,%d) matches previous frame; want active MB to update", name, mbRow, mbCol)
+	}
+}
+
+func assertPlaneBlockEqual(t *testing.T, name string, want []byte, wantStride int, got []byte, gotStride int, planeWidth int, planeHeight int, startRow int, startCol int, blockWidth int, blockHeight int) {
+	t.Helper()
+	width := min(blockWidth, planeWidth-startCol)
+	height := min(blockHeight, planeHeight-startRow)
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			wantValue := want[(startRow+row)*wantStride+startCol+col]
+			gotValue := got[(startRow+row)*gotStride+startCol+col]
+			if gotValue != wantValue {
+				t.Fatalf("%s[%d,%d] = %d, want %d", name, startRow+row, startCol+col, gotValue, wantValue)
+			}
+		}
+	}
+}
+
+func macroblockEqual(a Image, b Image, mbRow int, mbCol int) bool {
+	if !planeBlockEqual(a.Y, a.YStride, b.Y, b.YStride, a.Width, a.Height, mbRow*16, mbCol*16, 16, 16) {
+		return false
+	}
+	uvWidth := (a.Width + 1) >> 1
+	uvHeight := (a.Height + 1) >> 1
+	return planeBlockEqual(a.U, a.UStride, b.U, b.UStride, uvWidth, uvHeight, mbRow*8, mbCol*8, 8, 8) &&
+		planeBlockEqual(a.V, a.VStride, b.V, b.VStride, uvWidth, uvHeight, mbRow*8, mbCol*8, 8, 8)
+}
+
+func planeBlockEqual(a []byte, aStride int, b []byte, bStride int, planeWidth int, planeHeight int, startRow int, startCol int, blockWidth int, blockHeight int) bool {
+	width := min(blockWidth, planeWidth-startCol)
+	height := min(blockHeight, planeHeight-startRow)
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			if a[(startRow+row)*aStride+startCol+col] != b[(startRow+row)*bStride+startCol+col] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func TestSetActiveMapValidation(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	mapBytes := make([]byte, 4)
@@ -3914,7 +3974,8 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 	fillImage(first, 60, 90, 170)
 	fillImage(second, 200, 90, 170)
 	keyPacket := make([]byte, 8192)
-	if _, err := e.EncodeInto(keyPacket, first, 0, 1, 0); err != nil {
+	keyResult, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
+	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	rows := encoderMacroblockRows(32)
@@ -3931,7 +3992,8 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 		t.Fatalf("SetActiveMap returned error: %v", err)
 	}
 	interPacket := make([]byte, 8192)
-	if _, err := e.EncodeInto(interPacket, second, 1, 1, 0); err != nil {
+	interResult, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
 	mode := e.interFrameModes[inactiveIndex]
@@ -3947,6 +4009,12 @@ func TestSetActiveMapInactiveInterMacroblocksAreSkippedZeroMVLast(t *testing.T) 
 	if !e.interFrameModes[inactiveIndex].MBSkipCoeff {
 		t.Fatalf("inactive MB MBSkipCoeff = false, want true")
 	}
+	decoded := decodeFrameSequence(t, keyResult.Data, interResult.Data)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	}
+	assertMacroblockEqual(t, "inactive active-map MB", decoded[0], decoded[1], inactiveRow, inactiveCol)
+	assertMacroblockDifferent(t, "neighboring active-map MB", decoded[0], decoded[1], 0, 1)
 }
 
 func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
