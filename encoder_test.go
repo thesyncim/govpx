@@ -1519,6 +1519,7 @@ func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
 	e.rc.goldenCorrectionFactor = 4.0
 	e.rc.currentQuantizer = 40
 	e.rc.lastQuantizer = 39
+	e.rc.lastInterQuantizer = 38
 	e.rc.frameTargetBits = 123
 
 	e.Reset()
@@ -1534,8 +1535,8 @@ func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
 	if e.rc.rateCorrectionFactor != 1.0 || e.rc.keyFrameCorrectionFactor != 1.0 || e.rc.goldenCorrectionFactor != 1.0 {
 		t.Fatalf("correction factors after reset = %g/%g/%g, want 1/1/1", e.rc.rateCorrectionFactor, e.rc.keyFrameCorrectionFactor, e.rc.goldenCorrectionFactor)
 	}
-	if e.rc.currentQuantizer != e.rc.minQuantizer || e.rc.lastQuantizer != e.rc.minQuantizer {
-		t.Fatalf("quantizers after reset = current:%d last:%d, want min %d", e.rc.currentQuantizer, e.rc.lastQuantizer, e.rc.minQuantizer)
+	if e.rc.currentQuantizer != e.rc.minQuantizer || e.rc.lastQuantizer != e.rc.minQuantizer || e.rc.lastInterQuantizer != e.rc.minQuantizer {
+		t.Fatalf("quantizers after reset = current:%d last:%d lastInter:%d, want min %d", e.rc.currentQuantizer, e.rc.lastQuantizer, e.rc.lastInterQuantizer, e.rc.minQuantizer)
 	}
 	if e.rc.frameTargetBits != e.rc.bitsPerFrame {
 		t.Fatalf("frame target after reset = %d, want bitsPerFrame %d", e.rc.frameTargetBits, e.rc.bitsPerFrame)

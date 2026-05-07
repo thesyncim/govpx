@@ -219,6 +219,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		e.rc.currentQuantizer = e.rc.minQuantizer
 	}
 	e.rc.lastQuantizer = e.rc.currentQuantizer
+	e.rc.lastInterQuantizer = e.rc.currentQuantizer
 	e.opts.CQLevel = e.rc.cqLevel
 	if err := e.temporal.configure(normalized.TemporalScalability, e.rc.targetBitrateKbps); err != nil {
 		return nil, err
@@ -263,7 +264,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 	}
-	e.rc.selectQuantizerForFrameKind(keyFrame, goldenCBRRefresh, required)
+	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, goldenCBRRefresh, required, e.opts.ScreenContentMode)
 
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
@@ -724,6 +725,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = level
 		e.rc.lastQuantizer = level
+		e.rc.lastInterQuantizer = level
 	}
 	return nil
 }
@@ -845,6 +847,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 		e.rc.lastQuantizer = e.rc.cqLevel
+		e.rc.lastInterQuantizer = e.rc.cqLevel
 	}
 	e.rc.dropFrameAllowed = target.AllowFrameDrop
 	nextTemporal := e.temporal
@@ -954,9 +957,11 @@ func (e *VP8Encoder) Reset() {
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 		e.rc.lastQuantizer = e.rc.cqLevel
+		e.rc.lastInterQuantizer = e.rc.cqLevel
 	} else {
 		e.rc.currentQuantizer = e.rc.minQuantizer
 		e.rc.lastQuantizer = e.rc.minQuantizer
+		e.rc.lastInterQuantizer = e.rc.minQuantizer
 	}
 	e.rc.frameTargetBits = e.rc.bitsPerFrame
 	e.temporal.frameIndex = 0

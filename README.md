@@ -19,7 +19,7 @@ replacement.
 - Whole-block, B_PRED, NEWMV, and SPLITMV encoder mode paths, including VP8
   split partition-shape selection
 - Token partitions, loop filtering, granular postprocess flags, runtime token
-  partition/sharpness/static-threshold controls, error-concealment decode
+  partition/sharpness/screen-content/static-threshold controls, error-concealment decode
   handling, LAST/GOLDEN/ALTREF reference selection, and entropy update controls
 - Checked-in smoke vectors plus an exhaustive libvpx-backed parity gate
 

@@ -61,11 +61,12 @@ type rateControlState struct {
 	minBitrateKbps      int
 	maxBitrateKbps      int
 
-	minQuantizer     int
-	maxQuantizer     int
-	cqLevel          int
-	currentQuantizer int
-	lastQuantizer    int
+	minQuantizer       int
+	maxQuantizer       int
+	cqLevel            int
+	currentQuantizer   int
+	lastQuantizer      int
+	lastInterQuantizer int
 
 	undershootPct int
 	overshootPct  int
@@ -148,6 +149,7 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.cqLevel
 		rc.lastQuantizer = rc.cqLevel
+		rc.lastInterQuantizer = rc.cqLevel
 	}
 	return nil
 }
@@ -336,6 +338,10 @@ func (rc *rateControlState) selectQuantizerForFrame(keyFrame bool, macroblocks i
 }
 
 func (rc *rateControlState) selectQuantizerForFrameKind(keyFrame bool, goldenFrame bool, macroblocks int) {
+	rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, goldenFrame, macroblocks, 0)
+}
+
+func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFrame bool, goldenFrame bool, macroblocks int, screenContentMode int) {
 	if rc.mode != RateControlCBR || macroblocks <= 0 {
 		return
 	}
@@ -345,6 +351,9 @@ func (rc *rateControlState) selectQuantizerForFrameKind(keyFrame bool, goldenFra
 	}
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
 	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, correctionFactor)
+	if screenContentMode > 0 && !keyFrame {
+		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
+	}
 	rc.clampQuantizer()
 }
 
@@ -366,6 +375,12 @@ func (rc *rateControlState) clampQuantizer() {
 	}
 	if rc.lastQuantizer > rc.maxQuantizer {
 		rc.lastQuantizer = rc.maxQuantizer
+	}
+	if rc.lastInterQuantizer < rc.minQuantizer {
+		rc.lastInterQuantizer = rc.minQuantizer
+	}
+	if rc.lastInterQuantizer > rc.maxQuantizer {
+		rc.lastInterQuantizer = rc.maxQuantizer
 	}
 }
 
@@ -393,6 +408,9 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 
 	encodedQuantizer := rc.currentQuantizer
 	rc.lastQuantizer = encodedQuantizer
+	if !keyFrame {
+		rc.lastInterQuantizer = encodedQuantizer
+	}
 	if rc.mode == RateControlCQ {
 		rc.adjustCQQuantizerWithContext(actualBits, targetBits, keyFrame, goldenFrame)
 	} else {
@@ -406,6 +424,14 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, keyF
 		return
 	}
 	rc.framesSinceKeyframe++
+}
+
+func libvpxLimitCBRInterQuantizerDrop(lastInterQuantizer int, currentQuantizer int) int {
+	const limitDown = 12
+	if lastInterQuantizer-currentQuantizer > limitDown {
+		return lastInterQuantizer - limitDown
+	}
+	return currentQuantizer
 }
 
 func (rc *rateControlState) clampScreenContentBufferDebt(screenContentMode int) {
