@@ -38,7 +38,6 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
   centring, MV-cost ref, and sub-pel `±MAX_FULL_PEL_VAL` reject are in place
   but the integer search is still an exhaustive sweep (±16 for whole-MB,
   ±8 for SPLITMV), not a stepped diamond.
-- `sad_per_bit4lut` (mcomp.c) for SPLITMV-block SAD scoring.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage.
 - Exact loop-filter level search.
 

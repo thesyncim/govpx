@@ -1079,6 +1079,12 @@ func libvpxSADPerBit16(qIndex int) int {
 	return libvpxSADPerBit16LUT[vp8common.ClampQIndex(qIndex)]
 }
 
+// libvpxSADPerBit4 ports sad_per_bit4lut from
+// vp8/encoder/rdopt.c vp8cx_initialize_me_consts for SPLITMV block search.
+func libvpxSADPerBit4(qIndex int) int {
+	return libvpxSADPerBit4LUT[vp8common.ClampQIndex(qIndex)]
+}
+
 // libvpxRDConstants ports vp8_initialize_rd_consts for the single-pass
 // zbin_over_quant=0 path used by this encoder.
 func libvpxRDConstants(qIndex int) (int, int) {
@@ -1116,6 +1122,25 @@ var libvpxSADPerBit16LUT = [vp8common.QIndexRange]int{
 	10, 10, 10, 10, 10, 10, 11, 11,
 	11, 11, 11, 11, 12, 12, 12, 12,
 	12, 12, 13, 13, 13, 13, 14, 14,
+}
+
+var libvpxSADPerBit4LUT = [vp8common.QIndexRange]int{
+	2, 2, 2, 2, 2, 2, 3, 3,
+	3, 3, 3, 3, 3, 3, 3, 3,
+	3, 3, 3, 3, 4, 4, 4, 4,
+	4, 4, 4, 4, 4, 4, 5, 5,
+	5, 5, 5, 5, 6, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6,
+	7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 8, 8, 8,
+	8, 8, 9, 9, 9, 9, 9, 9,
+	10, 10, 10, 10, 10, 10, 10, 10,
+	11, 11, 11, 11, 11, 11, 11, 11,
+	12, 12, 12, 12, 12, 12, 12, 12,
+	13, 13, 13, 13, 13, 13, 13, 14,
+	14, 14, 14, 14, 15, 15, 15, 15,
+	16, 16, 16, 16, 17, 17, 17, 18,
+	18, 18, 19, 19, 19, 20, 20, 20,
 }
 
 func interMotionRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int) int {
@@ -1182,7 +1207,7 @@ func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, 
 // selectInterFrameFullPixelMotionVector centers the integer-pel search at
 // bestRefMV (libvpx pickinter.c uses `mvp_full = bestRefMV >> 3`) and charges
 // the candidate's MV-cost against bestRefMV instead of (0,0). The exhaustive
-// ±8 sweep is kept; a faithful diamond/3-step port is still a deferred follow-up.
+// sweep is kept; a faithful diamond/3-step port is still a deferred follow-up.
 func selectInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
 	centerRow := int(bestRefMV.Row) & ^7
 	centerCol := int(bestRefMV.Col) & ^7
@@ -1366,7 +1391,7 @@ func interMotionSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 }
 
 func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
-	return splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + interMotionSearchVectorCost(mv, bestRefMV, qIndex)
+	return splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + interMotionSplitBlockSearchVectorCost(mv, bestRefMV, qIndex)
 }
 
 func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, bestRefMV vp8enc.MotionVector, qIndex int) int {
@@ -1383,6 +1408,10 @@ func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, 
 // far from a strong predictor and biases NEWMV away from correct candidates.
 func interMotionSearchVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
 	return vp8enc.MotionVectorSADCost(mv, bestRefMV, libvpxSADPerBit16(qIndex))
+}
+
+func interMotionSplitBlockSearchVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) int {
+	return vp8enc.MotionVectorSADCost(mv, bestRefMV, libvpxSADPerBit4(qIndex))
 }
 
 // interMotionSearchErrorVectorCost charges sub-pel MV bits against bestRefMV

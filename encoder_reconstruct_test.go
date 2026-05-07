@@ -602,26 +602,31 @@ func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 	}
 }
 
-func TestLibvpxSADPerBit16MatchesInitializeMEConsts(t *testing.T) {
+func TestLibvpxSADPerBitLUTsMatchInitializeMEConsts(t *testing.T) {
 	tests := []struct {
 		qIndex int
-		want   int
+		want16 int
+		want4  int
 	}{
-		{qIndex: 0, want: 2},
-		{qIndex: 16, want: 3},
-		{qIndex: 30, want: 4},
-		{qIndex: 42, want: 5},
-		{qIndex: 54, want: 6},
-		{qIndex: 66, want: 7},
-		{qIndex: 78, want: 8},
-		{qIndex: 90, want: 9},
-		{qIndex: 102, want: 10},
-		{qIndex: 114, want: 11},
-		{qIndex: 126, want: 14},
+		{qIndex: 0, want16: 2, want4: 2},
+		{qIndex: 6, want16: 2, want4: 3},
+		{qIndex: 20, want16: 3, want4: 4},
+		{qIndex: 30, want16: 4, want4: 5},
+		{qIndex: 42, want16: 5, want4: 6},
+		{qIndex: 54, want16: 6, want4: 7},
+		{qIndex: 62, want16: 6, want4: 8},
+		{qIndex: 78, want16: 8, want4: 10},
+		{qIndex: 90, want16: 9, want4: 12},
+		{qIndex: 102, want16: 10, want4: 13},
+		{qIndex: 114, want16: 11, want4: 16},
+		{qIndex: 126, want16: 14, want4: 20},
 	}
 	for _, tt := range tests {
-		if got := libvpxSADPerBit16(tt.qIndex); got != tt.want {
-			t.Fatalf("q=%d sad_per_bit16 = %d, want %d", tt.qIndex, got, tt.want)
+		if got := libvpxSADPerBit16(tt.qIndex); got != tt.want16 {
+			t.Fatalf("q=%d sad_per_bit16 = %d, want %d", tt.qIndex, got, tt.want16)
+		}
+		if got := libvpxSADPerBit4(tt.qIndex); got != tt.want4 {
+			t.Fatalf("q=%d sad_per_bit4 = %d, want %d", tt.qIndex, got, tt.want4)
 		}
 	}
 }
@@ -1277,7 +1282,7 @@ func splitMotionSourceAndReference(tb testing.TB) (Image, vp8common.FrameBuffer)
 	ref := testVP8Frame(tb, 32, 32, 0, 90, 170)
 	for row := 0; row < 32; row++ {
 		for col := 0; col < 32; col++ {
-			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*37 + col*13) & 255)
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*17 + col*col*31 + row*col*7 + row*13 + col*29) & 255)
 		}
 	}
 	return src, ref
