@@ -25,6 +25,42 @@ func benchSrc16x16() ([]byte, []byte) {
 	return src, ref
 }
 
+// BenchmarkBilinearFirstPass16Specialised measures the dispatched
+// first-pass path - on arm64 this routes through the NEON assembly,
+// on every other platform it routes through the scalar fallback.
+func BenchmarkBilinearFirstPass16Specialised(b *testing.B) {
+	src, _ := benchSrc16x16()
+	var dst [17 * 16]uint16
+	filter := tables.BilinearFilters[3]
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		varFilterBlock2DBilinearFirstPass16(src, 64, &dst, 17, filter)
+	}
+}
+
+// BenchmarkBilinearFirstPass16Generic exercises the generic
+// arbitrary-stride loop in variance.go for like-for-like comparison.
+func BenchmarkBilinearFirstPass16Generic(b *testing.B) {
+	src, _ := benchSrc16x16()
+	var dst [17 * 16]uint16
+	filter := tables.BilinearFilters[3]
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bilinearFirstPassGeneric(src, 64, &dst, 16, 17, filter)
+	}
+}
+
+func bilinearFirstPassGeneric(src []byte, srcStride int, dst *[17 * 16]uint16, width int, height int, filter [2]int16) {
+	for y := 0; y < height; y++ {
+		srcRow := y * srcStride
+		dstRow := y * width
+		for x := 0; x < width; x++ {
+			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+1])*int(filter[1])
+			dst[dstRow+x] = uint16((v + tables.FilterWeight/2) >> tables.FilterShift)
+		}
+	}
+}
+
 // BenchmarkBilinearSecondPass16Specialised measures the dispatched
 // path - on arm64 this routes through the NEON assembly, on every
 // other platform it routes through the scalar specialisation.
