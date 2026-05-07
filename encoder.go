@@ -695,6 +695,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if twoPassTargetBits > 0 {
 		e.rc.frameTargetBits = twoPassTargetBits
 	}
+	// libvpx vp8/encoder/firstpass.c define_gf_group ARF-pending decision:
+	// when second-pass stats indicate the upcoming GF section is high
+	// motion / high-quality predicted, arm a hidden alt-ref so the
+	// auto-ARF driver can emit it at the predicted offset.
+	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
 	if goldenCBRRefresh {
 		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
 		// libvpx vp8/encoder/ratectrl.c calc_gf_params runs at the

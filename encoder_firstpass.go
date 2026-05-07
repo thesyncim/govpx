@@ -587,22 +587,22 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 		return defaultTargetBits
 	}
 	target := int64(float64(t.bitsLeft) * modErr / t.errorLeft)
-	minTarget := int64(defaultTargetBits) * int64(t.minPct) / 100
-	maxTarget := int64(defaultTargetBits) * int64(t.maxPct) / 100
+	sectionMin, sectionMax := t.pass2VBRSectionLimits(frame, defaultTargetBits)
 	if keyFrame {
-		maxTarget *= 4
+		// libvpx's KF allocator (find_next_key_frame -> kf_group_bits)
+		// runs through a separate path that biases more bits toward the
+		// KF; until that landing is fully wired the govpx shim keeps the
+		// historical 3x boost on the err-fraction target and the 4x
+		// expansion of the section ceiling so KF allocation does not
+		// regress against the existing oracle pins.
+		sectionMax *= 4
 		target *= 3
-	} else {
-		framesLeft := int64(len(t.stats)) - int64(frame)
-		if vbrMaxTarget := libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, t.maxPct); vbrMaxTarget > 0 {
-			maxTarget = int64(vbrMaxTarget)
-		}
 	}
-	if target < minTarget {
-		target = minTarget
+	if target < sectionMin {
+		target = sectionMin
 	}
-	if target > maxTarget {
-		target = maxTarget
+	if target > sectionMax {
+		target = sectionMax
 	}
 	if target < 1 {
 		target = 1
@@ -611,6 +611,230 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 		return maxInt()
 	}
 	return int(target)
+}
+
+// pass2VBRSectionLimits ports the libvpx vp8/encoder/firstpass.c
+// Pass2Encode VBR section-limit application on the per-frame target.
+// Returns the (section_min_bits, section_max_bits) bounds derived from
+// the configured `two_pass_vbrmin_section` / `two_pass_vbrmax_section`
+// percentages applied to (a) the live VBR per-frame budget
+// `(bits_left/frames_left)` for the max ceiling, mirroring libvpx's
+// `frame_max_bits` VBR branch, and (b) the per-frame average
+// `defaultTargetBits` for the min floor, mirroring
+// `cpi->min_frame_bandwidth = av_per_frame_bandwidth *
+// two_pass_vbrmin_section / 100`. Frames past the end of the stats
+// stream return the static fallback bounds.
+func (t *twoPassState) pass2VBRSectionLimits(frame uint64, defaultTargetBits int) (int64, int64) {
+	minPct := t.minPct
+	if minPct <= 0 {
+		minPct = 50
+	}
+	maxPct := t.maxPct
+	if maxPct <= 0 {
+		maxPct = 200
+	}
+	sectionMin := int64(defaultTargetBits) * int64(minPct) / 100
+	sectionMax := int64(defaultTargetBits) * int64(maxPct) / 100
+	if t.enabled() && frame < uint64(len(t.stats)) {
+		framesLeft := int64(len(t.stats)) - int64(frame)
+		if vbrMax := libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, maxPct); vbrMax > 0 {
+			sectionMax = int64(vbrMax)
+		}
+	}
+	if sectionMin < 0 {
+		sectionMin = 0
+	}
+	if sectionMax < sectionMin {
+		sectionMax = sectionMin
+	}
+	return sectionMin, sectionMax
+}
+
+// pass2DetectARFPending ports the libvpx vp8/encoder/firstpass.c
+// `define_gf_group` / `select_arf_period` ARF-pending decision, the
+// branch at lines 1758-1842 that sets `cpi->source_alt_ref_pending = 1`
+// when the upcoming GF section is a high-motion / high-quality run that
+// will benefit from a hidden alt-ref. Returns the ARF section interval
+// (in frames, mirroring libvpx's `cpi->baseline_gf_interval`) and a
+// pending flag.
+//
+// Heuristic mirrored:
+//
+//   - allow_alt_ref guard (caller passes
+//     `cpi->oxcf.play_alternate && lag_in_frames`).
+//   - i >= MIN_GF_INTERVAL.
+//   - i <= frames_to_key - MIN_GF_INTERVAL (don't ARF very near KF).
+//   - next_frame.pcnt_inter > 0.75 (start of section is strongly
+//     predicted from LAST so a hidden ARF is worth the cost).
+//   - mv_in_out_accumulator/i > -0.2 OR mv_in_out_accumulator > -2.0
+//     (motion is not collapsing inward only).
+//   - gfu_boost > 100 (the boost score crossed the libvpx floor).
+//
+// The interval is the libvpx GF-loop length, capped at
+// `min(static_scene_max_gf_interval, frames_to_key)` and floored at
+// MIN_GF_INTERVAL.
+func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey int, allowAltRef bool, maxGFInterval int) (int, bool) {
+	if !t.enabled() || !allowAltRef || framesToKey <= 0 {
+		return 0, false
+	}
+	if currentFrame >= uint64(len(t.stats)) {
+		return 0, false
+	}
+	if maxGFInterval < libvpxMinGFInterval {
+		maxGFInterval = libvpxMinGFInterval
+	}
+	// libvpx walks i forward up to static_scene_max_gf_interval (or
+	// frames_to_key, whichever is smaller), accumulating motion stats.
+	// Also cap at frames_to_key - MIN_GF_INTERVAL so the eventual
+	// `i <= frames_to_key - MIN_GF_INTERVAL` ARF guard can be
+	// satisfied by the walk; otherwise a strongly-predicted clip near
+	// the end of stats would always fail the post-loop check.
+	maxLookahead := framesToKey
+	if maxLookahead > maxGFInterval {
+		maxLookahead = maxGFInterval
+	}
+	if cap := framesToKey - libvpxMinGFInterval; cap > 0 && maxLookahead > cap {
+		maxLookahead = cap
+	}
+	if remaining := int(uint64(len(t.stats)) - currentFrame); maxLookahead > remaining {
+		maxLookahead = remaining
+	}
+	if maxLookahead < libvpxMinGFInterval {
+		return 0, false
+	}
+	mvInOutAccumulator := 0.0
+	decayAccumulator := 1.0
+	boostScore := 0.0
+	oldBoostScore := 0.0
+	interval := 0
+	for i := 1; i <= maxLookahead; i++ {
+		idx := currentFrame + uint64(i)
+		if idx >= uint64(len(t.stats)) {
+			break
+		}
+		next := t.stats[idx]
+		mvInOutAccumulator += next.MVInOutCount
+		// libvpx calc_frame_boost (vp8/encoder/firstpass.c lines
+		// 1451-1480): frame_boost = IIFACTOR * intra_error /
+		// coded_error, clamped to GF_RMAX=48.0, then biased by
+		// mv_in_out (positive doubles, negative halves). govpx omits
+		// the `gf_intra_err_min` floor (which depends on per-frame
+		// MB count from the encoder context, not the stats stream)
+		// and uses the raw intra/coded ratio as the boost signal.
+		const iiFactor = 1.5
+		const gfRMax = 48.0
+		denom := next.CodedError
+		if denom > -1e-12 && denom < 1e-12 {
+			denom = 1.0
+		}
+		frameBoost := iiFactor * next.IntraError / denom
+		if next.MVInOutCount > 0 {
+			frameBoost += frameBoost * (next.MVInOutCount * 2.0)
+		} else {
+			frameBoost += frameBoost * (next.MVInOutCount / 2.0)
+		}
+		if frameBoost > gfRMax {
+			frameBoost = gfRMax
+		}
+		// Cumulative effect of prediction quality decay, mirroring
+		// libvpx's `decay_accumulator = decay_accumulator *
+		// loop_decay_rate; clamp(0.1, 1.0)`.
+		loopDecayRate := libvpxGetPredictionDecayRate(next)
+		decayAccumulator *= loopDecayRate
+		if decayAccumulator < 0.1 {
+			decayAccumulator = 0.1
+		}
+		boostScore += decayAccumulator * frameBoost
+		// Break-out conditions mirroring libvpx's loop tail.
+		if i > libvpxMinGFInterval &&
+			(framesToKey-i) >= libvpxMinGFInterval &&
+			((boostScore > 20.0) || (next.PcntInter < 0.75)) &&
+			((boostScore - oldBoostScore) < 2.0) {
+			break
+		}
+		interval = i
+		oldBoostScore = boostScore
+	}
+	if interval < libvpxMinGFInterval {
+		return 0, false
+	}
+	if interval > framesToKey-libvpxMinGFInterval {
+		// libvpx: don't use ARF very near next KF.
+		return 0, false
+	}
+	// Look at the frame just past current to apply the libvpx
+	// `next_frame.pcnt_inter > 0.75` gate.
+	if currentFrame+1 >= uint64(len(t.stats)) {
+		return 0, false
+	}
+	nextFrame := t.stats[currentFrame+1]
+	if nextFrame.PcntInter <= 0.75 {
+		return 0, false
+	}
+	if !((mvInOutAccumulator/float64(interval) > -0.2) || (mvInOutAccumulator > -2.0)) {
+		return 0, false
+	}
+	gfuBoost := int(boostScore*100.0) >> 4
+	if gfuBoost <= 100 {
+		return 0, false
+	}
+	return interval, true
+}
+
+// pass2MaybeArmAltRefPending wires the libvpx
+// vp8/encoder/firstpass.c `define_gf_group` ARF-pending decision into
+// the encoder. It runs once per non-key inter frame at a GF-group
+// boundary (framesTillAltRefFrame == 0 and ARF not already pending or
+// active) and, when the second-pass stats indicate a high-motion
+// section ahead, calls `scheduleAltRefSource` so the auto-ARF driver
+// can emit the hidden alt-ref at the predicted offset.
+//
+// The wiring is gated on:
+//   - Two-pass stats loaded.
+//   - `EncoderOptions.AutoAltRef` (libvpx `oxcf.play_alternate`).
+//   - `LookaheadFrames > 1` (the auto-ARF driver requires future peeks).
+//   - `!ErrorResilient` (libvpx zeroes source_alt_ref_pending in
+//     error-resilient mode inside Pass2Encode).
+//   - `keyFrame == false` (KF frames reset the ARF lifecycle in
+//     libvpx).
+//   - No alt-ref already pending or active.
+func (e *VP8Encoder) pass2MaybeArmAltRefPending(currentFrame uint64, currentPTS uint64, keyFrame bool) {
+	if e == nil || keyFrame {
+		return
+	}
+	if !e.twoPass.enabled() {
+		return
+	}
+	if !e.opts.AutoAltRef || e.opts.ErrorResilient || e.opts.LookaheadFrames <= 1 {
+		return
+	}
+	if e.sourceAltRefPending || e.sourceAltRefActive {
+		return
+	}
+	if e.framesTillAltRefFrame > 0 {
+		return
+	}
+	framesToKey := e.twoPass.framesToKey(currentFrame, e.opts.KeyFrameInterval)
+	if framesToKey <= 0 {
+		return
+	}
+	maxGFInterval := e.opts.KeyFrameInterval
+	if maxGFInterval <= 0 || maxGFInterval > e.opts.LookaheadFrames-1 {
+		maxGFInterval = e.opts.LookaheadFrames - 1
+	}
+	interval, pending := e.twoPass.pass2DetectARFPending(currentFrame, framesToKey, true, maxGFInterval)
+	if !pending {
+		return
+	}
+	// libvpx alt_ref_source identifies the future lookahead entry that
+	// will become the hidden ARF source. govpx uses PTS as the
+	// identifier; without an exact future PTS we fall back to a
+	// per-frame offset on the assumption of constant duration. The
+	// driver matches by PTS via isSrcFrameAltRef, so as long as we
+	// arrive at the same value when the frame is later popped from
+	// the lookahead, scheduling is consistent.
+	futurePTS := currentPTS + uint64(interval)
+	e.scheduleAltRefSource(futurePTS, interval)
 }
 
 func (t *twoPassState) finishFrame(actualBits int) {

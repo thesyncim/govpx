@@ -1380,3 +1380,101 @@ const (
 	firstPassRegressionExpectMVInOut2       = -0.5
 	firstPassRegressionExpectNewMV2         = 4.0
 )
+
+// TestPass2VBRSectionLimitClampsTarget pins the libvpx
+// vp8/encoder/firstpass.c Pass2Encode VBR section-limit application:
+// per-frame target is clamped to [section_min_bits, section_max_bits]
+// where the section bounds derive from
+// `cpi->oxcf.two_pass_vbrmin_section / two_pass_vbrmax_section`
+// percentages applied to the live VBR per-frame budget. The test
+// builds a synthetic two-pass state with a known frame target and
+// section bounds and asserts the clamped output for both the
+// upward-clamp (modified_err >> avg) and downward-clamp
+// (modified_err << avg) directions.
+func TestPass2VBRSectionLimitClampsTarget(t *testing.T) {
+	stats := makeTwoPassSpikyStats(10)
+	const (
+		perFrame = 1000
+		biasPct  = 100
+		minPct   = 50
+		maxPct   = 150
+	)
+	var ts twoPassState
+	ts.configure(stats, perFrame, biasPct, minPct, maxPct)
+	// First frame error is huge (Spiky), so the err-fraction target
+	// blows past sectionMax and must be clamped down.
+	highMin, highMax := ts.pass2VBRSectionLimits(0, perFrame)
+	if highMin != int64(perFrame*minPct/100) {
+		t.Fatalf("section min = %d, want %d", highMin, perFrame*minPct/100)
+	}
+	wantMax := int64(libvpxFrameMaxBitsVBR(ts.bitsLeft, int64(len(stats)), maxPct))
+	if highMax != wantMax {
+		t.Fatalf("section max = %d, want live VBR max %d", highMax, wantMax)
+	}
+	if got := ts.frameTargetBits(0, false, perFrame); int64(got) != wantMax {
+		t.Fatalf("frame target with high err = %d, want clamped to section max %d", got, wantMax)
+	}
+	// Frame 1+ has tiny CodedError relative to total, so the
+	// err-fraction target falls below sectionMin and must be clamped
+	// up to the section min floor.
+	lowTarget := ts.frameTargetBits(1, false, perFrame)
+	wantLowMin, _ := ts.pass2VBRSectionLimits(1, perFrame)
+	if int64(lowTarget) != wantLowMin {
+		t.Fatalf("frame target with low err = %d, want clamped to section min %d", lowTarget, wantLowMin)
+	}
+}
+
+// TestPass2ARFPendingTriggersFromHighMotionSection pins the libvpx
+// vp8/encoder/firstpass.c `define_gf_group` / `select_arf_period`
+// ARF-pending decision. A synthetic stats sequence with a stable
+// high-prediction-quality (high intra/coded ratio, high pcnt_inter)
+// section coming up should trigger sourceAltRefPending and arm
+// framesTillAltRefFrame to a positive value via scheduleAltRefSource.
+func TestPass2ARFPendingTriggersFromHighMotionSection(t *testing.T) {
+	const sectionLen = 16
+	stats := make([]FirstPassFrameStats, sectionLen)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+		}
+	}
+	var ts twoPassState
+	ts.configure(stats, 1000, 100, 50, 200)
+	interval, pending := ts.pass2DetectARFPending(0, sectionLen, true, libvpxMinGFInterval+8)
+	if !pending {
+		t.Fatalf("pass2DetectARFPending returned pending=false on high-motion section")
+	}
+	if interval < libvpxMinGFInterval {
+		t.Fatalf("ARF interval = %d, want >= MIN_GF_INTERVAL=%d", interval, libvpxMinGFInterval)
+	}
+
+	// Wire the encoder side: pass2MaybeArmAltRefPending should call
+	// scheduleAltRefSource so sourceAltRefPending and
+	// framesTillAltRefFrame both transition to "armed" state.
+	enc := &VP8Encoder{
+		opts: EncoderOptions{
+			AutoAltRef:       true,
+			LookaheadFrames:  sectionLen + 1,
+			KeyFrameInterval: 0,
+		},
+	}
+	enc.twoPass = ts
+	enc.pass2MaybeArmAltRefPending(0, 0, false)
+	if !enc.sourceAltRefPending {
+		t.Fatalf("sourceAltRefPending = false after high-motion section, want true")
+	}
+	if enc.framesTillAltRefFrame <= 0 {
+		t.Fatalf("framesTillAltRefFrame = %d, want > 0", enc.framesTillAltRefFrame)
+	}
+	if !enc.altRefSourceValid {
+		t.Fatalf("altRefSourceValid = false, scheduleAltRefSource must record the future PTS")
+	}
+}
