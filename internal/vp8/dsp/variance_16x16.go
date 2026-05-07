@@ -2,6 +2,12 @@ package dsp
 
 import "github.com/thesyncim/govpx/internal/vp8/tables"
 
+// Ported from libvpx v1.16.0 vpx_dsp/variance.c sub-pixel variance
+// primitives, specialised to width=16 for the inner-loop hot path used
+// by 16x16 motion search. The filter math is identical to the generic
+// second-pass bilinear in variance.go; only the stride/pixel-step are
+// pinned so the Go compiler can keep the inner loop tight.
+//
 // 16x16-specialised second-pass bilinear filter. Per the
 // cmd/govpx-bench baseline cpuprofile, the generic version (which has
 // to cope with arbitrary stride/pixelStep combinations) is the
