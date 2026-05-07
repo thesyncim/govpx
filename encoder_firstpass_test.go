@@ -581,6 +581,42 @@ func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
 	}
 }
 
+// TestLibvpxCalculateModifiedErrMatchesLibvpxFormula pins libvpx's
+//
+//	modified_err = av_err * pow(this_err/av_err, vbrbias/100)
+//
+// where av_err = total_ssim/count.
+func TestLibvpxCalculateModifiedErrMatchesLibvpxFormula(t *testing.T) {
+	got := libvpxCalculateModifiedErr(200.0, 1000.0, 10, 50)
+	avErr := 1000.0 / 10
+	want := avErr * math.Pow(200.0/avErr, 0.5)
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("calculate_modified_err = %v, want ~%v", got, want)
+	}
+}
+
+// TestLibvpxCalculateModifiedErrZeroCountReturnsZero pins libvpx's
+// safe-fallback when count==0 (governed by govpx; libvpx does not
+// guard, but govpx's helper protects against /0).
+func TestLibvpxCalculateModifiedErrZeroCountReturnsZero(t *testing.T) {
+	if got := libvpxCalculateModifiedErr(200.0, 1000.0, 0, 50); got != 0 {
+		t.Fatalf("count=0 = %v, want 0", got)
+	}
+}
+
+// TestLibvpxCalculateModifiedErrZeroAvErrUsesDoubleDivideCheck pins
+// the libvpx DOUBLE_DIVIDE_CHECK fallback: when av_err is ~0, the
+// helper substitutes 1.0 in the denominator (so modified_err =
+// av_err * pow(this_err, vbrbias/100), but with av_err near 0 the
+// product is also near 0).
+func TestLibvpxCalculateModifiedErrZeroAvErrUsesDoubleDivideCheck(t *testing.T) {
+	got := libvpxCalculateModifiedErr(50.0, 0.0, 10, 50)
+	// av_err = 0 -> modified = 0 * pow(50/1, 0.5) = 0. Doesn't blow up.
+	if got != 0 {
+		t.Fatalf("av_err=0 = %v, want 0", got)
+	}
+}
+
 // TestLibvpxEstimateQReturnsMaxOnZeroBudget pins libvpx's
 // `if (target_norm_bits_per_mb <= 0) return MAXQ` early exit (govpx
 // uses vp8MaxQIndex as the libvpx MAXQ analog).

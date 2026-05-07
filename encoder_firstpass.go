@@ -1077,6 +1077,29 @@ func (t *twoPassState) markKeyFrame(frame uint64) {
 	}
 }
 
+// libvpxCalculateModifiedErr ports the libvpx vp8/encoder/firstpass.c
+// calculate_modified_err formula:
+//
+//	av_err = total_ssim_weighted_pred_err / count
+//	this_err = this_frame.ssim_weighted_pred_err
+//	if this_err > av_err: modified = av_err * pow(this/av_err, POW1)
+//	else:                  modified = av_err * pow(this/av_err, POW2)
+//
+// where POW1 == POW2 == oxcf.two_pass_vbrbias / 100. Mirrors the
+// libvpx DOUBLE_DIVIDE_CHECK fallback for av_err==0.
+func libvpxCalculateModifiedErr(thisErr float64, totalSSIMErr float64, count float64, vbrBiasPct int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	avErr := totalSSIMErr / count
+	avDenom := avErr
+	if avDenom < 1e-12 && avDenom > -1e-12 {
+		avDenom = 1.0
+	}
+	pow := float64(vbrBiasPct) / 100.0
+	return avErr * math.Pow(thisErr/avDenom, pow)
+}
+
 func twoPassModifiedError(stats FirstPassFrameStats, biasPct int) float64 {
 	err := stats.CodedError
 	if stats.SSIMWeightedPredErr > 0 {
