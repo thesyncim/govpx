@@ -13,14 +13,8 @@ const (
 	libvpxIIKFactor1    = 1.40
 	libvpxRMax          = 14.0
 
-	// libvpx vp8/encoder/firstpass.c uses intrapenalty=256 inside the per-MB
-	// loop. govpx historically scales it up to 1000 to keep the
-	// libvpxTestCandidateKeyFrame thresholds well-conditioned on the small
-	// synthetic clips the existing scene-cut tests use; see the long form
-	// note in computeFirstPassStats and the parity doc. The libvpx port of
-	// 256 is tracked there until the test corpus expands beyond constant
-	// luma blocks.
-	libvpxFirstPassIntraPenalty = 1000
+	// libvpx vp8/encoder/firstpass.c intrapenalty inside the per-MB loop.
+	libvpxFirstPassIntraPenalty = 256
 	// new_mv_mode_penalty added to motion_error after a successful diamond
 	// search in libvpx vp8/encoder/firstpass.c first_pass_motion_search.
 	libvpxFirstPassNewMVModePenalty = 256

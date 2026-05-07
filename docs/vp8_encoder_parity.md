@@ -316,11 +316,8 @@ the anchor and look for the surrounding mismatch.
   - Missing: distinct `last_frame_unscaled_source` raw buffer used by libvpx's
     `zz_motion_search` (govpx folds raw and reconstructed LAST into the
     same buffer), encode_breakout user-facing knob, terminal total-stats
-    packet/section accumulators, pinning the MV stats to libvpx's
-    `intrapenalty=256` (govpx still uses 1000 to keep
-    `libvpxTestCandidateKeyFrame` thresholds well-conditioned on
-    constant-luma synthetic test clips), and oracle-trace coverage on a
-    fixed Y4M corpus.
+    packet/section accumulators, and oracle-trace coverage on a fixed Y4M
+    corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 

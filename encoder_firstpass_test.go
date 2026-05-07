@@ -224,7 +224,7 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 	// above when libvpx-parity work touches the first-pass scoring.
 	want := []expect{
 		// Frame 0: no LAST yet, so all motion-related fields are zero.
-		// IntraError = mbs * (variance + 1000) >> 8. The vertical ramp
+		// IntraError = mbs * (variance + 256) >> 8. The vertical ramp
 		// is constant within each row, so each MB's mean-luma SSE is
 		// nonzero; the values below are what the implementation
 		// produces.
@@ -703,18 +703,18 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 //
 // Computation walkthrough (see encoder_firstpass.go for line refs):
 //   - 32x32 image -> 4 macroblocks (2x2)
-//   - intrapenalty = 1000 (govpx)
-//   - intra_error = sum(macroblockMeanLumaSSE + 1000) >> 8 = 1120
+//   - intrapenalty = 256
+//   - intra_error = sum(macroblockMeanLumaSSE + 256) >> 8 = 1109
 //   - simple_weight averages weight_table over the ramp (most pixels above
 //     code 64 -> weight 1.0); the actual average is captured in the SSIM
 //     constants below.
 const (
-	firstPassRegressionExpectIntraError0    = 1120.0
-	firstPassRegressionExpectIntraError1    = 1120.0
-	firstPassRegressionExpectIntraError2    = 1120.0
+	firstPassRegressionExpectIntraError0    = 1109.0
+	firstPassRegressionExpectIntraError1    = 1109.0
+	firstPassRegressionExpectIntraError2    = 1109.0
 	firstPassRegressionExpectCodedError1    = 5.0
 	firstPassRegressionExpectCodedError2    = 5.0
-	firstPassRegressionExpectSSIM0          = 1081.1595703125
+	firstPassRegressionExpectSSIM0          = 1070.5410388183593
 	firstPassRegressionExpectSSIM1          = 4.89166259765625
 	firstPassRegressionExpectSSIM2          = 4.93804931640625
 	firstPassRegressionExpectMVr1           = 16.0
