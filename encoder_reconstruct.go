@@ -2043,6 +2043,128 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 	return cost
 }
 
+// coefficientTokenTraceEntry is one row in a per-position rate breakdown
+// produced by coefficientBlockTokenTrace. Trace entries cover the positions
+// scanned by the token writer loop (skipDC..eob), including any zero
+// coefficients between non-zero ones, and a trailing EOB transition when
+// eob<16.
+type coefficientTokenTraceEntry struct {
+	Position       int
+	Coefficient    int
+	Token          int
+	TokenRate      int
+	SignRate       int
+	ExtraBits      int
+	BandIndex      int
+	PrevTokenClass int
+}
+
+// coefficientBlockTokenTrace mirrors coefficientBlockTokenRate but records the
+// per-position rate breakdown so callers (e.g., the oracle harness) can emit a
+// JSON dump for libvpx parity comparison. The returned total exactly matches
+// coefficientBlockTokenRate for the same arguments.
+func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) ([]coefficientTokenTraceEntry, int) {
+	if probs == nil || qcoeff == nil || blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
+		return nil, maxInt() / 4
+	}
+	band := int(vp8tables.CoefBandsTable[skipDC])
+	prevTokenClass := ctx
+	p := (*probs)[blockType][band][prevTokenClass]
+	if eob <= skipDC {
+		eobRate := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+		entry := coefficientTokenTraceEntry{
+			Position:       skipDC,
+			Coefficient:    0,
+			Token:          vp8tables.DCTEOBToken,
+			TokenRate:      eobRate,
+			BandIndex:      band,
+			PrevTokenClass: prevTokenClass,
+		}
+		return []coefficientTokenTraceEntry{entry}, eobRate
+	}
+
+	trace := make([]coefficientTokenTraceEntry, 0, eob-skipDC+1)
+	// coefficientBlockTokenRate pre-pays the leading "non-EOB" bit for the
+	// first scanned position outside the loop and then uses
+	// nonZeroCoeffTokenRate (which subtracts that same non-EOB charge) for
+	// subsequent non-zero tokens. To keep per-entry rates self-contained and
+	// summable to the total, fold that leading charge into the first entry.
+	leadingNonEOB := boolBitCost(p[0], 1)
+	cost := leadingNonEOB
+	first := true
+	for pos := skipDC; pos < 16; pos++ {
+		rc := int(vp8tables.DefaultZigZag1D[pos])
+		coeff := int(qcoeff[rc])
+		entry := coefficientTokenTraceEntry{
+			Position:       pos,
+			Coefficient:    coeff,
+			BandIndex:      band,
+			PrevTokenClass: prevTokenClass,
+		}
+		if coeff == 0 {
+			zeroRate := boolBitCost(p[1], 0)
+			entry.Token = vp8tables.ZeroToken
+			entry.TokenRate = zeroRate
+			if first {
+				entry.TokenRate += leadingNonEOB
+				first = false
+			}
+			trace = append(trace, entry)
+			cost += zeroRate
+			if pos == 15 {
+				return trace, cost
+			}
+			band = int(vp8tables.CoefBandsTable[pos+1])
+			prevTokenClass = 0
+			p = (*probs)[blockType][band][prevTokenClass]
+			continue
+		}
+
+		token, mag, ok := coefficientTokenMagnitude(coeff)
+		if !ok {
+			return nil, maxInt() / 4
+		}
+		tokenRate := nonZeroCoeffTokenRate(p, token)
+		var signRate int
+		if coeff < 0 {
+			signRate = boolBitCost(128, 1)
+		} else {
+			signRate = boolBitCost(128, 0)
+		}
+		extraRate := coefficientExtraBitsRate(token, mag)
+		entry.Token = token
+		entry.TokenRate = tokenRate
+		if first {
+			entry.TokenRate += leadingNonEOB
+			first = false
+		}
+		entry.SignRate = signRate
+		entry.ExtraBits = extraRate
+		trace = append(trace, entry)
+		cost += tokenRate + signRate + extraRate
+		if pos == 15 {
+			return trace, cost
+		}
+		band = int(vp8tables.CoefBandsTable[pos+1])
+		prevTokenClass = int(vp8tables.PrevTokenClass[token])
+		p = (*probs)[blockType][band][prevTokenClass]
+		if pos+1 == eob {
+			eobRate := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+			trace = append(trace, coefficientTokenTraceEntry{
+				Position:       pos + 1,
+				Coefficient:    0,
+				Token:          vp8tables.DCTEOBToken,
+				TokenRate:      eobRate,
+				BandIndex:      band,
+				PrevTokenClass: prevTokenClass,
+			})
+			cost += eobRate
+			return trace, cost
+		}
+	}
+	return trace, cost
+}
+
 func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
 	cost := treeTokenCost(vp8tables.CoefTree[:], probs[:], token)
 	nonEOBRate := boolBitCost(probs[0], 1)
