@@ -447,41 +447,59 @@ the anchor and look for the surrounding mismatch.
 
 - [x] Implement automatic alternate-reference scheduling.
   - govpx:
-    [`initLookahead`](../encoder_preprocess.go),
-    [`encodeAutoAltRefInto`](../encoder_altref.go),
-    [`tryEmitHiddenAltRef`](../encoder_altref.go),
-    [`encodeNextDeferredAutoAltRef`](../encoder_altref.go),
-    [`schedulePendingAltRef`](../encoder_altref.go),
-    [`encodeSourceInto`](../encoder.go),
-    [`encodeInterFrameAttempt`](../encoder.go).
-  - libvpx: ARF decision logic in `vp8_get_compressed_data` and ARF pending
-    policy in `ratectrl.c`.
+    [`autoAltRefDriverEnabled`](../encoder_altref_driver.go),
+    [`autoAltRefSectionInterval`](../encoder_altref_driver.go),
+    [`autoAltRefMaybeSchedule`](../encoder_altref_driver.go),
+    [`autoAltRefShouldEmitHidden`](../encoder_altref_driver.go),
+    [`autoAltRefMaybeEncode`](../encoder_altref_driver.go),
+    [`autoAltRefMaybeEmitHiddenOnFlush`](../encoder_altref_driver.go),
+    [`scheduleAltRefSource`](../encoder.go),
+    [`isSrcFrameAltRef`](../encoder.go),
+    [`updateGoldenFrameStats`](../encoder.go).
+  - libvpx: auto-ARF decision in
+    [`vp8_get_compressed_data`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c)
+    (the `oxcf.play_alternate && source_alt_ref_pending` branch that peeks
+    the lookahead and emits the hidden frame with
+    `cm->show_frame=0`/`cm->refresh_alt_ref_frame=1`) and the ARF pending
+    policy in
+    [`ratectrl.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c).
   - Status: ported. `EncoderOptions.AutoAltRef` (libvpx
-    `cpi->oxcf.play_alternate`) gates the auto-ARF pipeline. When enabled
-    together with `LookaheadFrames>0` and `!ErrorResilient`, the encoder
-    tracks `sourceAltRefPending` / `framesTilArf` (libvpx
-    `source_alt_ref_pending` / `frames_till_gf_update_due` with
-    `DEFAULT_GF_INTERVAL=7` clamped to `LookaheadFrames-1`) and inserts
-    hidden ARF frames peeked from the future window with `show_frame=0`,
-    `refresh_alt_ref=1`, and no `refresh_last`/`refresh_golden`. The
-    deferred show frame pops normally and is flagged `isSrcFrameAltRef`
-    when its PTS matches the previously-peeked alt-ref source. ALTREF
-    sign bias flips on the first show frame after the hidden ARF (driven
-    by the existing `sourceAltRefActive` lifecycle). Key frames reset
-    pending/active state. The hidden-ARF call defers the caller's input
-    into a single-slot stash (`autoAltRefPendingPush`) so the lookahead
-    queue does not overflow when a peek-only call leaves the queue at
-    capacity; the next auto-ARF call drains the stash before pushing.
-  - Tests: `TestAutoAltRefSchedulesHiddenFrame`,
-    `TestAutoAltRefDeferredShowFrameRendersOriginalSource`,
-    `TestAutoAltRefSignBiasUpdatesOnRefresh`.
-  - Simplification vs. libvpx: govpx schedules a pending ARF every
-    `DEFAULT_GF_INTERVAL` inter frames once the future lookahead has
-    enough entries, instead of using `vp8_calc_arf_boost` /
-    `select_arf_period` (those rely on first-pass stats not yet ported).
-    `vp8_temporal_filter_prepare_c`'s ARF buffer redirection is not
-    wired through `force_src_buffer`; ARNR still runs through
-    `applyARNRFilter` per the existing pipeline.
+    `cpi->oxcf.play_alternate`) gates the driver. When enabled together
+    with `LookaheadFrames > 1` and `!ErrorResilient`, the driver schedules
+    a hidden ARF section after each committed inter frame whose lookahead
+    holds at least `min(DEFAULT_GF_INTERVAL=7, LookaheadFrames-1, count-1)`
+    future entries. `scheduleAltRefSource` records the future PTS and
+    arms `framesTillAltRefFrame`; `updateGoldenFrameStats` decrements that
+    countdown on every non-ARF inter commit. When the countdown reaches
+    zero and the matching source has reached the lookahead head, the
+    driver peeks index 0 and encodes that source with the libvpx hidden
+    flag combination
+    `EncodeForceAltRefFrame|EncodeInvisibleFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateEntropy`,
+    matching `show_frame=0`, `refresh_alt_ref=1`, and no LAST/GOLDEN
+    refresh. The matching deferred show frame pops on the next call and
+    `isSrcFrameAltRef` matches by PTS, so the existing
+    `sourceAltRefActive` lifecycle wires `AltRefSignBias=true` for that
+    show frame. Hidden-ARF emission does not pop the lookahead, so the
+    caller's input on that call is parked in
+    [`autoAltRefStashInput`](../encoder_altref_driver.go); subsequent
+    `EncodeInto` calls drain the stash, encode the head as the deferred
+    show frame, and re-stash the new caller input, leaving the encoder
+    permanently shifted by one call until `FlushInto` consumes the
+    remaining entries.
+  - Tests:
+    [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
+    [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
+    [`TestAutoAltRefDriverSignBiasUpdatesPostHidden`](../encoder_altref_driver_test.go).
+  - Simplification vs. libvpx: govpx schedules every
+    `DEFAULT_GF_INTERVAL`-bounded interval as soon as the lookahead has
+    enough entries, instead of running `vp8_calc_arf_boost` /
+    `select_arf_period` (both depend on first-pass stats not yet
+    ported). The hidden frame is encoded directly from the peeked source
+    image; libvpx's `vp8_temporal_filter_prepare_c` redirection of
+    `force_src_buffer` to `cpi->alt_ref_buffer` is not wired here, so
+    ARNR temporal filtering for the ARF source still runs through the
+    existing `applyARNRFilter` pipeline rather than the dedicated
+    alt_ref_buffer.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded
     output match libvpx with alternate-reference enabled.
 
