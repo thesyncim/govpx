@@ -236,14 +236,33 @@ the anchor and look for the surrounding mismatch.
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
 - [ ] Align active best/worst quantizer selection.
-  - govpx: [`selectQuantizerForFrameKindWithScreenContent`](../ratecontrol.go).
+  - govpx:
+    [`selectQuantizerForFrameKindWithScreenContent`](../ratecontrol.go),
+    [`selectQuantizerForFrameKindWithAltRef`](../ratecontrol.go),
+    [`libvpxActiveQuantizerBoundsForFrame`](../ratecontrol.go),
+    [`newFrameSizeRecodeStateWithAltRef`](../ratecontrol.go),
+    [`libvpxZbinOverQuantHighAltRef`](../ratecontrol.go).
   - libvpx: `vp8_regulate_q`, active-best-quality, and active-worst-quality
     branches in `onyx_if.c`.
   - Status: partial. govpx now constrains Q through libvpx's one-pass
     active-min tables for key/golden/inter frames, CBR active-worst buffer
     logic after normal-inter warmup, CBR full-buffer active-best/worst clamps,
-    and CQ floors. Remaining gaps are oracle trace coverage for ARF/GF variants
-    and interactions with the full recode loop.
+    and CQ floors. ARF refresh now routes through the same single-layer
+    GF branch libvpx uses
+    (`cm->refresh_golden_frame || cpi->common.refresh_alt_ref_frame`):
+    `selectQuantizerForFrameKindWithAltRef` and
+    `libvpxActiveQuantizerBoundsForFrame` honor an explicit altRef flag and
+    pick `gf_high_motion_minq[Q]` for one-pass; the matching
+    `libvpxZbinOverQuantHighAltRef` cap (16 for ARF/GF, ZBIN_OQ_MAX for
+    plain inter, 0 for key) and the recode-state seeds in
+    `newFrameSizeRecodeStateWithAltRef` carry the same flag through the
+    full recode loop, including the libvpx
+    `relax_active_worst_quality_on_overshoot` 4%-per-Qstep relaxation.
+    The two-pass `kf_low_motion_minq`, `gf_low_motion_minq`, and
+    `gf_mid_motion_minq` tables are now ported byte-for-byte and pinned
+    against representative QINDEX_RANGE samples so the future two-pass
+    `vp8_regulate_q` port can flip on `cpi->gfu_boost` without re-reading
+    the libvpx C source.
   - Done when table-driven oracle tests match active best/worst Q and chosen Q
     for first frames, low/full buffer, key, GF, ARF, CQ, CBR, and screen
     content cases.
@@ -709,18 +728,23 @@ the anchor and look for the surrounding mismatch.
   - The full SplitMV label-level RD search now mirrors libvpx's
     `rd_check_segment` per-label `LEFT4X4 / ABOVE4X4 / ZERO4X4 / NEW4X4`
     trial structure with `THR_NEW1/2/3` gating: `selectRDInterFrameModeDecision`
-    pulls the SPLITMV+NEW threshold for each reference variant from the
-    same `interModeRDThresholdsForReferences` table, indexes it with
-    `libvpxRefSlotForFrame` (LAST→THR_NEW1, GOLDEN→THR_NEW2,
-    ALTREF→THR_NEW3) via the existing `libvpxSplitMVSubsearchThreshold`
-    helper, and feeds it through `selectInterFrameSplitMotionModeWithSearchAndThreshold`
-    as `mvthresh`. The per-label loop in
+    pulls the current SPLITMV+NEW threshold from the same
+    `interModeRDThresholdsForReferences` table using the compacted libvpx
+    reference search slot (`vp8_ref_frame_order[mode_index]`), not the
+    absolute LAST/GOLDEN/ALTREF enum. This keeps GOLDEN-only and ALTREF-only
+    searches on `THR_NEW1`, and the helper rereads the current threshold table
+    so in-loop threshold raises/lowerings are visible to the SplitMV gate. The
+    resulting `mvthresh` feeds through
+    `selectInterFrameSplitMotionModeWithSearchAndThreshold`. The per-label loop in
     `selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold` then
     short-circuits the NEW4X4 motion search using
     `label_mv_thresh = mvthresh / label_count`, matching
     `if (best_label_rd < label_mv_thresh) break;` from
-    `rd_check_segment` and using an RDCOST-shaped comparison so the
-    threshold scale lines up with libvpx's `rd_threshes`. The split RD
+    `rd_check_segment` and using an RDCOST-shaped comparison with the same
+    left/above contextual sub-MV label rate used by final SplitMV accounting so
+    the threshold scale lines up with libvpx's `rd_threshes`. Tests:
+    `TestSplitMVSubsearchThresholdUsesReferenceSearchSlot` and
+    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`. The split RD
     decision (`selectInterFrameSplitMotionDecisionRDWithThreshold`) now
     also returns the full `other_cost` / Y-RD breakdown libvpx accumulates
     in `vp8_rd_pick_inter_mode` after `vp8_rd_pick_best_mbsegmentation`:
@@ -739,7 +763,30 @@ the anchor and look for the surrounding mismatch.
     `encodeInactiveInterMacroblock` short-circuit is preserved; the
     dispatcher gate also keeps unit-level callers aligned without skipping
     the per-MB skip-encoding helper.
-  - Missing: token-context commit parity and recode-loop interactions.
+  - Token-context commit parity now mirrors libvpx rdopt.c
+    `vp8_rd_pick_inter_mode`'s tempa/templ contract: per-mode RD subroutines
+    (`estimateInterIntraModeRDScore`, `estimateInterResidualRDAccounting`,
+    `selectInterFrameSplitModeRDScore`) snapshot `aboveTok`/`leftTok` into
+    stack-local arrays before mutating them — see `wholeBlockYTransformRD`,
+    `wholeBlockChromaTransformRD`, `predictBestBPredLumaModeRD`,
+    `predictBestIntraChromaModeRD`, and `buildPredictedMacroblockCoefficientsRD`.
+    The chosen mode's ENTROPY_CONTEXT is committed to the per-MB row state
+    only after residual reconstruction, via `updateInterAnalysisTokenContext`
+    inside `buildReconstructingInterFrameCoefficientsWithSegmentation`,
+    matching libvpx encodeframe.c `encode_mb_row`'s deferred `*a/*l`
+    assignment after `vp8_encode_inter16x16` / `vp8_encode_intra4x4mby`.
+    Test: `TestSelectRDInterFrameModeDecisionUsesTempTokenContext`.
+  - Recode-loop interactions: every entry into
+    `buildReconstructingInterFrameCoefficientsWithSegmentation` allocates a
+    fresh `aboveTok` slice and `leftTok` working set, so a rejected recode
+    attempt's per-MB token-context commits never leak into the next pass —
+    matching the effect of libvpx onyx_if.c `restore_coding_context` on the
+    row ENTROPY_CONTEXTs across the recode `do { ... } while` loop. The
+    encoder's frame-level `e.tokenAbove` buffer (consumed by the packet
+    writer for coefficient probability counting) is also reset by
+    `buildInterCoefficientBranchCounts` at the start of every writer call,
+    so a corrupted carryover cannot survive into the next attempt either.
+    Test: `TestRecodeLoopResetsTokenContext`.
     Active-map behavior is tracked in the dedicated active-map checklist
     item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected

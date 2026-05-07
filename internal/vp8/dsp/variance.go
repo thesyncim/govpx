@@ -129,6 +129,10 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 }
 
 func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]uint16, width int, height int, filter [2]int16) {
+	if width == 16 {
+		varFilterBlock2DBilinearFirstPass16(src, srcStride, dst, height, filter)
+		return
+	}
 	for y := 0; y < height; y++ {
 		srcRow := y * srcStride
 		dstRow := y * width

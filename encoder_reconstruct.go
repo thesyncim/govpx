@@ -203,6 +203,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
 }
 
+// buildReconstructingInterFrameCoefficientsWithSegmentation drives the
+// per-MB inter-frame RD picker, residual reconstruction, and token-context
+// commit in libvpx's encode_mb_row order (vp8/encoder/encodeframe.c). The
+// per-MB token contexts (aboveTok / leftTok in this function) are committed
+// to the row state only after the chosen mode's residual has been encoded,
+// via updateInterAnalysisTokenContext — mirroring libvpx's deferred
+// "*a/*l" ENTROPY_CONTEXT assignment after vp8_encode_inter16x16 /
+// vp8_encode_intra4x4mby. Recode-loop interactions: encodeInterFrame{,
+// WithQuantizerFeedback} re-enters this function on every recode attempt;
+// the local aboveTok slice and leftTok variable are freshly allocated on
+// each call so a rejected attempt's commits never leak into the next try
+// (matching libvpx restore_coding_context's effect of rewinding the row
+// ENTROPY_CONTEXTs at the start of each recode iteration).
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
@@ -1189,6 +1202,23 @@ func (e *VP8Encoder) inactiveInterFrameModeDecision(refs []interAnalysisReferenc
 	return interFrameModeDecision{}, false
 }
 
+// selectRDInterFrameModeDecision mirrors libvpx vp8/encoder/rdopt.c
+// vp8_rd_pick_inter_mode. Token-context commit parity: each candidate-mode
+// trial passes aboveTok/leftTok by pointer to the per-mode RD subroutines
+// (estimateInterIntraModeRDScore, estimateInterResidualRDAccounting,
+// selectInterFrameSplitModeRDScore), but every one of those subroutines
+// snapshots the planes into stack-local arrays before mutating them — see
+// wholeBlockYTransformRD, wholeBlockChromaTransformRD,
+// predictBestBPredLumaModeRD, predictBestIntraChromaModeRD, and
+// buildPredictedMacroblockCoefficientsRD. This matches libvpx's "tempa /
+// templ" copies inside vp8_rd_pick_inter_mode (rdopt.c) and
+// rd_pick_intra4x4block (rdopt.c): only the chosen mode's contexts are
+// committed to the per-MB row state. The commit happens later in
+// buildReconstructingInterFrameCoefficientsWithSegmentation via
+// updateInterAnalysisTokenContext after the winning mode's residual has been
+// reconstructed, mirroring libvpx's encode_mb_row "*a/*l" assignment after
+// vp8_encode_inter16x16 / vp8_encode_intra4x4mby. The RD picker therefore
+// never mutates the caller's aboveTok/leftTok during candidate evaluation.
 func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
@@ -1262,7 +1292,8 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		var yrd int
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
-			mode, score, yrd, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
+			mode, score, yrd, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
 			if ok {
@@ -1303,7 +1334,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-	qIndex int, segmentID uint8, bestYRD int,
+	qIndex int, segmentID uint8, bestYRD int, mvthresh int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
@@ -1315,8 +1346,6 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	// (1=LAST, 2=GOLDEN, 3=ALTREF) and feeds it into
 	// vp8_rd_pick_best_mbsegmentation as bsi->mvthresh, which the per-label
 	// loop divides by label_count to gate NEW4X4 motion searches.
-	thresholds := e.interModeRDThresholdsForReferences(qIndex, []interAnalysisReference{ref}, 1)
-	mvthresh := libvpxSplitMVSubsearchThreshold(thresholds, libvpxRefSlotForFrame(ref.Frame))
 	bestSet := false
 	bestScore := maxInt()
 	bestPartitionYRD := maxInt()
@@ -1352,6 +1381,11 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	return bestMode, bestScore, bestPartitionYRD, false, bestSet
 }
 
+func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
+	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
+	return libvpxSplitMVSubsearchThreshold(thresholds, refSlot)
+}
+
 func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSlot int) int {
 	switch refSlot {
 	case 1:
@@ -1360,24 +1394,6 @@ func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSl
 		return thresholds[libvpxThrNew2]
 	default:
 		return thresholds[libvpxThrNew3]
-	}
-}
-
-// libvpxRefSlotForFrame mirrors libvpx's vp8_ref_frame_order encoding for
-// the SPLITMV branch lookup: LAST_FRAME -> 1, GOLDEN_FRAME -> 2,
-// ALTREF_FRAME -> 3 (the three NEWMV reference slots in
-// vp8_rd_pick_inter_mode that map onto THR_NEW1 / THR_NEW2 / THR_NEW3 from
-// rd_threshes).
-func libvpxRefSlotForFrame(frame vp8common.MVReferenceFrame) int {
-	switch frame {
-	case vp8common.LastFrame:
-		return 1
-	case vp8common.GoldenFrame:
-		return 2
-	case vp8common.AltRefFrame:
-		return 3
-	default:
-		return 0
 	}
 }
 
@@ -1849,7 +1865,7 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 	bestMode := vp8common.Left4x4
 	bestSAD := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV)
 	bestCost := bestSAD + splitSubMotionLabelSearchCostWithContext(bestMode, leftMV, aboveMV, qIndex)
-	bestLabelRate := splitSubMotionLabelCostWithProbs(bestMode, libvpxDefaultSubMVRefProbs)
+	bestLabelRate := splitSubMotionLabelRate(bestMode, leftMV, aboveMV)
 	bestLabelDist := bestSAD
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
@@ -1859,7 +1875,7 @@ func selectInterFrameSplitSubsetMotionModeWithSearchAndThreshold(src vp8enc.Sour
 			bestCost = cost
 			bestMV = mv
 			bestMode = candidateMode
-			bestLabelRate = splitSubMotionLabelCostWithProbs(candidateMode, libvpxDefaultSubMVRefProbs)
+			bestLabelRate = splitSubMotionLabelRate(candidateMode, leftMV, aboveMV)
 			bestLabelDist = sad
 		}
 	}
