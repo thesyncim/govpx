@@ -1,0 +1,490 @@
+#!/usr/bin/env sh
+#
+# Build a libvpx v1.16.0 vpxenc binary patched to emit the same per-frame /
+# per-MB JSON Lines oracle trace that govpx writes from
+# encoder_oracle_trace.go. The trace is written to the file path passed via
+# the GOVPX_ORACLE_TRACE_OUT env var; if the env var is unset the patched
+# binary behaves exactly like stock vpxenc. The patched source tree lives
+# in a sibling directory ("$build_dir/libvpx-$tag-vpxenc-oracle") so it
+# does not affect the stock vpxenc build produced by build_vpxenc.sh.
+#
+# Sandbox limits: the harness in this repo does not always have network
+# access at build time. The script reuses the libvpx tarball that
+# build_libvpx.sh / build_vpxenc.sh fetch, so as long as one of those has
+# been run first the source archive is already on disk. If running
+# stand-alone in a clean tree, the script will attempt to curl the tarball
+# directly. The Go-side oracle comparator (oracle_compare.go /
+# oracle_compare_test.go) does not depend on this binary; it operates on
+# JSON Lines streams from any source.
+set -eu
+
+tag="v1.16.0"
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
+src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
+vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
+config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
+patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-07
+src_dir=$src_dir
+vpxenc_oracle_bin=$vpxenc_oracle_bin"
+jobs=${JOBS:-}
+
+if [ -z "$jobs" ]; then
+	if command -v getconf >/dev/null 2>&1; then
+		jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '2')
+	else
+		jobs=2
+	fi
+fi
+
+mkdir -p "$build_dir"
+archive="$build_dir/libvpx-$tag.tar.gz"
+
+fetch_source() {
+	if [ ! -f "$archive" ]; then
+		curl -L -o "$archive" "https://chromium.googlesource.com/webm/libvpx/+archive/refs/tags/$tag.tar.gz"
+	fi
+	rm -rf "$src_dir"
+	mkdir -p "$src_dir"
+	tar -xzf "$archive" -C "$src_dir"
+}
+
+current_config=
+if [ -f "$config_stamp" ]; then
+	current_config=$(cat "$config_stamp")
+fi
+
+if [ ! -d "$src_dir" ] || [ "$current_config" != "$want_config" ]; then
+	fetch_source
+	rm -f "$patch_stamp"
+fi
+
+# ----------------------------------------------------------------------------
+# Patch: drop a self-contained instrumentation TU into vp8/encoder/, plus
+# anchor-based in-place edits in vp8/encoder/encodeframe.c,
+# vp8/encoder/bitstream.c, and vp8/vp8cx.mk. Anchor-based edits are used
+# instead of a unified diff so the patch is robust against minor upstream
+# whitespace shifts; each anchor is unique in the upstream v1.16.0 file.
+# All output is gated on GOVPX_ORACLE_TRACE_OUT, and the patch does not
+# modify any libvpx public header.
+# ----------------------------------------------------------------------------
+if [ ! -f "$patch_stamp" ]; then
+	# (1) New translation unit: vp8/encoder/oracle_trace.c
+	cat > "$src_dir/vp8/encoder/oracle_trace.c" <<'GOVPX_ORACLE_TU'
+/*
+ * govpx oracle trace instrumentation. Emits per-frame and per-MB JSON
+ * Lines matching the schema in govpx's encoder_oracle_trace.go. Active
+ * only when the GOVPX_ORACLE_TRACE_OUT environment variable is set;
+ * otherwise every hook is a quick no-op. Allocations and the FILE* are
+ * owned by this translation unit so no libvpx state is added.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "vp8/common/blockd.h"
+#include "vp8/common/onyxc_int.h"
+#include "vp8/encoder/onyx_int.h"
+
+/* Adler-32 over a Y/U/V plane's visible region. Mirrors govpx's
+ * planeAdler32 (encoder_oracle_trace.go) so reference checksums line up. */
+#define GOVPX_ADLER_MOD 65521u
+static unsigned int govpx_plane_adler32(const unsigned char *plane,
+                                        int width, int height, int stride) {
+    unsigned int a = 1;
+    unsigned int b = 0;
+    int row, col;
+    if (plane == NULL || width <= 0 || height <= 0 || stride <= 0) {
+        return 0;
+    }
+    for (row = 0; row < height; ++row) {
+        const unsigned char *p = plane + (size_t)row * (size_t)stride;
+        for (col = 0; col < width; ++col) {
+            a = (a + p[col]) % GOVPX_ADLER_MOD;
+            b = (b + a) % GOVPX_ADLER_MOD;
+        }
+    }
+    return (b << 16) | a;
+}
+
+typedef struct {
+    int valid;
+    int segment_id;
+    int mode;
+    int ref_frame;
+    int mv_row;
+    int mv_col;
+    int skip;
+    unsigned char eobs[25];
+    int eob_sum;
+} govpx_mb_row_t;
+
+typedef struct {
+    FILE *out;
+    int initialized;
+    int enabled;
+    govpx_mb_row_t *mb_rows;
+    int mb_capacity;
+    int mb_cols;
+    unsigned long long frame_index;
+} govpx_oracle_state_t;
+
+static govpx_oracle_state_t govpx_oracle_state;
+
+static void govpx_oracle_init(void) {
+    const char *path;
+    if (govpx_oracle_state.initialized) {
+        return;
+    }
+    govpx_oracle_state.initialized = 1;
+    path = getenv("GOVPX_ORACLE_TRACE_OUT");
+    if (path == NULL || path[0] == '\0') {
+        govpx_oracle_state.enabled = 0;
+        return;
+    }
+    govpx_oracle_state.out = fopen(path, "wb");
+    if (govpx_oracle_state.out == NULL) {
+        fprintf(stderr,
+                "govpx oracle: failed to open %s for writing; "
+                "trace disabled\n", path);
+        govpx_oracle_state.enabled = 0;
+        return;
+    }
+    govpx_oracle_state.enabled = 1;
+}
+
+static void govpx_oracle_ensure_capacity(int needed) {
+    if (needed <= govpx_oracle_state.mb_capacity) {
+        return;
+    }
+    free(govpx_oracle_state.mb_rows);
+    govpx_oracle_state.mb_rows =
+        (govpx_mb_row_t *)calloc((size_t)needed, sizeof(govpx_mb_row_t));
+    govpx_oracle_state.mb_capacity =
+        (govpx_oracle_state.mb_rows != NULL) ? needed : 0;
+}
+
+static const char *govpx_oracle_mode_name(int mode) {
+    switch (mode) {
+        case DC_PRED: return "DC_PRED";
+        case V_PRED: return "V_PRED";
+        case H_PRED: return "H_PRED";
+        case TM_PRED: return "TM_PRED";
+        case B_PRED: return "B_PRED";
+        case NEARESTMV: return "NEARESTMV";
+        case NEARMV: return "NEARMV";
+        case ZEROMV: return "ZEROMV";
+        case NEWMV: return "NEWMV";
+        case SPLITMV: return "SPLITMV";
+        default: return "MODE_UNKNOWN";
+    }
+}
+
+static const char *govpx_oracle_ref_name(int ref) {
+    switch (ref) {
+        case INTRA_FRAME: return "INTRA_FRAME";
+        case LAST_FRAME: return "LAST_FRAME";
+        case GOLDEN_FRAME: return "GOLDEN_FRAME";
+        case ALTREF_FRAME: return "ALTREF_FRAME";
+        default: return "REF_UNKNOWN";
+    }
+}
+
+/* Capture per-MB state. Called from encodeframe.c immediately after the
+ * macroblock has been encoded and tokenized, while xd->eobs is still
+ * populated for the just-finished MB. Subsequent calls for the same
+ * (mb_row, mb_col) within a recoded frame overwrite the buffer entry, so
+ * only the final accepted attempt is flushed. */
+void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
+    VP8_COMMON *cm;
+    MACROBLOCKD *xd;
+    int idx;
+    int i;
+    int sum;
+    govpx_mb_row_t *row;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled) {
+        return;
+    }
+    cm = &cpi->common;
+    xd = &cpi->mb.e_mbd;
+    if (cm->frame_type == KEY_FRAME) {
+        /* govpx-side schema only emits per-MB rows for inter frames. */
+        return;
+    }
+    govpx_oracle_state.mb_cols = cm->mb_cols;
+    govpx_oracle_ensure_capacity(cm->mb_rows * cm->mb_cols);
+    if (govpx_oracle_state.mb_rows == NULL) {
+        return;
+    }
+    idx = mb_row * cm->mb_cols + mb_col;
+    row = &govpx_oracle_state.mb_rows[idx];
+    row->valid = 1;
+    row->segment_id = xd->mode_info_context->mbmi.segment_id;
+    row->mode = xd->mode_info_context->mbmi.mode;
+    row->ref_frame = xd->mode_info_context->mbmi.ref_frame;
+    row->mv_row = xd->mode_info_context->mbmi.mv.as_mv.row;
+    row->mv_col = xd->mode_info_context->mbmi.mv.as_mv.col;
+    row->skip = xd->mode_info_context->mbmi.mb_skip_coeff;
+    sum = 0;
+    for (i = 0; i < 25; ++i) {
+        unsigned char e = (unsigned char)xd->eobs[i];
+        row->eobs[i] = e;
+        sum += (int)e;
+    }
+    row->eob_sum = sum;
+}
+
+/* Emit per-frame and accumulated per-MB rows. Called from bitstream.c at
+ * the tail of vp8_pack_bitstream so size_bytes reflects the final packed
+ * frame and so per-MB rows are flushed only for the accepted recode
+ * attempt. */
+void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
+    VP8_COMMON *cm;
+    MACROBLOCKD *xd;
+    YV12_BUFFER_CONFIG *ref;
+    unsigned int y_adler, u_adler, v_adler;
+    int mb_total;
+    int i;
+    FILE *out;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    cm = &cpi->common;
+    xd = &cpi->mb.e_mbd;
+    out = govpx_oracle_state.out;
+    /* Visible region of the LAST reference, matching govpx semantics. */
+    ref = &cm->yv12_fb[cm->lst_fb_idx];
+    y_adler = govpx_plane_adler32(ref->y_buffer, ref->y_crop_width,
+                                  ref->y_crop_height, ref->y_stride);
+    u_adler = govpx_plane_adler32(ref->u_buffer, ref->uv_crop_width,
+                                  ref->uv_crop_height, ref->uv_stride);
+    v_adler = govpx_plane_adler32(ref->v_buffer, ref->uv_crop_width,
+                                  ref->uv_crop_height, ref->uv_stride);
+    fprintf(out,
+            "{\"type\":\"frame\","
+            "\"frame_index\":%llu,"
+            "\"frame_type\":\"%s\","
+            "\"q_index\":%d,"
+            "\"base_q_index\":%d,"
+            "\"loop_filter_level\":%d,"
+            "\"refresh_last\":%s,"
+            "\"refresh_golden\":%s,"
+            "\"refresh_altref\":%s,"
+            "\"sign_bias_golden\":%s,"
+            "\"sign_bias_altref\":%s,"
+            "\"segmentation_enabled\":%s,"
+            "\"y_adler32\":%u,"
+            "\"u_adler32\":%u,"
+            "\"v_adler32\":%u,"
+            "\"size_bytes\":%zu}\n",
+            govpx_oracle_state.frame_index,
+            cm->frame_type == KEY_FRAME ? "key" : "inter",
+            cm->base_qindex,
+            cm->base_qindex,
+            cm->filter_level,
+            cm->refresh_last_frame ? "true" : "false",
+            cm->refresh_golden_frame ? "true" : "false",
+            cm->refresh_alt_ref_frame ? "true" : "false",
+            cm->ref_frame_sign_bias[GOLDEN_FRAME] ? "true" : "false",
+            cm->ref_frame_sign_bias[ALTREF_FRAME] ? "true" : "false",
+            xd->segmentation_enabled ? "true" : "false",
+            y_adler, u_adler, v_adler,
+            frame_size);
+    /* Flush per-MB rows captured during encode_mb_row (inter frames only). */
+    if (cm->frame_type != KEY_FRAME && govpx_oracle_state.mb_rows != NULL) {
+        mb_total = cm->mb_rows * cm->mb_cols;
+        for (i = 0; i < mb_total; ++i) {
+            govpx_mb_row_t *r = &govpx_oracle_state.mb_rows[i];
+            int mb_row, mb_col, j;
+            if (!r->valid) {
+                continue;
+            }
+            mb_row = i / cm->mb_cols;
+            mb_col = i % cm->mb_cols;
+            fprintf(out,
+                    "{\"type\":\"mb\","
+                    "\"frame_index\":%llu,"
+                    "\"mb_row\":%d,\"mb_col\":%d,"
+                    "\"segment_id\":%d,"
+                    "\"mode\":\"%s\","
+                    "\"ref_frame\":\"%s\","
+                    "\"mv_row\":%d,\"mv_col\":%d,"
+                    "\"skip\":%s,"
+                    "\"eob\":[",
+                    govpx_oracle_state.frame_index,
+                    mb_row, mb_col,
+                    r->segment_id,
+                    govpx_oracle_mode_name(r->mode),
+                    govpx_oracle_ref_name(r->ref_frame),
+                    r->mv_row, r->mv_col,
+                    r->skip ? "true" : "false");
+            for (j = 0; j < 25; ++j) {
+                fprintf(out, "%s%u", j == 0 ? "" : ",",
+                        (unsigned int)r->eobs[j]);
+            }
+            fprintf(out, "],\"eob_sum\":%d}\n", r->eob_sum);
+            r->valid = 0;
+        }
+    }
+    fflush(out);
+    govpx_oracle_state.frame_index++;
+}
+GOVPX_ORACLE_TU
+
+	# (2) Add extern declarations + the per-MB capture call to encodeframe.c.
+	# Anchor: the line "extern void vp8_stuff_mb(...)" in v1.16.0
+	# uniquely identifies the top of the file's extern block.
+	awk '
+		BEGIN { inserted_decl = 0; inserted_call = 0 }
+		!inserted_decl && /^extern void vp8_stuff_mb\(/ {
+			print "extern void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col);"
+			print $0
+			inserted_decl = 1
+			next
+		}
+		!inserted_call && /^    segment_counts\[xd->mode_info_context->mbmi\.segment_id\]\+\+;$/ {
+			print $0
+			print ""
+			print "    /* govpx oracle: capture per-MB decision before xd advances. */"
+			print "    govpx_oracle_capture_mb(cpi, mb_row, mb_col);"
+			inserted_call = 1
+			next
+		}
+		{ print }
+		END {
+			if (!inserted_decl) {
+				print "build_vpxenc_oracle.sh: anchor missing in encodeframe.c (extern decl)" > "/dev/stderr"
+				exit 2
+			}
+			if (!inserted_call) {
+				print "build_vpxenc_oracle.sh: anchor missing in encodeframe.c (per-MB call)" > "/dev/stderr"
+				exit 2
+			}
+		}
+	' "$src_dir/vp8/encoder/encodeframe.c" > "$src_dir/vp8/encoder/encodeframe.c.tmp"
+	mv "$src_dir/vp8/encoder/encodeframe.c.tmp" "$src_dir/vp8/encoder/encodeframe.c"
+
+	# (3) Add extern declaration + the per-frame emit call to bitstream.c.
+	# Anchor for extern: '#include "defaultcoefcounts.h"' (only place that
+	# appears in v1.16.0). Anchor for the call: the closing brace of
+	# vp8_pack_bitstream is preceded by '#endif' immediately followed by
+	# '}'. Match the LAST '#endif' followed by '}' in the file to find
+	# the function tail.
+	awk '
+		BEGIN { inserted_decl = 0 }
+		!inserted_decl && /^#include "defaultcoefcounts\.h"$/ {
+			print $0
+			print ""
+			print "extern void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size);"
+			inserted_decl = 1
+			next
+		}
+		{ print }
+		END {
+			if (!inserted_decl) {
+				print "build_vpxenc_oracle.sh: anchor missing in bitstream.c (extern decl)" > "/dev/stderr"
+				exit 2
+			}
+		}
+	' "$src_dir/vp8/encoder/bitstream.c" > "$src_dir/vp8/encoder/bitstream.c.tmp"
+	mv "$src_dir/vp8/encoder/bitstream.c.tmp" "$src_dir/vp8/encoder/bitstream.c"
+
+	# Inject the per-frame emit just before the final closing brace of
+	# vp8_pack_bitstream. The function ends at the last "^}" preceded by
+	# "^#endif" in the file (this pattern is stable in v1.16.0).
+	python3 - "$src_dir/vp8/encoder/bitstream.c" <<'GOVPX_BITSTREAM_TAIL_PY'
+import sys, io, re
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+# Find the start of vp8_pack_bitstream and rewrite only the matching closing
+# brace at the function's end. We look for a "^}" that is the first standalone
+# closing brace following the "void vp8_pack_bitstream(" header line.
+header = re.search(r'^void\s+vp8_pack_bitstream\s*\(', text, flags=re.MULTILINE)
+if not header:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_pack_bitstream header missing\n')
+    sys.exit(2)
+# Walk braces to find the matching closer.
+i = header.start()
+brace_open = text.find('{', i)
+if brace_open == -1:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_pack_bitstream { missing\n')
+    sys.exit(2)
+depth = 1
+j = brace_open + 1
+while j < len(text) and depth > 0:
+    c = text[j]
+    if c == '{':
+        depth += 1
+    elif c == '}':
+        depth -= 1
+        if depth == 0:
+            break
+    j += 1
+if depth != 0:
+    sys.stderr.write('build_vpxenc_oracle.sh: vp8_pack_bitstream } missing\n')
+    sys.exit(2)
+sentinel = '/* govpx oracle: emit per-frame row + buffered per-MB rows. */'
+if sentinel in text:
+    sys.exit(0)  # already patched
+insertion = '  ' + sentinel + '\n  govpx_oracle_emit_frame(cpi, *size);\n'
+text = text[:j] + insertion + text[j:]
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_BITSTREAM_TAIL_PY
+
+	# (4) Wire the new TU into the makefile.
+	if ! grep -q 'encoder/oracle_trace\.c' "$src_dir/vp8/vp8cx.mk"; then
+		# Insert immediately after the encoder/copy_c.c line so the new
+		# entry sits next to similarly-tiny utility files.
+		awk '
+			BEGIN { inserted = 0 }
+			!inserted && /^VP8_CX_SRCS-yes \+= encoder\/copy_c\.c$/ {
+				print $0
+				print "VP8_CX_SRCS-yes += encoder/oracle_trace.c"
+				inserted = 1
+				next
+			}
+			{ print }
+			END {
+				if (!inserted) {
+					print "build_vpxenc_oracle.sh: anchor missing in vp8cx.mk" > "/dev/stderr"
+					exit 2
+				}
+			}
+		' "$src_dir/vp8/vp8cx.mk" > "$src_dir/vp8/vp8cx.mk.tmp"
+		mv "$src_dir/vp8/vp8cx.mk.tmp" "$src_dir/vp8/vp8cx.mk"
+	fi
+
+	touch "$patch_stamp"
+fi
+
+if [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
+	(
+		cd "$src_dir"
+		./configure \
+			--disable-docs \
+			--disable-unit-tests \
+			--disable-debug \
+			--disable-gprof \
+			--enable-optimizations \
+			--disable-vp9 \
+			--disable-vp9-highbitdepth \
+			--enable-vp8_encoder \
+			--enable-vp8_decoder \
+			--enable-postproc \
+			--enable-error-concealment \
+			--enable-vp8
+		make -j"$jobs"
+	)
+	printf '%s\n' "$want_config" > "$config_stamp"
+fi
+
+cp "$src_dir/vpxenc" "$vpxenc_oracle_bin"
+chmod +x "$vpxenc_oracle_bin"
+printf '%s\n' "$vpxenc_oracle_bin"

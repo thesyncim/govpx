@@ -96,20 +96,52 @@ the anchor and look for the surrounding mismatch.
     `mv_col`, `skip`, `eob[0..24]`, and `eob_sum`. Rows are emitted in
     deterministic raster scan order and only for the final committed
     encode attempt (recoded attempts are discarded).
-  - Remaining: libvpx-side instrumentation in `encodeframe.c`,
-    `pickinter.c`, `rdopt.c`, `ratectrl.c`, `onyx_if.c`, and
-    `bitstream.c`, plus a comparator that diffs the JSON Lines stream
-    against govpx's trace; and extending the govpx-side schema with
-    rate-control state, residual decision, probabilities, and
-    per-frame loop-filter delta details once libvpx output exists to
-    compare.
+  - libvpx side: in progress. The patched vpxenc lives in
+    [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh),
+    which adds a single `vp8/encoder/oracle_trace.c` translation unit
+    plus two `extern` hook calls in `encodeframe.c` (per-MB capture
+    inside `encode_mb_row`) and `bitstream.c` (per-frame flush at the
+    tail of `vp8_pack_bitstream`). Output is gated on
+    `GOVPX_ORACLE_TRACE_OUT` and matches the govpx schema (frame_index,
+    frame_type, q_index, base_q_index, loop_filter_level, refresh_*,
+    sign_bias_*, segmentation_enabled, Y/U/V Adler32, size_bytes for
+    frame rows; frame_index, mb_row, mb_col, segment_id, mode,
+    ref_frame, mv_row, mv_col, skip, eob[0..24], eob_sum for MB rows).
+  - Comparator: in place. The pure-Go
+    [`CompareOracleTraces`](../internal/coracle/oracle_compare.go)
+    helper walks both JSON Lines streams in lockstep and surfaces
+    field-level divergences as `Divergence{RowIndex, RowKind, FrameIndex,
+    MBRow, MBCol, Field, Govpx, Libvpx}` records; the cap and an
+    `IgnoreFields` set are configurable through `CompareOptions`. Tests
+    in
+    [`oracle_compare_test.go`](../internal/coracle/oracle_compare_test.go)
+    cover identical streams, mismatched fields, missing rows, ignored
+    fields, and type mismatches.
+  - Remaining: libvpx-side instrumentation in `pickinter.c`, `rdopt.c`,
+    `ratectrl.c`, and `onyx_if.c` for rate-control state and recode
+    reasons (the current libvpx-side patch only covers what govpx already
+    emits); a CI driver that runs both sides under
+    `make verify-production` so divergences gate merges; and extending
+    the govpx-side schema with rate-control state, residual decision,
+    probabilities, and per-frame loop-filter delta details.
   - Done when comparable JSON/CSV rows expose frame state, rate-control state,
     per-MB mode decision, residual decision, probabilities, segmentation, loop
     filter, and reference updates.
-- [ ] Extend the C oracle beyond decode-MD5 JSON.
-  - Status: missing. Current oracle validation checks decoder checksums,
-    quality, bitrate, and feature smoke coverage; it does not compare encoder
-    decisions.
+- [~] Extend the C oracle beyond decode-MD5 JSON.
+  - Status: in progress. The decode-MD5 helper still lives in
+    [`internal/coracle/vpx_oracle.c`](../internal/coracle/vpx_oracle.c).
+    A second helper now produces a parity-grade encoder trace: the
+    patched vpxenc built by
+    [`build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
+    emits per-frame and per-MB JSON Lines matching the govpx oracle
+    schema, and
+    [`CompareOracleTraces`](../internal/coracle/oracle_compare.go)
+    walks both streams and reports field-level divergences (with row
+    index, frame index, MB coordinates, field name, and both decoded
+    values).
+  - Remaining: a CI hook that fails on the first divergence, plus
+    libvpx-side coverage of the rate-control / probability / partition
+    fields once the govpx-side schema grows to include them.
   - Done when the comparator fails CI on the first divergent frame, MB, header,
     probability, reference, or segmentation field and prints enough state to
     identify govpx, libvpx instrumentation, or harness-config mismatches.
