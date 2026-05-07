@@ -43,6 +43,102 @@ type FirstPassFrameStats struct {
 	NewMVCount          float64
 	Duration            float64
 	Count               float64
+	// IsTotal marks an entry as the libvpx terminal "total stats" packet
+	// emitted at end-of-encode (vp8_end_first_pass). The total mirrors
+	// cpi->twopass.total_stats: a running aggregate of every per-frame
+	// FIRSTPASS_STATS produced by vp8_first_pass via accumulate_stats.
+	// When set, the entry is the last element of a finalized stats slice
+	// and is consumed by the second-pass setup (see normalizeTwoPassStats).
+	IsTotal bool
+}
+
+// accumulateFirstPassStats mirrors libvpx vp8/encoder/firstpass.c
+// accumulate_stats: per-field summation of a per-frame FIRSTPASS_STATS
+// record into a running section/sequence aggregator. Called once per
+// per-frame stats record, ultimately rolling all frames into
+// cpi->twopass.total_stats (whole-sequence) and into the section
+// accumulators used by find_next_key_frame / define_gf_group.
+//
+// libvpx reference:
+//
+//	static void accumulate_stats(FIRSTPASS_STATS *section,
+//	                             FIRSTPASS_STATS *frame) {
+//	  section->frame                  += frame->frame;
+//	  section->intra_error            += frame->intra_error;
+//	  section->coded_error            += frame->coded_error;
+//	  section->ssim_weighted_pred_err += frame->ssim_weighted_pred_err;
+//	  section->pcnt_inter             += frame->pcnt_inter;
+//	  section->pcnt_motion            += frame->pcnt_motion;
+//	  section->pcnt_second_ref        += frame->pcnt_second_ref;
+//	  section->pcnt_neutral           += frame->pcnt_neutral;
+//	  section->MVr                    += frame->MVr;
+//	  section->mvr_abs                += frame->mvr_abs;
+//	  section->MVc                    += frame->MVc;
+//	  section->mvc_abs                += frame->mvc_abs;
+//	  section->MVrv                   += frame->MVrv;
+//	  section->MVcv                   += frame->MVcv;
+//	  section->mv_in_out_count        += frame->mv_in_out_count;
+//	  section->new_mv_count           += frame->new_mv_count;
+//	  section->count                  += frame->count;
+//	  section->duration               += frame->duration;
+//	}
+func accumulateFirstPassStats(section *FirstPassFrameStats, frame FirstPassFrameStats) {
+	if section == nil {
+		return
+	}
+	section.Frame += frame.Frame
+	section.IntraError += frame.IntraError
+	section.CodedError += frame.CodedError
+	section.SSIMWeightedPredErr += frame.SSIMWeightedPredErr
+	section.PcntInter += frame.PcntInter
+	section.PcntMotion += frame.PcntMotion
+	section.PcntSecondRef += frame.PcntSecondRef
+	section.PcntNeutral += frame.PcntNeutral
+	section.MVr += frame.MVr
+	section.MVrAbs += frame.MVrAbs
+	section.MVc += frame.MVc
+	section.MVcAbs += frame.MVcAbs
+	section.MVrv += frame.MVrv
+	section.MVcv += frame.MVcv
+	section.MVInOutCount += frame.MVInOutCount
+	section.NewMVCount += frame.NewMVCount
+	section.Count += frame.Count
+	section.Duration += frame.Duration
+}
+
+// FinalizeFirstPassStats appends the libvpx "terminal" total-stats
+// packet to a slice of per-frame FirstPassFrameStats records. The
+// total mirrors libvpx's `output_stats(cpi->output_pkt_list,
+// &cpi->twopass.total_stats)` call from vp8_end_first_pass: each
+// per-frame entry is folded into the running aggregate via
+// accumulateFirstPassStats and the resulting record is appended with
+// IsTotal=true so downstream consumers (e.g. SetTwoPassStats /
+// normalizeTwoPassStats) can recover the sequence-wide totals
+// libvpx's second pass reads from `cpi->twopass.stats_in_end`.
+//
+// If the input already ends with an IsTotal entry the slice is
+// returned unchanged. Empty input is returned unchanged.
+func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
+	if len(stats) == 0 {
+		return stats
+	}
+	if stats[len(stats)-1].IsTotal {
+		return stats
+	}
+	var total FirstPassFrameStats
+	for i := range stats {
+		if stats[i].IsTotal {
+			// Defensive: an interior IsTotal entry is unexpected, but
+			// skip it to avoid double-counting.
+			continue
+		}
+		accumulateFirstPassStats(&total, stats[i])
+	}
+	total.IsTotal = true
+	out := make([]FirstPassFrameStats, len(stats)+1)
+	copy(out, stats)
+	out[len(stats)] = total
+	return out
 }
 
 func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint64, flags EncodeFlags) (FirstPassFrameStats, error) {
@@ -1520,30 +1616,21 @@ func normalizeTwoPassStats(stats []FirstPassFrameStats) ([]FirstPassFrameStats, 
 	}
 	if len(stats) > 1 {
 		last := stats[len(stats)-1]
+		// Prefer the explicit IsTotal sentinel emitted by
+		// FinalizeFirstPassStats, which mirrors libvpx's terminal
+		// total-stats packet from vp8_end_first_pass.
+		if last.IsTotal {
+			return stats[:len(stats)-1], last
+		}
+		// Legacy heuristic: a trailing entry with Count == N is the
+		// rolled-up total libvpx writes to `cpi->twopass.stats_in_end`.
 		if last.Count > 1 && math.Abs(last.Count-float64(len(stats)-1)) < 1e-9 {
 			return stats[:len(stats)-1], last
 		}
 	}
 	var total FirstPassFrameStats
 	for i := range stats {
-		total.Frame += stats[i].Frame
-		total.IntraError += stats[i].IntraError
-		total.CodedError += stats[i].CodedError
-		total.SSIMWeightedPredErr += stats[i].SSIMWeightedPredErr
-		total.PcntInter += stats[i].PcntInter
-		total.PcntMotion += stats[i].PcntMotion
-		total.PcntSecondRef += stats[i].PcntSecondRef
-		total.PcntNeutral += stats[i].PcntNeutral
-		total.MVr += stats[i].MVr
-		total.MVrAbs += stats[i].MVrAbs
-		total.MVc += stats[i].MVc
-		total.MVcAbs += stats[i].MVcAbs
-		total.MVrv += stats[i].MVrv
-		total.MVcv += stats[i].MVcv
-		total.MVInOutCount += stats[i].MVInOutCount
-		total.NewMVCount += stats[i].NewMVCount
-		total.Duration += stats[i].Duration
-		total.Count += stats[i].Count
+		accumulateFirstPassStats(&total, stats[i])
 	}
 	return stats, total
 }

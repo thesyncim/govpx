@@ -425,8 +425,19 @@ the anchor and look for the surrounding mismatch.
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
     boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
-  - Missing: section accumulators and oracle-trace coverage on a fixed Y4M
-    corpus.
+    [`accumulateFirstPassStats`](../encoder_firstpass.go) ports libvpx's
+    `accumulate_stats` per-field summation, and
+    [`FinalizeFirstPassStats`](../encoder_firstpass.go) emits the libvpx
+    terminal "total stats" packet at end-of-encode (mirroring
+    `vp8_end_first_pass`'s `output_stats(&total_stats)` call) by appending
+    a sentinel `IsTotal=true` `FirstPassFrameStats` entry that
+    [`normalizeTwoPassStats`](../encoder_firstpass.go) (and therefore
+    `SetTwoPassStats`) consumes as `cpi->twopass.total_stats`. Section
+    accumulator and total-packet behaviour are pinned by
+    [`TestFirstPassY4MCorpusSectionAccumulators`](../encoder_firstpass_y4m_test.go)
+    on a fixed in-memory Y4M-shaped 4-frame 32x32 corpus, plus
+    `TestAccumulateFirstPassStatsMatchesLibvpx` and
+    `TestFinalizeFirstPassStatsEmpty`.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
