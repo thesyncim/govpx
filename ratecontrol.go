@@ -1978,3 +1978,70 @@ func (rc *rateControlState) applyGFParams(out gfParamsOutput) {
 	rc.framesTillGFUpdateDue = out.FramesTillUpdate
 	rc.currentGFInterval = out.FramesTillUpdate
 }
+
+// libvpxGoldenFrameTargetBits ports the libvpx GF target-sizing formula
+// from vp8/encoder/ratectrl.c calc_pframe_target_size (the
+// non-onepass-CBR auto_gold branch). It splits the upcoming GF-section
+// bandwidth across the GF and the following p-frames so that the GF
+// receives a `boost`-weighted share. The math is:
+//
+//	frames_in_section = framesTillGFUpdateDue + 1
+//	allocation_chunks = frames_in_section*100 + (boost - 100)
+//	bits_in_section   = inter_frame_target * frames_in_section
+//	target            = boost * bits_in_section / allocation_chunks
+//
+// libvpx halves boost and allocation_chunks while boost > 1000 to avoid
+// overflow in `boost * bits_in_section`, and switches the divide order
+// when `bits_in_section >> 7 > allocation_chunks` to retain precision
+// without overflow. Both branches are mirrored here.
+func libvpxGoldenFrameTargetBits(boost int, framesTillGFUpdateDue int, interFrameTarget int) int {
+	if boost <= 0 || framesTillGFUpdateDue < 0 || interFrameTarget <= 0 {
+		return 0
+	}
+	framesInSection := framesTillGFUpdateDue + 1
+	allocationChunks := framesInSection*100 + (boost - 100)
+	if allocationChunks <= 0 {
+		return 0
+	}
+	bitsInSection := interFrameTarget * framesInSection
+	if bitsInSection <= 0 {
+		return 0
+	}
+	for boost > 1000 {
+		boost /= 2
+		allocationChunks /= 2
+		if allocationChunks <= 0 {
+			return 0
+		}
+	}
+	if (bitsInSection >> 7) > allocationChunks {
+		return boost * (bitsInSection / allocationChunks)
+	}
+	return (boost * bitsInSection) / allocationChunks
+}
+
+// pickFrameSize ports vp8/encoder/ratectrl.c vp8_pick_frame_size: the
+// unified KF/p-frame target dispatcher. It returns true when the frame
+// should be encoded and false when libvpx would set cpi->drop_frame and
+// return 0 from vp8_pick_frame_size.
+//
+// govpx's existing entry point is beginFrameWithTargetAndContext, which
+// computes the per-frame target. pickFrameSize wraps it so callers can
+// follow libvpx's contract: invoke calc_iframe_target_size for KFs,
+// calc_pframe_target_size for inter frames, and consume the drop signal
+// before encode. After computing the target, this method also reflects
+// libvpx's tail-of-calc_pframe_target_size buffer-underrun drop check
+// (drop_frames_allowed && buffer_level < 0 && !KEY_FRAME) by calling
+// shouldDropInterFrame and refunding av_per_frame_bandwidth via
+// postDropFrame.
+func (rc *rateControlState) pickFrameSize(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) bool {
+	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, ctx)
+	if keyFrame {
+		return true
+	}
+	if rc.shouldDropInterFrame() {
+		rc.postDropFrame()
+		return false
+	}
+	return true
+}

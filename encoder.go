@@ -391,6 +391,10 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}
+	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
+	// cpi->oxcf.key_freq for the first-keyframe bootstrap; seed it so
+	// kf_bitrate_adjustment matches libvpx for early frames.
+	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {
@@ -1480,6 +1484,8 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.KeyFrameInterval = frames
+	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
+	e.rc.keyFrameFrequency = frames
 	return nil
 }
 
