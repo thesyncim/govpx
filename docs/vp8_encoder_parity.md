@@ -969,13 +969,25 @@ the anchor and look for the surrounding mismatch.
     `update_best_mode`'s
     `yrd = RDCOST(rate2 - rate_uv - other_cost - ref_cost,
     distortion2 - distortion_uv)` decomposition without re-running the
-    picker. Tests:
+    picker. After the partition is chosen the SPLITMV decision now runs
+    libvpx's full per-4x4-block transform/quantize/token RD: each Y block
+    feeds `quantizeEncodedBlock` with `block_type=3` (Y_WITH_DC),
+    `coefficientBlockTokenRate` accumulates the cost_coeffs rate, and
+    `transformBlockError` accumulates `(coeff - dqcoeff)^2` to mirror
+    `vp8_encode_inter_mb_segment` (`distortion / 4` after the per-block
+    sum); the chroma path runs the same pipeline with `block_type=2` for
+    each of the eight 4x4 UV blocks. The Y/UV rate and distortion values
+    surfaced on `interSplitMVRDDecision` are now transform-domain — not
+    SAD-derived — so SPLITMV vs whole-MB inter mode RD are now scored on
+    the same units. Tests:
     `TestSelectInterFrameSplitMotionLabelLevelTrials`,
-    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`, and
+    `TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch`,
     `TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD`,
-    `TestSelectInterFrameSplitMotionOtherCostBreakdown`.
-    Remaining full label-RD work is transform/quant token segment RD and
-    broader oracle coverage. Token-context commit parity remains open.
+    `TestSelectInterFrameSplitMotionOtherCostBreakdown`,
+    `TestSplitMVDecisionRDUsesTransformDomainRate`, and
+    `TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError`.
+    Remaining full label-RD work is broader oracle coverage. Token-context
+    commit parity remains open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
