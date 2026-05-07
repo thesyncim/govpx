@@ -3128,17 +3128,32 @@ func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
 	}
-	src := testImage(16, 16)
-	fillImage(src, 220, 90, 170)
+	keySrc := testImage(16, 16)
+	altSrc := testImage(16, 16)
+	fillImage(keySrc, 220, 90, 170)
+	fillImage(altSrc, 40, 91, 171)
 	keyPacket := make([]byte, 4096)
-	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	key, err := e.EncodeInto(keyPacket, keySrc, 0, 1, 0)
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	keyFrame := decodeSingleFrame(t, key.Data)
 	interPacket := make([]byte, 4096)
+	altInter, err := e.EncodeInto(interPacket, altSrc, 1, 1, EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("alt refresh EncodeInto returned error: %v", err)
+	}
+	altState := packetState(t, altInter.Data)
+	if altState.Refresh.RefreshLast || altState.Refresh.RefreshGolden || !altState.Refresh.RefreshAltRef {
+		t.Fatalf("alt refresh flags = %+v, want alt-only refresh", altState.Refresh)
+	}
+	altData := append([]byte(nil), altInter.Data...)
+	altDecoded := decodeFrameSequence(t, key.Data, altData)
+	if len(altDecoded) != 2 {
+		t.Fatalf("alt refresh decoded frame count = %d, want 2", len(altDecoded))
+	}
+	altFrame := altDecoded[1]
 
-	result, err := e.EncodeInto(interPacket, keyFrame, 1, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
+	result, err := e.EncodeInto(interPacket, altFrame, 2, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
@@ -3148,11 +3163,11 @@ func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
 	if e.interFrameModes[0].RefFrame != vp8common.AltRefFrame || e.interFrameModes[0].Mode != vp8common.ZeroMV || !e.interFrameModes[0].MBSkipCoeff {
 		t.Fatalf("mode[0] = %+v, want skipped ALTREF/ZEROMV", e.interFrameModes[0])
 	}
-	decoded := decodeFrameSequence(t, key.Data, result.Data)
-	if len(decoded) != 2 {
-		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
+	decoded := decodeFrameSequence(t, key.Data, altData, result.Data)
+	if len(decoded) != 3 {
+		t.Fatalf("decoded frame count = %d, want 3", len(decoded))
 	}
-	assertImagesEqual(t, "altref interframe", keyFrame, decoded[1])
+	assertImagesEqual(t, "altref interframe", altFrame, decoded[2])
 }
 
 func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {

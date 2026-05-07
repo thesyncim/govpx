@@ -23,7 +23,9 @@ the anchor and look for the surrounding mismatch.
   libvpx v1.16.0 tools and corpus minima.
 - Quality smoke parity: high on the current tiny corpus, but not complete. The
   current oracle cases are near-equal on SSIM, while motion still shows a max
-  frame PSNR gap around 1.8 dB and a large bitrate delta.
+  frame PSNR gap around 1.9 dB and a large bitrate delta. Current smoke numbers:
+  motion govpx/libvpx PSNR 49.19/50.35, bitrate 329.1/268.7 kbps; static
+  govpx/libvpx PSNR 49.52/49.71, bitrate 366.5/372.3 kbps.
 - Encoder decision parity: roughly 45-55% complete. This is an engineering
   estimate, not a measured percentage, because govpx still lacks the trace
   oracle needed to count matching frame/MB decisions.
@@ -125,10 +127,12 @@ the anchor and look for the surrounding mismatch.
   - libvpx: copy old GF to ARF, `gold_is_last`, `alt_is_last`,
     `gold_is_alt`, and refresh/copy header bits in `onyx_if.c` and
     `bitstream.c`.
-  - Status: partial. govpx now writes the internal CBR old-GF-to-ARF copy and
-    applies copy-buffer state locally before refresh. Remaining work is alias
-    flag tracking, reference availability pruning, old-GF copy interactions for
-    ARF/two-pass cases, and trace coverage.
+  - Status: partial. govpx now writes the internal CBR old-GF-to-ARF copy,
+    applies copy-buffer state locally before refresh, tracks libvpx-style
+    `gold_is_last` / `alt_is_last` / `gold_is_alt` flags, prunes aliased
+    references from availability/mode search, and prices constrained
+    single-reference alias states through the libvpx special cases. Remaining
+    work is ARF/two-pass copy-buffer edge cases and trace coverage.
   - Done when forced and natural GF/ARF sequences match header copy bits,
     reference checksums, reference availability, and subsequent mode choices.
 

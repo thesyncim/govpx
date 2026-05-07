@@ -1012,16 +1012,26 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
 	}
-	src := testImage(16, 16)
-	fillImage(src, 220, 90, 170)
+	keySrc := testImage(16, 16)
+	altSrc := testImage(16, 16)
+	fillImage(keySrc, 220, 90, 170)
+	fillImage(altSrc, 40, 91, 171)
 	keyPacket := make([]byte, 4096)
-	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
+	key, err := e.EncodeInto(keyPacket, keySrc, 0, 1, 0)
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	keyFrame := decodeSingleFrame(t, key.Data)
 	interPacket := make([]byte, 4096)
-	altInter, err := e.EncodeInto(interPacket, keyFrame, 1, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
+	altRefresh, err := e.EncodeInto(interPacket, altSrc, 1, 1, EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("alt refresh EncodeInto returned error: %v", err)
+	}
+	altRefreshData := append([]byte(nil), altRefresh.Data...)
+	altDecoded := decodeFrameSequence(t, key.Data, altRefreshData)
+	if len(altDecoded) != 2 {
+		t.Fatalf("alt refresh decoded frame count = %d, want 2", len(altDecoded))
+	}
+	altInter, err := e.EncodeInto(interPacket, altDecoded[1], 2, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
 	if err != nil {
 		t.Fatalf("alt EncodeInto returned error: %v", err)
 	}
@@ -1032,9 +1042,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.
 		t.Fatalf("mode[0] = %+v, want skipped ALTREF/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altInter.Data})
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, altInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	govpxFrames := decodeFrameSequence(t, key.Data, altInter.Data)
+	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
 	}
@@ -1058,15 +1068,22 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 	}
 	first := testImage(16, 16)
 	second := testImage(16, 16)
+	altSrc := testImage(16, 16)
 	fillImage(first, 220, 90, 170)
 	fillImage(second, 40, 91, 171)
+	fillImage(altSrc, 180, 92, 172)
 	keyPacket := make([]byte, 4096)
 	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	interPacket := make([]byte, 4096)
-	inter, err := e.EncodeInto(interPacket, second, 1, 1, 0)
+	altRefresh, err := e.EncodeInto(interPacket, altSrc, 1, 1, EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("alt refresh EncodeInto returned error: %v", err)
+	}
+	altRefreshData := append([]byte(nil), altRefresh.Data...)
+	inter, err := e.EncodeInto(interPacket, second, 2, 1, 0)
 	if err != nil {
 		t.Fatalf("inter EncodeInto returned error: %v", err)
 	}
@@ -1075,7 +1092,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 	}
 
 	altPacket := make([]byte, 4096)
-	altInter, err := e.EncodeInto(altPacket, publicImageFromVP8(&e.altRef.Img), 2, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
+	altInter, err := e.EncodeInto(altPacket, publicImageFromVP8(&e.altRef.Img), 3, 1, EncodeNoReferenceLast|EncodeNoReferenceGolden)
 	if err != nil {
 		t.Fatalf("alt EncodeInto returned error: %v", err)
 	}
@@ -1086,9 +1103,9 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t 
 		t.Fatalf("mode[0] = %+v, want skipped preserved ALTREF/ZEROMV", e.interFrameModes[0])
 	}
 
-	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, inter.Data, altInter.Data})
+	ivf := makeIVF(16, 16, 30, 1, [][]byte{key.Data, altRefreshData, inter.Data, altInter.Data})
 	oracleFrames := runLibvpxChecksumOracle(t, oracle, ivf)
-	govpxFrames := decodeFrameSequence(t, key.Data, inter.Data, altInter.Data)
+	govpxFrames := decodeFrameSequence(t, key.Data, altRefreshData, inter.Data, altInter.Data)
 	if len(oracleFrames) != len(govpxFrames) {
 		t.Fatalf("oracle frame count = %d, want %d", len(oracleFrames), len(govpxFrames))
 	}

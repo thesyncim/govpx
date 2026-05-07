@@ -1438,6 +1438,44 @@ func TestInterAnalysisReferencesCarryLibvpxFlagSpecificReferenceRates(t *testing
 	}
 }
 
+func TestInterAnalysisReferencesPruneLibvpxAliasFlagsAfterKeyFrame(t *testing.T) {
+	e := newTestEncoder(t)
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	e.refreshKeyFrameReferencesFromAnalysis()
+	e.frameCount = 1
+
+	var refs [3]interAnalysisReference
+	count := e.interAnalysisReferences(0, &refs)
+	if count != 1 || refs[0].Frame != vp8common.LastFrame {
+		t.Fatalf("post-key refs = count:%d first:%+v, want only LAST after libvpx alias pruning", count, refs[0])
+	}
+	if want := boolBitCost(255, 0); refs[0].RefRate != want {
+		t.Fatalf("post-key LAST rate = %d, want single-reference libvpx cost %d", refs[0].RefRate, want)
+	}
+	if !e.shouldEncodeKeyFrame(EncodeNoReferenceLast) {
+		t.Fatalf("shouldEncodeKeyFrame with LAST disabled = false, want keyframe when aliased GOLDEN/ALTREF are unavailable")
+	}
+}
+
+func TestInterAnalysisReferencesKeepAltAfterInternalGoldenRefreshCopiesOldGF(t *testing.T) {
+	e := newTestEncoder(t)
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	e.refreshKeyFrameReferencesFromAnalysis()
+	e.updateInterReferenceAliases(vp8enc.InterFrameStateConfig{
+		RefreshLast:        true,
+		RefreshGolden:      true,
+		CopyBufferToAltRef: 2,
+	})
+
+	var refs [3]interAnalysisReference
+	count := e.interAnalysisReferences(0, &refs)
+	if count != 2 || refs[0].Frame != vp8common.LastFrame || refs[1].Frame != vp8common.AltRefFrame {
+		t.Fatalf("post-GF-refresh refs = count:%d refs:%+v/%+v, want LAST and old-GF ALTREF", count, refs[0], refs[1])
+	}
+}
+
 func TestRdBlockScoreAppliesLibvpxPlaneAndIntraMultipliers(t *testing.T) {
 	if got := rdBlockScore(40, 4, false, 100, 20); got != 79 {
 		t.Fatalf("inter block rd = %d, want 79", got)

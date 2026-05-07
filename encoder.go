@@ -240,6 +240,11 @@ type VP8Encoder struct {
 	lastRef   vp8common.FrameBuffer
 	goldenRef vp8common.FrameBuffer
 	altRef    vp8common.FrameBuffer
+	// Mirrors libvpx gold_is_last / alt_is_last / gold_is_alt. These flags
+	// prune duplicate reference candidates after refreshes make buffers alias.
+	goldenRefAliasesLast bool
+	altRefAliasesLast    bool
+	goldenRefAliasesAlt  bool
 
 	loopFilterPick     vp8common.FrameBuffer
 	reconstructModes   []vp8dec.MacroblockMode
@@ -799,13 +804,14 @@ func interFrameDroppable(cfg vp8enc.InterFrameStateConfig) bool {
 }
 
 func (e *VP8Encoder) matchingZeroInterFrameReference(source vp8enc.SourceImage, flags EncodeFlags) (vp8common.MVReferenceFrame, *vp8common.Image, bool) {
-	if flags&EncodeNoReferenceLast == 0 && sourceImageMatchesReference(source, &e.lastRef.Img) {
+	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
+	if lastEnabled && sourceImageMatchesReference(source, &e.lastRef.Img) {
 		return vp8common.LastFrame, &e.lastRef.Img, true
 	}
-	if flags&EncodeNoReferenceGolden == 0 && sourceImageMatchesReference(source, &e.goldenRef.Img) {
+	if goldenEnabled && sourceImageMatchesReference(source, &e.goldenRef.Img) {
 		return vp8common.GoldenFrame, &e.goldenRef.Img, true
 	}
-	if flags&EncodeNoReferenceAltRef == 0 && sourceImageMatchesReference(source, &e.altRef.Img) {
+	if altEnabled && sourceImageMatchesReference(source, &e.altRef.Img) {
 		return vp8common.AltRefFrame, &e.altRef.Img, true
 	}
 	return vp8common.IntraFrame, nil, false
@@ -862,11 +868,32 @@ func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRe
 	return flags&(EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef|EncodeForceGoldenFrame|EncodeForceAltRefFrame) == 0
 }
 
+func (e *VP8Encoder) anyInterReferenceAvailable(flags EncodeFlags) bool {
+	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
+	return lastEnabled || goldenEnabled || altEnabled
+}
+
+func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, golden bool, alt bool) {
+	last = flags&EncodeNoReferenceLast == 0
+	golden = flags&EncodeNoReferenceGolden == 0
+	alt = flags&EncodeNoReferenceAltRef == 0
+	if e == nil {
+		return last, golden, alt
+	}
+	if e.goldenRefAliasesLast {
+		golden = false
+	}
+	if e.altRefAliasesLast || e.goldenRefAliasesAlt {
+		alt = false
+	}
+	return last, golden, alt
+}
+
 func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	if flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) == EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef {
+	if !e.anyInterReferenceAvailable(flags) {
 		return true
 	}
 	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
@@ -879,7 +906,7 @@ func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {
 	if e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	return flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) == EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef
+	return !e.anyInterReferenceAvailable(flags)
 }
 
 func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
@@ -1262,6 +1289,9 @@ func (e *VP8Encoder) Reset() {
 	e.probSkipFalse = 128
 	e.lastSkipFalseProbs = [3]uint8{}
 	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs
+	e.goldenRefAliasesLast = false
+	e.altRefAliasesLast = false
+	e.goldenRefAliasesAlt = false
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
 	e.rc.resetRollingBitAverages()
@@ -1752,6 +1782,9 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	copyFrameImage(&e.altRef.Img, &e.current.Img)
 	e.altRef.ExtendBorders()
 	e.lastFrameInterModesValid = false
+	e.goldenRefAliasesLast = true
+	e.altRefAliasesLast = true
+	e.goldenRefAliasesAlt = true
 }
 
 func (e *VP8Encoder) rememberLastFrameInterModes() {
@@ -1781,6 +1814,7 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
 	}
+	e.updateInterReferenceAliases(cfg)
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
@@ -1798,6 +1832,25 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 	if cfg.RefreshAltRef {
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
+	}
+	e.updateInterReferenceAliases(cfg)
+}
+
+func (e *VP8Encoder) updateInterReferenceAliases(cfg vp8enc.InterFrameStateConfig) {
+	if cfg.RefreshLast && cfg.RefreshGolden {
+		e.goldenRefAliasesLast = true
+	} else if cfg.RefreshLast != cfg.RefreshGolden {
+		e.goldenRefAliasesLast = false
+	}
+	if cfg.RefreshLast && cfg.RefreshAltRef {
+		e.altRefAliasesLast = true
+	} else if cfg.RefreshLast != cfg.RefreshAltRef {
+		e.altRefAliasesLast = false
+	}
+	if cfg.RefreshAltRef && cfg.RefreshGolden {
+		e.goldenRefAliasesAlt = true
+	} else if cfg.RefreshAltRef != cfg.RefreshGolden {
+		e.goldenRefAliasesAlt = false
 	}
 }
 

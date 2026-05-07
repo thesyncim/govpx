@@ -346,15 +346,16 @@ type interAnalysisMotionCandidate struct {
 func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAnalysisReference) int {
 	count := 0
 	lastRate, goldenRate, altRate := e.interReferenceFrameRatesForFlags(flags)
-	if flags&EncodeNoReferenceLast == 0 {
+	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
+	if lastEnabled {
 		refs[count] = interAnalysisReference{Frame: vp8common.LastFrame, Img: &e.lastRef.Img, RefRate: lastRate, RefRateSet: true}
 		count++
 	}
-	if flags&EncodeNoReferenceGolden == 0 {
+	if goldenEnabled {
 		refs[count] = interAnalysisReference{Frame: vp8common.GoldenFrame, Img: &e.goldenRef.Img, RefRate: goldenRate, RefRateSet: true}
 		count++
 	}
-	if flags&EncodeNoReferenceAltRef == 0 {
+	if altEnabled {
 		refs[count] = interAnalysisReference{Frame: vp8common.AltRefFrame, Img: &e.altRef.Img, RefRate: altRate, RefRateSet: true}
 		count++
 	}
@@ -2628,9 +2629,7 @@ func (e *VP8Encoder) interReferenceFrameRateForReference(ref interAnalysisRefere
 func (e *VP8Encoder) interReferenceFrameRatesForFlags(flags EncodeFlags) (last int, golden int, alt int) {
 	probLast := e.refProbLast
 	probGolden := e.refProbGolden
-	lastEnabled := flags&EncodeNoReferenceLast == 0
-	goldenEnabled := flags&EncodeNoReferenceGolden == 0
-	altEnabled := flags&EncodeNoReferenceAltRef == 0
+	lastEnabled, goldenEnabled, altEnabled := e.interReferenceAvailability(flags)
 	temporalSingleRef := e.interReferenceFrameRatesUseTemporalSingleRefSpecialCase()
 	switch {
 	case lastEnabled && !goldenEnabled && !altEnabled:
