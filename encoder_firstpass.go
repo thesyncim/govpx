@@ -612,15 +612,16 @@ func abs32(v int32) int32 {
 }
 
 type twoPassState struct {
-	stats       []FirstPassFrameStats
-	totalStats  FirstPassFrameStats
-	bitsLeft    int64
-	errorLeft   float64
-	frameIndex  uint64
-	vbrBiasPct  int
-	minPct      int
-	maxPct      int
-	lastKeySeen uint64
+	stats             []FirstPassFrameStats
+	totalStats        FirstPassFrameStats
+	bitsLeft          int64
+	errorLeft         float64
+	frameIndex        uint64
+	vbrBiasPct        int
+	minPct            int
+	maxPct            int
+	minFrameBandwidth int
+	lastKeySeen       uint64
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -641,6 +642,7 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	if t.minPct <= 0 {
 		t.minPct = 50
 	}
+	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
 	t.maxPct = maxPct
 	if t.maxPct <= 0 {
 		t.maxPct = 200
@@ -944,6 +946,7 @@ func (t *twoPassState) finishFrame(actualBits int) {
 		}
 	}
 	t.bitsLeft -= int64(actualBits)
+	t.bitsLeft += int64(t.minFrameBandwidth)
 	if t.bitsLeft < 0 {
 		t.bitsLeft = 0
 	}

@@ -531,8 +531,9 @@ func TestTwoPassAltRefBitChargeDoesNotAdvanceStats(t *testing.T) {
 	if ts.errorLeft != initialError-frame0Error {
 		t.Fatalf("errorLeft after visible frame = %v, want %v", ts.errorLeft, initialError-frame0Error)
 	}
-	if ts.bitsLeft != initialBits-200 {
-		t.Fatalf("bitsLeft after visible frame = %d, want %d", ts.bitsLeft, initialBits-200)
+	wantBitsLeft := initialBits - 123 - 77 + int64(vbrMinFrameBandwidthBits(1000, 50))
+	if ts.bitsLeft != wantBitsLeft {
+		t.Fatalf("bitsLeft after visible frame = %d, want %d", ts.bitsLeft, wantBitsLeft)
 	}
 }
 

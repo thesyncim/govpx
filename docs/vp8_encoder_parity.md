@@ -603,7 +603,9 @@ the anchor and look for the surrounding mismatch.
     Hidden ARF packets now mirror libvpx `Pass2Encode`: packet bytes are
     charged against `twopass.bits_left`, but `refresh_alt_ref_frame` skips
     `vp8_second_pass` and `show_frame=0` leaves the visible first-pass
-    stats index unchanged; pinned by
+    stats index unchanged. Visible frames subtract packet bytes and then add
+    back the configured `two_pass_vbrmin_section` minimum-frame budget, while
+    hidden ARFs remain subtract-only; pinned by
     `TestTwoPassAltRefBitChargeDoesNotAdvanceStats` and
     `TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`.
     `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR
