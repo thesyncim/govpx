@@ -105,6 +105,7 @@ type rateControlState struct {
 	rateCorrectionFactor     float64
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64
+	currentZbinOverQuant     int
 }
 
 const (
@@ -115,6 +116,7 @@ const (
 	libvpxIntMax                    = 1<<31 - 1
 	libvpxMinBPBFactor              = 0.01
 	libvpxMaxBPBFactor              = 50.0
+	libvpxZbinOverQuantMax          = 192
 	vp8MaxQIndex                    = 127
 )
 
@@ -365,14 +367,23 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFram
 	}
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(keyFrame, goldenFrame)
-	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
+	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
+		if rc.currentQuantizer < vp8MaxQIndex {
+			rc.currentZbinOverQuant = 0
+		}
 	}
 	if rc.mode == RateControlCBR && screenContentMode > 0 && !keyFrame {
 		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
+		if rc.currentQuantizer < vp8MaxQIndex {
+			rc.currentZbinOverQuant = 0
+		}
 	}
 	rc.clampQuantizer()
+	if rc.currentQuantizer < vp8MaxQIndex {
+		rc.currentZbinOverQuant = 0
+	}
 }
 
 func (rc *rateControlState) libvpxActiveQuantizerBounds(keyFrame bool, goldenFrame bool) (int, int) {
@@ -705,6 +716,9 @@ func (rc *rateControlState) resetRollingBitAverages() {
 type frameSizeRecodeState struct {
 	qLow             int
 	qHigh            int
+	zbinOQLow        int
+	zbinOQHigh       int
+	zbinOverQuant    int
 	correctionFactor float64
 	overshootSeen    bool
 	undershootSeen   bool
@@ -715,6 +729,8 @@ func (rc *rateControlState) newFrameSizeRecodeState(keyFrame bool, goldenFrame b
 	return frameSizeRecodeState{
 		qLow:             activeBest,
 		qHigh:            activeWorst,
+		zbinOQHigh:       libvpxZbinOverQuantHigh(keyFrame, goldenFrame),
+		zbinOverQuant:    rc.currentZbinOverQuant,
 		correctionFactor: rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame),
 	}
 }
@@ -744,26 +760,48 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 		} else {
 			recode.qLow = recode.qHigh
 		}
+		if recode.zbinOverQuant > 0 {
+			recode.zbinOQLow = min(recode.zbinOverQuant+1, recode.zbinOQHigh)
+		}
 		if recode.undershootSeen {
 			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
 			next = (recode.qHigh + recode.qLow + 1) / 2
+			if next < vp8MaxQIndex {
+				recode.zbinOverQuant = 0
+			} else {
+				recode.zbinOQLow = min(recode.zbinOverQuant+1, recode.zbinOQHigh)
+				recode.zbinOverQuant = (recode.zbinOQHigh + recode.zbinOQLow) / 2
+			}
 		} else {
 			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
-			next = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+			if next < vp8MaxQIndex {
+				recode.zbinOverQuant = 0
+			}
 		}
 		recode.overshootSeen = true
 	} else {
-		if q > recode.qLow {
+		if recode.zbinOverQuant == 0 && q > recode.qLow {
 			recode.qHigh = q - 1
+		} else if recode.zbinOverQuant > 0 {
+			recode.zbinOQHigh = max(recode.zbinOverQuant-1, recode.zbinOQLow)
 		} else {
 			recode.qHigh = recode.qLow
 		}
 		if recode.overshootSeen {
 			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
 			next = (recode.qHigh + recode.qLow) / 2
+			if next < vp8MaxQIndex {
+				recode.zbinOverQuant = 0
+			} else {
+				recode.zbinOverQuant = (recode.zbinOQHigh + recode.zbinOQLow) / 2
+			}
 		} else {
 			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
-			next = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+			next, recode.zbinOverQuant = libvpxRegulatedQuantizerWithZbin(keyFrame, goldenFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+			if next < vp8MaxQIndex {
+				recode.zbinOverQuant = 0
+			}
 			if rc.mode == RateControlCQ && next < recode.qLow {
 				recode.qLow = next
 			}
@@ -774,6 +812,14 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 		next = recode.qHigh
 	} else if next < recode.qLow {
 		next = recode.qLow
+	}
+	if recode.zbinOverQuant < recode.zbinOQLow {
+		recode.zbinOverQuant = recode.zbinOQLow
+	} else if recode.zbinOverQuant > recode.zbinOQHigh {
+		recode.zbinOverQuant = recode.zbinOQHigh
+	}
+	if next < vp8MaxQIndex {
+		recode.zbinOverQuant = 0
 	}
 	return rc.clampedFrameQuantizerValue(next), true
 }
@@ -1359,31 +1405,28 @@ var libvpxBitsPerMB = [2][128]int{
 }
 
 func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) int {
+	q, _ := libvpxRegulatedQuantizerWithZbin(keyFrame, false, targetBitsPerFrame, macroblocks, minQ, maxQ, correctionFactor)
+	return q
+}
+
+func libvpxRegulatedQuantizerWithZbin(keyFrame bool, goldenFrame bool, targetBitsPerFrame int, macroblocks int, minQ int, maxQ int, correctionFactor float64) (int, int) {
 	if macroblocks <= 0 || targetBitsPerFrame <= 0 {
-		return clampQuantizerValue(minQ, minQ, maxQ)
+		return clampQuantizerValue(minQ, minQ, maxQ), 0
 	}
 	if correctionFactor <= 0 {
 		correctionFactor = 1.0
 	}
-	targetBitsPerMB := 0
-	if targetBitsPerFrame > libvpxIntMax>>libvpxBPerMBNormBits {
-		temp := targetBitsPerFrame / macroblocks
-		if temp > libvpxIntMax>>libvpxBPerMBNormBits {
-			targetBitsPerMB = libvpxIntMax
-		} else {
-			targetBitsPerMB = temp << libvpxBPerMBNormBits
-		}
-	} else {
-		targetBitsPerMB = (targetBitsPerFrame << libvpxBPerMBNormBits) / macroblocks
-	}
+	targetBitsPerMB := libvpxTargetBitsPerMB(targetBitsPerFrame, macroblocks)
 	frameType := 1
 	if keyFrame {
 		frameType = 0
 	}
 	q := maxQ
 	lastError := libvpxIntMax
+	bitsAtSelectedQ := 0
 	for i := minQ; i <= maxQ && i < len(libvpxBitsPerMB[frameType]); i++ {
 		bitsAtQ := int(0.5 + correctionFactor*float64(libvpxBitsPerMB[frameType][i]))
+		bitsAtSelectedQ = bitsAtQ
 		if bitsAtQ <= targetBitsPerMB {
 			if targetBitsPerMB-bitsAtQ <= lastError {
 				q = i
@@ -1394,7 +1437,58 @@ func libvpxRegulatedQuantizer(keyFrame bool, targetBitsPerFrame int, macroblocks
 		}
 		lastError = bitsAtQ - targetBitsPerMB
 	}
-	return clampQuantizerValue(q, minQ, maxQ)
+	q = clampQuantizerValue(q, minQ, maxQ)
+	zbinOverQuant := 0
+	if q >= vp8MaxQIndex {
+		zbinOverQuant = libvpxZbinOverQuantForTarget(keyFrame, goldenFrame, bitsAtSelectedQ, targetBitsPerMB)
+	}
+	return q, zbinOverQuant
+}
+
+func libvpxTargetBitsPerMB(targetBitsPerFrame int, macroblocks int) int {
+	if targetBitsPerFrame > libvpxIntMax>>libvpxBPerMBNormBits {
+		temp := targetBitsPerFrame / macroblocks
+		if temp > libvpxIntMax>>libvpxBPerMBNormBits {
+			return libvpxIntMax
+		}
+		return temp << libvpxBPerMBNormBits
+	}
+	return (targetBitsPerFrame << libvpxBPerMBNormBits) / macroblocks
+}
+
+func libvpxZbinOverQuantForTarget(keyFrame bool, goldenFrame bool, bitsAtQ int, targetBitsPerMB int) int {
+	zbinOQMax := libvpxZbinOverQuantHigh(keyFrame, goldenFrame)
+	if zbinOQMax <= 0 || bitsAtQ <= 0 {
+		return 0
+	}
+	zbinOverQuant := 0
+	factor := 0.99
+	factorAdjustment := 0.01 / 256.0
+	for zbinOverQuant < zbinOQMax {
+		zbinOverQuant++
+		if zbinOverQuant > zbinOQMax {
+			zbinOverQuant = zbinOQMax
+		}
+		bitsAtQ = int(factor * float64(bitsAtQ))
+		factor += factorAdjustment
+		if factor >= 0.999 {
+			factor = 0.999
+		}
+		if bitsAtQ <= targetBitsPerMB {
+			break
+		}
+	}
+	return zbinOverQuant
+}
+
+func libvpxZbinOverQuantHigh(keyFrame bool, goldenFrame bool) int {
+	if keyFrame {
+		return 0
+	}
+	if goldenFrame {
+		return 16
+	}
+	return libvpxZbinOverQuantMax
 }
 
 func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, correctionFactor float64) int {

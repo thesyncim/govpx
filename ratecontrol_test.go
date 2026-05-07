@@ -217,6 +217,88 @@ func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
 	}
 }
 
+func TestRateControlRegulatedQuantizerTracksLibvpxZbinOverQuant(t *testing.T) {
+	q, zbin := libvpxRegulatedQuantizerWithZbin(false, false, 1, 1, 4, 127, 1.0)
+	if q != 127 || zbin != libvpxZbinOverQuantMax {
+		t.Fatalf("max inter regulated q/zbin = %d/%d, want 127/%d", q, zbin, libvpxZbinOverQuantMax)
+	}
+
+	q, zbin = libvpxRegulatedQuantizerWithZbin(false, true, 1, 1, 4, 127, 1.0)
+	if q != 127 || zbin != 16 {
+		t.Fatalf("golden regulated q/zbin = %d/%d, want 127/16", q, zbin)
+	}
+
+	q, zbin = libvpxRegulatedQuantizerWithZbin(true, false, 1, 1, 4, 127, 1.0)
+	if q != 127 || zbin != 0 {
+		t.Fatalf("key regulated q/zbin = %d/%d, want 127/0", q, zbin)
+	}
+
+	q, zbin = libvpxRegulatedQuantizerWithZbin(false, false, 12000, 60, 4, 127, 1.0)
+	if q != 24 || zbin != 0 {
+		t.Fatalf("ordinary inter regulated q/zbin = %d/%d, want 24/0", q, zbin)
+	}
+}
+
+func TestRateControlSelectQuantizerStoresAndClearsZbinOverQuant(t *testing.T) {
+	rc := rateControlState{
+		mode:               RateControlCBR,
+		minQuantizer:       4,
+		maxQuantizer:       127,
+		bitsPerFrame:       1,
+		frameTargetBits:    1,
+		lastInterQuantizer: 50,
+	}
+
+	rc.selectQuantizerForFrameKind(false, false, 1)
+	if rc.currentQuantizer != 127 || rc.currentZbinOverQuant != libvpxZbinOverQuantMax {
+		t.Fatalf("selected max inter q/zbin = %d/%d, want 127/%d", rc.currentQuantizer, rc.currentZbinOverQuant, libvpxZbinOverQuantMax)
+	}
+
+	rc.frameTargetBits = 12000
+	rc.bitsPerFrame = 12000
+	rc.selectQuantizerForFrameKind(false, false, 60)
+	if rc.currentQuantizer != 24 || rc.currentZbinOverQuant != 0 {
+		t.Fatalf("selected ordinary inter q/zbin = %d/%d, want 24/0", rc.currentQuantizer, rc.currentZbinOverQuant)
+	}
+
+	rc.frameTargetBits = 72000
+	rc.bitsPerFrame = 72000
+	rc.currentZbinOverQuant = libvpxZbinOverQuantMax
+	rc.selectQuantizerForFrameKindWithScreenContent(false, false, 60, 1)
+	if rc.currentQuantizer != 38 || rc.currentZbinOverQuant != 0 {
+		t.Fatalf("screen-content limited q/zbin = %d/%d, want 38/0", rc.currentQuantizer, rc.currentZbinOverQuant)
+	}
+}
+
+func TestRateControlFrameSizeRecodeTracksZbinOverQuantBounds(t *testing.T) {
+	rc := rateControlState{
+		mode:             RateControlCBR,
+		minQuantizer:     4,
+		maxQuantizer:     127,
+		currentQuantizer: 126,
+		bitsPerFrame:     1000,
+		frameTargetBits:  1000,
+	}
+
+	recode := rc.newFrameSizeRecodeState(false, false)
+	got, ok := rc.frameSizeRecodeQuantizerWithContext(300, false, false, 1000, &recode)
+	if !ok || got != 127 || recode.zbinOverQuant != libvpxZbinOverQuantMax || recode.zbinOQHigh != libvpxZbinOverQuantMax {
+		t.Fatalf("oversized max recode = q:%d ok:%t state:%+v, want q127 and max zbin over-quant", got, ok, recode)
+	}
+
+	rc.currentQuantizer = 127
+	recode = frameSizeRecodeState{
+		qLow:          4,
+		qHigh:         127,
+		zbinOQHigh:    libvpxZbinOverQuantMax,
+		zbinOverQuant: 128,
+	}
+	got, ok = rc.frameSizeRecodeQuantizerWithContext(0, false, false, 1000, &recode)
+	if !ok || got != 127 || recode.zbinOQHigh != 127 || recode.zbinOverQuant != 127 || !recode.undershootSeen {
+		t.Fatalf("undersized max recode = q:%d ok:%t state:%+v, want zbin high lowered to 127", got, ok, recode)
+	}
+}
+
 func TestRateControlActiveQuantizerBoundsUseLibvpxWarmupTables(t *testing.T) {
 	rc := rateControlState{
 		mode:                     RateControlCBR,

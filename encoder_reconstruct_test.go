@@ -900,7 +900,7 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	var scratch vp8dec.IntraReconstructionScratch
 	probs := vp8tables.DefaultCoefProbs
 
-	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0, &probs, false)
+	_, rate, dist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 4, 0, true, 0, 0, nil, nil, nil, nil, &quant, &pred.Img, &scratch, 0, &probs, false)
 
 	if !ok {
 		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")
@@ -927,7 +927,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var scratch vp8dec.IntraReconstructionScratch
 
-	mode, rate, dist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, &probs, false)
+	mode, rate, dist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, 0, true, 0, 0, nil, nil, &quant, &pred.Img, &scratch, &probs, false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRD returned ok=false")
 	}
@@ -943,7 +943,7 @@ func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	if !predictAnalysisChroma(&chosenPred.Img, 0, 0, mode, &chosenScratch) {
 		t.Fatalf("predictAnalysisChroma returned false")
 	}
-	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 20, nil, nil, &quant, &probs, false)
+	tokenRate, wantDist := wholeBlockChromaTransformRD(sourceImageFromPublic(src), &chosenPred.Img, 0, 0, 20, 0, nil, nil, &quant, &probs, false)
 	wantRate := intraUVModeRate(true, mode) + tokenRate
 	if rate != wantRate || dist != wantDist {
 		t.Fatalf("UV RD = rate:%d dist:%d, want transform/token rate:%d dist:%d", rate, dist, wantRate, wantDist)
@@ -1124,6 +1124,23 @@ func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 	}
 	if got := rdModeScore(40, 512, 100); got != 176 {
 		t.Fatalf("rdModeScore mid q = %d, want libvpx RDCOST 176", got)
+	}
+}
+
+func TestLibvpxRDConstantsUseZbinOverQuant(t *testing.T) {
+	baseMult, baseDiv := libvpxRDConstants(127)
+	overMult, overDiv := libvpxRDConstantsWithZbin(127, 128)
+	if overMult != 989 || overDiv != 1 {
+		t.Fatalf("q127 zbin-over-quant rd = %d/%d, want 989/1", overMult, overDiv)
+	}
+	if overMult <= baseMult || overDiv != baseDiv {
+		t.Fatalf("zbin-over-quant rd = %d/%d, base %d/%d, want larger multiplier with same divider", overMult, overDiv, baseMult, baseDiv)
+	}
+	if got := rdModeScoreWithZbin(127, 128, 512, 100); got != 2078 {
+		t.Fatalf("zbin-over-quant rdModeScore = %d, want libvpx RDCOST 2078", got)
+	}
+	if got := libvpxErrorPerBitWithZbin(127, 128); got != 899 {
+		t.Fatalf("zbin-over-quant errorperbit = %d, want 899", got)
 	}
 }
 
@@ -1639,7 +1656,7 @@ func TestOptimizeQuantizedBlockDropsTrailingCoefficientWhenRateWins(t *testing.T
 	coeff[1] = 9
 	qcoeff[1] = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, false, &coeff, &quant, &qcoeff, 2)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 2)
 
 	if eob != 1 || qcoeff[1] != 0 {
 		t.Fatalf("optimized eob/qcoeff = %d/%d, want trailing coefficient dropped", eob, qcoeff[1])
@@ -1657,7 +1674,7 @@ func TestOptimizeQuantizedBlockUsesProvidedCoefficientProbs(t *testing.T) {
 	qcoeff[1] = 1
 
 	defaultQ := qcoeff
-	defaultEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, false, &coeff, &quant, &defaultQ, 2)
+	defaultEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &defaultQ, 2)
 	if defaultEOB != 1 || defaultQ[1] != 0 {
 		t.Fatalf("default optimized eob/qcoeff = %d/%d, want trailing coefficient dropped", defaultEOB, defaultQ[1])
 	}
@@ -1671,7 +1688,7 @@ func TestOptimizeQuantizedBlockUsesProvidedCoefficientProbs(t *testing.T) {
 	liveProbs[0][nextBand][nextCtx][0] = 255
 
 	liveQ := qcoeff
-	liveEOB := optimizeQuantizedBlock(&liveProbs, 127, 0, 0, 1, false, &coeff, &quant, &liveQ, 2)
+	liveEOB := optimizeQuantizedBlock(&liveProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &liveQ, 2)
 	if liveEOB != 2 || liveQ[1] != 1 {
 		t.Fatalf("live-prob optimized eob/qcoeff = %d/%d, want coefficient preserved", liveEOB, liveQ[1])
 	}
@@ -1687,7 +1704,7 @@ func TestOptimizeQuantizedBlockKeepsCoefficientWhenDistortionDominates(t *testin
 	coeff[1] = 100
 	qcoeff[1] = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, false, &coeff, &quant, &qcoeff, 2)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 2)
 
 	if eob != 2 || qcoeff[1] != 1 {
 		t.Fatalf("optimized eob/qcoeff = %d/%d, want coefficient preserved", eob, qcoeff[1])
@@ -1702,7 +1719,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	boostedRC := int(vp8tables.DefaultZigZag1D[7])
 	coeff[boostedRC] = 75
 
-	eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff)
+	eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 0 || qcoeff[boostedRC] != 0 || dqcoeff[boostedRC] != 0 {
 		t.Fatalf("boosted coefficient eob/q/dq = %d/%d/%d, want suppressed", eob, qcoeff[boostedRC], dqcoeff[boostedRC])
@@ -1713,7 +1730,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	dqcoeff = [16]int16{}
 	earlyRC := int(vp8tables.DefaultZigZag1D[1])
 	coeff[earlyRC] = 80
-	eob = quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff)
+	eob = quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 2 || qcoeff[earlyRC] == 0 || dqcoeff[earlyRC] == 0 {
 		t.Fatalf("early coefficient eob/q/dq = %d/%d/%d, want quantized", eob, qcoeff[earlyRC], dqcoeff[earlyRC])
@@ -1728,13 +1745,33 @@ func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 66
 
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
 		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
 		t.Fatalf("boosted eob/q = %d/%d, want coefficient suppressed", eob, qcoeff[rc])
+	}
+}
+
+func TestQuantizeBlockWithZbinUsesOverQuant(t *testing.T) {
+	quant := testRegularBlockQuant(80, 100)
+	var coeff [16]int16
+	var qcoeff [16]int16
+	var dqcoeff [16]int16
+	rc := int(vp8tables.DefaultZigZag1D[1])
+	zbinOverQuant := 128
+	extra := (int(quant.Dequant[1]) * zbinOverQuant) >> 7
+	coeff[rc] = int16(int(quant.Zbin[rc]) + int(quant.ZbinBoost[0]) + extra/2)
+
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
+	}
+	qcoeff = [16]int16{}
+	dqcoeff = [16]int16{}
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, zbinOverQuant, 0, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
+		t.Fatalf("over-quant eob/q/dq = %d/%d/%d, want coefficient suppressed", eob, qcoeff[rc], dqcoeff[rc])
 	}
 }
 
@@ -1746,7 +1783,7 @@ func TestQuantizeOptimizedBlockUpdatesDequantizedCoefficients(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 11
 
-	eob := quantizeOptimizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, &dqcoeff)
+	eob := quantizeOptimizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, &coeff, &quant, &qcoeff, &dqcoeff)
 
 	if eob != 1 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
 		t.Fatalf("optimized eob/q/dq = %d/%d/%d, want trailing coefficient dropped and dequantized", eob, qcoeff[rc], dqcoeff[rc])
@@ -1761,7 +1798,7 @@ func TestQuantizeOptimizedBlockKeepsDequantizedCoefficient(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 100
 
-	eob := quantizeOptimizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, &dqcoeff)
+	eob := quantizeOptimizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, 0, 0, false, &coeff, &quant, &qcoeff, &dqcoeff)
 
 	if eob != 2 || qcoeff[rc] != 1 || dqcoeff[rc] != 100 {
 		t.Fatalf("optimized eob/q/dq = %d/%d/%d, want coefficient kept and dequantized", eob, qcoeff[rc], dqcoeff[rc])
@@ -1778,8 +1815,8 @@ func TestQuantizeEncodedBlockHonorsOptimizeGate(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 11
 
-	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
-	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, false, &coeff, &quant, &plainQ, &plainDQ)
+	optimizedEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, false, true, &coeff, &quant, &optimizedQ, &optimizedDQ)
+	plainEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, false, false, &coeff, &quant, &plainQ, &plainDQ)
 
 	if optimizedEOB != 1 || optimizedQ[rc] != 0 || optimizedDQ[rc] != 0 {
 		t.Fatalf("optimized encoding eob/q/dq = %d/%d/%d, want dropped coefficient", optimizedEOB, optimizedQ[rc], optimizedDQ[rc])
@@ -1799,8 +1836,8 @@ func TestQuantizeEncodedBlockUsesFastQuantWhenSpeedFeatureRequestsIt(t *testing.
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 64
 
-	regularEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, false, false, &coeff, &quant, &regularQ, &regularDQ)
-	fastEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, true, false, &coeff, &quant, &fastQ, &fastDQ)
+	regularEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, false, false, &coeff, &quant, &regularQ, &regularDQ)
+	fastEOB := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, 0, false, true, false, &coeff, &quant, &fastQ, &fastDQ)
 
 	if regularEOB != 0 || regularQ[rc] != 0 || regularDQ[rc] != 0 {
 		t.Fatalf("regular encoding eob/q/dq = %d/%d/%d, want zbin-suppressed coefficient", regularEOB, regularQ[rc], regularDQ[rc])

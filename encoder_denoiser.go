@@ -41,14 +41,14 @@ const (
 // denoiseParams mirrors libvpx denoising.h denoise_params; chosen at frame
 // start by denoiserSetParameters.
 type denoiseParams struct {
-	scaleSSEThresh       int
-	scaleMotionThresh    int
-	scaleIncreaseFilter  int
-	denoiseMVBias        int
-	pickmodeMVBias       int
-	qpThresh             int
-	consecZeroLast       int
-	spatialBlur          int
+	scaleSSEThresh      int
+	scaleMotionThresh   int
+	scaleIncreaseFilter int
+	denoiseMVBias       int
+	pickmodeMVBias      int
+	qpThresh            int
+	consecZeroLast      int
+	spatialBlur         int
 }
 
 // denoiserSetParameters mirrors vp8_denoiser_set_parameters: maps the

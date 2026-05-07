@@ -84,13 +84,15 @@ the anchor and look for the surrounding mismatch.
     one-pass warmup, CQ floor, and CBR full-buffer cases, and failed key/inter
     recode attempts no longer commit entropy or skip-prob state before the
     accepted attempt. Recode retries now carry local `q_low/q_high` bounds,
-    libvpx-style over/undershoot history, and damped local rate-correction
-    estimates for next-Q selection. libvpx still carries zbin over-quant,
-    active-worst-Q expansion, forced/auto key-frame recodes, and projected
-    entropy savings.
-  - Missing: `zbin_over_quant`, `active_worst_qchanged`, forced/auto key-frame
-    recodes, entropy projected-size decisions, and full saved-coding-context
-    restore coverage after failed attempts.
+    libvpx-style over/undershoot history, damped local rate-correction estimates,
+    and `zbin_over_quant` low/high state for max-Q retries. Initial and retry Q
+    regulation compute the libvpx zbin over-quant value, including the GF/ARF
+    cap, and the accepted attempt applies it to coefficient zbin and the RD
+    multiplier.
+  - Missing: `active_worst_qchanged`, forced/auto key-frame recodes, entropy
+    projected-size decisions, full saved-coding-context restore coverage after
+    failed attempts, and trace coverage for GF/ARF zbin-over-quant cases once
+    automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -290,10 +292,12 @@ the anchor and look for the surrounding mismatch.
     optimization and fast-vs-regular quantizer selection now follow the libvpx
     speed-feature gates, RD scoring uses the same unoptimized fast/regular
     quantizer family, and post-optimization `check_reset_2nd_coeffs` behavior
-    now clears tiny Y2 residuals that would inverse-transform to zero. Full
-    parity still needs every zbin/round/quant/dequant path, trellis decision,
-    EOB handling, and Y2/Y1/UV context behavior.
-  - Missing: libvpx Viterbi trellis, `zbin_extra`, `RDTRUNC` tie-breaks, and
+    now clears tiny Y2 residuals that would inverse-transform to zero. Regular
+    quantization now applies libvpx `zbin_extra` for mode boost plus
+    `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses it
+    like libvpx. Full parity still needs every round/quant/dequant path, trellis
+    decision, EOB handling, and Y2/Y1/UV context behavior.
+  - Missing: libvpx Viterbi trellis, `act_zbin_adj`, `RDTRUNC` tie-breaks, and
     token-cost trace anchors.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
     token rate, and reconstruction across Q, block type, context, skipDC, zbin

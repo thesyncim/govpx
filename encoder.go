@@ -228,10 +228,10 @@ type VP8Encoder struct {
 
 	lookahead []lookaheadEntry
 
-	preprocess        vp8common.FrameBuffer
-	arnrScratch       vp8common.FrameBuffer
-	arnrLastSource    vp8common.FrameBuffer
-	arnrLastReady     bool
+	preprocess     vp8common.FrameBuffer
+	arnrScratch    vp8common.FrameBuffer
+	arnrLastSource vp8common.FrameBuffer
+	arnrLastReady  bool
 	// libvpx-style temporal denoiser. Maintains a parallel running_avg
 	// stream (per reference) that mc-filters the source toward the picked
 	// motion-compensated prediction, plus a per-MB FILTER/COPY/NoFilter
@@ -767,9 +767,11 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 		return false
 	}
 	if next == e.rc.currentQuantizer {
+		e.rc.currentZbinOverQuant = recode.zbinOverQuant
 		return false
 	}
 	e.rc.currentQuantizer = next
+	e.rc.currentZbinOverQuant = recode.zbinOverQuant
 	return true
 }
 
