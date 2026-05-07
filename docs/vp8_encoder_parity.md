@@ -443,7 +443,10 @@ the anchor and look for the surrounding mismatch.
     split-size subpel variance/SAD coverage for 16x8, 8x16, 8x8, and 4x4.
     Compressor-speed searches now also save the accepted 8x8 partition's
     block 0/2/8/10 MVs and use them as the 8x16 and 16x8 search centers
-    while keeping NEW4X4 coding cost anchored to `bestRefMV`.
+    while keeping NEW4X4 coding cost anchored to `bestRefMV`; the saved
+    8x8-pair distance now drives libvpx's `vp8_cal_step_param` model, and
+    speed-path SplitMV NEW searches use the same NSTEP diamond/further-step
+    search shape instead of the older fixed exhaustive window.
     After the Y split is committed, `selectInterFrameSplitMotionDecisionRD`
     reuses the decoder's `ReconstructSplitMVInterMacroblock` to render the
     SPLITMV luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
@@ -453,9 +456,9 @@ the anchor and look for the surrounding mismatch.
     `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
     and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
     (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
-    Remaining search-shape work is the libvpx speed-path `step_param`
-    derivation and diamond-search/further-steps behavior. Token-context commit
-    parity and oracle-backed label-level RD remain open.
+    Remaining search-shape work is exact best-quality full-search fallback and
+    broader oracle coverage. Token-context commit parity and oracle-backed
+    label-level RD remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

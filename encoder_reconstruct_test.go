@@ -571,6 +571,27 @@ func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.
 	}
 }
 
+func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
+	tests := []struct {
+		sr   int
+		want int
+	}{
+		{sr: 0, want: 7},
+		{sr: 1, want: 7},
+		{sr: 2, want: 6},
+		{sr: 3, want: 6},
+		{sr: 4, want: 5},
+		{sr: 127, want: 1},
+		{sr: 128, want: 0},
+		{sr: 512, want: 0},
+	}
+	for _, tt := range tests {
+		if got := libvpxSplitMVStepParamFromSeedDistance(tt.sr); got != tt.want {
+			t.Fatalf("step_param(%d) = %d, want %d", tt.sr, got, tt.want)
+		}
+	}
+}
+
 func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
@@ -1197,6 +1218,28 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 	}
 }
 
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*67 + col*43 + row*col*19 + col*col*5) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 4, 4, 0, 2)
+	ref.ExtendBorders()
+
+	source := sourceImageFromPublic(src)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7)
+
+	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
+		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
+	}
+	if stepOneMV == stepTwoMV {
+		t.Fatalf("step_param 7 reached %+v; want smaller diamond window than step_param 6", stepOneMV)
+	}
+}
+
 func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.T) {
 	src, ref := splitMotionSourceAndReference(t)
 	for row := 0; row < ref.Img.CodedHeight; row++ {
@@ -1204,7 +1247,7 @@ func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*71 + col*37 + row*col*17 + col*col*11) & 255)
 		}
 	}
-	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 12)
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 16, 0, 9)
 	copyShiftedBlockFromReference(src, &ref.Img, 0, 8, 8, 16, 0, 0)
 	ref.ExtendBorders()
 	seeds := splitMotionSearchSeeds{
@@ -1222,8 +1265,8 @@ func TestSelectInterFrameSplitMotionModeWithSearchUses8x8SeedFor8x16(t *testing.
 	if !ok || mode.Partition != 1 {
 		t.Fatalf("mode = %+v ok=%t, want 8x16 SplitMV", mode, ok)
 	}
-	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 96}) {
-		t.Fatalf("seeded 8x16 left MV = %+v, want col +96", mode.BlockMV[0])
+	if mode.BlockMV[0] != (vp8enc.MotionVector{Col: 72}) {
+		t.Fatalf("seeded 8x16 left MV = %+v, want col +72", mode.BlockMV[0])
 	}
 	if mode.BlockMV[2] != (vp8enc.MotionVector{}) {
 		t.Fatalf("8x16 right MV = %+v, want zero", mode.BlockMV[2])
@@ -1289,6 +1332,9 @@ func TestSplitMotionSearchSeedsFrom8x8UsesLibvpxBlocks(t *testing.T) {
 	want := [4]vp8enc.MotionVector{mode.BlockMV[0], mode.BlockMV[2], mode.BlockMV[8], mode.BlockMV[10]}
 	if seeds.mv != want {
 		t.Fatalf("seeds = %+v, want %+v", seeds.mv, want)
+	}
+	if seeds.step8x16 != [2]int{5, 5} || seeds.step16x8 != [2]int{7, 7} {
+		t.Fatalf("seed steps 8x16=%v 16x8=%v, want [5 5] and [7 7]", seeds.step8x16, seeds.step16x8)
 	}
 }
 
