@@ -316,8 +316,11 @@ the anchor and look for the surrounding mismatch.
     now clears tiny Y2 residuals that would inverse-transform to zero. Regular
     quantization now applies libvpx `zbin_extra` for mode boost plus
     `zbin_over_quant` (half on Y2), while fast quant intentionally bypasses it
-    like libvpx. Full parity still needs every round/quant/dequant path, trellis
-    decision, EOB handling, and Y2/Y1/UV context behavior.
+    like libvpx. Frame-level quant deltas now match libvpx `vp8_set_quantizer`:
+    low-Q frames write and use `y2dc_delta_q = 4 - Q`, and screen-content
+    frames above Q40 write and use clamped negative UV DC/AC deltas. Full parity
+    still needs every round/quant/dequant path, trellis decision, EOB handling,
+    and Y2/Y1/UV context behavior.
   - Missing: libvpx Viterbi trellis, `act_zbin_adj`, `RDTRUNC` tie-breaks, and
     token-cost trace anchors.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,

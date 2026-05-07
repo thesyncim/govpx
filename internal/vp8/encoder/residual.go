@@ -20,14 +20,18 @@ type SourceImage struct {
 }
 
 func BuildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
-	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, SegmentationConfig{}, false, modes, coeffs)
+	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, common.QuantDeltas{}, SegmentationConfig{}, false, modes, coeffs)
+}
+
+func BuildNeutralPredictorKeyFrameCoefficientsWithQuantDeltas(src SourceImage, qIndex int, deltas common.QuantDeltas, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
+	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, deltas, SegmentationConfig{}, false, modes, coeffs)
 }
 
 func BuildNeutralPredictorKeyFrameCoefficientsWithSegmentation(src SourceImage, qIndex int, segmentation SegmentationConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
-	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, segmentation, true, modes, coeffs)
+	return buildNeutralPredictorKeyFrameCoefficients(src, qIndex, common.QuantDeltas{}, segmentation, true, modes, coeffs)
 }
 
-func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, segmentation SegmentationConfig, preserveSegmentID bool, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
+func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, deltas common.QuantDeltas, segmentation SegmentationConfig, preserveSegmentID bool, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) error {
 	if !validSourceImage(src) || qIndex < common.MinQ || qIndex > common.MaxQ {
 		return ErrInvalidPacketConfig
 	}
@@ -39,7 +43,7 @@ func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, segm
 	}
 
 	var quants [common.MaxMBSegments]MacroblockQuant
-	if err := InitSegmentMacroblockQuants(qIndex, common.QuantDeltas{}, segmentation, &quants); err != nil {
+	if err := InitSegmentMacroblockQuants(qIndex, deltas, segmentation, &quants); err != nil {
 		return err
 	}
 

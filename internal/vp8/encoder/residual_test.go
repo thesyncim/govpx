@@ -88,6 +88,23 @@ func TestBuildNeutralPredictorKeyFrameCoefficientsWithSegmentationQuantizesPerSe
 	}
 }
 
+func TestBuildNeutralPredictorKeyFrameCoefficientsWithQuantDeltasUsesY2DC(t *testing.T) {
+	src := solidSourceImage(16, 16, 255, 128, 128)
+	modes := make([]vp8enc.KeyFrameMacroblockMode, 1)
+	neutralCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	deltaCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
+
+	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficients(src, 2, modes, neutralCoeffs); err != nil {
+		t.Fatalf("BuildNeutralPredictorKeyFrameCoefficients returned error: %v", err)
+	}
+	if err := vp8enc.BuildNeutralPredictorKeyFrameCoefficientsWithQuantDeltas(src, 2, common.QuantDeltas{Y2DC: 2}, modes, deltaCoeffs); err != nil {
+		t.Fatalf("BuildNeutralPredictorKeyFrameCoefficientsWithQuantDeltas returned error: %v", err)
+	}
+	if neutralCoeffs[0].QCoeff[24][0] == deltaCoeffs[0].QCoeff[24][0] {
+		t.Fatalf("Y2 DC qcoeff = %d with/without delta, want quant delta to change coefficient", deltaCoeffs[0].QCoeff[24][0])
+	}
+}
+
 func TestBuildNeutralPredictorKeyFrameCoefficientsRejectsInvalidInput(t *testing.T) {
 	src := solidSourceImage(16, 16, 128, 128, 128)
 	modes := make([]vp8enc.KeyFrameMacroblockMode, 1)

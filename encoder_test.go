@@ -378,6 +378,64 @@ func TestEncodeIntoCQLevelSelectsQuantizer(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoWritesLibvpxFrameQuantDeltas(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        0,
+		MaxQuantizer:        1,
+		CQLevel:             0,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 4096)
+	key, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyQuant := packetState(t, key.Data).Quant
+	if keyQuant.BaseQIndex != 0 || keyQuant.Y2DCDelta != 4 {
+		t.Fatalf("key quant = %+v, want base Q 0 with Y2 DC delta 4", keyQuant)
+	}
+
+	screen, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             56,
+		ScreenContentMode:   1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("screen NewVP8Encoder returned error: %v", err)
+	}
+	if _, err := screen.EncodeInto(dst, rateControlTestFrame(16, 16, 0), 0, 1, 0); err != nil {
+		t.Fatalf("screen key EncodeInto returned error: %v", err)
+	}
+	inter, err := screen.EncodeInto(dst, rateControlTestFrame(16, 16, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	interQuant := packetState(t, inter.Data).Quant
+	wantUVDelta := int8(-15)
+	if interQuant.BaseQIndex != uint8(libvpxPublicQuantizerToQIndex(56)) || interQuant.UVDCDelta != wantUVDelta || interQuant.UVACDelta != wantUVDelta {
+		t.Fatalf("inter quant = %+v, want screen-content UV deltas %d at qindex %d", interQuant, wantUVDelta, libvpxPublicQuantizerToQIndex(56))
+	}
+}
+
 func TestEncodeIntoCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,

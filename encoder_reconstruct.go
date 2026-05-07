@@ -37,6 +37,33 @@ var bPredIntraModeCandidates = [...]vp8common.BPredictionMode{
 	vp8common.BHUPred,
 }
 
+func libvpxFrameQuantDeltas(qIndex int, screenContentMode int) vp8common.QuantDeltas {
+	var deltas vp8common.QuantDeltas
+	if qIndex < 4 {
+		deltas.Y2DC = 4 - qIndex
+	}
+	if screenContentMode != 0 && qIndex > 40 {
+		uvDelta := -(15 * qIndex / 100)
+		if uvDelta < -15 {
+			uvDelta = -15
+		}
+		deltas.UVDC = uvDelta
+		deltas.UVAC = uvDelta
+	}
+	return deltas
+}
+
+func quantHeaderForFrame(qIndex int, deltas vp8common.QuantDeltas) vp8dec.QuantHeader {
+	return vp8dec.QuantHeader{
+		BaseQIndex: uint8(qIndex),
+		Y1DCDelta:  int8(deltas.Y1DC),
+		Y2DCDelta:  int8(deltas.Y2DC),
+		Y2ACDelta:  int8(deltas.Y2AC),
+		UVDCDelta:  int8(deltas.UVDC),
+		UVACDelta:  int8(deltas.UVAC),
+	}
+}
+
 var libvpxFastInterModeOrder = [...]vp8common.MBPredictionMode{
 	vp8common.ZeroMV, vp8common.DCPred,
 	vp8common.NearestMV, vp8common.NearMV,
@@ -108,11 +135,12 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 	}
 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
-	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, vp8common.QuantDeltas{}, segmentation, &quants); err != nil {
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, segmentation, &quants); err != nil {
 		return ErrInvalidConfig
 	}
 	decSegmentation := encoderSegmentationToDecoder(segmentation)
-	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, &decSegmentation, &e.dequantTables, &e.dequants)
+	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
 
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
 	for row := 0; row < rows; row++ {
@@ -178,11 +206,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	}
 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
-	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, vp8common.QuantDeltas{}, segmentation, &quants); err != nil {
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, segmentation, &quants); err != nil {
 		return ErrInvalidConfig
 	}
 	decSegmentation := encoderSegmentationToDecoder(segmentation)
-	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: uint8(qIndex)}, &decSegmentation, &e.dequantTables, &e.dequants)
+	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)

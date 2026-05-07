@@ -632,6 +632,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return keyFrameEncodeAttempt{}, ErrInvalidConfig
 	}
+	quantDeltas := libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
 		segmentation = e.cyclicRefreshSegmentationConfig(true)
@@ -663,6 +664,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		InvisibleFrame:      invisible,
 		TokenPartition:      vp8common.TokenPartition(e.opts.TokenPartitions),
 		BaseQIndex:          uint8(e.rc.currentQuantizer),
+		QuantDeltas:         quantDeltas,
 		LoopFilterLevel:     lfLevel,
 		SharpnessLevel:      lfSharpness,
 		LFDeltaEnabled:      lfHeader.DeltaEnabled,
@@ -696,6 +698,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
+	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0

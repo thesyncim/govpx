@@ -59,6 +59,27 @@ func TestWriteInterFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameStateHeaderParsesQuantDeltas(t *testing.T) {
+	cfg := DefaultInterFrameStateConfig(2)
+	cfg.QuantDeltas = common.QuantDeltas{Y2DC: 2, UVDC: -3, UVAC: -3}
+	dst := make([]byte, 512)
+	n, err := WriteZeroInterFrame(dst, 16, 16, cfg)
+	if err != nil {
+		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
+	}
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(dst[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if state.Quant.BaseQIndex != 2 || state.Quant.Y2DCDelta != 2 || state.Quant.UVDCDelta != -3 || state.Quant.UVACDelta != -3 {
+		t.Fatalf("quant = %+v, want base Q 2 with Y2/UV deltas", state.Quant)
+	}
+}
+
 func TestAdaptInterFrameModeProbabilities(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	modes := []InterFrameMacroblockMode{

@@ -21,6 +21,7 @@ type InterFrameStateConfig struct {
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
+	QuantDeltas    common.QuantDeltas
 
 	RefreshLast   bool
 	RefreshGolden bool
@@ -86,9 +87,7 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error 
 	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.RefLFDeltas, cfg.ModeLFDeltas)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
-	for i := 0; i < 5; i++ {
-		w.WriteBit(0)
-	}
+	writeQuantDeltas(w, cfg.QuantDeltas)
 
 	writeInterRefreshHeader(w, cfg)
 	if err := WriteCoefficientProbabilityUpdates(w, &cfg.CoefficientProbs); err != nil {
@@ -1300,6 +1299,7 @@ func validInterFrameStateConfig(cfg InterFrameStateConfig) bool {
 		cfg.TokenPartition >= common.OnePartition &&
 		cfg.TokenPartition <= common.EightPartition &&
 		cfg.BaseQIndex <= 127 &&
+		validQuantDeltas(cfg.QuantDeltas) &&
 		cfg.CopyBufferToGolden >= 0 &&
 		cfg.CopyBufferToGolden <= 2 &&
 		cfg.CopyBufferToAltRef >= 0 &&

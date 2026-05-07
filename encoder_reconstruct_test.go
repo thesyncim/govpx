@@ -179,6 +179,28 @@ func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestLibvpxFrameQuantDeltas(t *testing.T) {
+	tests := []struct {
+		name              string
+		qIndex            int
+		screenContentMode int
+		want              vp8common.QuantDeltas
+	}{
+		{name: "q zero y2 dc", qIndex: 0, want: vp8common.QuantDeltas{Y2DC: 4}},
+		{name: "q three y2 dc", qIndex: 3, want: vp8common.QuantDeltas{Y2DC: 1}},
+		{name: "q four neutral", qIndex: 4, want: vp8common.QuantDeltas{}},
+		{name: "screen q eighty uv", qIndex: 80, screenContentMode: 1, want: vp8common.QuantDeltas{UVDC: -12, UVAC: -12}},
+		{name: "screen q one twenty seven clamps uv", qIndex: 127, screenContentMode: 1, want: vp8common.QuantDeltas{UVDC: -15, UVAC: -15}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := libvpxFrameQuantDeltas(tt.qIndex, tt.screenContentMode); got != tt.want {
+				t.Fatalf("quant deltas = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInterAnalysisSplitPartitionOrderMirrorsLibvpxCompressorSpeed(t *testing.T) {
 	tests := []struct {
 		name     string

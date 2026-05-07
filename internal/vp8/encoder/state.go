@@ -23,6 +23,7 @@ type KeyFrameStateConfig struct {
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
+	QuantDeltas    common.QuantDeltas
 
 	RefreshEntropyProbs bool
 
@@ -52,9 +53,7 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.RefLFDeltas, cfg.ModeLFDeltas)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
-	for i := 0; i < 5; i++ {
-		w.WriteBit(0)
-	}
+	writeQuantDeltas(w, cfg.QuantDeltas)
 	if cfg.RefreshEntropyProbs {
 		w.WriteBit(1)
 	} else {
@@ -75,6 +74,29 @@ func WriteKeyFrameStateHeader(w *BoolWriter, cfg KeyFrameStateConfig) error {
 		return w.Err()
 	}
 	return nil
+}
+
+func writeQuantDeltas(w *BoolWriter, deltas common.QuantDeltas) {
+	writeQuantDelta(w, deltas.Y1DC)
+	writeQuantDelta(w, deltas.Y2DC)
+	writeQuantDelta(w, deltas.Y2AC)
+	writeQuantDelta(w, deltas.UVDC)
+	writeQuantDelta(w, deltas.UVAC)
+}
+
+func writeQuantDelta(w *BoolWriter, delta int) {
+	if delta == 0 {
+		w.WriteBit(0)
+		return
+	}
+	w.WriteBit(1)
+	if delta < 0 {
+		w.WriteLiteral(uint32(-delta), 4)
+		w.WriteBit(1)
+		return
+	}
+	w.WriteLiteral(uint32(delta), 4)
+	w.WriteBit(0)
 }
 
 func writeLoopFilterDeltas(w *BoolWriter, enabled bool, update bool, refDeltas [common.MaxRefLFDeltas]int8, modeDeltas [common.MaxModeLFDeltas]int8) {
@@ -134,5 +156,18 @@ func validKeyFrameStateConfig(cfg KeyFrameStateConfig) bool {
 		cfg.TokenPartition >= common.OnePartition &&
 		cfg.TokenPartition <= common.EightPartition &&
 		cfg.BaseQIndex <= 127 &&
+		validQuantDeltas(cfg.QuantDeltas) &&
 		validSegmentationConfig(cfg.Segmentation)
+}
+
+func validQuantDeltas(deltas common.QuantDeltas) bool {
+	return validQuantDelta(deltas.Y1DC) &&
+		validQuantDelta(deltas.Y2DC) &&
+		validQuantDelta(deltas.Y2AC) &&
+		validQuantDelta(deltas.UVDC) &&
+		validQuantDelta(deltas.UVAC)
+}
+
+func validQuantDelta(delta int) bool {
+	return delta >= -15 && delta <= 15
 }
