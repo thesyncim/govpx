@@ -2694,6 +2694,22 @@ func TestSplitMotionModeVectorCostUsesExplicitSubMVLabel(t *testing.T) {
 	}
 }
 
+func TestSplitSubMotionLabelSearchCostUsesAnalysisContext(t *testing.T) {
+	left := vp8enc.MotionVector{Col: 8}
+	above := vp8enc.MotionVector{}
+	const qIndex = 127
+
+	got := splitSubMotionLabelSearchCostWithContext(vp8common.Above4x4, left, above, qIndex)
+	wantRate := splitSubMotionLabelRate(vp8common.Above4x4, left, above)
+	want := (wantRate*libvpxSADPerBit4(qIndex) + 128) >> 8
+	if got != want {
+		t.Fatalf("contextual ABOVE4X4 search cost = %d, want %d", got, want)
+	}
+	if got == splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex) {
+		t.Fatalf("contextual ABOVE4X4 search cost matched default cost %d; want left/above context to affect SplitMV search", got)
+	}
+}
+
 // TestInterReferenceFrameRateUsesLivePrevFrameProbs locks in libvpx parity for
 // vp8_calc_ref_frame_costs: ref-frame selection bits are charged against the
 // previous frame's prob_last_coded / prob_gf_coded, not a static 128 prior.

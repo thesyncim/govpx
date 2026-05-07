@@ -52,8 +52,8 @@ the anchor and look for the surrounding mismatch.
   equivalent unimplemented). Other heavy areas: automatic hidden-ARF
   scheduling, motion-compensated ARNR temporal filter, full GF boost
   tables and `kf_overspend_bits`/`gf_overspend_bits` rate-control
-  bookkeeping, error-resilient independent coefficient contexts, and the
-  libvpx-side oracle comparator.
+  bookkeeping, remaining entropy-refresh edge cases, and the libvpx-side
+  oracle comparator.
 - If only three more things are fixed, they should be: (1) the libvpx-side
   oracle comparator paired with the existing govpx trace, (2) a proper
   `firstpass.c` port covering motion search, MV variance, simple_weight,
@@ -701,7 +701,12 @@ the anchor and look for the surrounding mismatch.
     search shape instead of the older fixed exhaustive window. Best-quality
     SplitMV NEW searches now use the same NSTEP base plus libvpx's conditional
     `vp8_full_search_sad`-style distance-16 fallback when the split-shape
-    shifted error remains above 4000.
+    shifted error remains above 4000. SplitMV sub-MV label search costs now
+    price LEFT/ABOVE/ZERO/NEW through the same left/above contextual
+    `analysisSubMVRefProbs` path used by final `splitSubMotionLabelRate`
+    accounting, with `TestSplitSubMotionLabelSearchCostUsesAnalysisContext`
+    guarding the search-time cost against regressing to the static default
+    table.
     After the Y split is committed, `selectInterFrameSplitMotionDecisionRD`
     reuses the decoder's `ReconstructSplitMVInterMacroblock` to render the
     SPLITMV luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the

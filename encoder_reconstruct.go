@@ -1731,10 +1731,10 @@ func selectInterFrameSplitSubsetMotionModeWithSearch(src vp8enc.SourceImage, ref
 	aboveMV := analysisSplitAboveMV(mode, above, block)
 	bestMV := leftMV
 	bestMode := vp8common.Left4x4
-	bestCost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV) + splitSubMotionLabelSearchCost(bestMode, qIndex)
+	bestCost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, bestMV) + splitSubMotionLabelSearchCostWithContext(bestMode, leftMV, aboveMV, qIndex)
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
-		cost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + splitSubMotionLabelSearchCost(candidateMode, qIndex)
+		cost := splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + splitSubMotionLabelSearchCostWithContext(candidateMode, leftMV, aboveMV, qIndex)
 		if cost < bestCost {
 			bestCost = cost
 			bestMV = mv
@@ -1751,7 +1751,7 @@ func selectInterFrameSplitSubsetMotionModeWithSearch(src vp8enc.SourceImage, ref
 		newMV = refinedMV
 		newCost = interMotionSplitBlockSearchCost(src, ref, mbRow, mbCol, block, width, height, refinedMV, bestRefMV, qIndex)
 	}
-	newCost += splitSubMotionLabelSearchCost(vp8common.New4x4, qIndex)
+	newCost += splitSubMotionLabelSearchCostWithContext(vp8common.New4x4, leftMV, aboveMV, qIndex)
 	if newCost < bestCost {
 		bestMV = newMV
 		bestMode = vp8common.New4x4
@@ -1882,6 +1882,11 @@ func libvpxSplitMVStepParamFromSeedDistance(sr int) int {
 
 func splitSubMotionLabelSearchCost(mode vp8common.BPredictionMode, qIndex int) int {
 	cost := splitSubMotionLabelCostWithProbs(mode, libvpxDefaultSubMVRefProbs)
+	return (cost*libvpxSADPerBit4(qIndex) + 128) >> 8
+}
+
+func splitSubMotionLabelSearchCostWithContext(mode vp8common.BPredictionMode, left vp8enc.MotionVector, above vp8enc.MotionVector, qIndex int) int {
+	cost := splitSubMotionLabelRate(mode, left, above)
 	return (cost*libvpxSADPerBit4(qIndex) + 128) >> 8
 }
 

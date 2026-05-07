@@ -77,8 +77,10 @@ lives in [Makefile](Makefile).
   saved 8x8-pair distances now feed libvpx-style `vp8_cal_step_param` values
   into NSTEP diamond/further-step SplitMV NEW searches. Best-quality SplitMV
   NEW searches now also use libvpx's conditional distance-16 full-search
-  fallback. Remaining gaps are token-context commit parity, `THR_NEW1/2/3`
-  NEW4X4 gating, and oracle-backed label-level RD.
+  fallback. Search-time sub-MV label costs now use the same left/above
+  contextual probabilities as final SplitMV label accounting. Remaining gaps
+  are token-context commit parity, `THR_NEW1/2/3` NEW4X4 gating, and
+  oracle-backed label-level RD.
 - Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
   min/max clamps, fast/full trial-filter search, and partial-frame luma SSE
   scoring are in place, while mode/ref deltas, ALT_LF segmentation, and exact
