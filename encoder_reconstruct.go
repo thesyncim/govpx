@@ -1261,7 +1261,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
-			mode, score, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			mode, score, yrd, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			if !ok {
 				continue
 			}
@@ -1270,7 +1270,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
-				bestYRD = score
+				bestYRD = yrd
 				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode}
 			} else {
@@ -1397,7 +1397,7 @@ func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSl
 	}
 }
 
-func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, bool) {
+func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, bool) {
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -1406,31 +1406,35 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if mbMode == vp8common.BPred {
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, &e.coefProbs, fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 		}
 		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 		}
-		rate := bRate + uvRate + intraYModeRate(false, vp8common.BPred) + e.interIntraMacroblockModeRate()
+		yRate := bRate + intraYModeRate(false, vp8common.BPred)
+		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
-		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, true
+		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
+		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, true
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
-		return vp8enc.InterFrameMacroblockMode{}, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
 	yRate, yDist := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, &e.coefProbs, fastQuant)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, fastQuant)
 	if !ok {
-		return vp8enc.InterFrameMacroblockMode{}, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
-	rate := yRate + uvRate + intraYModeRate(false, mbMode) + e.interIntraMacroblockModeRate()
+	modeRate := intraYModeRate(false, mbMode)
+	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, true
+	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, true
 }
 
 func (e *VP8Encoder) interModeForRDLoopEntry(
@@ -2323,8 +2327,9 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 	wholeRate := wholeYRate + wholeUVRate
 	wholeDist := wholeYDist + wholeUVDist
 	wholeCost := rdModeScore(qIndex, wholeRate, wholeDist)
+	wholeYCost := rdModeScore(qIndex, wholeYRate, wholeYDist)
 	best := vp8enc.KeyFrameMacroblockMode{YMode: wholeY, UVMode: wholeUV}
-	bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, 0, true, mbRow, mbCol, above, left, aboveTok, leftTok, quant, pred, scratch, wholeCost, coefProbs, fastQuant)
+	bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, 0, true, mbRow, mbCol, above, left, aboveTok, leftTok, quant, pred, scratch, wholeYCost, coefProbs, fastQuant)
 	if !ok {
 		return best, true
 	}
@@ -2350,9 +2355,10 @@ func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qInde
 	wholeRate := wholeYRate + wholeUVRate + e.interIntraMacroblockModeRate()
 	wholeDist := wholeYDist + wholeUVDist
 	wholeCost := rdModeScoreWithZbin(qIndex, zbinOverQuant, wholeRate, wholeDist) + libvpxInterIntraRDPenalty(qIndex)
+	wholeYCost := rdModeScoreWithZbin(qIndex, zbinOverQuant, wholeYRate, wholeYDist)
 	best := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: wholeY, UVMode: wholeUV}
 	bestCost := wholeCost
-	bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, pred, scratch, wholeCost, &e.coefProbs, fastQuant)
+	bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, pred, scratch, wholeYCost, &e.coefProbs, fastQuant)
 	if !ok {
 		return best, bestCost, true
 	}

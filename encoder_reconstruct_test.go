@@ -2603,7 +2603,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -2623,6 +2623,48 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
 	if got != want {
 		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", got, want)
+	}
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred), yDist)
+	if gotYRD != wantYRD {
+		t.Fatalf("inter-intra YRD = %d, want libvpx Y-only RD %d", gotYRD, wantYRD)
+	}
+}
+
+func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	quant := testRegularMacroblockQuant(t, 20)
+
+	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
+	if !ok {
+		t.Fatalf("estimateInterIntraModeRDScore BPred returned ok=false")
+	}
+
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, maxInt(), &e.coefProbs, false)
+	if !ok {
+		t.Fatalf("predictBestBPredLumaModeRD returned ok=false")
+	}
+	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, false)
+	if !ok {
+		t.Fatalf("predictBestIntraChromaModeRD mode=%v bModes=%v ok=false", uvMode, bModes)
+	}
+	yRate := bRate + intraYModeRate(false, vp8common.BPred)
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate, bDist)
+	if gotYRD != wantYRD {
+		t.Fatalf("BPred YRD = %d, want libvpx Y-only RD %d", gotYRD, wantYRD)
+	}
+	rate := yRate + uvRate + e.interIntraMacroblockModeRate()
+	want := rdModeScoreWithZbin(20, 0, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	if got != want {
+		t.Fatalf("BPred RD score = %d, want %d with UV/ref costs and penalty", got, want)
 	}
 }
 

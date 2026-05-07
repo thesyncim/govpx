@@ -938,7 +938,14 @@ the anchor and look for the surrounding mismatch.
     mbmode_cost addition, token context seeding, and Y/UV rate-distortion
     breakdowns against libvpx `rd_pick_intra16x16mby_mode`. The non-RD
     inter-frame B_PRED picker now uses libvpx's cheaper `B_DC_PRED..B_HE_PRED`
-    candidate set instead of the full RD-only 10-mode set.
+    candidate set instead of the full RD-only 10-mode set. B_PRED RD bailout
+    budgets now use the libvpx Y-only best-RD contract: key-frame and
+    inter-intra callers pass the 16x16 luma RD into
+    `predictBestBPredLumaModeRD`, and the inter RD loop stores
+    `estimateInterIntraModeRDScore`'s returned YRD instead of the total
+    Y+UV/ref/penalty score for later B_PRED/SPLITMV pruning. Tests:
+    `TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty` and
+    `TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts`.
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose).
   - Done when key-frame per-MB traces match Y mode, UV mode, B modes,

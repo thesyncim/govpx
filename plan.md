@@ -55,6 +55,9 @@ lives in [Makefile](Makefile).
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
   per-call tree walks are functionally equivalent, but the libvpx pattern
   precomputes once per frame).
+- Remaining Intra/Quant/Tokens parity is mostly SSIM-gated activity tuning and
+  oracle token-cost anchors; B_PRED now uses libvpx's Y-only RD bailout budget
+  for key-frame, inter-intra, and inter RD-loop pruning.
 - Faithful remaining motion-search branches: the `bestRefMV` centring,
   MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, libvpx NSTEP
   `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
