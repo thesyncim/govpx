@@ -314,6 +314,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
 	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
 	mvProbs := interFrameMVProbs(cfg)
+	signBias := interFrameSignBias(cfg)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
@@ -353,21 +354,21 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols) {
+			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols, signBias) {
 				return ErrInvalidPacketConfig
 			}
-			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame), mode.Mode) {
+			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame, signBias), mode.Mode) {
 				return ErrInvalidPacketConfig
 			}
 			switch mode.Mode {
 			case common.NewMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := WriteMotionVector(w, &mvProbs, delta); err != nil {
 					return err
 				}
 			case common.SplitMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
 				if err := WriteSplitMotionVectors(w, &mvProbs, mode, left, above, best); err != nil {
 					return err
 				}
@@ -554,6 +555,7 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 	var lastCounts [2]int
 	var goldenCounts [2]int
 	var mvCounts [2][tables.MVPCount][2]int
+	signBias := interFrameSignBias(*cfg)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
 			index := row*cols + col
@@ -584,7 +586,7 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols) {
+			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols, signBias) {
 				return [2][tables.MVPCount]uint8{}, ErrInvalidPacketConfig
 			}
 			switch refFrame {
@@ -601,13 +603,13 @@ func adaptInterFrameModeProbabilitiesWithMVBase(rows int, cols int, modes []Inte
 			}
 			switch mode.Mode {
 			case common.NewMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := countMotionVectorBranches(&mvCounts, delta); err != nil {
 					return [2][tables.MVPCount]uint8{}, err
 				}
 			case common.SplitMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols)
+				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
 				if err := countSplitMotionVectorBranches(&mvCounts, mode, left, above, best); err != nil {
 					return [2][tables.MVPCount]uint8{}, err
 				}
@@ -792,44 +794,51 @@ type InterModeCounts struct {
 	Split   uint8
 }
 
-func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) InterModeCounts {
-	_, _, _, counts := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+func interFrameSignBias(cfg InterFrameStateConfig) [common.MaxRefFrames]bool {
+	return [common.MaxRefFrames]bool{
+		common.GoldenFrame: cfg.GoldenSignBias,
+		common.AltRefFrame: cfg.AltRefSignBias,
+	}
+}
+
+func interModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) InterModeCounts {
+	_, _, _, counts := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
 	return counts
 }
 
-func InterFrameModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) InterModeCounts {
-	return interModeCounts(above, left, aboveLeft, refFrame)
+func InterFrameModeCounts(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) InterModeCounts {
+	return interModeCounts(above, left, aboveLeft, refFrame, signBias)
 }
 
-func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) MotionVector {
-	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+func interBestMotionVector(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) MotionVector {
+	_, _, best, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
 	return best
 }
 
-func interBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
-	return clampInterMotionVectorToModeEdges(interBestMotionVector(above, left, aboveLeft, refFrame), mbRow, mbCol, mbRows, mbCols)
+func interBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) MotionVector {
+	return clampInterMotionVectorToModeEdges(interBestMotionVector(above, left, aboveLeft, refFrame, signBias), mbRow, mbCol, mbRows, mbCols)
 }
 
-func InterFrameBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) MotionVector {
-	return interBestMotionVectorAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols)
+func InterFrameBestMotionVectorAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) MotionVector {
+	return interBestMotionVectorAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols, signBias)
 }
 
-func InterFrameNearMotionVectorsAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int) (MotionVector, MotionVector) {
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+func InterFrameNearMotionVectorsAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) (MotionVector, MotionVector) {
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
 	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
 	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	return nearest, near
 }
 
-func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) InterFrameMacroblockMode {
-	return InterFrameMotionModeForVectorAt(refFrame, mv, above, left, aboveLeft, 0, 0, 1, 1)
+func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, signBias [common.MaxRefFrames]bool) InterFrameMacroblockMode {
+	return InterFrameMotionModeForVectorAt(refFrame, mv, above, left, aboveLeft, 0, 0, 1, 1, signBias)
 }
 
-func InterFrameMotionModeForVectorAt(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) InterFrameMacroblockMode {
+func InterFrameMotionModeForVectorAt(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) InterFrameMacroblockMode {
 	if mv.IsZero() {
 		return InterFrameMacroblockMode{RefFrame: refFrame, Mode: common.ZeroMV}
 	}
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
 	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
 	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	switch mv {
@@ -842,25 +851,27 @@ func InterFrameMotionModeForVectorAt(refFrame common.MVReferenceFrame, mv Motion
 	}
 }
 
-func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
+func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
 	var nearMVs [4]MotionVector
 	var counts [4]uint8
 	mvIndex := 0
 	countIndex := 0
 
-	if above != nil && interFrameReference(above) != common.IntraFrame {
-		if !above.MV.IsZero() {
+	if aboveRef := interFrameReference(above); aboveRef != common.IntraFrame {
+		mv := signBiasMotionVector(above.MV, aboveRef, refFrame, signBias)
+		if !mv.IsZero() {
 			mvIndex++
-			nearMVs[mvIndex] = above.MV
+			nearMVs[mvIndex] = mv
 			countIndex++
 		}
 		counts[countIndex] += 2
 	}
-	if left != nil && interFrameReference(left) != common.IntraFrame {
-		if !left.MV.IsZero() {
-			if left.MV != nearMVs[mvIndex] {
+	if leftRef := interFrameReference(left); leftRef != common.IntraFrame {
+		mv := signBiasMotionVector(left.MV, leftRef, refFrame, signBias)
+		if !mv.IsZero() {
+			if mv != nearMVs[mvIndex] {
 				mvIndex++
-				nearMVs[mvIndex] = left.MV
+				nearMVs[mvIndex] = mv
 				countIndex++
 			}
 			counts[countIndex] += 2
@@ -868,11 +879,12 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 			counts[0] += 2
 		}
 	}
-	if aboveLeft != nil && interFrameReference(aboveLeft) != common.IntraFrame {
-		if !aboveLeft.MV.IsZero() {
-			if aboveLeft.MV != nearMVs[mvIndex] {
+	if aboveLeftRef := interFrameReference(aboveLeft); aboveLeftRef != common.IntraFrame {
+		mv := signBiasMotionVector(aboveLeft.MV, aboveLeftRef, refFrame, signBias)
+		if !mv.IsZero() {
+			if mv != nearMVs[mvIndex] {
 				mvIndex++
-				nearMVs[mvIndex] = aboveLeft.MV
+				nearMVs[mvIndex] = mv
 				countIndex++
 			}
 			counts[countIndex]++
@@ -891,7 +903,6 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 	if counts[1] >= counts[0] {
 		nearMVs[0] = nearMVs[1]
 	}
-	_ = refFrame
 	return nearMVs[1], nearMVs[2], nearMVs[0], InterModeCounts{
 		Intra:   counts[0],
 		Nearest: counts[1],
@@ -900,15 +911,20 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 	}
 }
 
+func signBiasMotionVector(mv MotionVector, srcRefFrame common.MVReferenceFrame, targetRefFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) MotionVector {
+	if srcRefFrame >= 0 && int(srcRefFrame) < len(signBias) &&
+		targetRefFrame >= 0 && int(targetRefFrame) < len(signBias) &&
+		signBias[srcRefFrame] != signBias[targetRefFrame] {
+		return MotionVector{Row: -mv.Row, Col: -mv.Col}
+	}
+	return mv
+}
+
 func (mv MotionVector) IsZero() bool {
 	return mv.Row == 0 && mv.Col == 0
 }
 
-func validInterFrameMacroblockMode(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode) bool {
-	return validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, 0, 0, 1, 1)
-}
-
-func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) bool {
+func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) bool {
 	if mode == nil {
 		return false
 	}
@@ -919,7 +935,7 @@ func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *Inte
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return false
 	}
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame)
+	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
 	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
 	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	switch mode.Mode {

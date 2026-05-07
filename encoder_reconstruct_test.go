@@ -1399,7 +1399,7 @@ func TestFastInterMotionModeRateKeepsPickInterNewMVWeight(t *testing.T) {
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
 	refRate := 17
-	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 
 	got := e.fastInterMotionModeRateWithReferenceRate(&mode, &above, nil, nil, 0, 0, 1, 1, refRate)
 	want := boolBitCost(63, 1) +
@@ -1440,7 +1440,7 @@ func TestInterMotionModeRateChargesReferenceModeAndVector(t *testing.T) {
 	e.modeProbs.MV = vp8tables.DefaultMVContext
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}
-	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame)
+	counts := vp8enc.InterFrameModeCounts(&above, nil, nil, mode.RefFrame, defaultInterFrameSignBias())
 	want := boolBitCost(63, 1) +
 		e.interReferenceFrameRate(vp8common.GoldenFrame) +
 		interPredictionModeRate(vp8common.NewMV, counts) +

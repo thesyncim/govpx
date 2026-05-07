@@ -947,20 +947,25 @@ func interFrameSubpixelSearchCandidateCount() int {
 	return interFrameSubpixelSearchMaxCandidates
 }
 
+func defaultInterFrameSignBias() [vp8common.MaxRefFrames]bool {
+	return [vp8common.MaxRefFrames]bool{}
+}
+
 func selectInterFrameReferenceMotionVector(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbRows int, mbCols int, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (interAnalysisReference, vp8enc.MotionVector) {
 	return selectInterFrameReferenceMotionVectorWithSearch(src, refs, refCount, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, qIndex, defaultInterAnalysisSearchConfig(), mvProbs)
 }
 
 func selectInterFrameReferenceMotionVectorWithSearch(src vp8enc.SourceImage, refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbRows int, mbCols int, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (interAnalysisReference, vp8enc.MotionVector) {
 	bestRef := refs[0]
-	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, bestRef.Frame, mbRow, mbCol, mbRows, mbCols)
+	signBias := defaultInterFrameSignBias()
+	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, bestRef.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	best, bestCost := selectInterFrameMotionVectorWithSearch(src, bestRef.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, mvProbs)
 	if bestCost == 0 {
 		return bestRef, best
 	}
 	for refIndex := 1; refIndex < refCount; refIndex++ {
 		ref := refs[refIndex]
-		refMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+		refMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 		mv, cost := selectInterFrameMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, refMV, qIndex, search, mvProbs)
 		if cost < bestCost {
 			bestRef = ref
@@ -1122,7 +1127,8 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
 ) (vp8enc.InterFrameMacroblockMode, int, bool, bool) {
-	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+	signBias := defaultInterFrameSignBias()
+	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	bestSet := false
 	bestScore := maxInt()
 	var bestMode vp8enc.InterFrameMacroblockMode
@@ -1224,7 +1230,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		}
 		candidate := &newMVCandidates[refIndex]
 		if !candidate.searched {
-			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectRDInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
@@ -1371,7 +1377,7 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		}
 		candidate := &newMVCandidates[refIndex]
 		if !candidate.searched {
-			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
@@ -1575,7 +1581,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		nearest, near := interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, nearest)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, near)
-		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
+		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 		start := interFrameSearchStart{}
 		if e != nil {
 			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
@@ -1594,7 +1600,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 }
 
 func interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
-	return vp8enc.InterFrameNearMotionVectorsAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols)
+	return vp8enc.InterFrameNearMotionVectorsAt(above, left, aboveLeft, refFrame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 }
 
 func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate, count int, ref interAnalysisReference, mv vp8enc.MotionVector) int {
@@ -3194,7 +3200,7 @@ func interMotionModeVectorCostWithNewMVWeight(mode *vp8enc.InterFrameMacroblockM
 	if mvProbs == nil {
 		return maxInt() / 4
 	}
-	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols)
+	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, mode.RefFrame, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 	if mode.Mode == vp8common.SplitMV {
 		return splitMotionModeVectorCost(mode, left, above, best, mvProbs)
 	}
@@ -3259,7 +3265,7 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndNewMVWeight(mode *vp
 	}
 	return boolBitCost(e.refProbIntra, 1) +
 		refRate +
-		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame)) +
+		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame, defaultInterFrameSignBias())) +
 		interMotionModeVectorCostWithNewMVWeight(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight)
 }
 
