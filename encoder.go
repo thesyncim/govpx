@@ -89,6 +89,12 @@ type EncoderOptions struct {
 	// queues input frames and returns ErrFrameNotReady until enough future
 	// frames are available; FlushInto drains the queue at end of stream.
 	LookaheadFrames int
+	// AutoAltRef gates the automatic alternate-reference scheduling driver
+	// (libvpx vp8/encoder/onyx_if.c oxcf.play_alternate). When true and the
+	// encoder is configured with LookaheadFrames > 1 and !ErrorResilient, the
+	// driver inserts hidden alt-ref frames pulled from the lookahead window
+	// and flips the alt-ref sign bias on the matching deferred show frame.
+	AutoAltRef bool
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
 	// keyframe before rate control and mode decision run; non-realtime
@@ -256,6 +262,16 @@ type VP8Encoder struct {
 	altRefSourcePTS       uint64
 	altRefSourceValid     bool
 	framesTillAltRefFrame int
+	// autoAltRefStash holds a single input frame deferred by the auto
+	// alternate-reference driver. Emitting a hidden ARF in EncodeInto does
+	// not pop the lookahead, leaving it at capacity; the user's source frame
+	// is stashed here and flushed into the lookahead on the next call. The
+	// stash is populated/consumed exclusively by encoder_altref_driver.go.
+	autoAltRefStashValid    bool
+	autoAltRefStashFrame    vp8common.FrameBuffer
+	autoAltRefStashPTS      uint64
+	autoAltRefStashDuration uint64
+	autoAltRefStashFlags    EncodeFlags
 	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
 	// this_frame_percent_intra against last_frame_percent_intra; track
 	// the rolling lookback here so the helper sees the same state libvpx
@@ -462,7 +478,14 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 	if e.lookaheadEnabled() {
-		return e.encodeLookaheadInto(dst, src, pts, duration, flags)
+		if result, ok, err := e.autoAltRefMaybeEncode(dst, src, pts, duration, flags); ok {
+			return result, err
+		}
+		result, err := e.encodeLookaheadInto(dst, src, pts, duration, flags)
+		if err == nil {
+			e.autoAltRefMaybeSchedule()
+		}
+		return result, err
 	}
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
 }
@@ -474,7 +497,13 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if len(dst) == 0 {
 		return EncodeResult{}, ErrBufferTooSmall
 	}
-	if !e.lookaheadEnabled() || e.lookaheadSize() == 0 {
+	if !e.lookaheadEnabled() {
+		return EncodeResult{}, ErrFrameNotReady
+	}
+	if result, ok, err := e.autoAltRefMaybeEmitHiddenOnFlush(dst); ok {
+		return result, err
+	}
+	if e.lookaheadSize() == 0 {
 		return EncodeResult{}, ErrFrameNotReady
 	}
 	entry, ok := e.popLookahead(true)
@@ -484,6 +513,9 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
+	if err == nil {
+		e.autoAltRefMaybeSchedule()
+	}
 	return result, err
 }
 

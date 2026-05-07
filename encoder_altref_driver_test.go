@@ -1,0 +1,269 @@
+package govpx
+
+import (
+	"errors"
+	"math"
+	"testing"
+
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+)
+
+// newAutoAltRefTestEncoder constructs a small CBR encoder with the auto-ARF
+// driver enabled and lookahead deep enough that the libvpx-aligned default
+// section interval (DEFAULT_GF_INTERVAL=7) can fire at least once.
+func newAutoAltRefTestEncoder(tb testing.TB) *VP8Encoder {
+	tb.Helper()
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              32,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    240,
+		LookaheadFrames:     8,
+		AutoAltRef:          true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		tb.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	return e
+}
+
+// autoAltRefDriverEncodedPacket records one encoded packet plus the parsed
+// stream/state headers a parity test needs to inspect.
+type autoAltRefDriverEncodedPacket struct {
+	data    []byte
+	pts     uint64
+	keyFrm  bool
+	show    bool
+	refresh vp8dec.RefreshHeader
+}
+
+func encodeAutoAltRefSequence(t *testing.T, e *VP8Encoder, frameCount int) []autoAltRefDriverEncodedPacket {
+	t.Helper()
+	const width = 32
+	const height = 32
+	packets := make([]autoAltRefDriverEncodedPacket, 0, frameCount+e.opts.LookaheadFrames)
+	dst := make([]byte, 1<<16)
+	// Drive the encoder with a deterministic moving-bar pattern so motion
+	// search has something non-trivial to chew on, otherwise the inter
+	// frames collapse into ZEROMV-LAST and the hidden ARF reduces to a
+	// degenerate mode.
+	for i := 0; i < frameCount; i++ {
+		img := movingBarTestImage(width, height, i)
+		result, err := e.EncodeInto(dst, img, uint64(i)*1000, 1000, 0)
+		if err != nil {
+			if errors.Is(err, ErrFrameNotReady) {
+				continue
+			}
+			t.Fatalf("EncodeInto frame %d: %v", i, err)
+		}
+		if result.Dropped || len(result.Data) == 0 {
+			continue
+		}
+		packets = append(packets, decodeAutoAltRefPacket(t, append([]byte(nil), result.Data...), result))
+	}
+	for {
+		result, err := e.FlushInto(dst)
+		if err != nil {
+			if errors.Is(err, ErrFrameNotReady) {
+				break
+			}
+			t.Fatalf("FlushInto: %v", err)
+		}
+		if result.Dropped || len(result.Data) == 0 {
+			continue
+		}
+		packets = append(packets, decodeAutoAltRefPacket(t, append([]byte(nil), result.Data...), result))
+	}
+	return packets
+}
+
+func decodeAutoAltRefPacket(t *testing.T, data []byte, result EncodeResult) autoAltRefDriverEncodedPacket {
+	t.Helper()
+	header, err := vp8dec.ParseFrameHeader(data)
+	if err != nil {
+		t.Fatalf("ParseFrameHeader: %v", err)
+	}
+	state := parseEncoderStateHeader(t, data)
+	return autoAltRefDriverEncodedPacket{
+		data:    data,
+		pts:     result.PTS,
+		keyFrm:  header.KeyFrame(),
+		show:    header.ShowFrame,
+		refresh: state.Refresh,
+	}
+}
+
+// movingBarTestImage builds a small luma "moving bar" pattern that gives the
+// motion search non-zero residual and produces meaningful auto-ARF behavior
+// even at low resolution. Chroma is held flat.
+func movingBarTestImage(width int, height int, frame int) Image {
+	img := testImage(width, height)
+	fillImage(img, 96, 128, 128)
+	barCol := (frame * 2) % width
+	for row := 0; row < height; row++ {
+		for col := 0; col < 4; col++ {
+			x := (barCol + col) % width
+			img.Y[row*img.YStride+x] = 220
+		}
+	}
+	return img
+}
+
+// TestAutoAltRefDriverEmitsHiddenFrame asserts the auto-ARF driver inserts at
+// least one hidden alt-ref packet (show_frame=0, refresh_alt_ref=1, no
+// LAST/GOLDEN refresh) into the output stream when given a 16-frame sequence
+// with auto-ARF enabled.
+func TestAutoAltRefDriverEmitsHiddenFrame(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t)
+	packets := encodeAutoAltRefSequence(t, e, 16)
+	if len(packets) == 0 {
+		t.Fatalf("auto-ARF sequence produced no packets")
+	}
+	hiddenCount := 0
+	for i, p := range packets {
+		if p.keyFrm {
+			continue
+		}
+		if p.show {
+			continue
+		}
+		if !p.refresh.RefreshAltRef {
+			t.Fatalf("packet %d hidden but RefreshAltRef=false (refresh=%+v)", i, p.refresh)
+		}
+		if p.refresh.RefreshLast {
+			t.Fatalf("packet %d hidden alt-ref unexpectedly refreshes LAST", i)
+		}
+		if p.refresh.RefreshGolden {
+			t.Fatalf("packet %d hidden alt-ref unexpectedly refreshes GOLDEN", i)
+		}
+		hiddenCount++
+	}
+	if hiddenCount == 0 {
+		t.Fatalf("expected at least one hidden alt-ref packet, got 0 (packet count=%d)", len(packets))
+	}
+}
+
+// TestAutoAltRefDriverDeferredShowFrameMatchesSource encodes the same
+// sequence end-to-end through a decoder and asserts that the deferred show
+// frame paired with the hidden ARF decodes within >= 25 dB PSNR of the
+// original moving-bar source. The test confirms the driver does not corrupt
+// the visible-frame timeline.
+func TestAutoAltRefDriverDeferredShowFrameMatchesSource(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t)
+	const frameCount = 16
+	const width = 32
+	const height = 32
+	sources := make(map[uint64]Image, frameCount)
+	for i := 0; i < frameCount; i++ {
+		sources[uint64(i)*1000] = movingBarTestImage(width, height, i)
+	}
+	packets := encodeAutoAltRefSequence(t, e, frameCount)
+	if len(packets) == 0 {
+		t.Fatalf("encoder produced no packets")
+	}
+	// Identify the PTS of the first hidden alt-ref so we can assert quality
+	// of the matching deferred show frame after decoding the full bitstream.
+	var hiddenPTS uint64
+	hiddenFound := false
+	for _, p := range packets {
+		if !p.keyFrm && !p.show && p.refresh.RefreshAltRef {
+			hiddenPTS = p.pts
+			hiddenFound = true
+			break
+		}
+	}
+	if !hiddenFound {
+		t.Fatalf("auto-ARF driver did not emit hidden alt-ref")
+	}
+	dec, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder: %v", err)
+	}
+	var deferredImg Image
+	deferredFound := false
+	for _, p := range packets {
+		if err := dec.DecodeWithPTS(p.data, p.pts); err != nil {
+			t.Fatalf("Decode pts=%d show=%v key=%v: %v", p.pts, p.show, p.keyFrm, err)
+		}
+		img, ok := dec.NextFrame()
+		if !ok {
+			// Hidden frame: decoder emits no visible image. Continue.
+			continue
+		}
+		if p.show && p.pts == hiddenPTS {
+			// Deferred show frame matching the hidden ARF source.
+			deferredImg = cloneAutoAltRefImage(img)
+			deferredFound = true
+		}
+	}
+	if !deferredFound {
+		t.Fatalf("deferred show frame for hidden ARF pts=%d not seen by decoder", hiddenPTS)
+	}
+	src, ok := sources[hiddenPTS]
+	if !ok {
+		t.Fatalf("source frame for hidden ARF pts=%d not in source map", hiddenPTS)
+	}
+	psnr := encoderValidationImagePSNR(src, deferredImg)
+	if math.IsNaN(psnr) {
+		t.Fatalf("PSNR is NaN")
+	}
+	if psnr < 25 {
+		t.Fatalf("deferred show frame PSNR = %.2f dB, want >= 25 dB", psnr)
+	}
+}
+
+// TestAutoAltRefDriverSignBiasUpdatesPostHidden asserts that on the first
+// inter show frame after a hidden ARF, the bitstream carries
+// AltRefSignBias=true. This is the libvpx parity check that
+// `sourceAltRefActive` is set after the hidden frame commits and consumed by
+// the next encode.
+func TestAutoAltRefDriverSignBiasUpdatesPostHidden(t *testing.T) {
+	e := newAutoAltRefTestEncoder(t)
+	packets := encodeAutoAltRefSequence(t, e, 16)
+	hiddenIndex := -1
+	for i, p := range packets {
+		if !p.keyFrm && !p.show && p.refresh.RefreshAltRef {
+			hiddenIndex = i
+			break
+		}
+	}
+	if hiddenIndex < 0 {
+		t.Fatalf("auto-ARF driver did not emit hidden alt-ref")
+	}
+	// Find the next inter show frame after the hidden ARF.
+	for i := hiddenIndex + 1; i < len(packets); i++ {
+		p := packets[i]
+		if p.keyFrm || !p.show {
+			continue
+		}
+		if !p.refresh.AltRefSignBias {
+			t.Fatalf("first inter show frame after hidden ARF (idx=%d, pts=%d) has AltRefSignBias=false", i, p.pts)
+		}
+		return
+	}
+	t.Fatalf("no inter show frame found after hidden ARF (hidden idx=%d, total packets=%d)", hiddenIndex, len(packets))
+}
+
+// cloneAutoAltRefImage deep-copies a returned decoder Image so subsequent
+// NextFrame calls cannot overwrite the buffers.
+func cloneAutoAltRefImage(src Image) Image {
+	return Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       append([]byte(nil), src.Y...),
+		U:       append([]byte(nil), src.U...),
+		V:       append([]byte(nil), src.V...),
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+}
