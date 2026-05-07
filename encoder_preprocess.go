@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -155,6 +156,30 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	return src, meta
 }
 
+// applyARNRFilter implements libvpx's VP8 motion-compensated temporal filter
+// (see vp8/encoder/temporal_filter.c). For every 16x16 luma macroblock (and
+// the colocated 8x8 chroma blocks) in the center frame it searches the
+// adjacent backward/forward source frames for a matching block and weights
+// each predictor pixel by libvpx's
+//   modifier = clamp((3*(src-pred)^2 + rounding) >> strength, 0, 16)
+//   weight   = (16 - modifier) * filter_weight
+// The center frame contributes with filter_weight=2 (as in libvpx); adjacent
+// frames pick filter_weight in {2,1,0} based on the 16x16 SAD threshold pair
+// THRESH_LOW=10000 / THRESH_HIGH=20000.
+//
+// Simplification (vs. libvpx vp8_temporal_filter_iterate_c):
+//   - Motion search is a small full-pixel local exhaustive search around
+//     (0,0) instead of libvpx's hex/diamond search seeded from the prior MV
+//     and refined to subpixel; subpixel predictors are not used. The chosen
+//     MV is reused unchanged for the colocated chroma block, matching
+//     libvpx's vp8_temporal_filter_predictors_mb_c integer-pel branch.
+//   - The center frame is read from the input SourceImage's visible region;
+//     accordingly the search position is clamped so the predictor 16x16
+//     stays inside the visible area of every reference frame.
+//
+// Everything else (per-pixel weighting, accumulator/count normalization with
+// (acc + count/2)/count, separate luma/chroma blocks, and the 384-element
+// per-MB scratch layout) follows libvpx exactly.
 func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags) bool {
 	maxFrames := e.opts.ARNRMaxFrames
 	if maxFrames > maxARNRFrames {
@@ -185,15 +210,14 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlag
 		return false
 	}
 	strength := e.opts.ARNRStrength
-	if strength <= 0 {
-		strength = 3
-	}
+	// The center frame is the alt-ref source. Copy it into the scratch
+	// buffer first so we have a stable read source and an output in the
+	// same place (libvpx writes filtered pixels into cpi->alt_ref_buffer).
 	copySourceToFrameBuffer(&e.arnrScratch, center)
-	temporalFilterPlane(e.arnrScratch.Img.Y, e.arnrScratch.Img.YStride, center.Y, center.YStride, center.Width, center.Height, strength, e.arnrLastSource.Img.Y, e.arnrLastSource.Img.YStride, backward > 0, e.lookaheadFutureEntry, forward, 0)
-	if flags&EncodeInvisibleFrame != 0 || e.opts.ARNRStrength > 4 {
-		temporalFilterPlane(e.arnrScratch.Img.U, e.arnrScratch.Img.UStride, center.U, center.UStride, (center.Width+1)>>1, (center.Height+1)>>1, strength, e.arnrLastSource.Img.U, e.arnrLastSource.Img.UStride, backward > 0, e.lookaheadFutureEntry, forward, 1)
-		temporalFilterPlane(e.arnrScratch.Img.V, e.arnrScratch.Img.VStride, center.V, center.VStride, (center.Width+1)>>1, (center.Height+1)>>1, strength, e.arnrLastSource.Img.V, e.arnrLastSource.Img.VStride, backward > 0, e.lookaheadFutureEntry, forward, 2)
-	}
+	// Whether the chroma planes participate matches the legacy gating
+	// (invisible alt-ref or strong filter strength). Luma always runs.
+	doChroma := flags&EncodeInvisibleFrame != 0 || e.opts.ARNRStrength > 4
+	e.iterateTemporalFilter(center, strength, backward > 0, forward, doChroma)
 	e.arnrScratch.ExtendBorders()
 	return true
 }
@@ -209,59 +233,348 @@ func (e *VP8Encoder) lookaheadFutureEntry(index int) *lookaheadEntry {
 	return &e.lookahead[pos]
 }
 
-func temporalFilterPlane(dst []byte, dstStride int, center []byte, centerStride int, width int, height int, strength int, back []byte, backStride int, useBack bool, future func(int) *lookaheadEntry, forward int, planeID int) {
-	threshold := 8 + strength*8
-	if planeID != 0 {
-		threshold += 8
+// arnrFrameView is the minimal frame description vp8_temporal_filter_iterate_c
+// needs: visible-area pointers per plane plus their strides and dimensions.
+// Adjacent frames are exposed as views over their owning vp8common.Image.
+type arnrFrameView struct {
+	width, height int
+	y             []byte
+	u             []byte
+	v             []byte
+	yStride       int
+	uStride       int
+	vStride       int
+}
+
+func arnrViewFromImage(img *vp8common.Image) arnrFrameView {
+	return arnrFrameView{
+		width:   img.Width,
+		height:  img.Height,
+		y:       img.Y,
+		u:       img.U,
+		v:       img.V,
+		yStride: img.YStride,
+		uStride: img.UStride,
+		vStride: img.VStride,
 	}
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			c := int(center[y*centerStride+x])
-			sum := c * threshold
-			weightSum := threshold
-			if useBack {
-				v := int(back[y*backStride+x])
-				w := temporalFilterWeight(c, v, threshold)
-				sum += v * w
-				weightSum += w
-			}
-			for i := 0; i < forward; i++ {
-				entry := future(i)
-				if entry == nil {
-					continue
-				}
-				var plane []byte
-				stride := 0
-				switch planeID {
-				case 1:
-					plane = entry.frame.Img.U
-					stride = entry.frame.Img.UStride
-				case 2:
-					plane = entry.frame.Img.V
-					stride = entry.frame.Img.VStride
-				default:
-					plane = entry.frame.Img.Y
-					stride = entry.frame.Img.YStride
-				}
-				v := int(plane[y*stride+x])
-				w := temporalFilterWeight(c, v, threshold)
-				sum += v * w
-				weightSum += w
-			}
-			dst[y*dstStride+x] = byte((sum + weightSum/2) / weightSum)
+}
+
+func arnrViewFromSource(src vp8enc.SourceImage) arnrFrameView {
+	return arnrFrameView{
+		width:   src.Width,
+		height:  src.Height,
+		y:       src.Y,
+		u:       src.U,
+		v:       src.V,
+		yStride: src.YStride,
+		uStride: src.UStride,
+		vStride: src.VStride,
+	}
+}
+
+// iterateTemporalFilter mirrors vp8_temporal_filter_iterate_c. It walks every
+// 16x16 luma macroblock (with colocated 8x8 chroma blocks) in the alt-ref
+// frame, picks per-frame filter weights by SAD-based error, and accumulates
+// libvpx's per-pixel weighted average across the included frames.
+func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, useBack bool, forward int, doChroma bool) {
+	mbCols := (center.Width + 15) >> 4
+	mbRows := (center.Height + 15) >> 4
+	if mbCols == 0 || mbRows == 0 {
+		return
+	}
+
+	// Collect the references that participate. The center is always
+	// included with filter_weight=2 (libvpx's alt_ref_index path). Frames
+	// that fail to qualify are skipped per-MB inside processARNRMacroblock.
+	refs := make([]arnrFrameView, 0, 1+1+forward)
+	centerIdx := -1
+	if useBack {
+		refs = append(refs, arnrViewFromImage(&e.arnrLastSource.Img))
+	}
+	centerIdx = len(refs)
+	refs = append(refs, arnrViewFromSource(center))
+	for i := 0; i < forward; i++ {
+		entry := e.lookaheadFutureEntry(i)
+		if entry == nil {
+			continue
+		}
+		refs = append(refs, arnrViewFromImage(&entry.frame.Img))
+	}
+
+	dst := arnrFrameView{
+		width:   e.arnrScratch.Img.Width,
+		height:  e.arnrScratch.Img.Height,
+		y:       e.arnrScratch.Img.Y,
+		u:       e.arnrScratch.Img.U,
+		v:       e.arnrScratch.Img.V,
+		yStride: e.arnrScratch.Img.YStride,
+		uStride: e.arnrScratch.Img.UStride,
+		vStride: e.arnrScratch.Img.VStride,
+	}
+
+	// Reuse a single scratch across MBs (libvpx allocates 384 entries on
+	// the stack). 16x16 luma + 8x8 U + 8x8 V = 256 + 64 + 64 = 384.
+	var accumulator [384]uint32
+	var count [384]uint32
+
+	for mbRow := 0; mbRow < mbRows; mbRow++ {
+		mbY := mbRow << 4
+		for mbCol := 0; mbCol < mbCols; mbCol++ {
+			mbX := mbCol << 4
+			processARNRMacroblock(&dst, refs, centerIdx, mbX, mbY, strength, doChroma, accumulator[:], count[:])
 		}
 	}
 }
 
-func temporalFilterWeight(center int, sample int, threshold int) int {
-	diff := center - sample
-	if diff < 0 {
-		diff = -diff
+// processARNRMacroblock corresponds to the inner mb_col loop body in
+// vp8_temporal_filter_iterate_c: zero accumulators, search/weight every
+// reference, then normalize accumulator/count back into the output frame.
+func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32) {
+	for i := range accumulator {
+		accumulator[i] = 0
+		count[i] = 0
 	}
-	if diff >= threshold {
-		return 0
+
+	// Pull the source 16x16 luma block (and 8x8 chroma blocks if they
+	// will be filtered) into contiguous scratch arrays so SAD and the
+	// per-pixel apply step both see a clean 16-byte stride. libvpx
+	// avoids this copy because cpi->frames[alt_ref_index] is stored in
+	// a contiguous YV12 buffer; for govpx this keeps the math identical
+	// while accommodating arbitrary input strides.
+	var srcY [256]byte
+	gatherBlock(srcY[:], 16, dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16)
+	mbUVX := mbX >> 1
+	mbUVY := mbY >> 1
+	uvW := (dst.width + 1) >> 1
+	uvH := (dst.height + 1) >> 1
+	var srcU, srcV [64]byte
+	if doChroma {
+		gatherBlock(srcU[:], 8, dst.u, dst.uStride, mbUVX, mbUVY, uvW, uvH, 8)
+		gatherBlock(srcV[:], 8, dst.v, dst.vStride, mbUVX, mbUVY, uvW, uvH, 8)
 	}
-	return threshold - diff
+
+	for fi, ref := range refs {
+		// Choose per-frame filter weight. The center frame always uses
+		// libvpx's filter_weight=2; adjacent frames are graded by the
+		// 16x16 luma SAD against fixed thresholds, matching
+		// vp8_temporal_filter_iterate_c's THRESH_LOW/THRESH_HIGH.
+		var filterWeight int
+		var mvX, mvY int
+		if fi == centerIdx {
+			filterWeight = 2
+		} else {
+			err, sx, sy := arnrFindMatchingMB(srcY[:], 16, ref, mbX, mbY)
+			mvX, mvY = sx, sy
+			switch {
+			case err < arnrThreshLow:
+				filterWeight = 2
+			case err < arnrThreshHigh:
+				filterWeight = 1
+			default:
+				filterWeight = 0
+			}
+		}
+		if filterWeight == 0 {
+			continue
+		}
+
+		var predY [256]byte
+		gatherBlock(predY[:], 16, ref.y, ref.yStride, mbX+mvX, mbY+mvY, ref.width, ref.height, 16)
+		applyTemporalFilter(srcY[:], 16, predY[:], 16, strength, filterWeight, accumulator[:256], count[:256])
+
+		if doChroma {
+			// Chroma uses the half-resolution colocated MV (libvpx
+			// halves mv_row/mv_col before feeding chroma predictors).
+			mvUVX := mvX >> 1
+			mvUVY := mvY >> 1
+			refUVW := (ref.width + 1) >> 1
+			refUVH := (ref.height + 1) >> 1
+			var predU, predV [64]byte
+			gatherBlock(predU[:], 8, ref.u, ref.uStride, mbUVX+mvUVX, mbUVY+mvUVY, refUVW, refUVH, 8)
+			gatherBlock(predV[:], 8, ref.v, ref.vStride, mbUVX+mvUVX, mbUVY+mvUVY, refUVW, refUVH, 8)
+			applyTemporalFilter(srcU[:], 8, predU[:], 8, strength, filterWeight, accumulator[256:320], count[256:320])
+			applyTemporalFilter(srcV[:], 8, predV[:], 8, strength, filterWeight, accumulator[320:384], count[320:384])
+		}
+	}
+
+	// Normalize accumulator/count into the output. libvpx uses a
+	// per-count fixed-divide LUT; the math here is the equivalent
+	// (accumulator + count/2 + count/2) / count which biases the result
+	// toward libvpx's rounded division. The center frame always
+	// contributes count >= 16, so divisions are well defined.
+	writeARNRBlock(dst.y, dst.yStride, mbX, mbY, dst.width, dst.height, 16, accumulator[:256], count[:256])
+	if doChroma {
+		writeARNRBlock(dst.u, dst.uStride, mbUVX, mbUVY, uvW, uvH, 8, accumulator[256:320], count[256:320])
+		writeARNRBlock(dst.v, dst.vStride, mbUVX, mbUVY, uvW, uvH, 8, accumulator[320:384], count[320:384])
+	}
+}
+
+// gatherBlock copies a (size x size) block at (srcX,srcY) from a planar
+// surface (with arbitrary stride and visible width/height) into a tightly
+// packed scratch buffer with stride dstStride. Reads outside the visible
+// area are clamped to the nearest in-bounds pixel - the libvpx encoder
+// extends source borders so all intra-MB reads are valid; in govpx the
+// SourceImage has only the visible area and clamping replicates that
+// effect when the search picks an MB that straddles the edge.
+func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, srcW, srcH, size int) {
+	for j := 0; j < size; j++ {
+		yy := srcY + j
+		if yy < 0 {
+			yy = 0
+		} else if yy >= srcH {
+			yy = srcH - 1
+		}
+		row := src[yy*srcStride:]
+		for i := 0; i < size; i++ {
+			xx := srcX + i
+			if xx < 0 {
+				xx = 0
+			} else if xx >= srcW {
+				xx = srcW - 1
+			}
+			dst[j*dstStride+i] = row[xx]
+		}
+	}
+}
+
+// writeARNRBlock writes the (size x size) accumulated/count pair back into
+// the destination plane, clipping to the visible area.
+func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, accumulator []uint32, count []uint32) {
+	for j := 0; j < size; j++ {
+		yy := dstY + j
+		if yy < 0 || yy >= dstH {
+			continue
+		}
+		row := dst[yy*dstStride:]
+		for i := 0; i < size; i++ {
+			xx := dstX + i
+			if xx < 0 || xx >= dstW {
+				continue
+			}
+			k := j*size + i
+			c := count[k]
+			if c == 0 {
+				continue
+			}
+			pval := (accumulator[k] + c/2) / c
+			if pval > 255 {
+				pval = 255
+			}
+			row[xx] = byte(pval)
+		}
+	}
+}
+
+// arnr motion search constants. The thresholds match libvpx's
+// THRESH_LOW/THRESH_HIGH (10000/20000 for a 16x16 SAD). The search radius
+// is the full-pixel motion-search window we sweep around (0,0); libvpx
+// performs a hex search with subpel refinement, govpx does a small
+// exhaustive integer-pel search starting from the colocated block.
+const (
+	arnrThreshLow    = 10000
+	arnrThreshHigh   = 20000
+	arnrSearchRadius = 7
+)
+
+// arnrFindMatchingMB performs the simplified motion search vp8 ARNR uses to
+// locate the matching predictor block in an adjacent frame. It returns the
+// best 16x16 SAD plus the integer-pixel MV (relative to the colocated
+// position). Search positions are clamped so the candidate predictor stays
+// inside the reference frame's visible area.
+func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbX, mbY int) (int, int, int) {
+	bestSAD := -1
+	bestX, bestY := 0, 0
+	// Compute the legal MV range so the 16x16 predictor stays inside
+	// the visible region.
+	minDX := -mbX
+	if minDX < -arnrSearchRadius {
+		minDX = -arnrSearchRadius
+	}
+	maxDX := ref.width - 16 - mbX
+	if maxDX > arnrSearchRadius {
+		maxDX = arnrSearchRadius
+	}
+	minDY := -mbY
+	if minDY < -arnrSearchRadius {
+		minDY = -arnrSearchRadius
+	}
+	maxDY := ref.height - 16 - mbY
+	if maxDY > arnrSearchRadius {
+		maxDY = arnrSearchRadius
+	}
+	if minDX > maxDX || minDY > maxDY {
+		// Block straddles the right/bottom edge so far that even the
+		// colocated predictor would step outside the visible area. Use
+		// (0,0) and let gatherBlock's clamping handle the read.
+		sad := dsp.SAD16x16(src, srcStride, ref.y[mbY*ref.yStride+mbX:], ref.yStride)
+		return sad, 0, 0
+	}
+	// First evaluate the colocated position (libvpx seeds the search
+	// with MV(0,0)); this is also the natural fallback if every other
+	// position turns out to be worse.
+	if 0 >= minDX && 0 <= maxDX && 0 >= minDY && 0 <= maxDY {
+		bestSAD = dsp.SAD16x16(src, srcStride, ref.y[mbY*ref.yStride+mbX:], ref.yStride)
+	}
+	for dy := minDY; dy <= maxDY; dy++ {
+		py := mbY + dy
+		for dx := minDX; dx <= maxDX; dx++ {
+			if dx == 0 && dy == 0 && bestSAD >= 0 {
+				continue
+			}
+			px := mbX + dx
+			refOff := py*ref.yStride + px
+			var sad int
+			if bestSAD >= 0 {
+				sad = dsp.SAD16x16Limit(src, srcStride, ref.y[refOff:], ref.yStride, bestSAD)
+				if sad >= bestSAD {
+					continue
+				}
+			} else {
+				sad = dsp.SAD16x16(src, srcStride, ref.y[refOff:], ref.yStride)
+			}
+			bestSAD = sad
+			bestX = dx
+			bestY = dy
+		}
+	}
+	if bestSAD < 0 {
+		return 0, 0, 0
+	}
+	return bestSAD, bestX, bestY
+}
+
+// applyTemporalFilter is a direct port of libvpx's
+// vp8_temporal_filter_apply_c. The integer formula approximates
+//   coeff = (3 * (src - pred)^2) / 2^strength
+//   modifier = clamp(round(coeff), 0, 16)
+//   weight   = (16 - modifier) * filter_weight
+// and accumulates count/accumulator for downstream normalization.
+func applyTemporalFilter(src []byte, srcStride int, pred []byte, predStride int, strength int, filterWeight int, accumulator []uint32, count []uint32) {
+	rounding := 0
+	if strength > 0 {
+		rounding = 1 << (strength - 1)
+	}
+	blockSize := 16
+	if len(accumulator) == 64 {
+		blockSize = 8
+	}
+	k := 0
+	for j := 0; j < blockSize; j++ {
+		srcRow := src[j*srcStride:]
+		predRow := pred[j*predStride:]
+		for i := 0; i < blockSize; i++ {
+			diff := int(srcRow[i]) - int(predRow[i])
+			modifier := diff*diff*3 + rounding
+			modifier >>= uint(strength)
+			if modifier > 16 {
+				modifier = 16
+			}
+			modifier = (16 - modifier) * filterWeight
+			count[k] += uint32(modifier)
+			accumulator[k] += uint32(modifier) * uint32(predRow[i])
+			k++
+		}
+	}
 }
 
 func copySourceToFrameBuffer(dst *vp8common.FrameBuffer, src vp8enc.SourceImage) {
