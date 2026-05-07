@@ -307,13 +307,20 @@ the anchor and look for the surrounding mismatch.
     every field.
 
 - [ ] Port second-pass KF/GF group allocation and VBR section limits.
-  - govpx: [`twoPassState`](../encoder_firstpass.go).
+  - govpx: [`twoPassState`](../encoder_firstpass.go),
+    [`framesToKey`](../encoder_firstpass.go).
   - libvpx: second-pass helpers in `firstpass.c` and `Pass2Encode` in
     `onyx_if.c`.
-  - Status: partial. govpx distributes bits by per-frame modified error only.
-  - Missing: `frames_to_key`, KF/GF group bits/error, `gf_bits`,
-    `alt_extra_bits`, section max-Q factor, active worst-Q estimates, VBR
-    min/max section limits, CBR buffer adjustments, and ARF pending decisions.
+  - Status: partial. govpx distributes bits by per-frame modified
+    error only. `framesToKey` now ports the `find_next_key_frame`
+    lookahead with the libvpx `i >= MIN_GF_INTERVAL` gate, the
+    `libvpxTestCandidateKeyFrame` predicate, the `key_freq` floor, and
+    the `2 * key_freq` outer clamp.
+  - Missing: KF/GF group bits/error accumulators (`kf_group_bits`,
+    `kf_group_error_left`, `gf_group_bits`, `gf_group_error_left`),
+    `gf_bits`, `alt_extra_bits`, section max-Q factor, active worst-Q
+    estimates, VBR min/max section limits, CBR buffer adjustments, and
+    ARF pending decisions.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
