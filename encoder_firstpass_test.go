@@ -129,6 +129,76 @@ func TestFirstPassStatsPopulatesLibvpxFields(t *testing.T) {
 	}
 }
 
+func TestFirstPassStaticThresholdFeedsEncodeBreakout(t *testing.T) {
+	const (
+		width  = 64
+		height = 64
+	)
+	newEncoder := func(staticThreshold int) *VP8Encoder {
+		enc, err := NewVP8Encoder(EncoderOptions{
+			Width:             width,
+			Height:            height,
+			FPS:               30,
+			RateControlMode:   RateControlVBR,
+			TargetBitrateKbps: 800,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			KeyFrameInterval:  60,
+			StaticThreshold:   staticThreshold,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder(staticThreshold=%d): %v", staticThreshold, err)
+		}
+		return enc
+	}
+	frame := func(shift int) Image {
+		img := testImage(width, height)
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				img.Y[y*img.YStride+x] = byte(48 + ((x*5 + y*3) & 127))
+			}
+		}
+		sx := 22 + shift
+		sy := 18
+		for dy := 0; dy < 16; dy++ {
+			for dx := 0; dx < 16; dx++ {
+				x := sx + dx
+				y := sy + dy
+				if x >= 0 && x < width && y >= 0 && y < height {
+					img.Y[y*img.YStride+x] = 220
+				}
+			}
+		}
+		for i := range img.U {
+			img.U[i] = 128
+			img.V[i] = 128
+		}
+		return img
+	}
+
+	motion := newEncoder(0)
+	breakout := newEncoder(1 << 30)
+	frames := []Image{frame(0), frame(1)}
+	var motionStats, breakoutStats FirstPassFrameStats
+	var err error
+	for i, f := range frames {
+		motionStats, err = motion.CollectFirstPassStats(f, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("motion CollectFirstPassStats[%d]: %v", i, err)
+		}
+		breakoutStats, err = breakout.CollectFirstPassStats(f, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("breakout CollectFirstPassStats[%d]: %v", i, err)
+		}
+	}
+	if motionStats.PcntMotion <= 0 || motionStats.NewMVCount <= 0 {
+		t.Fatalf("default first-pass stats should run motion search and find a non-zero MV: %+v", motionStats)
+	}
+	if breakoutStats.PcntMotion != 0 || breakoutStats.NewMVCount != 0 {
+		t.Fatalf("static-threshold first-pass stats should skip motion search via encode_breakout: %+v", breakoutStats)
+	}
+}
+
 // TestFirstPassStatsRegression32x32 pins the per-frame FirstPassFrameStats
 // for a deterministic 32x32 (4 macroblock) clip. The expected values were
 // captured from this implementation against the libvpx vp8_first_pass
