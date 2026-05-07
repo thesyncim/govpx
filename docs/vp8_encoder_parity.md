@@ -538,10 +538,22 @@ the anchor and look for the surrounding mismatch.
     `scheduleAltRefSource` so the auto-ARF driver emits the hidden
     alt-ref at the predicted offset; pinned by
     `TestPass2ARFPendingTriggersFromHighMotionSection`.
-  - Missing: CBR buffer adjustments inside Pass2Encode and the CQ
-    floor application
-    (`USAGE_CONSTRAINED_QUALITY -> max(Q, cq_target_quality)`)
-    deferred to callers since it depends on encoder mode state.
+    `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR
+    (`USAGE_STREAM_FROM_SERVER`) per-frame target re-clamp: after the
+    second-pass error-fraction allocation overrides the one-pass
+    per-frame target, the helper re-asserts the libvpx
+    `bufferAdjustedFrameTargetBits` shaping (target shrinks when
+    `buffer_level < optimal_buffer_level`, grows when above), wired
+    in encoder.go after `twoPass.frameTargetBits` so the buffer-aware
+    pull-back is preserved through the two-pass override; pinned by
+    `TestPass2CBRBufferAdjustmentRaisesTargetUnderfilledBuffer` and
+    `TestPass2CBRBufferAdjustmentLowersTargetOverfilledBuffer`.
+    `applyCQFloor` ports the libvpx `estimate_max_q` CQ floor
+    (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
+    applied AFTER the second-pass Q regulation; encoder.go re-asserts
+    it after `selectQuantizerForFrameKindWithScreenContent` so
+    recode-style adjustments never push the final quantizer below
+    `cqLevel`; pinned by `TestSelectQuantizerCQFloorApplied`.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

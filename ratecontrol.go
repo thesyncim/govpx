@@ -1418,6 +1418,51 @@ func (rc *rateControlState) frameSizeBoundsBits(keyFrame bool, goldenFrame bool,
 	return int(undershootLimit), int(overshootLimit)
 }
 
+// applyPass2CBRBufferAdjustment ports the libvpx vp8/encoder/firstpass.c
+// Pass2Encode CBR (USAGE_STREAM_FROM_SERVER) per-frame target adjustment
+// based on `cpi->buffer_level` versus `cpi->oxcf.optimal_buffer_level`.
+// libvpx's Pass2 path leaves the second-pass error-fraction target alone
+// for VBR but, when CBR is active, re-clamps the per-frame target through
+// the same buffer-state adjustment that calc_pframe_target_size applies in
+// the one-pass path: when the buffer is below optimal the target is shrunk
+// to help refill the buffer, and when the buffer is above optimal the
+// target is grown to drain the surplus. This mirrors govpx's existing
+// `bufferAdjustedFrameTargetBits` (which already runs for one-pass CBR
+// inter frames inside beginFrameWithTargetAndContext) but applies it to
+// the second-pass target after the two-pass error-fraction allocation
+// has run, so the buffer state still pulls the target back when
+// twoPassState.frameTargetBits overrides the one-pass value. Returns
+// targetBits unchanged for non-CBR modes, key frames (libvpx defers KF
+// adjustments to the kf_bits buffer cap path), or zero / negative
+// targets.
+func (rc *rateControlState) applyPass2CBRBufferAdjustment(targetBits int, keyFrame bool) int {
+	if rc.mode != RateControlCBR || keyFrame || targetBits <= 0 || rc.bufferOptimalBits <= 0 {
+		return targetBits
+	}
+	return rc.bufferAdjustedFrameTargetBits(targetBits)
+}
+
+// applyCQFloor ports the libvpx vp8/encoder/firstpass.c estimate_max_q
+// CQ floor (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
+// applied AFTER the second-pass Q regulation. govpx's selectQuantizer
+// regulation already clamps via `clampedCQQuantizerValue` for the
+// one-pass path; this helper makes the post-regulation floor explicit so
+// callers (e.g. the per-frame two-pass wiring) can re-assert the floor
+// even after recode-style adjustments push currentQuantizer below
+// cqLevel. Mirrors libvpx's `if (Q < cpi->cq_target_quality) Q =
+// cpi->cq_target_quality` clamp.
+func (rc *rateControlState) applyCQFloor() {
+	if rc.mode != RateControlCQ {
+		return
+	}
+	if rc.currentQuantizer < rc.cqLevel {
+		rc.currentQuantizer = rc.cqLevel
+		if rc.currentQuantizer < vp8MaxQIndex {
+			rc.currentZbinOverQuant = 0
+		}
+	}
+}
+
 func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 	if targetBits <= 0 || rc.bufferOptimalBits <= 0 {
 		return targetBits

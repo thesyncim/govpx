@@ -2134,3 +2134,122 @@ func TestSelectQuantizerARFRecodeInteraction(t *testing.T) {
 		t.Fatalf("rc.activeWorstQChanged = false, want set after libvpx active-worst relaxation")
 	}
 }
+
+// TestPass2CBRBufferAdjustmentRaisesTargetUnderfilledBuffer pins the
+// libvpx vp8/encoder/firstpass.c Pass2Encode CBR buffer-state adjustment
+// (USAGE_STREAM_FROM_SERVER): when the encoder buffer is below optimal,
+// the per-frame target is reduced so the buffer can refill. govpx's
+// `applyPass2CBRBufferAdjustment` re-asserts the libvpx
+// `bufferAdjustedFrameTargetBits` shaping after the second-pass
+// error-fraction allocation overrides the one-pass target.
+func TestPass2CBRBufferAdjustmentRaisesTargetUnderfilledBuffer(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		undershootPct:     defaultRateControlUndershootPct,
+		overshootPct:      defaultRateControlOvershootPct,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   900,
+	}
+
+	// Pre-condition: with bufferOptimalBits=2000, bufferLevelBits=900,
+	// undershoot=50, the libvpx adjustment computes
+	//   percentLow = (2000-900)/21 = 52, clamped to 50,
+	//   target  -= target * 50 / 200 = target - target/4.
+	// So a 1000-bit two-pass target shrinks to 750.
+	got := rc.applyPass2CBRBufferAdjustment(1000, false /*keyFrame*/)
+	if got != 750 {
+		t.Fatalf("applyPass2CBRBufferAdjustment = %d, want libvpx low-buffer 750", got)
+	}
+
+	// Key frames are deferred to libvpx's separate kf_bits / buffer cap
+	// path, so the helper must leave key-frame targets untouched.
+	if kf := rc.applyPass2CBRBufferAdjustment(1000, true /*keyFrame*/); kf != 1000 {
+		t.Fatalf("applyPass2CBRBufferAdjustment(keyFrame) = %d, want unchanged 1000", kf)
+	}
+
+	// Non-CBR modes leave the second-pass error-fraction target alone.
+	rc.mode = RateControlVBR
+	if vbr := rc.applyPass2CBRBufferAdjustment(1000, false); vbr != 1000 {
+		t.Fatalf("applyPass2CBRBufferAdjustment(VBR) = %d, want unchanged 1000", vbr)
+	}
+}
+
+// TestPass2CBRBufferAdjustmentLowersTargetOverfilledBuffer pins the
+// opposite Pass2Encode CBR branch: when the buffer is above optimal,
+// the per-frame target is raised (relative to the post-error-fraction
+// two-pass target) so the buffer can drain back toward optimal.
+func TestPass2CBRBufferAdjustmentLowersTargetOverfilledBuffer(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		undershootPct:     defaultRateControlUndershootPct,
+		overshootPct:      defaultRateControlOvershootPct,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   3200,
+	}
+
+	// Pre-condition: with bufferOptimalBits=2000, bufferLevelBits=3200,
+	// overshoot=100, the libvpx adjustment computes
+	//   percentHigh = (3200-2000)/21 = 57,
+	//   target += target * 57 / 200.
+	// So a 1000-bit two-pass target grows to 1285 (matches
+	// TestRateControlBeginFrameAdjustsTargetForHighBuffer).
+	got := rc.applyPass2CBRBufferAdjustment(1000, false)
+	if got != 1285 {
+		t.Fatalf("applyPass2CBRBufferAdjustment = %d, want libvpx high-buffer 1285", got)
+	}
+}
+
+// TestSelectQuantizerCQFloorApplied pins the libvpx
+// vp8/encoder/firstpass.c estimate_max_q CQ floor
+// (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`). With
+// a generous frame target the second-pass Q regulation would naturally
+// pick a quantizer below cqLevel; the post-regulation CQ floor must
+// raise the final Q back to the configured target.
+func TestSelectQuantizerCQFloorApplied(t *testing.T) {
+	cqLevel := libvpxPublicQuantizerToQIndex(40)
+	rc := rateControlState{
+		mode:                     RateControlCQ,
+		minQuantizer:             4,
+		maxQuantizer:             127,
+		cqLevel:                  cqLevel,
+		currentQuantizer:         cqLevel,
+		bitsPerFrame:             1 << 20,
+		frameTargetBits:          1 << 20,
+		rateCorrectionFactor:     1.0,
+		keyFrameCorrectionFactor: 1.0,
+		goldenCorrectionFactor:   1.0,
+	}
+
+	// Drive Q regulation with a huge per-frame budget so the regulator
+	// would pick the active-best floor (well below cqLevel). Pre-seed
+	// the current quantizer to a sub-floor value to verify the post-
+	// regulation clamp lifts it to cqLevel.
+	rc.currentQuantizer = 30
+	rc.selectQuantizerForFrameKindWithScreenContent(false, false, 60, 0)
+	if rc.currentQuantizer < cqLevel {
+		t.Fatalf("CQ post-regulation quantizer = %d, want CQ floor %d (libvpx max(Q, cq_target_quality))",
+			rc.currentQuantizer, cqLevel)
+	}
+
+	// applyCQFloor must also re-clamp callers that drop currentQuantizer
+	// below cqLevel after regulation (e.g. recode-style adjustments).
+	rc.currentQuantizer = 30
+	rc.applyCQFloor()
+	if rc.currentQuantizer != cqLevel {
+		t.Fatalf("applyCQFloor() quantizer = %d, want CQ floor %d", rc.currentQuantizer, cqLevel)
+	}
+
+	// Non-CQ modes must leave the regulated quantizer alone.
+	rc.mode = RateControlVBR
+	rc.currentQuantizer = 30
+	rc.applyCQFloor()
+	if rc.currentQuantizer != 30 {
+		t.Fatalf("applyCQFloor(VBR) quantizer = %d, want unchanged 30", rc.currentQuantizer)
+	}
+}

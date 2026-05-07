@@ -694,6 +694,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
 	if twoPassTargetBits > 0 {
 		e.rc.frameTargetBits = twoPassTargetBits
+		// libvpx vp8/encoder/firstpass.c Pass2Encode re-clamps the per-frame
+		// target through the buffer-state adjustment for CBR
+		// (USAGE_STREAM_FROM_SERVER); apply that here so the two-pass
+		// override does not erase the buffer-aware shaping.
+		e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, keyFrame)
 	}
 	// libvpx vp8/encoder/firstpass.c define_gf_group ARF-pending decision:
 	// when second-pass stats indicate the upcoming GF section is high
@@ -722,6 +727,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.lastBoost = gfOut.Boost
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
+	// libvpx vp8/encoder/firstpass.c estimate_max_q applies a CQ floor
+	// (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
+	// AFTER the second-pass Q regulation. Re-assert it here so the
+	// regulated quantizer never falls below the configured CQ target.
+	e.rc.applyCQFloor()
 
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
@@ -785,8 +795,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			twoPassTargetBits = e.twoPass.frameTargetBits(e.frameCount, true, e.rc.frameTargetBits)
 			if twoPassTargetBits > 0 {
 				e.rc.frameTargetBits = twoPassTargetBits
+				e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, true)
 			}
 			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
+			e.rc.applyCQFloor()
 			result.KeyFrame = true
 			result.SceneCut = true
 			result.TwoPassFrameTargetBits = twoPassTargetBits
