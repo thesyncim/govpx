@@ -514,6 +514,55 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxEstimateMaxQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_max_q Q-search loop: walk Q from maxq_min_limit upward
+// computing
+//
+//	bits_per_mb = err_correction * speed_correction * est_max_qcorrection
+//	            * section_max_qfactor * (vp8_bits_per_mb[INTER][Q] + overhead)
+//
+// where err_correction is `libvpxCalcCorrectionFactor(err_per_mb,
+// 150.0, 0.40, 0.90, Q)` and overhead decays by 0.98 per Q step. The
+// search returns the lowest Q for which `bits_per_mb_at_q <=
+// target_norm_bits_per_mb`. target_norm_bits_per_mb derives from
+// section_target_bandwidth via libvpx's overflow-aware
+// `(512 * section_target_bandwidth) / num_mbs` formula. When
+// `section_target_bandwidth <= 0`, libvpx returns
+// `maxq_max_limit` immediately.
+//
+// The CQ floor (`USAGE_CONSTRAINED_QUALITY` -> max(Q, cq_target_quality))
+// is left to callers since it depends on encoder mode state.
+func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64, sectionMaxQFactor float64, maxqMinLimit int, maxqMaxLimit int) int {
+	if numMBs <= 0 || maxqMaxLimit <= maxqMinLimit {
+		return maxqMaxLimit
+	}
+	if sectionTargetBandwidth <= 0 {
+		return maxqMaxLimit
+	}
+	var targetNormBitsPerMB int
+	if sectionTargetBandwidth < (1 << 20) {
+		targetNormBitsPerMB = (512 * sectionTargetBandwidth) / numMBs
+	} else {
+		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
+	}
+	overheadBitsPerMB := overheadBits / numMBs
+	overheadBitsPerMB = int(float64(overheadBitsPerMB) * math.Pow(0.98, float64(maxqMinLimit)))
+	for Q := maxqMinLimit; Q < maxqMaxLimit; Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
+		baseBitsPerMB := 0
+		if Q >= 0 && Q < len(libvpxBitsPerMB[1]) {
+			baseBitsPerMB = libvpxBitsPerMB[1][Q]
+		}
+		baseBitsPerMB += overheadBitsPerMB
+		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*sectionMaxQFactor*float64(baseBitsPerMB))
+		overheadBitsPerMB = int(float64(overheadBitsPerMB) * 0.98)
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			return Q
+		}
+	}
+	return maxqMaxLimit
+}
+
 // libvpxCalcCorrectionFactor ports the libvpx
 // vp8/encoder/firstpass.c calc_correction_factor:
 //

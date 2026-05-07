@@ -468,6 +468,49 @@ func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
 	}
 }
 
+// TestLibvpxEstimateMaxQReturnsMaxOnZeroBudget pins libvpx's
+// `if (section_target_bandwidth <= 0) return maxq_max_limit` early
+// exit.
+func TestLibvpxEstimateMaxQReturnsMaxOnZeroBudget(t *testing.T) {
+	got := libvpxEstimateMaxQ(1500, 0, 0, 100.0, 1.0, 1.0, 1.0, 0, 127)
+	if got != 127 {
+		t.Fatalf("estimate_max_q with zero budget = %d, want maxq_max_limit=127", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQFindsLowestQAcceptingBudget pins libvpx's
+// loop semantics: walk Q from min upward, return the first Q whose
+// bits_per_mb_at_q <= target_norm_bits_per_mb. Use a generous budget
+// so a low Q satisfies it.
+func TestLibvpxEstimateMaxQFindsLowestQAcceptingBudget(t *testing.T) {
+	// num_mbs=1500, section_target_bandwidth=10_000_000 -> very large
+	// per-MB budget; even Q=0 should pass.
+	got := libvpxEstimateMaxQ(1500, 10_000_000, 0, 50.0, 1.0, 1.0, 1.0, 0, 127)
+	if got != 0 {
+		t.Fatalf("estimate_max_q with very large budget = %d, want 0", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQReturnsMaxWhenBudgetTooSmall pins the
+// fall-through return when no Q satisfies the per-MB target.
+func TestLibvpxEstimateMaxQReturnsMaxWhenBudgetTooSmall(t *testing.T) {
+	// Tiny target bits relative to err_per_mb=10000 forces fallthrough.
+	got := libvpxEstimateMaxQ(1500, 1500, 0, 10000.0, 1.0, 1.0, 1.0, 0, 127)
+	if got != 127 {
+		t.Fatalf("estimate_max_q with tight budget = %d, want maxq_max_limit=127", got)
+	}
+}
+
+// TestLibvpxEstimateMaxQHonoursMinLimitAsFloor pins libvpx's
+// `for (Q = maxq_min_limit; Q < maxq_max_limit; ...)` floor: the
+// search never returns below maxq_min_limit.
+func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
+	got := libvpxEstimateMaxQ(1500, 10_000_000, 0, 50.0, 1.0, 1.0, 1.0, 30, 127)
+	if got != 30 {
+		t.Fatalf("estimate_max_q with min_limit=30 = %d, want 30", got)
+	}
+}
+
 // TestLibvpxCalcCorrectionFactorMatchesLibvpxFormula pins the libvpx
 // vp8/encoder/firstpass.c calc_correction_factor:
 //

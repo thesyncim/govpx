@@ -379,12 +379,20 @@ the anchor and look for the surrounding mismatch.
     `estimate_min_q`. `libvpxEstimateMaxQRollingRatioAdjustment`
     ports the rolling `est_max_qcorrection_factor` update (`+/-0.005`
     based on rolling actual/target ratio, clamped to `[0.1, 10.0]`).
-  - Missing: full `estimate_max_q` Q-search loop wired through
-    `libvpxCalcCorrectionFactor` + `libvpxBitsPerMB` +
-    section_max_qfactor (currently only the helpers are tested in
-    isolation), VBR min/max section limits beyond frame_max_bits,
-    CBR buffer adjustments inside Pass2Encode, and ARF pending
-    decisions wired into the encoder.
+    `libvpxEstimateMaxQ` ports the libvpx vp8/encoder/firstpass.c
+    `estimate_max_q` Q-search loop end-to-end: walks Q from
+    `maxq_min_limit` upward computing
+    `bits_per_mb_at_q = err_correction * speed_correction *
+    est_max_qcorrection * section_max_qfactor *
+    (vp8_bits_per_mb[INTER][Q] + overhead)` with overhead decay of
+    0.98 per Q step and the `(512*section_target_bandwidth)/num_mbs`
+    per-MB budget normalization (with libvpx's `< 1<<20` overflow
+    guard). Returns `maxq_max_limit` when the budget cannot be met.
+  - Missing: VBR min/max section limits beyond frame_max_bits,
+    CBR buffer adjustments inside Pass2Encode, ARF pending decisions
+    wired into the encoder, and the CQ floor application
+    (`USAGE_CONSTRAINED_QUALITY -> max(Q, cq_target_quality)`)
+    deferred to callers since it depends on encoder mode state.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
