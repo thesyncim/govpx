@@ -100,6 +100,58 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 	return coefficientProbabilityUpdatesFromCounts(base, &counts)
 }
 
+// KeyFrameCoefficientEntropySavings ports the default_coef_context_savings
+// branch of libvpx's vp8_estimate_entropy_savings for key frames. The result
+// is whole bits, matching libvpx's prob_update_savings units.
+func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	var counts coefficientBranchCounts
+	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCounts(base, &counts), nil
+}
+
+// InterCoefficientEntropySavings ports the default_coef_context_savings branch
+// of libvpx's vp8_estimate_entropy_savings for inter frames. The result is
+// whole bits, matching libvpx's prob_update_savings units.
+func InterCoefficientEntropySavings(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
+	var counts coefficientBranchCounts
+	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+		return 0, err
+	}
+	return coefficientEntropySavingsFromCounts(base, &counts), nil
+}
+
+func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) int {
+	if base == nil || counts == nil {
+		return 0
+	}
+	savings := 0
+	for block := 0; block < tables.BlockTypes; block++ {
+		for band := 0; band < tables.CoefBands; band++ {
+			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for node := 0; node < tables.EntropyNodes; node++ {
+					ct := (*counts)[block][band][ctx][node]
+					total := ct[0] + ct[1]
+					if total == 0 {
+						continue
+					}
+					newProb := coefficientProbabilityFromBranchCount(ct)
+					oldProb := (*base)[block][band][ctx][node]
+					if newProb == oldProb {
+						continue
+					}
+					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
+					if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
+						savings += s
+					}
+				}
+			}
+		}
+	}
+	return savings
+}
+
 // BuildInterCoefficientProbabilityUpdatesIndependent ports libvpx
 // vp8/encoder/bitstream.c independent_coef_context_savings + the matching
 // branch in vp8_update_coef_probs. Under VPX_ERROR_RESILIENT_PARTITIONS the

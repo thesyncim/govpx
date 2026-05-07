@@ -112,13 +112,6 @@ type EncoderOptions struct {
 	ARNRMaxFrames int
 	ARNRStrength  int
 	ARNRType      int
-	// AutoAltRef enables libvpx's automatic alternate-reference scheduling
-	// (cpi->oxcf.play_alternate). When set together with LookaheadFrames,
-	// the encoder periodically inserts a hidden ARF frame from the future
-	// lookahead window (show_frame=0, refresh_alt_ref=1) and later emits the
-	// originally-deferred source as a regular show-frame. ErrorResilient
-	// suppresses auto-ARF, matching libvpx vp8_get_compressed_data.
-	AutoAltRef bool
 	// TwoPassStats enables second-pass VBR planning when non-empty.
 	TwoPassStats      []FirstPassFrameStats
 	TwoPassVBRBiasPct int
@@ -252,29 +245,17 @@ type VP8Encoder struct {
 	// for the lifecycle of those counters.
 	framesSinceGolden  int
 	sourceAltRefActive bool
-	// Automatic alternate-reference scheduling state (libvpx
-	// vp8_get_compressed_data auto-ARF branch). sourceAltRefPending mirrors
-	// cpi->source_alt_ref_pending: while set, the next encode step inserts a
-	// hidden ARF frame peeked from the future lookahead window. framesTilArf
-	// mirrors cpi->frames_till_gf_update_due and acts both as the lookahead
-	// peek offset and the inter-frame countdown to the next pending ARF.
-	// altRefSourcePTSValid/altRefSourcePTS retain the PTS of the lookahead
-	// entry encoded as the hidden ARF so the deferred normal-pop call can
-	// flag is_src_frame_alt_ref when that entry surfaces. See
-	// encoder_altref.go for the orchestration.
-	sourceAltRefPending  bool
-	isSrcFrameAltRef     bool
-	altRefSourcePTSValid bool
-	altRefSourcePTS      uint64
-	framesTilArf         int
-	// autoAltRefPendingPush holds a single lookahead entry that the auto-ARF
-	// path could not push to the main lookahead queue because emitting a
-	// hidden ARF leaves the queue at capacity (peek does not pop). The next
-	// auto-ARF call drains autoAltRefPendingPush before consuming the
-	// caller's input. When autoAltRefHasPendingPush is false the stash is
-	// inert and the queue behaves normally.
-	autoAltRefPendingPush    lookaheadEntry
-	autoAltRefHasPendingPush bool
+	// libvpx vp8/encoder/onyx_if.c automatic ARF scheduling state:
+	// source_alt_ref_pending is set when the encoder has decided to
+	// insert a hidden ARF on a future frame; alt_ref_source identifies
+	// the lookahead entry that will become the ARF source so the
+	// later show-frame can detect is_src_frame_alt_ref.
+	// framesTillAltRefFrame counts down from the current ARF section
+	// length so the encoder knows when to emit the hidden frame.
+	sourceAltRefPending   bool
+	altRefSourcePTS       uint64
+	altRefSourceValid     bool
+	framesTillAltRefFrame int
 	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
 	// this_frame_percent_intra against last_frame_percent_intra; track
 	// the rolling lookback here so the helper sees the same state libvpx
@@ -470,9 +451,6 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 	if e.lookaheadEnabled() {
-		if e.autoAltRefEnabled() {
-			return e.encodeAutoAltRefInto(dst, src, pts, duration, flags)
-		}
 		return e.encodeLookaheadInto(dst, src, pts, duration, flags)
 	}
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
@@ -487,9 +465,6 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	}
 	if !e.lookaheadEnabled() || e.lookaheadSize() == 0 {
 		return EncodeResult{}, ErrFrameNotReady
-	}
-	if e.autoAltRefEnabled() {
-		return e.flushAutoAltRefInto(dst)
 	}
 	entry, ok := e.popLookahead(true)
 	if !ok {
@@ -884,10 +859,6 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
 		RefreshEntropyProbs: !e.opts.ErrorResilient,
-		// VPX_ERROR_RESILIENT_PARTITIONS gates the independent coef-context
-		// path in libvpx vp8/encoder/bitstream.c (see
-		// independent_coef_context_savings / vp8_update_coef_probs).
-		IndependentContexts: e.opts.ErrorResilient,
 	}
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
@@ -916,10 +887,6 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
-	// VPX_ERROR_RESILIENT_PARTITIONS gates the independent coef-context path
-	// in libvpx vp8/encoder/bitstream.c (independent_coef_context_savings /
-	// vp8_update_coef_probs).
-	cfg.IndependentContexts = e.opts.ErrorResilient
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy updates them.
