@@ -558,6 +558,109 @@ func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int
 	return maxqMaxLimit
 }
 
+// libvpxEstimateQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_q Q-search loop (the section-target Q probe used inside
+// new_section_complete / Pass2Encode). It walks Q from 0 upward
+// computing
+//
+//	bits_per_mb = err_correction * speed_correction *
+//	              est_max_qcorrection * vp8_bits_per_mb[INTER][Q]
+//
+// (no overhead/section_max_qfactor scaling, distinguishing it from
+// estimate_max_q). Returns the lowest Q whose bits_per_mb_at_q is at
+// or below the target.
+func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64) int {
+	if numMBs <= 0 || sectionTargetBandwidth <= 0 {
+		return vp8MaxQIndex
+	}
+	var targetNormBitsPerMB int
+	if sectionTargetBandwidth < (1 << 20) {
+		targetNormBitsPerMB = (512 * sectionTargetBandwidth) / numMBs
+	} else {
+		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
+	}
+	for Q := 0; Q < len(libvpxBitsPerMB[1]); Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
+		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*float64(libvpxBitsPerMB[1][Q]))
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			return Q
+		}
+	}
+	return len(libvpxBitsPerMB[1]) - 1
+}
+
+// libvpxEstimateKFGroupQ ports the libvpx vp8/encoder/firstpass.c
+// estimate_kf_group_q worst-case KF-group Q estimator. It mirrors:
+//
+//	pow_highq = (POW1 < 0.6) ? POW1+0.3 : 0.90
+//	pow_lowq  = (POW1 < 0.7) ? POW1+0.1 : 0.80
+//	if long_rolling_target_bits <= 0:
+//	  current_spend_ratio = 10.0
+//	else:
+//	  current_spend_ratio = clamp(long_rolling_actual/long_rolling_target,
+//	                              0.1, 10.0)
+//	iiratio_correction_factor =
+//	  max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)
+//	combined = speed_correction * iiratio_correction_factor *
+//	            current_spend_ratio
+//	for Q in 0..MAXQ:
+//	  cf = calc_correction_factor(err_per_mb, 150, pow_lowq, pow_highq, Q)
+//	  bits = cf * combined * vp8_bits_per_mb[INTER][Q]
+//	  if bits <= target: break
+//	while (bits > target && Q < MAXQ*2):
+//	  bits = 0.96 * bits; Q++
+//
+// POW1 in libvpx is `oxcf.two_pass_vbrbias / 100.0`; callers pass it
+// directly. Returns MAXQ*2 when the budget is non-positive (libvpx's
+// `if (target_norm_bits_per_mb <= 0) return MAXQ * 2;`).
+func libvpxEstimateKFGroupQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, groupIIRatio float64, vbrBiasPct int, longRollingActualBits int, longRollingTargetBits int, speedCorrection float64) int {
+	const maxQ = vp8MaxQIndex + 1
+	if numMBs <= 0 {
+		return maxQ * 2
+	}
+	targetNormBitsPerMB := (512 * sectionTargetBandwidth) / numMBs
+	if targetNormBitsPerMB <= 0 {
+		return maxQ * 2
+	}
+	pow1 := float64(vbrBiasPct) / 100.0
+	powHighQ := 0.90
+	if pow1 < 0.6 {
+		powHighQ = pow1 + 0.3
+	}
+	powLowQ := 0.80
+	if pow1 < 0.7 {
+		powLowQ = pow1 + 0.1
+	}
+	currentSpendRatio := 10.0
+	if longRollingTargetBits > 0 {
+		currentSpendRatio = float64(longRollingActualBits) / float64(longRollingTargetBits)
+		if currentSpendRatio > 10.0 {
+			currentSpendRatio = 10.0
+		} else if currentSpendRatio < 0.1 {
+			currentSpendRatio = 0.1
+		}
+	}
+	iiratioCorrection := 1.0 - (groupIIRatio-6.0)*0.1
+	if iiratioCorrection < 0.5 {
+		iiratioCorrection = 0.5
+	}
+	combined := speedCorrection * iiratioCorrection * currentSpendRatio
+	bitsPerMBAtQ := 0
+	Q := 0
+	for ; Q < maxQ; Q++ {
+		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, powLowQ, powHighQ, Q)
+		bitsPerMBAtQ = int(0.5 + errCorrection*combined*float64(libvpxBitsPerMB[1][Q]))
+		if bitsPerMBAtQ <= targetNormBitsPerMB {
+			break
+		}
+	}
+	for bitsPerMBAtQ > targetNormBitsPerMB && Q < maxQ*2 {
+		bitsPerMBAtQ = int(0.96 * float64(bitsPerMBAtQ))
+		Q++
+	}
+	return Q
+}
+
 // libvpxCalcCorrectionFactor ports the libvpx
 // vp8/encoder/firstpass.c calc_correction_factor:
 //

@@ -389,6 +389,16 @@ the anchor and look for the surrounding mismatch.
     0.98 per Q step and the `(512*section_target_bandwidth)/num_mbs`
     per-MB budget normalization (with libvpx's `< 1<<20` overflow
     guard). Returns `maxq_max_limit` when the budget cannot be met.
+    `libvpxEstimateQ` ports the simpler `estimate_q` Q-search used
+    inside Pass2Encode (no overhead/section_max_qfactor scaling).
+    `libvpxEstimateKFGroupQ` ports `estimate_kf_group_q`: derives
+    `pow_high_q` and `pow_low_q` from `oxcf.two_pass_vbrbias / 100`,
+    folds in `current_spend_ratio = clamp(long_rolling_actual /
+    long_rolling_target, 0.1, 10.0)` (10.0 fallback when
+    long_rolling_target is 0) and `iiratio_correction =
+    max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)`, walks Q with
+    `calc_correction_factor`, then bumps Q (shrinking bits by 0.96
+    per step) until MAXQ*2 if no Q in [0, MAXQ) satisfies the budget.
   - Missing: VBR min/max section limits beyond frame_max_bits,
     CBR buffer adjustments inside Pass2Encode, ARF pending decisions
     wired into the encoder, and the CQ floor application

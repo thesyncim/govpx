@@ -581,6 +581,62 @@ func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
 	}
 }
 
+// TestLibvpxEstimateQReturnsMaxOnZeroBudget pins libvpx's
+// `if (target_norm_bits_per_mb <= 0) return MAXQ` early exit (govpx
+// uses vp8MaxQIndex as the libvpx MAXQ analog).
+func TestLibvpxEstimateQReturnsMaxOnZeroBudget(t *testing.T) {
+	got := libvpxEstimateQ(1500, 0, 100.0, 1.0, 1.0)
+	if got != vp8MaxQIndex {
+		t.Fatalf("estimate_q with zero budget = %d, want %d", got, vp8MaxQIndex)
+	}
+}
+
+// TestLibvpxEstimateQFindsLowestQAcceptingBudget pins the libvpx
+// estimate_q loop returning the lowest Q whose bits_per_mb_at_q is
+// at or below the per-MB target.
+func TestLibvpxEstimateQFindsLowestQAcceptingBudget(t *testing.T) {
+	got := libvpxEstimateQ(1500, 10_000_000, 50.0, 1.0, 1.0)
+	if got != 0 {
+		t.Fatalf("estimate_q with very large budget = %d, want 0", got)
+	}
+}
+
+// TestLibvpxEstimateKFGroupQReturnsDoubleMaxOnEmptyBudget pins libvpx's
+// `if (target_norm_bits_per_mb <= 0) return MAXQ * 2;` early exit.
+func TestLibvpxEstimateKFGroupQReturnsDoubleMaxOnEmptyBudget(t *testing.T) {
+	got := libvpxEstimateKFGroupQ(1500, 0, 100.0, 5.0, 50, 0, 0, 1.0)
+	want := (vp8MaxQIndex + 1) * 2
+	if got != want {
+		t.Fatalf("estimate_kf_group_q with zero budget = %d, want %d", got, want)
+	}
+}
+
+// TestLibvpxEstimateKFGroupQOvershootIncrementsBeyondMax pins the
+// libvpx tail loop that bumps Q (and shrinks bits_per_mb_at_q by
+// 0.96 each step) when no Q in [0, MAXQ) satisfies the budget.
+func TestLibvpxEstimateKFGroupQOvershootIncrementsBeyondMax(t *testing.T) {
+	// Use a tiny budget with high err_per_mb so even at Q=MAXQ the
+	// bits are still above target. Q should overshoot MAXQ.
+	got := libvpxEstimateKFGroupQ(1500, 1500, 100000.0, 5.0, 50, 1000, 1000, 1.0)
+	if got <= vp8MaxQIndex {
+		t.Fatalf("estimate_kf_group_q overshoot = %d, want > MAXQ=%d", got, vp8MaxQIndex)
+	}
+	if got >= (vp8MaxQIndex+1)*2 {
+		t.Fatalf("estimate_kf_group_q overshoot = %d, want < MAXQ*2", got)
+	}
+}
+
+// TestLibvpxEstimateKFGroupQSpendRatioFallback pins the libvpx
+// `if (long_rolling_target_bits <= 0) current_spend_ratio = 10.0`
+// fallback: caller passes 0 for long_rolling_target_bits and the
+// helper still returns a sane Q.
+func TestLibvpxEstimateKFGroupQSpendRatioFallback(t *testing.T) {
+	got := libvpxEstimateKFGroupQ(1500, 100_000_000, 50.0, 5.0, 50, 0, 0, 1.0)
+	if got < 0 || got > (vp8MaxQIndex+1)*2 {
+		t.Fatalf("estimate_kf_group_q with long_rolling_target=0 returned out-of-range Q=%d", got)
+	}
+}
+
 // TestLibvpxCalcCorrectionFactorMatchesLibvpxFormula pins the libvpx
 // vp8/encoder/firstpass.c calc_correction_factor:
 //
