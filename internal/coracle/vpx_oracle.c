@@ -1,3 +1,9 @@
+// This file is built directly by build_libvpx.sh into the govpx-vpx-oracle
+// helper binary; it is not part of any Go cgo package. The build constraint
+// below tells `go build` to skip the file when scanning the surrounding Go
+// package directory (added when oracle_compare.go was introduced).
+//go:build ignore
+
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
