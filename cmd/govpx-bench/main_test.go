@@ -70,6 +70,115 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	if report.Reference.PSNR <= 0 || report.Reference.SSIM <= 0 || report.Reference.SSIM > 1 || report.Reference.QualityFrames != 3 || report.Reference.QualityError != "" {
 		t.Fatalf("reference quality = psnr:%f ssim:%f frames:%d err:%q, want 3 decoded quality frames", report.Reference.PSNR, report.Reference.SSIM, report.Reference.QualityFrames, report.Reference.QualityError)
 	}
+	if report.Comparison == nil {
+		t.Fatalf("comparison_vs_reference = nil, want populated when reference is present")
+	}
+	if report.Comparison.BitrateRatioVsReference <= 0 ||
+		report.Comparison.NSPerFrameRatio <= 0 ||
+		report.Comparison.EncodeFPSRatio <= 0 ||
+		report.Comparison.OutputBytesRatio <= 0 {
+		t.Fatalf("comparison ratios = %+v, want all > 0", *report.Comparison)
+	}
+	wantBitrateDelta := report.OutputBitrateKbps - report.Reference.OutputBitrateKbps
+	if report.Comparison.BitrateDeltaKbps != wantBitrateDelta {
+		t.Fatalf("comparison bitrate delta = %f, want %f", report.Comparison.BitrateDeltaKbps, wantBitrateDelta)
+	}
+	wantPSNRDelta := report.PSNR - report.Reference.PSNR
+	if report.Comparison.PSNRDeltaDB != wantPSNRDelta {
+		t.Fatalf("comparison psnr delta = %f, want %f", report.Comparison.PSNRDeltaDB, wantPSNRDelta)
+	}
+}
+
+func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
+	report := benchReport{
+		OutputBitrateKbps: 1200,
+		BitrateErrorPct:   0,
+		PSNR:              40,
+		SSIM:              0.99,
+		EncodeFPS:         60,
+		NSPerFrame:        16_666_667,
+		OutputBytes:       12000,
+		AvgInterBytes:     400,
+		KeyframeBytes:     2000,
+	}
+	reference := referenceReport{
+		OutputBitrateKbps: 1500,
+		BitrateErrorPct:   25,
+		PSNR:              41,
+		SSIM:              0.995,
+		EncodeFPS:         30,
+		NSPerFrame:        33_333_334,
+		OutputBytes:       15000,
+		AvgInterBytes:     500,
+		KeyframeBytes:     2500,
+	}
+
+	cmp := buildComparisonReport(report, reference)
+	if cmp == nil {
+		t.Fatalf("buildComparisonReport = nil")
+	}
+	wantBitrateRatio := report.OutputBitrateKbps / reference.OutputBitrateKbps
+	if cmp.BitrateRatioVsReference != wantBitrateRatio {
+		t.Fatalf("BitrateRatio = %f, want %f", cmp.BitrateRatioVsReference, wantBitrateRatio)
+	}
+	if cmp.BitrateDeltaKbps != report.OutputBitrateKbps-reference.OutputBitrateKbps {
+		t.Fatalf("BitrateDelta = %f, want %f", cmp.BitrateDeltaKbps, report.OutputBitrateKbps-reference.OutputBitrateKbps)
+	}
+	if cmp.BitrateErrorPctDelta != report.BitrateErrorPct-reference.BitrateErrorPct {
+		t.Fatalf("BitrateErrorPctDelta = %f, want %f", cmp.BitrateErrorPctDelta, report.BitrateErrorPct-reference.BitrateErrorPct)
+	}
+	if cmp.PSNRDeltaDB != report.PSNR-reference.PSNR {
+		t.Fatalf("PSNRDelta = %f, want %f", cmp.PSNRDeltaDB, report.PSNR-reference.PSNR)
+	}
+	if cmp.SSIMDelta != report.SSIM-reference.SSIM {
+		t.Fatalf("SSIMDelta = %f, want %f", cmp.SSIMDelta, report.SSIM-reference.SSIM)
+	}
+	if cmp.EncodeFPSRatio != report.EncodeFPS/reference.EncodeFPS {
+		t.Fatalf("EncodeFPSRatio = %f, want %f", cmp.EncodeFPSRatio, report.EncodeFPS/reference.EncodeFPS)
+	}
+	if cmp.NSPerFrameRatio != float64(report.NSPerFrame)/float64(reference.NSPerFrame) {
+		t.Fatalf("NSPerFrameRatio = %f, want %f", cmp.NSPerFrameRatio, float64(report.NSPerFrame)/float64(reference.NSPerFrame))
+	}
+	if cmp.OutputBytesRatio != float64(report.OutputBytes)/float64(reference.OutputBytes) {
+		t.Fatalf("OutputBytesRatio = %f, want %f", cmp.OutputBytesRatio, float64(report.OutputBytes)/float64(reference.OutputBytes))
+	}
+	if cmp.AvgInterBytesRatio != report.AvgInterBytes/reference.AvgInterBytes {
+		t.Fatalf("AvgInterBytesRatio = %f, want %f", cmp.AvgInterBytesRatio, report.AvgInterBytes/reference.AvgInterBytes)
+	}
+	if cmp.KeyframeBytesRatio != float64(report.KeyframeBytes)/float64(reference.KeyframeBytes) {
+		t.Fatalf("KeyframeBytesRatio = %f, want %f", cmp.KeyframeBytesRatio, float64(report.KeyframeBytes)/float64(reference.KeyframeBytes))
+	}
+}
+
+func TestBuildComparisonReportHandlesZeroDenominators(t *testing.T) {
+	report := benchReport{
+		OutputBitrateKbps: 1000,
+		PSNR:              40,
+		SSIM:              0.99,
+		EncodeFPS:         30,
+		NSPerFrame:        33_333_334,
+	}
+	reference := referenceReport{}
+	cmp := buildComparisonReport(report, reference)
+	if cmp == nil {
+		t.Fatalf("buildComparisonReport = nil")
+	}
+	// Ratios stay at zero rather than +Inf when the libvpx side reports zero.
+	if cmp.BitrateRatioVsReference != 0 ||
+		cmp.NSPerFrameRatio != 0 ||
+		cmp.EncodeFPSRatio != 0 ||
+		cmp.OutputBytesRatio != 0 ||
+		cmp.AvgInterBytesRatio != 0 ||
+		cmp.KeyframeBytesRatio != 0 {
+		t.Fatalf("ratios with zero denominators = %+v, want all zero", *cmp)
+	}
+	// Deltas are still computed from raw values.
+	if cmp.BitrateDeltaKbps != report.OutputBitrateKbps {
+		t.Fatalf("BitrateDelta = %f, want %f", cmp.BitrateDeltaKbps, report.OutputBitrateKbps)
+	}
+	if cmp.PSNRDeltaDB != report.PSNR {
+		t.Fatalf("PSNRDelta = %f, want %f", cmp.PSNRDeltaDB, report.PSNR)
+	}
 }
 
 func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {

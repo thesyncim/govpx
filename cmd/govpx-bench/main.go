@@ -58,7 +58,27 @@ type benchReport struct {
 	DroppedFrames     int                `json:"dropped_frames"`
 	QuantizerHist     map[string]int     `json:"quantizer_histogram"`
 	Reference         *referenceReport   `json:"reference,omitempty"`
+	Comparison        *comparisonReport  `json:"comparison_vs_reference,omitempty"`
 	Options           benchConfigSummary `json:"options"`
+}
+
+// comparisonReport summarizes how govpx compared against the libvpx
+// reference encoder on the same input. It is populated only when a
+// libvpx vpxenc binary is configured (via `-libvpx-vpxenc` or the
+// `GOVPX_VPXENC` environment variable) so callers can read a single
+// "did we beat libvpx?" snapshot without diffing the full reference
+// block manually.
+type comparisonReport struct {
+	BitrateRatioVsReference  float64 `json:"bitrate_ratio_vs_reference"`
+	BitrateDeltaKbps         float64 `json:"bitrate_delta_kbps"`
+	BitrateErrorPctDelta     float64 `json:"bitrate_error_pct_delta"`
+	PSNRDeltaDB              float64 `json:"psnr_delta_db"`
+	SSIMDelta                float64 `json:"ssim_delta"`
+	EncodeFPSRatio           float64 `json:"encode_fps_ratio_vs_reference"`
+	NSPerFrameRatio          float64 `json:"ns_per_frame_ratio_vs_reference"`
+	OutputBytesRatio         float64 `json:"output_bytes_ratio_vs_reference"`
+	AvgInterBytesRatio       float64 `json:"avg_interframe_bytes_ratio_vs_reference"`
+	KeyframeBytesRatio       float64 `json:"keyframe_bytes_ratio_vs_reference"`
 }
 
 type referenceReport struct {
@@ -130,6 +150,7 @@ type benchConfigSummary struct {
 
 func main() {
 	cfg := benchConfig{}
+	autoCompare := false
 	flag.IntVar(&cfg.Width, "width", 64, "frame width")
 	flag.IntVar(&cfg.Height, "height", 64, "frame height")
 	flag.IntVar(&cfg.Frames, "frames", 30, "number of frames")
@@ -139,7 +160,22 @@ func main() {
 	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
 	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
+	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate vpxenc/vpxdec in PATH when -libvpx-vpxenc/-libvpx-oracle are unset, for an automatic libvpx comparison")
 	flag.Parse()
+	if autoCompare {
+		if cfg.LibvpxVpxenc == "" {
+			if path, err := exec.LookPath("vpxenc"); err == nil {
+				cfg.LibvpxVpxenc = path
+			}
+		}
+		if cfg.LibvpxOracle == "" {
+			// The decoder benchmark expects the project's checksum oracle
+			// helper (govpx-vpx-oracle), not vpxdec, so do not auto-fill
+			// from PATH here. Auto-detection would silently fall back to
+			// the wrong binary. The user must opt in explicitly.
+			_ = cfg.LibvpxOracle
+		}
+	}
 
 	var report any
 	var err error
@@ -302,8 +338,40 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 			return benchReport{}, err
 		}
 		report.Reference = &reference
+		report.Comparison = buildComparisonReport(report, reference)
 	}
 	return report, nil
+}
+
+// buildComparisonReport derives govpx-vs-libvpx ratios and deltas from a
+// completed govpx benchReport plus its libvpx referenceReport. Ratios are
+// govpx/libvpx; positive deltas mean govpx is higher than libvpx.
+func buildComparisonReport(report benchReport, reference referenceReport) *comparisonReport {
+	cmp := &comparisonReport{
+		BitrateDeltaKbps:     report.OutputBitrateKbps - reference.OutputBitrateKbps,
+		BitrateErrorPctDelta: report.BitrateErrorPct - reference.BitrateErrorPct,
+		PSNRDeltaDB:          report.PSNR - reference.PSNR,
+		SSIMDelta:            report.SSIM - reference.SSIM,
+	}
+	if reference.OutputBitrateKbps > 0 {
+		cmp.BitrateRatioVsReference = report.OutputBitrateKbps / reference.OutputBitrateKbps
+	}
+	if reference.NSPerFrame > 0 {
+		cmp.NSPerFrameRatio = float64(report.NSPerFrame) / float64(reference.NSPerFrame)
+	}
+	if reference.EncodeFPS > 0 {
+		cmp.EncodeFPSRatio = report.EncodeFPS / reference.EncodeFPS
+	}
+	if reference.OutputBytes > 0 {
+		cmp.OutputBytesRatio = float64(report.OutputBytes) / float64(reference.OutputBytes)
+	}
+	if reference.AvgInterBytes > 0 {
+		cmp.AvgInterBytesRatio = report.AvgInterBytes / reference.AvgInterBytes
+	}
+	if reference.KeyframeBytes > 0 {
+		cmp.KeyframeBytesRatio = float64(report.KeyframeBytes) / float64(reference.KeyframeBytes)
+	}
+	return cmp
 }
 
 func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {

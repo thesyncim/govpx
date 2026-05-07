@@ -108,8 +108,12 @@ go test ./benchmarks -bench Decode -benchmem -json
 ```
 
 Set `GOVPX_VPXENC` or pass `-libvpx-vpxenc` to include a local libvpx encoder
-comparison. Set `GOVPX_ORACLE` or pass `-libvpx-oracle` to time the pinned
-libvpx checksum oracle for decode comparison.
+comparison. By default the bench also auto-locates `vpxenc` on `$PATH`; pass
+`-auto-libvpx=false` to skip that lookup. When a libvpx reference run is
+included, the JSON output gains a `comparison_vs_reference` block with the
+govpx/libvpx bitrate ratio, PSNR/SSIM deltas, and encode-speed ratios. Set
+`GOVPX_ORACLE` or pass `-libvpx-oracle` to time the pinned libvpx checksum
+oracle for decode comparison.
 
 ## Repository Layout
 
