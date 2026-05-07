@@ -9,13 +9,21 @@ the anchor and look for the surrounding mismatch.
 
 ## What 100% Means
 
-- Bitstream parity where deterministic settings allow it: matching frame
-  headers, mode grids, tokens, partitions, reference updates, and decoded MD5s.
-- Decision parity where bitstream identity is not practical: matching frame Q,
-  flags, probabilities, reference checksums, per-MB mode/ref/MV/skip/segment,
-  residual EOBs, rate, distortion, and RD decisions.
-- Quality parity is the final smoke test, not the definition of done. PSNR/SSIM
-  gaps should tighten only after the decision traces match.
+- The product target is libvpx-equivalent VP8 encoder quality, not universal
+  byte-for-byte identity. Future agents should prioritize changes that move
+  visible quality, rate behavior, reference decisions, and mode/MV/residual
+  choices toward libvpx.
+- Bitstream parity is required only where it matters or where deterministic
+  settings make it the cheapest proof: frame headers, reference
+  refresh/copy/sign-bias bits, packet validity, decoder MD5s, and tightly
+  scoped low-level encoders.
+- Decision parity is the main engineering proxy for quality parity: matching
+  frame Q, flags, probabilities, reference checksums, per-MB mode/ref/MV/skip,
+  residual EOBs, rate, distortion, and RD decisions on representative clips.
+- Do not spend effort preserving old govpx behavior or chasing bit-exactness in
+  paths that do not affect quality, rate, decoder-visible output, or future
+  oracle diagnosis. Document any intentionally non-bitexact but
+  quality-equivalent behavior in this file.
 
 ## Current Estimate
 
@@ -27,11 +35,12 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 55-65% complete (point estimate ~60%),
-  weighted by libvpx LOC. This is an engineering estimate, not a measured
-  percentage, because govpx still lacks the libvpx-side trace comparator
-  needed to count matching frame/MB decisions; the govpx-side per-MB JSON
-  Lines harness is in place.
+- Encoder decision parity: roughly 55-65% overall (point estimate ~60%),
+  or about 75% on the core one-pass quality path, weighted by libvpx LOC.
+  This is an engineering estimate, not a measured percentage, because
+  govpx still lacks the libvpx-side trace comparator needed to count
+  matching frame/MB decisions; the govpx-side per-MB JSON Lines harness
+  is in place.
 - The largest single remaining parity weight is `firstpass.c` (~2500 LOC
   equivalent unimplemented). Other heavy areas: automatic hidden-ARF
   scheduling, motion-compensated ARNR temporal filter, full GF boost
@@ -48,16 +57,18 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] `make verify-production` must pass with pinned libvpx v1.16.0 tools and
   required decode/encode corpus minima.
-- [ ] Quality/rate/checksum oracle tests remain smoke gates only; encoder
-  parity requires trace comparison for headers, entropy state, segmentation
-  state, reference updates, and per-MB decisions.
-- [ ] Deterministic real-time/no-lag cases must match libvpx bitstream headers,
-  partition sizes, frame flags, reference refresh/copy/sign-bias bits, decoded
-  MD5s, and trace state.
+- [ ] Quality/rate/checksum oracle tests are smoke gates for user-visible
+  parity. Encoder work should still prefer trace comparison for headers,
+  entropy state, segmentation state, reference updates, and per-MB decisions
+  when those traces explain a quality or rate gap.
+- [ ] Deterministic real-time/no-lag cases should match libvpx bitstream
+  headers, partition sizes, frame flags, reference refresh/copy/sign-bias bits,
+  decoded MD5s, and trace state where those fields affect decoder output or
+  subsequent encoder decisions.
 - [ ] Non-bitexact cases must match decision traces within documented
-  tolerances for rate-control attempts, recode reasons, Q choices, entropy
-  save/restore, mode/ref/MV choices, segmentation IDs, loop filter, and token
-  probabilities.
+  tolerances for quality-relevant behavior: rate-control attempts, recode
+  reasons, Q choices, entropy save/restore, mode/ref/MV choices, segmentation
+  IDs, loop filter, and token probabilities.
 
 ## Validation Harness
 
@@ -243,10 +254,12 @@ the anchor and look for the surrounding mismatch.
     policy in `ratectrl.c`.
   - Status: missing/partial. govpx supports explicit invisible/force ARF flags
     but not libvpx hidden-ARF insertion and later show-frame handling.
-  - Missing: `source_alt_ref_pending`, `source_alt_ref_active`,
-    `alt_ref_source`, `is_src_frame_alt_ref`, hidden-frame insertion from future
-    lookahead, later source-frame show handling, and altref sign-bias/reference
-    state updates.
+    `sourceAltRefActive` now mirrors the libvpx lifecycle for explicit ALTREF
+    refreshes, key-frame resets, and GOLDEN refresh clears, and the inter-frame
+    header writes ALTREF sign bias from that state.
+  - Missing: `source_alt_ref_pending`, automatic `alt_ref_source` selection,
+    `is_src_frame_alt_ref`, hidden-frame insertion from future lookahead, and
+    later source-frame show handling.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded output
     match libvpx with alternate-reference enabled.
 
@@ -355,10 +368,21 @@ the anchor and look for the surrounding mismatch.
     `closest_reference_frame` tweak for LAST+GOLDEN temporal layers, including
     frame-number tracking through refresh/copy updates and `/8` vs `/2`
     reductions for `THR_ZERO2`, `THR_NEAREST2`, and `THR_NEAR2`.
-  - Missing: high-level sign-bias policy/reference switching, full SplitMV
-    label-level segmentation search with `THR_NEW1/2/3` gating, active-map skip
-    short-circuiting, and recode-loop interactions. Active-map behavior is
-    tracked in the dedicated active-map checklist item elsewhere.
+  - High-level sign-bias policy is now wired: frame headers derive
+    `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
+    `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,
+    mode-rate counts and NEWMV vector costs use the same sign-biased anchors as
+    the writer, and previous-frame improved-MV slots store the prior frame's
+    sign-bias state. Tests:
+    `TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive`,
+    `TestEncoderInterMotionModeRateUsesAltRefSignBias`,
+    `TestEncoderInterReferenceMotionPredictorsUseAltRefSignBias`,
+    `TestImprovedInterFrameSearchStartBiasesCurrentSlots`, and
+    `TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots`.
+  - Missing: full SplitMV label-level segmentation search with
+    `THR_NEW1/2/3` gating, active-map skip short-circuiting, and recode-loop
+    interactions. Active-map behavior is tracked in the dedicated active-map
+    checklist item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
@@ -371,14 +395,15 @@ the anchor and look for the surrounding mismatch.
     `vp8_mv_pred` and `vp8_cal_sad` in `rdopt.c`.
   - Status: partial. Current-frame SAD ordering, previous inter-frame mode/MV
     grid, libvpx realtime gate, and low-level sign-biased near/best MV
-    predictor helpers are present. Border-mode-info indexing now mirrors
+    predictor helpers are present, and high-level predictor search now uses
+    the current frame's sign-bias map plus the saved previous-frame slot bias.
+    Border-mode-info indexing now mirrors
     libvpx's calloc-zeroed sentinel rows/columns: nil current-frame
     above/left/above-left and out-of-range previous-frame
     above/left/right/below neighbors collapse to `INTRA_FRAME` /
     `mv == 0` / `near_sad == INT_MAX` slots, and an intra current-frame
     neighbor no longer leaks a stale MV into the median fallback. Remaining
-    work is high-level sign-bias policy/reference switching and oracle
-    traces for `near_sadidx`, predictor MV, and `sr`.
+    work is oracle traces for `near_sadidx`, predictor MV, and `sr`.
     End-to-end quality smoke now covers best-quality panning, good-quality RD
     and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
     a panning corpus in addition to the token-partition motion case. A new

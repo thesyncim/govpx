@@ -8,7 +8,14 @@ muxing, and no libvpx C API clone.
 - Full parity/production gate: `make verify-production`
 - Decoder-only proof gate: `make verify-decoder-parity`
 - Focused work should add or extend oracle coverage before claiming support.
-- Correctness and libvpx parity come before performance.
+- Correctness and libvpx quality parity come before performance.
+- Encoder parity means libvpx-equivalent visible quality, rate behavior,
+  reference policy, mode/MV choices, and residual decisions. Do not chase
+  byte-for-byte identity in paths that do not affect quality, decoder-visible
+  output, future encoder decisions, or oracle diagnosis.
+- Bit-exact output is still required where deterministic paths make it the
+  right proof, especially packet validity, frame headers, reference
+  refresh/copy/sign-bias bits, decoder MD5s, and low-level entropy writers.
 - This is still pre-release encoder work: internal helper signatures should
   follow the current parity model directly. Do not carry legacy compatibility
   wrappers for older internal call shapes.
@@ -27,7 +34,9 @@ lives in [Makefile](Makefile).
 - Encoder: functional and oracle-guarded for many paths, including opt-in
   lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
   two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
-  quality/rate-control tuning parity is still open.
+  quality/rate-control tuning parity is still open. Current estimate is roughly
+  65% overall encoder parity, or about 75% on the core one-pass quality path;
+  see the detailed checklist for caveats.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
@@ -80,9 +89,11 @@ Primary references:
 - Cross-frame ref-frame probability tracking (`prob_intra_coded`,
   `prob_last_coded`, `prob_gf_coded`) is wired against
   `vp8_estimate_entropy_savings`'s default mode-count formula (63/128/128
-  init); the keyframe-after-keyframe boost branch (`prob_intra_coded += 40`,
-  `prob_last_coded = 200`, `prob_gf_coded = 1`) and `source_alt_ref_active`
-  branch from `onyx_if.c` are still flat.
+  init), the `update_rd_ref_frame_probs` keyframe/altref/golden heuristics, and
+  the `source_alt_ref_active` branch from `onyx_if.c`.
+- Inter-frame ALTREF sign bias is wired from libvpx-shaped
+  `sourceAltRefActive` into headers, high-level near/best predictors, improved
+  MV predictor slots, mode-rate counts, and NEWMV vector cost anchors.
 - Inter RD now costs skip signaling from libvpx-style live
   `prob_skip_false` history and uses the current coefficient probability base
   for token-rate decisions; subpel, NEWMV, and SPLITMV vector RD costs now use

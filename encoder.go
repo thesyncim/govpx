@@ -276,6 +276,7 @@ type VP8Encoder struct {
 	// libvpx's improved MV predictor reads the previous inter frame's
 	// MODE_INFO grid (lfmv/lf_ref_frame) when the last coded frame was inter.
 	lastFrameInterModes      []vp8enc.InterFrameMacroblockMode
+	lastFrameInterModeBias   []bool
 	lastFrameInterModesValid bool
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
 	tokenAbove               []vp8enc.TokenContextPlanes
@@ -363,6 +364,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		lastFrameInterModes:     make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		lastFrameInterModeBias:  make([]bool, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
@@ -770,6 +772,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if flags&EncodeForceAltRefFrame != 0 {
 		cfg.RefreshAltRef = true
 	}
+	signBias := e.interFrameSignBias()
+	cfg.GoldenSignBias = signBias[vp8common.GoldenFrame]
+	cfg.AltRefSignBias = signBias[vp8common.AltRefFrame]
 	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(e.opts.ErrorResilient, goldenCBRRefresh, flags) {
 		cfg.CopyBufferToAltRef = 2
 	}
@@ -898,7 +903,7 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	// the denoised running_avg[INTRA] into LAST/GOLDEN/ALTREF running_avg
 	// buffers per the frame's refresh policy.
 	e.copyDenoiserAvgForRefresh(attempt.Config.RefreshLast, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
-	e.rememberLastFrameInterModes()
+	e.rememberLastFrameInterModes(interFrameStateConfigSignBias(attempt.Config))
 	// Once an inter frame has been encoded under the post-drop max-Q gate,
 	// clear it; libvpx leaves force_maxqp set only until the next frame
 	// consumes it.
@@ -1027,6 +1032,22 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 func (e *VP8Encoder) resetGoldenFrameStats() {
 	e.framesSinceGolden = 0
 	e.sourceAltRefActive = false
+}
+
+func (e *VP8Encoder) interFrameSignBias() [vp8common.MaxRefFrames]bool {
+	if e == nil {
+		return [vp8common.MaxRefFrames]bool{}
+	}
+	signBias := [vp8common.MaxRefFrames]bool{}
+	signBias[vp8common.AltRefFrame] = e.sourceAltRefActive
+	return signBias
+}
+
+func interFrameStateConfigSignBias(cfg vp8enc.InterFrameStateConfig) [vp8common.MaxRefFrames]bool {
+	return [vp8common.MaxRefFrames]bool{
+		vp8common.GoldenFrame: cfg.GoldenSignBias,
+		vp8common.AltRefFrame: cfg.AltRefSignBias,
+	}
 }
 
 func interFrameDroppable(cfg vp8enc.InterFrameStateConfig) bool {
@@ -1558,6 +1579,7 @@ func (e *VP8Encoder) Reset() {
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
+	e.resetGoldenFrameStats()
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.probSkipFalse = 128
@@ -2048,6 +2070,7 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 }
 
 func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
+	e.resetGoldenFrameStats()
 	copyFrameImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
 	copyFrameImage(&e.lastRef.Img, &e.current.Img)
@@ -2063,14 +2086,21 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.updateKeyFrameReferenceFrameNumbers()
 }
 
-func (e *VP8Encoder) rememberLastFrameInterModes() {
+func (e *VP8Encoder) rememberLastFrameInterModes(signBias [vp8common.MaxRefFrames]bool) {
 	if e == nil || len(e.interFrameModes) == 0 {
 		return
 	}
 	if len(e.lastFrameInterModes) != len(e.interFrameModes) {
 		e.lastFrameInterModes = make([]vp8enc.InterFrameMacroblockMode, len(e.interFrameModes))
 	}
+	if len(e.lastFrameInterModeBias) != len(e.interFrameModes) {
+		e.lastFrameInterModeBias = make([]bool, len(e.interFrameModes))
+	}
 	copy(e.lastFrameInterModes, e.interFrameModes)
+	for i := range e.interFrameModes {
+		ref := e.interFrameModes[i].RefFrame
+		e.lastFrameInterModeBias[i] = ref > vp8common.IntraFrame && ref < vp8common.MaxRefFrames && signBias[ref]
+	}
 	e.lastFrameInterModesValid = true
 }
 

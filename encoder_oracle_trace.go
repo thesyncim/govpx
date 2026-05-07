@@ -48,18 +48,18 @@ type oracleTraceFrameRow struct {
 
 // oracleTraceMBRow is the per-macroblock oracle trace row (inter frames only).
 type oracleTraceMBRow struct {
-	Type        string   `json:"type"`
-	FrameIndex  uint64   `json:"frame_index"`
-	MBRow       int      `json:"mb_row"`
-	MBCol       int      `json:"mb_col"`
-	SegmentID   int      `json:"segment_id"`
-	Mode        string   `json:"mode"`
-	RefFrame    string   `json:"ref_frame"`
-	MVRow       int16    `json:"mv_row"`
-	MVCol       int16    `json:"mv_col"`
-	Skip        bool     `json:"skip"`
-	EOB         [25]uint8 `json:"eob"`
-	EOBSum      int      `json:"eob_sum"`
+	Type       string    `json:"type"`
+	FrameIndex uint64    `json:"frame_index"`
+	MBRow      int       `json:"mb_row"`
+	MBCol      int       `json:"mb_col"`
+	SegmentID  int       `json:"segment_id"`
+	Mode       string    `json:"mode"`
+	RefFrame   string    `json:"ref_frame"`
+	MVRow      int16     `json:"mv_row"`
+	MVCol      int16     `json:"mv_col"`
+	Skip       bool      `json:"skip"`
+	EOB        [25]uint8 `json:"eob"`
+	EOBSum     int       `json:"eob_sum"`
 }
 
 // oracleTraceEnabled reports whether the encoder is configured to emit the

@@ -57,7 +57,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 	// left=1, above-left=2) at the top of the sorted list and lets us assert
 	// the libvpx "match in top-3" rule: first matching slot wins, sr = 3.
 	type expected struct {
-		mvIndex  int  // index into modes for the MB whose MV the predictor should return
+		mvIndex  int // index into modes for the MB whose MV the predictor should return
 		sr       int
 		fallback bool // true => predictor must fall back to median, sr = 0
 	}
