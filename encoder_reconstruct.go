@@ -203,6 +203,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
 }
 
+// buildReconstructingInterFrameCoefficientsWithSegmentation drives the
+// per-MB inter-frame RD picker, residual reconstruction, and token-context
+// commit in libvpx's encode_mb_row order (vp8/encoder/encodeframe.c). The
+// per-MB token contexts (aboveTok / leftTok in this function) are committed
+// to the row state only after the chosen mode's residual has been encoded,
+// via updateInterAnalysisTokenContext — mirroring libvpx's deferred
+// "*a/*l" ENTROPY_CONTEXT assignment after vp8_encode_inter16x16 /
+// vp8_encode_intra4x4mby. Recode-loop interactions: encodeInterFrame{,
+// WithQuantizerFeedback} re-enters this function on every recode attempt;
+// the local aboveTok slice and leftTok variable are freshly allocated on
+// each call so a rejected attempt's commits never leak into the next try
+// (matching libvpx restore_coding_context's effect of rewinding the row
+// ENTROPY_CONTEXTs at the start of each recode iteration).
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) error {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return ErrInvalidConfig
@@ -1189,6 +1202,23 @@ func (e *VP8Encoder) inactiveInterFrameModeDecision(refs []interAnalysisReferenc
 	return interFrameModeDecision{}, false
 }
 
+// selectRDInterFrameModeDecision mirrors libvpx vp8/encoder/rdopt.c
+// vp8_rd_pick_inter_mode. Token-context commit parity: each candidate-mode
+// trial passes aboveTok/leftTok by pointer to the per-mode RD subroutines
+// (estimateInterIntraModeRDScore, estimateInterResidualRDAccounting,
+// selectInterFrameSplitModeRDScore), but every one of those subroutines
+// snapshots the planes into stack-local arrays before mutating them — see
+// wholeBlockYTransformRD, wholeBlockChromaTransformRD,
+// predictBestBPredLumaModeRD, predictBestIntraChromaModeRD, and
+// buildPredictedMacroblockCoefficientsRD. This matches libvpx's "tempa /
+// templ" copies inside vp8_rd_pick_inter_mode (rdopt.c) and
+// rd_pick_intra4x4block (rdopt.c): only the chosen mode's contexts are
+// committed to the per-MB row state. The commit happens later in
+// buildReconstructingInterFrameCoefficientsWithSegmentation via
+// updateInterAnalysisTokenContext after the winning mode's residual has been
+// reconstructed, mirroring libvpx's encode_mb_row "*a/*l" assignment after
+// vp8_encode_inter16x16 / vp8_encode_intra4x4mby. The RD picker therefore
+// never mutates the caller's aboveTok/leftTok during candidate evaluation.
 func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
