@@ -139,10 +139,17 @@ the anchor and look for the surrounding mismatch.
     multiplier. Oversized frames at `active_worst_quality` now relax the active
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
-  - Missing: forced/auto key-frame recodes, entropy projected-size decisions,
-    full saved-coding-context restore coverage after failed attempts, and trace
-    coverage for GF/ARF zbin-over-quant cases once automatic ARF state is in
-    place.
+    The recode size-bounds comparison now subtracts
+    `vp8_estimate_entropy_savings` (ref-frame portion) from the
+    just-encoded size before deciding to recode, mirroring libvpx's
+    `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
+    via [`applyEntropySavingsToProjectedSize`](../encoder.go).
+  - Missing: forced/auto key-frame recodes, full saved-coding-context
+    restore coverage after failed attempts, the
+    coefficient-context portion of vp8_estimate_entropy_savings
+    (default_coef_context_savings / independent_coef_context_savings),
+    and trace coverage for GF/ARF zbin-over-quant cases once automatic
+    ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -324,11 +331,32 @@ the anchor and look for the surrounding mismatch.
     `kf_group_err`. `kfGroupBits` ports the libvpx KF-group allocation
     (`bits_left * (kf_group_err / modified_error_left)`) with the
     `max_bits * frames_to_key` ceiling and the `bits_left>0 &&
-    modified_error_left>0.0` gate.
-  - Missing: GF-group bits/error accumulators (`gf_group_bits`,
-    `gf_group_error_left`), `gf_bits`, `alt_extra_bits`, section
-    max-Q factor, active worst-Q estimates, VBR min/max section
-    limits, CBR buffer adjustments, and ARF pending decisions.
+    modified_error_left>0.0` gate. `libvpxGFGroupBits` ports the GF
+    section allocation
+    (`gf_group_bits = kf_group_bits * (gf_group_err /
+    kf_group_error_left)`) with the kf_group_bits clamp and the
+    `max_bits * baseline_gf_interval` ceiling.
+    `libvpxGFBitsAllocation` ports the libvpx GF/ARF bit allocation
+    (Boost-weighted `gf_bits = Boost * (gf_group_bits /
+    allocation_chunks)`): the GF branch uses
+    `Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100` with cap
+    `interval*150` and floor 125, and the ARF branch uses
+    `(gfu_boost * 3 * GFQ_ADJUSTMENT) / 200 + interval*50` with cap
+    `(interval+1)*200`; both apply the `>1000` halving overflow
+    guard and the libvpx `(interval+1)*100 + Boost` /
+    `interval*100 + (Boost-100)` allocation_chunks formulas.
+    `libvpxFrameMaxBitsCBR` and `libvpxFrameMaxBitsVBR` port the
+    libvpx vp8/encoder/firstpass.c `frame_max_bits` per-frame ceiling:
+    CBR uses `av_per_frame_bandwidth * vbrmax_section / 100` scaled by
+    `buffer_level / optimal_buffer_level` when the buffer is below
+    optimal, with the libvpx
+    `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
+    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
+    feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
+  - Missing: `alt_extra_bits` carry, section max-Q factor, active
+    worst-Q estimates, VBR min/max section limits beyond
+    frame_max_bits, CBR buffer adjustments inside Pass2Encode, and
+    ARF pending decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
