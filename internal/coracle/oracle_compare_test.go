@@ -97,6 +97,10 @@ func recodeRow(frameIndex, loopCount, finalQ int, reason string) string {
 }
 
 func mbRowJSON(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int, skip bool, eobSum int) string {
+	return mbRowJSONWithQCoeff(frameIndex, mbRow, mbCol, mode, ref, mvRow, mvCol, skip, eobSum, qcoeffMatrixJSON(-1, -1, 0))
+}
+
+func mbRowJSONWithQCoeff(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int, skip bool, eobSum int, qcoeff string) string {
 	return strings.Join([]string{
 		"{\"type\":\"mb\"",
 		fmt.Sprintf("\"frame_index\":%d", frameIndex),
@@ -109,8 +113,33 @@ func mbRowJSON(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, mvCol int,
 		fmt.Sprintf("\"mv_col\":%d", mvCol),
 		fmt.Sprintf("\"skip\":%t", skip),
 		"\"eob\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]",
-		fmt.Sprintf("\"eob_sum\":%d}", eobSum),
+		fmt.Sprintf("\"eob_sum\":%d", eobSum),
+		fmt.Sprintf("\"qcoeff\":%s}", qcoeff),
 	}, ",")
+}
+
+func qcoeffMatrixJSON(blockIndex int, coeffIndex int, value int) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for block := 0; block < 25; block++ {
+		if block > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('[')
+		for coeff := 0; coeff < 16; coeff++ {
+			if coeff > 0 {
+				b.WriteByte(',')
+			}
+			v := 0
+			if block == blockIndex && coeff == coeffIndex {
+				v = value
+			}
+			b.WriteString(fmt.Sprintf("%d", v))
+		}
+		b.WriteByte(']')
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 func TestCompareOracleTracesDetectsFieldDivergences(t *testing.T) {
@@ -192,6 +221,24 @@ func TestCompareOracleTracesDetectsFieldDivergences(t *testing.T) {
 	}
 	if mb.Govpx != "NEARESTMV" || mb.Libvpx != "NEWMV" {
 		t.Errorf("row=2/field=mode: values=(%v,%v) want (NEARESTMV,NEWMV)", mb.Govpx, mb.Libvpx)
+	}
+}
+
+func TestCompareOracleTracesDetectsQCoeffDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := mbRowJSONWithQCoeff(0, 0, 0, "NEWMV", "LAST_FRAME", 8, -8, false, 2, qcoeffMatrixJSON(2, 3, 7)) + "\n"
+	libvpx := mbRowJSONWithQCoeff(0, 0, 0, "NEWMV", "LAST_FRAME", 8, -8, false, 2, qcoeffMatrixJSON(2, 3, 8)) + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 1 {
+		t.Fatalf("divergences = %d %+v, want exactly one qcoeff divergence", len(div), div)
+	}
+	if div[0].RowKind != "mb" || div[0].Field != "qcoeff" || div[0].MBRow != 0 || div[0].MBCol != 0 {
+		t.Fatalf("divergence = %+v, want MB qcoeff divergence at (0,0)", div[0])
 	}
 }
 
