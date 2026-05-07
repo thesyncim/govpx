@@ -183,7 +183,16 @@ func WriteCoefficientKeyFrameWithProbabilityBase(dst []byte, width int, height i
 	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
 		return 0, tables.CoefficientProbs{}, ErrModeBufferTooSmall
 	}
-	frameCoefProbs, coefUpdates, err := BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, base)
+	var (
+		frameCoefProbs tables.CoefficientProbs
+		coefUpdates    CoefficientProbabilityUpdates
+		err            error
+	)
+	if cfg.IndependentContexts {
+		frameCoefProbs, coefUpdates, err = BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows, cols, modes, coeffs, above, base)
+	} else {
+		frameCoefProbs, coefUpdates, err = BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, base)
+	}
 	if err != nil {
 		return 0, tables.CoefficientProbs{}, err
 	}
