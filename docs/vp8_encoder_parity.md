@@ -385,7 +385,28 @@ the anchor and look for the surrounding mismatch.
     (libvpx's `assert(!cm->copy_buffer_to_arf)` invariant) and the
     deferred show-frame after a hidden ARF (`is_src_frame_alt_ref`) clears
     both copy fields so the references already populated by the ARF stick.
-    Remaining work is sign-bias policy and trace coverage.
+    Sign-bias policy is now pinned end-to-end: `interFrameSignBias` keeps
+    `ref_frame_sign_bias[GOLDEN_FRAME]` at 0 (libvpx's
+    `update_golden_frame_stats` never flips it) and writes
+    `ref_frame_sign_bias[ALTREF_FRAME] = source_alt_ref_active` at the
+    libvpx pre-pack point in onyx_if.c, with `updateGoldenFrameStats`
+    mirroring the post-pack `source_alt_ref_active` set/clear edges from
+    `update_alt_ref_frame_stats` / `update_golden_frame_stats`. A
+    multi-frame
+    [`TestSignBiasEvolutionMatchesLibvpxAcrossGFAndARF`](../encoder_test.go)
+    drives a 12-frame AutoAltRef sequence (key + inter + hidden ARF +
+    deferred show + GOLDEN refresh) and replays the libvpx evolution rule
+    against each parsed packet's `(GoldenSignBias, AltRefSignBias)` so any
+    drift surfaces as a per-frame tuple mismatch. The oracle trace
+    `frame` row already carries `sign_bias_golden` / `sign_bias_altref`
+    fields in
+    [`encoder_oracle_trace.go`](../encoder_oracle_trace.go) and the
+    libvpx-side capture in
+    [`internal/coracle/build_vpxenc_oracle.sh`](../internal/coracle/build_vpxenc_oracle.sh)
+    emits the matching `cm->ref_frame_sign_bias[GOLDEN_FRAME]` /
+    `cm->ref_frame_sign_bias[ALTREF_FRAME]` values at the same emit
+    point, so `CompareOracleTraces` flags any divergence as a frame-row
+    field diff.
   - Done when forced and natural GF/ARF sequences match header copy bits,
     reference checksums, reference availability, and subsequent mode choices.
 
