@@ -202,6 +202,23 @@ type VP8Encoder struct {
 	forceKeyFrame bool
 	frameCount    uint64
 
+	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
+	// is set when the encoder is producing a key frame whose timing was
+	// dictated by the fixed-interval scheduler (rather than a content scene
+	// cut); the recode loop uses it to drive the SS-error feedback Q
+	// adjustment (encode_frame_to_data_rate around line 4065). ambient_err
+	// stores the just-encoded SS error (Y plane vs source) of the frame
+	// preceding a forced key, set by the next_key_frame_forced branch at the
+	// tail of the previous frame's encode (line 4282); the forced KF recode
+	// branch compares the new attempt's kf_err against this baseline.
+	thisKeyFrameForced bool
+	ambientErr         int
+
+	// savedContext mirrors cpi->coding_context. Populated by
+	// saveCodingContext at the top of each recode loop and consumed by
+	// restoreCodingContext when an attempt is rejected.
+	savedContext savedCodingContext
+
 	cyclicRefreshIndex      int
 	cyclicRefreshMap        []int8
 	cyclicRefreshAttemptMap []int8
@@ -376,6 +393,80 @@ type VP8Encoder struct {
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
+
+// savedCodingContext mirrors libvpx vp8/encoder/ratectrl.c CODING_CONTEXT.
+// vp8_save_coding_context snapshots these fields before the recode do-loop in
+// encode_frame_to_data_rate; vp8_restore_coding_context puts them back when a
+// recode attempt is rejected (Loop==1) so the next attempt sees the same
+// pre-encode state. govpx defers entropy/skip-prob commits past the loop, so
+// most fields are also untouched mid-loop, but the snapshot/restore pair makes
+// that contract explicit and verifiable.
+type savedCodingContext struct {
+	// libvpx CODING_CONTEXT scalars.
+	framesSinceKey        int
+	filterLevel           uint8
+	framesTillGFUpdateDue int
+	framesSinceGolden     int
+	thisFramePercentIntra int
+	// libvpx CODING_CONTEXT array fields (mvc/ymode_prob/uv_mode_prob).
+	// govpx stores MV/Y/UV/B mode probabilities in e.modeProbs (vp8dec.ModeProbs)
+	// and coefficient probabilities in e.coefProbs.
+	modeProbs vp8dec.ModeProbs
+	coefProbs vp8tables.CoefficientProbs
+	// libvpx also tracks ref-frame and skip-false probabilities across the
+	// recode loop via cpi->prob_intra/prob_last/prob_gf and
+	// cpi->prob_skip_false; govpx's per-attempt deferred restore covers them
+	// inside one attempt, but the recode-loop snapshot pins the values that
+	// survive a rejected attempt.
+	refProbIntra       uint8
+	refProbLast        uint8
+	refProbGolden      uint8
+	probSkipFalse      uint8
+	lastSkipFalseProbs [3]uint8
+	valid              bool
+}
+
+// saveCodingContext mirrors libvpx vp8_save_coding_context. Called once before
+// the encode/recode do-loop; the snapshot is consumed by restoreCodingContext
+// when a recode attempt is rejected.
+func (e *VP8Encoder) saveCodingContext() {
+	e.savedContext = savedCodingContext{
+		framesSinceKey:        e.rc.framesSinceKeyframe,
+		filterLevel:           e.loopFilterLevel,
+		framesTillGFUpdateDue: e.rc.framesTillGFUpdateDue,
+		framesSinceGolden:     e.framesSinceGolden,
+		thisFramePercentIntra: e.rc.thisFramePercentIntra,
+		modeProbs:             e.modeProbs,
+		coefProbs:             e.coefProbs,
+		refProbIntra:          e.refProbIntra,
+		refProbLast:           e.refProbLast,
+		refProbGolden:         e.refProbGolden,
+		probSkipFalse:         e.probSkipFalse,
+		lastSkipFalseProbs:    e.lastSkipFalseProbs,
+		valid:                 true,
+	}
+}
+
+// restoreCodingContext mirrors libvpx vp8_restore_coding_context. Called when
+// the recode loop decides to re-encode at a different Q so the next attempt
+// starts from the pre-encode state captured by saveCodingContext.
+func (e *VP8Encoder) restoreCodingContext() {
+	if !e.savedContext.valid {
+		return
+	}
+	e.rc.framesSinceKeyframe = e.savedContext.framesSinceKey
+	e.loopFilterLevel = e.savedContext.filterLevel
+	e.rc.framesTillGFUpdateDue = e.savedContext.framesTillGFUpdateDue
+	e.framesSinceGolden = e.savedContext.framesSinceGolden
+	e.rc.thisFramePercentIntra = e.savedContext.thisFramePercentIntra
+	e.modeProbs = e.savedContext.modeProbs
+	e.coefProbs = e.savedContext.coefProbs
+	e.refProbIntra = e.savedContext.refProbIntra
+	e.refProbLast = e.savedContext.refProbLast
+	e.refProbGolden = e.savedContext.refProbGolden
+	e.probSkipFalse = e.savedContext.probSkipFalse
+	e.lastSkipFalseProbs = e.savedContext.lastSkipFalseProbs
+}
 
 type keyFrameEncodeAttempt struct {
 	FrameCoefProbs      vp8tables.CoefficientProbs
@@ -748,11 +839,20 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				SizeBytes:      attempt.Size,
 			})
 			e.flushOracleMBTraceBuffer()
+			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
+			// frame will be a forced KF so the forced-KF recode branch has a
+			// baseline to compare against.
+			e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
 			e.frameCount++
 			return result, nil
 		}
 	}
 
+	// libvpx vp8/encoder/onyx_if.c sets cpi->this_key_frame_forced when the
+	// key frame is timing-driven (max-interval forced) rather than content-
+	// driven. The recode loop reads it to engage the SS-error feedback Q
+	// adjustment branch around line 4065.
+	e.thisKeyFrameForced = forcedKeyFrame && !sceneCutKeyFrame && e.frameCount > 0
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
 		return EncodeResult{}, err
@@ -812,8 +912,38 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		SegEnabled:    keyAttempt.SegmentationEnabled,
 		SizeBytes:     keyAttempt.Size,
 	})
+	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
+	// frame has been committed; the next forced KF will set it again. Update
+	// the next_key_frame_forced bookkeeping for the following frame's
+	// ambient_err capture.
+	e.thisKeyFrameForced = false
+	e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
 	e.frameCount++
 	return result, nil
+}
+
+// updateNextKeyFrameForcedAfterCommit ports the libvpx
+// vp8/encoder/onyx_if.c `if (cpi->next_key_frame_forced && frames_to_key == 0)`
+// branch at the end of encode_frame_to_data_rate (around line 4282). When the
+// just-encoded frame is the one *immediately before* a forced KF, the encoder
+// stores the SS error of its reconstruction so the upcoming forced-KF recode
+// loop can compare against it via forcedKeyFrameRecodeQuantizer.
+func (e *VP8Encoder) updateNextKeyFrameForcedAfterCommit(source vp8enc.SourceImage, rows int, cols int) {
+	interval := e.opts.KeyFrameInterval
+	if interval <= 0 {
+		return
+	}
+	// For govpx one-pass, the "next frame is a forced KF" predicate matches
+	// libvpx's twopass.frames_to_key == 0 hand-off: with a fixed
+	// KeyFrameInterval, frames at indices that are multiples of the interval
+	// (after the bootstrap) are forced key frames. So the *current* frame's
+	// frameCount being one less than such an index means we should capture
+	// ambient_err now.
+	nextIndex := e.frameCount + 1
+	if nextIndex == 0 || nextIndex%uint64(interval) != 0 {
+		return
+	}
+	e.ambientErr = calcKeyFrameSSError(source, &e.current.Img, rows, cols)
 }
 
 func (e *VP8Encoder) populateTemporalLayerBufferResult(result *EncodeResult, meta temporalFrame) {
@@ -853,6 +983,11 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 
 func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(true, false)
+	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate snapshots the
+	// coding context once before entering the recode do-loop. Each rejected
+	// attempt restores this snapshot so the next attempt re-encodes from the
+	// same pre-attempt entropy/skip-prob state.
+	e.saveCodingContext()
 	e.oracleTraceRecodeLoopCount = 0
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
@@ -860,9 +995,29 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, true, false, required, &recode) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts {
 			return result, nil
 		}
+		// libvpx forced-key-frame special-case branch
+		// (encode_frame_to_data_rate around line 4065): when the encoder is
+		// emitting a forced KF and the ambient_err baseline from the prior
+		// frame is available, drive Q based on the SS-error gap rather than
+		// the normal projected-size recode logic.
+		if e.thisKeyFrameForced && e.ambientErr > 0 {
+			kfErr := calcKeyFrameSSError(source, &e.analysis.Img, rows, cols)
+			nextQ, recoded := e.rc.forcedKeyFrameRecodeQuantizer(kfErr, e.ambientErr, &recode)
+			if !recoded {
+				return result, nil
+			}
+			e.rc.currentQuantizer = nextQ
+			e.restoreCodingContext()
+			continue
+		}
+		if !e.updateQuantizerForEncodedFrameSize(result.Size, true, false, required, &recode) {
+			return result, nil
+		}
+		// Recode accepted: restore the pre-loop snapshot before re-encoding.
+		e.restoreCodingContext()
 	}
 }
 
@@ -922,6 +1077,11 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(false, boostedReferenceFrame)
+	// libvpx vp8/encoder/onyx_if.c snapshots the coding context once before
+	// the recode do-loop and restores it on every rejected attempt; mirror
+	// that here so the inter recode loop has the same pre-attempt invariants
+	// as libvpx.
+	e.saveCodingContext()
 	e.oracleTraceRecodeLoopCount = 0
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
@@ -932,6 +1092,8 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
+		// Recode accepted: restore the pre-loop snapshot before re-encoding.
+		e.restoreCodingContext()
 	}
 }
 
@@ -2420,6 +2582,17 @@ func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, start
 	for row := startY; row < endY; row++ {
 		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
 	}
+}
+
+// calcKeyFrameSSError ports libvpx vp8/encoder/onyx_if.c vp8_calc_ss_err over
+// the Y plane: full-frame sum of squared 16x16 luma differences between the
+// encoded source and the reconstructed frame. Used by the forced-key recode
+// branch to compare against ambient_err.
+func calcKeyFrameSSError(src vp8enc.SourceImage, recon *vp8common.Image, rows int, cols int) int {
+	if rows <= 0 || cols <= 0 {
+		return 0
+	}
+	return loopFilterLumaSSE(src, recon, rows, cols, false)
 }
 
 func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, cols int, partial bool) int {

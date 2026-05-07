@@ -1105,6 +1105,57 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 	return rc.clampedFrameQuantizerValue(next), true
 }
 
+// forcedKeyFrameRecodeQuantizer ports the libvpx vp8/encoder/onyx_if.c
+// "Special case handling for forced key frames" branch in
+// encode_frame_to_data_rate (around line 4065). Given the SS-error of the
+// just-encoded forced key frame and the ambient error baseline captured from
+// the frame preceding the forced KF, libvpx narrows the recode q_low/q_high
+// bounds and picks the midpoint. The caller is expected to feed currentQuantizer
+// as the just-attempted Q; the returned (Q, recoded) pair indicates the next Q
+// and whether a recode is required (Q != last Q).
+//
+// Branch semantics from libvpx:
+//   - kf_err > ambient_err * 7/8: KF too lossy; lower q_high to (Q-1) (or q_low),
+//     pick Q = (q_high + q_low) >> 1.
+//   - kf_err < ambient_err / 2: KF much better than previous; raise q_low to
+//     (Q+1) (or q_high), pick Q = (q_high + q_low + 1) >> 1.
+//   - Else: leave Q alone; no recode.
+//
+// Q is clamped to [q_low, q_high] before returning.
+func (rc *rateControlState) forcedKeyFrameRecodeQuantizer(kfErr int, ambientErr int, recode *frameSizeRecodeState) (int, bool) {
+	if recode == nil || ambientErr <= 0 {
+		return rc.currentQuantizer, false
+	}
+	q := rc.currentQuantizer
+	lastQ := q
+	threshTooLossy := (ambientErr * 7) >> 3
+	threshMuchBetter := ambientErr >> 1
+	switch {
+	case kfErr > threshTooLossy:
+		if q > recode.qLow {
+			recode.qHigh = q - 1
+		} else {
+			recode.qHigh = recode.qLow
+		}
+		q = (recode.qHigh + recode.qLow) >> 1
+	case kfErr < threshMuchBetter:
+		if q < recode.qHigh {
+			recode.qLow = q + 1
+		} else {
+			recode.qLow = recode.qHigh
+		}
+		q = (recode.qHigh + recode.qLow + 1) >> 1
+	}
+	if q > recode.qHigh {
+		q = recode.qHigh
+	}
+	if q < recode.qLow {
+		q = recode.qLow
+	}
+	q = rc.clampedFrameQuantizerValue(q)
+	return q, q != lastQ
+}
+
 func (rc *rateControlState) relaxActiveWorstQuantizerForOvershoot(actualBits int, overshootLimit int, q int, recode *frameSizeRecodeState) bool {
 	if recode == nil || actualBits <= overshootLimit || overshootLimit <= 0 {
 		return false
