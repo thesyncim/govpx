@@ -11,10 +11,18 @@ import (
 // not depend on the encoder package and CompareOracleTraces stays
 // reader-only.
 func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) string {
+	return frameRowFull(frameIndex, qIndex, "inter", refreshLast, yAdler, false, false)
+}
+
+// frameRowFull is the full-control variant of frameRow used by tests that
+// need to vary the frame type, refresh-entropy-probs flag, or default-coef
+// reset gate. Existing call sites use frameRow which keeps the new fields
+// at their pre-extension defaults (false) so older tests keep passing.
+func frameRowFull(frameIndex int, qIndex int, frameType string, refreshLast bool, yAdler uint32, refreshEntropyProbs bool, defaultCoefReset bool) string {
 	return strings.Join([]string{
 		"{\"type\":\"frame\"",
 		fmt.Sprintf("\"frame_index\":%d", frameIndex),
-		"\"frame_type\":\"inter\"",
+		fmt.Sprintf("\"frame_type\":%q", frameType),
 		fmt.Sprintf("\"q_index\":%d", qIndex),
 		"\"base_q_index\":40",
 		"\"loop_filter_level\":12",
@@ -24,6 +32,8 @@ func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) strin
 		"\"sign_bias_golden\":false",
 		"\"sign_bias_altref\":false",
 		"\"segmentation_enabled\":false",
+		fmt.Sprintf("\"refresh_entropy_probs\":%t", refreshEntropyProbs),
+		fmt.Sprintf("\"default_coef_reset\":%t", defaultCoefReset),
 		fmt.Sprintf("\"y_adler32\":%d", yAdler),
 		"\"u_adler32\":0",
 		"\"v_adler32\":0",
@@ -37,6 +47,13 @@ func frameRow(frameIndex int, qIndex int, refreshLast bool, yAdler uint32) strin
 // so the comparator's union-of-keys diff stays focused on the field under
 // test.
 func rateRow(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameTarget, kfOverspend int) string {
+	return rateRowFull(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameTarget, kfOverspend, 0)
+}
+
+// rateRowFull is the full-control variant of rateRow used by tests that need
+// to vary the zbin_over_quant field. Existing call sites use rateRow which
+// keeps zbin_over_quant at the pre-extension default (0).
+func rateRowFull(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameTarget, kfOverspend, zbinOverQuant int) string {
 	return strings.Join([]string{
 		"{\"type\":\"rate\"",
 		fmt.Sprintf("\"frame_index\":%d", frameIndex),
@@ -49,7 +66,8 @@ func rateRow(frameIndex, qIndex, activeWorst, bufferLevel, projected, frameTarge
 		fmt.Sprintf("\"projected_frame_size\":%d", projected),
 		fmt.Sprintf("\"this_frame_target\":%d", frameTarget),
 		fmt.Sprintf("\"kf_overspend_bits\":%d", kfOverspend),
-		"\"gf_overspend_bits\":0}",
+		"\"gf_overspend_bits\":0",
+		fmt.Sprintf("\"zbin_over_quant\":%d}", zbinOverQuant),
 	}, ",")
 }
 
@@ -364,6 +382,95 @@ func TestCompareOracleTracesDetectsRecodeRowDivergence(t *testing.T) {
 	}
 	if lf, _ := loop.Libvpx.(float64); lf != 4 {
 		t.Errorf("row=1/field=loop_count: Libvpx=%v want 4", loop.Libvpx)
+	}
+}
+
+// TestCompareOracleTracesDetectsZbinOverQuantDivergence feeds two streams
+// where the rate row's zbin_over_quant differs (govpx says 0, libvpx says
+// 12 — modelling a GF/ARF cycle where libvpx engages the zbin overshoot
+// while govpx does not). The comparator must surface the field-level
+// mismatch with RowKind == "rate".
+func TestCompareOracleTracesDetectsZbinOverQuantDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := strings.Join([]string{
+		rateRowFull(0, 60, 80, 50000, 9872, 12000, 0, 0),
+		frameRow(0, 60, true, 0xdeadbeef),
+	}, "\n") + "\n"
+
+	libvpx := strings.Join([]string{
+		rateRowFull(0, 60, 80, 50000, 9872, 12000, 0, 12),
+		frameRow(0, 60, true, 0xdeadbeef),
+	}, "\n") + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	d, ok := got["row=0/field=zbin_over_quant"]
+	if !ok {
+		t.Fatalf("missing zbin_over_quant divergence; got: %v", divKeys(div))
+	}
+	if d.RowKind != "rate" {
+		t.Errorf("RowKind=%q want rate", d.RowKind)
+	}
+	if d.FrameIndex != 0 {
+		t.Errorf("FrameIndex=%d want 0", d.FrameIndex)
+	}
+	if d.MBRow != -1 || d.MBCol != -1 {
+		t.Errorf("coords=(%d,%d) want (-1,-1)", d.MBRow, d.MBCol)
+	}
+	if gv, _ := d.Govpx.(float64); gv != 0 {
+		t.Errorf("Govpx=%v want 0", d.Govpx)
+	}
+	if lv, _ := d.Libvpx.(float64); lv != 12 {
+		t.Errorf("Libvpx=%v want 12", d.Libvpx)
+	}
+}
+
+// TestCompareOracleTracesDetectsDefaultCoefResetDivergence feeds two streams
+// where the key-frame "frame" row's default_coef_reset bool differs (govpx
+// says false, libvpx says true — modelling a parity break where govpx is
+// not yet in error-resilient mode while libvpx is). The comparator must
+// surface the field-level mismatch with RowKind == "frame".
+func TestCompareOracleTracesDetectsDefaultCoefResetDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := frameRowFull(0, 60, "key", true, 0xdeadbeef, true, false) + "\n"
+	libvpx := frameRowFull(0, 60, "key", true, 0xdeadbeef, true, true) + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	got := make(map[string]Divergence, len(div))
+	for _, d := range div {
+		got[divKey(d)] = d
+	}
+	d, ok := got["row=0/field=default_coef_reset"]
+	if !ok {
+		t.Fatalf("missing default_coef_reset divergence; got: %v", divKeys(div))
+	}
+	if d.RowKind != "frame" {
+		t.Errorf("RowKind=%q want frame", d.RowKind)
+	}
+	if d.FrameIndex != 0 {
+		t.Errorf("FrameIndex=%d want 0", d.FrameIndex)
+	}
+	if gv, _ := d.Govpx.(bool); gv {
+		t.Errorf("Govpx=%v want false", d.Govpx)
+	}
+	if lv, _ := d.Libvpx.(bool); !lv {
+		t.Errorf("Libvpx=%v want true", d.Libvpx)
+	}
+	// Sanity: the matching refresh_entropy_probs field must NOT show up
+	// as a divergence since both sides emit true.
+	if _, hasRefresh := got["row=0/field=refresh_entropy_probs"]; hasRefresh {
+		t.Errorf("unexpected refresh_entropy_probs divergence: %+v", got["row=0/field=refresh_entropy_probs"])
 	}
 }
 
