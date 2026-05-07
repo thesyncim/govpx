@@ -1005,6 +1005,37 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegme
 	}
 }
 
+func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSegmentForNonLastZero(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	src := testImage(16, 16)
+	fillImage(src, 40, 90, 170)
+	golden := testVP8Frame(t, 16, 16, 40, 90, 170)
+	copyFrameImage(&e.goldenRef.Img, &golden.Img)
+	e.goldenRef.ExtendBorders()
+	fillBenchmarkVP8Image(&e.lastRef.Img, 220, 90, 170)
+	e.lastRef.ExtendBorders()
+
+	modes := []vp8enc.InterFrameMacroblockMode{{SegmentID: staticSegmentID}}
+	coeffs := make([]vp8enc.MacroblockCoefficients, 1)
+	segmentation := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
+	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
+	segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = -10
+
+	err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(
+		sourceImageFromPublic(src), 20, segmentation, true, modes, coeffs, 1, 1,
+		EncodeNoReferenceLast|EncodeNoReferenceAltRef,
+	)
+	if err != nil {
+		t.Fatalf("inter reconstruction returned error: %v", err)
+	}
+	if modes[0].RefFrame != vp8common.GoldenFrame || modes[0].Mode != vp8common.ZeroMV {
+		t.Fatalf("mode = %+v, want GOLDEN/ZEROMV setup", modes[0])
+	}
+	if modes[0].SegmentID != 0 || e.reconstructModes[0].SegmentID != 0 {
+		t.Fatalf("segment IDs = mode:%d reconstruct:%d, want cleared to 0 for non-LAST/ZEROMV", modes[0].SegmentID, e.reconstructModes[0].SegmentID)
+	}
+}
+
 func TestBuildReconstructingCoefficientsWithSegmentationRejectsInvalidSegmentID(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	src := segmentedQuantizationTestImage()
