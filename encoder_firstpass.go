@@ -588,6 +588,11 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 	if keyFrame {
 		maxTarget *= 4
 		target *= 3
+	} else {
+		framesLeft := int64(len(t.stats)) - int64(frame)
+		if vbrMaxTarget := libvpxFrameMaxBitsVBR(t.bitsLeft, framesLeft, t.maxPct); vbrMaxTarget > 0 {
+			maxTarget = int64(vbrMaxTarget)
+		}
 	}
 	if target < minTarget {
 		target = minTarget

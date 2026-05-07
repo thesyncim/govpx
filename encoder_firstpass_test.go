@@ -1069,6 +1069,57 @@ func TestLibvpxFrameMaxBitsVBRBasicAllocation(t *testing.T) {
 	}
 }
 
+// TestTwoPassFrameTargetBitsUsesLiveVBRMaxWhenBudgetAhead pins the
+// libvpx second-pass VBR ceiling:
+//
+//	max_bits = (bits_left / frames_left) * two_pass_vbrmax_section / 100
+//
+// When the encode is ahead of budget, the cap rises with bits_left
+// instead of staying pinned to the initial average frame target.
+func TestTwoPassFrameTargetBitsUsesLiveVBRMaxWhenBudgetAhead(t *testing.T) {
+	stats := makeTwoPassSpikyStats(10)
+	var ts twoPassState
+	ts.configure(stats, 1000, 100, 50, 200)
+	ts.bitsLeft = 20000
+
+	want := libvpxFrameMaxBitsVBR(ts.bitsLeft, int64(len(stats)), ts.maxPct)
+	if want != 4000 {
+		t.Fatalf("test setup VBR max = %d, want 4000", want)
+	}
+	if got := ts.frameTargetBits(0, false, 1000); got != want {
+		t.Fatalf("two-pass target ahead of budget = %d, want live VBR max %d", got, want)
+	}
+}
+
+// TestTwoPassFrameTargetBitsUsesLiveVBRMaxWhenBudgetBehind pins the
+// symmetric case: when bits_left has fallen below the initial average
+// budget, the libvpx frame_max_bits cap tightens.
+func TestTwoPassFrameTargetBitsUsesLiveVBRMaxWhenBudgetBehind(t *testing.T) {
+	stats := makeTwoPassSpikyStats(10)
+	var ts twoPassState
+	ts.configure(stats, 1000, 100, 50, 200)
+	ts.bitsLeft = 5000
+
+	want := libvpxFrameMaxBitsVBR(ts.bitsLeft, int64(len(stats)), ts.maxPct)
+	if want != 1000 {
+		t.Fatalf("test setup VBR max = %d, want 1000", want)
+	}
+	if got := ts.frameTargetBits(0, false, 1000); got != want {
+		t.Fatalf("two-pass target behind budget = %d, want live VBR max %d", got, want)
+	}
+}
+
+func makeTwoPassSpikyStats(count int) []FirstPassFrameStats {
+	stats := make([]FirstPassFrameStats, count)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{CodedError: 1}
+	}
+	if len(stats) > 0 {
+		stats[0].CodedError = 1000000
+	}
+	return stats
+}
+
 // TestLibvpxFrameMaxBitsReturnsZeroForExhaustedInputs pins the
 // guards: zero/negative bits_left, frames_left, vbrmax_section, or
 // av_per_frame_bandwidth all return 0.

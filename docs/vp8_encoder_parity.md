@@ -363,8 +363,11 @@ the anchor and look for the surrounding mismatch.
     `buffer_level / optimal_buffer_level` when the buffer is below
     optimal, with the libvpx
     `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
-    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
-    feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
+    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`.
+    The non-key `twoPassState.frameTargetBits` path now uses that live
+    VBR cap, so the target ceiling tracks current surplus/deficit bits
+    instead of the initial average frame target. These helpers also feed
+    the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
     `libvpxAssignStdFrameBits` ports the libvpx
     `assign_std_frame_bits` per-frame allocator inside a GF group:
     `target = gf_group_bits * (modified_err / gf_group_error_left)`,
@@ -404,9 +407,9 @@ the anchor and look for the surrounding mismatch.
     max(0.5, 1.0 - (group_iiratio - 6.0) * 0.1)`, walks Q with
     `calc_correction_factor`, then bumps Q (shrinking bits by 0.96
     per step) until MAXQ*2 if no Q in [0, MAXQ) satisfies the budget.
-  - Missing: VBR min/max section limits beyond frame_max_bits,
-    CBR buffer adjustments inside Pass2Encode, ARF pending decisions
-    wired into the encoder, and the CQ floor application
+  - Missing: broader VBR min/max section-limit application inside the
+    full Pass2Encode flow, CBR buffer adjustments inside Pass2Encode,
+    ARF pending decisions wired into the encoder, and the CQ floor application
     (`USAGE_CONSTRAINED_QUALITY -> max(Q, cq_target_quality)`)
     deferred to callers since it depends on encoder mode state.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,

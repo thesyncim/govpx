@@ -15,6 +15,9 @@ muxing, and no libvpx C API clone.
   output, future encoder decisions, or oracle diagnosis.
 - Treat "100% parity" as quality/rate and quality-relevant decision
   equivalence, not universal bit-exactness.
+- Future agent handoffs should state that percentages are quality-equivalence
+  estimates. Bit exactness is a tool for proving important paths, not the
+  product target by itself.
 - Bit-exact output is still required where deterministic paths make it the
   right proof, especially packet validity, frame headers, reference
   refresh/copy/sign-bias bits, decoder MD5s, and low-level entropy writers.
