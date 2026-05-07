@@ -634,12 +634,19 @@ func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame 
 
 func (rc *rateControlState) rateCorrectionFactorForFrame(keyFrame bool, goldenFrame bool) float64 {
 	if keyFrame {
-		return rc.keyFrameCorrectionFactor
+		return normalizedRateCorrectionFactor(rc.keyFrameCorrectionFactor)
 	}
 	if rc.usesGoldenFrameCorrectionFactor(goldenFrame) {
-		return rc.goldenCorrectionFactor
+		return normalizedRateCorrectionFactor(rc.goldenCorrectionFactor)
 	}
-	return rc.rateCorrectionFactor
+	return normalizedRateCorrectionFactor(rc.rateCorrectionFactor)
+}
+
+func normalizedRateCorrectionFactor(factor float64) float64 {
+	if factor <= 0 {
+		return 1.0
+	}
+	return factor
 }
 
 func (rc *rateControlState) setRateCorrectionFactorForFrame(keyFrame bool, goldenFrame bool, factor float64) {
@@ -695,42 +702,164 @@ func (rc *rateControlState) resetRollingBitAverages() {
 	rc.longRollingTargetBits = rc.bitsPerFrame
 }
 
-func (rc *rateControlState) frameSizeFeedbackQuantizer(sizeBytes int) int {
-	return rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, false, false)
+type frameSizeRecodeState struct {
+	qLow             int
+	qHigh            int
+	correctionFactor float64
+	overshootSeen    bool
+	undershootSeen   bool
 }
 
-func (rc *rateControlState) frameSizeFeedbackQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool) int {
+func (rc *rateControlState) newFrameSizeRecodeState(keyFrame bool, goldenFrame bool) frameSizeRecodeState {
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(keyFrame, goldenFrame)
+	return frameSizeRecodeState{
+		qLow:             activeBest,
+		qHigh:            activeWorst,
+		correctionFactor: rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame),
+	}
+}
+
+func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {
+	if recode == nil {
+		return rc.currentQuantizer, false
+	}
 	q := rc.currentQuantizer
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
-	if targetBits <= 0 {
-		if rc.mode == RateControlCQ {
-			return rc.clampedCQQuantizerValue(q)
-		}
-		return q
+	if targetBits <= 0 || macroblocks <= 0 {
+		return rc.clampedFrameQuantizerValue(q), false
 	}
 	actualBits := encodedSizeBits(sizeBytes)
 	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
-	switch {
-	case actualBits > overshootLimit:
-		step := 1
-		if actualBits > saturatingAdd(overshootLimit, targetBits) {
-			step = 2
-		}
-		q += step
-	case actualBits < undershootLimit:
-		q--
+	if !rc.shouldRecodeFrameSize(actualBits, undershootLimit, overshootLimit, q, keyFrame, goldenFrame, recode) {
+		return rc.clampedFrameQuantizerValue(q), false
 	}
+
+	var next int
+	if actualBits > targetBits {
+		if q < recode.qHigh {
+			recode.qLow = q + 1
+		} else {
+			recode.qLow = recode.qHigh
+		}
+		if recode.undershootSeen {
+			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			next = (recode.qHigh + recode.qLow + 1) / 2
+		} else {
+			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			next = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+		}
+		recode.overshootSeen = true
+	} else {
+		if q > recode.qLow {
+			recode.qHigh = q - 1
+		} else {
+			recode.qHigh = recode.qLow
+		}
+		if recode.overshootSeen {
+			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 1, recode.correctionFactor)
+			next = (recode.qHigh + recode.qLow) / 2
+		} else {
+			recode.correctionFactor = rc.rateCorrectionFactorAfterFrameSize(actualBits, keyFrame, goldenFrame, macroblocks, 0, recode.correctionFactor)
+			next = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, recode.qLow, recode.qHigh, recode.correctionFactor)
+			if rc.mode == RateControlCQ && next < recode.qLow {
+				recode.qLow = next
+			}
+		}
+		recode.undershootSeen = true
+	}
+	if next > recode.qHigh {
+		next = recode.qHigh
+	} else if next < recode.qLow {
+		next = recode.qLow
+	}
+	return rc.clampedFrameQuantizerValue(next), true
+}
+
+func (rc *rateControlState) shouldRecodeFrameSize(actualBits int, undershootLimit int, overshootLimit int, q int, keyFrame bool, goldenFrame bool, recode *frameSizeRecodeState) bool {
+	if (actualBits > overshootLimit && q < recode.qHigh) || (actualBits < undershootLimit && q > recode.qLow) {
+		return true
+	}
+	if rc.mode != RateControlCQ {
+		return false
+	}
+	targetBits := rc.frameTargetBits
+	if targetBits <= 0 {
+		targetBits = rc.bitsPerFrame
+	}
+	if targetBits <= 0 {
+		return false
+	}
+	if q > rc.cqLevel && actualBits < (targetBits*7)>>3 {
+		return true
+	}
+	return !keyFrame && !goldenFrame && q > rc.cqLevel && actualBits < rc.minimumFrameBandwidthBits() && recode.qLow > rc.cqLevel
+}
+
+func (rc *rateControlState) rateCorrectionFactorAfterFrameSize(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int, dampVar int, rateCorrectionFactor float64) float64 {
+	if actualBits <= 0 || macroblocks <= 0 {
+		return rateCorrectionFactor
+	}
+	q := rc.currentQuantizer
+	frameType := 1
+	if keyFrame {
+		frameType = 0
+	}
+	if q < 0 || q >= len(libvpxBitsPerMB[frameType]) {
+		return rateCorrectionFactor
+	}
+	rateCorrectionFactor = normalizedRateCorrectionFactor(rateCorrectionFactor)
+	projectedBits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, rateCorrectionFactor)
+	if projectedBits <= 0 {
+		return rateCorrectionFactor
+	}
+	correctionFactor := int((100 * int64(actualBits)) / int64(projectedBits))
+	adjustmentLimit := 0.25
+	switch dampVar {
+	case 0:
+		adjustmentLimit = 0.75
+	case 1:
+		adjustmentLimit = 0.375
+	}
+	switch {
+	case correctionFactor > 102:
+		correctionFactor = int(100.5 + float64(correctionFactor-100)*adjustmentLimit)
+		rateCorrectionFactor *= float64(correctionFactor) / 100
+		if rateCorrectionFactor > libvpxMaxBPBFactor {
+			rateCorrectionFactor = libvpxMaxBPBFactor
+		}
+	case correctionFactor < 99:
+		correctionFactor = int(100.5 - float64(100-correctionFactor)*adjustmentLimit)
+		rateCorrectionFactor *= float64(correctionFactor) / 100
+		if rateCorrectionFactor < libvpxMinBPBFactor {
+			rateCorrectionFactor = libvpxMinBPBFactor
+		}
+	}
+	return rateCorrectionFactor
+}
+
+func (rc *rateControlState) minimumFrameBandwidthBits() int {
+	target := rc.bitsPerFrame
+	if rc.frameTargetBits > 0 {
+		target = rc.frameTargetBits
+	}
+	if target <= 0 {
+		return 0
+	}
+	minTarget := target / 8
+	if minTarget < 1 {
+		minTarget = 1
+	}
+	return minTarget
+}
+
+func (rc *rateControlState) clampedFrameQuantizerValue(q int) int {
 	if rc.mode == RateControlCQ {
 		return rc.clampedCQQuantizerValue(q)
 	}
 	return rc.clampedQuantizerValue(q)
-}
-
-func (rc *rateControlState) cqFrameSizeFeedbackQuantizer(sizeBytes int) int {
-	return rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, false, false)
 }
 
 func (rc *rateControlState) clampedQuantizerValue(q int) int {

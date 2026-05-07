@@ -75,21 +75,22 @@ the anchor and look for the surrounding mismatch.
   - govpx:
     [`encodeKeyFrameWithQuantizerFeedback`](../encoder.go),
     [`encodeInterFrameWithQuantizerFeedback`](../encoder.go),
-    [`frameSizeFeedbackQuantizerWithContext`](../ratecontrol.go).
+    [`frameSizeRecodeQuantizerWithContext`](../ratecontrol.go).
   - libvpx:
     [`onyx_if.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c)
     `encode_frame_to_data_rate`.
-  - Status: partial. govpx has a two-attempt size feedback loop, now feeds
+  - Status: partial. govpx has a bounded frame-size recode loop, now feeds
     initial Q selection through libvpx-style active best/worst bounds for
     one-pass warmup, CQ floor, and CBR full-buffer cases, and failed key/inter
     recode attempts no longer commit entropy or skip-prob state before the
-    accepted attempt. libvpx still carries full frame-size bounds,
-    coding-context save/restore, projected entropy savings, and richer recode
-    decisions.
-  - Missing: `recode_loop_test`, `q_low/q_high`, `zbin_over_quant`,
-    `active_worst_qchanged`, forced/auto key-frame recodes, entropy
-    projected-size decisions, and full saved-coding-context restore coverage
-    after failed attempts.
+    accepted attempt. Recode retries now carry local `q_low/q_high` bounds,
+    libvpx-style over/undershoot history, and damped local rate-correction
+    estimates for next-Q selection. libvpx still carries zbin over-quant,
+    active-worst-Q expansion, forced/auto key-frame recodes, and projected
+    entropy savings.
+  - Missing: `zbin_over_quant`, `active_worst_qchanged`, forced/auto key-frame
+    recodes, entropy projected-size decisions, and full saved-coding-context
+    restore coverage after failed attempts.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 

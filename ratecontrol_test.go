@@ -79,7 +79,7 @@ func TestRateControlAdjustQuantizerUsesLibvpxUndershootBound(t *testing.T) {
 	}
 }
 
-func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.T) {
+func TestRateControlFrameSizeRecodeQuantizerUsesLibvpxBounds(t *testing.T) {
 	rc := rateControlState{
 		mode:              RateControlCBR,
 		minQuantizer:      4,
@@ -94,24 +94,33 @@ func TestRateControlFrameSizeFeedbackQuantizerUsesProjectedFrameSize(t *testing.
 		frameTargetBits:   1000,
 	}
 
-	if got := rc.frameSizeFeedbackQuantizer(197); got != 21 {
-		t.Fatalf("oversized frame feedback q = %d, want 21", got)
+	recode := rc.newFrameSizeRecodeState(false, false)
+	got, ok := rc.frameSizeRecodeQuantizerWithContext(197, false, false, 1, &recode)
+	if !ok || got <= 20 || recode.qLow != 21 || recode.qHigh != 56 || recode.correctionFactor == 1.0 || !recode.overshootSeen {
+		t.Fatalf("oversized recode = q:%d ok:%t state:%+v, want q above current, q_low raised to 21, and local correction factor updated", got, ok, recode)
 	}
 
 	rc.currentQuantizer = 20
-	if got := rc.frameSizeFeedbackQuantizer(53); got != 19 {
-		t.Fatalf("undersized frame feedback q = %d, want 19", got)
+	recode = rc.newFrameSizeRecodeState(false, false)
+	got, ok = rc.frameSizeRecodeQuantizerWithContext(53, false, false, 1, &recode)
+	if !ok || got >= 20 || recode.qLow != 4 || recode.qHigh != 19 || !recode.undershootSeen {
+		t.Fatalf("undersized recode = q:%d ok:%t state:%+v, want q below current and q_high lowered to 19", got, ok, recode)
+	}
+
+	rc.currentQuantizer = 40
+	recode = frameSizeRecodeState{qLow: 21, qHigh: 56, overshootSeen: true}
+	got, ok = rc.frameSizeRecodeQuantizerWithContext(53, false, false, 1, &recode)
+	if !ok || got != 30 || recode.qHigh != 39 || !recode.undershootSeen {
+		t.Fatalf("oscillating undershoot recode = q:%d ok:%t state:%+v, want midpoint q30 after lowering q_high to 39", got, ok, recode)
 	}
 
 	rc.mode = RateControlCQ
 	rc.currentQuantizer = 20
 	rc.cqLevel = 20
-	if got := rc.frameSizeFeedbackQuantizer(197); got != 21 {
-		t.Fatalf("CQ oversized frame feedback q = %d, want constrained increase to 21", got)
-	}
-	rc.currentQuantizer = 21
-	if got := rc.frameSizeFeedbackQuantizer(1); got != 20 {
-		t.Fatalf("CQ undersized frame feedback q = %d, want floor at CQ level 20", got)
+	recode = rc.newFrameSizeRecodeState(false, false)
+	got, ok = rc.frameSizeRecodeQuantizerWithContext(197, false, false, 1, &recode)
+	if !ok || got < rc.cqLevel {
+		t.Fatalf("CQ oversized frame recode = q:%d ok:%t, want constrained to CQ floor %d or higher", got, ok, rc.cqLevel)
 	}
 }
 

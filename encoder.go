@@ -277,7 +277,7 @@ type VP8Encoder struct {
 	modeProbs          vp8dec.ModeProbs
 }
 
-const encoderQuantizerFeedbackMaxAttempts = 2
+const encoderQuantizerFeedbackMaxAttempts = 8
 
 type keyFrameEncodeAttempt struct {
 	FrameCoefProbs      vp8tables.CoefficientProbs
@@ -586,12 +586,13 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 }
 
 func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
+	recode := e.rc.newFrameSizeRecodeState(true, false)
 	for attempt := 0; ; attempt++ {
 		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, true, false) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, true, false, required, &recode) {
 			return result, nil
 		}
 	}
@@ -649,12 +650,13 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
+	recode := e.rc.newFrameSizeRecodeState(false, boostedReferenceFrame)
 	for attempt := 0; ; attempt++ {
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, boostedReferenceFrame) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 	}
@@ -749,8 +751,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
-func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool) bool {
-	next := e.rc.frameSizeFeedbackQuantizerWithContext(sizeBytes, keyFrame, goldenFrame)
+func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
+	next, ok := e.rc.frameSizeRecodeQuantizerWithContext(sizeBytes, keyFrame, goldenFrame, macroblocks, recode)
+	if !ok {
+		return false
+	}
 	if next == e.rc.currentQuantizer {
 		return false
 	}
