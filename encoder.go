@@ -110,6 +110,13 @@ type EncoderOptions struct {
 	ARNRMaxFrames int
 	ARNRStrength  int
 	ARNRType      int
+	// AutoAltRef enables libvpx's automatic alternate-reference scheduling
+	// (cpi->oxcf.play_alternate). When set together with LookaheadFrames,
+	// the encoder periodically inserts a hidden ARF frame from the future
+	// lookahead window (show_frame=0, refresh_alt_ref=1) and later emits the
+	// originally-deferred source as a regular show-frame. ErrorResilient
+	// suppresses auto-ARF, matching libvpx vp8_get_compressed_data.
+	AutoAltRef bool
 	// TwoPassStats enables second-pass VBR planning when non-empty.
 	TwoPassStats      []FirstPassFrameStats
 	TwoPassVBRBiasPct int
@@ -241,6 +248,29 @@ type VP8Encoder struct {
 	// for the lifecycle of those counters.
 	framesSinceGolden  int
 	sourceAltRefActive bool
+	// Automatic alternate-reference scheduling state (libvpx
+	// vp8_get_compressed_data auto-ARF branch). sourceAltRefPending mirrors
+	// cpi->source_alt_ref_pending: while set, the next encode step inserts a
+	// hidden ARF frame peeked from the future lookahead window. framesTilArf
+	// mirrors cpi->frames_till_gf_update_due and acts both as the lookahead
+	// peek offset and the inter-frame countdown to the next pending ARF.
+	// altRefSourcePTSValid/altRefSourcePTS retain the PTS of the lookahead
+	// entry encoded as the hidden ARF so the deferred normal-pop call can
+	// flag is_src_frame_alt_ref when that entry surfaces. See
+	// encoder_altref.go for the orchestration.
+	sourceAltRefPending  bool
+	isSrcFrameAltRef     bool
+	altRefSourcePTSValid bool
+	altRefSourcePTS      uint64
+	framesTilArf         int
+	// autoAltRefPendingPush holds a single lookahead entry that the auto-ARF
+	// path could not push to the main lookahead queue because emitting a
+	// hidden ARF leaves the queue at capacity (peek does not pop). The next
+	// auto-ARF call drains autoAltRefPendingPush before consuming the
+	// caller's input. When autoAltRefHasPendingPush is false the stash is
+	// inert and the queue behaves normally.
+	autoAltRefPendingPush    lookaheadEntry
+	autoAltRefHasPendingPush bool
 	// libvpx also carries a skip-false probability for inter RD costing. The
 	// packet writer adapts the final value from this frame's skip counts; mode
 	// decision uses the previous refreshed reference's value, clamped away from
@@ -420,6 +450,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		return EncodeResult{}, ErrBufferTooSmall
 	}
 	if e.lookaheadEnabled() {
+		if e.autoAltRefEnabled() {
+			return e.encodeAutoAltRefInto(dst, src, pts, duration, flags)
+		}
 		return e.encodeLookaheadInto(dst, src, pts, duration, flags)
 	}
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
@@ -434,6 +467,9 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	}
 	if !e.lookaheadEnabled() || e.lookaheadSize() == 0 {
 		return EncodeResult{}, ErrFrameNotReady
+	}
+	if e.autoAltRefEnabled() {
+		return e.flushAutoAltRefInto(dst)
 	}
 	entry, ok := e.popLookahead(true)
 	if !ok {
