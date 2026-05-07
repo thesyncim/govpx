@@ -485,6 +485,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
+	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ
+	// triggers GF refresh when frames_till_gf_update_due==0 and
+	// pct_intra<15 || gf_frame_usage>=5. govpx funnels it through the
+	// same goldenCBRRefresh local so the existing CBR-shaped code path
+	// (rc bookkeeping, header copy, and post-encode GF accounting)
+	// applies uniformly.
+	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
+		goldenCBRRefresh = true
+	}
 	boostedReferenceFrame := boostedReferenceRateControlFrame(goldenCBRRefresh, flags)
 	// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size sets
 	// frames_till_gf_update_due=baseline_gf_interval (== gf_interval_onepass_cbr)
@@ -1268,6 +1277,53 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 	}
 	interval := e.goldenFrameCBRInterval(rows, cols)
 	return interval > 0 && e.rc.framesSinceKeyframe > 0 && e.rc.framesSinceKeyframe%interval == 0
+}
+
+// shouldRefreshGoldenFrameOnePassNonCBR ports the libvpx auto_gold
+// one-pass non-CBR GF refresh trigger from
+// vp8/encoder/ratectrl.c calc_pframe_target_size:
+//
+//	if (cpi->oxcf.error_resilient_mode == 0 &&
+//	    (cpi->frames_till_gf_update_due == 0) && !cpi->drop_frame) {
+//	    if (!cpi->gf_update_onepass_cbr) {
+//	        ... compute gf_frame_usage ...
+//	        if (cpi->auto_gold) {
+//	            if ((cpi->pass == 0) &&
+//	                (cpi->this_frame_percent_intra < 15 ||
+//	                 gf_frame_usage >= 5)) {
+//	                cpi->common.refresh_golden_frame = 1;
+//	            }
+//	        }
+//	    }
+//	}
+//
+// govpx routes CBR through `shouldRefreshGoldenFrameCBR`; this method
+// covers VBR and CQ. Returns true when libvpx would force a GF
+// refresh on this frame.
+func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+	if keyFrame ||
+		temporalActive ||
+		e.opts.ErrorResilient ||
+		e.rc.mode == RateControlCBR ||
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
+		return false
+	}
+	if e.rc.framesTillGFUpdateDue > 0 {
+		return false
+	}
+	required := rows * cols
+	if required <= 0 {
+		return false
+	}
+	return libvpxAutoGoldOnePassRefreshDecision(
+		e.rc.thisFramePercentIntra,
+		e.rc.recentRefFrameUsageIntra,
+		e.rc.recentRefFrameUsageLast,
+		e.rc.recentRefFrameUsageGolden,
+		e.rc.recentRefFrameUsageAltRef,
+		e.rc.gfActiveCount,
+		required,
+	)
 }
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {

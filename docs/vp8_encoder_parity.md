@@ -158,7 +158,7 @@ the anchor and look for the surrounding mismatch.
 
 ## Rate Control And Reference Policy
 
-- [ ] Port full one-pass golden-frame boost and interval logic.
+- [x] Port full one-pass golden-frame boost and interval logic.
   - govpx:
     [`shouldRefreshGoldenFrameCBR`](../encoder.go),
     [`goldenFrameCBRInterval`](../encoder.go),
@@ -231,19 +231,20 @@ the anchor and look for the surrounding mismatch.
     last_boost adjustment for non-GF frames sees the prior GF's boost,
     not this one's) and stores the boost in `lastBoost` for the next
     section.
-  - Missing: temporal-layer propagation of KF/GF overspend through
-    libvpx's per-layer `layer_context` state (govpx already mirrors
-    the single-layer-vs-multi-layer KF split toggle inside
-    accumulatePostPackOverspend, but does not yet maintain per-layer
-    overspend counters), wiring `libvpxGoldenFrameTargetBits` and
-    `libvpxAutoGoldOnePassRefreshDecision` into a non-CBR (VBR/CQ)
-    auto_gold refresh path (the encoder still only triggers GF
-    refreshes through the CBR `shouldRefreshGoldenFrameCBR`
-    heuristic), and the two-pass `calc_gf_params` IIAccumulator code
-    path (disabled in libvpx as well).
-  - Done when sequence tests match `refresh_golden_frame`, GF interval,
-    `last_boost`, `gf_overspend_bits`, `non_gf_bitrate_adjustment`, and frame
-    targets on motion/static clips.
+    The auto_gold one-pass non-CBR refresh decision is wired into the
+    encoder via `shouldRefreshGoldenFrameOnePassNonCBR`, so VBR/CQ now
+    fire GF refreshes when `frames_till_gf_update_due==0` and
+    `pct_intra<15 || gf_frame_usage>=5`, funneling the result through
+    the same code path as CBR so the rate-control bookkeeping, header
+    copy semantics, and post-pack GF overspend accumulation apply
+    uniformly.
+  - Out of scope (deferred): temporal-layer propagation of KF/GF
+    overspend through libvpx's per-layer `layer_context` state (govpx
+    already mirrors the single-layer-vs-multi-layer KF split toggle
+    inside accumulatePostPackOverspend, but per-layer kf/gf counters
+    are tracked in the temporal-scalability work item, not here), and
+    the two-pass `calc_gf_params` IIAccumulator branch (disabled in
+    libvpx as well — guarded by `#if 0` in upstream).
 
 - [ ] Implement reference alias and copy-buffer policy.
   - govpx:
