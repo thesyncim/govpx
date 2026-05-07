@@ -338,6 +338,84 @@ func TestRateControlUnboostedGoldenFrameUsesLibvpxInterCorrectionFactor(t *testi
 	}
 }
 
+func TestRateControlBoostedGoldenFrameCorrectionBranchingMirrorsLibvpx(t *testing.T) {
+	rc := rateControlState{
+		mode:                     RateControlCBR,
+		minQuantizer:             4,
+		maxQuantizer:             56,
+		currentQuantizer:         24,
+		bitsPerFrame:             12000,
+		frameTargetBits:          12000,
+		bufferOptimalBits:        60000,
+		bufferLevelBits:          48000,
+		undershootPct:            defaultRateControlUndershootPct,
+		overshootPct:             defaultRateControlOvershootPct,
+		gfCBRBoostPct:            101,
+		rateCorrectionFactor:     1.0,
+		keyFrameCorrectionFactor: 1.0,
+		goldenCorrectionFactor:   1.0,
+	}
+
+	rc.postEncodeFrameWithContext(3000, false, true, 60)
+
+	if rc.goldenCorrectionFactor != 1.25 {
+		t.Fatalf("boosted CBR golden correction factor = %g, want 1.25", rc.goldenCorrectionFactor)
+	}
+	if rc.rateCorrectionFactor != 1.0 {
+		t.Fatalf("boosted CBR inter correction factor = %g, want unchanged 1.0", rc.rateCorrectionFactor)
+	}
+}
+
+func TestRateControlVBRGoldenFrameUsesGoldenCorrectionFactor(t *testing.T) {
+	rc := rateControlState{
+		mode:                     RateControlVBR,
+		minQuantizer:             4,
+		maxQuantizer:             56,
+		currentQuantizer:         24,
+		bitsPerFrame:             12000,
+		frameTargetBits:          12000,
+		rateCorrectionFactor:     1.0,
+		keyFrameCorrectionFactor: 1.0,
+		goldenCorrectionFactor:   1.0,
+	}
+
+	rc.postEncodeFrameWithContext(3000, false, true, 60)
+
+	if rc.goldenCorrectionFactor != 1.25 {
+		t.Fatalf("VBR golden correction factor = %g, want 1.25", rc.goldenCorrectionFactor)
+	}
+	if rc.rateCorrectionFactor != 1.0 {
+		t.Fatalf("VBR inter correction factor = %g, want unchanged 1.0", rc.rateCorrectionFactor)
+	}
+}
+
+func TestRateControlCQRegulatesQuantizerAboveCQFloor(t *testing.T) {
+	rc := rateControlState{
+		mode:                     RateControlCQ,
+		minQuantizer:             4,
+		maxQuantizer:             56,
+		cqLevel:                  20,
+		currentQuantizer:         20,
+		bitsPerFrame:             1000,
+		frameTargetBits:          1000,
+		rateCorrectionFactor:     1.0,
+		keyFrameCorrectionFactor: 1.0,
+		goldenCorrectionFactor:   1.0,
+	}
+
+	rc.selectQuantizerForFrameKind(false, false, 60)
+	if rc.currentQuantizer <= rc.cqLevel {
+		t.Fatalf("CQ low-bitrate quantizer = %d, want regulated above CQ floor %d", rc.currentQuantizer, rc.cqLevel)
+	}
+
+	rc.currentQuantizer = 20
+	rc.frameTargetBits = 1 << 20
+	rc.selectQuantizerForFrameKind(false, false, 60)
+	if rc.currentQuantizer != rc.cqLevel {
+		t.Fatalf("CQ high-bitrate quantizer = %d, want CQ floor %d", rc.currentQuantizer, rc.cqLevel)
+	}
+}
+
 func TestRateControlPostEncodeTracksLibvpxQuantizerAverages(t *testing.T) {
 	rc := rateControlState{
 		mode:                    RateControlCBR,

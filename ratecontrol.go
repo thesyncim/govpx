@@ -342,16 +342,25 @@ func (rc *rateControlState) selectQuantizerForFrameKind(keyFrame bool, goldenFra
 }
 
 func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFrame bool, goldenFrame bool, macroblocks int, screenContentMode int) {
-	if rc.mode != RateControlCBR || macroblocks <= 0 {
+	if macroblocks <= 0 {
+		return
+	}
+	if rc.mode != RateControlCBR && rc.mode != RateControlVBR && rc.mode != RateControlCQ {
 		return
 	}
 	targetBits := rc.frameTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
 	}
+	if targetBits <= 0 {
+		return
+	}
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
 	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, correctionFactor)
-	if screenContentMode > 0 && !keyFrame {
+	if rc.mode == RateControlCQ {
+		rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
+	}
+	if rc.mode == RateControlCBR && screenContentMode > 0 && !keyFrame {
 		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
 	}
 	rc.clampQuantizer()
@@ -473,7 +482,10 @@ func (rc *rateControlState) updateQuantizerAverages(q int, keyFrame bool, golden
 }
 
 func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int) {
-	if rc.mode != RateControlCBR || actualBits <= 0 || macroblocks <= 0 {
+	if actualBits <= 0 || macroblocks <= 0 {
+		return
+	}
+	if rc.mode != RateControlCBR && rc.mode != RateControlVBR && rc.mode != RateControlCQ {
 		return
 	}
 	q := rc.currentQuantizer
@@ -534,7 +546,10 @@ func (rc *rateControlState) setRateCorrectionFactorForFrame(keyFrame bool, golde
 }
 
 func (rc *rateControlState) usesGoldenFrameCorrectionFactor(goldenFrame bool) bool {
-	return goldenFrame && rc.gfCBRBoostPct > 100
+	if !goldenFrame {
+		return false
+	}
+	return rc.mode != RateControlCBR || rc.gfCBRBoostPct > 100
 }
 
 func (rc *rateControlState) shouldDropInterFrame() bool {

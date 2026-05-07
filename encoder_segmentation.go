@@ -159,7 +159,7 @@ func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refres
 	return i
 }
 
-func (e *VP8Encoder) assignInterFrameStaticSegments(rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
+func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
 	count := rows * cols
 	if count <= 0 {
 		return 0
@@ -168,6 +168,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegments(rows int, cols int, modes []
 		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), nil, modes)
 	}
 	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
+	e.classifyStaticSegmentationBlocks(src, rows, cols, e.cyclicRefreshAttemptMap[:count])
 	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.cyclicRefreshAttemptMap[:count], modes)
 }
 
@@ -204,9 +205,49 @@ func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMod
 	}
 }
 
+func (e *VP8Encoder) classifyStaticSegmentationBlocks(src vp8enc.SourceImage, rows int, cols int, refreshMap []int8) {
+	count := rows * cols
+	if e == nil || e.opts.StaticThreshold <= 0 || e.opts.ScreenContentMode != 0 || count <= 0 || len(refreshMap) < count || len(e.skinMap) < count {
+		return
+	}
+	computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
+	for i := 0; i < count; i++ {
+		if e.skinMap[i] != 0 {
+			refreshMap[i] = 1
+		}
+	}
+}
+
+func (e *VP8Encoder) updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode) {
+	if e == nil || len(e.consecZeroLast) == 0 {
+		return
+	}
+	updateConsecutiveZeroLast(modes, e.consecZeroLast)
+}
+
+func updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode, counters []uint8) {
+	count := min(len(modes), len(counters))
+	for index := 0; index < count; index++ {
+		mode := modes[index]
+		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+			if counters[index] < 255 {
+				counters[index]++
+			}
+			continue
+		}
+		counters[index] = 0
+	}
+}
+
 func clearCyclicRefreshMap(refreshMap []int8) {
 	for i := range refreshMap {
 		refreshMap[i] = 0
+	}
+}
+
+func clearUint8Map(values []uint8) {
+	for i := range values {
+		values[i] = 0
 	}
 }
 
@@ -276,3 +317,158 @@ func cyclicRefreshMaxMBsPerFrameForLayers(rows int, cols int, layers int) int {
 		return count / 7
 	}
 }
+
+func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast []uint8, skinMap []uint8) {
+	count := rows * cols
+	if count <= 0 || len(skinMap) < count || src.Width <= 0 || src.Height <= 0 {
+		return
+	}
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			index := row*cols + col
+			y := average2x2Clamped(src.Y, src.YStride, src.Width, src.Height, row*16+7, col*16+7)
+			u := average2x2Clamped(src.U, src.UStride, uvWidth, uvHeight, row*8+3, col*8+3)
+			v := average2x2Clamped(src.V, src.VStride, uvWidth, uvHeight, row*8+3, col*8+3)
+			consecutive := 0
+			if len(consecZeroLast) > index {
+				consecutive = int(consecZeroLast[index])
+			}
+			if computeSkinBlock(y, u, v, consecutive, 0) {
+				skinMap[index] = 1
+			} else {
+				skinMap[index] = 0
+			}
+		}
+	}
+	smoothSkinMap(rows, cols, skinMap[:count])
+}
+
+func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x int) int {
+	if stride <= 0 || width <= 0 || height <= 0 || len(plane) == 0 {
+		return 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y >= height {
+		y = height - 1
+	}
+	if x >= width {
+		x = width - 1
+	}
+	y1 := y
+	y2 := y
+	if y+1 < height {
+		y2 = y + 1
+	}
+	x1 := x
+	x2 := x
+	if x+1 < width {
+		x2 = x + 1
+	}
+	if y1*stride+x1 >= len(plane) || y1*stride+x2 >= len(plane) || y2*stride+x1 >= len(plane) || y2*stride+x2 >= len(plane) {
+		return 0
+	}
+	sum := int(plane[y1*stride+x1]) + int(plane[y1*stride+x2]) + int(plane[y2*stride+x1]) + int(plane[y2*stride+x2])
+	return (sum + 2) >> 2
+}
+
+func computeSkinBlock(y int, u int, v int, consecZeroLast int, currentMotionMagnitude int) bool {
+	if consecZeroLast > 60 && currentMotionMagnitude == 0 {
+		return false
+	}
+	motion := 1
+	if consecZeroLast > 25 && currentMotionMagnitude == 0 {
+		motion = 0
+	}
+	return skinPixel(y, u, v, motion)
+}
+
+func skinPixel(y int, cb int, cr int, motion int) bool {
+	if y < skinYLow || y > skinYHigh {
+		return false
+	}
+	if cb == 128 && cr == 128 {
+		return false
+	}
+	if cb > 150 && cr < 110 {
+		return false
+	}
+	for i := 0; i < len(skinMean); i++ {
+		diff := evaluateSkinColorDifference(cb, cr, i)
+		threshold := skinThreshold[i+1]
+		if diff < threshold {
+			if y < 60 && diff > 3*(threshold>>2) {
+				return false
+			}
+			if motion == 0 && diff > threshold>>1 {
+				return false
+			}
+			return true
+		}
+		if diff > threshold<<3 {
+			return false
+		}
+	}
+	return false
+}
+
+func evaluateSkinColorDifference(cb int, cr int, index int) int {
+	cbQ6 := cb << 6
+	crQ6 := cr << 6
+	cbDelta := cbQ6 - skinMean[index][0]
+	crDelta := crQ6 - skinMean[index][1]
+	cbDiffQ12 := cbDelta * cbDelta
+	cbcrDiffQ12 := cbDelta * crDelta
+	crDiffQ12 := crDelta * crDelta
+	cbDiffQ2 := (cbDiffQ12 + (1 << 9)) >> 10
+	cbcrDiffQ2 := (cbcrDiffQ12 + (1 << 9)) >> 10
+	crDiffQ2 := (crDiffQ12 + (1 << 9)) >> 10
+	return skinInvCov[0]*cbDiffQ2 + skinInvCov[1]*cbcrDiffQ2 + skinInvCov[2]*cbcrDiffQ2 + skinInvCov[3]*crDiffQ2
+}
+
+func smoothSkinMap(rows int, cols int, skinMap []uint8) {
+	if rows < 3 || cols < 3 || len(skinMap) < rows*cols {
+		return
+	}
+	for row := 1; row < rows-1; row++ {
+		for col := 1; col < cols-1; col++ {
+			index := row*cols + col
+			neighbors := 0
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if skinMap[(row+dy)*cols+col+dx] != 0 {
+						neighbors++
+					}
+				}
+			}
+			if skinMap[index] != 0 && neighbors < 2 {
+				skinMap[index] = 0
+			}
+			if skinMap[index] == 0 && neighbors == 8 {
+				skinMap[index] = 1
+			}
+		}
+	}
+}
+
+const (
+	skinYLow  = 40
+	skinYHigh = 220
+)
+
+var skinMean = [5][2]int{
+	{7463, 9614},
+	{6400, 10240},
+	{7040, 10240},
+	{8320, 9280},
+	{6800, 9614},
+}
+
+var skinInvCov = [4]int{4107, 1663, 1663, 2157}
+var skinThreshold = [6]int{1570636, 1400000, 800000, 800000, 800000, 800000}

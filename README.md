@@ -14,8 +14,10 @@ replacement.
 
 - Raw VP8 frame parsing through `PeekVP8StreamInfo`
 - VP8 decode APIs with borrowed-frame and caller-owned-buffer paths
-- VP8 encode APIs with realtime-oriented CBR/CQ rate control, temporal metadata, and
-  keyframe/interframe support
+- VP8 encode APIs with realtime-oriented CBR/CQ rate control, lookahead,
+  ARNR/spatial denoise preprocessing, first-pass/two-pass VBR planning,
+  temporal metadata, adaptive scene-cut keyframe support, and keyframe/interframe
+  support
 - Whole-block, B_PRED, NEWMV, and SPLITMV encoder mode paths, including VP8
   split partition-shape selection
 - Token partitions, loop filtering, granular postprocess flags, runtime token

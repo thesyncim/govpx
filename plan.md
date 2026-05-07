@@ -19,8 +19,10 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
 
 - Decoder: no known behavioral parity gap for the supported VP8 surface covered
   by `make verify-decoder-parity`.
-- Encoder: functional and oracle-guarded for many paths, but still missing exact
-  libvpx quality/rate-control/preprocessing parity.
+- Encoder: functional and oracle-guarded for many paths, including opt-in
+  lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
+  two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
+  quality/rate-control tuning parity is still open.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
@@ -51,10 +53,9 @@ Primary references:
 - More complete CBR feedback behavior.
 - Exact constrained-quality behavior.
 - Remaining one-pass CBR and golden-frame correction-factor branches.
-- Fixed-Q and two-pass branches if those modes become production requirements.
-- VBR/two-pass planning.
-- Adaptive keyframe / scene-cut behavior.
-- Static-background segmentation policy.
+- Fixed-Q and exact two-pass allocation branches if those modes become
+  production requirements.
+- Exact static-background segmentation policy.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),
@@ -65,10 +66,9 @@ Primary references:
 
 ### Encoder Preprocessing
 
-- Lookahead buffer.
-- Alt-ref temporal filtering / ARNR.
-- Spatial denoiser.
-- Skin/static-region classification if needed for segmentation parity.
+- Tighten ARNR filter weights, alt-ref group placement, and denoiser
+  mode-decision feedback against stricter libvpx oracle cases.
+- Expand oracle coverage for lookahead/ARNR/denoise/two-pass configurations.
 
 Primary references:
 [lookahead.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/lookahead.c),
@@ -109,5 +109,6 @@ Primary references:
 2. Finish realtime/SVC controls and oracle-backed layer-buffer parity.
 3. Port encoder RD/mode-decision and motion-search parity.
 4. Port rate-control and segmentation behavior.
-5. Add lookahead, ARNR, denoising, and related preprocessing.
+5. Tighten lookahead, ARNR, denoising, and two-pass behavior against stricter
+   oracle cases.
 6. Only then start dispatch/SIMD/threading/performance work.
