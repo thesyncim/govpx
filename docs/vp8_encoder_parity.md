@@ -232,12 +232,14 @@ the anchor and look for the surrounding mismatch.
     [`pickinter.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/pickinter.c)
     `vp8_pick_inter_mode`.
   - Status: partial. Fast non-RD mode-loop order and cheap realtime scoring are
-    aligned, but full RD still needs dynamic mode thresholds, hit counts,
-    threshold adaptation, exact per-mode accounting, active-map handling, and
-    recode-loop interactions.
-  - Missing: libvpx `MAX_MODES` walk with `vp8_mode_order`, reference ordering,
-    sign-bias switching, hit-count gating, threshold mutation, skip
-    short-circuiting, and intra modes in the same RD loop.
+    aligned. Full RD now walks libvpx's `MAX_MODES` / `vp8_mode_order` table,
+    interleaves intra modes in that same loop, applies speed-feature baseline
+    `rd_threshes` per mode, propagates static encode-breakout `x->skip` as an
+    RD-loop stop, and keeps the RD-only NSTEP final one-pixel refining search
+    separate from the high-speed non-RD picker.
+  - Missing: exact `get_reference_search_order`, sign-bias switching, hit-count
+    gating, threshold mutation from tested/skipped modes, active-map skip
+    short-circuiting, exact per-mode accounting, and recode-loop interactions.
   - Done when per-MB traces match tested mode order, skipped modes, selected
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.

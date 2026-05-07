@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -254,6 +255,54 @@ func TestLibvpxFastInterModeLoopTablesMirrorPickInter(t *testing.T) {
 	}
 }
 
+func TestLibvpxInterModeThresholdMultipliersMirrorSpeedFeatures(t *testing.T) {
+	best := libvpxInterModeThresholdMultipliers(DeadlineBestQuality, 8)
+	if best[libvpxThrZero1] != 0 || best[libvpxThrNearest1] != 0 || best[libvpxThrNear1] != 0 || best[libvpxThrDC] != 0 {
+		t.Fatalf("best-quality always-tested multipliers = zero:%d nearest:%d near:%d dc:%d, want all zero", best[libvpxThrZero1], best[libvpxThrNearest1], best[libvpxThrNear1], best[libvpxThrDC])
+	}
+	if best[libvpxThrVPred] != 1000 || best[libvpxThrHPred] != 1000 || best[libvpxThrBPred] != 2000 || best[libvpxThrNew1] != 1000 || best[libvpxThrSplit1] != 2500 {
+		t.Fatalf("best-quality thresholds = V:%d H:%d B:%d NEW1:%d SPLIT1:%d, want 1000/1000/2000/1000/2500", best[libvpxThrVPred], best[libvpxThrHPred], best[libvpxThrBPred], best[libvpxThrNew1], best[libvpxThrSplit1])
+	}
+
+	good := libvpxInterModeThresholdMultipliers(DeadlineGoodQuality, 3)
+	if good[libvpxThrZero2] != 2000 || good[libvpxThrBPred] != 7500 || good[libvpxThrNew2] != 2500 || good[libvpxThrSplit2] != 50000 {
+		t.Fatalf("good speed 3 thresholds = ZERO2:%d B:%d NEW2:%d SPLIT2:%d, want 2000/7500/2500/50000", good[libvpxThrZero2], good[libvpxThrBPred], good[libvpxThrNew2], good[libvpxThrSplit2])
+	}
+
+	realtime := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 8)
+	if realtime[libvpxThrVPred] != libvpxInterModeThresholdDisabled || realtime[libvpxThrHPred] != libvpxInterModeThresholdDisabled || realtime[libvpxThrBPred] != libvpxInterModeThresholdDisabled {
+		t.Fatalf("realtime speed 8 intra thresholds = V:%d H:%d B:%d, want disabled", realtime[libvpxThrVPred], realtime[libvpxThrHPred], realtime[libvpxThrBPred])
+	}
+	if realtime[libvpxThrZero2] != 2000 || realtime[libvpxThrNew2] != 4000 || realtime[libvpxThrSplit1] != libvpxInterModeThresholdDisabled {
+		t.Fatalf("realtime speed 8 thresholds = ZERO2:%d NEW2:%d SPLIT1:%d, want 2000/4000/disabled", realtime[libvpxThrZero2], realtime[libvpxThrNew2], realtime[libvpxThrSplit1])
+	}
+}
+
+func TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts(t *testing.T) {
+	qValue := vp8common.DCQuant(40, 0)
+	q := int(math.Pow(float64(qValue), 1.25))
+	if q < 8 {
+		q = 8
+	}
+	thresholds := libvpxInterModeRDThresholds(40, 0, DeadlineBestQuality, 0)
+	if got, want := thresholds[libvpxThrNew1], 1000*q/100; got != want {
+		t.Fatalf("high-rdmult NEW1 threshold = %d, want thresh_mult*q/100 = %d", got, want)
+	}
+	if got := thresholds[libvpxThrDC]; got != 0 {
+		t.Fatalf("DC threshold = %d, want always-tested zero", got)
+	}
+
+	lowQ := vp8common.DCQuant(4, 0)
+	lowQPow := int(math.Pow(float64(lowQ), 1.25))
+	if lowQPow < 8 {
+		lowQPow = 8
+	}
+	lowThresholds := libvpxInterModeRDThresholds(4, 0, DeadlineBestQuality, 0)
+	if got, want := lowThresholds[libvpxThrNew1], 1000*lowQPow; got != want {
+		t.Fatalf("low-rdmult NEW1 threshold = %d, want thresh_mult*q = %d", got, want)
+	}
+}
+
 func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
@@ -429,6 +478,38 @@ func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *test
 
 	if mv != (vp8enc.MotionVector{Row: 32}) {
 		t.Fatalf("nstep full-pixel MV = %+v, want row +32 from libvpx search-site contraction", mv)
+	}
+}
+
+func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 0, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[(row+16)*src.YStride+col+16] = 200
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 0, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[(row+18)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+	cfg := interAnalysisSearchConfig{
+		fullPixelSearch:       interAnalysisFullPixelSearchNstep,
+		fullPixelSearchParam:  interFrameMaxMVSearchSteps - 1,
+		fullPixelFurtherSteps: 0,
+	}
+	unrefined, _ := selectInterFrameFullPixelMotionVectorWithSearch(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, cfg)
+
+	cfg.fullPixelFinalRefine = true
+	refined, _ := selectInterFrameFullPixelMotionVectorWithSearch(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, cfg)
+	if refined != (vp8enc.MotionVector{Row: 16}) {
+		t.Fatalf("refined nstep MV = %+v, want libvpx final 1-away refine to row +16", refined)
+	}
+	if refined == unrefined {
+		t.Fatalf("refined nstep MV = unrefined %+v, want final refine to move the candidate", refined)
 	}
 }
 
@@ -1360,6 +1441,34 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 	}
 	if decision.useIntra || decision.ref.Frame != vp8common.GoldenFrame || decision.interMode.Mode != vp8common.ZeroMV {
 		t.Fatalf("decision = %+v, want GOLDEN/ZEROMV from libvpx slot-2 loop entry", decision)
+	}
+}
+
+func TestSelectRDInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.opts.StaticThreshold = 1
+
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	last := testVP8Frame(t, 16, 16, 128, 90, 170)
+	refs := [...]interAnalysisReference{{
+		Frame:      vp8common.LastFrame,
+		Img:        &last.Img,
+		RefRateSet: true,
+		RefRate:    1 << 20,
+	}}
+	quant := testRegularMacroblockQuant(t, 20)
+
+	decision, ok := e.selectRDInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, staticSegmentID, nil, nil, nil, nil, nil, &quant)
+
+	if !ok {
+		t.Fatalf("RD mode decision returned ok=false")
+	}
+	if !decision.cyclicRefreshEligible() || decision.interMode.SegmentID != staticSegmentID {
+		t.Fatalf("decision = %+v, want static breakout to stop on LAST/ZEROMV with cyclic segment", decision)
 	}
 }
 
