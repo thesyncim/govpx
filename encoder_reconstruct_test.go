@@ -532,6 +532,20 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 	}
 }
 
+func TestInterFastBestThresholdUsesPickInterDecay(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+
+	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineRealtime, 8)
+	e.lowerBestInterFastThreshold(libvpxThrNew1)
+	afterBest := e.interModeRDThresholds(40)
+	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*112; got != want {
+		t.Fatalf("fast best NEW1 threshold = %d, want %d", got, want)
+	}
+}
+
 func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
 	e := &VP8Encoder{}
 	e.resetInterRDThresholdMultipliers()
@@ -2240,6 +2254,50 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 	}
 	if decision.useIntra || decision.ref.Frame != vp8common.GoldenFrame || decision.interMode.Mode != vp8common.ZeroMV {
 		t.Fatalf("decision = %+v, want GOLDEN/ZEROMV from libvpx slot-2 loop entry", decision)
+	}
+}
+
+func TestSelectFastInterFrameModeDecisionUsesThresholdState(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.opts.Deadline = DeadlineRealtime
+	e.opts.CpuUsed = 8
+	fillBenchmarkVP8Image(&e.analysis.Img, 96, 90, 170)
+	e.analysis.ExtendBorders()
+
+	src := testImage(16, 16)
+	fillImage(src, 96, 90, 170)
+	last := testVP8Frame(t, 16, 16, 96, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			y := byte((11 + row*37 + col*19 + row*col*5) & 255)
+			src.Y[row*src.YStride+col] = y
+			last.Img.Y[row*last.Img.YStride+col] = y
+		}
+	}
+	last.ExtendBorders()
+	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
+
+	e.resetInterRDThresholdMultipliers()
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.beginInterRDModeDecisionMacroblock()
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil)
+
+	if !ok {
+		t.Fatalf("fast mode decision returned ok=false")
+	}
+	if decision.useIntra || decision.ref.Frame != vp8common.LastFrame || decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("decision = %+v, want LAST/ZEROMV on matching reference", decision)
+	}
+	if got := e.interModeTestHitCounts[libvpxThrZero1]; got != 1 {
+		t.Fatalf("ZERO1 hit count = %d, want 1", got)
+	}
+	if !e.interRDThreshTouched[libvpxThrZero1] {
+		t.Fatalf("ZERO1 threshold was not touched")
+	}
+	if got := e.interRDThreshMult[libvpxThrZero1]; got >= libvpxRDThreshMultStart {
+		t.Fatalf("ZERO1 threshold multiplier = %d, want below start after improvement", got)
 	}
 }
 
