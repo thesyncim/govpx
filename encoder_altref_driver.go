@@ -69,6 +69,13 @@ func (e *VP8Encoder) autoAltRefMaybeSchedule() {
 	if !e.autoAltRefDriverEnabled() {
 		return
 	}
+	if e.twoPass.enabled() {
+		// In two-pass mode the GF/ARF section decision is made from
+		// FIRSTPASS_STATS in pass2MaybeArmAltRefPending. Do not let the
+		// one-pass default interval fallback arm an ARF that libvpx's
+		// second-pass planner rejected.
+		return
+	}
 	if e.sourceAltRefPending {
 		return
 	}

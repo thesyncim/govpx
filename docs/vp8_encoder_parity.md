@@ -595,8 +595,11 @@ the anchor and look for the surrounding mismatch.
     gates, and reports the ARF interval. `pass2MaybeArmAltRefPending`
     wires that decision into the encoder, calling
     `scheduleAltRefSource` so the auto-ARF driver emits the hidden
-    alt-ref at the predicted offset; pinned by
-    `TestPass2ARFPendingTriggersFromHighMotionSection`.
+    alt-ref at the predicted offset. The one-pass default ARF interval
+    scheduler is disabled whenever two-pass stats are active, so a
+    two-pass section that rejects ARF cannot be overridden by the eager
+    fallback; pinned by `TestPass2ARFPendingTriggersFromHighMotionSection`
+    and `TestTwoPassAutoAltRefDoesNotScheduleWhenStatsRejectARF`.
     `applyPass2CBRBufferAdjustment` ports the libvpx Pass2Encode CBR
     (`USAGE_STREAM_FROM_SERVER`) per-frame target re-clamp: after the
     second-pass error-fraction allocation overrides the one-pass
@@ -663,12 +666,12 @@ the anchor and look for the surrounding mismatch.
     [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverSignBiasUpdatesPostHidden`](../encoder_altref_driver_test.go).
-  - Simplification vs. libvpx: govpx schedules every
+  - Simplification vs. libvpx: in one-pass mode govpx schedules every
     `DEFAULT_GF_INTERVAL`-bounded interval as soon as the lookahead has
-    enough entries, instead of running `vp8_calc_arf_boost` /
-    `select_arf_period` (both depend on first-pass stats not yet
-    ported). The hidden frame is encoded directly from the peeked source
-    image; libvpx's `vp8_temporal_filter_prepare_c` redirection of
+    enough entries; two-pass mode uses the FIRSTPASS_STATS-driven
+    `pass2MaybeArmAltRefPending` path above. The hidden frame is encoded
+    directly from the peeked source image; libvpx's
+    `vp8_temporal_filter_prepare_c` redirection of
     `force_src_buffer` to `cpi->alt_ref_buffer` is not wired here, so
     ARNR temporal filtering for the ARF source still runs through the
     existing `applyARNRFilter` pipeline rather than the dedicated

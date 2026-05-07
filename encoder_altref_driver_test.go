@@ -253,6 +253,48 @@ func TestAutoAltRefDriverSignBiasUpdatesPostHidden(t *testing.T) {
 	t.Fatalf("no inter show frame found after hidden ARF (hidden idx=%d, total packets=%d)", hiddenIndex, len(packets))
 }
 
+func TestTwoPassAutoAltRefDoesNotScheduleWhenStatsRejectARF(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 12)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:          1000,
+			CodedError:          900,
+			SSIMWeightedPredErr: 900,
+			PcntInter:           0.50,
+			Count:               1,
+			Duration:            1,
+		}
+	}
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 500,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		LookaheadFrames:   8,
+		AutoAltRef:        true,
+		TwoPassStats:      FinalizeFirstPassStats(stats),
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := sourceImageFromImage(movingBarTestImage(32, 32, 0))
+	for i := 0; i < e.opts.LookaheadFrames; i++ {
+		if err := e.pushLookahead(src, uint64(i), 1, 0); err != nil {
+			t.Fatalf("pushLookahead[%d]: %v", i, err)
+		}
+	}
+
+	e.autoAltRefMaybeSchedule()
+
+	if e.sourceAltRefPending || e.framesTillAltRefFrame != 0 || e.altRefSourceValid {
+		t.Fatalf("two-pass fallback ARF schedule = pending:%t frames:%d valid:%t, want no eager ARF when stats reject it",
+			e.sourceAltRefPending, e.framesTillAltRefFrame, e.altRefSourceValid)
+	}
+}
+
 // cloneAutoAltRefImage deep-copies a returned decoder Image so subsequent
 // NextFrame calls cannot overwrite the buffers.
 func cloneAutoAltRefImage(src Image) Image {
