@@ -1285,8 +1285,10 @@ func validInterFrameStateConfig(cfg InterFrameStateConfig) bool {
 		cfg.TokenPartition <= common.EightPartition &&
 		cfg.BaseQIndex <= 127 &&
 		cfg.CopyBufferToGolden >= 0 &&
-		cfg.CopyBufferToGolden <= 3 &&
+		cfg.CopyBufferToGolden <= 2 &&
 		cfg.CopyBufferToAltRef >= 0 &&
-		cfg.CopyBufferToAltRef <= 3 &&
+		cfg.CopyBufferToAltRef <= 2 &&
+		(!cfg.RefreshGolden || cfg.CopyBufferToGolden == 0) &&
+		(!cfg.RefreshAltRef || cfg.CopyBufferToAltRef == 0) &&
 		validSegmentationConfig(cfg.Segmentation)
 }

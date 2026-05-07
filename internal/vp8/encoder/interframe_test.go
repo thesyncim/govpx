@@ -222,6 +222,51 @@ func TestWriteInterFrameStateHeaderCanRefreshGoldenAndAltRef(t *testing.T) {
 	}
 }
 
+func TestWriteInterFrameRejectsInvalidReferenceCopyConfigs(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*InterFrameStateConfig)
+	}{
+		{
+			name: "copy to golden while refreshing golden",
+			mutate: func(cfg *InterFrameStateConfig) {
+				cfg.RefreshGolden = true
+				cfg.CopyBufferToGolden = 1
+			},
+		},
+		{
+			name: "copy to altref while refreshing altref",
+			mutate: func(cfg *InterFrameStateConfig) {
+				cfg.RefreshAltRef = true
+				cfg.CopyBufferToAltRef = 2
+			},
+		},
+		{
+			name: "invalid copy to golden selector",
+			mutate: func(cfg *InterFrameStateConfig) {
+				cfg.RefreshGolden = false
+				cfg.CopyBufferToGolden = 3
+			},
+		},
+		{
+			name: "invalid copy to altref selector",
+			mutate: func(cfg *InterFrameStateConfig) {
+				cfg.RefreshAltRef = false
+				cfg.CopyBufferToAltRef = 3
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultInterFrameStateConfig(20)
+			tt.mutate(&cfg)
+			if _, err := WriteZeroInterFrame(make([]byte, 256), 16, 16, cfg); !errors.Is(err, ErrInvalidPacketConfig) {
+				t.Fatalf("WriteZeroInterFrame error = %v, want ErrInvalidPacketConfig", err)
+			}
+		})
+	}
+}
+
 func TestWriteZeroInterFrameDecodesLastZeroMVSkipGrid(t *testing.T) {
 	packet := zeroInterFramePacket(t, 32, 16)
 	var coefProbs = tables.DefaultCoefProbs

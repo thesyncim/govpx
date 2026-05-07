@@ -18,6 +18,7 @@ type encoderValidationPattern int
 const (
 	encoderValidationMotion encoderValidationPattern = iota
 	encoderValidationSegmented
+	encoderValidationPanning
 )
 
 type encoderValidationCase struct {
@@ -136,6 +137,10 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			checkSegmentationHeader: true,
 			checkInterFrames:        true,
 		},
+		realtimeSpeedValidationCase(4, 47.0, 46.75, 2.0, 2.5),
+		realtimeSpeedValidationCase(5, 47.0, 46.75, 2.0, 2.5),
+		realtimeSpeedValidationCase(9, 47.0, 46.75, 2.0, 2.5),
+		realtimeSpeedValidationCase(15, 47.0, 46.75, 2.0, 2.5),
 	}
 
 	for _, tc := range cases {
@@ -162,6 +167,32 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 			assertEncoderValidationRate(t, "libvpx", libvpxOutputKbps, tc.targetKbps, tc.maxRateLow, tc.maxRateHigh)
 			assertEncoderValidationQualityGap(t, got.quality, libvpxQuality, tc)
 		})
+	}
+}
+
+func realtimeSpeedValidationCase(cpuUsed int, minPSNR float64, minFramePSNR float64, maxPSNRGap float64, maxFramePSNRGap float64) encoderValidationCase {
+	return encoderValidationCase{
+		name:       "realtime-cpu-used-" + strconv.Itoa(cpuUsed) + "-panning",
+		width:      64,
+		height:     64,
+		frames:     12,
+		fps:        30,
+		targetKbps: 700,
+		pattern:    encoderValidationPanning,
+		opts: encoderValidationOptions(64, 64, 30, 700, func(opts *EncoderOptions) {
+			opts.CpuUsed = cpuUsed
+		}),
+		minPSNR:          minPSNR,
+		minSSIM:          0.998,
+		minFramePSNR:     minFramePSNR,
+		minFrameSSIM:     0.997,
+		maxPSNRGap:       maxPSNRGap,
+		maxSSIMGap:       0.002,
+		maxFramePSNRGap:  maxFramePSNRGap,
+		maxFrameSSIMGap:  0.004,
+		maxRateHigh:      260.0,
+		maxRateLow:       80.0,
+		checkInterFrames: true,
 	}
 }
 
@@ -193,11 +224,37 @@ func encoderValidationFrames(tc encoderValidationCase) []Image {
 		switch tc.pattern {
 		case encoderValidationSegmented:
 			frames[i] = encoderValidationSegmentedFrame(tc.width, tc.height, i)
+		case encoderValidationPanning:
+			frames[i] = encoderValidationPanningFrame(tc.width, tc.height, i)
 		default:
 			frames[i] = rateControlTestFrame(tc.width, tc.height, i)
 		}
 	}
 	return frames
+}
+
+func encoderValidationPanningFrame(width int, height int, index int) Image {
+	img := testImage(width, height)
+	xoff := index * 2
+	yoff := index
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcX := x + xoff
+			srcY := y + yoff
+			img.Y[y*img.YStride+x] = byte(32 + ((srcY*7 + srcX*11 + (srcX/8)*(srcY/8)*13) & 191))
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := 0; y < uvHeight; y++ {
+		for x := 0; x < uvWidth; x++ {
+			srcX := x + xoff/2
+			srcY := y + yoff/2
+			img.U[y*img.UStride+x] = byte(96 + ((srcX*5 + srcY*3) & 63))
+			img.V[y*img.VStride+x] = byte(144 + ((srcX*2 + srcY*7) & 63))
+		}
+	}
+	return img
 }
 
 func encoderValidationSegmentedFrame(width int, height int, index int) Image {

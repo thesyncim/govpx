@@ -131,8 +131,10 @@ the anchor and look for the surrounding mismatch.
     applies copy-buffer state locally before refresh, tracks libvpx-style
     `gold_is_last` / `alt_is_last` / `gold_is_alt` flags, prunes aliased
     references from availability/mode search, and prices constrained
-    single-reference alias states through the libvpx special cases. Remaining
-    work is ARF/two-pass copy-buffer edge cases and trace coverage.
+    single-reference alias states through the libvpx special cases. Encoder
+    packet configs now reject invalid copy selectors and copy-to-reference
+    state when that reference is refreshed. Remaining work is ARF/two-pass
+    copy-buffer edge cases, sign-bias policy, and trace coverage.
   - Done when forced and natural GF/ARF sequences match header copy bits,
     reference checksums, reference availability, and subsequent mode choices.
 
@@ -237,6 +239,8 @@ the anchor and look for the surrounding mismatch.
     grid, and libvpx realtime gate are present. Remaining work is sign-bias
     parity, exact border-mode-info indexing, and oracle traces for `near_sadidx`,
     predictor MV, and `sr`.
+    End-to-end quality smoke now covers realtime `CpuUsed` 4, 5, 9, and 15 on
+    a panning corpus in addition to the token-partition motion case.
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
 
