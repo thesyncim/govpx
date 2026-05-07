@@ -1207,14 +1207,18 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 
 	bestRefMV := vp8enc.MotionVector{}
 	reusedCenter := vp8enc.MotionVector{Col: 64}
-	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0)
-	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0, 5, false)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0, 5, false)
+	bestQualityMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
 
 	if mv != (vp8enc.MotionVector{Col: 96}) {
 		t.Fatalf("search-centered split MV = %+v, want col +96", mv)
 	}
 	if noReuseMV == mv {
 		t.Fatalf("zero-centered search unexpectedly reached %+v; test no longer proves predictor reuse", mv)
+	}
+	if bestQualityMV != (vp8enc.MotionVector{Col: 96}) {
+		t.Fatalf("best-quality full-search fallback MV = %+v, want col +96", bestQualityMV)
 	}
 }
 
@@ -1229,8 +1233,8 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing
 	ref.ExtendBorders()
 
 	source := sourceImageFromPublic(src)
-	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6)
-	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6, false)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7, false)
 
 	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
 		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
