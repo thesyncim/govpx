@@ -42,7 +42,7 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 65% overall, or about 75% on the core
+- Encoder decision parity: roughly 66% overall, or about 76% on the core
   one-pass quality path, weighted by libvpx LOC.
   This is an engineering estimate, not a measured percentage, because
   govpx still lacks the libvpx-side trace comparator needed to count
@@ -1303,10 +1303,24 @@ the anchor and look for the surrounding mismatch.
     `KeyFrameCoefficientEntropySavingsIndependent` /
     `InterCoefficientEntropySavingsIndependent`, gated on
     `EncoderOptions.ErrorResilient`.
+    Inter-frame intra Y/UV mode probability updates now mirror
+    `bitstream.c` `update_mbintra_mode_probs`: govpx counts Y/UV mode-tree
+    branches from intra macroblocks, computes new probabilities with the
+    same `vp8_tree_probs_from_distribution(..., 256, 1)` math, applies the
+    libvpx `new_b + (n << 8) < old_b` update gate, writes updated Y/UV
+    probabilities before MV probability updates, uses those live
+    probabilities while packing inter-intra macroblock modes, and commits
+    the resulting persistent Y/UV mode probabilities only when
+    `RefreshEntropyProbs` is true. Inter-intra RD and fast intra scoring now
+    use the same live Y/UV probability tables for mode costs, matching the
+    packet writer's current-frame state.
     Additional tests:
     `TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates`,
     `TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly`, and
-    `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`.
+    `TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient`,
+    `TestWriteCoefficientInterFrameEmitsInterIntraModeProbabilityUpdates`,
+    `TestCommitInterFrameEntropyRefreshesInterIntraModeProbs`, and
+    `TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs`.
     The oracle trace's "frame" row now carries the
     `refresh_entropy_probs` decision (after libvpx's
     `vp8_pack_bitstream` error-resilient override around
@@ -1320,6 +1334,6 @@ the anchor and look for the surrounding mismatch.
     so parity tests can confirm govpx and libvpx took the same branch;
     `TestCompareOracleTracesDetectsDefaultCoefResetDivergence`
     exercises the diff path on synthetic JSONL.
-  - Done when every frame matches coefficient probs, MV probs, ref probs,
-    refresh entropy bit, projected entropy savings, and next-frame mode-cost
-    inputs.
+  - Done when every frame matches coefficient probs, MV probs, Y/UV mode
+    probs, ref probs, refresh entropy bit, projected entropy savings, and
+    next-frame mode-cost inputs.

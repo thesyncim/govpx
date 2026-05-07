@@ -694,6 +694,44 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 	}
 }
 
+func TestCommitInterFrameEntropyRefreshesInterIntraModeProbs(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	original := e.modeProbs
+	frameYModeProbs := vp8tables.DefaultYModeProbs
+	frameYModeProbs[0] = 251
+	frameUVModeProbs := vp8tables.DefaultUVModeProbs
+	frameUVModeProbs[0] = 249
+	frameMVProbs := vp8tables.DefaultMVContext
+	frameMVProbs[0][0] = 99
+	attempt := interFrameEncodeAttempt{
+		Config:           vp8enc.InterFrameStateConfig{RefreshEntropyProbs: true},
+		FrameCoefProbs:   e.coefProbs,
+		FrameYModeProbs:  frameYModeProbs,
+		FrameUVModeProbs: frameUVModeProbs,
+		FrameMVProbs:     frameMVProbs,
+	}
+
+	e.commitInterFrameEntropy(attempt)
+
+	if e.modeProbs.YMode != frameYModeProbs {
+		t.Fatalf("committed Y mode probs = %v, want %v", e.modeProbs.YMode, frameYModeProbs)
+	}
+	if e.modeProbs.UVMode != frameUVModeProbs {
+		t.Fatalf("committed UV mode probs = %v, want %v", e.modeProbs.UVMode, frameUVModeProbs)
+	}
+	if e.modeProbs.MV != frameMVProbs {
+		t.Fatalf("committed MV probs = %v, want %v", e.modeProbs.MV, frameMVProbs)
+	}
+
+	e.modeProbs = original
+	attempt.Config.RefreshEntropyProbs = false
+	e.commitInterFrameEntropy(attempt)
+	if e.modeProbs != original {
+		t.Fatalf("mode probs changed on no-refresh commit: got %+v want %+v", e.modeProbs, original)
+	}
+}
+
 func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

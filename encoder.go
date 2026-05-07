@@ -484,6 +484,8 @@ type keyFrameEncodeAttempt struct {
 type interFrameEncodeAttempt struct {
 	Config                 vp8enc.InterFrameStateConfig
 	FrameCoefProbs         vp8tables.CoefficientProbs
+	FrameYModeProbs        [vp8tables.YModeProbCount]uint8
+	FrameUVModeProbs       [vp8tables.UVModeProbCount]uint8
 	FrameMVProbs           [2][vp8tables.MVPCount]uint8
 	RefFrame               vp8common.MVReferenceFrame
 	Ref                    *vp8common.Image
@@ -1198,7 +1200,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
+			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -1254,11 +1256,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.Segmentation = segmentation
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
-	n, frameCoefProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.MV)
+	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameMVProbs: frameMVProbs, Size: n, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
@@ -1444,6 +1446,8 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 		return
 	}
 	e.coefProbs = attempt.FrameCoefProbs
+	e.modeProbs.YMode = attempt.FrameYModeProbs
+	e.modeProbs.UVMode = attempt.FrameUVModeProbs
 	e.modeProbs.MV = attempt.FrameMVProbs
 }
 

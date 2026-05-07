@@ -1409,11 +1409,11 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		if !ok {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 		}
-		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, fastQuant)
+		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, e.modeProbs.UVMode[:], fastQuant)
 		if !ok {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 		}
-		yRate := bRate + intraYModeRate(false, vp8common.BPred)
+		yRate := bRate + e.interIntraYModeRate(vp8common.BPred)
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
@@ -1427,11 +1427,11 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
 	yRate, yDist := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, &e.coefProbs, fastQuant)
-	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, fastQuant)
+	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
-	modeRate := intraYModeRate(false, mbMode)
+	modeRate := e.interIntraYModeRate(mbMode)
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
@@ -1700,7 +1700,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, false
 	}
 	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
-	rate := boolBitCost(e.refProbIntra, 0) + intraYModeRate(false, mbMode)
+	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(mbMode)
 	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), sse, true
 }
 
@@ -1712,7 +1712,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
 	var pred [16 * 16]byte
 	var modes [16]vp8common.BPredictionMode
-	rate := boolBitCost(e.refProbIntra, 0) + intraYModeRate(false, vp8common.BPred)
+	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
 	for block := 0; block < 16; block++ {
 		bestMode := vp8common.BModeCount
@@ -2351,7 +2351,7 @@ func predictBestKeyFrameIntraMode(src vp8enc.SourceImage, qIndex int, mbRow int,
 func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.InterFrameMacroblockMode, int, bool) {
 	fastQuant := e.libvpxUseFastQuant()
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, &e.coefProbs, fastQuant)
+	wholeY, wholeUV, wholeYRate, wholeYDist, wholeUVRate, wholeUVDist, ok := predictBestWholeBlockIntraModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, &e.coefProbs, e.modeProbs.YMode[:], e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
@@ -2365,11 +2365,11 @@ func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qInde
 	if !ok {
 		return best, bestCost, true
 	}
-	bUV, bUVRate, bUVDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, &e.coefProbs, fastQuant)
+	bUV, bUVRate, bUVDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, &e.coefProbs, e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, false
 	}
-	bPredRate := bRate + bUVRate + intraYModeRate(false, vp8common.BPred) + e.interIntraMacroblockModeRate()
+	bPredRate := bRate + bUVRate + e.interIntraYModeRate(vp8common.BPred) + e.interIntraMacroblockModeRate()
 	bPredTotal := rdModeScoreWithZbin(qIndex, zbinOverQuant, bPredRate, bDist+bUVDist) + libvpxInterIntraRDPenalty(qIndex)
 	if bPredTotal < bestCost {
 		best = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: bUV, BModes: bModes}
@@ -2385,6 +2385,10 @@ func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qInde
 // summed cost_coeffs and distortion is libvpx's
 // (mbblock_error<<2 + y2_block_error) >> 4.
 func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
+	return predictBestWholeBlockIntraModeRDWithProbs(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, nil, nil, fastQuant)
+}
+
+func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interYModeProbs []uint8, interUVModeProbs []uint8, fastQuant bool) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
 	if quant == nil {
 		return 0, 0, 0, 0, 0, 0, false
 	}
@@ -2401,7 +2405,7 @@ func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, zbinOv
 			return 0, 0, 0, 0, 0, 0, false
 		}
 		yRate, yDist := wholeBlockYTransformRD(src, pred, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
-		rate := intraYModeRate(keyFrame, yMode) + yRate
+		rate := intraYModeRateWithProbs(keyFrame, yMode, interYModeProbs) + yRate
 		cost := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist)
 		if i == 0 || cost < bestYCost {
 			bestYMode = yMode
@@ -2411,7 +2415,7 @@ func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, zbinOv
 		}
 	}
 
-	bestUVMode, bestUVRate, bestUVDist, ok := predictBestIntraChromaModeRD(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, fastQuant)
+	bestUVMode, bestUVRate, bestUVDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interUVModeProbs, fastQuant)
 	if !ok {
 		return 0, 0, 0, 0, 0, 0, false
 	}
@@ -2480,6 +2484,10 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 }
 
 func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (vp8common.MBPredictionMode, int, int, bool) {
+	return predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, nil, fastQuant)
+}
+
+func predictBestIntraChromaModeRDWithProbs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool) (vp8common.MBPredictionMode, int, int, bool) {
 	if quant == nil || coefProbs == nil {
 		return 0, 0, 0, false
 	}
@@ -2492,7 +2500,7 @@ func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQu
 			return 0, 0, 0, false
 		}
 		tokenRate, dist := wholeBlockChromaTransformRD(src, pred, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
-		rate := intraUVModeRate(keyFrame, uvMode) + tokenRate
+		rate := intraUVModeRateWithProbs(keyFrame, uvMode, interUVModeProbs) + tokenRate
 		cost := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, dist)
 		if i == 0 || cost < bestUVCost {
 			bestUVMode = uvMode
@@ -2709,17 +2717,47 @@ func blockModeFromKeyFrameMacroblockMode(mode vp8common.MBPredictionMode) vp8com
 }
 
 func intraYModeRate(keyFrame bool, mode vp8common.MBPredictionMode) int {
+	return intraYModeRateWithProbs(keyFrame, mode, nil)
+}
+
+func intraYModeRateWithProbs(keyFrame bool, mode vp8common.MBPredictionMode, interProbs []uint8) int {
 	if keyFrame {
 		return treeTokenCost(vp8tables.KeyFrameYModeTree[:], vp8tables.KeyFrameYModeProbs[:], int(mode))
+	}
+	if len(interProbs) == vp8tables.YModeProbCount && !allZeroUint8(interProbs) {
+		return treeTokenCost(vp8tables.YModeTree[:], interProbs, int(mode))
 	}
 	return treeTokenCost(vp8tables.YModeTree[:], vp8tables.DefaultYModeProbs[:], int(mode))
 }
 
+func (e *VP8Encoder) interIntraYModeRate(mode vp8common.MBPredictionMode) int {
+	if e == nil {
+		return intraYModeRate(false, mode)
+	}
+	return intraYModeRateWithProbs(false, mode, e.modeProbs.YMode[:])
+}
+
 func intraUVModeRate(keyFrame bool, mode vp8common.MBPredictionMode) int {
+	return intraUVModeRateWithProbs(keyFrame, mode, nil)
+}
+
+func intraUVModeRateWithProbs(keyFrame bool, mode vp8common.MBPredictionMode, interProbs []uint8) int {
 	if keyFrame {
 		return treeTokenCost(vp8tables.UVModeTree[:], vp8tables.KeyFrameUVModeProbs[:], int(mode))
 	}
+	if len(interProbs) == vp8tables.UVModeProbCount && !allZeroUint8(interProbs) {
+		return treeTokenCost(vp8tables.UVModeTree[:], interProbs, int(mode))
+	}
 	return treeTokenCost(vp8tables.UVModeTree[:], vp8tables.DefaultUVModeProbs[:], int(mode))
+}
+
+func allZeroUint8(values []uint8) bool {
+	for _, value := range values {
+		if value != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8common.BPredictionMode, left vp8common.BPredictionMode) int {

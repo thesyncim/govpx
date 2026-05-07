@@ -2633,6 +2633,50 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	}
 }
 
+func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.modeProbs.YMode = [vp8tables.YModeProbCount]uint8{250, 4, 220, 9}
+	e.modeProbs.UVMode = [vp8tables.UVModeProbCount]uint8{245, 8, 230}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	quant := testRegularMacroblockQuant(t, 20)
+
+	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	if !ok {
+		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
+	}
+
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	decMode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
+	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
+		t.Fatalf("predictAnalysisMacroblock returned false")
+	}
+	yRate, yDist := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
+	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, e.modeProbs.UVMode[:], false)
+	if !ok {
+		t.Fatalf("predictBestIntraChromaModeRDWithProbs mode=%v ok=false", uvMode)
+	}
+	liveYModeRate := e.interIntraYModeRate(vp8common.DCPred)
+	if liveYModeRate == intraYModeRate(false, vp8common.DCPred) {
+		t.Fatalf("live Y mode rate still matches default, test fixture is ineffective")
+	}
+	rate := yRate + uvRate + liveYModeRate + e.interIntraMacroblockModeRate()
+	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	if got != want {
+		t.Fatalf("inter-intra RD score = %d, want %d from live Y/UV mode probabilities", got, want)
+	}
+	wantYRD := rdModeScoreWithZbin(20, 0, yRate+liveYModeRate, yDist)
+	if gotYRD != wantYRD {
+		t.Fatalf("inter-intra YRD = %d, want %d from live Y mode probability", gotYRD, wantYRD)
+	}
+}
+
 func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {

@@ -129,6 +129,55 @@ func TestWriteCoefficientInterFrameEmitsAdaptedModeProbabilities(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameEmitsInterIntraModeProbabilityUpdates(t *testing.T) {
+	const rows = 48
+	const cols = 48
+	modes := make([]InterFrameMacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = InterFrameMacroblockMode{
+			RefFrame:    common.IntraFrame,
+			Mode:        common.DCPred,
+			UVMode:      common.DCPred,
+			MBSkipCoeff: true,
+		}
+	}
+	coeffs := make([]MacroblockCoefficients, len(modes))
+	above := make([]TokenContextPlanes, cols)
+	packet := make([]byte, 1<<20)
+
+	n, err := WriteCoefficientInterFrame(packet, cols*16, rows*16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientInterFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if !state.Mode.YModeUpdated || !state.Mode.UVModeUpdated {
+		t.Fatalf("mode update flags = Y:%t UV:%t, want both updated", state.Mode.YModeUpdated, state.Mode.UVModeUpdated)
+	}
+	if want := ([tables.YModeProbCount]uint8{255, 128, 128, 128}); modeProbs.YMode != want {
+		t.Fatalf("Y mode probs = %v, want %v", modeProbs.YMode, want)
+	}
+	if want := ([tables.UVModeProbCount]uint8{255, 128, 128}); modeProbs.UVMode != want {
+		t.Fatalf("UV mode probs = %v, want %v", modeProbs.UVMode, want)
+	}
+
+	decoded := make([]vp8dec.MacroblockMode, len(modes))
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, rows, cols, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decoded); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	for i, mode := range decoded {
+		if mode.RefFrame != common.IntraFrame || mode.Mode != common.DCPred || mode.UVMode != common.DCPred || !mode.MBSkipCoeff {
+			t.Fatalf("decoded mode[%d] = %+v, want skipped INTRA/DCPRED/DCPRED", i, mode)
+		}
+	}
+}
+
 func TestAdaptInterFrameMVProbabilities(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	var counts [2][tables.MVPCount][2]int
