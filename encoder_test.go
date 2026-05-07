@@ -233,8 +233,14 @@ func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
 		if frame < 11 && state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 		}
+		if frame < 11 && state.Refresh.CopyBufferToAltRef != 0 {
+			t.Fatalf("inter %d copy-to-alt = %d, want none before GF refresh", frame, state.Refresh.CopyBufferToAltRef)
+		}
 		if frame == 11 && !state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = false, want default libvpx CBR GF refresh", frame)
+		}
+		if frame == 11 && state.Refresh.CopyBufferToAltRef != 2 {
+			t.Fatalf("inter %d copy-to-alt = %d, want libvpx old-GF-to-ARF copy", frame, state.Refresh.CopyBufferToAltRef)
 		}
 		if inter.FrameTargetBits != wantRC.frameTargetBits {
 			t.Fatalf("inter %d target = %d, want unboosted libvpx CBR target %d", frame, inter.FrameTargetBits, wantRC.frameTargetBits)
@@ -2464,6 +2470,48 @@ func TestBoostedReferenceRateControlFrameMirrorsLibvpxRefreshFlags(t *testing.T)
 	}
 	if boostedReferenceRateControlFrame(false, EncodeNoUpdateGolden|EncodeNoUpdateAltRef) {
 		t.Fatalf("no-update flags = true, want normal inter rate-control frame")
+	}
+}
+
+func TestShouldCopyOldGoldenToAltRefOnGoldenRefreshMirrorsLibvpxPolicy(t *testing.T) {
+	if !shouldCopyOldGoldenToAltRefOnGoldenRefresh(false, true, 0) {
+		t.Fatalf("internal GF refresh copy = false, want libvpx copy old GF to ARF")
+	}
+	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(true, true, 0) {
+		t.Fatalf("error-resilient GF refresh copy = true, want disabled")
+	}
+	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(false, true, EncodeForceGoldenFrame) {
+		t.Fatalf("user-forced GF refresh copy = true, want disabled for external refresh flags")
+	}
+	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(false, true, EncodeNoUpdateLast) {
+		t.Fatalf("user reference-update flags copy = true, want disabled for external refresh flags")
+	}
+	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(false, false, 0) {
+		t.Fatalf("non-GF-refresh copy = true, want disabled")
+	}
+}
+
+func TestRefreshInterFrameReferencesCopiesOldGoldenToAltBeforeGoldenRefresh(t *testing.T) {
+	e := newTestEncoder(t)
+	fillVP8Image(&e.lastRef.Img, 10)
+	fillVP8Image(&e.goldenRef.Img, 20)
+	fillVP8Image(&e.altRef.Img, 30)
+	fillVP8Image(&e.analysis.Img, 40)
+
+	e.refreshInterFrameReferencesFromAnalysis(vp8enc.InterFrameStateConfig{
+		RefreshLast:        true,
+		RefreshGolden:      true,
+		CopyBufferToAltRef: 2,
+	})
+
+	if e.altRef.Img.Y[0] != 20 {
+		t.Fatalf("alt Y[0] = %d, want old golden 20", e.altRef.Img.Y[0])
+	}
+	if e.goldenRef.Img.Y[0] != 40 {
+		t.Fatalf("golden Y[0] = %d, want current 40", e.goldenRef.Img.Y[0])
+	}
+	if e.lastRef.Img.Y[0] != 40 {
+		t.Fatalf("last Y[0] = %d, want current 40", e.lastRef.Img.Y[0])
 	}
 }
 

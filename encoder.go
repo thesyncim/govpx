@@ -642,6 +642,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if flags&EncodeForceAltRefFrame != 0 {
 		cfg.RefreshAltRef = true
 	}
+	if shouldCopyOldGoldenToAltRefOnGoldenRefresh(e.opts.ErrorResilient, goldenCBRRefresh, flags) {
+		cfg.CopyBufferToAltRef = 2
+	}
 	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef)
 	e.probSkipFalse = cfg.ProbSkipFalse
 	segmentation := vp8enc.SegmentationConfig{}
@@ -849,6 +852,13 @@ func validateEncodeFlags(flags EncodeFlags) error {
 
 func boostedReferenceRateControlFrame(goldenCBRRefresh bool, flags EncodeFlags) bool {
 	return goldenCBRRefresh || flags&(EncodeForceGoldenFrame|EncodeForceAltRefFrame) != 0
+}
+
+func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRefresh bool, flags EncodeFlags) bool {
+	if errorResilient || !goldenCBRRefresh {
+		return false
+	}
+	return flags&(EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef|EncodeForceGoldenFrame|EncodeForceAltRefFrame) == 0
 }
 
 func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
@@ -1754,6 +1764,7 @@ func (e *VP8Encoder) rememberLastFrameInterModes() {
 func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame) {
 	copyFrameImage(&e.current.Img, ref)
 	e.current.ExtendBorders()
+	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast && refFrame != vp8common.LastFrame {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
@@ -1771,6 +1782,7 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
 	copyFrameImage(&e.current.Img, &e.analysis.Img)
 	e.current.ExtendBorders()
+	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast {
 		copyFrameImage(&e.lastRef.Img, &e.current.Img)
 		e.lastRef.ExtendBorders()
@@ -1782,6 +1794,25 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 	if cfg.RefreshAltRef {
 		copyFrameImage(&e.altRef.Img, &e.current.Img)
 		e.altRef.ExtendBorders()
+	}
+}
+
+func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) {
+	switch cfg.CopyBufferToAltRef {
+	case 1:
+		copyFrameImage(&e.altRef.Img, &e.lastRef.Img)
+		e.altRef.ExtendBorders()
+	case 2:
+		copyFrameImage(&e.altRef.Img, &e.goldenRef.Img)
+		e.altRef.ExtendBorders()
+	}
+	switch cfg.CopyBufferToGolden {
+	case 1:
+		copyFrameImage(&e.goldenRef.Img, &e.lastRef.Img)
+		e.goldenRef.ExtendBorders()
+	case 2:
+		copyFrameImage(&e.goldenRef.Img, &e.altRef.Img)
+		e.goldenRef.ExtendBorders()
 	}
 }
 
