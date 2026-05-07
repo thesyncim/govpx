@@ -563,6 +563,52 @@ func TestEncodeIntoRetriesQuantizerBeforeCommitOnOvershoot(t *testing.T) {
 	assertImagesEqual(t, "retried current", decoded, publicImageFromVP8(&e.current.Img))
 }
 
+func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              32,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	e.coefProbs[0][0][0][0] = 77
+	e.modeProbs.MV[0][0] = 99
+	wantCoefProbs := e.coefProbs
+	wantModeProbs := e.modeProbs
+
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, false, false)
+	if err != nil {
+		t.Fatalf("encodeKeyFrameAttempt returned error: %v", err)
+	}
+	if !attempt.RefreshEntropyProbs {
+		t.Fatalf("key attempt RefreshEntropyProbs = false, want true")
+	}
+	if e.coefProbs != wantCoefProbs {
+		t.Fatalf("encodeKeyFrameAttempt mutated coefficient probabilities before commit")
+	}
+	if e.modeProbs != wantModeProbs {
+		t.Fatalf("encodeKeyFrameAttempt mutated mode probabilities before commit")
+	}
+
+	e.commitKeyFrameEntropy(attempt)
+	if e.coefProbs != attempt.FrameCoefProbs {
+		t.Fatalf("committed coefficient probabilities do not match accepted key attempt")
+	}
+	if e.modeProbs == wantModeProbs {
+		t.Fatalf("committed keyframe mode probabilities still match pre-commit sentinel")
+	}
+}
+
 func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

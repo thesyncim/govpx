@@ -279,6 +279,13 @@ type VP8Encoder struct {
 
 const encoderQuantizerFeedbackMaxAttempts = 2
 
+type keyFrameEncodeAttempt struct {
+	FrameCoefProbs      vp8tables.CoefficientProbs
+	Size                int
+	LoopFilterLevel     uint8
+	RefreshEntropyProbs bool
+}
+
 type interFrameEncodeAttempt struct {
 	Config                 vp8enc.InterFrameStateConfig
 	FrameCoefProbs         vp8tables.CoefficientProbs
@@ -512,21 +519,22 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		return result, nil
 	}
 
-	n, lfLevel, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
+	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
 		return EncodeResult{}, err
 	}
 	finalQuantizer := e.rc.currentQuantizer
+	e.commitKeyFrameEntropy(keyAttempt)
 	e.refreshKeyFrameReferencesFromAnalysis()
-	e.loopFilterLevel = lfLevel
-	result.Data = dst[:n]
-	result.SizeBytes = n
+	e.loopFilterLevel = keyAttempt.LoopFilterLevel
+	result.Data = dst[:keyAttempt.Size]
+	result.SizeBytes = keyAttempt.Size
 	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
-	e.rc.postEncodeFrameWithPacketContext(n, true, false, required, !invisible)
+	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, true, false, required, !invisible)
 	if twoPassSceneCut {
 		e.twoPass.markKeyFrame(e.frameCount)
 	}
-	e.twoPass.finishFrame(encodedSizeBits(n))
+	e.twoPass.finishFrame(encodedSizeBits(keyAttempt.Size))
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
@@ -536,7 +544,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
-	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(n), e.temporalBufferConfig())
+	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	e.frameCount++
 	return result, nil
@@ -577,21 +585,21 @@ func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, row
 	return attempt.Size, nil
 }
 
-func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (int, uint8, error) {
+func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	for attempt := 0; ; attempt++ {
-		n, lfLevel, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
+		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 		if err != nil {
-			return 0, 0, err
+			return keyFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(n, true, false) {
-			return n, lfLevel, nil
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, true, false) {
+			return result, nil
 		}
 	}
 }
 
-func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (int, uint8, error) {
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
-		return 0, 0, ErrInvalidConfig
+		return keyFrameEncodeAttempt{}, ErrInvalidConfig
 	}
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
@@ -605,16 +613,16 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	}
 	if err != nil {
-		return 0, 0, translateEncoderError(err)
+		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
 	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required)
 	if err != nil {
-		return 0, 0, err
+		return keyFrameEncodeAttempt{}, err
 	}
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
 	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, rows, cols, required); err != nil {
-		return 0, 0, err
+		return keyFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
 		updateKeyFrameSegmentationTreeProbs(&segmentation, e.keyFrameModes[:required])
@@ -635,14 +643,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
-		return 0, 0, translateEncoderError(err)
+		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	e.coefProbs = vp8tables.DefaultCoefProbs
-	vp8dec.ResetModeProbs(&e.modeProbs)
-	if cfg.RefreshEntropyProbs {
-		e.coefProbs = frameCoefProbs
-	}
-	return n, lfLevel, nil
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, RefreshEntropyProbs: cfg.RefreshEntropyProbs}, nil
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool) (interFrameEncodeAttempt, error) {
@@ -749,6 +752,14 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 	}
 	e.rc.currentQuantizer = next
 	return true
+}
+
+func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
+	e.coefProbs = vp8tables.DefaultCoefProbs
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	if attempt.RefreshEntropyProbs {
+		e.coefProbs = attempt.FrameCoefProbs
+	}
 }
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
