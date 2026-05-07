@@ -30,12 +30,12 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 		fractional interAnalysisFractionalSearchMethod
 	}{
 		{
-			name:       "best uses nstep iterative",
+			name:       "best RD uses first step directly",
 			deadline:   DeadlineBestQuality,
 			cpuUsed:    8,
 			fullPixel:  interAnalysisFullPixelSearchNstep,
-			stepParam:  3,
-			further:    0,
+			stepParam:  0,
+			further:    7,
 			improved:   true,
 			fractional: interAnalysisFractionalSearchIterative,
 		},
@@ -46,6 +46,16 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fullPixel:  interAnalysisFullPixelSearchNstep,
 			stepParam:  4,
 			further:    0,
+			improved:   true,
+			fractional: interAnalysisFractionalSearchIterative,
+		},
+		{
+			name:       "realtime speed three RD uses first step directly",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    3,
+			fullPixel:  interAnalysisFullPixelSearchNstep,
+			stepParam:  1,
+			further:    6,
 			improved:   true,
 			fractional: interAnalysisFractionalSearchIterative,
 		},
