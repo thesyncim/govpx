@@ -159,12 +159,36 @@ the anchor and look for the surrounding mismatch.
     [`computeFirstPassStats`](../encoder_firstpass.go).
   - libvpx:
     [`firstpass.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/firstpass.c).
-  - Status: partial. govpx computes coarse zero-MV/intra errors; libvpx records
-    motion vectors, motion percentages, second-ref use, neutral counts,
-    intra/coded/SSIM-weighted error, and section accumulators.
-  - Missing: raw zero-motion checks, last/golden first-pass motion searches,
-    `simple_weight` SSIM weighting, MV accumulation/variance, first-pass
-    reference swap/GF copy behavior, and terminal total-stats packet.
+  - Status: partial. govpx now records every per-frame `FIRSTPASS_STATS`
+    field libvpx populates from `vp8_first_pass`: intra/coded errors,
+    `ssim_weighted_pred_err` via the libvpx `simple_weight` 256-entry
+    weight_table (with the 0.1 weight floor), `pcnt_inter`, `pcnt_motion`,
+    `pcnt_second_ref`, `pcnt_neutral`, plus the MV accumulation set
+    (`MVr`/`MVc`/`mvr_abs`/`mvc_abs`/`MVrv`/`MVcv`/`mv_in_out_count`/
+    `new_mv_count`). Each non-first frame runs an integer-pel zero-MV
+    `zz_motion_search` plus a small NSTEP stand-in `first_pass_motion_search`
+    against LAST and a zero-MV-only search against GOLDEN, applies the
+    libvpx `new_mv_mode_penalty=256` to motion-search results, and the
+    inter/neutral accept gate uses libvpx's
+    `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
+    The post-stats LAST->GOLDEN copy follows the libvpx
+    `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
+    frame still seeds GOLDEN from LAST as a second reference. Per-frame
+    field values are pinned by
+    [`TestFirstPassStatsRegression32x32`](../encoder_firstpass_test.go) on a
+    deterministic 32x32 ramp clip; plausibility coverage is in
+    `TestFirstPassStatsPopulatesLibvpxFields`, and the simple_weight table
+    boundaries are pinned by `TestSimpleWeightLumaMatchesLibvpxTable`.
+  - Missing: full libvpx `diamond_search_sad` NSTEP/refining diamond
+    (govpx uses a small exhaustive integer-pel sweep), distinct
+    `last_frame_unscaled_source` raw buffer used by libvpx's
+    `zz_motion_search` (govpx folds raw and reconstructed LAST into the
+    same buffer), encode_breakout user-facing knob, terminal total-stats
+    packet/section accumulators, pinning the MV stats to libvpx's
+    `intrapenalty=256` (govpx still uses 1000 to keep
+    `libvpxTestCandidateKeyFrame` thresholds well-conditioned on
+    constant-luma synthetic test clips), and oracle-trace coverage on a
+    fixed Y4M corpus.
   - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
     every field.
 
