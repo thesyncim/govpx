@@ -439,6 +439,73 @@ func TestTwoPassKFGroupBitsAllocatesByErrorRatio(t *testing.T) {
 	}
 }
 
+// TestLibvpxFrameMaxBitsCBRBasicAllocation pins the libvpx CBR
+// branch of frame_max_bits when buffer is at optimal:
+//
+//	max_bits = av_per_frame_bandwidth * vbrmax / 100.
+func TestLibvpxFrameMaxBitsCBRBasicAllocation(t *testing.T) {
+	got := libvpxFrameMaxBitsCBR(1000, 200, 5000, 5000)
+	if got != 2000 {
+		t.Fatalf("frame_max_bits CBR optimal = %d, want 2000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsCBRScalesWithBufferRatio pins the libvpx
+// buffer-fullness scaling: when buffer_level < optimal, max_bits is
+// scaled by (buffer_level / optimal), with a floor of
+// min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale)).
+func TestLibvpxFrameMaxBitsCBRScalesWithBufferRatio(t *testing.T) {
+	// av=1000, vbrmax=200 -> max_bits=2000 pre-scale.
+	// buffer=2500, optimal=5000 -> ratio=0.5 -> max_bits=1000.
+	// min_floor = min(1000>>2=250, 2000>>2=500) = 250. 1000 > 250.
+	got := libvpxFrameMaxBitsCBR(1000, 200, 2500, 5000)
+	if got != 1000 {
+		t.Fatalf("frame_max_bits CBR half-buffer = %d, want 1000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsCBRFloorsAtMinMaxBits pins the libvpx
+// `if (max_bits < min_max_bits) max_bits = min_max_bits` floor.
+func TestLibvpxFrameMaxBitsCBRFloorsAtMinMaxBits(t *testing.T) {
+	// av=1000, vbrmax=200 -> max_bits=2000 pre-scale.
+	// buffer=100, optimal=5000 -> ratio=0.02 -> max_bits=40.
+	// min_floor = min(250, 500) = 250. 40 < 250 -> 250.
+	got := libvpxFrameMaxBitsCBR(1000, 200, 100, 5000)
+	if got != 250 {
+		t.Fatalf("frame_max_bits CBR low-buffer floor = %d, want 250", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsVBRBasicAllocation pins the libvpx VBR branch:
+//
+//	max_bits = (bits_left / frames_left) * vbrmax / 100.
+func TestLibvpxFrameMaxBitsVBRBasicAllocation(t *testing.T) {
+	// bits_left=100000, frames_left=100 -> per-frame=1000.
+	// vbrmax=200 -> max_bits = int(1000 * 2.0) = 2000.
+	got := libvpxFrameMaxBitsVBR(100000, 100, 200)
+	if got != 2000 {
+		t.Fatalf("frame_max_bits VBR = %d, want 2000", got)
+	}
+}
+
+// TestLibvpxFrameMaxBitsReturnsZeroForExhaustedInputs pins the
+// guards: zero/negative bits_left, frames_left, vbrmax_section, or
+// av_per_frame_bandwidth all return 0.
+func TestLibvpxFrameMaxBitsReturnsZeroForExhaustedInputs(t *testing.T) {
+	if got := libvpxFrameMaxBitsCBR(0, 200, 5000, 5000); got != 0 {
+		t.Fatalf("CBR av=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsCBR(1000, 0, 5000, 5000); got != 0 {
+		t.Fatalf("CBR vbrmax=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsVBR(0, 100, 200); got != 0 {
+		t.Fatalf("VBR bits_left=0 -> %d, want 0", got)
+	}
+	if got := libvpxFrameMaxBitsVBR(100000, 0, 200); got != 0 {
+		t.Fatalf("VBR frames_left=0 -> %d, want 0", got)
+	}
+}
+
 // TestLibvpxGFGroupBitsAllocatesByErrorRatio pins the libvpx
 // gf_group_bits = kf_group_bits * (gf_group_err / kf_group_error_left)
 // with the kf_group_bits ceiling.

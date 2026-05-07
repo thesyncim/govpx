@@ -338,9 +338,18 @@ the anchor and look for the surrounding mismatch.
     `(interval+1)*200`; both apply the `>1000` halving overflow
     guard and the libvpx `(interval+1)*100 + Boost` /
     `interval*100 + (Boost-100)` allocation_chunks formulas.
+    `libvpxFrameMaxBitsCBR` and `libvpxFrameMaxBitsVBR` port the
+    libvpx vp8/encoder/firstpass.c `frame_max_bits` per-frame ceiling:
+    CBR uses `av_per_frame_bandwidth * vbrmax_section / 100` scaled by
+    `buffer_level / optimal_buffer_level` when the buffer is below
+    optimal, with the libvpx
+    `min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))` floor;
+    VBR uses `(bits_left / frames_left) * vbrmax_section / 100`. These
+    feed the `kfGroupBits` and `libvpxGFGroupBits` ceilings.
   - Missing: `alt_extra_bits` carry, section max-Q factor, active
-    worst-Q estimates, VBR min/max section limits, CBR buffer
-    adjustments, and ARF pending decisions wired into the encoder.
+    worst-Q estimates, VBR min/max section limits beyond
+    frame_max_bits, CBR buffer adjustments inside Pass2Encode, and
+    ARF pending decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 

@@ -494,6 +494,61 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxFrameMaxBitsCBR ports the CBR branch of libvpx's
+// vp8/encoder/firstpass.c frame_max_bits:
+//
+//	max_bits = av_per_frame_bandwidth * (two_pass_vbrmax_section / 100)
+//	if buffer_level < optimal:
+//	  buffer_fullness_ratio = buffer_level / optimal
+//	  max_bits *= buffer_fullness_ratio
+//	  min_max_bits = min(av_per_frame_bandwidth>>2, max_bits>>2 (pre-scale))
+//	  max_bits = max(max_bits, min_max_bits)
+//
+// avPerFrameBandwidth is libvpx's `cpi->av_per_frame_bandwidth`, which
+// equals govpx's `bitsPerFrame` in steady state. vbrMaxSection is
+// `cpi->oxcf.two_pass_vbrmax_section` (govpx's
+// EncoderOptions.TwoPassMaxPct). Returns 0 when the budget would be
+// negative.
+func libvpxFrameMaxBitsCBR(avPerFrameBandwidth int, vbrMaxSection int, bufferLevel int, optimalBufferLevel int) int {
+	if avPerFrameBandwidth <= 0 || vbrMaxSection <= 0 {
+		return 0
+	}
+	maxBits := avPerFrameBandwidth * vbrMaxSection / 100
+	if optimalBufferLevel > 0 && bufferLevel < optimalBufferLevel {
+		// Capture the pre-scale max_bits>>2 for the min floor calculation
+		// (libvpx evaluates the min before the buffer-ratio scale).
+		minMaxBits := avPerFrameBandwidth >> 2
+		if (maxBits >> 2) < minMaxBits {
+			minMaxBits = maxBits >> 2
+		}
+		maxBits = int(float64(maxBits) * float64(bufferLevel) / float64(optimalBufferLevel))
+		if maxBits < minMaxBits {
+			maxBits = minMaxBits
+		}
+	}
+	if maxBits < 0 {
+		return 0
+	}
+	return maxBits
+}
+
+// libvpxFrameMaxBitsVBR ports the VBR branch of libvpx's frame_max_bits:
+//
+//	max_bits = (bits_left / frames_left) * (two_pass_vbrmax_section / 100)
+//
+// Returns 0 when bits_left or frames_left are non-positive.
+func libvpxFrameMaxBitsVBR(bitsLeft int64, framesLeft int64, vbrMaxSection int) int {
+	if bitsLeft <= 0 || framesLeft <= 0 || vbrMaxSection <= 0 {
+		return 0
+	}
+	bitsPerFrame := float64(bitsLeft) / float64(framesLeft)
+	maxBits := int(bitsPerFrame * float64(vbrMaxSection) / 100.0)
+	if maxBits < 0 {
+		return 0
+	}
+	return maxBits
+}
+
 // libvpxGFGroupBits ports the libvpx vp8/encoder/firstpass.c GF-group
 // allocation:
 //
