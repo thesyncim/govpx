@@ -484,6 +484,80 @@ func TestLibvpxEstimatedBitsAtQuantizerUsesLargeMacroblockPath(t *testing.T) {
 	}
 }
 
+func TestLibvpxEstimatedBitsAtQuantizerWithZbinAppliesLibvpxFactorWalk(t *testing.T) {
+	// Mirror libvpx vp8/encoder/ratectrl.c vp8_update_rate_correction_factors:
+	// when zbin_over_quant > 0, scale the projected size by 0.99 (walking up
+	// to 0.999) for each unit of zbin_over_quant.
+	frameType := 1
+	q := 96
+	macroblocks := 60
+	correctionFactor := 1.5
+	base := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, correctionFactor)
+
+	if got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, 0); got != base {
+		t.Fatalf("zbin=0 estimate = %d, want unchanged %d", got, base)
+	}
+
+	want := base
+	factor := 0.99
+	const factorAdjustment = 0.01 / 256.0
+	for z := 4; z > 0; z-- {
+		want = int(factor * float64(want))
+		factor += factorAdjustment
+		if factor >= 0.999 {
+			factor = 0.999
+		}
+	}
+	if got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, 4); got != want {
+		t.Fatalf("zbin=4 estimate = %d, want %d", got, want)
+	}
+
+	// Strictly monotonically non-increasing in zbin_over_quant.
+	prev := base
+	for z := 1; z <= 16; z++ {
+		got := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, correctionFactor, z)
+		if got > prev {
+			t.Fatalf("zbin=%d estimate %d exceeds zbin=%d estimate %d", z, got, z-1, prev)
+		}
+		prev = got
+	}
+}
+
+func TestRateControlPostEncodeFactorAccountsForZbinOverQuant(t *testing.T) {
+	// When zbin_over_quant scales the frame down at encode time, the post-
+	// encode rate correction factor must use the same scaling so it does not
+	// over-attribute the size shrink to "Q was higher than needed". Without
+	// the libvpx-style zbin adjustment in the projected size, an oversize
+	// frame at active zbin_oq damps the factor toward 1.0 even when the next
+	// frame should still be biased to higher Q.
+	makeRC := func(zbin int) *rateControlState {
+		return &rateControlState{
+			mode:                   RateControlCBR,
+			minQuantizer:           4,
+			maxQuantizer:           63,
+			currentQuantizer:       127,
+			currentZbinOverQuant:   zbin,
+			bitsPerFrame:           12000,
+			frameTargetBits:        12000,
+			bufferOptimalBits:      60000,
+			bufferLevelBits:        48000,
+			undershootPct:          defaultRateControlUndershootPct,
+			overshootPct:           defaultRateControlOvershootPct,
+			rateCorrectionFactor:   1.0,
+			goldenCorrectionFactor: 1.0,
+		}
+	}
+
+	noZbin := makeRC(0)
+	noZbin.postEncodeFrameWithContext(3000, false, false, 60)
+	withZbin := makeRC(32)
+	withZbin.postEncodeFrameWithContext(3000, false, false, 60)
+	if !(withZbin.rateCorrectionFactor > noZbin.rateCorrectionFactor) {
+		t.Fatalf("zbin=32 factor (%g) should exceed zbin=0 factor (%g) for same actual bits",
+			withZbin.rateCorrectionFactor, noZbin.rateCorrectionFactor)
+	}
+}
+
 func TestRateControlUpdatesLibvpxRateCorrectionFactor(t *testing.T) {
 	rc := rateControlState{
 		mode:                   RateControlCBR,

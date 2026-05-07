@@ -625,7 +625,7 @@ func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame 
 	if rateCorrectionFactor <= 0 {
 		rateCorrectionFactor = 1.0
 	}
-	projectedBits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, rateCorrectionFactor)
+	projectedBits := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
 	if projectedBits <= 0 {
 		return
 	}
@@ -893,7 +893,7 @@ func (rc *rateControlState) rateCorrectionFactorAfterFrameSize(actualBits int, k
 		return rateCorrectionFactor
 	}
 	rateCorrectionFactor = normalizedRateCorrectionFactor(rateCorrectionFactor)
-	projectedBits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, rateCorrectionFactor)
+	projectedBits := libvpxEstimatedBitsAtQuantizerWithZbin(frameType, q, macroblocks, rateCorrectionFactor, rc.currentZbinOverQuant)
 	if projectedBits <= 0 {
 		return rateCorrectionFactor
 	}
@@ -1539,6 +1539,33 @@ func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, corre
 		return (bitsPerMB >> libvpxBPerMBNormBits) * macroblocks
 	}
 	return (bitsPerMB * macroblocks) >> libvpxBPerMBNormBits
+}
+
+// libvpxEstimatedBitsAtQuantizerWithZbin mirrors the post-encode projection in
+// libvpx's vp8_update_rate_correction_factors (vp8/encoder/ratectrl.c): when
+// zbin_over_quant > 0, project the frame size at this Q and then iteratively
+// scale it down by a starting factor of 0.99 that walks toward 0.999 over
+// `zbinOverQuant` steps. Without this scaling, frames encoded with non-zero
+// zbin_oq look much larger than expected, the rate correction factor is
+// damped toward 1.0, and the next frame's regulated Q is set too low.
+func libvpxEstimatedBitsAtQuantizerWithZbin(frameType int, q int, macroblocks int, correctionFactor float64, zbinOverQuant int) int {
+	bits := libvpxEstimatedBitsAtQuantizer(frameType, q, macroblocks, correctionFactor)
+	if bits <= 0 || zbinOverQuant <= 0 {
+		return bits
+	}
+	factor := 0.99
+	const factorAdjustment = 0.01 / 256.0
+	for z := zbinOverQuant; z > 0; z-- {
+		bits = int(factor * float64(bits))
+		factor += factorAdjustment
+		if factor >= 0.999 {
+			factor = 0.999
+		}
+		if bits <= 0 {
+			return 0
+		}
+	}
+	return bits
 }
 
 func clampQuantizerValue(q int, minQ int, maxQ int) int {
