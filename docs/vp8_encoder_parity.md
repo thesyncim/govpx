@@ -330,8 +330,12 @@ the anchor and look for the surrounding mismatch.
     references from availability/mode search, and prices constrained
     single-reference alias states through the libvpx special cases. Encoder
     packet configs now reject invalid copy selectors and copy-to-reference
-    state when that reference is refreshed. Remaining work is ARF/two-pass
-    copy-buffer edge cases, sign-bias policy, and trace coverage.
+    state when that reference is refreshed. The ARF copy-buffer edge cases
+    are also enforced inline: hidden ARF frames clear `CopyBufferToAltRef`
+    (libvpx's `assert(!cm->copy_buffer_to_arf)` invariant) and the
+    deferred show-frame after a hidden ARF (`is_src_frame_alt_ref`) clears
+    both copy fields so the references already populated by the ARF stick.
+    Remaining work is sign-bias policy and trace coverage.
   - Done when forced and natural GF/ARF sequences match header copy bits,
     reference checksums, reference availability, and subsequent mode choices.
 
