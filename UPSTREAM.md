@@ -70,8 +70,9 @@ grant. This repository keeps libvpx license and patent notices in
   keyframes, interframes, SplitMV, narrow error-resilient inter-frame
   concealment, default and granular deblock/demacroblock post-processing,
   libvpx-style MFQE, and optional luma ADDNOISE using deterministic Go-side
-  noise state. Caller-configured size/resolution limits return
-  `ErrUnsupportedFeature`.
+  noise state. Full active error-concealment missing-MV estimation for corrupt
+  interframes is still incomplete. Caller-configured size/resolution limits
+  return `ErrUnsupportedFeature`.
 - `EncodeInto` can emit source-dependent whole-block luma/chroma intra keyframes,
   LAST/ZEROMV residual interframes, whole-block intra macroblocks inside interframes,
   libvpx-inspired NEWMV interframes with last/golden/altref reference selection,
