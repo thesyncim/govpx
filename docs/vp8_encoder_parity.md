@@ -291,12 +291,20 @@ the anchor and look for the surrounding mismatch.
     `vp8_mv_pred` and `vp8_cal_sad` in `rdopt.c`.
   - Status: partial. Current-frame SAD ordering, previous inter-frame mode/MV
     grid, libvpx realtime gate, and low-level sign-biased near/best MV
-    predictor helpers are present. Remaining work is exact border-mode-info
-    indexing, high-level sign-bias policy/reference switching, and oracle
+    predictor helpers are present. Border-mode-info indexing now mirrors
+    libvpx's calloc-zeroed sentinel rows/columns: nil current-frame
+    above/left/above-left and out-of-range previous-frame
+    above/left/right/below neighbors collapse to `INTRA_FRAME` /
+    `mv == 0` / `near_sad == INT_MAX` slots, and an intra current-frame
+    neighbor no longer leaks a stale MV into the median fallback. Remaining
+    work is high-level sign-bias policy/reference switching and oracle
     traces for `near_sadidx`, predictor MV, and `sr`.
     End-to-end quality smoke now covers best-quality panning, good-quality RD
     and fast-pick panning, and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15 on
-    a panning corpus in addition to the token-partition motion case.
+    a panning corpus in addition to the token-partition motion case. A new
+    9-position 3x3-grid regression test pins border behavior at every corner,
+    edge, and interior macroblock for both the current-frame and last-frame
+    neighbor tables.
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
 

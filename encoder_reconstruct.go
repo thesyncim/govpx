@@ -2856,18 +2856,30 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 }
 
 func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode) {
+	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a nil
+	// pointer (border MB) corresponds to libvpx's calloc-zeroed mode_info
+	// sentinel row/column where ref_frame == INTRA_FRAME and mv == 0, and
+	// vp8_cal_sad sets the matching near_sad entry to INT_MAX.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if mode == nil || refMbRow < 0 || refMbCol < 0 {
 		return
 	}
-	slot.mv = mode.MV
 	slot.refFrame = convertInterFrameReference(mode)
-	if slot.refFrame != vp8common.IntraFrame {
-		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+	if slot.refFrame == vp8common.IntraFrame {
+		// libvpx leaves near_mvs[vcnt] at zero when the neighbor is intra; do
+		// the same here regardless of any stale MV field on the mode entry.
+		return
 	}
+	slot.mv = mode.MV
+	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
 func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+	// Mirror libvpx's vp8_mv_pred neighbor table for the previous frame:
+	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
+	// sentinel rows (top/bottom) and columns (left/right) which are
+	// calloc-zeroed and therefore report INTRA_FRAME with mv == 0, while
+	// vp8_cal_sad sets the matching near_sad entry to INT_MAX.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if refMbRow < 0 || refMbCol < 0 || refMbRow >= mbRows || refMbCol >= mbCols {
 		return
@@ -2877,11 +2889,14 @@ func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc
 		return
 	}
 	mode := &modes[index]
-	slot.mv = mode.MV
 	slot.refFrame = convertInterFrameReference(mode)
-	if slot.refFrame != vp8common.IntraFrame {
-		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+	if slot.refFrame == vp8common.IntraFrame {
+		// libvpx leaves near_mvs[vcnt] at zero for intra last-frame slots even
+		// though it still increments vcnt; mirror that exactly.
+		return
 	}
+	slot.mv = mode.MV
+	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
 func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int) [8]int {
