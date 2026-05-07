@@ -1222,31 +1222,6 @@ func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 	}
 }
 
-func TestShouldSkipInterResidualUsesRDTokenCost(t *testing.T) {
-	if !shouldSkipInterResidual(40, 512, 100, 100) {
-		t.Fatalf("skip decision = false, want skip when residual has no distortion gain")
-	}
-	if !shouldSkipInterResidual(40, 512, 100, 110) {
-		t.Fatalf("skip decision = false, want skip when residual worsens distortion")
-	}
-	if shouldSkipInterResidual(40, 512, 1000, 0) {
-		t.Fatalf("skip decision = true, want coded residual when distortion gain dominates token cost")
-	}
-}
-
-func TestShouldSkipInterResidualUsesLiveSkipProbability(t *testing.T) {
-	e := &VP8Encoder{probSkipFalse: 200}
-	qIndex := 40
-	tokenRate := 512
-	predictionDist := 100
-	codedDist := 80
-	want := rdModeScore(qIndex, boolBitCost(200, 1), predictionDist) <=
-		rdModeScore(qIndex, boolBitCost(200, 0)+tokenRate, codedDist)
-	if got := e.shouldSkipInterResidual(qIndex, tokenRate, predictionDist, codedDist); got != want {
-		t.Fatalf("skip decision = %t, want live-prob RD comparison %t", got, want)
-	}
-}
-
 func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 	tests := []struct {
 		qIndex int
@@ -1538,6 +1513,64 @@ func TestSelectRDInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T)
 	}
 	if !decision.cyclicRefreshEligible() || decision.interMode.SegmentID != staticSegmentID {
 		t.Fatalf("decision = %+v, want static breakout to stop on LAST/ZEROMV with cyclic segment", decision)
+	}
+}
+
+func TestEstimateInterResidualRDScoreUsesLibvpxStaticBreakoutRate(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.opts.StaticThreshold = 1
+	var decSeg vp8dec.SegmentationHeader
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: 20}, &decSeg, &e.dequantTables, &e.dequants)
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
+	mode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV}
+	quant := testRegularMacroblockQuant(t, 20)
+
+	score, rdLoopSkip, ok := e.estimateInterResidualRDScoreWithReferenceRateAndSkip(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 1, &mode, nil, nil, nil, nil, nil, &quant, 20, 0, 0)
+
+	if !ok || !rdLoopSkip {
+		t.Fatalf("static breakout score ok=%t rdLoopSkip=%t, want true/true", ok, rdLoopSkip)
+	}
+	if want := rdModeScoreWithZbin(20, 0, 500, 0); score != want {
+		t.Fatalf("static breakout RD score = %d, want libvpx rate-500 score %d", score, want)
+	}
+}
+
+func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	quant := testRegularMacroblockQuant(t, 20)
+
+	_, got, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	if !ok {
+		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
+	}
+
+	fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+	e.analysis.ExtendBorders()
+	decMode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred}
+	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
+		t.Fatalf("predictAnalysisMacroblock returned false")
+	}
+	yRate, yDist := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
+	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, false)
+	if !ok {
+		t.Fatalf("predictBestIntraChromaModeRD mode=%v ok=false", uvMode)
+	}
+	rate := yRate + uvRate + intraYModeRate(false, vp8common.DCPred) + e.interIntraMacroblockModeRate()
+	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
+	if got != want {
+		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", got, want)
 	}
 }
 
