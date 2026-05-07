@@ -4307,3 +4307,150 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 		t.Fatalf("LAST predictor with ALTREF neighbours = %+v, want {Col: -24} (sign flipped because sign_bias[LAST] != sign_bias[ALTREF])", startLast2.mv)
 	}
 }
+
+// TestSelectRDInterFrameModeDecisionUsesTempTokenContext anchors libvpx
+// rdopt.c vp8_rd_pick_inter_mode's tempa/templ contract: candidate-mode
+// trials operate on stack-local copies of ENTROPY_CONTEXT and only the
+// chosen mode's context is committed to the row state. Pre-populating the
+// caller's aboveTok/leftTok with distinctive sentinels and then driving the
+// RD picker must leave those structs untouched on return — the deferred
+// updateInterAnalysisTokenContext in
+// buildReconstructingInterFrameCoefficientsWithSegmentation owns the commit.
+func TestSelectRDInterFrameModeDecisionUsesTempTokenContext(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	if !e.interAnalysisUsesRDModeDecision() {
+		t.Fatalf("interAnalysisUsesRDModeDecision = false, want true under best-quality deadline")
+	}
+
+	src := testImage(16, 16)
+	fillImage(src, 96, 96, 96)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte((19 + row*41 + col*23 + row*col*7) & 255)
+		}
+	}
+	last := testVP8Frame(t, 16, 16, 96, 96, 96)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			last.Img.Y[row*last.Img.YStride+col] = byte((211 - row*13 - col*29) & 255)
+		}
+	}
+	last.ExtendBorders()
+	golden := testVP8Frame(t, 16, 16, 96, 96, 96)
+	for row := 0; row < 16; row++ {
+		copy(golden.Img.Y[row*golden.Img.YStride:], src.Y[row*src.YStride:row*src.YStride+16])
+	}
+	golden.ExtendBorders()
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &last.Img, RefRateSet: true, RefRate: 1 << 20},
+		{Frame: vp8common.GoldenFrame, Img: &golden.Img, RefRateSet: true, RefRate: 1 << 20},
+	}
+	quant := testRegularMacroblockQuant(t, testInterSearchQIndex)
+
+	// Distinctive sentinels: every Y/UV/Y2 plane gets a non-zero pattern that
+	// no legitimate post-trial token state could match (libvpx hasCoeffs
+	// values are 0 or 1, never ones with high bits set).
+	above := vp8enc.TokenContextPlanes{
+		Y1: [4]uint8{0xA1, 0xA2, 0xA3, 0xA4},
+		U:  [2]uint8{0xA5, 0xA6},
+		V:  [2]uint8{0xA7, 0xA8},
+		Y2: 0xA9,
+	}
+	left := vp8enc.TokenContextPlanes{
+		Y1: [4]uint8{0xB1, 0xB2, 0xB3, 0xB4},
+		U:  [2]uint8{0xB5, 0xB6},
+		V:  [2]uint8{0xB7, 0xB8},
+		Y2: 0xB9,
+	}
+	aboveSnapshot := above
+	leftSnapshot := left
+
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.beginInterRDModeDecisionMacroblock()
+	decision, ok := e.selectRDInterFrameModeDecision(
+		sourceImageFromPublic(src), refs[:], len(refs),
+		0, 0, 1, 1, testInterSearchQIndex, 0,
+		nil, nil, nil,
+		&above, &left,
+		&quant,
+	)
+	if !ok {
+		t.Fatalf("selectRDInterFrameModeDecision returned ok=false")
+	}
+	// The picker must explore at least one inter or intra candidate, so this
+	// is a meaningful exercise of the per-mode token-context paths.
+	if !decision.useIntra && decision.interMode.Mode == vp8common.SplitMV {
+		// SplitMV exercises a different RD subroutine; either is fine for the
+		// invariant we're testing.
+		_ = decision
+	}
+
+	if above != aboveSnapshot {
+		t.Fatalf("aboveTok mutated by RD picker: got %+v, want %+v (caller-owned ENTROPY_CONTEXT must not be touched during candidate trials)", above, aboveSnapshot)
+	}
+	if left != leftSnapshot {
+		t.Fatalf("leftTok mutated by RD picker: got %+v, want %+v (caller-owned ENTROPY_CONTEXT must not be touched during candidate trials)", left, leftSnapshot)
+	}
+}
+
+// TestRecodeLoopResetsTokenContext anchors libvpx onyx_if.c
+// restore_coding_context's effect on the per-row ENTROPY_CONTEXT during the
+// inter-frame recode loop: each call to
+// buildReconstructingInterFrameCoefficientsWithSegmentation begins with a
+// freshly zeroed above/left token-context working set, so a rejected
+// attempt's commits never leak into the next attempt. We simulate two
+// recode attempts on the same input by corrupting e.tokenAbove between
+// calls; the second pass must produce identical coefficients to the first
+// because the per-MB working contexts are local to the function.
+func TestRecodeLoopResetsTokenContext(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	for row := 0; row < 16; row++ {
+		for col := 0; col < 16; col++ {
+			src.Y[row*src.YStride+col] = byte((33 + row*51 + col*61 + row*col*9) & 255)
+		}
+	}
+	fillBenchmarkVP8Image(&e.lastRef.Img, 200, 90, 170)
+	e.lastRef.ExtendBorders()
+
+	modesA := make([]vp8enc.InterFrameMacroblockMode, 1)
+	coeffsA := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesA, coeffsA, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+		t.Fatalf("first recode attempt returned error: %v", err)
+	}
+
+	// Simulate a rejected first attempt that left junk in the encoder's
+	// per-frame e.tokenAbove buffer (which the packet writer also expects
+	// to overwrite at the start of every call). Set every plane to 0xFF so
+	// any leak into the second attempt's RD picker would produce different
+	// quantized residuals than the first attempt.
+	for i := range e.tokenAbove {
+		e.tokenAbove[i] = vp8enc.TokenContextPlanes{
+			Y1: [4]uint8{0xFF, 0xFF, 0xFF, 0xFF},
+			U:  [2]uint8{0xFF, 0xFF},
+			V:  [2]uint8{0xFF, 0xFF},
+			Y2: 0xFF,
+		}
+	}
+
+	modesB := make([]vp8enc.InterFrameMacroblockMode, 1)
+	coeffsB := make([]vp8enc.MacroblockCoefficients, 1)
+	if err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesB, coeffsB, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+		t.Fatalf("second recode attempt returned error: %v", err)
+	}
+
+	if modesA[0].Mode != modesB[0].Mode || modesA[0].RefFrame != modesB[0].RefFrame || modesA[0].MV != modesB[0].MV || modesA[0].MBSkipCoeff != modesB[0].MBSkipCoeff {
+		t.Fatalf("recode mode drift: first=%+v second=%+v (per-MB token contexts must reset at start of each attempt)", modesA[0], modesB[0])
+	}
+	if coeffsA[0] != coeffsB[0] {
+		t.Fatalf("recode coefficient drift: corrupted e.tokenAbove leaked across attempts")
+	}
+}

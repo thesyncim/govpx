@@ -718,7 +718,30 @@ the anchor and look for the surrounding mismatch.
     `encodeInactiveInterMacroblock` short-circuit is preserved; the
     dispatcher gate also keeps unit-level callers aligned without skipping
     the per-MB skip-encoding helper.
-  - Missing: token-context commit parity and recode-loop interactions.
+  - Token-context commit parity now mirrors libvpx rdopt.c
+    `vp8_rd_pick_inter_mode`'s tempa/templ contract: per-mode RD subroutines
+    (`estimateInterIntraModeRDScore`, `estimateInterResidualRDAccounting`,
+    `selectInterFrameSplitModeRDScore`) snapshot `aboveTok`/`leftTok` into
+    stack-local arrays before mutating them — see `wholeBlockYTransformRD`,
+    `wholeBlockChromaTransformRD`, `predictBestBPredLumaModeRD`,
+    `predictBestIntraChromaModeRD`, and `buildPredictedMacroblockCoefficientsRD`.
+    The chosen mode's ENTROPY_CONTEXT is committed to the per-MB row state
+    only after residual reconstruction, via `updateInterAnalysisTokenContext`
+    inside `buildReconstructingInterFrameCoefficientsWithSegmentation`,
+    matching libvpx encodeframe.c `encode_mb_row`'s deferred `*a/*l`
+    assignment after `vp8_encode_inter16x16` / `vp8_encode_intra4x4mby`.
+    Test: `TestSelectRDInterFrameModeDecisionUsesTempTokenContext`.
+  - Recode-loop interactions: every entry into
+    `buildReconstructingInterFrameCoefficientsWithSegmentation` allocates a
+    fresh `aboveTok` slice and `leftTok` working set, so a rejected recode
+    attempt's per-MB token-context commits never leak into the next pass —
+    matching the effect of libvpx onyx_if.c `restore_coding_context` on the
+    row ENTROPY_CONTEXTs across the recode `do { ... } while` loop. The
+    encoder's frame-level `e.tokenAbove` buffer (consumed by the packet
+    writer for coefficient probability counting) is also reset by
+    `buildInterCoefficientBranchCounts` at the start of every writer call,
+    so a corrupted carryover cannot survive into the next attempt either.
+    Test: `TestRecodeLoopResetsTokenContext`.
     Active-map behavior is tracked in the dedicated active-map checklist
     item elsewhere.
   - Done when per-MB traces match tested mode order, skipped modes, selected
