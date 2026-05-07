@@ -494,6 +494,95 @@ func (t *twoPassState) finishFrame(actualBits int) {
 	t.frameIndex++
 }
 
+// libvpxGFGroupBits ports the libvpx vp8/encoder/firstpass.c GF-group
+// allocation:
+//
+//	gf_group_bits = kf_group_bits * (gf_group_err / kf_group_error_left)
+//
+// then clamped to [0, kf_group_bits], then capped at
+// `max_bits * baseline_gf_interval`. Returns 0 when kf_group_bits<=0
+// or kf_group_error_left<=0.
+func libvpxGFGroupBits(kfGroupBits int64, gfGroupErr float64, kfGroupErrorLeft float64, maxBitsPerFrame int, baselineGFInterval int) int64 {
+	if kfGroupBits <= 0 || kfGroupErrorLeft <= 0 {
+		return 0
+	}
+	gfGroupBits := int64(float64(kfGroupBits) * (gfGroupErr / kfGroupErrorLeft))
+	if gfGroupBits < 0 {
+		gfGroupBits = 0
+	}
+	if gfGroupBits > kfGroupBits {
+		gfGroupBits = kfGroupBits
+	}
+	if maxBitsPerFrame > 0 && baselineGFInterval > 0 {
+		cap := int64(maxBitsPerFrame) * int64(baselineGFInterval)
+		if gfGroupBits > cap {
+			gfGroupBits = cap
+		}
+	}
+	return gfGroupBits
+}
+
+// libvpxGFBitsAllocation ports the libvpx vp8/encoder/firstpass.c
+// gf_bits allocator: for the GF (or ARF when isARF=true), pre-clamp
+// the boost via the GFQ_ADJUSTMENT scaling, apply min/max caps based
+// on baseline_gf_interval, and compute
+//
+//	gf_bits = Boost * (gf_group_bits / allocation_chunks)
+//
+// with the libvpx >1000-boost halving guard. The two branches diverge:
+//   - ARF (i==0 with source_alt_ref_pending):
+//     Boost = (gfu_boost * 3 * GFQ_ADJUSTMENT) / (2 * 100) + interval*50
+//     cap = (interval+1)*200, floor = 125
+//     allocation_chunks = (interval+1)*100 + Boost
+//   - GF: Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100
+//     cap = interval*150, floor = 125
+//     allocation_chunks = interval*100 + (Boost - 100)
+//
+// gfuBoost is the libvpx `cpi->gfu_boost` (last_boost-equivalent),
+// gfqAdjustment is `vp8_gf_boost_qadjustment[Q]`. interval is
+// `baseline_gf_interval`.
+func libvpxGFBitsAllocation(isARF bool, gfuBoost int, gfqAdjustment int, gfGroupBits int64, baselineGFInterval int) int {
+	if gfGroupBits <= 0 || baselineGFInterval <= 0 {
+		return 0
+	}
+	var boost, allocationChunks int
+	if isARF {
+		boost = (gfuBoost * 3 * gfqAdjustment) / (2 * 100)
+		boost += baselineGFInterval * 50
+		if cap := (baselineGFInterval + 1) * 200; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = (baselineGFInterval+1)*100 + boost
+	} else {
+		boost = (gfuBoost * gfqAdjustment) / 100
+		if cap := baselineGFInterval * 150; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = baselineGFInterval*100 + (boost - 100)
+	}
+	for boost > 1000 {
+		boost /= 2
+		allocationChunks /= 2
+		if allocationChunks <= 0 {
+			return 0
+		}
+	}
+	if allocationChunks <= 0 {
+		return 0
+	}
+	gfBits := int(float64(boost) * (float64(gfGroupBits) / float64(allocationChunks)))
+	if gfBits < 0 {
+		gfBits = 0
+	}
+	return gfBits
+}
+
 // kfGroupModifiedError ports the inner-loop accumulator
 //
 //	kf_group_err += calculate_modified_err(cpi, this_frame);

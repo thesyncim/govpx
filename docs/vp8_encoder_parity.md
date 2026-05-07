@@ -322,11 +322,23 @@ the anchor and look for the surrounding mismatch.
     `kf_group_err`. `kfGroupBits` ports the libvpx KF-group allocation
     (`bits_left * (kf_group_err / modified_error_left)`) with the
     `max_bits * frames_to_key` ceiling and the `bits_left>0 &&
-    modified_error_left>0.0` gate.
-  - Missing: GF-group bits/error accumulators (`gf_group_bits`,
-    `gf_group_error_left`), `gf_bits`, `alt_extra_bits`, section
-    max-Q factor, active worst-Q estimates, VBR min/max section
-    limits, CBR buffer adjustments, and ARF pending decisions.
+    modified_error_left>0.0` gate. `libvpxGFGroupBits` ports the GF
+    section allocation
+    (`gf_group_bits = kf_group_bits * (gf_group_err /
+    kf_group_error_left)`) with the kf_group_bits clamp and the
+    `max_bits * baseline_gf_interval` ceiling.
+    `libvpxGFBitsAllocation` ports the libvpx GF/ARF bit allocation
+    (Boost-weighted `gf_bits = Boost * (gf_group_bits /
+    allocation_chunks)`): the GF branch uses
+    `Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100` with cap
+    `interval*150` and floor 125, and the ARF branch uses
+    `(gfu_boost * 3 * GFQ_ADJUSTMENT) / 200 + interval*50` with cap
+    `(interval+1)*200`; both apply the `>1000` halving overflow
+    guard and the libvpx `(interval+1)*100 + Boost` /
+    `interval*100 + (Boost-100)` allocation_chunks formulas.
+  - Missing: `alt_extra_bits` carry, section max-Q factor, active
+    worst-Q estimates, VBR min/max section limits, CBR buffer
+    adjustments, and ARF pending decisions wired into the encoder.
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
