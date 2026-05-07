@@ -33,7 +33,7 @@ func TestViterbiY2PlaneDropsOvershootDC(t *testing.T) {
 	coeff[0] = 11
 	qcoeff[0] = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 1, 0, 0, false, &coeff, &quant, &qcoeff, 1)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 1, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
 
 	if eob != 0 || qcoeff[0] != 0 {
 		t.Fatalf("Y2 plane optimized eob/qcoeff[0] = %d/%d, want overshoot DC dropped", eob, qcoeff[0])
@@ -50,7 +50,7 @@ func TestViterbiUVPlaneDropsOvershootDC(t *testing.T) {
 	coeff[0] = 11
 	qcoeff[0] = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 2, 0, 0, false, &coeff, &quant, &qcoeff, 1)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 2, 0, 0, 0, false, &coeff, &quant, &qcoeff, 1)
 
 	if eob != 0 || qcoeff[0] != 0 {
 		t.Fatalf("UV plane optimized eob/qcoeff[0] = %d/%d, want overshoot DC dropped", eob, qcoeff[0])
@@ -82,8 +82,8 @@ outer:
 				inter[rc] = 1
 				intra[rc] = 1
 
-				interEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, q, 0, 0, 1, false, &coeff, &quant, &inter, 2)
-				intraEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, q, 0, 0, 1, true, &coeff, &quant, &intra, 2)
+				interEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, q, 0, 0, 1, 0, false, &coeff, &quant, &inter, 2)
+				intraEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, q, 0, 0, 1, 0, true, &coeff, &quant, &intra, 2)
 
 				if interEOB == 1 && inter[rc] == 0 && intraEOB == 2 && intra[rc] == 1 {
 					found = true
@@ -99,26 +99,25 @@ outer:
 	t.Logf("intra/inter divergence at qIndex=%d dequant=%d coeff=%d", foundQ, foundDQ, foundCoeff)
 }
 
-// TestViterbiAllZeroQCoeffIsNoop confirms that the trellis leaves an all-zero
-// qcoeff input untouched, returning the supplied EOB without panicking. The
-// loop should `continue` past every position because every entry is zero.
-func TestViterbiAllZeroQCoeffIsNoop(t *testing.T) {
+// TestViterbiAllZeroQCoeffRollsBackEOB confirms the trellis correctly rolls
+// EOB back to skipDC when every quantized coefficient is zero — libvpx's
+// optimize_b reaches no states in the trellis, so the backtrace records no
+// final-EOB candidates and returns skipDC.
+func TestViterbiAllZeroQCoeffRollsBackEOB(t *testing.T) {
 	quant := viterbiTestRegularBlockQuant(60, 50)
 	var coeff [16]int16
 	var qcoeff [16]int16
-	// Source coefficients are non-zero (so distortion is non-zero) but every
-	// quantized entry is zero. The function should return eob unchanged and
-	// not modify qcoeff.
 	for i := range coeff {
 		coeff[i] = int16(3 * (i + 1))
 	}
 	startQ := qcoeff
 	startEOB := 8
+	const skipDC = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 60, 0, 0, 1, false, &coeff, &quant, &qcoeff, startEOB)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 60, 0, 0, skipDC, 0, false, &coeff, &quant, &qcoeff, startEOB)
 
-	if eob != startEOB {
-		t.Fatalf("all-zero optimized eob = %d, want unchanged %d", eob, startEOB)
+	if eob != skipDC {
+		t.Fatalf("all-zero optimized eob = %d, want skipDC=%d", eob, skipDC)
 	}
 	if qcoeff != startQ {
 		t.Fatalf("all-zero qcoeff mutated: %v vs %v", qcoeff, startQ)
@@ -139,7 +138,7 @@ func TestViterbiSingleCoefficientBlock(t *testing.T) {
 	var keepQ [16]int16
 	keepCoeff[rc] = 100
 	keepQ[rc] = 1
-	keepEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, false, &keepCoeff, &keepQuant, &keepQ, 2)
+	keepEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 4, 0, 0, 1, 0, false, &keepCoeff, &keepQuant, &keepQ, 2)
 	if keepEOB != 2 || keepQ[rc] != 1 {
 		t.Fatalf("single-coef keep: eob/q = %d/%d, want preserved", keepEOB, keepQ[rc])
 	}
@@ -151,7 +150,7 @@ func TestViterbiSingleCoefficientBlock(t *testing.T) {
 	var dropQ [16]int16
 	dropCoeff[rc] = 9
 	dropQ[rc] = 1
-	dropEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, false, &dropCoeff, &dropQuant, &dropQ, 2)
+	dropEOB := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &dropCoeff, &dropQuant, &dropQ, 2)
 	if dropEOB != 1 || dropQ[rc] != 0 {
 		t.Fatalf("single-coef drop: eob/q = %d/%d, want dropped", dropEOB, dropQ[rc])
 	}
@@ -173,7 +172,7 @@ func TestViterbiFullBlockHandlesAllPositions(t *testing.T) {
 		qcoeff[rc] = 1
 	}
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, false, &coeff, &quant, &qcoeff, 16)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 80, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 16)
 
 	if eob < 0 || eob > 16 {
 		t.Fatalf("full-block eob out of range: %d", eob)
@@ -221,7 +220,7 @@ func TestViterbiBacktraceMixesKeepAndDropDecisions(t *testing.T) {
 	coeff[rc3] = 9
 	qcoeff[rc3] = 1
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, false, &coeff, &quant, &qcoeff, 4)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 4)
 
 	if qcoeff[rc1] == 0 {
 		t.Fatalf("backtrace dropped distortion-heavy interior qcoeff[%d]=0, want retained", rc1)
@@ -255,7 +254,7 @@ func TestViterbiDoesNotUpdateDqcoeff(t *testing.T) {
 	}
 	startDQ := dqcoeff
 
-	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, false, &coeff, &quant, &qcoeff, 2)
+	eob := optimizeQuantizedBlock(&vp8tables.DefaultCoefProbs, 127, 0, 0, 1, 0, false, &coeff, &quant, &qcoeff, 2)
 
 	if eob != 1 || qcoeff[rc] != 0 {
 		t.Fatalf("trellis eob/q = %d/%d, want trailing coefficient dropped", eob, qcoeff[rc])
