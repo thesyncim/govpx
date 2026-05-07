@@ -669,8 +669,11 @@ the anchor and look for the surrounding mismatch.
     refresh. The matching deferred show frame pops on the next call and
     `isSrcFrameAltRef` matches by PTS, so the existing
     `sourceAltRefActive` lifecycle wires `AltRefSignBias=true` for that
-    show frame. Hidden-ARF emission does not pop the lookahead, so the
-    caller's input on that call is parked in
+    show frame. When ARNR filtering is disabled (`ARNRMaxFrames == 0`),
+    the deferred source-alt-ref show frame now mirrors libvpx's
+    `is_src_frame_alt_ref` mode-loop gate and only allows
+    `ZEROMV/ALTREF_FRAME`. Hidden-ARF emission does not pop the lookahead,
+    so the caller's input on that call is parked in
     [`autoAltRefStashInput`](../encoder_altref_driver.go); subsequent
     `EncodeInto` calls drain the stash, encode the head as the deferred
     show frame, and re-stash the new caller input, leaving the encoder
@@ -683,6 +686,7 @@ the anchor and look for the surrounding mismatch.
     [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverSignBiasUpdatesPostHidden`](../encoder_altref_driver_test.go),
+    [`TestSourceAltRefShowFrameForcesZeroMVAltRefWhenARNROff`](../encoder_altref_driver_test.go),
     [`TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`](../encoder_altref_driver_test.go).
   - Simplification vs. libvpx: in one-pass mode govpx schedules every
     `DEFAULT_GF_INTERVAL`-bounded interval as soon as the lookahead has

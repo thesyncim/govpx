@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
@@ -251,6 +252,74 @@ func TestAutoAltRefDriverSignBiasUpdatesPostHidden(t *testing.T) {
 		return
 	}
 	t.Fatalf("no inter show frame found after hidden ARF (hidden idx=%d, total packets=%d)", hiddenIndex, len(packets))
+}
+
+func TestSourceAltRefShowFrameForcesZeroMVAltRefWhenARNROff(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+	}{
+		{name: "rd", deadline: DeadlineBestQuality, cpuUsed: 0},
+		{name: "fast", deadline: DeadlineRealtime, cpuUsed: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, err := NewVP8Encoder(EncoderOptions{
+				Width:               32,
+				Height:              32,
+				FPS:                 30,
+				RateControlMode:     RateControlCBR,
+				TargetBitrateKbps:   1500,
+				MinQuantizer:        4,
+				MaxQuantizer:        56,
+				Deadline:            tt.deadline,
+				CpuUsed:             tt.cpuUsed,
+				KeyFrameInterval:    240,
+				BufferSizeMs:        600,
+				BufferInitialSizeMs: 400,
+				BufferOptimalSizeMs: 500,
+				ARNRMaxFrames:       0,
+			})
+			if err != nil {
+				t.Fatalf("NewVP8Encoder returned error: %v", err)
+			}
+			dst := make([]byte, 1<<16)
+			keySrc := sourceImageFromImage(movingBarTestImage(32, 32, 0))
+			altSrc := sourceImageFromImage(movingBarTestImage(32, 32, 1))
+
+			key, err := e.encodeSourceInto(dst, keySrc, 0, 1, 0, encodeSourceMetadata{})
+			if err != nil {
+				t.Fatalf("key encodeSourceInto returned error: %v", err)
+			}
+			if !key.KeyFrame {
+				t.Fatalf("key result = inter, want key")
+			}
+			hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+			if err != nil {
+				t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
+			}
+			if hidden.KeyFrame {
+				t.Fatalf("hidden ARF result = key, want inter")
+			}
+
+			e.altRefSourceValid = true
+			e.altRefSourcePTS = 1
+			e.sourceAltRefActive = true
+			show, err := e.encodeSourceInto(dst, altSrc, 1, 1, 0, encodeSourceMetadata{})
+			if err != nil {
+				t.Fatalf("source-alt-ref show encodeSourceInto returned error: %v", err)
+			}
+			if show.KeyFrame {
+				t.Fatalf("source-alt-ref show result = key, want inter")
+			}
+			for i, mode := range e.interFrameModes[:4] {
+				if mode.RefFrame != vp8common.AltRefFrame || mode.Mode != vp8common.ZeroMV {
+					t.Fatalf("mode[%d] = ref:%v mode:%v, want ALTREF/ZEROMV", i, mode.RefFrame, mode.Mode)
+				}
+			}
+		})
+	}
 }
 
 func TestTwoPassAutoAltRefDoesNotScheduleWhenStatsRejectARF(t *testing.T) {

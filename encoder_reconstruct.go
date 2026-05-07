@@ -241,6 +241,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if refCount == 0 {
 		return ErrInvalidConfig
 	}
+	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
@@ -288,6 +289,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				above, left, aboveLeft,
 				&aboveTok[col], &leftTok,
 				&quants[segmentID],
+				sourceAltRefZeroMVOnly,
 			)
 			if !ok {
 				return ErrInvalidConfig
@@ -301,6 +303,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					above, left, aboveLeft,
 					&aboveTok[col], &leftTok,
 					&quants[segmentID],
+					sourceAltRefZeroMVOnly,
 				)
 				if !ok {
 					return ErrInvalidConfig
@@ -1264,9 +1267,13 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
 	if decision, ok := e.inactiveInterFrameModeDecision(refs, refCount, mbRow, mbCol, mbCols); ok {
 		return decision, true
+	}
+	if sourceAltRefZeroMVOnly {
+		return sourceAltRefZeroMVAltRefDecision(refs, refCount, segmentID)
 	}
 	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
 	if !e.interAnalysisUsesRDModeDecision() {
@@ -1286,6 +1293,38 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 		aboveTok, leftTok,
 		quant,
 	)
+}
+
+func (e *VP8Encoder) sourceAltRefZeroMVOnly(flags EncodeFlags) bool {
+	return e != nil &&
+		flags&EncodeInvisibleFrame == 0 &&
+		e.opts.ARNRMaxFrames == 0 &&
+		e.isSrcFrameAltRef(e.currentSourcePTS)
+}
+
+func sourceAltRefZeroMVAltRefDecision(refs []interAnalysisReference, refCount int, segmentID uint8) (interFrameModeDecision, bool) {
+	for i := 0; i < refCount && i < len(refs); i++ {
+		ref := refs[i]
+		if ref.Frame != vp8common.AltRefFrame || ref.Img == nil {
+			continue
+		}
+		mode := vp8enc.InterFrameMacroblockMode{
+			RefFrame:  vp8common.AltRefFrame,
+			Mode:      vp8common.ZeroMV,
+			SegmentID: segmentID,
+		}
+		return interFrameModeDecision{
+			ref:       ref,
+			interMode: mode,
+			intraMode: vp8enc.InterFrameMacroblockMode{
+				RefFrame:  vp8common.IntraFrame,
+				Mode:      vp8common.DCPred,
+				UVMode:    vp8common.DCPred,
+				SegmentID: segmentID,
+			},
+		}, true
+	}
+	return interFrameModeDecision{}, false
 }
 
 // inactiveInterFrameModeDecision mirrors libvpx's evaluate_inter_mode /

@@ -4622,6 +4622,7 @@ func TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock(t *testing.
 		0, 0, mbRows, mbCols,
 		testInterSearchQIndex, vp8enc.SegmentationConfig{}, 0,
 		nil, nil, nil, nil, nil, &quant,
+		false,
 	)
 
 	if !ok {
