@@ -318,7 +318,7 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] Audit quantization and coefficient optimization against libvpx.
   - govpx:
-    [`optimizeQuantizedBlock`](../encoder_reconstruct.go),
+    [`quantizeOptimizedBlock`](../encoder_reconstruct.go),
     [`internal/vp8/encoder/quant.go`](../internal/vp8/encoder/quant.go).
   - libvpx: `encodemb.c` and `vp8_quantize.c`.
   - Status: partial. Coefficient optimization now ports the libvpx
@@ -343,6 +343,8 @@ the anchor and look for the surrounding mismatch.
     threshold, by `TestCoefCoeffsParityMatchesReferenceWalk` and
     `TestCoefCoeffsParityIncrementalMatchesWholeBlock` in
     `encoder_cost_coeffs_parity_test.go`.
+  - Required/keep: libvpx Viterbi trellis coefficient optimization, including
+    `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
     expose) and per-coefficient token-cost trace anchors for oracle parity.
   - Done when exhaustive small-block oracle tests match qcoeff, dqcoeff, EOB,
