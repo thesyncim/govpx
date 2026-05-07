@@ -215,14 +215,33 @@ the anchor and look for the surrounding mismatch.
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
 - [ ] Align active best/worst quantizer selection.
-  - govpx: [`selectQuantizerForFrameKindWithScreenContent`](../ratecontrol.go).
+  - govpx:
+    [`selectQuantizerForFrameKindWithScreenContent`](../ratecontrol.go),
+    [`selectQuantizerForFrameKindWithAltRef`](../ratecontrol.go),
+    [`libvpxActiveQuantizerBoundsForFrame`](../ratecontrol.go),
+    [`newFrameSizeRecodeStateWithAltRef`](../ratecontrol.go),
+    [`libvpxZbinOverQuantHighAltRef`](../ratecontrol.go).
   - libvpx: `vp8_regulate_q`, active-best-quality, and active-worst-quality
     branches in `onyx_if.c`.
   - Status: partial. govpx now constrains Q through libvpx's one-pass
     active-min tables for key/golden/inter frames, CBR active-worst buffer
     logic after normal-inter warmup, CBR full-buffer active-best/worst clamps,
-    and CQ floors. Remaining gaps are oracle trace coverage for ARF/GF variants
-    and interactions with the full recode loop.
+    and CQ floors. ARF refresh now routes through the same single-layer
+    GF branch libvpx uses
+    (`cm->refresh_golden_frame || cpi->common.refresh_alt_ref_frame`):
+    `selectQuantizerForFrameKindWithAltRef` and
+    `libvpxActiveQuantizerBoundsForFrame` honor an explicit altRef flag and
+    pick `gf_high_motion_minq[Q]` for one-pass; the matching
+    `libvpxZbinOverQuantHighAltRef` cap (16 for ARF/GF, ZBIN_OQ_MAX for
+    plain inter, 0 for key) and the recode-state seeds in
+    `newFrameSizeRecodeStateWithAltRef` carry the same flag through the
+    full recode loop, including the libvpx
+    `relax_active_worst_quality_on_overshoot` 4%-per-Qstep relaxation.
+    The two-pass `kf_low_motion_minq`, `gf_low_motion_minq`, and
+    `gf_mid_motion_minq` tables are now ported byte-for-byte and pinned
+    against representative QINDEX_RANGE samples so the future two-pass
+    `vp8_regulate_q` port can flip on `cpi->gfu_boost` without re-reading
+    the libvpx C source.
   - Done when table-driven oracle tests match active best/worst Q and chosen Q
     for first frames, low/full buffer, key, GF, ARF, CQ, CBR, and screen
     content cases.
