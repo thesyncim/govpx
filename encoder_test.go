@@ -2105,6 +2105,161 @@ func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
 	}
 }
 
+func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
+	const width, height = 64, 128
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	fillImage(src, 96, 128, 128)
+	for r := 0; r < height; r++ {
+		for c := 0; c < width; c++ {
+			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
+		}
+	}
+
+	e := newSizedTestEncoder(t, width, height)
+	// Seed the analysis buffer with reconstructed-like values that differ
+	// macroblock-by-macroblock so the loop filter actually has work to do.
+	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+		for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+			e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(50 + (r*5+c*9)%180)
+		}
+	}
+	for i := range e.analysis.Img.U {
+		e.analysis.Img.U[i] = 128
+	}
+	for i := range e.analysis.Img.V {
+		e.analysis.Img.V[i] = 128
+	}
+	if len(e.reconstructModes) < required {
+		e.reconstructModes = make([]vp8dec.MacroblockMode, required)
+	}
+	for i := 0; i < required; i++ {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{
+			Mode:     vp8common.DCPred,
+			UVMode:   vp8common.DCPred,
+			RefFrame: vp8common.LastFrame,
+		}
+	}
+
+	srcImg := sourceImageFromPublic(src)
+	for _, level := range []int{8, 24, 48} {
+		partialErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true)
+		if err != nil {
+			t.Fatalf("partial trial level=%d returned error: %v", level, err)
+		}
+		fullErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false)
+		if err != nil {
+			t.Fatalf("full trial level=%d returned error: %v", level, err)
+		}
+		// The full path computes SSE over the whole frame; recompute the
+		// partial-window SSE on the buffer left behind by the full filter so
+		// we can compare against the partial path.
+		fullPartialWindow := loopFilterLumaSSE(srcImg, &e.loopFilterPick.Img, rows, cols, true)
+		_ = fullErr
+		if partialErr != fullPartialWindow {
+			t.Fatalf("level=%d partial SSE = %d, full-frame partial-window SSE = %d", level, partialErr, fullPartialWindow)
+		}
+	}
+}
+
+func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
+	const width, height = 64, 128
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	for r := 0; r < height; r++ {
+		for c := 0; c < width; c++ {
+			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
+			src.U[(r/2)*src.UStride+(c/2)] = 128
+			src.V[(r/2)*src.VStride+(c/2)] = 128
+		}
+	}
+
+	buildEncoder := func() *VP8Encoder {
+		e := newSizedTestEncoder(t, width, height)
+		for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+			for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+				e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(50 + (r*5+c*9)%180)
+			}
+		}
+		for i := range e.analysis.Img.U {
+			e.analysis.Img.U[i] = 128
+		}
+		for i := range e.analysis.Img.V {
+			e.analysis.Img.V[i] = 128
+		}
+		if len(e.reconstructModes) < required {
+			e.reconstructModes = make([]vp8dec.MacroblockMode, required)
+		}
+		for i := 0; i < required; i++ {
+			e.reconstructModes[i] = vp8dec.MacroblockMode{
+				Mode:     vp8common.DCPred,
+				UVMode:   vp8common.DCPred,
+				RefFrame: vp8common.LastFrame,
+			}
+		}
+		e.rc.currentQuantizer = 60
+		return e
+	}
+
+	srcImg := sourceImageFromPublic(src)
+	ePartial := buildEncoder()
+	got, err := ePartial.pickLoopFilterLevelFast(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required)
+	if err != nil {
+		t.Fatalf("pickLoopFilterLevelFast returned error: %v", err)
+	}
+
+	// Reference: search the same neighborhood as fast search but using the
+	// full-frame loop filter and partial-window SSE. Selected level must
+	// match exactly.
+	eRef := buildEncoder()
+	minLevel := libvpxMinLoopFilterLevel(eRef.rc.currentQuantizer)
+	maxLevel := libvpxMaxLoopFilterLevel(eRef.rc.currentQuantizer)
+	level := clampLoopFilterPickLevel(24, minLevel, maxLevel)
+	bestLevel := level
+	score := func(lvl int) int {
+		if _, err := eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false); err != nil {
+			t.Fatalf("reference trial returned error: %v", err)
+		}
+		return loopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
+	}
+	bestErr := score(level)
+	filtLevel := level - loopFilterSearchStep(level)
+	for filtLevel >= minLevel {
+		filtErr := score(filtLevel)
+		if filtErr < bestErr {
+			bestErr = filtErr
+			bestLevel = filtLevel
+		} else {
+			break
+		}
+		filtLevel -= loopFilterSearchStep(filtLevel)
+	}
+	filtLevel = level + loopFilterSearchStep(filtLevel)
+	if bestLevel == level {
+		bestErr -= bestErr >> 10
+		for filtLevel < maxLevel {
+			filtErr := score(filtLevel)
+			if filtErr < bestErr {
+				bestErr = filtErr - (filtErr >> 10)
+				bestLevel = filtLevel
+			} else {
+				break
+			}
+			filtLevel += loopFilterSearchStep(filtLevel)
+		}
+	}
+	want := uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel))
+	if got != want {
+		t.Fatalf("fast pick = %d, full-frame baseline = %d", got, want)
+	}
+}
+
 func TestEncodeIntoUsesSourcePixels(t *testing.T) {
 	darkEncoder := newTestEncoder(t)
 	brightEncoder := newTestEncoder(t)
@@ -2192,6 +2347,60 @@ func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
 	}
 	assertImagesEqual(t, "inter", reconstructed, frame)
 	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
+}
+
+func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
+	const width, height = 1024, 1024
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	for r := 0; r < height; r++ {
+		for c := 0; c < width; c++ {
+			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
+		}
+	}
+	e := newSizedTestEncoder(b, width, height)
+	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+		for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+			e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(50 + (r*5+c*9)%180)
+		}
+	}
+	for i := range e.analysis.Img.U {
+		e.analysis.Img.U[i] = 128
+	}
+	for i := range e.analysis.Img.V {
+		e.analysis.Img.V[i] = 128
+	}
+	if len(e.reconstructModes) < required {
+		e.reconstructModes = make([]vp8dec.MacroblockMode, required)
+	}
+	for i := 0; i < required; i++ {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{
+			Mode:     vp8common.DCPred,
+			UVMode:   vp8common.DCPred,
+			RefFrame: vp8common.LastFrame,
+		}
+	}
+	srcImg := sourceImageFromPublic(src)
+
+	b.Run("partial", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true); err != nil {
+				b.Fatalf("partial trial returned error: %v", err)
+			}
+		}
+	})
+	b.Run("full", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false); err != nil {
+				b.Fatalf("full trial returned error: %v", err)
+			}
+		}
+	})
 }
 
 func BenchmarkEncodeIntoMatchingReferenceInterFrame(b *testing.B) {
