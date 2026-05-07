@@ -149,16 +149,19 @@ the anchor and look for the surrounding mismatch.
     the unconditional thresholds (this==100 && this>last+2 ||
     this>95 && this>=last+5) and the GF-guarded second tier
     (this>60 && this>2*last; this>75 && this>3/2*last;
-    this>90 && this>last+10) for the auto-key recode decision.
-  - Missing: wiring `libvpxDecideKeyFrame` into the encoder loop to
-    actually trigger the auto-key recode (currently the helper is
-    callable but no call site invokes it), tracking
-    `lastFramePercentIntra` for the heuristic's lookback, full
-    saved-coding-context restore coverage after failed attempts, the
-    coefficient-context portion of vp8_estimate_entropy_savings
-    (default_coef_context_savings / independent_coef_context_savings),
-    and trace coverage for GF/ARF zbin-over-quant cases once automatic
-    ARF state is in place.
+    this>90 && this>last+10) for the auto-key recode decision. The
+    encoder now applies that heuristic after an opt-in, non-realtime,
+    one-pass inter attempt: if the intra-percentage gate fires, the
+    uncommitted inter attempt is discarded, `sourceAltRefActive` is
+    cleared like libvpx, key-frame target/Q selection is recomputed, and
+    the same source is encoded as a key frame. `lastFramePercentIntra`
+    is tracked after the decision so the next frame sees the libvpx
+    lookback value.
+  - Missing: full saved-coding-context restore coverage after failed
+    attempts, the coefficient-context portion of
+    vp8_estimate_entropy_savings (default_coef_context_savings /
+    independent_coef_context_savings), and trace coverage for GF/ARF
+    zbin-over-quant cases once automatic ARF state is in place.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 

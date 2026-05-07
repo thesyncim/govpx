@@ -87,7 +87,8 @@ grant. This repository keeps libvpx license and patent notices in
   default reconstructed-frame loop filtering, opt-in lookahead/ARNR/spatial
   denoise preprocessing, first-pass stats collection, two-pass VBR targeting
   with libvpx-threshold scene-cut placement, opt-in one-pass scene-cut keyframe
-  promotion, and initial CQLevel constrained-quality mode. One-pass CBR/CQ/VBR
+  promotion including libvpx's post-inter auto-key recode, and initial
+  CQLevel constrained-quality mode. One-pass CBR/CQ/VBR
   now start frames from libvpx's bits-per-macroblock quantizer regulator, update
   key/inter/golden-frame correction factors from encoded frame size, and track
   the current external 90p vpxenc validation clip closely, but full libvpx

@@ -91,7 +91,9 @@ type EncoderOptions struct {
 	LookaheadFrames int
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
-	// keyframe before rate control and mode decision run.
+	// keyframe before rate control and mode decision run; non-realtime
+	// one-pass encodes also mirror libvpx's post-inter auto-key recode when
+	// the committed inter-mode map crosses the intra-percentage thresholds.
 	AdaptiveKeyFrames bool
 
 	// VP8 behavior.
@@ -613,65 +615,93 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if err != nil {
 			return EncodeResult{}, err
 		}
-		finalQuantizer := e.rc.currentQuantizer
-		e.commitInterFrameAttempt(attempt)
-		e.loopFilterLevel = attempt.Config.LoopFilterLevel
-		result.Data = dst[:attempt.Size]
-		result.SizeBytes = attempt.Size
-		result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
-		result.Droppable = interFrameDroppable(attempt.Config)
-		e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
-		e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
-		e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
-		result.BufferLevelBits = e.rc.bufferLevelBits
-		e.forceKeyFrame = false
-		if attempt.CyclicRefresh {
-			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
-		}
-		e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
-		e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
-		e.updateConsecutiveZeroLast(e.interFrameModes[:required])
-		// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
-		// per-frame ref usage so calc_gf_params and the auto_gold
-		// refresh decision read the same `recent_ref_frame_usage`
-		// libvpx would. On GF refresh the encoder resets the counters
-		// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
-		// counts accumulate (skipping the immediate post-GF frame).
-		intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
-		if attempt.Config.RefreshGolden {
-			e.rc.resetRecentRefFrameUsage(required)
+		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
+			keyFrame = true
+			sceneCutKeyFrame = true
+			goldenCBRRefresh = false
+			boostedReferenceFrame = false
+			e.rc.thisFramePercentIntra = thisFramePercentIntra
+			// libvpx clears source_alt_ref_active before restarting the
+			// encode as a key frame; the normal key-frame commit below will
+			// reset the rest of the golden-frame/alt-ref lifecycle.
+			e.sourceAltRefActive = false
+			e.resetOracleMBTraceBuffer()
+			e.rc.beginFrameWithTargetAndContext(true, e.rc.bitsPerFrame, rateControlFrameContext{
+				temporalLayerCount: temporalFrame.LayerCount,
+				timing:             e.timing,
+			})
+			twoPassTargetBits = e.twoPass.frameTargetBits(e.frameCount, true, e.rc.frameTargetBits)
+			if twoPassTargetBits > 0 {
+				e.rc.frameTargetBits = twoPassTargetBits
+			}
+			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
+			result.KeyFrame = true
+			result.SceneCut = true
+			result.TwoPassFrameTargetBits = twoPassTargetBits
+			result.FrameTargetBits = e.rc.frameTargetBits
+			result.BufferLevelBits = e.rc.bufferLevelBits
+			result.Quantizer = libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer)
 		} else {
-			e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+			finalQuantizer := e.rc.currentQuantizer
+			e.commitInterFrameAttempt(attempt)
+			e.loopFilterLevel = attempt.Config.LoopFilterLevel
+			result.Data = dst[:attempt.Size]
+			result.SizeBytes = attempt.Size
+			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
+			result.Droppable = interFrameDroppable(attempt.Config)
+			e.rc.postEncodeFrameWithPacketContext(attempt.Size, false, boostedReferenceFrame, required, !invisible)
+			e.twoPass.finishFrame(encodedSizeBits(attempt.Size))
+			e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
+			result.BufferLevelBits = e.rc.bufferLevelBits
+			e.forceKeyFrame = false
+			if attempt.CyclicRefresh {
+				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+			}
+			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+			// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
+			// per-frame ref usage so calc_gf_params and the auto_gold
+			// refresh decision read the same `recent_ref_frame_usage`
+			// libvpx would. On GF refresh the encoder resets the counters
+			// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
+			// counts accumulate (skipping the immediate post-GF frame).
+			intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+			if attempt.Config.RefreshGolden {
+				e.rc.resetRecentRefFrameUsage(required)
+			} else {
+				e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+			}
+			if required > 0 {
+				e.rc.thisFramePercentIntra = (100 * intra) / required
+			}
+			// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
+			// AFTER decide_key_frame consumes this_frame_percent_intra.
+			// Keep that ordering here: lastFramePercentIntra captures the
+			// just-encoded frame's value for the next frame's heuristic.
+			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
+			e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
+				Last:   attempt.Config.RefreshLast,
+				Golden: attempt.Config.RefreshGolden,
+				AltRef: attempt.Config.RefreshAltRef,
+			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
+			e.populateTemporalLayerBufferResult(&result, temporalFrame)
+			e.emitOracleFrameTrace(oracleTraceFrameSummary{
+				FrameType:      vp8common.InterFrame,
+				BaseQIndex:     int(attempt.Config.BaseQIndex),
+				LoopFilter:     int(attempt.Config.LoopFilterLevel),
+				RefreshLast:    attempt.Config.RefreshLast,
+				RefreshGolden:  attempt.Config.RefreshGolden,
+				RefreshAltRef:  attempt.Config.RefreshAltRef,
+				GoldenSignBias: attempt.Config.GoldenSignBias,
+				AltRefSignBias: attempt.Config.AltRefSignBias,
+				SegEnabled:     attempt.Config.Segmentation.Enabled,
+				SizeBytes:      attempt.Size,
+			})
+			e.flushOracleMBTraceBuffer()
+			e.frameCount++
+			return result, nil
 		}
-		if required > 0 {
-			e.rc.thisFramePercentIntra = (100 * intra) / required
-		}
-		// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
-		// AFTER decide_key_frame consumes this_frame_percent_intra.
-		// Keep that ordering here: lastFramePercentIntra captures the
-		// just-encoded frame's value for the next frame's heuristic.
-		e.lastFramePercentIntra = e.rc.thisFramePercentIntra
-		e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
-			Last:   attempt.Config.RefreshLast,
-			Golden: attempt.Config.RefreshGolden,
-			AltRef: attempt.Config.RefreshAltRef,
-		}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
-		e.populateTemporalLayerBufferResult(&result, temporalFrame)
-		e.emitOracleFrameTrace(oracleTraceFrameSummary{
-			FrameType:      vp8common.InterFrame,
-			BaseQIndex:     int(attempt.Config.BaseQIndex),
-			LoopFilter:     int(attempt.Config.LoopFilterLevel),
-			RefreshLast:    attempt.Config.RefreshLast,
-			RefreshGolden:  attempt.Config.RefreshGolden,
-			RefreshAltRef:  attempt.Config.RefreshAltRef,
-			GoldenSignBias: attempt.Config.GoldenSignBias,
-			AltRefSignBias: attempt.Config.AltRefSignBias,
-			SegEnabled:     attempt.Config.Segmentation.Enabled,
-			SizeBytes:      attempt.Size,
-		})
-		e.flushOracleMBTraceBuffer()
-		e.frameCount++
-		return result, nil
 	}
 
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
@@ -1302,6 +1332,22 @@ func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, la
 		}
 	}
 	return intra, last, golden, alt
+}
+
+func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGoldenFrame bool, temporalEnabled bool, invisible bool) (int, bool) {
+	if e == nil ||
+		!e.opts.AdaptiveKeyFrames ||
+		e.twoPass.enabled() ||
+		temporalEnabled ||
+		invisible ||
+		e.interAnalysisCompressorSpeed() == 2 ||
+		required <= 0 ||
+		len(e.interFrameModes) < required {
+		return 0, false
+	}
+	intra, _, _, _ := countInterFrameRefUsage(e.interFrameModes[:required])
+	thisFramePercentIntra := (100 * intra) / required
+	return thisFramePercentIntra, libvpxDecideKeyFrame(thisFramePercentIntra, e.lastFramePercentIntra, refreshGoldenFrame)
 }
 
 func validateEncodeFlags(flags EncodeFlags) error {

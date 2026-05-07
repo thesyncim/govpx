@@ -35,7 +35,9 @@ lives in [Makefile](Makefile).
   by `make verify-decoder-parity`.
 - Encoder: functional and oracle-guarded for many paths, including opt-in
   lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
-  two-pass VBR targeting, and scene-cut keyframe placement. Exact libvpx
+  two-pass VBR targeting, pre-analysis scene-cut keyframe placement, and
+  libvpx post-inter auto-key recode for opt-in one-pass non-realtime encodes.
+  Exact libvpx
   quality/rate-control tuning parity is still open. Current estimate is roughly
   65% overall encoder parity, or about 75% on the core one-pass quality path;
   these are quality/rate-equivalence estimates, not bit-exactness percentages.
