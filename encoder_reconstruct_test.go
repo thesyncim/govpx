@@ -3139,3 +3139,125 @@ func TestCoefficientBlockTokenTraceSingleNonZeroAtSkipDC(t *testing.T) {
 		t.Fatalf("sum of per-position rates = %d, want %d", sum, wantTotal)
 	}
 }
+
+// TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual exercises
+// the SPLITMV RD picker after the Y partition is committed. libvpx's
+// vp8_rd_pick_inter_mode SPLITMV branch invokes rd_inter4x4_uv to add the
+// chroma rate/distortion on top of vp8_rd_pick_best_mbsegmentation's Y RD;
+// this test asserts our port does the same and stores per-4x4-block luma
+// EOBs so packet writers can reuse the chosen partition's coefficients.
+func TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual(t *testing.T) {
+	const w, h = 32, 32
+	src := testImage(w, h)
+	fillImage(src, 0, 128, 128)
+	ref := testVP8Frame(t, w, h, 0, 128, 128)
+	// Vary luma so the partitioned MV search has a unique optimum, and vary
+	// chroma so the derived 8x8 chroma MVs leave non-trivial UV residual
+	// (rd_inter4x4_uv only contributes when vp8_mbuverror is non-zero).
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*11 + col*col*23 + row*col*5 + 7) & 255)
+		}
+	}
+	uvWidth := (w + 1) >> 1
+	uvHeight := (h + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			ref.Img.U[row*ref.Img.UStride+col] = byte((row*19 ^ col*13) & 255)
+			ref.Img.V[row*ref.Img.VStride+col] = byte((row*7 + col*29 + 41) & 255)
+		}
+	}
+	// Top 16x8 luma half: shift dx=1 (MV col=+8 in 1/8-pel units, MV(0,1)).
+	// Bottom 16x8 luma half: identity (MV(0,0)). Apply a strong DC offset
+	// to the source so the forward DCT lands above the inter zbin and the
+	// per-block EOBs are populated — this is what we are asserting.
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
+	copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 0, 0)
+	// Drop the source by a per-4x4-block DC offset so the forward DCT
+	// concentrates energy at the DC coefficient that survives the inter
+	// zbin and leaves a populated EOB on each block.
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			block := (row>>2)*4 + (col >> 2)
+			delta := 60
+			if block&1 == 0 {
+				delta = -60
+			}
+			pixel := int(src.Y[row*src.YStride+col]) + delta
+			if pixel < 0 {
+				pixel = 0
+			} else if pixel > 255 {
+				pixel = 255
+			}
+			src.Y[row*src.YStride+col] = byte(pixel)
+		}
+	}
+	// Match chroma so the test only depends on encoder-derived UV MVs and
+	// the sixtap/bilinear residual from chroma sub-pel filtering.
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			src.U[row*src.UStride+col] = ref.Img.U[row*ref.Img.UStride+col]
+			src.V[row*src.VStride+col] = ref.Img.V[row*ref.Img.VStride+col]
+		}
+	}
+	ref.ExtendBorders()
+
+	var pred vp8common.FrameBuffer
+	if err := pred.Resize(w, h, 32, 32); err != nil {
+		t.Fatalf("pred.Resize: %v", err)
+	}
+
+	const splitRDQIndex = testInterSearchQIndex
+	var (
+		dequantTables vp8common.FrameDequantTables
+		dequant       vp8common.MacroblockDequant
+		quant         vp8enc.MacroblockQuant
+	)
+	vp8common.BuildFrameDequantTables(vp8common.QuantDeltas{}, &dequantTables)
+	vp8common.InitMacroblockDequant(&dequantTables, splitRDQIndex, &dequant)
+	vp8enc.InitRegularMacroblockQuant(splitRDQIndex, &dequant, &quant)
+	decision, ok := selectInterFrameSplitMotionDecisionRD(
+		sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame,
+		0, 0, vp8enc.MotionVector{}, splitRDQIndex, 0,
+		&quant, nil, nil, &vp8tables.DefaultCoefProbs, &pred.Img,
+		0, false, true,
+	)
+	if !ok {
+		t.Fatalf("selectInterFrameSplitMotionDecisionRD returned false")
+	}
+	if decision.Mode.Mode != vp8common.SplitMV || decision.Mode.Partition != 0 {
+		t.Fatalf("decision.Mode = %+v, want SPLITMV partition 0", decision.Mode)
+	}
+	if decision.Mode.BlockMV[0] == decision.Mode.BlockMV[8] {
+		t.Fatalf("expected distinct top/bottom MVs, got %+v / %+v", decision.Mode.BlockMV[0], decision.Mode.BlockMV[8])
+	}
+
+	// Per-4x4 luma EOB storage: at least one block in the moving top half
+	// quantises to non-zero coefficients. Without this storage the SPLITMV
+	// packet writer would have to re-quantise to recover the EOBs.
+	nonZeroLumaEOBs := 0
+	for block := 0; block < 16; block++ {
+		if decision.LumaEOB(block) > 0 {
+			nonZeroLumaEOBs++
+		}
+	}
+	if nonZeroLumaEOBs == 0 {
+		var snap [16]int
+		for i := 0; i < 16; i++ {
+			snap[i] = decision.LumaEOB(i)
+		}
+		t.Fatalf("expected at least one populated luma EOB, got %v", snap)
+	}
+
+	// UV rate must be non-zero: the chroma 8x8 MVs derived from the luma
+	// partition (MV col=+4 half-pel for the top half, zero for the bottom
+	// half) leave residual through the chroma sub-pixel filter taps. Prior
+	// to this change selectInterFrameSplitMotionMode returned only the Y
+	// mode and the SPLITMV RD score never charged any UV rate.
+	if decision.UVRate <= 0 {
+		t.Fatalf("expected non-zero UV rate, got %d (uv dist=%d)", decision.UVRate, decision.UVDist)
+	}
+	if decision.YRate <= 0 {
+		t.Fatalf("expected non-zero Y rate, got %d", decision.YRate)
+	}
+}

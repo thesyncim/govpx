@@ -310,14 +310,25 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] Finish SPLITMV RD parity.
   - govpx:
-    [`selectInterFrameSplitMotionMode`](../encoder_reconstruct.go).
+    [`selectInterFrameSplitMotionMode`](../encoder_reconstruct.go),
+    [`selectInterFrameSplitMotionDecisionRD`](../encoder_reconstruct.go).
   - libvpx: `rd_check_segment` and `vp8_rd_pick_best_mbsegmentation` in
-    `rdopt.c`.
-  - Status: partial. Partition order/pruning is aligned; per-subset
-    LEFT/ABOVE/ZERO/NEW trials, predictor reuse, label entropy contexts, and
-    selected 4x4 EOB storage remain open.
-  - Missing: UV RD after Y split selection and exact per-block EOB/token
-    context storage.
+    `rdopt.c`, plus the `SPLITMV` UV branch in `vp8_rd_pick_inter_mode` that
+    calls `rd_inter4x4_uv` (`vp8_build_inter4x4_predictors_mbuv` ->
+    `vp8_subtract_mbuv` -> `vp8_transform_mbuv` -> `vp8_quantize_mbuv` ->
+    `rd_cost_mbuv`).
+  - Status: partial. Partition order/pruning is aligned. After the Y split
+    is committed, `selectInterFrameSplitMotionDecisionRD` reuses the
+    decoder's `ReconstructSplitMVInterMacroblock` to render the SPLITMV
+    luma+chroma predictor (libvpx-style 8x8 chroma MVs derived from the
+    four covering 4x4 luma MVs via `splitChromaMotionVector`), then runs
+    the same `quantizeEncodedBlock` block_type=3 (Y) / block_type=2 (UV)
+    transform/quantize path the whole-MB inter case uses. The returned
+    `interSplitMVRDDecision` carries Y rate/distortion, UV rate/distortion,
+    and a `MacroblockCoefficients` populated with per-4x4-block luma EOBs
+    (`Coeffs.EOB[0..15]`) and per-4x4-block chroma EOBs (`Coeffs.EOB[16..23]`).
+    Per-subset LEFT/ABOVE/ZERO/NEW trials, predictor reuse, and label entropy
+    contexts remain open.
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
