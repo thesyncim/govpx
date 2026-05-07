@@ -9,13 +9,21 @@ the anchor and look for the surrounding mismatch.
 
 ## What 100% Means
 
-- Bitstream parity where deterministic settings allow it: matching frame
-  headers, mode grids, tokens, partitions, reference updates, and decoded MD5s.
-- Decision parity where bitstream identity is not practical: matching frame Q,
-  flags, probabilities, reference checksums, per-MB mode/ref/MV/skip/segment,
-  residual EOBs, rate, distortion, and RD decisions.
-- Quality parity is the final smoke test, not the definition of done. PSNR/SSIM
-  gaps should tighten only after the decision traces match.
+- The product target is libvpx-equivalent VP8 encoder quality, not universal
+  byte-for-byte identity. Future agents should prioritize changes that move
+  visible quality, rate behavior, reference decisions, and mode/MV/residual
+  choices toward libvpx.
+- Bitstream parity is required only where it matters or where deterministic
+  settings make it the cheapest proof: frame headers, reference
+  refresh/copy/sign-bias bits, packet validity, decoder MD5s, and tightly
+  scoped low-level encoders.
+- Decision parity is the main engineering proxy for quality parity: matching
+  frame Q, flags, probabilities, reference checksums, per-MB mode/ref/MV/skip,
+  residual EOBs, rate, distortion, and RD decisions on representative clips.
+- Do not spend effort preserving old govpx behavior or chasing bit-exactness in
+  paths that do not affect quality, rate, decoder-visible output, or future
+  oracle diagnosis. Document any intentionally non-bitexact but
+  quality-equivalent behavior in this file.
 
 ## Current Estimate
 
@@ -27,9 +35,10 @@ the anchor and look for the surrounding mismatch.
   motion govpx/libvpx PSNR 49.87/50.35, bitrate 357.9/268.7 kbps; static
   govpx/libvpx PSNR 49.84/49.71, bitrate 376.6/372.3 kbps; realtime panning
   govpx/libvpx PSNR 48.03/48.07, bitrate 308.0/304.6 kbps.
-- Encoder decision parity: roughly 45-55% complete. This is an engineering
-  estimate, not a measured percentage, because govpx still lacks the trace
-  oracle needed to count matching frame/MB decisions.
+- Encoder parity: roughly 65% overall, or about 75% on the core one-pass
+  quality path. This is an engineering estimate, not a measured percentage,
+  because govpx still lacks the trace oracle needed to count matching frame/MB
+  decisions.
 - The largest remaining parity weight is in recode/rate control, full RD mode
   decision, quant/token optimization, first/two-pass planning, ARF/ARNR, and
   denoiser-driven mode re-evaluation.
@@ -38,16 +47,18 @@ the anchor and look for the surrounding mismatch.
 
 - [ ] `make verify-production` must pass with pinned libvpx v1.16.0 tools and
   required decode/encode corpus minima.
-- [ ] Quality/rate/checksum oracle tests remain smoke gates only; encoder
-  parity requires trace comparison for headers, entropy state, segmentation
-  state, reference updates, and per-MB decisions.
-- [ ] Deterministic real-time/no-lag cases must match libvpx bitstream headers,
-  partition sizes, frame flags, reference refresh/copy/sign-bias bits, decoded
-  MD5s, and trace state.
+- [ ] Quality/rate/checksum oracle tests are smoke gates for user-visible
+  parity. Encoder work should still prefer trace comparison for headers,
+  entropy state, segmentation state, reference updates, and per-MB decisions
+  when those traces explain a quality or rate gap.
+- [ ] Deterministic real-time/no-lag cases should match libvpx bitstream
+  headers, partition sizes, frame flags, reference refresh/copy/sign-bias bits,
+  decoded MD5s, and trace state where those fields affect decoder output or
+  subsequent encoder decisions.
 - [ ] Non-bitexact cases must match decision traces within documented
-  tolerances for rate-control attempts, recode reasons, Q choices, entropy
-  save/restore, mode/ref/MV choices, segmentation IDs, loop filter, and token
-  probabilities.
+  tolerances for quality-relevant behavior: rate-control attempts, recode
+  reasons, Q choices, entropy save/restore, mode/ref/MV choices, segmentation
+  IDs, loop filter, and token probabilities.
 
 ## Validation Harness
 
