@@ -79,9 +79,11 @@ the anchor and look for the surrounding mismatch.
   - libvpx:
     [`onyx_if.c`](../internal/coracle/build/libvpx-v1.16.0/vp8/encoder/onyx_if.c)
     `encode_frame_to_data_rate`.
-  - Status: partial. govpx has a two-attempt size feedback loop; libvpx carries
-    active best/worst Q, frame-size bounds, coding-context save/restore,
-    projected entropy savings, and richer recode decisions.
+  - Status: partial. govpx has a two-attempt size feedback loop and now feeds
+    initial Q selection through libvpx-style active best/worst bounds for
+    one-pass warmup, CQ floor, and CBR full-buffer cases. libvpx still carries
+    full frame-size bounds, coding-context save/restore, projected entropy
+    savings, and richer recode decisions.
   - Missing: `recode_loop_test`, `q_low/q_high`, `zbin_over_quant`,
     `active_worst_qchanged`, forced/auto key-frame recodes, entropy
     projected-size decisions, and coding-context restore after failed attempts.
@@ -92,9 +94,11 @@ the anchor and look for the surrounding mismatch.
   - govpx: [`selectQuantizerForFrameKindWithScreenContent`](../ratecontrol.go).
   - libvpx: `vp8_regulate_q`, active-best-quality, and active-worst-quality
     branches in `onyx_if.c`.
-  - Status: partial. govpx estimates Q directly from target bits and correction
-    factor; libvpx constrains Q through active quality bands, buffer fullness,
-    frame class, CQ floor, and early-frame dampening.
+  - Status: partial. govpx now constrains Q through libvpx's one-pass
+    active-min tables for key/golden/inter frames, CBR active-worst buffer
+    logic after normal-inter warmup, CBR full-buffer active-best/worst clamps,
+    and CQ floors. Remaining gaps are oracle trace coverage for ARF/GF variants
+    and interactions with the full recode loop.
   - Done when table-driven oracle tests match active best/worst Q and chosen Q
     for first frames, low/full buffer, key, GF, ARF, CQ, CBR, and screen
     content cases.

@@ -115,6 +115,7 @@ const (
 	libvpxIntMax                    = 1<<31 - 1
 	libvpxMinBPBFactor              = 0.01
 	libvpxMaxBPBFactor              = 50.0
+	vp8MaxQIndex                    = 127
 )
 
 var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
@@ -363,7 +364,8 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFram
 		return
 	}
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)
-	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, rc.minQuantizer, rc.maxQuantizer, correctionFactor)
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(keyFrame, goldenFrame)
+	rc.currentQuantizer = libvpxRegulatedQuantizer(keyFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
 	}
@@ -371,6 +373,106 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithScreenContent(keyFram
 		rc.currentQuantizer = libvpxLimitCBRInterQuantizerDrop(rc.lastInterQuantizer, rc.currentQuantizer)
 	}
 	rc.clampQuantizer()
+}
+
+func (rc *rateControlState) libvpxActiveQuantizerBounds(keyFrame bool, goldenFrame bool) (int, int) {
+	activeWorst := rc.libvpxActiveWorstQuantizer()
+	if rc.mode == RateControlCBR && rc.bufferOptimalBits > 0 && rc.bufferLevelBits >= rc.bufferOptimalBits {
+		activeWorst = rc.libvpxCBRFullBufferActiveWorst(activeWorst)
+	}
+	activeWorst = rc.clampedQuantizerValue(activeWorst)
+
+	activeBest := rc.minQuantizer
+	if rc.normalInterFrames > 150 {
+		q := clampQuantizerValue(activeWorst, 0, vp8MaxQIndex)
+		switch {
+		case keyFrame:
+			activeBest = libvpxKeyFrameHighMotionMinQ[q]
+		case goldenFrame && rc.currentTemporalLayers <= 1:
+			if rc.framesSinceKeyframe > 1 && rc.avgFrameQuantizer < q {
+				q = rc.avgFrameQuantizer
+			}
+			if rc.mode == RateControlCQ && q < rc.cqLevel {
+				q = rc.cqLevel
+			}
+			q = clampQuantizerValue(q, 0, vp8MaxQIndex)
+			activeBest = libvpxGoldenFrameHighMotionMinQ[q]
+		default:
+			activeBest = libvpxInterMinQ[q]
+			if rc.mode == RateControlCQ && activeBest < rc.cqLevel {
+				activeBest = rc.cqLevel
+			}
+		}
+		if rc.mode == RateControlCBR {
+			activeBest = rc.libvpxCBRFullBufferActiveBest(activeBest)
+		}
+	} else if rc.mode == RateControlCQ {
+		if !keyFrame && !goldenFrame && activeBest < rc.cqLevel {
+			activeBest = rc.cqLevel
+		}
+	}
+
+	activeBest = rc.clampedQuantizerValue(activeBest)
+	if activeWorst < activeBest {
+		activeWorst = activeBest
+	}
+	return activeBest, activeWorst
+}
+
+func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
+	activeWorst := rc.maxQuantizer
+	if rc.mode != RateControlCBR || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
+		if rc.mode == RateControlCQ && activeWorst < rc.cqLevel {
+			activeWorst = rc.cqLevel
+		}
+		return activeWorst
+	}
+	if rc.bufferLevelBits >= rc.bufferOptimalBits {
+		activeWorst = rc.normalInterAvgQuantizer
+	} else if rc.bufferLevelBits > rc.bufferOptimalBits>>2 {
+		denom := (rc.bufferOptimalBits * 3) >> 2
+		if denom > 0 {
+			qadjustmentRange := rc.maxQuantizer - rc.normalInterAvgQuantizer
+			aboveBase := rc.bufferLevelBits - (rc.bufferOptimalBits >> 2)
+			activeWorst = rc.maxQuantizer - int((int64(qadjustmentRange)*int64(aboveBase))/int64(denom))
+		}
+	}
+	return activeWorst
+}
+
+func (rc *rateControlState) libvpxCBRFullBufferActiveWorst(activeWorst int) int {
+	if rc.maximumBufferBits <= rc.bufferOptimalBits {
+		return activeWorst
+	}
+	adjustment := activeWorst / 4
+	if adjustment <= 0 {
+		return activeWorst
+	}
+	if rc.bufferLevelBits < rc.maximumBufferBits {
+		bufferLevelStep := (rc.maximumBufferBits - rc.bufferOptimalBits) / adjustment
+		if bufferLevelStep > 0 {
+			adjustment = (rc.bufferLevelBits - rc.bufferOptimalBits) / bufferLevelStep
+		} else {
+			adjustment = 0
+		}
+	}
+	return activeWorst - adjustment
+}
+
+func (rc *rateControlState) libvpxCBRFullBufferActiveBest(activeBest int) int {
+	if rc.bufferOptimalBits <= 0 || rc.maximumBufferBits <= rc.bufferOptimalBits {
+		return activeBest
+	}
+	switch {
+	case rc.bufferLevelBits >= rc.maximumBufferBits:
+		return rc.minQuantizer
+	case rc.bufferLevelBits > rc.bufferOptimalBits:
+		fraction := int((int64(rc.bufferLevelBits-rc.bufferOptimalBits) * 128) / int64(rc.maximumBufferBits-rc.bufferOptimalBits))
+		minQAdjustment := ((activeBest - rc.minQuantizer) * fraction) / 128
+		return activeBest - minQAdjustment
+	default:
+		return activeBest
+	}
 }
 
 func (rc *rateControlState) clampBuffer() {
@@ -1048,6 +1150,42 @@ var libvpxKeyFrameBoostQAdjustment = [128]int{
 	216, 216, 217, 217, 218, 218, 219, 219,
 	220, 220, 220, 220, 220, 220, 220, 220,
 	220, 220, 220, 220, 220, 220, 220, 220,
+}
+
+// libvpxKeyFrameHighMotionMinQ, libvpxGoldenFrameHighMotionMinQ, and
+// libvpxInterMinQ port the one-pass conservative active-min-Q tables from
+// vp8/encoder/onyx_if.c.
+var libvpxKeyFrameHighMotionMinQ = [128]int{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
+	3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6,
+	6, 6, 7, 7, 8, 8, 8, 8, 9, 9, 10, 10, 10, 10, 11, 11,
+	11, 11, 12, 12, 13, 13, 13, 13, 14, 14, 15, 15, 15, 15, 16, 16,
+	16, 16, 17, 17, 18, 18, 18, 18, 19, 19, 20, 20, 20, 20, 21, 21,
+	21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 26, 27, 28, 28, 29, 30,
+}
+
+var libvpxGoldenFrameHighMotionMinQ = [128]int{
+	0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4,
+	4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9,
+	9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
+	17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24,
+	25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30, 30, 31, 31, 32, 32,
+	33, 33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40,
+	41, 41, 42, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
+	55, 56, 57, 58, 59, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80,
+}
+
+var libvpxInterMinQ = [128]int{
+	0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 6, 6, 7, 8, 8, 9,
+	9, 10, 11, 11, 12, 13, 13, 14, 15, 15, 16, 17, 17, 18, 19, 20,
+	20, 21, 22, 22, 23, 24, 24, 25, 26, 27, 27, 28, 29, 30, 30, 31,
+	32, 33, 33, 34, 35, 36, 36, 37, 38, 39, 39, 40, 41, 42, 42, 43,
+	44, 45, 46, 46, 47, 48, 49, 50, 50, 51, 52, 53, 54, 55, 55, 56,
+	57, 58, 59, 60, 60, 61, 62, 63, 64, 65, 66, 67, 67, 68, 69, 70,
+	71, 72, 73, 74, 75, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85,
+	86, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
 }
 
 // libvpxBitsPerMB ports vp8/encoder/ratectrl.c vp8_bits_per_mb. Values are
