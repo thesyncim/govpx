@@ -370,6 +370,11 @@ type interAnalysisSearchConfig struct {
 	fractionalSearch      interAnalysisFractionalSearchMethod
 }
 
+var (
+	interAnalysisBestQualitySplitPartitionOrder = [vp8tables.NumMBSplits]int{0, 1, 2, 3}
+	interAnalysisSpeedSplitPartitionOrder       = [vp8tables.NumMBSplits]int{2, 1, 0, 3}
+)
+
 func defaultInterAnalysisSearchConfig() interAnalysisSearchConfig {
 	return interAnalysisSearchConfig{
 		fullPixelSearch:  interAnalysisFullPixelSearchExhaustive,
@@ -403,6 +408,27 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
 	}
 	return cfg
+}
+
+func (e *VP8Encoder) interAnalysisCompressorSpeed() int {
+	if e == nil || e.opts.Deadline == DeadlineBestQuality {
+		return 0
+	}
+	if e.opts.Deadline == DeadlineRealtime {
+		return 2
+	}
+	return 1
+}
+
+func (e *VP8Encoder) interAnalysisSplitPartitionOrder() [vp8tables.NumMBSplits]int {
+	if e.interAnalysisCompressorSpeed() == 0 {
+		return interAnalysisBestQualitySplitPartitionOrder
+	}
+	return interAnalysisSpeedSplitPartitionOrder
+}
+
+func (e *VP8Encoder) interAnalysisNoSkipBlock4x4Search() bool {
+	return e.interAnalysisCompressorSpeed() == 0 || e.opts.CpuUsed <= 0
 }
 
 func libvpxInterFrameSearchParam(deadline Deadline, speed int) int {
@@ -569,24 +595,75 @@ func (e *VP8Encoder) selectBestInterFrameMode(
 	for refIndex := 0; refIndex < refCount && refIndex < len(refs); refIndex++ {
 		ref := refs[refIndex]
 		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols)
-		for partition := 0; partition < vp8tables.NumMBSplits; partition++ {
-			if bestSet && bestScore <= rdThreshold {
-				break
-			}
+		scoreSplit := func(partition int) (vp8enc.InterFrameMacroblockMode, int, bool) {
 			mode, ok := selectInterFrameSplitMotionMode(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition)
 			if !ok {
-				continue
+				return vp8enc.InterFrameMacroblockMode{}, 0, false
 			}
 			mode.SegmentID = segmentID
 			score, ok := e.estimateInterResidualRDScore(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID)
 			if !ok {
+				return vp8enc.InterFrameMacroblockMode{}, 0, false
+			}
+			return mode, score, true
+		}
+		keepSplit := func(mode vp8enc.InterFrameMacroblockMode, score int) {
+			bestSet = true
+			bestRef = ref
+			bestMode = mode
+			bestScore = score
+		}
+		if e.interAnalysisCompressorSpeed() != 0 {
+			if bestSet && bestScore <= rdThreshold {
 				continue
 			}
+			startBestSet, startBestScore := bestSet, bestScore
+			mode, score, ok := scoreSplit(2)
+			if !ok || startBestSet && score >= startBestScore {
+				continue
+			}
+			splitBestPartition := 2
+			splitBestScore := score
 			if !bestSet || score < bestScore {
-				bestSet = true
-				bestRef = ref
-				bestMode = mode
-				bestScore = score
+				keepSplit(mode, score)
+			}
+			if bestSet && bestScore <= rdThreshold {
+				continue
+			}
+			for _, partition := range interAnalysisSpeedSplitPartitionOrder[1:3] {
+				if bestSet && bestScore <= rdThreshold {
+					break
+				}
+				mode, score, ok := scoreSplit(partition)
+				if !ok {
+					continue
+				}
+				if score < splitBestScore {
+					splitBestPartition = partition
+					splitBestScore = score
+				}
+				if !bestSet || score < bestScore {
+					keepSplit(mode, score)
+				}
+			}
+			if e.interAnalysisNoSkipBlock4x4Search() || splitBestPartition == 2 {
+				if bestSet && bestScore <= rdThreshold {
+					continue
+				}
+				mode, score, ok := scoreSplit(3)
+				if ok && (!bestSet || score < bestScore) {
+					keepSplit(mode, score)
+				}
+			}
+			continue
+		}
+		for _, partition := range e.interAnalysisSplitPartitionOrder() {
+			if bestSet && bestScore <= rdThreshold {
+				break
+			}
+			mode, score, ok := scoreSplit(partition)
+			if ok && (!bestSet || score < bestScore) {
+				keepSplit(mode, score)
 			}
 		}
 	}

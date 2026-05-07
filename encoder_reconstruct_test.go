@@ -84,6 +84,61 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 	}
 }
 
+func TestInterAnalysisSplitPartitionOrderMirrorsLibvpxCompressorSpeed(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		want     [vp8tables.NumMBSplits]int
+	}{
+		{
+			name:     "best quality keeps original exhaustive order",
+			deadline: DeadlineBestQuality,
+			want:     [vp8tables.NumMBSplits]int{0, 1, 2, 3},
+		},
+		{
+			name:     "good quality checks 8x8 before elongated splits",
+			deadline: DeadlineGoodQuality,
+			want:     [vp8tables.NumMBSplits]int{2, 1, 0, 3},
+		},
+		{
+			name:     "realtime checks 8x8 before elongated splits",
+			deadline: DeadlineRealtime,
+			want:     [vp8tables.NumMBSplits]int{2, 1, 0, 3},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline}}
+			if got := e.interAnalysisSplitPartitionOrder(); got != tt.want {
+				t.Fatalf("order = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInterAnalysisNoSkipBlock4x4SearchMirrorsLibvpxSpeedFeature(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     bool
+	}{
+		{name: "best quality always keeps 4x4 search", deadline: DeadlineBestQuality, cpuUsed: 8, want: true},
+		{name: "good speed zero keeps 4x4 search", deadline: DeadlineGoodQuality, cpuUsed: 0, want: true},
+		{name: "good positive speed can skip 4x4 search", deadline: DeadlineGoodQuality, cpuUsed: 1, want: false},
+		{name: "realtime negative speed keeps 4x4 search", deadline: DeadlineRealtime, cpuUsed: -1, want: true},
+		{name: "realtime positive speed can skip 4x4 search", deadline: DeadlineRealtime, cpuUsed: 1, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: tt.deadline, CpuUsed: tt.cpuUsed}}
+			if got := e.interAnalysisNoSkipBlock4x4Search(); got != tt.want {
+				t.Fatalf("no-skip 4x4 = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
 	sites := interFrameNstepSearchSites()
 	if len(sites) != 65 {

@@ -39,7 +39,10 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
   `vp8_hex_search` path are in place; remaining gaps are exact improved MV
   predictor search-range adjustment, the alternate DIAMOND path, and SPLITMV
   integer-search pruning/details.
-- Remaining SPLITMV RD/mode-cost parity and oracle coverage.
+- Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
+  compressor-speed partition ordering, 8x8-first pruning, and the
+  `no_skip_block4x4_search` gate are in place, while per-subset
+  LEFT/ABOVE/ZERO/NEW mode trials and predictor/step reuse remain open.
 - Exact loop-filter level search; previous filter-level carry and libvpx
   Q-based min/max clamps are in place, but the fast/full trial-filter search
   and partial-frame SSE scoring are still open.
