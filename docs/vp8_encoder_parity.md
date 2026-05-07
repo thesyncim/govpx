@@ -81,14 +81,15 @@ the anchor and look for the surrounding mismatch.
     `encode_frame_to_data_rate`.
   - Status: partial. govpx has a two-attempt size feedback loop, now feeds
     initial Q selection through libvpx-style active best/worst bounds for
-    one-pass warmup, CQ floor, and CBR full-buffer cases, and key-frame recode
-    attempts now defer entropy commits until the accepted attempt. libvpx still
-    carries full frame-size bounds, coding-context save/restore, projected
-    entropy savings, and richer recode decisions.
+    one-pass warmup, CQ floor, and CBR full-buffer cases, and failed key/inter
+    recode attempts no longer commit entropy or skip-prob state before the
+    accepted attempt. libvpx still carries full frame-size bounds,
+    coding-context save/restore, projected entropy savings, and richer recode
+    decisions.
   - Missing: `recode_loop_test`, `q_low/q_high`, `zbin_over_quant`,
     `active_worst_qchanged`, forced/auto key-frame recodes, entropy
-    projected-size decisions, and full coding-context restore coverage after
-    failed attempts.
+    projected-size decisions, and full saved-coding-context restore coverage
+    after failed attempts.
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 

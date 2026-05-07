@@ -609,6 +609,33 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 	}
 }
 
+func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	first := testImage(32, 32)
+	second := testImage(32, 32)
+	fillImage(first, 60, 90, 170)
+	fillImage(second, 200, 90, 170)
+	if _, err := e.EncodeInto(make([]byte, 16384), first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+
+	e.probSkipFalse = 91
+	rows := encoderMacroblockRows(32)
+	cols := encoderMacroblockCols(32)
+	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true)
+	if err != nil {
+		t.Fatalf("encodeInterFrameAttempt returned error: %v", err)
+	}
+	if e.probSkipFalse != 91 {
+		t.Fatalf("inter attempt probSkipFalse = %d, want pre-attempt sentinel 91 before commit", e.probSkipFalse)
+	}
+
+	e.commitInterFrameAttempt(attempt)
+	if e.probSkipFalse != attempt.Config.ProbSkipFalse {
+		t.Fatalf("committed probSkipFalse = %d, want accepted attempt probability %d", e.probSkipFalse, attempt.Config.ProbSkipFalse)
+	}
+}
+
 func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

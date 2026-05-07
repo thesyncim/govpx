@@ -684,7 +684,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.CopyBufferToAltRef = 2
 	}
 	cfg.ProbSkipFalse = e.interFrameAnalysisSkipFalseProb(e.rc.currentQuantizer, cfg.RefreshGolden, cfg.RefreshAltRef)
+	previousProbSkipFalse := e.probSkipFalse
 	e.probSkipFalse = cfg.ProbSkipFalse
+	defer func() {
+		e.probSkipFalse = previousProbSkipFalse
+	}()
 	segmentation := vp8enc.SegmentationConfig{}
 	if staticSegmentationAllowed {
 		segmentation = e.cyclicRefreshSegmentationConfig(cfg.RefreshGolden)
