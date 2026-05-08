@@ -22,11 +22,15 @@ func BuildTreeToken(tree []int16, token int, out *TreeToken) bool {
 }
 
 func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken) bool {
-	node := int16(0)
-	value := token.Value
 	probsLen := len(probs)
 	treeLen := len(tree)
-	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
+	tokenLen := int(token.Len)
+	if probsLen == 0 || treeLen < 2 || tokenLen == 0 || tokenLen > 32 {
+		return false
+	}
+	node := int16(0)
+	value := token.Value
+	for bitIndex := tokenLen - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
 		nodeIdx := int(node)
 		if probIndex < 0 || probIndex >= probsLen || nodeIdx+1 >= treeLen {
@@ -46,6 +50,14 @@ func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken)
 	return false
 }
 
+// findTreeToken walks the encoder token tree to find the (value, length)
+// pair that decodes to `token`. The Go inliner unrolls the small recursion
+// here for the fixed-shape VP8 trees we ship; benchmarks (BenchmarkFindTreeToken)
+// show this beats an explicit iterative-stack rewrite, so we leave it
+// recursive. Mode decision avoids re-walking the tree at runtime by using
+// the precomputed token-cost paths in encoder_tree_costs.go (root package);
+// the recursive walker only runs at startup or when a non-fixed tree is
+// supplied.
 func findTreeToken(tree []int16, node int16, token int, value uint32, depth int) (uint32, int, bool) {
 	if depth >= 32 || int(node)+1 >= len(tree) {
 		return 0, 0, false
