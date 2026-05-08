@@ -51,6 +51,27 @@ the anchor and look for the surrounding mismatch.
   the production oracle gate for a projected frame/rate decision subset, but
   the full corpus driver that counts matching candidate and MB decisions is
   still missing.
+- Reconstruction byte-identity (May 2026): the 64x64 realtime CBR panning
+  fixture (CpuUsed=8, q-bounds 4..56) now produces a byte-identical
+  `y_adler32`/`u_adler32`/`v_adler32` to libvpx on every frame across realtime
+  CpuUsed 0/4/8 and good-quality CpuUsed 5; size deltas are 0.03..0.8% per
+  frame, and the frame-0 mode histogram matches `{B_PRED:14, DC_PRED:2}`
+  exactly. The 128x128 realtime CBR fixture matches on frame 0 (keyframe) and
+  the keyframe path is fully aligned, but inter frames 1+ diverge; the gap
+  is bounded (size delta ~0.5..1% per frame) but byte-identity is lost. Diff
+  localizes to the chroma path: a `vpxenc-oracle` -> `vpxdec` round-trip on
+  the 128x128 frame-1 output shows govpx's chroma reconstruction is
+  consistently off by 1..3 pixel values starting at U(0,0), suggesting
+  either a sixtap chroma sub-pel filter rounding difference at the right /
+  left frame edge, or a missing border-extension pre-state vs libvpx's
+  `vp8_setup_intra_recon` initialisation. The Y2 (`block 24`) qcoeffs at
+  the rightmost MB column are 1.5..2x larger in govpx than libvpx, which is
+  consistent with the right-edge predictor source diverging by a small
+  per-row constant. Closing this needs a per-pixel chroma predictor diff
+  (subagent groundwork in `debug_predictor_test.go` /
+  `debug_libvpx_decode_test.go` if revived) and likely a fix in the sixtap
+  chroma filter rounding or the LAST-reference border-extension on the
+  encoder's path that libvpx's stale-dst quirk hides on its side.
 - The largest remaining parity weights are candidate-level inter-mode
   comparison beyond the VBR panning staged field gate, rejected recode-attempt
   tracing, automatic hidden-ARF/ARNR border proof, first-pass/two-pass proof
