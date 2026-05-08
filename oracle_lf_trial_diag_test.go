@@ -278,7 +278,19 @@ func unionLFKeys(a, b []lfTrialRow) []lfTrialKey {
 
 func phaseRank(p string) int {
 	switch p {
+	case "pre":
+		// Pre-LF (level=0) baseline emitted by both fast and full pickers
+		// when the oracle is patched with the lf_trial pre-y-sse hook;
+		// place it at the top of the per-frame table so the unfiltered
+		// recon delta jumps out before the per-trial-level rows.
+		return -1
 	case "seed":
+		return 0
+	case "full":
+		// Full picker rows scored against full-frame SSE (vp8_calc_ss_err).
+		// Place between seed and down so they sort cleanly when both pickers
+		// are mixed in the same frame (rare; helps when autoSpeed flips
+		// between encoders mid-fixture).
 		return 0
 	case "down":
 		return 1
