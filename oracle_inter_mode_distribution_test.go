@@ -70,22 +70,22 @@ func TestOracleInterModeDistributionScoreboard(t *testing.T) {
 		Intra     float64 `json:"intra"`
 	}
 	type fixtureReport struct {
-		Name           string        `json:"name"`
-		Width          int           `json:"width"`
-		Height         int           `json:"height"`
-		Deadline       string        `json:"deadline"`
-		CpuUsed        int           `json:"cpu_used"`
-		Govpx          modeBreakdown `json:"govpx"`
-		Libvpx         modeBreakdown `json:"libvpx"`
-		Diff           modeBreakdown `json:"diff_pp"`
-		L1Pp           float64       `json:"l1_pp"`
-		GovpxSkipPct   float64       `json:"govpx_skip_pct"`
-		LibvpxSkipPct  float64       `json:"libvpx_skip_pct"`
-		GovpxLastPct   float64       `json:"govpx_last_pct"`
-		LibvpxLastPct  float64       `json:"libvpx_last_pct"`
-		GovpxEOBSum    int           `json:"govpx_eob_sum"`
-		LibvpxEOBSum   int           `json:"libvpx_eob_sum"`
-		EOBSumRatio    float64       `json:"eob_sum_ratio"`
+		Name          string        `json:"name"`
+		Width         int           `json:"width"`
+		Height        int           `json:"height"`
+		Deadline      string        `json:"deadline"`
+		CpuUsed       int           `json:"cpu_used"`
+		Govpx         modeBreakdown `json:"govpx"`
+		Libvpx        modeBreakdown `json:"libvpx"`
+		Diff          modeBreakdown `json:"diff_pp"`
+		L1Pp          float64       `json:"l1_pp"`
+		GovpxSkipPct  float64       `json:"govpx_skip_pct"`
+		LibvpxSkipPct float64       `json:"libvpx_skip_pct"`
+		GovpxLastPct  float64       `json:"govpx_last_pct"`
+		LibvpxLastPct float64       `json:"libvpx_last_pct"`
+		GovpxEOBSum   int           `json:"govpx_eob_sum"`
+		LibvpxEOBSum  int           `json:"libvpx_eob_sum"`
+		EOBSumRatio   float64       `json:"eob_sum_ratio"`
 	}
 
 	type baselineEntry struct {
