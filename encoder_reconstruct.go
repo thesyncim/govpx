@@ -1067,6 +1067,15 @@ func (e *VP8Encoder) interRDModeTestAllowed(modeIndex int) bool {
 	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return true
 	}
+	return e.interRDModeTestAllowedFast(modeIndex)
+}
+
+// interRDModeTestAllowedFast is the picker hot-path variant: e is non-nil,
+// e.interRDFrameActive is true, and modeIndex is in
+// [0, libvpxInterModeCount). Splitting the cheap predicate from the safe
+// public entry point keeps both small enough that the picker can inline the
+// fast path while tests keep the nil-/range-tolerant entry.
+func (e *VP8Encoder) interRDModeTestAllowedFast(modeIndex int) bool {
 	hits := e.interModeTestHitCounts[modeIndex]
 	freq := e.interModeCheckFreq[modeIndex]
 	if hits == 0 || freq <= 1 || e.interMBsTestedSoFar > freq*hits {
@@ -2170,6 +2179,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		e.interRDFrameRefSearchOrderValid = true
 	}
 	refSearchOrder := e.interRDFrameRefSearchOrder
+	// Hoist the rd_threshes throttle gate out of the per-mode loop. Once
+	// inside the picker e is non-nil, modeIndex is bounded by the loop
+	// range, and interRDFrameActive is invariant across iterations — so the
+	// fast-path predicate can collapse from the public helper's three guard
+	// branches to one indexed read.
+	rdActive := e.interRDFrameActive
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
@@ -2182,10 +2197,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
 		if refSlot == 0 {
-			if !e.interRDModeTestAllowed(modeIndex) {
+			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
 				continue
 			}
-			e.recordInterRDModeTest(modeIndex)
+			if rdActive {
+				e.interModeTestHitCounts[modeIndex]++
+			}
 			bestScoreBefore := bestScore
 			bestSSEBefore := bestSSE
 			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
@@ -2236,21 +2253,35 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 
-		ref, refIndex, ok := libvpxInterReferenceSearchAt(refs, refSearchOrder, refSlot)
-		if !ok {
+		// Inlined libvpxInterReferenceSearchAt fast path (refSlot is in
+		// 1..3 by construction here): the helper does the same lookup but
+		// the loop touches it on every iteration so inlining avoids the
+		// extra bounds checks against searchOrder/refs.
+		refIndex := refSearchOrder[refSlot]
+		if refIndex < 0 || refIndex >= len(refs) {
 			continue
 		}
-		if !e.interRDModeTestAllowed(modeIndex) {
+		ref := refs[refIndex]
+		if ref.Img == nil {
 			continue
 		}
-		e.recordInterRDModeTest(modeIndex)
-		bestScoreBefore := bestScore
-		bestSSEBefore := bestSSE
-		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
+		if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
+			continue
+		}
+		if rdActive {
+			e.interModeTestHitCounts[modeIndex]++
+		}
+		// libvpx pickinter.c does not implement SPLITMV in the non-RD picker
+		// (vp8_pick_inter_mode falls back to RAISE-only). Short-circuit
+		// here so we skip the per-mode fastInterModeForLoopEntry plumbing
+		// entirely on the three SPLITMV slots (modeIndex 16/17/18).
 		if mbMode == vp8common.SplitMV {
 			e.raiseInterRDThreshold(modeIndex)
 			continue
 		}
+		bestScoreBefore := bestScore
+		bestSSEBefore := bestSSE
+		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 		if !ok {
 			continue
 		}
@@ -2432,23 +2463,26 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 }
 
 func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
-	zbinOverQuant := 0
-	if e != nil {
-		zbinOverQuant = e.rc.currentZbinOverQuant
-	}
 	if mbMode == vp8common.BPred {
 		return e.estimateFastBPredIntraModeScore(src, mbRow, mbCol, qIndex, bestSSE, quant)
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
+	// e is always non-nil on the picker hot path (selectFastInterFrameModeDecision
+	// derefs e.interRDFrameActive before invoking us); the legacy nil-guarded
+	// branch below was a no-op cost driver. Hoist the analysis image / zbin
+	// loads into locals so the predict + variance calls share a single read.
+	zbinOverQuant := e.rc.currentZbinOverQuant
+	analysisImg := &e.analysis.Img
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
-	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
+	if !predictAnalysisMacroblock(analysisImg, mbRow, mbCol, &mode, &e.reconstructScratch) {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
-	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
+	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(mbMode)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), variance, sse, rate, true
+	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
+	return resultMode, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), variance, sse, rate, true
 }
 
 // estimateFastBPredIntraModeScore mirrors libvpx pickinter.c
@@ -2470,18 +2504,29 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 //     (here the analysis Y plane post-reconstruction) is the "distortion2"
 //     libvpx feeds into the outer RDCOST in vp8_pick_inter_mode.
 func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
-	zbinOverQuant := 0
-	if e != nil {
-		zbinOverQuant = e.rc.currentZbinOverQuant
-	}
 	if quant == nil {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
+	// e is always non-nil on the inter picker entry path; the prior nil
+	// guard was dead code.
+	zbinOverQuant := e.rc.currentZbinOverQuant
 	fastQuant := e.libvpxUseFastQuantForPick()
-	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
-	yOff := mbRow*16*e.analysis.Img.YStride + mbCol*16
-	y := e.analysis.Img.Y[yOff:]
-	yStride := e.analysis.Img.YStride
+	analysisImg := &e.analysis.Img
+	refs := vp8dec.BuildIntraPredictorRefs(analysisImg, mbRow, mbCol, &e.reconstructScratch.Refs)
+	yStride := analysisImg.YStride
+	yOff := mbRow*16*yStride + mbCol*16
+	y := analysisImg.Y[yOff:]
+	// Hoist refs slices once: predictAnalysisBPredBlock reads YAbove/YLeft/
+	// YTopLeft on every sub-block iteration, but they are derived from the
+	// MB's neighbor stripes and never mutated across the 16-block walk.
+	refsYAbove := refs.YAbove
+	refsYLeft := refs.YLeft
+	refsYTopLeft := refs.YTopLeft
+	// Hoist RD constants once: rdModeScoreWithZbin recomputes (rdMult, rdDiv)
+	// from qIndex/zbinOverQuant, both invariant across the 64-iteration
+	// {16 blocks} x {4 modes} inner cost loop.
+	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+	quantY1 := &quant.Y1
 	var modes [16]vp8common.BPredictionMode
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
@@ -2493,12 +2538,12 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var bestPred [16]byte
 		for _, bMode := range fastBPredIntraModeCandidates {
 			var blockPred [16]byte
-			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			if !predictAnalysisBPredBlock(bMode, blockPred[:], 4, y, yStride, refsYAbove, refsYLeft, refsYTopLeft, block) {
 				return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 			}
 			modeRate := libvpxInterFastBpredModeCost(bMode)
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
-			modeCost := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, modeDist)
+			modeCost := libvpxRDCost(rdMult, rdDiv, modeRate, modeDist)
 			if modeCost < bestCost {
 				bestMode = bMode
 				bestRate = modeRate
@@ -2520,7 +2565,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var dqcoeff [16]int16
 		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], 4, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, qIndex, zbinOverQuant, 0, &qcoeff, &dqcoeff)
+		quantizeDecisionBlock(fastQuant, &dct, quantY1, qIndex, zbinOverQuant, 0, &qcoeff, &dqcoeff)
 		var recon [16]byte
 		dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
 		copyBPredBlock(recon[:], 4, y, yStride, block)
@@ -2531,8 +2576,8 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 		}
 	}
-	variance, sse := macroblockLumaVarianceSSE(src, &e.analysis.Img, mbRow, mbCol)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance), variance, sse, rate, true
+	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, libvpxRDCost(rdMult, rdDiv, rate, variance), variance, sse, rate, true
 }
 
 func selectInterFrameSplitMotionMode(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int) (vp8enc.InterFrameMacroblockMode, bool) {
@@ -6151,35 +6196,48 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int) int {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
-	mvY := int(mv.Row >> 3)
-	mvX := int(mv.Col >> 3)
+	mvCol := int(mv.Col)
+	mvRow := int(mv.Row)
+	mvY := mvRow >> 3
+	mvX := mvCol >> 3
 	refBaseY := baseY + mvY
 	refBaseX := baseX + mvX
-	xOffset := int(mv.Col) & 7
-	yOffset := int(mv.Row) & 7
-	if xOffset|yOffset != 0 {
-		if baseY >= 0 && baseX >= 0 &&
-			baseY+16 <= src.Height && baseX+16 <= src.Width {
-			if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset, limit); ok {
-				return sad
-			}
+	xOffset := mvCol & 7
+	yOffset := mvRow & 7
+	// Hoist the source-window in-bounds predicate: both subpel and aligned
+	// fast paths require the source MB to fit inside the frame, so compute
+	// it once and reuse.
+	srcInBounds := baseY >= 0 && baseX >= 0 &&
+		baseY+16 <= src.Height && baseX+16 <= src.Width
+	if xOffset|yOffset != 0 && srcInBounds {
+		if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset, limit); ok {
+			return sad
 		}
 	}
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width &&
+	if srcInBounds &&
 		refBaseY >= 0 && refBaseX >= 0 &&
 		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
 		return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride, limit)
 	}
 
+	srcY0 := src.Y
+	refY0 := ref.Y
+	srcStride := src.YStride
+	refStride := ref.YStride
+	srcH := src.Height
+	srcW := src.Width
+	refH := ref.CodedHeight
+	refW := ref.CodedWidth
 	sad := 0
 	for row := 0; row < 16; row++ {
-		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		srcY := clampEncodeCoord(baseY+row, srcH)
+		refY := clampEncodeCoord(refBaseY+row, refH)
+		srcRow := srcY * srcStride
+		refRow := refY * refStride
 		for col := 0; col < 16; col++ {
-			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
-			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
+			srcX := clampEncodeCoord(baseX+col, srcW)
+			refX := clampEncodeCoord(refBaseX+col, refW)
+			diff := int(srcY0[srcRow+srcX]) - int(refY0[refRow+refX])
 			if diff < 0 {
 				diff = -diff
 			}
