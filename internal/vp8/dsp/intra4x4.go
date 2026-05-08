@@ -34,17 +34,84 @@ func Intra4x4Predict(dst []byte, dstStride int, mode common.BPredictionMode, abo
 }
 
 func Intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
-	intraDCPredictScalar(dst, dstStride, above, left, 4, true, true)
+	_ = above[3]
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4DCPredict(dst, dstStride, above, left)
 }
 
 func Intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intraTMPredictScalar(dst, dstStride, above, left, topLeft, 4)
+	_ = above[3]
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4TMPredict(dst, dstStride, above, left, topLeft)
 }
 
 func Intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
 	_ = above[4]
 	_ = dst[3*dstStride+3]
+	intra4x4VEPredict(dst, dstStride, above, topLeft)
+}
 
+func Intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4HEPredict(dst, dstStride, left, topLeft)
+}
+
+func Intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
+	_ = above[7]
+	_ = dst[3*dstStride+3]
+	intra4x4LDPredict(dst, dstStride, above)
+}
+
+func Intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	_ = above[3]
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4RDPredict(dst, dstStride, above, left, topLeft)
+}
+
+func Intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	_ = above[3]
+	_ = left[2]
+	_ = dst[3*dstStride+3]
+	intra4x4VRPredict(dst, dstStride, above, left, topLeft)
+}
+
+func Intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
+	_ = above[7]
+	_ = dst[3*dstStride+3]
+	intra4x4VLPredict(dst, dstStride, above)
+}
+
+func Intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	_ = above[2]
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4HDPredict(dst, dstStride, above, left, topLeft)
+}
+
+func Intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
+	_ = left[3]
+	_ = dst[3*dstStride+3]
+	intra4x4HUPredict(dst, dstStride, left)
+}
+
+// Scalar reference kernels for the 4x4 B_PRED modes. These are the
+// authoritative bit-exact implementations; SIMD dispatch files on amd64
+// and arm64 may shadow these names but must produce byte-identical
+// output. Mirrors libvpx v1.16.0 vp8/common/reconintra4x4.c.
+
+func intra4x4DCPredictScalar(dst []byte, dstStride int, above []byte, left []byte) {
+	intraDCPredictScalar(dst, dstStride, above, left, 4, true, true)
+}
+
+func intra4x4TMPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intraTMPredictScalar(dst, dstStride, above, left, topLeft, 4)
+}
+
+func intra4x4VEPredictScalar(dst []byte, dstStride int, above []byte, topLeft byte) {
 	row := [4]byte{
 		avg3(topLeft, above[0], above[1]),
 		avg3(above[0], above[1], above[2]),
@@ -56,20 +123,14 @@ func Intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
 	}
 }
 
-func Intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
-	_ = left[3]
-	_ = dst[3*dstStride+3]
-
+func intra4x4HEPredictScalar(dst []byte, dstStride int, left []byte, topLeft byte) {
 	fillRow4(dst[0*dstStride:], avg3(topLeft, left[0], left[1]))
 	fillRow4(dst[1*dstStride:], avg3(left[0], left[1], left[2]))
 	fillRow4(dst[2*dstStride:], avg3(left[1], left[2], left[3]))
 	fillRow4(dst[3*dstStride:], avg3(left[2], left[3], left[3]))
 }
 
-func Intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
-	_ = above[7]
-	_ = dst[3*dstStride+3]
-
+func intra4x4LDPredictScalar(dst []byte, dstStride int, above []byte) {
 	a, b, c, d := above[0], above[1], above[2], above[3]
 	e, f, g, h := above[4], above[5], above[6], above[7]
 
@@ -91,11 +152,7 @@ func Intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
 	dst[3*dstStride+3] = avg3(g, h, h)
 }
 
-func Intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	_ = above[3]
-	_ = left[3]
-	_ = dst[3*dstStride+3]
-
+func intra4x4RDPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
 	a, b, c, d := above[0], above[1], above[2], above[3]
 	i, j, k, l := left[0], left[1], left[2], left[3]
 	x := topLeft
@@ -118,11 +175,7 @@ func Intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, top
 	dst[0*dstStride+3] = avg3(d, c, b)
 }
 
-func Intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	_ = above[3]
-	_ = left[2]
-	_ = dst[3*dstStride+3]
-
+func intra4x4VRPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
 	a, b, c, d := above[0], above[1], above[2], above[3]
 	i, j, k := left[0], left[1], left[2]
 	x := topLeft
@@ -146,10 +199,7 @@ func Intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, top
 	dst[1*dstStride+3] = avg3(b, c, d)
 }
 
-func Intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
-	_ = above[7]
-	_ = dst[3*dstStride+3]
-
+func intra4x4VLPredictScalar(dst []byte, dstStride int, above []byte) {
 	a, b, c, d := above[0], above[1], above[2], above[3]
 	e, f, g, h := above[4], above[5], above[6], above[7]
 
@@ -172,11 +222,7 @@ func Intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
 	dst[3*dstStride+3] = avg3(f, g, h)
 }
 
-func Intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	_ = above[2]
-	_ = left[3]
-	_ = dst[3*dstStride+3]
-
+func intra4x4HDPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
 	a, b, c := above[0], above[1], above[2]
 	i, j, k, l := left[0], left[1], left[2], left[3]
 	x := topLeft
@@ -200,10 +246,7 @@ func Intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, top
 	dst[3*dstStride+1] = avg3(l, k, j)
 }
 
-func Intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
-	_ = left[3]
-	_ = dst[3*dstStride+3]
-
+func intra4x4HUPredictScalar(dst []byte, dstStride int, left []byte) {
 	i, j, k, l := left[0], left[1], left[2], left[3]
 
 	dst[0*dstStride+0] = avg2(i, j)
