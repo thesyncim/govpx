@@ -1,19 +1,52 @@
 {
   "fixtures": {
     "realtime-cbr-cpu0": {
-      "divergent_rows": 0,
+      "divergent_rows": 283,
       "total_rows": 285,
-      "field_hist": {}
+      "field_hist": {
+        "became_best": 107,
+        "frame_index": 98,
+        "mb_col": 160,
+        "mb_row": 195,
+        "mode": 169,
+        "mode_index": 183,
+        "mv_col": 94,
+        "mv_row": 94,
+        "ref_frame": 120,
+        "ref_slot": 120
+      }
     },
     "realtime-cbr-cpu4": {
-      "divergent_rows": 0,
+      "divergent_rows": 283,
       "total_rows": 285,
-      "field_hist": {}
+      "field_hist": {
+        "became_best": 107,
+        "frame_index": 98,
+        "mb_col": 160,
+        "mb_row": 195,
+        "mode": 169,
+        "mode_index": 183,
+        "mv_col": 94,
+        "mv_row": 94,
+        "ref_frame": 120,
+        "ref_slot": 120
+      }
     },
     "realtime-cbr-cpu8": {
-      "divergent_rows": 0,
+      "divergent_rows": 283,
       "total_rows": 285,
-      "field_hist": {}
+      "field_hist": {
+        "became_best": 107,
+        "frame_index": 98,
+        "mb_col": 160,
+        "mb_row": 195,
+        "mode": 169,
+        "mode_index": 183,
+        "mv_col": 94,
+        "mv_row": 94,
+        "ref_frame": 120,
+        "ref_slot": 120
+      }
     }
   }
 }
