@@ -1636,7 +1636,23 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
 			mode, score, yrd, rate, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			// libvpx vp8/encoder/rdopt.c B_PRED case (lines 1949-1971):
+			// when rd_pick_intra4x4mby_modes returns tmp_rd >= best_yrd
+			// the case sets `this_rd = INT_MAX, disable_skip = 1` and
+			// falls through to the post-loop best/raise mutation block
+			// at lines 2235-2267. The else branch there raises
+			// `rd_thresh_mult[mode_index] += 4` and rewrites
+			// `rd_threshes[mode_index]`. govpx's intra/B_PRED RD scorer
+			// signals that same dropout as `ok == false`; we still need
+			// to mirror libvpx's raise so the next MB sees the same
+			// pruning threshold (otherwise BPred and the other intra
+			// modes carry stale low thresholds across MBs and the
+			// per-frame `rd_threshes` evolution drifts -- caught by
+			// TestOracleInterCandidateThresholdEvolution
+			// good-quality-vbr-cpu3, frame=1 mb=(3,3) BPred 97500 vs
+			// 136980).
 			if !ok {
+				e.raiseInterRDThreshold(modeIndex)
 				continue
 			}
 			mode.SegmentID = segmentID
