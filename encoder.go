@@ -1230,10 +1230,22 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 
 // libvpxInterRecodeLoopActive returns true when libvpx's inter recode loop
 // would run for this frame, mirroring `cpi->sf.recode_loop` in the encoder
-// speed-feature table. Realtime always returns false (recode_loop = 0).
-// Good-quality returns true when cpu-used <= 3 for plain inter frames, and
-// when cpu-used <= 4 for boosted (golden/altref) frames. Best-quality
-// returns true unconditionally.
+// speed-feature table at vp8/encoder/onyx_if.c set_speed_features and the
+// recode_loop_test in the same file. The libvpx mapping is:
+//
+//   - Mode == 2 (realtime):                       recode_loop = 0 (off)
+//   - Mode == 1 (good), Speed in 0..2:            recode_loop = 1 (recode all)
+//   - Mode == 1 (good), Speed == 3:               recode_loop = 2 (KF/GF/AR only)
+//   - Mode == 1 (good), Speed >= 4:               recode_loop = 0 (off)
+//   - Mode == 0 (best):                           recode_loop = 1 (recode all)
+//
+// recode_loop_test returns true when:
+//   - recode_loop == 1, OR
+//   - recode_loop == 2 AND (KEY || refresh_golden || refresh_alt_ref)
+//
+// govpx encodes the KF path separately, so this helper covers the inter
+// branch only. boostedReferenceFrame mirrors `(cm->refresh_golden_frame
+// || cm->refresh_alt_ref_frame)`.
 func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) bool {
 	if e == nil {
 		return true
@@ -1243,10 +1255,14 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 		return false
 	case DeadlineGoodQuality:
 		speed := e.libvpxCPUUsed()
-		if boostedReferenceFrame {
-			return speed <= 4
+		switch {
+		case speed <= 2:
+			return true
+		case speed == 3:
+			return boostedReferenceFrame
+		default:
+			return false
 		}
-		return speed <= 3
 	default:
 		return true
 	}
