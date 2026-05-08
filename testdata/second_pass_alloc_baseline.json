@@ -1,0 +1,10 @@
+{
+  "fixtures": {
+    "good-quality-cpu0-vbr": {
+      "q_match_pct": 100,
+      "target_match_pct": 0,
+      "max_qindex_delta": 0,
+      "max_target_rel_delta": 33.21762711864407
+    }
+  }
+}
