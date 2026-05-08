@@ -282,6 +282,22 @@ func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
 	return out.Bytes()
 }
 
+func TestProjectOracleDecisionTraceDropsInterCandidateRows(t *testing.T) {
+	trace := []byte(
+		`{"type":"rate","frame_index":0,"frame_type":"key","q_index":4}` + "\n" +
+			`{"type":"inter_candidate","frame_index":1,"mb_row":0,"mb_col":0,"picker":"rd","mode_index":0}` + "\n" +
+			`{"type":"frame","frame_index":0,"frame_type":"key","q_index":4}` + "\n",
+	)
+	projected := projectOracleDecisionTrace(t, trace)
+	if bytes.Contains(projected, []byte("inter_candidate")) {
+		t.Fatalf("projected decision trace retained inter_candidate row:\n%s", projected)
+	}
+	lines := splitNonEmptyLines(projected)
+	if len(lines) != 2 {
+		t.Fatalf("projected decision trace lines = %d, want 2\n%s", len(lines), projected)
+	}
+}
+
 func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, wantPicker string) {
 	t.Helper()
 	rows := oracleTraceRowsOfType(t, trace, "inter_candidate")

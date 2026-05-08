@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates-v2
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -412,8 +412,13 @@ void govpx_oracle_capture_inter_candidate(
     row->distortion_uv = distortion_uv;
     row->sse = sse;
     row->skip = loop_break;
-    row->mv_row = mbmi->mv.as_mv.row;
-    row->mv_col = mbmi->mv.as_mv.col;
+    if (row->ref_frame == INTRA_FRAME) {
+        row->mv_row = 0;
+        row->mv_col = 0;
+    } else {
+        row->mv_row = mbmi->mv.as_mv.row;
+        row->mv_col = mbmi->mv.as_mv.col;
+    }
     row->improved_mv_near_sadidx = -1;
     row->improved_mv_sr = -1;
     if (row->mode == NEWMV && row->ref_frame >= 1 && row->ref_frame <= 3) {

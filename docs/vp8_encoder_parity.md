@@ -364,8 +364,10 @@ the anchor and look for the surrounding mismatch.
     threshold, best-before score state, RD/rate/distortion fields where
     available, skip/breakout decisions, MV, and improved-MV-start diagnostics.
     `TestOracleEncoderTraceCandidateRowsPresent` asserts both RD and realtime
-    fast pickers emit candidate rows on both sides. Staged field comparison,
-    skipped/pruned candidate rows, and rejected recode-attempt rows remain open.
+    fast pickers emit candidate rows on both sides. A local staged comparison
+    over the VBR panning trace now reaches real mode/MV candidate divergences,
+    so candidate field comparison, skipped/pruned candidate rows, and rejected
+    recode-attempt rows remain open.
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV
