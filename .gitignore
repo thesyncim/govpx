@@ -1,3 +1,4 @@
 .idea/
 .gocache/
 internal/coracle/build/
+.scoreboard.log
