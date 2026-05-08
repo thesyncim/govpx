@@ -372,8 +372,23 @@ type VP8Encoder struct {
 	reconstructScratch vp8dec.IntraReconstructionScratch
 	loopInfo           vp8common.LoopFilterInfo
 	loopFilterLevel    uint8
-	coefProbs          vp8tables.CoefficientProbs
-	modeProbs          vp8dec.ModeProbs
+	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
+	// vp8/encoder/bitstream.c pack_lf_deltas: the encoder signals the
+	// mode/ref loop-filter deltas with `update=1` on the very first packed
+	// frame (when xd->mode_ref_lf_delta_update is 1 from set_default_lf_deltas)
+	// and clears the flag after the bitstream is written, so subsequent
+	// frames pack `update=0` until something changes the deltas. We mirror
+	// that by tracking whether the deltas have been signaled at least once
+	// and what values were last signaled; the bitstream writer compares the
+	// frame's deltas against that snapshot to decide whether to emit
+	// `mode_ref_lf_delta_update`. The snapshot is committed to the encoder
+	// state only on the accepted attempt (see commitKeyFrameAttempt /
+	// commitInterFrameAttempt) so recode iterations see consistent state.
+	lfDeltasSignaledOnce     bool
+	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
+	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
+	coefProbs                vp8tables.CoefficientProbs
+	modeProbs                vp8dec.ModeProbs
 
 	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
 	// frame currently being built. Rows from intermediate recode attempts are
@@ -1151,7 +1166,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		LoopFilterLevel:     lfLevel,
 		SharpnessLevel:      lfSharpness,
 		LFDeltaEnabled:      lfHeader.DeltaEnabled,
-		LFDeltaUpdate:       lfHeader.DeltaUpdate,
+		LFDeltaUpdate:       e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas),
 		RefLFDeltas:         lfHeader.RefDeltas,
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
@@ -1328,7 +1343,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled
-	cfg.LFDeltaUpdate = lfHeader.DeltaUpdate
+	cfg.LFDeltaUpdate = e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas)
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
@@ -1431,12 +1446,23 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
+	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
+	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
+	// next frame's send_update bit reflects whether anything actually
+	// changed. The keyframe is the first packed frame in a clip, so this
+	// is also where lfDeltasSignaledOnce flips to true.
+	e.updateLastSignaledLFDeltas(attempt.LFDeltaEnabled, attempt.RefLFDeltas, attempt.ModeLFDeltas)
 }
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
 	e.updateRefFrameProbsFromAttempt(attempt)
+	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
+	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
+	// next frame's send_update bit reflects whether anything actually
+	// changed. We snapshot the accepted attempt's deltas to match.
+	e.updateLastSignaledLFDeltas(attempt.Config.LFDeltaEnabled, attempt.Config.RefLFDeltas, attempt.Config.ModeLFDeltas)
 	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
 	// counters used by applyRdRefFrameProbHeuristics next frame.
 	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
@@ -2529,6 +2555,49 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 
 func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 	return e != nil && e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 14
+}
+
+// computeLFDeltaUpdateBit mirrors libvpx vp8/encoder/bitstream.c pack_lf_deltas:
+//
+//	int send_update = xd->mode_ref_lf_delta_update || cpi->oxcf.error_resilient_mode;
+//
+// libvpx's `mode_ref_lf_delta_update` flag is set once at init in
+// set_default_lf_deltas and cleared after every packed frame (see
+// vp8/encoder/onyx_if.c). In effect, libvpx writes `update=1` on the very
+// first packed frame (when last_*_lf_deltas are still the all-zero memset
+// from setup_features) and `update=0` thereafter, since the default deltas
+// never change at runtime. We mirror that by also re-emitting `update=1`
+// when the encoder's chosen deltas drift away from the last-signaled values
+// or in error-resilient mode. The "signaled once" gate covers the keyframe
+// invariant: until we have packed a frame at all, the deltas have not been
+// communicated to the decoder.
+func (e *VP8Encoder) computeLFDeltaUpdateBit(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) bool {
+	if !deltaEnabled {
+		return false
+	}
+	if e == nil {
+		return true
+	}
+	if e.opts.ErrorResilient {
+		return true
+	}
+	if !e.lfDeltasSignaledOnce {
+		return true
+	}
+	return refDeltas != e.lastSignaledRefLFDeltas || modeDeltas != e.lastSignaledModeLFDeltas
+}
+
+// updateLastSignaledLFDeltas commits the per-frame loop-filter delta
+// snapshot that future frames compare against to decide whether to set
+// mode_ref_lf_delta_update. Called from the keyframe / inter-frame commit
+// paths so recode iterations within a frame see the pre-frame state.
+func (e *VP8Encoder) updateLastSignaledLFDeltas(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) {
+	if e == nil || !deltaEnabled {
+		return
+	}
+	e.lastSignaledRefLFDeltas = refDeltas
+	e.lastSignaledModeLFDeltas = modeDeltas
+	e.lfDeltasSignaledOnce = true
 }
 
 func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
