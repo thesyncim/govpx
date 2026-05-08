@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-drop-frames-v1
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-drop-frames-predictor-allrows-v1
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -928,6 +928,235 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
     fflush(out);
     govpx_recode_iter_count = 0;
 }
+
+/* Emit a "predictor" row capturing xd->dst.{y,u,v}_buffer for MB(0,0) of
+ * inter frames only. Called from encode_macroblock between
+ * vp8_encode_inter16x16 and vp8_inverse_transform_mby so dst still holds
+ * the pure inter predictor (no residual added yet). The plane buffer is
+ * encoded as hex so the row is one parseable JSON line. Gated on
+ * GOVPX_ORACLE_PREDICTOR_DUMP env var to keep the regular oracle runs
+ * lean — set GOVPX_ORACLE_PREDICTOR_DUMP=1 (alongside
+ * GOVPX_ORACLE_TRACE_OUT) to capture the predictor. */
+static int govpx_oracle_predictor_dump_enabled(void) {
+    static int cached = -1;
+    const char *env;
+    if (cached >= 0) {
+        return cached;
+    }
+    env = getenv("GOVPX_ORACLE_PREDICTOR_DUMP");
+    cached = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    return cached;
+}
+
+static void govpx_oracle_emit_plane_hex(FILE *out, const unsigned char *plane,
+                                        int width, int height, int stride) {
+    static const char hex[] = "0123456789abcdef";
+    int row, col;
+    for (row = 0; row < height; ++row) {
+        const unsigned char *p = plane + (size_t)row * (size_t)stride;
+        for (col = 0; col < width; ++col) {
+            unsigned char b = p[col];
+            fputc(hex[(b >> 4) & 0xf], out);
+            fputc(hex[b & 0xf], out);
+        }
+    }
+}
+
+/* Internal helper: emit Y/U/V planes of an MB to the oracle stream tagged
+ * with row_type. Used both for "predictor" rows (pre-residual capture) and
+ * "reconstructed" rows (post-residual capture). */
+static void govpx_oracle_emit_mb_planes(FILE *out, const char *row_type,
+                                        unsigned long long frame_index,
+                                        int mb_row, int mb_col, MACROBLOCKD *xd) {
+    fprintf(out,
+            "{\"type\":\"%s\","
+            "\"frame_index\":%llu,"
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"plane\":\"y\","
+            "\"width\":16,\"height\":16,"
+            "\"hex\":\"",
+            row_type, frame_index, mb_row, mb_col);
+    govpx_oracle_emit_plane_hex(out, xd->dst.y_buffer, 16, 16, xd->dst.y_stride);
+    fprintf(out, "\"}\n");
+    fprintf(out,
+            "{\"type\":\"%s\","
+            "\"frame_index\":%llu,"
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"plane\":\"u\","
+            "\"width\":8,\"height\":8,"
+            "\"hex\":\"",
+            row_type, frame_index, mb_row, mb_col);
+    govpx_oracle_emit_plane_hex(out, xd->dst.u_buffer, 8, 8, xd->dst.uv_stride);
+    fprintf(out, "\"}\n");
+    fprintf(out,
+            "{\"type\":\"%s\","
+            "\"frame_index\":%llu,"
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"plane\":\"v\","
+            "\"width\":8,\"height\":8,"
+            "\"hex\":\"",
+            row_type, frame_index, mb_row, mb_col);
+    govpx_oracle_emit_plane_hex(out, xd->dst.v_buffer, 8, 8, xd->dst.uv_stride);
+    fprintf(out, "\"}\n");
+}
+
+/* Predictor-only capture point: between vp8_encode_inter16x16 (which writes
+ * predictor + computes residual) and vp8_inverse_transform_mby (which adds
+ * the dequantized residual back). Captures only MB row 0 by default; set
+ * GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS=1 to capture every row (e.g. when
+ * tracking down a divergence in MB row 4 that affects the loop-filter
+ * picker's partial-frame trial). */
+static int govpx_oracle_predictor_dump_all_rows(void) {
+    static int cached = -1;
+    const char *env;
+    if (cached >= 0) {
+        return cached;
+    }
+    env = getenv("GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS");
+    cached = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    return cached;
+}
+
+void govpx_oracle_emit_predictor(struct VP8_COMP *cpi, int mb_row, int mb_col) {
+    VP8_COMMON *cm;
+    MACROBLOCKD *xd;
+    FILE *out;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_predictor_dump_enabled()) {
+        return;
+    }
+    cm = &cpi->common;
+    /* Inter frames only; MB row 0 by default, all rows if requested. */
+    if (cm->frame_type == KEY_FRAME) {
+        return;
+    }
+    if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
+        return;
+    }
+    xd = &cpi->mb.e_mbd;
+    out = govpx_oracle_state.out;
+    govpx_oracle_emit_mb_planes(out, "predictor",
+                                govpx_oracle_state.frame_index,
+                                mb_row, mb_col, xd);
+    fflush(out);
+}
+
+/* Reconstruction-output capture point: after the IDCT-add residual stage in
+ * encode_macroblock. Captures predictor + residual at the same MB scope as
+ * govpx_oracle_emit_predictor so the comparator can pinpoint whether the
+ * gap is in the predictor or the residual. */
+void govpx_oracle_emit_reconstructed(struct VP8_COMP *cpi, int mb_row, int mb_col) {
+    VP8_COMMON *cm;
+    MACROBLOCKD *xd;
+    FILE *out;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_predictor_dump_enabled()) {
+        return;
+    }
+    cm = &cpi->common;
+    if (cm->frame_type == KEY_FRAME) {
+        return;
+    }
+    if (!govpx_oracle_predictor_dump_all_rows() && mb_row != 0) {
+        return;
+    }
+    xd = &cpi->mb.e_mbd;
+    out = govpx_oracle_state.out;
+    govpx_oracle_emit_mb_planes(out, "reconstructed",
+                                govpx_oracle_state.frame_index,
+                                mb_row, mb_col, xd);
+    fflush(out);
+}
+
+/* Capture the LAST reference plane content at the start of an inter frame's
+ * encode pass, including the top/right border bytes that the chroma sub-pel
+ * filter taps reach for MB(0,0..7). The capture window is 16 rows x
+ * (border_left + plane_width) columns starting border_top rows before
+ * row 0, so the comparator sees the same border data govpx and libvpx use
+ * when filtering the first MB row. Called once per inter frame, just
+ * before the first MB is encoded. */
+void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
+    VP8_COMMON *cm;
+    YV12_BUFFER_CONFIG *ref;
+    FILE *out;
+    int border, uv_border;
+    int y_window_h, uv_window_h;
+    int y_window_w, uv_window_w;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (!govpx_oracle_predictor_dump_enabled()) {
+        return;
+    }
+    cm = &cpi->common;
+    if (cm->frame_type == KEY_FRAME) {
+        return;
+    }
+    ref = &cm->yv12_fb[cm->lst_fb_idx];
+    border = ref->border;
+    uv_border = border / 2;
+    /* Capture top border + first MB row of Y (16 visible rows + border top
+     * rows worth of context). Width spans left border + visible width to
+     * cover both the left edge and any in-frame columns. */
+    y_window_h = border + 16;
+    uv_window_h = uv_border + 8;
+    y_window_w = border + ref->y_crop_width;
+    uv_window_w = uv_border + ref->uv_crop_width;
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"last_ref_window\","
+            "\"frame_index\":%llu,"
+            "\"plane\":\"y\","
+            "\"width\":%d,\"height\":%d,"
+            "\"border_top\":%d,\"border_left\":%d,"
+            "\"hex\":\"",
+            govpx_oracle_state.frame_index, y_window_w, y_window_h,
+            border, border);
+    /* y_buffer points to the top-left of the visible region. Step back by
+     * border rows and border columns to reach the top-left of the captured
+     * window. */
+    govpx_oracle_emit_plane_hex(out,
+        ref->y_buffer - border * ref->y_stride - border,
+        y_window_w, y_window_h, ref->y_stride);
+    fprintf(out, "\"}\n");
+    fprintf(out,
+            "{\"type\":\"last_ref_window\","
+            "\"frame_index\":%llu,"
+            "\"plane\":\"u\","
+            "\"width\":%d,\"height\":%d,"
+            "\"border_top\":%d,\"border_left\":%d,"
+            "\"hex\":\"",
+            govpx_oracle_state.frame_index, uv_window_w, uv_window_h,
+            uv_border, uv_border);
+    govpx_oracle_emit_plane_hex(out,
+        ref->u_buffer - uv_border * ref->uv_stride - uv_border,
+        uv_window_w, uv_window_h, ref->uv_stride);
+    fprintf(out, "\"}\n");
+    fprintf(out,
+            "{\"type\":\"last_ref_window\","
+            "\"frame_index\":%llu,"
+            "\"plane\":\"v\","
+            "\"width\":%d,\"height\":%d,"
+            "\"border_top\":%d,\"border_left\":%d,"
+            "\"hex\":\"",
+            govpx_oracle_state.frame_index, uv_window_w, uv_window_h,
+            uv_border, uv_border);
+    govpx_oracle_emit_plane_hex(out,
+        ref->v_buffer - uv_border * ref->uv_stride - uv_border,
+        uv_window_w, uv_window_h, ref->uv_stride);
+    fprintf(out, "\"}\n");
+    fflush(out);
+}
 GOVPX_ORACLE_TU
 
 	# (2) Add extern declarations + the per-MB capture call to encodeframe.c.
@@ -937,6 +1166,9 @@ GOVPX_ORACLE_TU
 		BEGIN { inserted_decl = 0; inserted_call = 0 }
 		!inserted_decl && /^extern void vp8_stuff_mb\(/ {
 			print "extern void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col);"
+			print "extern void govpx_oracle_emit_predictor(struct VP8_COMP *cpi, int mb_row, int mb_col);"
+			print "extern void govpx_oracle_emit_reconstructed(struct VP8_COMP *cpi, int mb_row, int mb_col);"
+			print "extern void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi);"
 			print $0
 			inserted_decl = 1
 			next
@@ -962,6 +1194,101 @@ GOVPX_ORACLE_TU
 		}
 	' "$src_dir/vp8/encoder/encodeframe.c" > "$src_dir/vp8/encoder/encodeframe.c.tmp"
 	mv "$src_dir/vp8/encoder/encodeframe.c.tmp" "$src_dir/vp8/encoder/encodeframe.c"
+
+	# (2.5) Inject predictor-dump and reconstruction-dump calls into
+	# vp8cx_encode_inter_macroblock. The predictor dump captures
+	# xd->dst.{y,u,v}_buffer between vp8_encode_inter16x16 and
+	# vp8_inverse_transform_mby — at that point dst holds the pure inter
+	# predictor (no residual added yet) and matches govpx's analysis image
+	# after reconstructInterAnalysisMacroblock(MBSkipCoeff=1). The
+	# reconstruction dump captures the same buffer at function tail, after
+	# the IDCT-add residual stage. Both are no-ops unless
+	# GOVPX_ORACLE_PREDICTOR_DUMP=1 is set.
+	python3 - "$src_dir/vp8/encoder/encodeframe.c" <<'GOVPX_PREDICTOR_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+pred_sentinel = '/* govpx oracle: dump inter predictor before residual add. */'
+recon_sentinel = '/* govpx oracle: dump inter MB after residual add. */'
+if pred_sentinel in text and recon_sentinel in text:
+    sys.exit(0)  # already patched
+pred_anchor = ('    if (!x->skip) {\n'
+               '      vp8_encode_inter16x16(x);\n'
+               '    } else {\n'
+               '      vp8_build_inter16x16_predictors_mb(xd, xd->dst.y_buffer, xd->dst.u_buffer,\n'
+               '                                         xd->dst.v_buffer, xd->dst.y_stride,\n'
+               '                                         xd->dst.uv_stride);\n'
+               '    }\n'
+               '  }\n')
+pred_replacement = ('    if (!x->skip) {\n'
+                    '      vp8_encode_inter16x16(x);\n'
+                    '    } else {\n'
+                    '      vp8_build_inter16x16_predictors_mb(xd, xd->dst.y_buffer, xd->dst.u_buffer,\n'
+                    '                                         xd->dst.v_buffer, xd->dst.y_stride,\n'
+                    '                                         xd->dst.uv_stride);\n'
+                    '    }\n'
+                    '    ' + pred_sentinel + '\n'
+                    '    govpx_oracle_emit_predictor(cpi, mb_row, mb_col);\n'
+                    '  }\n')
+if pred_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: predictor anchor missing in encodeframe.c\n')
+    sys.exit(2)
+text = text.replace(pred_anchor, pred_replacement, 1)
+
+# Inject reconstruction dump just before the unique "return rate;" tail of
+# vp8cx_encode_inter_macroblock. The function tail is identifiable by the
+# preceding `vp8_stuff_mb` block since vp8cx_encode_intra_macro_block
+# doesn't have that path.
+recon_anchor = ('    if (cpi->common.mb_no_coeff_skip) {\n'
+                '      x->skip_true_count++;\n'
+                '      vp8_fix_contexts(xd);\n'
+                '    } else {\n'
+                '      vp8_stuff_mb(cpi, x, t);\n'
+                '    }\n'
+                '  }\n'
+                '\n'
+                '  return rate;\n'
+                '}\n')
+recon_replacement = ('    if (cpi->common.mb_no_coeff_skip) {\n'
+                     '      x->skip_true_count++;\n'
+                     '      vp8_fix_contexts(xd);\n'
+                     '    } else {\n'
+                     '      vp8_stuff_mb(cpi, x, t);\n'
+                     '    }\n'
+                     '  }\n'
+                     '\n'
+                     '  ' + recon_sentinel + '\n'
+                     '  govpx_oracle_emit_reconstructed(cpi, mb_row, mb_col);\n'
+                     '\n'
+                     '  return rate;\n'
+                     '}\n')
+if recon_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: reconstruction anchor missing in encodeframe.c\n')
+    sys.exit(2)
+text = text.replace(recon_anchor, recon_replacement, 1)
+
+# Inject last_ref_window dump at the entry of encode_mb_row when mb_row==0.
+# Anchor: the unique "/* reset above block coeffs */" comment (only one site
+# in encodeframe.c) followed by xd->above_context assignment.
+ref_sentinel = '/* govpx oracle: dump LAST reference content + border. */'
+ref_anchor = ('  /* reset above block coeffs */\n'
+              '  xd->above_context = cm->above_context;\n')
+ref_replacement = ('  /* reset above block coeffs */\n'
+                   '  xd->above_context = cm->above_context;\n'
+                   '\n'
+                   '  ' + ref_sentinel + '\n'
+                   '  if (mb_row == 0) {\n'
+                   '    govpx_oracle_emit_last_ref_window(cpi);\n'
+                   '  }\n')
+if ref_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: encode_mb_row anchor missing in encodeframe.c\n')
+    sys.exit(2)
+text = text.replace(ref_anchor, ref_replacement, 1)
+
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_PREDICTOR_PY
 
 	# (3) Add extern declaration + the per-frame emit call to bitstream.c.
 	# Anchor for extern: '#include "defaultcoefcounts.h"' (only place that

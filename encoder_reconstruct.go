@@ -255,6 +255,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 		return 0, ErrInvalidConfig
 	}
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
+	// Capture the LAST reference (with border) once per inter frame so the
+	// chroma sub-pel diagnostic can verify border content matches libvpx.
+	e.emitOracleLastRefWindow(&e.lastRef.Img)
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
@@ -346,6 +349,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
+				// Capture the inter predictor before residual is added.
+				// Mirrors libvpx's xd->dst.{y,u,v}_buffer between
+				// vp8_encode_inter16x16 and vp8_inverse_transform_mby. Only
+				// emits when EncoderOptions.OracleTracePredictorDump is
+				// enabled and only for MB(0,0).
+				e.emitOracleInterPredictorTrace(row, col, &e.analysis.Img)
 			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.opts.StaticThreshold))
@@ -374,6 +383,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
+			// Capture the post-residual reconstruction so the predictor diff
+			// harness can pinpoint whether the gap originated in the
+			// predictor (matched libvpx already) or the residual stage.
+			// Mirrors libvpx's `govpx_oracle_emit_reconstructed` injected at
+			// the tail of vp8cx_encode_inter_macroblock.
+			e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
 			e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index])
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)

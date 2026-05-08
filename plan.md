@@ -57,6 +57,13 @@ lives in [Makefile](Makefile).
     sixtap rounding alone — dominates the inter-frame gap. Closing this
     needs Q-regulation parity on inter frames at this resolution before
     per-pixel reconstruction diff is meaningful.
+  - 128x128 panning realtime CBR CpuUsed 8 (round 2, post-recode-loop
+    parity gate): per-MB predictor + post-residual dumps confirm that
+    every MB of frame 1 reconstructs byte-identically to libvpx (Y/U/V,
+    all 64 MBs). Frame 2+ predictor diffs cascade from a **loop-filter
+    level fast-picker divergence** (govpx LF=11 vs libvpx LF=5 for
+    frame 1, identical q=16 and identical clamped seed); the chroma
+    sixtap math itself is correct.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
@@ -72,18 +79,29 @@ lives in [Makefile](Makefile).
   Q drift on 160x96 frame 2: govpx 12 vs libvpx 13). Decoded per-pixel
   deltas peak at 4 (Y) / 3 (U) / 1 (V) with mean magnitude < 0.04 -
   quality-equivalent (PSNR vs libvpx > 60 dB) but breaks strict
-  byte-identity. Subagent localized to `internal/vp8/dsp/subpixel.go
-  sixTapPredict` outputs at MB(0,0) row 0 cols 3 / 7 (govpx 118/137 vs
-  libvpx 117/139); the H/V tap math matches libvpx C reference and the
-  64x64 byte-identity gate exercises sixTapPredict without divergence,
-  so the residual disagreement most likely lives in a sub-pel rounding
-  edge case the larger fixture corpus exercises. Tracked by
+  byte-identity. Tracked by
   [`TestOracleChromaSubpelScoreboard`](oracle_chroma_subpel_scoreboard_test.go)
   with a per-fixture baseline at
   [`testdata/chroma_subpel_scoreboard_baseline.json`](testdata/chroma_subpel_scoreboard_baseline.json).
-  Closing this needs a per-pixel libvpx-side predictor dump (patch
-  `build_vpxenc_oracle.sh` to capture `xd->predictor` after
-  `vp8_build_inter_predictors_mb`).
+  **Localized 2026-05-08 (round 2)**: per-pixel predictor + reconstructed
+  dumps from both encoders prove that the inter prediction and post-residual
+  reconstruction are byte-identical for every MB of frame 1 on the
+  128x128 panning fixture (all 64 MBs, Y/U/V). The cascading divergence
+  in frame 2+ predictors is **driven by the loop-filter level fast picker**:
+  govpx picks LF=11 vs libvpx LF=5 for the same q=16 frame 1 inputs and
+  the same clamped seed (libvpx `vp8cx_pick_filter_level_fast` / govpx
+  `pickLoopFilterLevelFast`). The chroma sixtap math itself is correct;
+  the residual diff is purely a downstream consequence of a different LF
+  strength on the LAST reference. Diagnostic harness lives in
+  [`oracle_chroma_subpel_predictor_diag_test.go`](oracle_chroma_subpel_predictor_diag_test.go)
+  (gate `GOVPX_DEBUG=1`, optional `GOVPX_DEBUG_ALL_ROWS=1`); the libvpx
+  oracle exposes the capture via `GOVPX_ORACLE_PREDICTOR_DUMP` /
+  `GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS` env vars and the govpx side
+  mirrors them through `EncoderOptions.OracleTracePredictorDump` /
+  `OracleTracePredictorDumpAllRows`. Closing this needs a deeper LF
+  picker per-trial SSE diff between the two encoders (govpx's
+  `loopFilterTrialLumaSSE` vs libvpx's `calc_partial_ssl_err`) on the
+  same partial-frame input.
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor; per-call
   tree walks are functionally equivalent).
 - Intra/Quant/Tokens: SSIM-gated activity tuning and oracle token-cost

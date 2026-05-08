@@ -146,6 +146,24 @@ type EncoderOptions struct {
 	// from libvpx for parity validation. Leave nil for normal encoding; no
 	// allocation or work is performed when nil.
 	OracleTraceWriter io.Writer
+
+	// OracleTracePredictorDump enables per-MB inter-prediction predictor
+	// rows in the oracle trace. When true (and OracleTraceWriter is non-nil)
+	// the encoder writes one "predictor" row per Y/U/V plane for MB(0,0) of
+	// each inter frame, capturing the post-sub-pel pre-residual buffer.
+	// Mirrors the libvpx-side GOVPX_ORACLE_PREDICTOR_DUMP env-var gate; off
+	// by default since the diagnostic only fires for chroma sub-pel rounding
+	// gap localization at sizes >64x64. No effect on encoded bytes.
+	OracleTracePredictorDump bool
+
+	// OracleTracePredictorDumpAllRows widens the predictor/reconstructed
+	// dump scope to every MB row of every inter frame (instead of MB
+	// row 0 only). Has effect only when OracleTracePredictorDump is also
+	// true. Mirrors the libvpx-side GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS
+	// env-var gate. Used when chasing divergences whose root cause lives
+	// outside the first MB row (e.g. a loop-filter level picker that
+	// scores the partial-frame window at rows/2).
+	OracleTracePredictorDumpAllRows bool
 }
 
 type EncodeResult struct {
