@@ -20,6 +20,25 @@ type MacroblockCoefficients struct {
 	EOB    [25]uint8
 
 	eobMask uint32
+
+	// OracleY1DCEOB1 tracks, per Y block 0..15, whether libvpx's
+	// vp8_quantize_mb would have produced *d->eob = 1 against the original
+	// (un-zeroed) DC coefficient using the Y1 DC quantizer. govpx zeros
+	// dct[0] before quantize because that DC is hoisted into the Y2
+	// second-order block (this matches libvpx's bitstream tokenize, which
+	// starts at c=1 for Y_NO_DC), so coeffs.EOB[block] never reflects the
+	// libvpx-side DC bump. The libvpx-side oracle captures eobs *after*
+	// vp8_dequant_idct_add_y_block has memset qcoeff[0..1] back to zero,
+	// at which point eob=1 with all-zero qcoeff is the visible state for
+	// any Y block whose original dct[0] satisfied Y1DC's zbin/round/quant.
+	//
+	// This field is populated by buildPredictedMacroblockCoefficientsRD
+	// when it has access to the original dct[0] and the segment's Y1DC
+	// quantizer. It is used by emitOracleMBTrace to bump per-block eob
+	// from 0 to 1 in trace rows so the eob match-rate scoreboard matches
+	// libvpx. It does not influence bitstream emission, reconstruction,
+	// or any other encoding decision.
+	OracleY1DCEOB1 [16]uint8
 }
 
 const (

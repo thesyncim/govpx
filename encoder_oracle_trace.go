@@ -24,6 +24,7 @@ import (
 	"io"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -665,7 +666,22 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	for i := 0; i < 25; i++ {
 		row.EOB[i] = coeffs.EOB[i]
 		row.QCoeff[i] = coeffs.QCoeff[i]
-		sum += int(coeffs.EOB[i])
+	}
+	if mode.RefFrame != vp8common.IntraFrame {
+		is4x4 := mode.Mode == vp8common.SplitMV
+		segID := int(mode.SegmentID)
+		if segID >= 0 && segID < len(e.dequants) {
+			applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
+		}
+	} else {
+		is4x4 := mode.Mode == vp8common.BPred
+		segID := int(mode.SegmentID)
+		if segID >= 0 && segID < len(e.dequants) {
+			applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
+		}
+	}
+	for i := 0; i < 25; i++ {
+		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
 	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
@@ -702,10 +718,76 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 	for i := 0; i < 25; i++ {
 		row.EOB[i] = coeffs.EOB[i]
 		row.QCoeff[i] = coeffs.QCoeff[i]
-		sum += int(coeffs.EOB[i])
+	}
+	is4x4 := mode.YMode == vp8common.BPred
+	segID := int(mode.SegmentID)
+	if segID >= 0 && segID < len(e.dequants) {
+		applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
+	}
+	for i := 0; i < 25; i++ {
+		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
 	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
+}
+
+// applyOracleEOBAdjust mirrors libvpx's per-Y-block eob bump for the per-MB
+// oracle trace. There are two libvpx code paths that can leave eob=1 with
+// an all-zero qcoeff[0] in xd->eobs / xd->block[i].qcoeff at oracle-capture
+// time:
+//
+//  1. vp8_quantize_mb runs vp8_fast_quantize_b_c (or
+//     vp8_regular_quantize_b_c) on the Y block with the original (un-zeroed)
+//     dct[0] against Y1DC's zbin/round/quant. If that DC quantizes to
+//     non-zero, *d->eob is set to 1 even when every other position is zero.
+//     vp8_dequant_idct_add_y_block later memsets qcoeff[0..1] back to zero,
+//     but eob=1 survives. govpx tracks the would-have-been bit per Y block
+//     in coeffs.OracleY1DCEOB1[block].
+//
+//  2. vp8_inverse_transform_mby runs the inverse Walsh on the Y2 block,
+//     writing a per-Y-block DC value into xd->qcoeff[i*16]. eob_adjust then
+//     bumps eobs[i] from 0 to 1 if that DC is non-zero, so the IDCT path
+//     doesn't skip the block. The same memset clears qcoeff[0..1] later.
+//
+// The adjustment is purely cosmetic for the trace (bitstream tokenize,
+// reconstruction, and the parity decoder all already handle the eob=0 vs
+// eob=1 distinction correctly because the qcoeff payload is identical). It
+// only happens when the macroblock has a Y2 second-order block (i.e. the
+// non-4x4 / non-SPLITMV / non-B_PRED case).
+//
+// y2Dequant is the segment-specific Y2 dequant table (cpi->common.Y2dequant
+// in libvpx). is4x4 mirrors libvpx's `mode != SPLITMV` (or `mode != B_PRED`
+// for keyframes) gate that skips the eob_adjust.
+func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]int16, is4x4 bool, eob *[25]uint8) {
+	if coeffs == nil || y2Dequant == nil || eob == nil || is4x4 {
+		return
+	}
+	// Path 1: bump from libvpx Y1DC quantize on the original dct[0] of each
+	// Y block. coeffs.OracleY1DCEOB1[block] was populated at quantize time
+	// from the same dct[0] that fed the Y2 forward Walsh.
+	for js := 0; js < 16; js++ {
+		if eob[js] == 0 && coeffs.OracleY1DCEOB1[js] != 0 {
+			eob[js] = 1
+		}
+	}
+	// Path 2: bump from libvpx eob_adjust against the inverse-Walsh DC of
+	// the Y2 block. This is the residual case where the post-Walsh DC is
+	// non-zero even though Y1DC quantize produced zero.
+	var y2DQ [16]int16
+	for i := 0; i < 16; i++ {
+		y2DQ[i] = int16(int(coeffs.QCoeff[24][i]) * int(y2Dequant[i]))
+	}
+	var dcSlots [16 * 16]int16
+	if eob[24] > 1 {
+		dsp.InverseWalsh4x4(&y2DQ, dcSlots[:])
+	} else {
+		dsp.DCOnlyInverseWalsh4x4(y2DQ[0], dcSlots[:])
+	}
+	for js := 0; js < 16; js++ {
+		if eob[js] == 0 && dcSlots[js*16] != 0 {
+			eob[js] = 1
+		}
+	}
 }
 
 // emitOracleTraceRow marshals a row to JSON, appends a newline, and writes a
