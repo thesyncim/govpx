@@ -369,7 +369,18 @@ type VP8Encoder struct {
 
 	lookahead []lookaheadEntry
 
-	preprocess     vp8common.FrameBuffer
+	preprocess vp8common.FrameBuffer
+	// arnrScratch is govpx's analogue of libvpx's `cpi->alt_ref_buffer`
+	// (vp8/encoder/onyx_int.h, allocated in vp8/encoder/onyx_if.c with
+	// VP8BORDERINPIXELS=32). When the auto-ARF driver fires the hidden
+	// alt-ref encode, applyARNRFilter writes the temporal-filter output
+	// into this buffer and preprocessSource redirects the encode source
+	// to it (the libvpx `cpi->Source = force_src_buffer ? force_src_buffer
+	// : &cpi->source->img;` branch in vp8_get_compressed_data). Every
+	// downstream reader that consumes the source pixels for the ARF encode
+	// — motion search, RD picker, inter-frame reconstruction, loop-filter
+	// trial SSE — therefore reads the filtered pixels rather than the raw
+	// lookahead source.
 	arnrScratch    vp8common.FrameBuffer
 	arnrLastSource vp8common.FrameBuffer
 	arnrLastReady  bool
