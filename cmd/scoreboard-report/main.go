@@ -38,6 +38,7 @@ var baselines = []baselineSpec{
 	{test: "TestOracle128x128InterQDriftScoreboard", path: "testdata/qdrift_128_baseline.json"},
 	{test: "TestOracleLoopFilterHeaderMatchRate", path: "testdata/loop_filter_match_rate_baseline.json"},
 	{test: "TestOracleSecondPassAllocationCompare", path: "testdata/second_pass_alloc_baseline.json"},
+	{test: "TestOracleImprovedMVScoreboard", path: "testdata/improved_mv_match_rate_baseline.json"},
 }
 
 type testEvent struct {

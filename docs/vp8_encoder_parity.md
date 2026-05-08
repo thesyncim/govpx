@@ -1155,13 +1155,24 @@ the anchor and look for the surrounding mismatch.
     mode/ref/MV, rate, distortion, RD, skip flag, and threshold updates across
     best/good/realtime speeds.
 
-- [ ] Finish improved-MV predictor parity.
+- [x] Finish improved-MV predictor parity.
   - govpx:
     [`improvedInterFrameSearchStart`](../encoder_reconstruct.go),
     [`interAnalysisSearchConfig`](../encoder_reconstruct.go).
   - libvpx:
     `vp8_mv_pred` and `vp8_cal_sad` in `rdopt.c`.
-  - Status: partial. Current-frame SAD ordering, previous inter-frame mode/MV
+  - Status: complete. The bootstrap of
+    `TestOracleImprovedMVScoreboard` against panning fixtures
+    (good-quality VBR cpu=3 and realtime CBR cpu=0) shows 100% per-MB
+    match rate on `improved_mv_near_sadidx`, the predictor MV
+    (`improved_mv_row`/`improved_mv_col`), `improved_mv_sr`, and the
+    combined match across all three for every NEWMV inter MB that
+    exercised the improved-MV start path on either side. The
+    scoreboard is wired into `make scoreboard` (and so
+    `make verify-production`) with the recorded baseline at
+    [`testdata/improved_mv_match_rate_baseline.json`](../testdata/improved_mv_match_rate_baseline.json),
+    so it runs as a tripwire for future predictor regressions.
+    Current-frame SAD ordering, previous inter-frame mode/MV
     grid, libvpx realtime gate, and low-level sign-biased near/best MV
     predictor helpers are present, and high-level predictor search now uses
     the current frame's sign-bias map plus the saved previous-frame slot bias.
