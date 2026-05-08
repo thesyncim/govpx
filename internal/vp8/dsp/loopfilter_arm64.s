@@ -278,3 +278,408 @@ TEXT ·mbLoopFilterEdgeH16NEON(SB), NOSPLIT, $0-19
 	VST1	[V0.B16], (R10)             // q2
 
 	RET
+
+
+// loopFilterEdgeV16NEON ABI ($0-19):
+//   src+0(FP)     *byte (points at q0 column of row 0)
+//   pitch+8(FP)   int
+//   blimit+16(FP) byte
+//   limit+17(FP)  byte
+//   thresh+18(FP) byte
+//
+// Direct vertical-edge variant. Reads 16 rows of 8 bytes each at src-4,
+// transposes 16x8 -> 8x16 in registers via TRN1/TRN2 cascade, runs the
+// same loop_filter inner kernel, and writes 4 modified columns
+// (p1,p0,q0,q1) at offset src-2 via ST4.B by-lane stores. Encodings
+// produced by clang -O3 -mcpu=apple-m4 from libvpx v1.16.0
+// vp8_loop_filter_vertical_edge_y_neon.
+TEXT ·loopFilterEdgeV16NEON(SB), NOSPLIT, $0-19
+	MOVD	src+0(FP), R0
+	MOVD	pitch+8(FP), R1
+	MOVBU	blimit+16(FP), R2
+	MOVBU	limit+17(FP), R3
+	MOVBU	thresh+18(FP), R4
+
+	WORD	$0x93407c28                 // sxtw	x8, w1
+	WORD	$0x4e010c40                 // dup.16b	v0, w2
+	WORD	$0x4e010c62                 // dup.16b	v2, w3
+	WORD	$0x4e010c81                 // dup.16b	v1, w4
+	WORD	$0xfc5fcc03                 // ldr	d3, [x0, #-0x4]!
+	WORD	$0x8b080009                 // add	x9, x0, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400125                 // ldr	d5, [x9]
+	WORD	$0xfd400144                 // ldr	d4, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400126                 // ldr	d6, [x9]
+	WORD	$0xfd400147                 // ldr	d7, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400130                 // ldr	d16, [x9]
+	WORD	$0xfd400151                 // ldr	d17, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400132                 // ldr	d18, [x9]
+	WORD	$0xfd400153                 // ldr	d19, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400134                 // ldr	d20, [x9]
+	WORD	$0xfd400155                 // ldr	d21, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400136                 // ldr	d22, [x9]
+	WORD	$0xfd400157                 // ldr	d23, [x10]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400138                 // ldr	d24, [x9]
+	WORD	$0xfd400159                 // ldr	d25, [x10]
+	WORD	$0xfc68695a                 // ldr	d26, [x10, x8]
+	WORD	$0x6e180663                 // mov.d	v3[1], v19[0]
+	WORD	$0x6e180685                 // mov.d	v5[1], v20[0]
+	WORD	$0x6e1806a4                 // mov.d	v4[1], v21[0]
+	WORD	$0x6e1806c6                 // mov.d	v6[1], v22[0]
+	WORD	$0x6e1806e7                 // mov.d	v7[1], v23[0]
+	WORD	$0x6e180710                 // mov.d	v16[1], v24[0]
+	WORD	$0x6e180731                 // mov.d	v17[1], v25[0]
+	WORD	$0x6e180752                 // mov.d	v18[1], v26[0]
+	WORD	$0x4e872873                 // trn1.4s	v19, v3, v7
+	WORD	$0x4e876863                 // trn2.4s	v3, v3, v7
+	WORD	$0x4e9028a7                 // trn1.4s	v7, v5, v16
+	WORD	$0x4e9068a5                 // trn2.4s	v5, v5, v16
+	WORD	$0x4e912890                 // trn1.4s	v16, v4, v17
+	WORD	$0x4e916884                 // trn2.4s	v4, v4, v17
+	WORD	$0x4e9228d1                 // trn1.4s	v17, v6, v18
+	WORD	$0x4e9268c6                 // trn2.4s	v6, v6, v18
+	WORD	$0x4e502a72                 // trn1.8h	v18, v19, v16
+	WORD	$0x4e506a70                 // trn2.8h	v16, v19, v16
+	WORD	$0x4e5128f3                 // trn1.8h	v19, v7, v17
+	WORD	$0x4e5168e7                 // trn2.8h	v7, v7, v17
+	WORD	$0x4e442871                 // trn1.8h	v17, v3, v4
+	WORD	$0x4e446863                 // trn2.8h	v3, v3, v4
+	WORD	$0x4e4628a4                 // trn1.8h	v4, v5, v6
+	WORD	$0x4e4668a5                 // trn2.8h	v5, v5, v6
+	WORD	$0x4e132a46                 // trn1.16b	v6, v18, v19
+	WORD	$0x4e136a52                 // trn2.16b	v18, v18, v19
+	WORD	$0x4e072a13                 // trn1.16b	v19, v16, v7
+	WORD	$0x4e076a07                 // trn2.16b	v7, v16, v7
+	WORD	$0x4e042a30                 // trn1.16b	v16, v17, v4
+	WORD	$0x4e046a24                 // trn2.16b	v4, v17, v4
+	WORD	$0x4e052871                 // trn1.16b	v17, v3, v5
+	WORD	$0x4e056863                 // trn2.16b	v3, v3, v5
+	WORD	$0x6e3274c5                 // uabd.16b	v5, v6, v18
+	WORD	$0x6e337646                 // uabd.16b	v6, v18, v19
+	WORD	$0x6e277672                 // uabd.16b	v18, v19, v7
+	WORD	$0x6e307494                 // uabd.16b	v20, v4, v16
+	WORD	$0x6e247635                 // uabd.16b	v21, v17, v4
+	WORD	$0x6e317463                 // uabd.16b	v3, v3, v17
+	WORD	$0x6e2664a5                 // umax.16b	v5, v5, v6
+	WORD	$0x6e2366a3                 // umax.16b	v3, v21, v3
+	WORD	$0x6e346646                 // umax.16b	v6, v18, v20
+	WORD	$0x6e2664a5                 // umax.16b	v5, v5, v6
+	WORD	$0x6e3074f1                 // uabd.16b	v17, v7, v16
+	WORD	$0x6e2364a3                 // umax.16b	v3, v5, v3
+	WORD	$0x6e247665                 // uabd.16b	v5, v19, v4
+	WORD	$0x6e310e31                 // uqadd.16b	v17, v17, v17
+	WORD	$0x6e233c42                 // cmhs.16b	v2, v2, v3
+	WORD	$0x4f04e403                 // movi.16b	v3, #0x80
+	WORD	$0x6e231c84                 // eor.16b	v4, v4, v3
+	WORD	$0x6e231e10                 // eor.16b	v16, v16, v3
+	WORD	$0x6e231ce7                 // eor.16b	v7, v7, v3
+	WORD	$0x6e231e72                 // eor.16b	v18, v19, v3
+	WORD	$0x6f0f04a5                 // ushr.16b	v5, v5, #0x1
+	WORD	$0x6e250e25                 // uqadd.16b	v5, v17, v5
+	WORD	$0x6e253c00                 // cmhs.16b	v0, v0, v5
+	WORD	$0x4e242e45                 // sqsub.16b	v5, v18, v4
+	WORD	$0x6e263c21                 // cmhs.16b	v1, v1, v6
+	WORD	$0x0f00e466                 // movi.8b	v6, #0x3
+	WORD	$0x0e26c211                 // smull.8h	v17, v16, v6
+	WORD	$0x0e26a0f1                 // smlsl.8h	v17, v7, v6
+	WORD	$0x4f00e466                 // movi.16b	v6, #0x3
+	WORD	$0x4e26c213                 // smull2.8h	v19, v16, v6
+	WORD	$0x4e26a0f3                 // smlsl2.8h	v19, v7, v6
+	WORD	$0x4e611ca5                 // bic.16b	v5, v5, v1
+	WORD	$0x4e201c40                 // and.16b	v0, v2, v0
+	WORD	$0x0e251222                 // saddw.8h	v2, v17, v5
+	WORD	$0x4e251265                 // saddw2.8h	v5, v19, v5
+	WORD	$0x0e214842                 // sqxtn.8b	v2, v2
+	WORD	$0x4e2148a2                 // sqxtn2.16b	v2, v5
+	WORD	$0x4e221c00                 // and.16b	v0, v0, v2
+	WORD	$0x4e260c02                 // sqadd.16b	v2, v0, v6
+	WORD	$0x4f00e485                 // movi.16b	v5, #0x4
+	WORD	$0x4e250c00                 // sqadd.16b	v0, v0, v5
+	WORD	$0x4f0d0442                 // sshr.16b	v2, v2, #0x3
+	WORD	$0x4f0d0400                 // sshr.16b	v0, v0, #0x3
+	WORD	$0x4e220ce2                 // sqadd.16b	v2, v7, v2
+	WORD	$0x4e202e05                 // sqsub.16b	v5, v16, v0
+	WORD	$0x4f0f2400                 // srshr.16b	v0, v0, #0x1
+	WORD	$0x4e201c20                 // and.16b	v0, v1, v0
+	WORD	$0x4e200e41                 // sqadd.16b	v1, v18, v0
+	WORD	$0x4e202c80                 // sqsub.16b	v0, v4, v0
+	WORD	$0x6e231c13                 // eor.16b	v19, v0, v3
+	WORD	$0x6e231cb2                 // eor.16b	v18, v5, v3
+	WORD	$0x6e231c51                 // eor.16b	v17, v2, v3
+	WORD	$0x6e231c30                 // eor.16b	v16, v1, v3
+	WORD	$0x91000809                 // add	x9, x0, #0x2
+	WORD	$0x937d7c2a                 // sbfiz	x10, x1, #3, #32
+	WORD	$0x8b08012b                 // add	x11, x9, x8
+	WORD	$0x0daa2130                 // st4.b	{ v16, v17, v18, v19 }[0], [x9], x10
+	WORD	$0x0da82570                 // st4.b	{ v16, v17, v18, v19 }[1], [x11], x8
+	WORD	$0x0da82970                 // st4.b	{ v16, v17, v18, v19 }[2], [x11], x8
+	WORD	$0x0da82d70                 // st4.b	{ v16, v17, v18, v19 }[3], [x11], x8
+	WORD	$0x0da83170                 // st4.b	{ v16, v17, v18, v19 }[4], [x11], x8
+	WORD	$0x0da83570                 // st4.b	{ v16, v17, v18, v19 }[5], [x11], x8
+	WORD	$0x0da83970                 // st4.b	{ v16, v17, v18, v19 }[6], [x11], x8
+	WORD	$0x6e104200                 // ext.16b	v0, v16, v16, #0x8
+	WORD	$0x6e114221                 // ext.16b	v1, v17, v17, #0x8
+	WORD	$0x0d203d70                 // st4.b	{ v16, v17, v18, v19 }[7], [x11]
+	WORD	$0x6e124242                 // ext.16b	v2, v18, v18, #0x8
+	WORD	$0x6e134263                 // ext.16b	v3, v19, v19, #0x8
+	WORD	$0x0da82120                 // st4.b	{ v0, v1, v2, v3 }[0], [x9], x8
+	WORD	$0x0da82520                 // st4.b	{ v0, v1, v2, v3 }[1], [x9], x8
+	WORD	$0x0da82920                 // st4.b	{ v0, v1, v2, v3 }[2], [x9], x8
+	WORD	$0x0da82d20                 // st4.b	{ v0, v1, v2, v3 }[3], [x9], x8
+	WORD	$0x0da83120                 // st4.b	{ v0, v1, v2, v3 }[4], [x9], x8
+	WORD	$0x0da83520                 // st4.b	{ v0, v1, v2, v3 }[5], [x9], x8
+	WORD	$0x0da83920                 // st4.b	{ v0, v1, v2, v3 }[6], [x9], x8
+	WORD	$0x0d203d20                 // st4.b	{ v0, v1, v2, v3 }[7], [x9]
+
+	RET
+
+// mbLoopFilterEdgeV16NEON ABI ($0-19):
+//   src+0(FP)     *byte (points at q0 column of row 0)
+//   pitch+8(FP)   int
+//   blimit+16(FP) byte
+//   limit+17(FP)  byte
+//   thresh+18(FP) byte
+//
+// Direct vertical-edge mb-filter variant. Same load+transpose front-end
+// as loopFilterEdgeV16NEON; after the inner mb kernel writes p2..q2,
+// the code re-transposes the full 8 columns and stores 8 bytes per row
+// at offset src-4 for all 16 rows. Encodings produced by clang -O3
+// -mcpu=apple-m4 from libvpx v1.16.0
+// vp8_mbloop_filter_vertical_edge_y_neon.
+TEXT ·mbLoopFilterEdgeV16NEON(SB), NOSPLIT, $0-19
+	MOVD	src+0(FP), R0
+	MOVD	pitch+8(FP), R1
+	MOVBU	blimit+16(FP), R2
+	MOVBU	limit+17(FP), R3
+	MOVBU	thresh+18(FP), R4
+
+	WORD	$0x93407c28                 // sxtw	x8, w1
+	WORD	$0x4e010c40                 // dup.16b	v0, w2
+	WORD	$0x4e010c62                 // dup.16b	v2, w3
+	WORD	$0x4e010c81                 // dup.16b	v1, w4
+	WORD	$0xfc5fcc03                 // ldr	d3, [x0, #-0x4]!
+	WORD	$0x8b21cc09                 // add	x9, x0, w1, sxtw #3
+	WORD	$0xfd400126                 // ldr	d6, [x9]
+	WORD	$0x8b08000a                 // add	x10, x0, x8
+	WORD	$0x8b08014b                 // add	x11, x10, x8
+	WORD	$0xfd400144                 // ldr	d4, [x10]
+	WORD	$0x8b080129                 // add	x9, x9, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400130                 // ldr	d16, [x9]
+	WORD	$0xfd400165                 // ldr	d5, [x11]
+	WORD	$0xfd400151                 // ldr	d17, [x10]
+	WORD	$0x8b080169                 // add	x9, x11, x8
+	WORD	$0x8b08012b                 // add	x11, x9, x8
+	WORD	$0xfd400127                 // ldr	d7, [x9]
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd400133                 // ldr	d19, [x9]
+	WORD	$0xfd400172                 // ldr	d18, [x11]
+	WORD	$0xfd400155                 // ldr	d21, [x10]
+	WORD	$0x8b08016b                 // add	x11, x11, x8
+	WORD	$0x8b080169                 // add	x9, x11, x8
+	WORD	$0xfd400174                 // ldr	d20, [x11]
+	WORD	$0x8b08014b                 // add	x11, x10, x8
+	WORD	$0x8b08016a                 // add	x10, x11, x8
+	WORD	$0xfd400177                 // ldr	d23, [x11]
+	WORD	$0xfd400136                 // ldr	d22, [x9]
+	WORD	$0xfd400158                 // ldr	d24, [x10]
+	WORD	$0x531d702b                 // lsl	w11, w1, #3
+	WORD	$0x4b01016b                 // sub	w11, w11, w1
+	WORD	$0x93407d6c                 // sxtw	x12, w11
+	WORD	$0x8b080129                 // add	x9, x9, x8
+	WORD	$0xcb0c012b                 // sub	x11, x9, x12
+	WORD	$0xfd400139                 // ldr	d25, [x9]
+	WORD	$0x8b08014a                 // add	x10, x10, x8
+	WORD	$0xcb0c0149                 // sub	x9, x10, x12
+	WORD	$0xfd40015a                 // ldr	d26, [x10]
+	WORD	$0x6e1804c3                 // mov.d	v3[1], v6[0]
+	WORD	$0x6e180604                 // mov.d	v4[1], v16[0]
+	WORD	$0x6e180625                 // mov.d	v5[1], v17[0]
+	WORD	$0x6e180667                 // mov.d	v7[1], v19[0]
+	WORD	$0x6e1806b2                 // mov.d	v18[1], v21[0]
+	WORD	$0x6e1806f4                 // mov.d	v20[1], v23[0]
+	WORD	$0x6e180716                 // mov.d	v22[1], v24[0]
+	WORD	$0x6e180759                 // mov.d	v25[1], v26[0]
+	WORD	$0x4e922866                 // trn1.4s	v6, v3, v18
+	WORD	$0x4e926863                 // trn2.4s	v3, v3, v18
+	WORD	$0x4e942890                 // trn1.4s	v16, v4, v20
+	WORD	$0x4e946884                 // trn2.4s	v4, v4, v20
+	WORD	$0x4e9628b1                 // trn1.4s	v17, v5, v22
+	WORD	$0x4e9668a5                 // trn2.4s	v5, v5, v22
+	WORD	$0x4e9928f2                 // trn1.4s	v18, v7, v25
+	WORD	$0x4e9968e7                 // trn2.4s	v7, v7, v25
+	WORD	$0x4e5128d3                 // trn1.8h	v19, v6, v17
+	WORD	$0x4e5168c6                 // trn2.8h	v6, v6, v17
+	WORD	$0x4e522a11                 // trn1.8h	v17, v16, v18
+	WORD	$0x4e526a10                 // trn2.8h	v16, v16, v18
+	WORD	$0x4e452872                 // trn1.8h	v18, v3, v5
+	WORD	$0x4e456863                 // trn2.8h	v3, v3, v5
+	WORD	$0x4e472885                 // trn1.8h	v5, v4, v7
+	WORD	$0x4e476887                 // trn2.8h	v7, v4, v7
+	WORD	$0x4e112a64                 // trn1.16b	v4, v19, v17
+	WORD	$0x4e116a71                 // trn2.16b	v17, v19, v17
+	WORD	$0x4e1028d3                 // trn1.16b	v19, v6, v16
+	WORD	$0x4e1068c6                 // trn2.16b	v6, v6, v16
+	WORD	$0x4e052a50                 // trn1.16b	v16, v18, v5
+	WORD	$0x4e056a45                 // trn2.16b	v5, v18, v5
+	WORD	$0x4e072872                 // trn1.16b	v18, v3, v7
+	WORD	$0x4e076863                 // trn2.16b	v3, v3, v7
+	WORD	$0x6e317487                 // uabd.16b	v7, v4, v17
+	WORD	$0x6e337634                 // uabd.16b	v20, v17, v19
+	WORD	$0x6e267675                 // uabd.16b	v21, v19, v6
+	WORD	$0x6e3074b6                 // uabd.16b	v22, v5, v16
+	WORD	$0x6e257657                 // uabd.16b	v23, v18, v5
+	WORD	$0x6e327478                 // uabd.16b	v24, v3, v18
+	WORD	$0x6e3464e7                 // umax.16b	v7, v7, v20
+	WORD	$0x6e3866f4                 // umax.16b	v20, v23, v24
+	WORD	$0x6e3666b5                 // umax.16b	v21, v21, v22
+	WORD	$0x6e3564e7                 // umax.16b	v7, v7, v21
+	WORD	$0x6e3074d6                 // uabd.16b	v22, v6, v16
+	WORD	$0x6e3464e7                 // umax.16b	v7, v7, v20
+	WORD	$0x6e273c47                 // cmhs.16b	v7, v2, v7
+	WORD	$0x6e257674                 // uabd.16b	v20, v19, v5
+	WORD	$0x6e360ed6                 // uqadd.16b	v22, v22, v22
+	WORD	$0x4f04e402                 // movi.16b	v2, #0x80
+	WORD	$0x6e221e52                 // eor.16b	v18, v18, v2
+	WORD	$0x6e221ca5                 // eor.16b	v5, v5, v2
+	WORD	$0x6e221e10                 // eor.16b	v16, v16, v2
+	WORD	$0x6e221cc6                 // eor.16b	v6, v6, v2
+	WORD	$0x6e221e73                 // eor.16b	v19, v19, v2
+	WORD	$0x6e221e31                 // eor.16b	v17, v17, v2
+	WORD	$0x6f0f0694                 // ushr.16b	v20, v20, #0x1
+	WORD	$0x6e340ed4                 // uqadd.16b	v20, v22, v20
+	WORD	$0x6e353c21                 // cmhs.16b	v1, v1, v21
+	WORD	$0x6e343c00                 // cmhs.16b	v0, v0, v20
+	WORD	$0x4e252e74                 // sqsub.16b	v20, v19, v5
+	WORD	$0x0f00e475                 // movi.8b	v21, #0x3
+	WORD	$0x0e35c216                 // smull.8h	v22, v16, v21
+	WORD	$0x0e35a0d6                 // smlsl.8h	v22, v6, v21
+	WORD	$0x4f00e475                 // movi.16b	v21, #0x3
+	WORD	$0x4e35c217                 // smull2.8h	v23, v16, v21
+	WORD	$0x4e35a0d7                 // smlsl2.8h	v23, v6, v21
+	WORD	$0x4e201ce0                 // and.16b	v0, v7, v0
+	WORD	$0x0e3412c7                 // saddw.8h	v7, v22, v20
+	WORD	$0x4e3412f4                 // saddw2.8h	v20, v23, v20
+	WORD	$0x0e2148e7                 // sqxtn.8b	v7, v7
+	WORD	$0x4e214a87                 // sqxtn2.16b	v7, v20
+	WORD	$0x4e271c00                 // and.16b	v0, v0, v7
+	WORD	$0x4e611c07                 // bic.16b	v7, v0, v1
+	WORD	$0x4f00e494                 // movi.16b	v20, #0x4
+	WORD	$0x4e340cf4                 // sqadd.16b	v20, v7, v20
+	WORD	$0x4e350ce7                 // sqadd.16b	v7, v7, v21
+	WORD	$0x4f0d0694                 // sshr.16b	v20, v20, #0x3
+	WORD	$0x4f0d04e7                 // sshr.16b	v7, v7, #0x3
+	WORD	$0x4e342e10                 // sqsub.16b	v16, v16, v20
+	WORD	$0x4e270cc6                 // sqadd.16b	v6, v6, v7
+	WORD	$0x4e201c20                 // and.16b	v0, v1, v0
+	WORD	$0x4f00e521                 // movi.16b	v1, #0x9
+	WORD	$0x0f00e527                 // movi.8b	v7, #0x9
+	WORD	$0x4f0187f4                 // movi.8h	v20, #0x3f
+	WORD	$0x4f0187f5                 // movi.8h	v21, #0x3f
+	WORD	$0x0e278015                 // smlal.8h	v21, v0, v7
+	WORD	$0x4f0187e7                 // movi.8h	v7, #0x3f
+	WORD	$0x4e218007                 // smlal2.8h	v7, v0, v1
+	WORD	$0x4f00e641                 // movi.16b	v1, #0x12
+	WORD	$0x0f00e656                 // movi.8b	v22, #0x12
+	WORD	$0x4f0187f7                 // movi.8h	v23, #0x3f
+	WORD	$0x0e368017                 // smlal.8h	v23, v0, v22
+	WORD	$0x4f0187f6                 // movi.8h	v22, #0x3f
+	WORD	$0x4e218016                 // smlal2.8h	v22, v0, v1
+	WORD	$0x4f00e761                 // movi.16b	v1, #0x1b
+	WORD	$0x0f00e778                 // movi.8b	v24, #0x1b
+	WORD	$0x4f0187f9                 // movi.8h	v25, #0x3f
+	WORD	$0x0e388019                 // smlal.8h	v25, v0, v24
+	WORD	$0x4e218014                 // smlal2.8h	v20, v0, v1
+	WORD	$0x0f0996a0                 // sqshrn.8b	v0, v21, #0x7
+	WORD	$0x0f0996e1                 // sqshrn.8b	v1, v23, #0x7
+	WORD	$0x0f099735                 // sqshrn.8b	v21, v25, #0x7
+	WORD	$0x4f0994e0                 // sqshrn2.16b	v0, v7, #0x7
+	WORD	$0x4f0996c1                 // sqshrn2.16b	v1, v22, #0x7
+	WORD	$0x4f099695                 // sqshrn2.16b	v21, v20, #0x7
+	WORD	$0x4e202e47                 // sqsub.16b	v7, v18, v0
+	WORD	$0x4e200e20                 // sqadd.16b	v0, v17, v0
+	WORD	$0x4e212ca5                 // sqsub.16b	v5, v5, v1
+	WORD	$0x4e210e61                 // sqadd.16b	v1, v19, v1
+	WORD	$0x4e352e10                 // sqsub.16b	v16, v16, v21
+	WORD	$0x4e350cc6                 // sqadd.16b	v6, v6, v21
+	WORD	$0x6e221e10                 // eor.16b	v16, v16, v2
+	WORD	$0x4e902891                 // trn1.4s	v17, v4, v16
+	WORD	$0x4e906884                 // trn2.4s	v4, v4, v16
+	WORD	$0x6e221c00                 // eor.16b	v0, v0, v2
+	WORD	$0x6e221ca5                 // eor.16b	v5, v5, v2
+	WORD	$0x4e852810                 // trn1.4s	v16, v0, v5
+	WORD	$0x4e856800                 // trn2.4s	v0, v0, v5
+	WORD	$0x6e221c21                 // eor.16b	v1, v1, v2
+	WORD	$0x6e221ce5                 // eor.16b	v5, v7, v2
+	WORD	$0x4e852827                 // trn1.4s	v7, v1, v5
+	WORD	$0x4e856821                 // trn2.4s	v1, v1, v5
+	WORD	$0x6e221cc2                 // eor.16b	v2, v6, v2
+	WORD	$0x4e832845                 // trn1.4s	v5, v2, v3
+	WORD	$0x4e836842                 // trn2.4s	v2, v2, v3
+	WORD	$0x4e472a23                 // trn1.8h	v3, v17, v7
+	WORD	$0x4e476a26                 // trn2.8h	v6, v17, v7
+	WORD	$0x4e452a07                 // trn1.8h	v7, v16, v5
+	WORD	$0x4e456a05                 // trn2.8h	v5, v16, v5
+	WORD	$0x4e412890                 // trn1.8h	v16, v4, v1
+	WORD	$0x4e416881                 // trn2.8h	v1, v4, v1
+	WORD	$0x4e422804                 // trn1.8h	v4, v0, v2
+	WORD	$0x4e072871                 // trn1.16b	v17, v3, v7
+	WORD	$0x4e076863                 // trn2.16b	v3, v3, v7
+	WORD	$0xfd000171                 // str	d17, [x11]
+	WORD	$0x6e114227                 // ext.16b	v7, v17, v17, #0x8
+	WORD	$0xfd000127                 // str	d7, [x9]
+	WORD	$0x8b08016a                 // add	x10, x11, x8
+	WORD	$0x8b08014b                 // add	x11, x10, x8
+	WORD	$0xfd000143                 // str	d3, [x10]
+	WORD	$0x6e034063                 // ext.16b	v3, v3, v3, #0x8
+	WORD	$0x8b080129                 // add	x9, x9, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd000123                 // str	d3, [x9]
+	WORD	$0x4e426800                 // trn2.8h	v0, v0, v2
+	WORD	$0x4e0528c2                 // trn1.16b	v2, v6, v5
+	WORD	$0xfd000162                 // str	d2, [x11]
+	WORD	$0x6e024042                 // ext.16b	v2, v2, v2, #0x8
+	WORD	$0xfd000142                 // str	d2, [x10]
+	WORD	$0x4e0568c2                 // trn2.16b	v2, v6, v5
+	WORD	$0x4e042a03                 // trn1.16b	v3, v16, v4
+	WORD	$0x4e046a04                 // trn2.16b	v4, v16, v4
+	WORD	$0x4e002825                 // trn1.16b	v5, v1, v0
+	WORD	$0x8b080169                 // add	x9, x11, x8
+	WORD	$0x8b08012b                 // add	x11, x9, x8
+	WORD	$0xfd000122                 // str	d2, [x9]
+	WORD	$0x6e024042                 // ext.16b	v2, v2, v2, #0x8
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd000122                 // str	d2, [x9]
+	WORD	$0xfd000163                 // str	d3, [x11]
+	WORD	$0x6e034062                 // ext.16b	v2, v3, v3, #0x8
+	WORD	$0xfd000142                 // str	d2, [x10]
+	WORD	$0x4e006820                 // trn2.16b	v0, v1, v0
+	WORD	$0x8b080169                 // add	x9, x11, x8
+	WORD	$0x8b08012b                 // add	x11, x9, x8
+	WORD	$0xfd000124                 // str	d4, [x9]
+	WORD	$0x6e044081                 // ext.16b	v1, v4, v4, #0x8
+	WORD	$0x8b080149                 // add	x9, x10, x8
+	WORD	$0x8b08012a                 // add	x10, x9, x8
+	WORD	$0xfd000121                 // str	d1, [x9]
+	WORD	$0xfd000165                 // str	d5, [x11]
+	WORD	$0x6e0540a1                 // ext.16b	v1, v5, v5, #0x8
+	WORD	$0xfd000141                 // str	d1, [x10]
+	WORD	$0xfc286960                 // str	d0, [x11, x8]
+	WORD	$0x6e004000                 // ext.16b	v0, v0, v0, #0x8
+	WORD	$0xfc286940                 // str	d0, [x10, x8]
+
+	RET
