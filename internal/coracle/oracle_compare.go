@@ -26,17 +26,18 @@ const DefaultMaxDivergences = 64
 // libvpx oracle traces. Field naming matches the JSON keys emitted by both
 // sides (see oracleTraceFrameRow / oracleTraceMBRow / oracleTraceRateRow /
 // oracleTraceRecodeRow). MBRow and MBCol are only meaningful when
-// RowKind == "mb"; they are -1 for per-frame rows ("frame", "rate",
-// "recode") or rows that lack MB coordinates.
+// RowKind == "mb" or "inter_candidate"; they are -1 for per-frame rows
+// ("frame", "rate", "recode") or rows that lack MB coordinates.
 type Divergence struct {
 	// RowIndex is the zero-based ordinal of the row within whichever stream
 	// the comparator was reading when the mismatch was detected. govpx and
 	// libvpx are expected to emit rows in the same order so a shared index
 	// is sufficient.
 	RowIndex int
-	// RowKind is "frame", "mb", "rate", or "recode" for paired rows;
-	// "missing_govpx" or "missing_libvpx" when one stream ended early;
-	// "type_mismatch" when the same row index has different "type" values.
+	// RowKind is "frame", "mb", "inter_candidate", "rate", or "recode"
+	// for paired rows; "missing_govpx" or "missing_libvpx" when one stream
+	// ended early; "type_mismatch" when the same row index has different
+	// "type" values.
 	RowKind string
 	// FrameIndex is the per-frame counter copied from the row when known.
 	FrameIndex int64
@@ -77,7 +78,8 @@ type CompareOptions struct {
 // encoded frame both sides emit a {"type":"rate", ...} row, optionally a
 // {"type":"recode", ...} row when the recode loop ran more than once,
 // then a {"type":"frame", ...} row, and finally zero or more
-// {"type":"mb", ...} rows for inter frames. The comparator is
+// {"type":"inter_candidate", ...} and {"type":"mb", ...} rows for inter
+// frames. The comparator is
 // order-sensitive because both encoders emit rows deterministically;
 // mismatched ordering is itself reported as a divergence so the caller can
 // tell apart "wrong field value" from "stream desynchronised". The

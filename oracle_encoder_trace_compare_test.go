@@ -61,6 +61,74 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderTraceCandidateRowsPresent(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		width      = 64
+		height     = 64
+		fps        = 30
+		targetKbps = 700
+		frames     = 4
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	cases := []struct {
+		name       string
+		opts       EncoderOptions
+		extraArgs  []string
+		wantPicker string
+	}{
+		{
+			name: "good-quality-rd",
+			opts: EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlVBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				Deadline:          DeadlineGoodQuality,
+				CpuUsed:           3,
+				KeyFrameInterval:  999,
+			},
+			extraArgs:  []string{"--end-usage=vbr"},
+			wantPicker: "rd",
+		},
+		{
+			name: "realtime-fast",
+			opts: EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           8,
+				KeyFrameInterval:  999,
+			},
+			extraArgs:  []string{"--end-usage=cbr"},
+			wantPicker: "fast",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			govpxTrace := captureGovpxEncoderTrace(t, tc.opts, sources)
+			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-candidates-"+tc.name, tc.opts, targetKbps, sources, tc.extraArgs)
+			assertOracleTraceHasCandidateRows(t, "govpx", govpxTrace, tc.wantPicker)
+			assertOracleTraceHasCandidateRows(t, "libvpx", libvpxTrace, tc.wantPicker)
+		})
+	}
+}
+
 func findVpxencOracle(t *testing.T) string {
 	t.Helper()
 	if path := os.Getenv("GOVPX_VPXENC_ORACLE"); path != "" {
@@ -212,6 +280,60 @@ func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
 		t.Fatalf("scan trace: %v", err)
 	}
 	return out.Bytes()
+}
+
+func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, wantPicker string) {
+	t.Helper()
+	rows := oracleTraceRowsOfType(t, trace, "inter_candidate")
+	if len(rows) == 0 {
+		t.Fatalf("%s trace has no inter_candidate rows", side)
+	}
+	sawPicker := false
+	for i, row := range rows {
+		if got := row["picker"]; got == wantPicker {
+			sawPicker = true
+		}
+		if got := row["frame_index"]; got == float64(0) {
+			t.Fatalf("%s candidate[%d].frame_index = %v, want only inter-frame candidates", side, i, got)
+		}
+		for _, key := range []string{
+			"frame_index", "mb_row", "mb_col",
+			"picker", "mode_index", "mode", "ref_slot", "ref_frame",
+			"threshold", "best_score_before", "best_yrd_before", "best_sse_before",
+			"outcome", "became_best", "loop_break",
+			"score", "yrd", "rate", "rate_y", "rate_uv",
+			"distortion", "distortion_uv", "sse", "skip",
+			"mv_row", "mv_col",
+			"improved_mv_start", "improved_mv_near_sadidx",
+			"improved_mv_row", "improved_mv_col", "improved_mv_sr",
+		} {
+			if _, ok := row[key]; !ok {
+				t.Fatalf("%s candidate[%d] missing field %q", side, i, key)
+			}
+		}
+	}
+	if !sawPicker {
+		t.Fatalf("%s trace has %d candidate rows but no picker %q", side, len(rows), wantPicker)
+	}
+}
+
+func oracleTraceRowsOfType(t *testing.T, trace []byte, wantType string) []map[string]any {
+	t.Helper()
+	var rows []map[string]any
+	scan := bufio.NewScanner(bytes.NewReader(trace))
+	for scan.Scan() {
+		var row map[string]any
+		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
+			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
+		}
+		if typ, _ := row["type"].(string); typ == wantType {
+			rows = append(rows, row)
+		}
+	}
+	if err := scan.Err(); err != nil {
+		t.Fatalf("scan trace: %v", err)
+	}
+	return rows
 }
 
 func formatOracleTraceDivergences(div []coracle.Divergence) string {

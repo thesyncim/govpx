@@ -69,8 +69,10 @@ sh internal/coracle/build_vpxenc_oracle.sh
 The script is idempotent and writes the patched binary to
 `internal/coracle/build/vpxenc-oracle`. The patch is inlined in the script
 (no separate .patch file in the repo); it adds a single
-`vp8/encoder/oracle_trace.c` translation unit plus two `extern` hook calls
-into `vp8/encoder/encodeframe.c` (per-MB capture inside `encode_mb_row`) and
+`vp8/encoder/oracle_trace.c` translation unit plus narrow `extern` hook calls
+into `vp8/encoder/encodeframe.c` (per-MB capture inside `encode_mb_row`),
+`vp8/encoder/rdopt.c` and `vp8/encoder/pickinter.c` (evaluated inter-candidate
+rows), `vp8/encoder/onyx_if.c` (rate/recode and attempt lifecycle), and
 `vp8/encoder/bitstream.c` (per-frame flush at the tail of
 `vp8_pack_bitstream`). The patch is additive, gates all output on the
 `GOVPX_ORACLE_TRACE_OUT` env var, and does not modify any libvpx header.
@@ -94,9 +96,11 @@ GOVPX_ORACLE_TRACE_OUT=/tmp/libvpx.jsonl \
 `vpxenc-oracle`, exports `GOVPX_VPXENC_ORACLE`, and runs
 `TestOracleEncoderTraceDecisionCompare`. The production gate currently compares
 a projected frame/rate decision subset (Q, active bounds, zbin-over-quant,
-refresh/sign-bias flags, and recode identity) rather than full per-MB residual
-rows; broader candidate-level and residual trace matching remains tracked in
-the VP8 encoder parity plan. The Go-side `CompareOracleTraces` helper is also
+refresh/sign-bias flags, and recode identity), while
+`TestOracleEncoderTraceCandidateRowsPresent` separately asserts that govpx and
+patched libvpx both emit RD and realtime-fast `inter_candidate` rows. Full
+candidate field comparison and per-MB residual matching remain tracked in the
+VP8 encoder parity plan. The Go-side `CompareOracleTraces` helper is also
 covered by `TestCompareOracleTraces*` in `oracle_compare_test.go` against
 synthetic JSON Lines inputs, so comparator regressions still run in the
 standard `go test ./...` flow without depending on the patched binary.

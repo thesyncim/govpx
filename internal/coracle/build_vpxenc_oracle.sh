@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-key-mb
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -159,6 +159,39 @@ typedef struct {
     int improved_mv_sr;
 } govpx_mb_row_t;
 
+typedef struct {
+    int valid;
+    int mb_row;
+    int mb_col;
+    const char *picker;
+    int mode_index;
+    int mode;
+    int ref_slot;
+    int ref_frame;
+    int threshold;
+    int best_score_before;
+    int best_yrd_before;
+    long long best_sse_before;
+    int became_best;
+    int loop_break;
+    int score;
+    int yrd;
+    int rate;
+    int rate_y;
+    int rate_uv;
+    int distortion;
+    int distortion_uv;
+    long long sse;
+    int skip;
+    int mv_row;
+    int mv_col;
+    int improved_mv_start;
+    int improved_mv_near_sadidx;
+    int improved_mv_row;
+    int improved_mv_col;
+    int improved_mv_sr;
+} govpx_inter_candidate_row_t;
+
 /* Per-reference improved-MV predictor slot. vp8_mv_pred populates this
  * (via govpx_oracle_record_improved_mv) for each candidate ref tested by
  * the inter-mode pick, indexed by ref_frame (LAST_FRAME / GOLDEN_FRAME /
@@ -209,6 +242,9 @@ typedef struct {
     govpx_mb_row_t *mb_rows;
     int mb_capacity;
     int mb_cols;
+    govpx_inter_candidate_row_t *candidate_rows;
+    int candidate_capacity;
+    int candidate_count;
     unsigned long long frame_index;
 } govpx_oracle_state_t;
 
@@ -245,6 +281,29 @@ static void govpx_oracle_ensure_capacity(int needed) {
         (govpx_mb_row_t *)calloc((size_t)needed, sizeof(govpx_mb_row_t));
     govpx_oracle_state.mb_capacity =
         (govpx_oracle_state.mb_rows != NULL) ? needed : 0;
+}
+
+static void govpx_oracle_ensure_candidate_capacity(int needed) {
+    int new_capacity;
+    govpx_inter_candidate_row_t *rows;
+    if (needed <= govpx_oracle_state.candidate_capacity) {
+        return;
+    }
+    new_capacity = govpx_oracle_state.candidate_capacity;
+    if (new_capacity <= 0) {
+        new_capacity = 256;
+    }
+    while (new_capacity < needed) {
+        new_capacity *= 2;
+    }
+    rows = (govpx_inter_candidate_row_t *)realloc(
+        govpx_oracle_state.candidate_rows,
+        (size_t)new_capacity * sizeof(govpx_inter_candidate_row_t));
+    if (rows == NULL) {
+        return;
+    }
+    govpx_oracle_state.candidate_rows = rows;
+    govpx_oracle_state.candidate_capacity = new_capacity;
 }
 
 static const char *govpx_oracle_mode_name(int mode) {
@@ -290,6 +349,82 @@ static const char *govpx_oracle_bmode_name(int mode) {
         case ZERO4X4: return "ZERO4X4";
         case NEW4X4: return "NEW4X4";
         default: return "B_MODE_UNKNOWN";
+    }
+}
+
+void govpx_oracle_begin_attempt(void) {
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled) {
+        return;
+    }
+    govpx_oracle_state.candidate_count = 0;
+    govpx_oracle_clear_improved_mv_slots();
+}
+
+void govpx_oracle_capture_inter_candidate(
+    struct VP8_COMP *cpi, int mb_row, int mb_col, const char *picker,
+    int mode_index, int ref_slot, int threshold, int best_score_before,
+    int best_yrd_before, long long best_sse_before, int score, int yrd,
+    int rate, int rate_y, int rate_uv, int distortion, int distortion_uv,
+    long long sse, int became_best, int loop_break) {
+    MACROBLOCKD *xd;
+    MB_MODE_INFO *mbmi;
+    int idx;
+    govpx_inter_candidate_row_t *row;
+    govpx_improved_mv_slot_t *slot;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || cpi == NULL) {
+        return;
+    }
+    govpx_oracle_ensure_candidate_capacity(
+        govpx_oracle_state.candidate_count + 1);
+    if (govpx_oracle_state.candidate_rows == NULL ||
+        govpx_oracle_state.candidate_count >=
+            govpx_oracle_state.candidate_capacity) {
+        return;
+    }
+    xd = &cpi->mb.e_mbd;
+    mbmi = &xd->mode_info_context->mbmi;
+    idx = govpx_oracle_state.candidate_count++;
+    row = &govpx_oracle_state.candidate_rows[idx];
+    memset(row, 0, sizeof(*row));
+    row->valid = 1;
+    row->mb_row = mb_row;
+    row->mb_col = mb_col;
+    row->picker = picker;
+    row->mode_index = mode_index;
+    row->mode = mbmi->mode;
+    row->ref_slot = ref_slot;
+    row->ref_frame = mbmi->ref_frame;
+    row->threshold = threshold;
+    row->best_score_before = best_score_before;
+    row->best_yrd_before = best_yrd_before;
+    row->best_sse_before = best_sse_before;
+    row->became_best = became_best;
+    row->loop_break = loop_break;
+    row->score = score;
+    row->yrd = yrd;
+    row->rate = rate;
+    row->rate_y = rate_y;
+    row->rate_uv = rate_uv;
+    row->distortion = distortion;
+    row->distortion_uv = distortion_uv;
+    row->sse = sse;
+    row->skip = loop_break;
+    row->mv_row = mbmi->mv.as_mv.row;
+    row->mv_col = mbmi->mv.as_mv.col;
+    row->improved_mv_near_sadidx = -1;
+    row->improved_mv_sr = -1;
+    if (row->mode == NEWMV && row->ref_frame >= 1 && row->ref_frame <= 3) {
+        slot = &govpx_improved_mv_slots[row->ref_frame];
+        if (slot->valid) {
+            row->improved_mv_start = 1;
+            row->improved_mv_near_sadidx = slot->near_sadidx;
+            row->improved_mv_row = slot->mvp_row;
+            row->improved_mv_col = slot->mvp_col;
+            row->improved_mv_sr = slot->sr;
+        }
     }
 }
 
@@ -502,6 +637,75 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
             cpi->prob_last_coded,
             cpi->prob_gf_coded,
             frame_size);
+    /* Flush inter-candidate rows captured during mode picking. */
+    for (i = 0; i < govpx_oracle_state.candidate_count; ++i) {
+        govpx_inter_candidate_row_t *r =
+            &govpx_oracle_state.candidate_rows[i];
+        if (!r->valid) {
+            continue;
+        }
+        fprintf(out,
+                "{\"type\":\"inter_candidate\","
+                "\"frame_index\":%llu,"
+                "\"mb_row\":%d,\"mb_col\":%d,"
+                "\"picker\":\"%s\","
+                "\"mode_index\":%d,"
+                "\"mode\":\"%s\","
+                "\"ref_slot\":%d,"
+                "\"ref_frame\":\"%s\","
+                "\"threshold\":%d,"
+                "\"best_score_before\":%d,"
+                "\"best_yrd_before\":%d,"
+                "\"best_sse_before\":%lld,"
+                "\"outcome\":\"tested\","
+                "\"became_best\":%s,"
+                "\"loop_break\":%s,"
+                "\"score\":%d,"
+                "\"yrd\":%d,"
+                "\"rate\":%d,"
+                "\"rate_y\":%d,"
+                "\"rate_uv\":%d,"
+                "\"distortion\":%d,"
+                "\"distortion_uv\":%d,"
+                "\"sse\":%lld,"
+                "\"skip\":%s,"
+                "\"mv_row\":%d,\"mv_col\":%d,"
+                "\"improved_mv_start\":%s,"
+                "\"improved_mv_near_sadidx\":%d,"
+                "\"improved_mv_row\":%d,"
+                "\"improved_mv_col\":%d,"
+                "\"improved_mv_sr\":%d}\n",
+                govpx_oracle_state.frame_index,
+                r->mb_row, r->mb_col,
+                r->picker != NULL ? r->picker : "",
+                r->mode_index,
+                govpx_oracle_mode_name(r->mode),
+                r->ref_slot,
+                govpx_oracle_ref_name(r->ref_frame),
+                r->threshold,
+                r->best_score_before,
+                r->best_yrd_before,
+                r->best_sse_before,
+                r->became_best ? "true" : "false",
+                r->loop_break ? "true" : "false",
+                r->score,
+                r->yrd,
+                r->rate,
+                r->rate_y,
+                r->rate_uv,
+                r->distortion,
+                r->distortion_uv,
+                r->sse,
+                r->skip ? "true" : "false",
+                r->mv_row, r->mv_col,
+                r->improved_mv_start ? "true" : "false",
+                r->improved_mv_near_sadidx,
+                r->improved_mv_row,
+                r->improved_mv_col,
+                r->improved_mv_sr);
+        r->valid = 0;
+    }
+    govpx_oracle_state.candidate_count = 0;
     /* Flush per-MB rows captured during encode_mb_row. */
     if (govpx_oracle_state.mb_rows != NULL) {
         mb_total = cm->mb_rows * cm->mb_cols;
@@ -775,7 +979,8 @@ if sentinel in text:
 # vp8cx_init_quantizer" line (unique in v1.16.0). If absent, fall back to
 # inserting after the first "#include \"onyx_int.h\"" so the patch still
 # compiles.
-decl = ('extern void govpx_oracle_recode_iter(void);\n'
+decl = ('extern void govpx_oracle_begin_attempt(void);\n'
+        'extern void govpx_oracle_recode_iter(void);\n'
         'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n')
 ext_anchor = 'extern void vp8cx_init_quantizer(VP8_COMP *cpi);'
 if ext_anchor in text:
@@ -798,6 +1003,7 @@ loop_anchor = ('  do {\n'
 loop_replacement = ('  do {\n'
                     '    /* govpx oracle: count recode-loop iterations. */\n'
                     '    govpx_oracle_recode_iter();\n'
+                    '    govpx_oracle_begin_attempt();\n'
                     '    vpx_clear_system_state();\n'
                     '\n'
                     '    vp8_set_quantizer(cpi, Q);')
@@ -846,7 +1052,15 @@ extern_decl = ('extern void govpx_oracle_record_improved_mv(int ref_frame,\n'
                '                                            int near_sadidx,\n'
                '                                            int mvp_row,\n'
                '                                            int mvp_col,\n'
-               '                                            int sr);\n')
+               '                                            int sr);\n'
+               'extern void govpx_oracle_capture_inter_candidate(\n'
+               '    struct VP8_COMP *cpi, int mb_row, int mb_col,\n'
+               '    const char *picker, int mode_index, int ref_slot,\n'
+               '    int threshold, int best_score_before,\n'
+               '    int best_yrd_before, long long best_sse_before,\n'
+               '    int score, int yrd, int rate, int rate_y, int rate_uv,\n'
+               '    int distortion, int distortion_uv, long long sse,\n'
+               '    int became_best, int loop_break);\n')
 if def_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: vp8_mv_pred def anchor missing\n')
     sys.exit(2)
@@ -899,9 +1113,122 @@ if tail_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: vp8_mv_pred tail anchor missing\n')
     sys.exit(2)
 text = text.replace(tail_anchor, tail_replacement, 1)
+# Anchor 4: capture best-before state for evaluated RD candidates.
+rd_loop_anchor = ('    int this_ref_frame = ref_frame_map[vp8_ref_frame_order[mode_index]];\n'
+                  '\n'
+                  '    /* Test best rd so far against threshold for trying this mode. */')
+rd_loop_replacement = ('    int this_ref_frame = ref_frame_map[vp8_ref_frame_order[mode_index]];\n'
+                       '    int govpx_threshold_before = x->rd_threshes[mode_index];\n'
+                       '    int govpx_best_rd_before = best_mode.rd;\n'
+                       '    int govpx_best_yrd_before = best_mode.yrd;\n'
+                       '\n'
+                       '    /* Test best rd so far against threshold for trying this mode. */')
+if rd_loop_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: rd_pick_inter_mode loop anchor missing\n')
+    sys.exit(2)
+text = text.replace(rd_loop_anchor, rd_loop_replacement, 1)
+# Anchor 5: emit a row after final RD accounting, before best-mode mutation.
+rd_emit_anchor = ('    this_rd =\n'
+                  '        calculate_final_rd_costs(this_rd, &rd, &other_cost, disable_skip,\n'
+                  '                                 uv_intra_tteob, intra_rd_penalty, cpi, x);\n'
+                  '\n'
+                  '    /* Keep record of best intra distortion */')
+rd_emit_replacement = ('    this_rd =\n'
+                       '        calculate_final_rd_costs(this_rd, &rd, &other_cost, disable_skip,\n'
+                       '                                 uv_intra_tteob, intra_rd_penalty, cpi, x);\n'
+                       '\n'
+                       '    if (this_rd != INT_MAX) {\n'
+                       '      const int govpx_other_cost_for_yrd =\n'
+                       '          other_cost + x->ref_frame_cost[x->e_mbd.mode_info_context->mbmi.ref_frame];\n'
+                       '      const int govpx_this_yrd = RDCOST(\n'
+                       '          x->rdmult, x->rddiv,\n'
+                       '          rd.rate2 - rd.rate_uv - govpx_other_cost_for_yrd,\n'
+                       '          rd.distortion2 - rd.distortion_uv);\n'
+                       '      govpx_oracle_capture_inter_candidate(\n'
+                       '          cpi, mb_row, mb_col, "rd", mode_index,\n'
+                       '          vp8_ref_frame_order[mode_index], govpx_threshold_before,\n'
+                       '          govpx_best_rd_before, govpx_best_yrd_before, -1,\n'
+                       '          this_rd, govpx_this_yrd, rd.rate2, rd.rate_y, rd.rate_uv,\n'
+                       '          rd.distortion2, rd.distortion_uv, -1,\n'
+                       '          (this_rd < best_mode.rd || x->skip), x->skip ? 1 : 0);\n'
+                       '    }\n'
+                       '\n'
+                       '    /* Keep record of best intra distortion */')
+if rd_emit_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: rd_pick_inter_mode emit anchor missing\n')
+    sys.exit(2)
+text = text.replace(rd_emit_anchor, rd_emit_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_RDOPT_PY
+
+	# (3.7) Instrument the cheaper fast picker in pickinter.c with the same
+	# evaluated-candidate row schema. It intentionally skips pruned modes,
+	# unsupported SPLITMV candidates, and B_PRED candidates that failed
+	# breakout, matching govpx's current "tested only" trace rows.
+	python3 - "$src_dir/vp8/encoder/pickinter.c" <<'GOVPX_PICKINTER_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: fast inter-candidate record. */'
+if sentinel in text:
+    sys.exit(0)
+extern_anchor = ('extern const int vp8_ref_frame_order[MAX_MODES];\n'
+                 'extern const MB_PREDICTION_MODE vp8_mode_order[MAX_MODES];\n')
+extern_decl = ('extern void govpx_oracle_capture_inter_candidate(\n'
+               '    struct VP8_COMP *cpi, int mb_row, int mb_col,\n'
+               '    const char *picker, int mode_index, int ref_slot,\n'
+               '    int threshold, int best_score_before,\n'
+               '    int best_yrd_before, long long best_sse_before,\n'
+               '    int score, int yrd, int rate, int rate_y, int rate_uv,\n'
+               '    int distortion, int distortion_uv, long long sse,\n'
+               '    int became_best, int loop_break);\n')
+if extern_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter extern anchor missing\n')
+    sys.exit(2)
+text = text.replace(extern_anchor, extern_anchor + extern_decl, 1)
+loop_anchor = ('    int frame_cost;\n'
+               '    int this_rd = INT_MAX;\n'
+               '    int this_ref_frame = ref_frame_map[vp8_ref_frame_order[mode_index]];\n'
+               '\n'
+               '    if (best_rd <= x->rd_threshes[mode_index]) continue;\n')
+loop_replacement = ('    int frame_cost;\n'
+                    '    int this_rd = INT_MAX;\n'
+                    '    int this_ref_frame = ref_frame_map[vp8_ref_frame_order[mode_index]];\n'
+                    '    int govpx_threshold_before = x->rd_threshes[mode_index];\n'
+                    '    int govpx_best_rd_before = best_rd;\n'
+                    '    unsigned int govpx_best_sse_before = best_rd_sse;\n'
+                    '\n'
+                    '    if (best_rd <= x->rd_threshes[mode_index]) continue;\n')
+if loop_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter loop anchor missing\n')
+    sys.exit(2)
+text = text.replace(loop_anchor, loop_replacement, 1)
+emit_anchor = ('    if (this_rd < best_rd || x->skip) {\n'
+               '      /* Note index of best mode */')
+emit_replacement = ('    ' + sentinel + '\n'
+                    '    if (this_mode != SPLITMV &&\n'
+                    '        !(this_mode == B_PRED && distortion2 == INT_MAX) &&\n'
+                    '        this_rd != INT_MAX) {\n'
+                    '      govpx_oracle_capture_inter_candidate(\n'
+                    '          cpi, mb_row, mb_col, "fast", mode_index,\n'
+                    '          vp8_ref_frame_order[mode_index], govpx_threshold_before,\n'
+                    '          govpx_best_rd_before, -1, (long long)govpx_best_sse_before,\n'
+                    '          this_rd, -1, rate2, -1, -1, distortion2, -1,\n'
+                    '          (long long)sse, (this_rd < best_rd || x->skip),\n'
+                    '          x->skip ? 1 : 0);\n'
+                    '    }\n'
+                    '\n'
+                    '    if (this_rd < best_rd || x->skip) {\n'
+                    '      /* Note index of best mode */')
+if emit_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter emit anchor missing\n')
+    sys.exit(2)
+text = text.replace(emit_anchor, emit_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_PICKINTER_PY
 
 	# (4) Wire the new TU into the makefile.
 	if ! grep -q 'encoder/oracle_trace\.c' "$src_dir/vp8/vp8cx.mk"; then
