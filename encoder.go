@@ -836,6 +836,50 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// same target-size baseline as libvpx on frames that follow a
 	// decimation drop.
 	e.rc.prepareDecimationForFrame()
+	// Decimation drop check runs BEFORE beginFrameWithTargetAndContext to
+	// mirror libvpx's encode_frame_to_data_rate ordering exactly: libvpx
+	// calls vp8_check_drop_buffer at the top of the function (line 3561 in
+	// vp8/encoder/onyx_if.c) and returns BEFORE vp8_pick_frame_size /
+	// calc_pframe_target_size run. calc_pframe_target_size is what drains
+	// kf_overspend_bits / gf_overspend_bits via the
+	// kf_bitrate_adjustment / non_gf_bitrate_adjustment per-frame
+	// drains; if we drained those before deciding to drop, libvpx does
+	// not, and the post-drop frames see a depleted overspend pool, which
+	// pulls this_frame_target up (because applyOnePassPFrameOverspendRecovery
+	// has less left to subtract) and pulls the regulated Q down. Closing
+	// this gap is what fixes post_drop_q_max_drift on the 30f tight-buffer
+	// CBR fixture (govpx Q ran 8-10 indices below libvpx because
+	// kf_overspend was draining on every dropped frame too).
+	if !invisible && e.rc.checkDropBuffer(keyFrame) {
+		e.rc.postDecimationDropFrame()
+		e.twoPass.finishFrame(0)
+		e.forceKeyFrame = false
+		// libvpx's decimation drop does NOT set force_maxqp: only the
+		// post-encode overshoot drop does that. Mirror that exactly so
+		// the next inter frame's Q regulation runs through the normal
+		// path instead of being clamped at max-Q. cyclicRefresh
+		// suppression also belongs to overshoot drops only.
+		droppedResult := EncodeResult{
+			Dropped:                            true,
+			BufferLevelBits:                    e.rc.bufferLevelBits,
+			FrameTargetBits:                    e.rc.frameTargetBits,
+			TargetBitrateKbps:                  e.rc.targetBitrateKbps,
+			PTS:                                pts,
+			Duration:                           duration,
+			TemporalLayerID:                    temporalFrame.LayerID,
+			TemporalLayerCount:                 temporalFrame.LayerCount,
+			TemporalLayerSync:                  temporalFrame.LayerSync,
+			TL0PICIDX:                          temporalFrame.TL0PICIDX,
+			TemporalLayerTargetBitrateKbps:     temporalFrame.LayerTargetBitrateKbps,
+			TemporalLayerCumulativeBitrateKbps: temporalFrame.LayerCumulativeBitrateKbps,
+		}
+		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
+		e.populateTemporalLayerBufferResult(&droppedResult, temporalFrame)
+		e.emitOracleDroppedFrameTrace("decimation")
+		e.frameCount++
+		finishSourceAltRef()
+		return droppedResult, nil
+	}
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount: temporalFrame.LayerCount,
@@ -963,32 +1007,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		TemporalLayerTargetBitrateKbps:     temporalFrame.LayerTargetBitrateKbps,
 		TemporalLayerCumulativeBitrateKbps: temporalFrame.LayerCumulativeBitrateKbps,
 	}
-	// Decimation drop check. Mirrors libvpx vp8/encoder/onyx_if.c
-	// vp8_check_drop_buffer which runs at the top of
-	// encode_frame_to_data_rate (before vp8_pick_frame_size). The
-	// decimation factor / count state machine is independent of the
-	// buffer-underrun branch below, so both checks coexist and can fire
-	// on different frames in the same stream. Key frames are never
-	// dropped here but participate in the count seeding so the post-key
-	// inter cadence honors the configured decimation pattern.
-	if !invisible && e.rc.checkDropBuffer(keyFrame) {
-		e.rc.postDecimationDropFrame()
-		e.twoPass.finishFrame(0)
-		result.Dropped = true
-		result.BufferLevelBits = e.rc.bufferLevelBits
-		e.forceKeyFrame = false
-		// libvpx's decimation drop does NOT set force_maxqp: only the
-		// post-encode overshoot drop does that. Mirror that exactly so
-		// the next inter frame's Q regulation runs through the normal
-		// path instead of being clamped at max-Q. cyclicRefresh
-		// suppression also belongs to overshoot drops only.
-		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
-		e.populateTemporalLayerBufferResult(&result, temporalFrame)
-		e.emitOracleDroppedFrameTrace("decimation")
-		e.frameCount++
-		finishSourceAltRef()
-		return result, nil
-	}
+	// Decimation drop check moved earlier (before beginFrameWithTargetAndContext)
+	// to mirror libvpx's vp8_check_drop_buffer ordering. The buffer-underrun
+	// drop below stays here because libvpx checks it INSIDE
+	// calc_pframe_target_size (i.e. after the kf_overspend drain).
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
 		e.twoPass.finishFrame(0)
