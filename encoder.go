@@ -3614,7 +3614,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		// to a different filt_best on inter frames where multiple trials
 		// score within the bias delta of best_err (e.g. the 128x128 panning
 		// CBR cpu8 fixture frame 1: govpx picked level 11, libvpx 5).
-		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep)
+		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep, e.twoPass.sectionIntraRating)
 		filtHigh := filtMid + filterStep
 		if filtHigh > maxLevel {
 			filtHigh = maxLevel
@@ -3663,20 +3663,34 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 
 // loopFilterFullPickerBias mirrors libvpx vp8/encoder/picklpf.c
 // vp8cx_pick_filter_level's `Bias = (best_err >> (15 - (filt_mid / 8))) *
-// filter_step;`. The shift amount is `15 - filt_mid/8`. For filt_mid in
-// [0, 63] the shift ranges [8, 15]; we mirror libvpx's behaviour of
-// performing the right-shift on a signed int (negative shift count is
-// undefined in C; libvpx never reaches that case for valid filt_mid).
-// Note libvpx also scales by `cpi->twopass.section_intra_rating / 20`
-// when section_intra_rating < 20; that's a two-pass branch and doesn't
-// fire on realtime/cbr fixtures (section_intra_rating defaults to 20),
-// so we omit it here.
-func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int) int {
+// filter_step;` followed by `if (section_intra_rating < 20) Bias = Bias *
+// section_intra_rating / 20`. The shift amount is `15 - filt_mid/8`. For
+// filt_mid in [0, 63] the shift ranges [8, 15].
+//
+// Critically, libvpx's twopass.section_intra_rating is in the cpi->twopass
+// struct which is calloc'd; in one-pass / realtime / CBR encodes it is
+// never written so it stays at 0. The unconditional VP8 guard
+// `if (section_intra_rating < 20) Bias = Bias * section_intra_rating / 20;`
+// then forces Bias = 0 every iteration of the full picker. (VP9's analogue
+// adds an `oxcf.pass == 2` predicate, but VP8 does not — the two-pass
+// guard is implicit via the zero default.) Mirroring govpx's previous
+// "fall through and use unscaled bias" behaviour caused the realtime CBR
+// full picker at q=17 / prev_lf=5 to converge on a different filt_best
+// than libvpx because the nonzero bias rejected high-side trials that
+// libvpx accepted, and accepted low-side trials that libvpx rejected. The
+// `section_intra_rating` argument is the integer computed by libvpx's
+// `section_intra_rating = section_intra_error / section_coded_error` (or
+// 0 in one-pass).
+func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionIntraRating int) int {
 	shift := 15 - (filtMid / 8)
 	if shift < 0 {
 		shift = 0
 	}
-	return (bestErr >> uint(shift)) * filterStep
+	bias := (bestErr >> uint(shift)) * filterStep
+	if sectionIntraRating < 20 {
+		bias = bias * sectionIntraRating / 20
+	}
+	return bias
 }
 
 // loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy

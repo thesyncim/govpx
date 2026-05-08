@@ -236,6 +236,26 @@ func renderLFTrialDiff(t *testing.T, frame uint64, govpxRows, libvpxRows []lfTri
 		}
 		fmt.Fprintf(&b, "  %-6s %-6d | %-12s %-12s %s\n", k.Phase, k.Level, gStr, lStr, delta)
 	}
+	// Render insertion-order eval sequences side by side so the local picker
+	// state divergences (filt_direction flips, filterStep halving) become
+	// visible. The level-keyed table above hides emission order because rows
+	// are sorted by phase then level desc.
+	fmt.Fprintf(&b, "  govpx eval order: ")
+	for i, r := range govpxRows {
+		if i > 0 {
+			fmt.Fprintf(&b, " -> ")
+		}
+		fmt.Fprintf(&b, "%s:%d=%d", r.Phase, r.Level, r.YSSE)
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "  libvpx eval order: ")
+	for i, r := range libvpxRows {
+		if i > 0 {
+			fmt.Fprintf(&b, " -> ")
+		}
+		fmt.Fprintf(&b, "%s:%d=%d", r.Phase, r.Level, r.YSSE)
+	}
+	fmt.Fprintln(&b)
 	t.Log(b.String())
 
 	if govpxLevel != libvpxLevel {
