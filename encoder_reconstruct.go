@@ -2116,6 +2116,30 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 // is closed (NEAR 0.01% govpx vs 0.00% libvpx, NEW 0.30% vs 0.47%).
 // cmd/govpx-bench's interframe overshoot is dominated by residual-token
 // / entropy-savings path downstream of the picker.
+//
+// R11-N (2026-05-09 investigation): Per-candidate trace diff on the 720p
+// noise fixture localizes the swap to MBs where govpx tests NEARESTMV and
+// picks it, while libvpx skips the NEARESTMV iteration outright (no
+// inter_candidate trace row emitted). At first divergence MB(0,3)
+// frame=1, both engines compute identical ZEROMV (rate=1434 dist=255165
+// score=256991) and DC_PRED (rate=820 dist=203248 score=204292). govpx
+// then tests NEARESTMV with mv=(18,0) (the left col=2 NEWMV's MV) and
+// scores 66728 (winner). libvpx never reaches the NEARESTMV case body —
+// the picker iteration `continue`s before the emit hook. Inspecting the
+// only viable continue paths in vp8_pick_inter_mode (rd_threshes,
+// mode_check_freq, NEARESTMV.mv==0 reject, UMV bounds), none plausibly
+// triggers given the observed neighbor state; libvpx's mode_mv[NEARESTMV]
+// derivation at this MB remains unexplained without additional libvpx-
+// side instrumentation. The cascade compounds: govpx picks NEARESTMV,
+// next-MB's left.mv=non-zero -> nearest=non-zero -> NEARESTMV gets
+// picked again. libvpx's DC_PRED at col=3 stays intra/zero-mv, next-MB's
+// left.mv=0 -> nearest=0 -> NEARESTMV always rejected -> ZEROMV cascade
+// continues. Pinned at L1=1.67pp pending a libvpx-side trace probe that
+// captures (mode_mv[NEARESTMV], cnt[]) at MB entry to confirm whether
+// libvpx really does see nearest=(0,0) (suggesting a state inconsistency
+// between vp8_find_near_mvs_bias's mode_mv_sb fill and the case-NEAREST
+// `continue` gate, e.g., a missed memcpy/clamp interaction) or rejects
+// via a path that's not in the standard upstream source.
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
