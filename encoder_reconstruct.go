@@ -2062,15 +2062,15 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 // R9-2 (parity-close-r9-2-bpred-picker): aligned the inter B_PRED fast
 // picker's per-block scoring with libvpx via two changes in
 // estimateFastBPredIntraModeScore:
-//   1. Per-mode rate now reads libvpx's stale `inter_bmode_costs` table
-//      via libvpxInterFastBpredModeCost — slots 0..3 (B_DC..B_HE) carry
-//      sub_mv_ref token costs after vp8_init_mode_costs's two-step init,
-//      and the fast picker's mode loop reads only those four slots.
-//   2. After each per-block winner is chosen the function runs
-//      vp8_encode_intra4x4block-equivalent DCT/quantize/IDCT-add into
-//      the analysis Y plane so the next sub-block's predictor neighbors
-//      come from reconstructed pixels, matching libvpx's deferred
-//      vp8_encode_intra4x4block call inside pick_intra4x4block.
+//  1. Per-mode rate now reads libvpx's stale `inter_bmode_costs` table
+//     via libvpxInterFastBpredModeCost — slots 0..3 (B_DC..B_HE) carry
+//     sub_mv_ref token costs after vp8_init_mode_costs's two-step init,
+//     and the fast picker's mode loop reads only those four slots.
+//  2. After each per-block winner is chosen the function runs
+//     vp8_encode_intra4x4block-equivalent DCT/quantize/IDCT-add into
+//     the analysis Y plane so the next sub-block's predictor neighbors
+//     come from reconstructed pixels, matching libvpx's deferred
+//     vp8_encode_intra4x4block call inside pick_intra4x4block.
 //
 // Result: TestOracleEncoderQHistogramScoreboard's three rt-cpu0/4/8
 // 128x128 fixtures dropped from hist_l1=2 to hist_l1=0 (byte-identical
