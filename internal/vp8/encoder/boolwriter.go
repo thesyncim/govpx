@@ -29,6 +29,8 @@ func (w *BoolWriter) Init(dst []byte) {
 	w.err = nil
 }
 
+// WriteBit encodes a single bit at the fixed probability of 128.
+// It is exactly equivalent to WriteBool(bit, 128).
 func (w *BoolWriter) WriteBit(bit uint8) {
 	if w.err != nil {
 		return
@@ -72,6 +74,9 @@ func (w *BoolWriter) WriteBit(bit uint8) {
 	w.count = count
 }
 
+// WriteBool encodes a single bit with the given (8-bit) probability.
+// This is the encoder hot path: it is invoked tens of times per
+// macroblock.
 func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
 	if w.err != nil {
 		return
@@ -115,19 +120,81 @@ func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
 	w.count = count
 }
 
+// WriteLiteral encodes the lower 'bits' bits of value, MSB first, each
+// at probability 128. It is the literal-bit equivalent of
+// vp8_encode_value in libvpx.
+//
+// The per-bit body is inlined here (rather than looping over WriteBit)
+// so the encoder state stays in registers across the per-bit
+// iterations and the buffer-error sentinel is checked only once per
+// call. The carry / byte-emit case is identical to WriteBit but reuses
+// the in-register accumulator instead of round-tripping through the
+// BoolWriter struct on each iteration.
 func (w *BoolWriter) WriteLiteral(value uint32, bits int) {
-	if bits <= 0 {
+	if bits <= 0 || w.err != nil {
 		return
 	}
+
+	low := w.low
+	rng := w.rng
+	count := w.count
+	pos := w.pos
+	buf := w.buf
+
 	for bit := bits - 1; bit >= 0; bit-- {
-		w.WriteBit(uint8((value >> uint(bit)) & 1))
+		split := (rng + 1) >> 1
+		if (value>>uint(bit))&1 != 0 {
+			low += split
+			rng -= split
+		} else {
+			rng = split
+		}
+
+		shift := int(tables.BoolNorm[byte(rng)])
+		rng <<= uint(shift)
+		count += shift
+
+		if count < 0 {
+			low <<= uint(shift)
+			continue
+		}
+
+		offset := shift - count
+		if ((low << uint(offset-1)) & 0x80000000) != 0 {
+			// Spill the byte cursor back so propagateCarry sees the
+			// up-to-date pos, then reload.
+			w.pos = pos
+			w.propagateCarry()
+			if w.err != nil {
+				return
+			}
+		}
+		if pos >= len(buf) {
+			w.err = ErrBufferTooSmall
+			w.pos = pos
+			return
+		}
+		buf[pos] = byte((low >> uint(24-offset)) & 0xff)
+		pos++
+		shift = count
+		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+		count -= 8
+
+		low <<= uint(shift)
 	}
+
+	w.low = low
+	w.rng = rng
+	w.count = count
+	w.pos = pos
 }
 
+// Finish flushes the trailing bits of the bool coder so that the last
+// byte is fully written out.
+//
+// Equivalent to vp8_stop_encode (32 zero bits encoded at p=128).
 func (w *BoolWriter) Finish() {
-	for i := 0; i < 32; i++ {
-		w.WriteBit(0)
-	}
+	w.WriteLiteral(0, 32)
 }
 
 func (w *BoolWriter) BytesWritten() int {
