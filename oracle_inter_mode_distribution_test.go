@@ -20,11 +20,15 @@ import (
 // recorded baseline; the L1 mode-distribution distance must not grow by
 // more than 6pp; and the EOB-sum-ratio must not drift more than 0.10.
 //
-// The scoreboard targets the +74% inter-frame-size divergence diagnosed
-// in r7-b: at speed 8 RT CBR with both encoders pinned at Q max, govpx
-// over-picks NEAR/NEW vs libvpx's NEAREST/ZEROMV. Tracking the per-mode
-// percentage-point gap lets future patches confirm the gap closes
-// without regressing existing scoreboards.
+// The scoreboard originated as the r7-b diagnosis of the +74% inter-frame
+// gap at speed 8 RT CBR (govpx over-picked NEAR/NEW vs libvpx's
+// NEAREST/ZEROMV). The R8 sweep closed the bulk of that gap; the
+// current baselines all sit at L1 < ~1.8pp, with the residual being a
+// <1pp ZEROMV<->NEARESTMV swap on noise-pattern fixtures. The
+// rt-cpu8-1280x720-bench-noise fixture (R9-1) extends the scoreboard
+// to the resolution and frame budget the cmd/govpx-bench harness
+// targets so future regressions in the high-resolution picker path
+// surface here, not just in the smaller synthetic fixtures.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestOracleInterModeDistributionScoreboard(t *testing.T) {
@@ -60,6 +64,13 @@ func TestOracleInterModeDistributionScoreboard(t *testing.T) {
 		// for ZEROMV-vs-NEW divergence).
 		{128, 128, DeadlineRealtime, 8, 30, 1200, 8, 30, fixtureBenchNoise, "rt-cpu8-128x128-bench-noise"},
 		{256, 256, DeadlineRealtime, 8, 30, 1200, 8, 30, fixtureBenchNoise, "rt-cpu8-256x256-bench-noise"},
+		// 720p fixture (R9-1): pins the mode-distribution scoreboard at the
+		// resolution the bench runs at (1280x720 cpu=8 RT CBR, 1500 kbps).
+		// This is the resolution where the prior +52pp / 1.37x interframe
+		// overshoot was observed; the scoreboard tracks the picker's mode
+		// dispersal here so inter-mode regressions surface at the bench
+		// scale, not just the small synthetic fixtures above.
+		{1280, 720, DeadlineRealtime, 8, 30, 1500, 8, 999, fixtureBenchNoise, "rt-cpu8-1280x720-bench-noise"},
 	}
 
 	type modeBreakdown struct {

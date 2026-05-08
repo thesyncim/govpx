@@ -1934,6 +1934,16 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 //     libvpx for this corner case, or
 //  2. rejecting NEWMV candidates whose subpel predictor lands in the
 //     UMV extension region at the top-right corner.
+//
+// R9-1: TestOracleInterModeDistributionScoreboard's
+// rt-cpu8-1280x720-bench-noise fixture pins the high-resolution mode
+// dispersal at L1=1.67pp / EOB ratio=1.013. The dominant residual is a
+// ~0.83pp ZEROMV<->NEARESTMV swap (govpx slightly over-prefers
+// NEARESTMV); the NEAR/NEW gap called out in r7-b is closed (NEAR
+// 0.01% govpx vs 0.00% libvpx, NEW 0.30% vs 0.47%). The
+// cmd/govpx-bench harness's interframe overshoot at this resolution
+// is dominated by the residual-token / entropy-savings path
+// downstream of the picker, not by mode dispersal.
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
