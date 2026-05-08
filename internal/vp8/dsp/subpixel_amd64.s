@@ -124,6 +124,61 @@ GLOBL sixtapBias64<>(SB), RODATA|NOPTR, $16
 	PADDD     X10, X_ACC_LO                \
 	PADDD     X8, X_ACC_HI
 
+// HPAIR_4 / VPAIR_4: 4-column variants of HPAIR_8 / VPAIR_8 — only
+// produce a single int32x4 accumulator (positions 0..3). HPAIR_4
+// reads 16 bytes of source via MOVOU but only consumes the low 5
+// (the BUILD form's two MOVOUs mean a load at BYTEOFF+1 must also be
+// safe — callers ensure 16 bytes from the row origin are readable).
+// VPAIR_4 loads 4 bytes per row via MOVL (zero-extended into XMM).
+#define HPAIR_4_BUILD(R_SRC, BYTEOFF, X_COEFF, X_ZERO, X_OUT) \
+	MOVOU     (BYTEOFF)(R_SRC), X8        \
+	MOVOU     (BYTEOFF+1)(R_SRC), X9      \
+	PUNPCKLBW X_ZERO, X8                   \
+	PUNPCKLBW X_ZERO, X9                   \
+	MOVO      X8, X_OUT                    \
+	PUNPCKLWL X9, X_OUT                    \
+	PMADDWL   X_COEFF, X_OUT
+
+#define HPAIR_4_ADD(R_SRC, BYTEOFF, X_COEFF, X_ZERO, X_ACC) \
+	MOVOU     (BYTEOFF)(R_SRC), X8        \
+	MOVOU     (BYTEOFF+1)(R_SRC), X9      \
+	PUNPCKLBW X_ZERO, X8                   \
+	PUNPCKLBW X_ZERO, X9                   \
+	MOVO      X8, X10                      \
+	PUNPCKLWL X9, X10                      \
+	PMADDWL   X_COEFF, X10                 \
+	PADDD     X10, X_ACC
+
+#define VPAIR_4_BUILD(R_TMP, BYTEOFF, X_COEFF, X_ZERO, X_OUT) \
+	MOVL      (BYTEOFF)(R_TMP), X8        \
+	MOVL      (BYTEOFF+4)(R_TMP), X9      \
+	PUNPCKLBW X_ZERO, X8                   \
+	PUNPCKLBW X_ZERO, X9                   \
+	MOVO      X8, X_OUT                    \
+	PUNPCKLWL X9, X_OUT                    \
+	PMADDWL   X_COEFF, X_OUT
+
+#define VPAIR_4_ADD(R_TMP, BYTEOFF, X_COEFF, X_ZERO, X_ACC) \
+	MOVL      (BYTEOFF)(R_TMP), X8        \
+	MOVL      (BYTEOFF+4)(R_TMP), X9      \
+	PUNPCKLBW X_ZERO, X8                   \
+	PUNPCKLBW X_ZERO, X9                   \
+	MOVO      X8, X10                      \
+	PUNPCKLWL X9, X10                      \
+	PMADDWL   X_COEFF, X10                 \
+	PADDD     X10, X_ACC
+
+// SIXTAP_PACK_4 packs a single int32x4 accumulator down to 4 unsigned
+// bytes (positions 0..3), storing to (R_DST). Adds bias and shifts
+// before signed-int16 then unsigned-uint8 saturation. Scratches X_AC.
+#define SIXTAP_PACK_4(X_AC, X_BIAS, X_TMP, R_DST) \
+	PADDD    X_BIAS, X_AC   \
+	PSRAL    $7, X_AC       \
+	PACKSSLW X_AC, X_AC     \
+	PXOR     X_TMP, X_TMP   \
+	PACKUSWB X_TMP, X_AC    \
+	MOVL     X_AC, (R_DST)
+
 // sixTapPredict8x8SSE2 ABI ($0-56):
 //   dst+0(FP)        *byte
 //   dstStride+8(FP)  int
@@ -461,5 +516,134 @@ vert16_loop:
 	ADDQ	$16, R14
 	DECQ	R13
 	JNZ	vert16_loop
+
+	RET
+
+// sixTapPredict8x4SSE2 ABI ($0-56):
+//   dst+0(FP)        *byte
+//   dstStride+8(FP)  int
+//   src+16(FP)       *byte
+//   srcStride+24(FP) int
+//   hFilter+32(FP)   *[6]int16
+//   vFilter+40(FP)   *[6]int16
+//   tmp+48(FP)       *[9*8]byte
+//
+// Same kernel as sixTapPredict8x8SSE2; only the H+5=9 horizontal row
+// count and H=4 vertical row count differ.
+
+TEXT ·sixTapPredict8x4SSE2(SB), NOSPLIT, $0-56
+	MOVQ	dst+0(FP), DI
+	MOVQ	dstStride+8(FP), BX
+	MOVQ	src+16(FP), SI
+	MOVQ	srcStride+24(FP), CX
+	MOVQ	hFilter+32(FP), R11
+	MOVQ	vFilter+40(FP), R12
+	MOVQ	tmp+48(FP), R10
+
+	LOAD_FILTER_PAIR(R11, 0, X0)
+	LOAD_FILTER_PAIR(R11, 4, X1)
+	LOAD_FILTER_PAIR(R11, 8, X2)
+	LOAD_FILTER_PAIR(R12, 0, X3)
+	LOAD_FILTER_PAIR(R12, 4, X4)
+	LOAD_FILTER_PAIR(R12, 8, X5)
+
+	MOVOU	sixtapBias64<>(SB), X6
+	PXOR	X7, X7
+
+	// === Horizontal pass: 9 rows ===
+	MOVQ	$9, R13
+	MOVQ	R10, R14
+horiz8x4_loop:
+	HPAIR_8_BUILD(SI, 0, X0, X7, X13, X14)
+	HPAIR_8_ADD(SI, 2, X1, X7, X13, X14)
+	HPAIR_8_ADD(SI, 4, X2, X7, X13, X14)
+
+	SIXTAP_PACK_8(X13, X14, X6, X15, R14)
+
+	ADDQ	CX, SI
+	ADDQ	$8, R14
+	DECQ	R13
+	JNZ	horiz8x4_loop
+
+	// === Vertical pass: 4 rows ===
+	MOVQ	$4, R13
+	MOVQ	R10, R14
+vert8x4_loop:
+	VPAIR_8_BUILD(R14, 0, X3, X7, X13, X14)
+	VPAIR_8_ADD(R14, 16, X4, X7, X13, X14)
+	VPAIR_8_ADD(R14, 32, X5, X7, X13, X14)
+
+	SIXTAP_PACK_8(X13, X14, X6, X15, DI)
+
+	ADDQ	BX, DI
+	ADDQ	$8, R14
+	DECQ	R13
+	JNZ	vert8x4_loop
+
+	RET
+
+// sixTapPredict4x4SSE2 ABI ($0-56):
+//   dst+0(FP)        *byte
+//   dstStride+8(FP)  int
+//   src+16(FP)       *byte
+//   srcStride+24(FP) int
+//   hFilter+32(FP)   *[6]int16
+//   vFilter+40(FP)   *[6]int16
+//   tmp+48(FP)       *[9*4]byte
+//
+// 4-column kernel: each row produces a single int32x4 accumulator
+// (positions 0..3) before pack-and-store. Horizontal pass loads 16
+// bytes per row via MOVOU at base and base+1 (only the low 5 bytes
+// are consumed); vertical pass loads 4 bytes per row via MOVL. tmp
+// rows are 4 bytes apart.
+
+TEXT ·sixTapPredict4x4SSE2(SB), NOSPLIT, $0-56
+	MOVQ	dst+0(FP), DI
+	MOVQ	dstStride+8(FP), BX
+	MOVQ	src+16(FP), SI
+	MOVQ	srcStride+24(FP), CX
+	MOVQ	hFilter+32(FP), R11
+	MOVQ	vFilter+40(FP), R12
+	MOVQ	tmp+48(FP), R10
+
+	LOAD_FILTER_PAIR(R11, 0, X0)
+	LOAD_FILTER_PAIR(R11, 4, X1)
+	LOAD_FILTER_PAIR(R11, 8, X2)
+	LOAD_FILTER_PAIR(R12, 0, X3)
+	LOAD_FILTER_PAIR(R12, 4, X4)
+	LOAD_FILTER_PAIR(R12, 8, X5)
+
+	MOVOU	sixtapBias64<>(SB), X6
+	PXOR	X7, X7
+
+	// === Horizontal pass: 9 rows ===
+	MOVQ	$9, R13
+	MOVQ	R10, R14
+horiz4_loop:
+	HPAIR_4_BUILD(SI, 0, X0, X7, X13)
+	HPAIR_4_ADD(SI, 2, X1, X7, X13)
+	HPAIR_4_ADD(SI, 4, X2, X7, X13)
+
+	SIXTAP_PACK_4(X13, X6, X15, R14)
+
+	ADDQ	CX, SI
+	ADDQ	$4, R14
+	DECQ	R13
+	JNZ	horiz4_loop
+
+	// === Vertical pass: 4 rows ===
+	MOVQ	$4, R13
+	MOVQ	R10, R14
+vert4_loop:
+	VPAIR_4_BUILD(R14, 0, X3, X7, X13)
+	VPAIR_4_ADD(R14, 8, X4, X7, X13)
+	VPAIR_4_ADD(R14, 16, X5, X7, X13)
+
+	SIXTAP_PACK_4(X13, X6, X15, DI)
+
+	ADDQ	BX, DI
+	ADDQ	$4, R14
+	DECQ	R13
+	JNZ	vert4_loop
 
 	RET

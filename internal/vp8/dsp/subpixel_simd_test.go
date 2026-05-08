@@ -23,6 +23,10 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 		{"16x16-stride48", 16, 16, 48},
 		{"8x8", 8, 8, 32},
 		{"8x8-stride40", 8, 8, 40},
+		{"8x4", 8, 4, 32},
+		{"8x4-stride40", 8, 4, 40},
+		{"4x4", 4, 4, 32},
+		{"4x4-stride24", 4, 4, 24},
 	}
 
 	r := rand.New(rand.NewPCG(0xc0ffee, 0xdeadbeef))
@@ -50,6 +54,10 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 						SixTapPredict16x16(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
 					case 8*100 + 8:
 						SixTapPredict8x8(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
+					case 8*100 + 4:
+						SixTapPredict8x4(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
+					case 4*100 + 4:
+						SixTapPredict4x4(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
 					default:
 						t.Fatalf("unexpected size %dx%d", tc.w, tc.h)
 					}
