@@ -263,25 +263,32 @@ func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes [
 	}
 
 	for row := 0; row < rows; row++ {
-		yRow := row * 16 * img.YStride
-		uRow := row * 8 * img.UStride
-		vRow := row * 8 * img.VStride
-		for col := 0; col < cols; col++ {
-			index := row*cols + col
-			mode := &modes[index]
-			if mode.SegmentID >= common.MaxMBSegments {
-				return ErrUnsupportedIntraReconstructionMode
-			}
-			refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
-			yOff := yRow + col*16
-			uOff := uRow + col*8
-			vOff := vRow + col*8
-			if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
-				return ErrUnsupportedIntraReconstructionMode
-			}
+		if err := reconstructKeyFrameIntraGridRow(img, row, cols, modes, tokens, dequants, scratch); err != nil {
+			return err
 		}
-		extendIntraRightEdgeForRow(img, row)
 	}
+	return nil
+}
+
+func reconstructKeyFrameIntraGridRow(img *common.Image, row int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch) error {
+	yRow := row * 16 * img.YStride
+	uRow := row * 8 * img.UStride
+	vRow := row * 8 * img.VStride
+	for col := 0; col < cols; col++ {
+		index := row*cols + col
+		mode := &modes[index]
+		if mode.SegmentID >= common.MaxMBSegments {
+			return ErrUnsupportedIntraReconstructionMode
+		}
+		refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+		yOff := yRow + col*16
+		uOff := uRow + col*8
+		vOff := vRow + col*8
+		if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+			return ErrUnsupportedIntraReconstructionMode
+		}
+	}
+	extendIntraRightEdgeForRow(img, row)
 	return nil
 }
 
@@ -312,53 +319,60 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 	altState := newFrameInterRefState(alt, cfg)
 
 	for row := 0; row < rows; row++ {
-		yRow := row * 16 * img.YStride
-		uRow := row * 8 * img.UStride
-		vRow := row * 8 * img.VStride
-		for col := 0; col < cols; col++ {
-			index := row*cols + col
-			mode := &modes[index]
-			if mode.SegmentID >= common.MaxMBSegments {
-				return ErrUnsupportedInterReconstructionMode
-			}
-			yOff := yRow + col*16
-			uOff := uRow + col*8
-			vOff := vRow + col*8
-			if mode.RefFrame == common.IntraFrame {
-				refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
-				if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
-					return ErrUnsupportedInterReconstructionMode
-				}
-				continue
-			}
-
-			var refState *frameInterRefState
-			var ref *common.Image
-			switch mode.RefFrame {
-			case common.LastFrame:
-				refState = &lastState
-				ref = last
-			case common.GoldenFrame:
-				refState = &goldenState
-				ref = golden
-			case common.AltRefFrame:
-				refState = &altState
-				ref = alt
-			default:
-				return ErrUnsupportedInterReconstructionMode
-			}
-			if mode.Mode == common.SplitMV {
-				if !ReconstructSplitMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
-					return ErrUnsupportedInterReconstructionMode
-				}
-				continue
-			}
-			if !reconstructWholeMVInterMacroblockFast(refState, mode, &tokens[index], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
-				return ErrUnsupportedInterReconstructionMode
-			}
+		if err := reconstructInterFrameGridRow(img, last, golden, alt, &lastState, &goldenState, &altState, row, cols, modes, tokens, dequants, scratch, cfg); err != nil {
+			return err
 		}
-		extendIntraRightEdgeForRow(img, row)
 	}
+	return nil
+}
+
+func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, lastState *frameInterRefState, goldenState *frameInterRefState, altState *frameInterRefState, row int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch, cfg InterPredictionConfig) error {
+	yRow := row * 16 * img.YStride
+	uRow := row * 8 * img.UStride
+	vRow := row * 8 * img.VStride
+	for col := 0; col < cols; col++ {
+		index := row*cols + col
+		mode := &modes[index]
+		if mode.SegmentID >= common.MaxMBSegments {
+			return ErrUnsupportedInterReconstructionMode
+		}
+		yOff := yRow + col*16
+		uOff := uRow + col*8
+		vOff := vRow + col*8
+		if mode.RefFrame == common.IntraFrame {
+			refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+			if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+				return ErrUnsupportedInterReconstructionMode
+			}
+			continue
+		}
+
+		var refState *frameInterRefState
+		var ref *common.Image
+		switch mode.RefFrame {
+		case common.LastFrame:
+			refState = lastState
+			ref = last
+		case common.GoldenFrame:
+			refState = goldenState
+			ref = golden
+		case common.AltRefFrame:
+			refState = altState
+			ref = alt
+		default:
+			return ErrUnsupportedInterReconstructionMode
+		}
+		if mode.Mode == common.SplitMV {
+			if !ReconstructSplitMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
+				return ErrUnsupportedInterReconstructionMode
+			}
+			continue
+		}
+		if !reconstructWholeMVInterMacroblockFast(refState, mode, &tokens[index], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
+			return ErrUnsupportedInterReconstructionMode
+		}
+	}
+	extendIntraRightEdgeForRow(img, row)
 	return nil
 }
 

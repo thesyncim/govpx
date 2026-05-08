@@ -749,19 +749,42 @@ func (d *VP8Decoder) zeroCorruptMacroblockTokens(first int) {
 
 func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 	frameType := vp8common.KeyFrame
+	if !info.KeyFrame {
+		frameType = vp8common.InterFrame
+	}
+	cfg := vp8dec.InterPredictionConfigForVersion(info.Profile)
+	skipLoopFilter := vp8dec.VersionSkipsLoopFilter(info.Profile)
+	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
+
+	// Threads >= 2 enables the libvpx-style two-stage row pipeline (recon
+	// producer / loop-filter consumer). The output is byte-identical to
+	// the serial path; see internal/vp8/decoder/threading.go for the
+	// dependency analysis. Tiny frames (rows <= 1) gain nothing from the
+	// pipeline so we keep the inline serial walk for them.
+	if d.opts.Threads >= 2 && d.mbRows > 1 {
+		if err := vp8dec.ReconstructAndLoopFilterPipelined(
+			&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img,
+			d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg,
+			info.KeyFrame,
+			!skipLoopFilter,
+			frameType, loopFilter, d.state.Segmentation, &d.loopInfo,
+		); err != nil {
+			return ErrInvalidData
+		}
+		d.current.ExtendBorders()
+		return nil
+	}
+
 	if info.KeyFrame {
 		if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
 			return ErrInvalidData
 		}
 	} else {
-		frameType = vp8common.InterFrame
-		cfg := vp8dec.InterPredictionConfigForVersion(info.Profile)
 		if err := vp8dec.ReconstructInterFrameGridWithConfig(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg); err != nil {
 			return ErrInvalidData
 		}
 	}
-	if !vp8dec.VersionSkipsLoopFilter(info.Profile) {
-		loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
+	if !skipLoopFilter {
 		if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
 			return ErrInvalidData
 		}
