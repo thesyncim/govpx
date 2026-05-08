@@ -10,7 +10,7 @@
     "good-cpu0-vbr": {
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
-      "partition_match_pct": 68.75,
+      "partition_match_pct": 71.42857142857143,
       "block_mv_match_pct": 45.535714285714285,
       "segment_id_match_pct": 100
     },

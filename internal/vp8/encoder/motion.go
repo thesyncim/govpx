@@ -70,9 +70,26 @@ func MotionVectorErrorCost(mv MotionVector, ref MotionVector, probs *[2][tables.
 	return (cost*errorPerBit + 128) >> 8
 }
 
+// MotionVectorSADCost mirrors libvpx mvsad_err_cost (mcomp.c). libvpx
+// pre-shifts both operands to full-pel before subtracting:
+//
+//	mvp_full.row = bsi->mvp.row >> 3;  // diamond search ref
+//	fcenter.row  = center_mv.row >> 3; // search-cost anchor
+//	delta = mvp_full.row - fcenter.row
+//
+// so the index into mvsadcost is the difference of arithmetic-shifted
+// full-pel values, NOT the arithmetic-shifted difference. The two only
+// agree when ref is already a multiple of eighth-pel-per-pel (i.e. an
+// exact full-pel value); whenever ref has a fractional eighth-pel part
+// (which is the common case — bestRefMV is a neighbor's chosen MV, in
+// eighth-pel units), `(mv-ref)>>3` is off by one from `(mv>>3)-(ref>>3)`
+// for the unfavourable rounding direction. That off-by-one leaks into the
+// SPLITMV per-label diamond search and biases it toward the wrong full-pel
+// site whenever bestRefMV is fractional, which shows up as block_mv and
+// partition deficits on the SPLITMV scoreboard.
 func MotionVectorSADCost(mv MotionVector, ref MotionVector, sadPerBit int) int {
-	row := clampMVFullPixelComponent((int(mv.Row) - int(ref.Row)) >> 3)
-	col := clampMVFullPixelComponent((int(mv.Col) - int(ref.Col)) >> 3)
+	row := clampMVFullPixelComponent((int(mv.Row) >> 3) - (int(ref.Row) >> 3))
+	col := clampMVFullPixelComponent((int(mv.Col) >> 3) - (int(ref.Col) >> 3))
 	cost := motionVectorSADComponentCost(row) + motionVectorSADComponentCost(col)
 	return (cost*sadPerBit + 128) >> 8
 }
