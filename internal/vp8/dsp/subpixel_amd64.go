@@ -1,21 +1,24 @@
-//go:build arm64
+//go:build amd64
 
 package dsp
 
 import "github.com/thesyncim/govpx/internal/vp8/tables"
 
-// ARMv8 NEON port of the libvpx v1.16.0
-// vp8/common/arm/neon/sixtappredict_neon.c 16x16 and 8x8 paths.
-// SixTapPredict16x16 / SixTapPredict8x8 (the dominant sizes in
-// inter-frame reconstruction) route through hand-written NEON; every
+// SSE2 port of the libvpx v1.16.0 VP8 six-tap subpel predictor.
+// Routes SixTapPredict16x16 / SixTapPredict8x8 (the dominant sizes
+// in inter-frame reconstruction) through hand-written SSE2; every
 // other size falls through to the scalar reference in subpixel.go.
+//
+// The kernel decomposes the 6-tap horizontal/vertical inner product
+// into three PMADDWD pairs over byte sources widened to int16 lanes
+// — saturated signed pack to int16, then unsigned pack to uint8.
 
 //go:noescape
-func sixTapPredict16x16NEON(dst *byte, dstStride int, src *byte, srcStride int,
+func sixTapPredict16x16SSE2(dst *byte, dstStride int, src *byte, srcStride int,
 	hFilter *[6]int16, vFilter *[6]int16, tmp *[21 * 16]byte)
 
 //go:noescape
-func sixTapPredict8x8NEON(dst *byte, dstStride int, src *byte, srcStride int,
+func sixTapPredict8x8SSE2(dst *byte, dstStride int, src *byte, srcStride int,
 	hFilter *[6]int16, vFilter *[6]int16, tmp *[13 * 8]byte)
 
 func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
@@ -29,7 +32,7 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	var tmp [21 * 16]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict16x16NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict16x16SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -44,6 +47,6 @@ func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [13 * 8]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict8x8NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x8SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
 	return true
 }
