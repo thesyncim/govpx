@@ -3,15 +3,18 @@
     "panning-30f-80kbps-cpu8": {
       "name": "panning-30f-80kbps-cpu8",
       "frames": 30,
-      "govpx_dropped_count": 6,
+      "govpx_dropped_count": 9,
       "libvpx_dropped_count": 8,
       "govpx_dropped_indices": [
         2,
         4,
-        6,
+        5,
+        7,
         8,
         10,
-        12
+        12,
+        14,
+        16
       ],
       "libvpx_dropped_indices": [
         2,
@@ -23,26 +26,28 @@
         14,
         16
       ],
-      "jaccard": 0.75,
-      "force_maxqp_divergences": 2,
-      "buffer_level_mean_abs_pct": 12.477399317065029,
-      "buffer_level_max_abs_pct": 24.856659203844263,
-      "post_drop_q_max_drift": 22,
-      "post_drop_q_mean_drift": 15,
-      "govpx_buffer_level_mean": 25666.233333333334,
-      "govpx_post_drop_q_mean": 69.875,
+      "jaccard": 0.7,
+      "force_maxqp_divergences": 3,
+      "buffer_level_mean_abs_pct": 5.3820607426796645,
+      "buffer_level_max_abs_pct": 18.872219348163476,
+      "post_drop_q_max_drift": 6,
+      "post_drop_q_mean_drift": 2.3,
+      "govpx_buffer_level_mean": 22160.666666666668,
+      "govpx_post_drop_q_mean": 58.6,
       "libvpx_buffer_level_mean": 23009.1,
-      "libvpx_post_drop_q_mean": 56.875
+      "libvpx_post_drop_q_mean": 56.5
     },
     "panning-60f-120kbps-tight-buf": {
       "name": "panning-60f-120kbps-tight-buf",
       "frames": 60,
-      "govpx_dropped_count": 3,
+      "govpx_dropped_count": 5,
       "libvpx_dropped_count": 5,
       "govpx_dropped_indices": [
         2,
         4,
-        6
+        6,
+        8,
+        10
       ],
       "libvpx_dropped_indices": [
         2,
@@ -51,14 +56,14 @@
         8,
         10
       ],
-      "jaccard": 0.6,
-      "force_maxqp_divergences": 2,
-      "buffer_level_mean_abs_pct": 3.235694690177021,
-      "buffer_level_max_abs_pct": 15.768094534711965,
-      "post_drop_q_max_drift": 19,
-      "post_drop_q_mean_drift": 14.2,
-      "govpx_buffer_level_mean": 37398,
-      "govpx_post_drop_q_mean": 41,
+      "jaccard": 1,
+      "force_maxqp_divergences": 0,
+      "buffer_level_mean_abs_pct": 1.9246901027501537,
+      "buffer_level_max_abs_pct": 5.79431259354287,
+      "post_drop_q_max_drift": 7,
+      "post_drop_q_mean_drift": 3.4,
+      "govpx_buffer_level_mean": 35764.8,
+      "govpx_post_drop_q_mean": 23.4,
       "libvpx_buffer_level_mean": 36389.73333333333,
       "libvpx_post_drop_q_mean": 26.8
     },
@@ -71,7 +76,7 @@
       "libvpx_dropped_indices": [],
       "jaccard": 1,
       "force_maxqp_divergences": 0,
-      "buffer_level_mean_abs_pct": 0.5818354266999968,
+      "buffer_level_mean_abs_pct": 0.5818354266999971,
       "buffer_level_max_abs_pct": 1.6159132324851253,
       "post_drop_q_max_drift": 0,
       "post_drop_q_mean_drift": 0,

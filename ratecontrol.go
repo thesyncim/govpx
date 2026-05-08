@@ -367,7 +367,11 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 	if targetBits <= 0 {
 		return targetBits
 	}
-	perFrameBandwidth := rc.bitsPerFrame
+	// Mirror libvpx: the per_frame_bandwidth used for min_frame_target's
+	// quarter-floor is the just-boosted (post-vp8_check_drop_buffer) value
+	// when decimation is active. We mirror that by consulting
+	// decimationBoostedBitsPerFrame() instead of the raw bitsPerFrame.
+	perFrameBandwidth := rc.decimationBoostedBitsPerFrame()
 	if perFrameBandwidth <= 0 {
 		return targetBits
 	}
@@ -1098,12 +1102,80 @@ func (rc *rateControlState) postDropFrame() {
 	rc.framesSinceKeyframe++
 }
 
+// prepareDecimationForFrame mirrors the decimation-factor adjustment ladder
+// at the head of libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer. It
+// inspects the current cpi->buffer_level against the configured drop_mark
+// percentages and bumps cpi->decimation_factor 0->1->2->3 (or back down) in
+// lockstep with libvpx. The drop *decision* (decimation_count gating) lives
+// in checkDropBuffer below; we split the two so the per_frame_bandwidth
+// boost that libvpx applies INSIDE vp8_check_drop_buffer (1->3/2, 2->5/4,
+// 3->5/4) can be propagated into the begin-frame target before
+// vp8_pick_frame_size / vp8_regulate_q runs. Without that boost, govpx's
+// post-decimation-drop frames see a stale (un-boosted) frame_target and
+// regulate Q ~16-24 indices higher than libvpx, which propagates further
+// drops on subsequent frames.
+//
+// Safe to call once per frame (keyframe or inter); does not mutate the
+// decimation_count or take a drop decision.
+func (rc *rateControlState) prepareDecimationForFrame() {
+	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+		return
+	}
+	dropMarkBits := rc.dropMarkBits()
+	dropMark75 := dropMarkBits * 2 / 3
+	dropMark50 := dropMarkBits / 4
+	dropMark25 := dropMarkBits / 8
+	bl := rc.bufferLevelBits
+	if bl > dropMarkBits && rc.decimationFactor > 0 {
+		rc.decimationFactor--
+	}
+	if bl > dropMark75 && rc.decimationFactor > 0 {
+		rc.decimationFactor = 1
+	} else if bl < dropMark25 && (rc.decimationFactor == 2 || rc.decimationFactor == 3) {
+		rc.decimationFactor = 3
+	} else if bl < dropMark50 && (rc.decimationFactor == 1 || rc.decimationFactor == 2) {
+		rc.decimationFactor = 2
+	} else if bl < dropMark75 && (rc.decimationFactor == 0 || rc.decimationFactor == 1) {
+		rc.decimationFactor = 1
+	}
+}
+
+// decimationBoostedBitsPerFrame returns rc.bitsPerFrame multiplied by the
+// libvpx vp8_check_drop_buffer per_frame_bandwidth boost that fires when
+// decimation_factor>0:
+//
+//	decimation_factor=1: 3/2
+//	decimation_factor=2: 5/4
+//	decimation_factor=3: 5/4
+//
+// The boost mirrors libvpx's pre-pick-frame-size mutation of
+// cpi->per_frame_bandwidth so that the begin-frame target consumed by
+// calc_pframe_target_size / vp8_regulate_q on a frame following a
+// decimation drop matches libvpx's. Returns rc.bitsPerFrame unchanged when
+// CBR drops are disabled or decimation_factor==0.
+func (rc *rateControlState) decimationBoostedBitsPerFrame() int {
+	base := rc.bitsPerFrame
+	if base <= 0 {
+		return base
+	}
+	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+		return base
+	}
+	switch rc.decimationFactor {
+	case 1:
+		return base * 3 / 2
+	case 2, 3:
+		return base * 5 / 4
+	default:
+		return base
+	}
+}
+
 // checkDropBuffer mirrors libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer.
-// It examines the current buffer level against the configured drop_mark
-// (cpi->oxcf.drop_frames_water_mark percent of optimal_buffer_level) and
-// adjusts the decimation factor 0->1->2->3 in lockstep with libvpx, then
-// reports whether the current frame is to be dropped because the
-// decimation_count has hit zero.
+// The factor-adjustment portion has been split into prepareDecimationForFrame
+// (which the encoder calls earlier so the per_frame_bandwidth boost can flow
+// into the begin-frame target). This entry point assumes the factor is up to
+// date and only handles the drop decision.
 //
 // The boolean return mirrors libvpx's "1 = dropped". When true, the caller
 // must perform the post-drop accounting (refund av_per_frame_bandwidth +
@@ -1122,39 +1194,11 @@ func (rc *rateControlState) checkDropBuffer(keyFrame bool) bool {
 		rc.decimationCount = 0
 		return false
 	}
-	dropMarkBits := rc.dropMarkBits()
-	dropMark75 := dropMarkBits * 2 / 3
-	dropMark50 := dropMarkBits / 4
-	dropMark25 := dropMarkBits / 8
-
-	// Decimation-factor adjustment ladder. The clauses are evaluated in
-	// libvpx's exact order and use exactly the same comparisons; the
-	// only difference is govpx's bufferLevelBits is in bits while
-	// libvpx's cpi->buffer_level is also in bits, so the marks are
-	// interchangeable.
-	bl := rc.bufferLevelBits
-	if bl > dropMarkBits && rc.decimationFactor > 0 {
-		rc.decimationFactor--
-	}
-	if bl > dropMark75 && rc.decimationFactor > 0 {
-		rc.decimationFactor = 1
-	} else if bl < dropMark25 && (rc.decimationFactor == 2 || rc.decimationFactor == 3) {
-		rc.decimationFactor = 3
-	} else if bl < dropMark50 && (rc.decimationFactor == 1 || rc.decimationFactor == 2) {
-		rc.decimationFactor = 2
-	} else if bl < dropMark75 && (rc.decimationFactor == 0 || rc.decimationFactor == 1) {
-		rc.decimationFactor = 1
-	}
-
 	if rc.decimationFactor <= 0 {
 		// Match libvpx's else branch (cpi->decimation_count = 0).
 		rc.decimationCount = 0
 		return false
 	}
-	// libvpx's per_frame_bandwidth boost (1->3/2, 2->5/4, 3->5/4) is not
-	// modeled here because govpx's frameTargetBits is already on the
-	// path for size selection independently; a future patch can push the
-	// boost into rc.frameTargetBits if size parity needs it.
 	if keyFrame {
 		// Key frames are never dropped via decimation; refresh the
 		// count so the next inter respects the pattern.
