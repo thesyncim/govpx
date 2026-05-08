@@ -22,6 +22,9 @@ const (
 	// libvpx first_pass_motion_search starts the NSTEP diamond at step_param=3
 	// rather than searching the full range.
 	libvpxFirstPassSearchStepParam = 3
+	// libvpx onyx_if.c Pass1Encode forces vp8_set_quantizer(cpi, 26) before
+	// vp8_first_pass, independent of the user min/max quantizer bounds.
+	libvpxFirstPassQIndex = 26
 )
 
 type FirstPassFrameStats struct {
@@ -219,7 +222,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	hasLast := e.firstPassCount > 0 && e.firstPassLastRef.Img.Width == src.Width && e.firstPassLastRef.Img.Height == src.Height
 	hasLastSource := e.firstPassCount > 0 && e.firstPassLastSource.Img.Width == src.Width && e.firstPassLastSource.Img.Height == src.Height
 	hasGolden := e.firstPassCount > 1 && e.firstPassGoldenRef.Img.Width == src.Width && e.firstPassGoldenRef.Img.Height == src.Height
-	qIndex := e.rc.currentQuantizer
+	qIndex := libvpxFirstPassQIndex
 	copySourceToFrameBuffer(&e.firstPassNewRef, src)
 	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
@@ -231,9 +234,12 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	for row := 0; row < rows; row++ {
 		bestRefMV := vp8enc.MotionVector{}
 		for col := 0; col < cols; col++ {
-			intra := macroblockMeanLumaSSE(src, row, col) + intraPenalty
+			intraErrorForMB, ok := e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
+			if !ok {
+				intraErrorForMB = macroblockMeanLumaSSE(src, row, col)
+			}
+			intra := intraErrorForMB + intraPenalty
 			intraError += int64(intra)
-			_ = e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
 
 			thisError := intra
 			lastErr := maxInt()
@@ -406,35 +412,13 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	return stats
 }
 
-func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
+func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) (int, bool) {
 	if e == nil || quant == nil || dequant == nil {
-		return false
+		return 0, false
 	}
 	useDCPred := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
 	if !useDCPred {
-		mode := vp8dec.MacroblockMode{
-			RefFrame: vp8common.IntraFrame,
-			Mode:     vp8common.BPred,
-			UVMode:   vp8common.DCPred,
-			Is4x4:    true,
-		}
-		for i := range mode.BModes {
-			mode.BModes[i] = vp8common.BDCPred
-		}
-		var coeffs vp8enc.MacroblockCoefficients
-		return buildReconstructingBPredMacroblockCoefficients(
-			&vp8tables.DefaultCoefProbs,
-			src, mbRow, mbCol,
-			&e.firstPassNewRef.Img,
-			&mode,
-			nil, nil,
-			quant, qIndex,
-			0,
-			e.libvpxUseFastQuant(),
-			e.libvpxOptimizeCoefficients(),
-			&coeffs,
-			&e.reconstructScratch,
-		)
+		return e.reconstructFirstPassBPredIntraMacroblock(src, mbRow, mbCol, qIndex, quant)
 	}
 
 	mode := vp8dec.MacroblockMode{
@@ -442,9 +426,13 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 		Mode:     vp8common.DCPred,
 		UVMode:   vp8common.DCPred,
 	}
-	if !predictAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return false
+	img := &e.firstPassNewRef.Img
+	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &e.reconstructScratch.Refs)
+	yOff := mbRow*16*img.YStride + mbCol*16
+	if !vp8dec.PredictIntraY16x16(mode.Mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return 0, false
 	}
+	predictionSSE := macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{})
 	var coeffs vp8enc.MacroblockCoefficients
 	buildPredictedMacroblockCoefficients(
 		&vp8tables.DefaultCoefProbs,
@@ -461,7 +449,48 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 	)
 	var tokens vp8dec.MacroblockTokens
 	convertMacroblockCoefficients(&coeffs, false, &tokens)
-	return reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
+	return predictionSSE, reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
+}
+
+func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant) (int, bool) {
+	if e == nil || quant == nil {
+		return 0, false
+	}
+	img := &e.firstPassNewRef.Img
+	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &e.reconstructScratch.Refs)
+	yOff := mbRow*16*img.YStride + mbCol*16
+	y := img.Y[yOff:]
+	var coeffs vp8enc.MacroblockCoefficients
+	var input [16]int16
+	var dct [16]int16
+	var dq [16]int16
+	var yAbove [4]uint8
+	var yLeft [4]uint8
+	predictionSSE := 0
+	for block := 0; block < 16; block++ {
+		blockOffset := analysisYBlockOffset(block, img.YStride)
+		if !predictAnalysisBPredBlock(vp8common.BDCPred, y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			return 0, false
+		}
+		predictionSSE += bPredBlockSSE(src, mbRow, mbCol, block, y[blockOffset:], img.YStride)
+		x := mbCol*16 + (block&3)*4
+		yCoord := mbRow*16 + (block>>2)*4
+		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		a := block & 3
+		l := (block & 0x0c) >> 2
+		ctx := int(yAbove[a] + yLeft[l])
+		eob := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, qIndex, 3, ctx, 0, 0, 0, true, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		coeffs.SetBlockEOB(block, eob)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		yAbove[a] = hasCoeffs
+		yLeft[l] = hasCoeffs
+		addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+	}
+	return predictionSSE, true
 }
 
 func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {

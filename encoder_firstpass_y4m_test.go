@@ -21,9 +21,10 @@ import (
 //     `accumulateFirstPassStats` (mirroring libvpx's `accumulate_stats`
 //     per-field summation).
 //
-// The pinned per-frame and total values were captured against this
-// implementation; any change to the first-pass scoring or to the
-// section accumulator must update them in lock-step.
+// The pinned per-frame and total values are tied to the libvpx first-pass
+// model in encoder_firstpass.go: predictor-residual intra scoring and fixed
+// pass-1 q=26. Any change to first-pass scoring or to the section accumulator
+// must update them in lock-step with the oracle gate.
 func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 	const (
 		width  = 32
@@ -149,7 +150,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 	// Pinned per-frame values captured from the libvpx-aligned
 	// implementation in encoder_firstpass.go. Each value follows the
 	// formulas documented there:
-	//   - IntraError      = sum_mb(macroblockMeanLumaSSE + intrapenalty) >> 8
+	//   - IntraError      = sum_mb(vp8_encode_intra-style predictor SSE + intrapenalty) >> 8
 	//   - CodedError      = sum_mb(min(intra, motion_error)) >> 8
 	//   - SSIMWeightedPredErr = CodedError * simple_weight(source) (>=0.1)
 	//   - PcntInter       = intercount / MBs
@@ -290,13 +291,13 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 }
 
 // Pinned values for TestFirstPassY4MCorpusSectionAccumulators. These
-// were captured from the libvpx-aligned implementation in
-// encoder_firstpass.go (the same formulas TestFirstPassStatsRegression32x32
-// pins for its 32x32 ramp clip). Update them in lock-step when the
-// first-pass scoring or section accumulator changes.
+// follow the libvpx-aligned implementation in encoder_firstpass.go (the same
+// formulas TestFirstPassStatsRegression32x32 pins for its 32x32 ramp clip).
+// Update them in lock-step when the first-pass scoring or section accumulator
+// changes.
 //
 // Per-frame formulas (vp8/encoder/firstpass.c vp8_first_pass):
-//   - IntraError      = sum_mb(macroblockMeanLumaSSE + intrapenalty) >> 8
+//   - IntraError      = sum_mb(vp8_encode_intra-style predictor SSE + intrapenalty) >> 8
 //   - CodedError      = sum_mb(min(intra, motion_error)) >> 8
 //   - SSIMWeightedPredErr = CodedError * simple_weight(source) (>=0.1)
 //   - PcntInter       = intercount / MBs
@@ -305,24 +306,24 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 //   - section.X = sum_frame(X) for every per-frame field.
 const (
 	// Frame 0: keyframe analog, no LAST yet, intra==coded.
-	y4mExpectIntra0 = 2462.0
-	y4mExpectCoded0 = 2462.0
-	y4mExpectSSIM0  = 2311.2025
+	y4mExpectIntra0 = 3226.0
+	y4mExpectCoded0 = 3226.0
+	y4mExpectSSIM0  = 3028.4075000000007
 
 	// Frame 1: 1px diagonal motion -> motion search wins on every MB.
-	y4mExpectIntra1     = 2563.0
-	y4mExpectCoded1     = 71.0
-	y4mExpectSSIM1      = 66.65125
+	y4mExpectIntra1     = 3281.0
+	y4mExpectCoded1     = 91.0
+	y4mExpectSSIM1      = 85.42624999999998
 	y4mExpectPcntInter1 = 1.0
 
-	y4mExpectIntra2     = 2651.0
-	y4mExpectCoded2     = 82.0
-	y4mExpectSSIM2      = 76.9775
+	y4mExpectIntra2     = 3280.0
+	y4mExpectCoded2     = 117.0
+	y4mExpectSSIM2      = 109.83374999999994
 	y4mExpectPcntInter2 = 1.0
 
-	y4mExpectIntra3     = 2726.0
-	y4mExpectCoded3     = 78.0
-	y4mExpectSSIM3      = 73.2225
+	y4mExpectIntra3     = 3036.0
+	y4mExpectCoded3     = 117.0
+	y4mExpectSSIM3      = 109.83374999999992
 	y4mExpectPcntInter3 = 1.0
 
 	// Terminal total-stats packet: per-field sum across all four

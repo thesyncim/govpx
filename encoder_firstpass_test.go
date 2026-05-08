@@ -1441,51 +1441,49 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 	}
 }
 
-// firstPassRegression* values are captured from running this implementation
-// once. They pin every libvpx-aligned FIRSTPASS_STATS field on the
-// deterministic 32x32 ramp clip above. Update in lock-step with the
-// formulas in encoder_firstpass.go.
+// firstPassRegression* values pin every libvpx-aligned FIRSTPASS_STATS field
+// on the deterministic 32x32 ramp clip above. TestOracleFirstPassStatsCompare
+// separately gates these values against empirical libvpx output with the small
+// quality-equivalent tolerance used for predictor-residual rounding.
 //
 // Frame 0 has no LAST so MV stats are zero; coded_error == intra_error.
-// Frames 1 and 2 produce the same LAST-reference motion stats because the 2D
-// ramp shifts by an equal amount each step and first-pass NSTEP search carries
-// the previous best MV across each row like libvpx. LAST searches run against
-// the reconstructed first-pass reference, while encode_breakout raw checks use
-// the separate prior source buffer. Frame 2 also sees the initial GOLDEN
-// reference for the second-ref experiment.
+// LAST searches run against the reconstructed first-pass reference at libvpx's
+// fixed pass-1 q=26, while encode_breakout raw checks use the separate prior
+// source buffer. Frame 2 also sees the initial GOLDEN reference for the
+// second-ref experiment.
 //
 // Computation walkthrough (see encoder_firstpass.go for line refs):
 //   - 32x32 image -> 4 macroblocks (2x2)
 //   - intrapenalty = 256
-//   - intra_error = sum(macroblockMeanLumaSSE + 256) >> 8 = 1109
+//   - intra_error = sum(vp8_encode_intra-style predictor SSE + 256) >> 8
 //   - simple_weight averages weight_table over the ramp (most pixels above
 //     code 64 -> weight 1.0); the actual average is captured in the SSIM
 //     constants below.
 const (
-	firstPassRegressionExpectIntraError0    = 1109.0
-	firstPassRegressionExpectIntraError1    = 1109.0
-	firstPassRegressionExpectIntraError2    = 1109.0
-	firstPassRegressionExpectCodedError1    = 7.0
-	firstPassRegressionExpectCodedError2    = 7.0
-	firstPassRegressionExpectSSIM0          = 1070.5410388183593
-	firstPassRegressionExpectSSIM1          = 6.84832763671875
-	firstPassRegressionExpectSSIM2          = 6.91326904296875
-	firstPassRegressionExpectMVr1           = 8.0
-	firstPassRegressionExpectMVrAbs1        = 20.0
-	firstPassRegressionExpectMVc1           = 8.0
-	firstPassRegressionExpectMVcAbs1        = 28.0
-	firstPassRegressionExpectMVrv1          = 572.0
-	firstPassRegressionExpectMVcv1          = 1212.0
+	firstPassRegressionExpectIntraError0    = 2557.0
+	firstPassRegressionExpectIntraError1    = 2243.0
+	firstPassRegressionExpectIntraError2    = 2132.0
+	firstPassRegressionExpectCodedError1    = 32.0
+	firstPassRegressionExpectCodedError2    = 39.0
+	firstPassRegressionExpectSSIM0          = 2468.3259118652345
+	firstPassRegressionExpectSSIM1          = 31.306640625
+	firstPassRegressionExpectSSIM2          = 38.51678466796875
+	firstPassRegressionExpectMVr1           = 18.0
+	firstPassRegressionExpectMVrAbs1        = 18.0
+	firstPassRegressionExpectMVc1           = -6.0
+	firstPassRegressionExpectMVcAbs1        = 14.0
+	firstPassRegressionExpectMVrv1          = 475.75
+	firstPassRegressionExpectMVcv1          = 429.75
 	firstPassRegressionExpectMVInOut1       = -0.5
 	firstPassRegressionExpectNewMV1         = 4.0
 	firstPassRegressionExpectPcntSecondRef2 = 0.75
 	firstPassRegressionExpectMVr2           = 8.0
-	firstPassRegressionExpectMVrAbs2        = 20.0
+	firstPassRegressionExpectMVrAbs2        = 8.0
 	firstPassRegressionExpectMVc2           = 8.0
-	firstPassRegressionExpectMVcAbs2        = 28.0
-	firstPassRegressionExpectMVrv2          = 572.0
-	firstPassRegressionExpectMVcv2          = 1212.0
-	firstPassRegressionExpectMVInOut2       = -0.5
+	firstPassRegressionExpectMVcAbs2        = 8.0
+	firstPassRegressionExpectMVrv2          = 92.0
+	firstPassRegressionExpectMVcv2          = 92.0
+	firstPassRegressionExpectMVInOut2       = -0.375
 	firstPassRegressionExpectNewMV2         = 4.0
 )
 

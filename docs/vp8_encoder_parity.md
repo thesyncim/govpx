@@ -48,16 +48,16 @@ the anchor and look for the surrounding mismatch.
   the production oracle gate for a projected frame/rate decision subset, but
   the full corpus driver that counts matching candidate and MB decisions is
   still missing.
-- The largest remaining parity weights are first-pass/two-pass proof against a
-  libvpx first-pass oracle, candidate-level inter-mode tracing, rejected
-  recode-attempt tracing, automatic hidden-ARF/ARNR border proof,
-  `projected_frame_size` / rejected recode feedback proof, rate parity
-  tracking vs libvpx output bitrate/frame sizes, and remaining
+- The largest remaining parity weights are candidate-level inter-mode tracing,
+  rejected recode-attempt tracing, automatic hidden-ARF/ARNR border proof,
+  broad first-pass/two-pass corpus proof beyond the deterministic `.fpf`
+  oracle gate, `projected_frame_size` / rejected recode feedback proof, rate
+  parity tracking vs libvpx output bitrate/frame sizes, and remaining
   quality-relevant entropy/refresh edge cases.
 - If only three more things are fixed, they should be: (1) add
-  candidate-level inter-mode / motion-search trace rows, (2) replace
-  self-captured first-pass fixtures with libvpx first-pass oracle fixtures,
-  and (3) close the remaining direct rate-control trace gaps such as
+  candidate-level inter-mode / motion-search trace rows, (2) broaden the
+  first-pass `.fpf` oracle gate to the Y4M/external/two-pass corpus, and
+  (3) close the remaining direct rate-control trace gaps such as
   `projected_frame_size` and rejected recode-attempt rows.
 
 ## Acceptance Gates
@@ -115,7 +115,8 @@ the anchor and look for the surrounding mismatch.
 | Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / projected-size deltas | candidate mode rows, per-frame-size deltas |
-| first-pass Y4M corpus | two-pass stats | self-captured fixture | missing libvpx oracle fixture | unknown | open | firstpass scoring / GOLDEN selection | first-pass oracle rows |
+| first-pass ramp corpus | pass-1 `.fpf` stats | `TestOracleFirstPassStatsCompare` | libvpx v1.16.0 `vpxenc --pass=1 --fpf` | <=2 post-shift error units on residual score; exact MV/percentage fields | partial | first-pass q / predictor-residual scoring now aligned; broad corpus still open | Y4M/external `.fpf` rows, two-pass allocation traces |
+| first-pass Y4M corpus | two-pass stats | deterministic regression fixture | missing libvpx oracle fixture | unknown | open | corpus breadth / two-pass allocation proof | first-pass oracle rows |
 | ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
 
 ## Last Measured
@@ -552,7 +553,7 @@ the anchor and look for the surrounding mismatch.
 
 ## First Pass And Two Pass
 
-- [ ] Replace simplified first-pass stats with libvpx first-pass analysis.
+- [~] Replace simplified first-pass stats with libvpx first-pass analysis.
   - govpx:
     [`CollectFirstPassStats`](../encoder_firstpass.go),
     [`computeFirstPassStats`](../encoder_firstpass.go).
@@ -571,10 +572,14 @@ the anchor and look for the surrounding mismatch.
     GOLDEN. The raw previous source is kept separately for
     `zz_motion_search`/`oxcf.encode_breakout`, while the accepted LAST
     reference is reconstructed into a first-pass `new_yv12`-style scratch
-    before it becomes the next frame's LAST reference. First-pass search uses
-    SAD for the diamond walk, SSE plus MV error cost for the final score,
-    applies the libvpx `new_mv_mode_penalty=256` to motion-search results,
-    wires `EncoderOptions.StaticThreshold` through libvpx's
+    before it becomes the next frame's LAST reference. First-pass scoring uses
+    the libvpx `vp8_encode_intra` predictor-residual SSE rather than the old
+    mean-luma variance proxy, and pass 1 forces the libvpx
+    `vp8_set_quantizer(cpi, 26)` reconstruction path independent of user
+    min/max quantizer bounds. First-pass search uses SAD for the diamond walk,
+    SSE plus MV error cost for the final score, applies the libvpx
+    `new_mv_mode_penalty=256` to motion-search results, wires
+    `EncoderOptions.StaticThreshold` through libvpx's
     `oxcf.encode_breakout` raw zero-motion skip gate, and the inter/neutral
     accept gate uses libvpx's
     `((this_error - intrapenalty) * 9 <= motion_error * 10)` threshold.
@@ -585,7 +590,12 @@ the anchor and look for the surrounding mismatch.
     The post-stats LAST->GOLDEN copy follows the libvpx
     `pcnt_inter > 0.20 && intra/coded > 2.0` heuristic, and the first
     frame still seeds GOLDEN from LAST as a second reference. Per-frame
-    field values are pinned by
+    field values are pinned by the empirical
+    [`TestOracleFirstPassStatsCompare`](../oracle_encoder_firstpass_test.go),
+    which parses libvpx v1.16.0 `vpxenc --pass=1 --fpf` binary
+    `FIRSTPASS_STATS` packets and compares them against govpx with exact
+    mode/MV percentages and a <=2 post-shift tolerance on predictor-residual
+    score fields. Fast deterministic coverage remains in
     [`TestFirstPassStatsRegression32x32`](../encoder_firstpass_test.go) on a
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, zero-motion MSE and GOLDEN reset
@@ -605,8 +615,12 @@ the anchor and look for the surrounding mismatch.
     on a fixed in-memory Y4M-shaped 4-frame 32x32 corpus, plus
     `TestAccumulateFirstPassStatsMatchesLibvpx` and
     `TestFinalizeFirstPassStatsEmpty`.
-  - Done when fixed Y4M corpus stats match libvpx within defined tolerances for
-    every field.
+  - Remaining: broaden the `.fpf` oracle comparison from the deterministic
+    ramp clip to the fixed Y4M corpus, external sources, and second-pass
+    allocation traces that consume those stats.
+  - Done when fixed Y4M/external first-pass stats and downstream second-pass
+    allocation decisions match libvpx within defined quality-equivalent
+    tolerances for every quality-relevant field.
 
 - [ ] Port second-pass KF/GF group allocation and VBR section limits.
   - govpx: [`twoPassState`](../encoder_firstpass.go),
