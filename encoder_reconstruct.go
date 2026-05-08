@@ -843,7 +843,17 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
-	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
+	cpuUsedForThresholds := e.opts.CpuUsed
+	if e.libvpxAutoSelectSpeedActive() {
+		// Round-trip the dynamically picked Speed through
+		// libvpxSpeedFeatureCPUUsed: passing -currentRTSpeed makes the static
+		// helper return currentRTSpeed (it negates negative RT cpu_used).
+		// This routes the auto-selected Speed into the per-mode thresh_mult
+		// tables (libvpx vp8_set_speed_features speed_map calls) without
+		// touching the static helper's contract.
+		cpuUsedForThresholds = -e.libvpxCPUUsed()
+	}
+	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, cpuUsedForThresholds, context)
 	if !e.interRDFrameActive {
 		return baseline
 	}
@@ -895,7 +905,11 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		}
 	}
 	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
-	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
+	cpuUsedForFreq := e.opts.CpuUsed
+	if e.libvpxAutoSelectSpeedActive() {
+		cpuUsedForFreq = -e.libvpxCPUUsed()
+	}
+	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, cpuUsedForFreq)
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
 	e.interModeSpeedErrorBins = e.interModeErrorBins

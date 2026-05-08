@@ -2963,11 +2963,9 @@ func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *tes
 
 func TestEncodeIntoUsesNewMVForShiftedReference(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
-	// libvpx encodeframe.c:686: negative cpu_used in realtime selects an
-	// explicit Speed (=-cpu_used), bypassing vp8_auto_select_speed. The
-	// test pins picker behavior at Speed=3, so request that explicitly
-	// rather than positive 3 (which becomes a budget target and lets the
-	// auto-select promote Speed past keyframe-only timing).
+	// Negative cpu_used pins explicit Speed=-cpu_used (libvpx encodeframe.c:686),
+	// bypassing vp8_auto_select_speed; positive cpu_used is now an auto-budget
+	// target rather than a fixed Speed.
 	if err := e.SetCPUUsed(-3); err != nil {
 		t.Fatalf("SetCPUUsed returned error: %v", err)
 	}

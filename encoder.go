@@ -2939,6 +2939,17 @@ var libvpxAutoSpeedThresh = [17]int{
 
 func nowMonotonicNS() int64 { return nanotime() }
 
+// libvpxAutoSelectSpeedActive returns true when the realtime adaptive
+// Speed selector is in charge of cpi->Speed (cpu_used >= 0 in realtime).
+// When cpu_used < 0 libvpx pins Speed=-cpu_used directly per
+// encodeframe.c:686-687, bypassing auto-select.
+func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
+	if e == nil || e.opts.Deadline != DeadlineRealtime {
+		return false
+	}
+	return e.opts.CpuUsed >= 0
+}
+
 // libvpxAutoSelectSpeed mirrors libvpx vp8/encoder/rdopt.c:261
 // vp8_auto_select_speed exactly. Called at the top of each encode_mb_row
 // for realtime+positive-cpu_used. Cold start (avg_pick_mode_time==0):
