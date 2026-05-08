@@ -410,6 +410,19 @@ type VP8Encoder struct {
 	interModeSpeedErrorBins [1024]uint32
 	interRDFrameActive      bool
 
+	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
+	// pickers. Within a frame the only input that changes per-MB is qIndex
+	// (via cyclic-refresh segmentation), so the baseline output of
+	// libvpxInterModeRDThresholdsForContext is invariant per qIndex. The
+	// generation counter is bumped at each beginInterRDModeDecisionFrame so
+	// we don't have to clear the table every frame.
+	interRDThreshBaselineGen   uint32
+	interRDThreshBaselineSlots [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
+	// Per-frame search-order (refs are constant per frame) so the
+	// per-MB picker doesn't recompute it in every loop body.
+	interRDFrameRefSearchOrder      [4]int
+	interRDFrameRefSearchOrderValid bool
+
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
 	lastRef   vp8common.FrameBuffer
