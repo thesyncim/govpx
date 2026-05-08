@@ -281,6 +281,19 @@ type VP8Encoder struct {
 	// flag is cleared after the next non-dropped frame commits.
 	forceMaxQuantizer bool
 
+	// lastPredErrorMB mirrors libvpx's cpi->last_pred_err_mb
+	// (vp8/encoder/onyx_int.h). After every non-key frame, libvpx records
+	// `cpi->mb.prediction_error / cpi->common.MBs` into this field at
+	// vp8/encoder/onyx_if.c:3978-3980; the next frame's
+	// vp8_drop_encodedframe_overshoot consults it via the
+	// `pred_err_mb > 2 * last_pred_err_mb` gate. govpx does not yet
+	// accumulate cpi->mb.prediction_error during inter mode picking, so
+	// this field stays at 0; the overshoot drop's inner gate therefore
+	// never fires until pred_err tracking lands. Outer state management
+	// (frames_since_last_drop_overshoot, force_maxqp clears) runs
+	// regardless, matching libvpx for the common no-drop case.
+	lastPredErrorMB int
+
 	// Cross-frame inter-mode reference-frame probabilities. libvpx
 	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
 	// inter frame from observed mb_ref_frame counts (see
@@ -874,6 +887,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.currentGFInterval = gfOut.FramesTillUpdate
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
+	// libvpx vp8/encoder/ratectrl.c vp8_regulate_q forces Q to
+	// `cpi->worst_quality` (the configured maxQuantizer) on the next frame
+	// after vp8_drop_encodedframe_overshoot fires - the post-encode
+	// overshoot drop signals the next frame to ramp Q to the floor of
+	// quality so the buffer can recover. govpx must mirror that override
+	// after the regulator has settled, otherwise the overshoot-drop signal
+	// is observed (cyclic refresh suppression) but the next frame's Q is
+	// still picked from the rate model and undoes the buffer recovery.
+	if e.forceMaxQuantizer {
+		e.rc.currentQuantizer = e.rc.maxQuantizer
+		e.rc.currentZbinOverQuant = 0
+	}
 	// libvpx vp8/encoder/firstpass.c estimate_max_q applies a CQ floor
 	// (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
 	// AFTER the second-pass Q regulation. Re-assert it here so the
@@ -933,10 +958,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
 		e.forceKeyFrame = false
-		// libvpx vp8_drop_encodedframe_overshoot sets force_maxqp=1 on the
-		// dropped frame so the next encoded frame is forced to max Q and
-		// cyclic refresh segmentation is suppressed for that frame.
-		e.forceMaxQuantizer = true
+		// libvpx's buffer-underrun drop in vp8/encoder/ratectrl.c
+		// calc_pframe_target_size only sets cpi->drop_frame=1 and updates
+		// the buffer level - it does NOT touch cpi->force_maxqp. force_maxqp
+		// is the post-encode-overshoot signal from vp8_drop_encodedframe_overshoot
+		// (a different drop path with screen_content_mode==2 / drop_frames_allowed
+		// gating). Setting forceMaxQuantizer here on the buffer-underrun
+		// branch therefore spuriously disables cyclic refresh on the frame
+		// after a buffer-underrun drop (cyclicRefreshModeEnabled gates on
+		// !forceMaxQuantizer, mirroring libvpx's force_maxqp==0 check).
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
 		// Oracle trace: emit a dropped-frame row before frameCount advances.
@@ -957,6 +987,32 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
 			return EncodeResult{}, err
+		}
+		// libvpx vp8/encoder/onyx_if.c:3970-3982 runs
+		// vp8_drop_encodedframe_overshoot after vp8_encode_frame on
+		// one-pass CBR. When it returns 1 the encoded frame is discarded
+		// and the next frame is forced to max-Q via cpi->force_maxqp.
+		// The function only fires under screen_content_mode==2 or with
+		// drop_frames_allowed plus a starved rate-correction-factor; for
+		// the common non-screen-content / drop-disabled config it just
+		// advances frames_since_last_drop_overshoot so the rcf-watchdog
+		// branch can arm next time.
+		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.Size, required, false) {
+			e.twoPass.finishFrame(0)
+			result.Dropped = true
+			result.SizeBytes = 0
+			result.BufferLevelBits = e.rc.bufferLevelBits
+			result.FrameTargetBits = e.rc.frameTargetBits
+			e.forceKeyFrame = false
+			// libvpx: cpi->frames_since_key++ on overshoot drop; mirror
+			// it so the next-keyframe distance heuristic stays aligned.
+			e.rc.framesSinceKeyframe++
+			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
+			e.populateTemporalLayerBufferResult(&result, temporalFrame)
+			e.emitOracleDroppedFrameTrace("overshoot")
+			e.frameCount++
+			finishSourceAltRef()
+			return result, nil
 		}
 		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
 			keyFrame = true
@@ -979,6 +1035,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, true)
 			}
 			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
+			// Same force_maxqp regulator gate as the primary path
+			// above: if the prior frame's overshoot drop set the flag,
+			// libvpx vp8_regulate_q honors it on the next frame
+			// regardless of frame type, including a scene-cut KF
+			// promoted from this auto-key recode path.
+			if e.forceMaxQuantizer {
+				e.rc.currentQuantizer = e.rc.maxQuantizer
+				e.rc.currentZbinOverQuant = 0
+			}
 			e.rc.applyCQFloor()
 			result.KeyFrame = true
 			result.SceneCut = true
@@ -1451,6 +1516,124 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 	default:
 		return true
 	}
+}
+
+// vp8DropEncodedframeOvershoot ports vp8/encoder/ratectrl.c
+// vp8_drop_encodedframe_overshoot: a post-encode drop that fires when an
+// inter frame at low Q badly overshoots the buffer budget on screen-
+// content / drop-frame-allowed configurations. When it fires, the encoded
+// frame is discarded, the buffer is reset to the optimal level, the
+// rate-correction-factor is bumped (capped at 2x or MAX_BPB_FACTOR), and
+// `cpi->force_maxqp` is set so the next frame is forced to worst_quality.
+//
+// libvpx's call site (vp8/encoder/onyx_if.c:3970-3982) is gated on
+// `pass==0 AND end_usage==USAGE_STREAM_FROM_SERVER AND
+// rt_drop_recode_on_overshoot==1`. govpx invokes this only for non-key
+// inter frames in CBR mode (the libvpx-equivalent of one-pass CBR).
+//
+// The inner drop test requires `pred_err_mb > thresh_pred_err_mb` and
+// `pred_err_mb > 2 * cpi->last_pred_err_mb`. govpx does not yet
+// accumulate `cpi->mb.prediction_error` during inter mode picking, so
+// `lastPredErrorMB` is permanently 0 and the inner gate currently never
+// fires. The outer state management
+// (frames_since_last_drop_overshoot increment, force_maxqp clears) runs
+// regardless and matches libvpx for the common no-drop case; that keeps
+// the gate ready for a future pred-err-tracking patch.
+//
+// Inputs: Q is the frame's chosen quantizer, projectedSizeBytes is the
+// final packed bitstream length (libvpx's
+// `cpi->projected_frame_size = (*size) << 3` post-pack value, here in
+// bytes for convenience), macroblocks is the frame MB count, and
+// keyFrame skips the gate so libvpx's `frame_type != KEY_FRAME` check
+// is honored. Returns true when the caller must discard the frame.
+func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int, macroblocks int, keyFrame bool) bool {
+	if e == nil {
+		return false
+	}
+	// Only fires in one-pass CBR with the rt-drop-recode signal active.
+	// libvpx's `cpi->rt_drop_recode_on_overshoot` is enabled by default and
+	// only cleared when an external rate controller takes over (see
+	// vp8/vp8_cx_iface.c VP8E_SET_RTC_EXTERNAL_RATECTRL); govpx has no
+	// external RC concept so it stays equivalent to 1 here.
+	if e.rc.mode != RateControlCBR || e.twoPass.enabled() {
+		return false
+	}
+	if keyFrame {
+		// libvpx skips the function body entirely on KFs (frame_type !=
+		// KEY_FRAME guard). Counters do not advance on KFs either.
+		return false
+	}
+	// Outer gate (vp8/encoder/ratectrl.c lines ~1505-1510):
+	//   screen_content_mode == 2  OR
+	//   (drop_frames_allowed AND
+	//    (force_drop_overshoot OR
+	//     (rate_correction_factor < 8*MIN_BPB_FACTOR AND
+	//      frames_since_last_drop_overshoot > framerate)))
+	// govpx does not surface multi-resolution force_drop_overshoot, so
+	// the inner OR collapses to the rcf+timing branch.
+	rcf := e.rc.rateCorrectionFactorForFrame(false, false)
+	framerate := outputFrameRate(e.timing)
+	rcThresholdMet := rcf < 8.0*libvpxMinBPBFactor &&
+		framerate > 0 &&
+		float64(e.rc.framesSinceLastDropOvershoot) > framerate
+	outerGate := e.opts.ScreenContentMode == 2 ||
+		(e.rc.dropFrameAllowed && rcThresholdMet)
+	if !outerGate {
+		// Outside the outer gate libvpx still resets force_maxqp and
+		// advances the post-drop counter so the rcf-watchdog branch can
+		// arm next time.
+		e.forceMaxQuantizer = false
+		e.rc.framesSinceLastDropOvershoot++
+		return false
+	}
+	// Inner drop trigger (vp8/encoder/ratectrl.c lines ~1532-1543).
+	const threshPredErrMB = 200 << 4 // libvpx: thresh_pred_err_mb = (200 << 4)
+	threshQ := (3 * e.rc.maxQuantizer) >> 2
+	avBytesPerFrame := e.rc.bitsPerFrame >> 3
+	threshRate := 2 * avBytesPerFrame
+	if e.rc.dropFrameAllowed && e.lastPredErrorMB > (threshPredErrMB<<4) {
+		// libvpx widens the trigger when the prior frame already showed
+		// extreme prediction error: thresh_rate >>= 3.
+		threshRate >>= 3
+	}
+	predErrMB := 0 // pending pred-err accumulation; see field comment above
+	if Q < threshQ &&
+		projectedSizeBytes > threshRate &&
+		predErrMB > threshPredErrMB &&
+		predErrMB > 2*e.lastPredErrorMB {
+		// Drop fires.
+		e.forceMaxQuantizer = true
+		// libvpx resets buffer_level + bits_off_target to optimal so the
+		// next-frame target estimator does not try to "earn back" the
+		// overspent bits on a single frame.
+		if e.rc.bufferOptimalBits > 0 {
+			e.rc.bufferLevelBits = e.rc.bufferOptimalBits
+		}
+		// Bump rate_correction_factor toward the target/worst-quality
+		// ratio, clamped at min(2*current, MAX_BPB_FACTOR).
+		if macroblocks > 0 && e.rc.maxQuantizer >= 0 && e.rc.maxQuantizer < len(libvpxBitsPerMB[1]) {
+			targetBitsPerMB := libvpxTargetBitsPerMB(e.rc.bitsPerFrame, macroblocks)
+			worstBitsPerMB := libvpxBitsPerMB[1][e.rc.maxQuantizer]
+			if worstBitsPerMB > 0 {
+				newCF := float64(targetBitsPerMB) / float64(worstBitsPerMB)
+				if newCF > rcf {
+					capped := 2.0 * rcf
+					if newCF > capped {
+						newCF = capped
+					}
+					if newCF > libvpxMaxBPBFactor {
+						newCF = libvpxMaxBPBFactor
+					}
+					e.rc.setRateCorrectionFactorForFrame(false, false, newCF)
+				}
+			}
+		}
+		e.rc.framesSinceLastDropOvershoot = 0
+		return true
+	}
+	e.forceMaxQuantizer = false
+	e.rc.framesSinceLastDropOvershoot++
+	return false
 }
 
 func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
@@ -2824,6 +3007,13 @@ func (e *VP8Encoder) Reset() {
 	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
+	// libvpx vp8_create_compressor seeds cpi->force_maxqp = 0 and
+	// cpi->frames_since_last_drop_overshoot = 0; mirror that on Reset
+	// so a sequence re-init does not leak overshoot-drop state from the
+	// previous run.
+	e.forceMaxQuantizer = false
+	e.lastPredErrorMB = 0
+	e.rc.framesSinceLastDropOvershoot = 0
 	e.rc.resetRollingBitAverages()
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0

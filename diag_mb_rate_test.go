@@ -180,17 +180,6 @@ func parseDiagMBRows(t *testing.T, trace []byte) []diagMBRow {
 	return deduped
 }
 
-// parseDiagProjected returns projected_frame_size per frame_index in
-// frame-index order, parsed from the rate rows of a JSONL oracle trace.
-func parseDiagProjected(t *testing.T, trace []byte) []int {
-	out := parseDiagProjectedWithSavings(t, trace)
-	bits := make([]int, 0, len(out))
-	for _, r := range out {
-		bits = append(bits, r.Projected)
-	}
-	return bits
-}
-
 type diagProjectedRow struct {
 	Frame           int
 	Projected       int
