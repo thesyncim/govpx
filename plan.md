@@ -64,6 +64,31 @@ lives in [Makefile](Makefile).
     level fast-picker divergence** (govpx LF=11 vs libvpx LF=5 for
     frame 1, identical q=16 and identical clamped seed); the chroma
     sixtap math itself is correct.
+  - 1280x720 realtime CBR CpuUsed 8, R11-M token-rate audit
+    (2026-05-09, parity-close-r11-m-token-rate, see
+    `diag_r11_m_token_rate_test.go`): at matched Q (frames 1-19 of the
+    panning fixture, both encoders pin q_index=106 / public Q=56),
+    per-frame size_bytes ratio is 0.998..1.005 and per-MB EOB sums match
+    exactly (frame 1: gov_eob_sum=lib_eob_sum=136595). The four
+    R11-M hypotheses (band-zero-bit-cost lookup, coef-prob context
+    selection, excessive non-zero coeffs from quantize, ZeroToken vs
+    token-tree divergence) would all manifest as byte-ratio drift even
+    at matched Q -- they don't. The cmd/govpx-bench harness's
+    avg_interframe_bytes ratio of ~1.30-1.40x against libvpx is driven
+    by **mode-decision divergence under wall-clock autoSpeed
+    adaptation** (vp8_auto_select_speed evolves cpi->Speed based on
+    avgPickModeTime / avgEncodeTime, and govpx's converged value
+    diverges from libvpx because per-frame timing varies between cold
+    and warm cache, producing different mode picks), not by
+    coefficient-token rate. Capturing the trace itself inflates
+    wall-clock timing and pushes autoSpeed away from the bench-measured
+    trajectory, so per-MB qcoeff in the trace is biased; bench
+    measurements are the authoritative ground truth for byte-ratio.
+    Side-effect: tightened Reset() to mirror libvpx's
+    vp8_create_compressor calloc-zero of cpi->Speed /
+    avg_pick_mode_time / avg_encode_time so a sequence re-init does not
+    leak warmed adaptive Speed into a "fresh" pass (preserves all 16
+    scoreboards green and verify-production).
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
