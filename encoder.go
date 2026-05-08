@@ -1225,7 +1225,14 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			e.restoreCodingContext()
 			continue
 		}
-		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
+		// libvpx feeds `cpi->projected_frame_size = bc[0].pos << 3` (post-pack
+		// actual bits) into recode_loop_test. govpx's pre-pack
+		// ProjectedSizeBits comes from the coefficient-model rate predictor,
+		// which underestimates real token-coding bits at high Q on dense
+		// content; using it here drove the recode loop to read every KF as
+		// "way under target" and walk Q down toward minQ. Use the actual
+		// packed size instead to mirror libvpx's signal.
+		if !e.updateQuantizerForProjectedFrameSize(encodedSizeBits(result.Size), true, false, required, &recode) {
 			return result, nil
 		}
 		e.oracleTraceRecodeReason = "size_recode"
@@ -1316,7 +1323,9 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
+		// See encodeKeyFrameWithQuantizerFeedback: feed actual packed bits
+		// to the recode loop, mirroring libvpx's cpi->projected_frame_size.
+		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(encodedSizeBits(result.Size), false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 		e.oracleTraceRecodeReason = "size_recode"
