@@ -1886,3 +1886,41 @@ the anchor and look for the surrounding mismatch.
   - Done when every frame matches coefficient probs, MV probs, Y/UV mode
     probs, ref probs, refresh entropy bit, projected entropy savings, and
     next-frame mode-cost inputs.
+
+R9-7 audit (Speed=8 coefficient probability updates): per-frame
+`coef_probs_adler` traces of govpx vs libvpx confirm the default
+(non-error-resilient) `vp8_update_coef_probs` decisions and the
+`lfc_n/g/a` snapshot timing are byte-identical with libvpx when the
+upstream pixel/mode pick stays in lockstep.
+Across 32 panning frames at `--good --cpu-used=5` (high Speed without
+the realtime auto-select timer noise), the first divergent
+`coef_probs_adler` and the first divergent `y_adler32` both appear at
+the same frame (13). Realtime `--cpu-used=8` shows the same first
+divergent frame at 13, with `prob_intra_coded` already differing
+(govpx=1 vs libvpx=15) at the moment of divergence — i.e. the coef-
+probs walk is downstream of an inter-mode-pick disagreement, not a
+savings-threshold or snapshot-timing bug. With `cpu_used=3` (no auto-
+select, recode loop active) coef-probs match across all 8 frames in
+the test corpus, ruling out any default-coef reset condition gap.
+The audit also surfaces a separate (non-R9-7-scope) coding-efficiency
+gap in the error-resilient (`IndependentContexts=true`) keyframe
+path: govpx's KF in `--good --cpu-used=5 --error-resilient=1` is
+~2.4× larger than libvpx's (8353 B vs 3472 B on a 64×64 panning
+fixture) while still producing byte-identical Y/U/V reconstructions
+through 12 frames; `coef_probs_adler` for the post-KF table differs
+between sides and govpx's hash stays constant on subsequent inter
+frames while libvpx's mutates each frame. The
+`BuildKeyFrameCoefficientProbabilityUpdatesIndependent` algorithm
+matches `independent_coef_context_savings` by hand-derivation against
+`default_coef_counts`, so the residual frame-size gap is most likely
+an extra-bit overhead from an over-eager `u=1` decision (govpx forces
+`u=1` for every (k,t) where `sharedNew != default[k][t]`, which on
+short clips fires for many entries libvpx skips). Out-of-scope for
+R9-7 but tracked here for a follow-up round.
+Diagnostic probes (require `GOVPX_WITH_ORACLE=1`, plus
+`GOVPX_R9_7_DUMP=1` for the byte-level keyframe dumps):
+`TestR9_7_CoefProbsAdlerSpeed8`, `TestR9_7_CoefProbsAdlerGoodCpu5`,
+`TestR9_7_CoefProbsLongCpu5`, `TestR9_7_CoefProbsAdlerErrorResilient`,
+`TestR9_7_DumpKeyFrameCoefProbsERGovpx`,
+`TestR9_7_DumpKeyFrameCoefProbsNoER`, and
+`TestR9_7_CoefProbsAdlerSpeed3`.
