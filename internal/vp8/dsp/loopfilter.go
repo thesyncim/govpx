@@ -25,6 +25,26 @@ func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
 }
 
 func LoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	loopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	loopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	mbLoopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	mbLoopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+// loopFilterHorizontalEdgeScalar is the libvpx-style scalar reference for
+// LoopFilterHorizontalEdge; it stays as the per-platform fallback when
+// the SIMD dispatch can't take the fast path. Body unchanged from the
+// original libvpx loopfilter_filters.c port.
+func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	_ = s[7*stride+count*8-1]
 
 	for i := 0; i < count*8; i++ {
@@ -38,7 +58,7 @@ func LoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thr
 	}
 }
 
-func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	_ = s[(count*8-1)*stride+7]
 
 	for i := 0; i < count*8; i++ {
@@ -52,7 +72,7 @@ func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thres
 	}
 }
 
-func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	_ = s[7*stride+count*8-1]
 
 	for i := 0; i < count*8; i++ {
@@ -66,7 +86,7 @@ func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, t
 	}
 }
 
-func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	_ = s[(count*8-1)*stride+7]
 
 	for i := 0; i < count*8; i++ {

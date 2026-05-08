@@ -131,6 +131,38 @@ func BenchmarkMBLoopFilterVerticalEdge(b *testing.B) {
 	}
 }
 
+func BenchmarkLoopFilterHorizontalEdgeY(b *testing.B) {
+	buf := makeLoopFilterRows(32, []byte{100, 100, 100, 100, 110, 110, 110, 110})
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		LoopFilterHorizontalEdge(buf, 32, 30, 20, 0, 2)
+	}
+}
+
+func BenchmarkLoopFilterVerticalEdgeY(b *testing.B) {
+	buf := makeLoopFilterRows(32, []byte{100, 100, 100, 100, 110, 110, 110, 110, 100, 100, 100, 100, 110, 110, 110, 110})
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		LoopFilterVerticalEdge(buf[4:], 32, 30, 20, 0, 2)
+	}
+}
+
+func BenchmarkMBLoopFilterHorizontalEdgeY(b *testing.B) {
+	buf := makeLoopFilterRows(32, []byte{100, 100, 100, 100, 110, 110, 110, 110})
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		MBLoopFilterHorizontalEdge(buf, 32, 30, 20, 0, 2)
+	}
+}
+
+func BenchmarkMBLoopFilterVerticalEdgeY(b *testing.B) {
+	buf := makeLoopFilterRows(32, []byte{100, 100, 100, 100, 110, 110, 110, 110, 100, 100, 100, 100, 110, 110, 110, 110})
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		MBLoopFilterVerticalEdge(buf[4:], 32, 30, 20, 0, 2)
+	}
+}
+
 func makeLoopFilterRows(stride int, values []byte) []byte {
 	buf := make([]byte, stride*len(values))
 	for y, v := range values {
