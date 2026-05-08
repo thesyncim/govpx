@@ -5710,23 +5710,77 @@ func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
 	}
 }
 
-// TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch verifies the key-frame
-// reset branch of libvpx onyx_if.c: source_alt_ref_active and
-// frames_since_golden are zeroed.
+// TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch pins
+// `resetGoldenFrameStats` to the libvpx
+// `update_golden_frame_stats(refresh_golden_frame=1)` keyframe branch in
+// vp8/encoder/onyx_if.c. Two regimes are exercised:
+//
+//  1. No ARF schedule armed: source_alt_ref_active is zeroed (libvpx
+//     `if (!cpi->source_alt_ref_pending) cpi->source_alt_ref_active = 0`),
+//     frames_since_golden is reset, and frames_till_gf_update_due is
+//     decremented (libvpx `if (frames_till_gf_update_due > 0)
+//     frames_till_gf_update_due--`).
+//
+//  2. ARF schedule armed during the keyframe's vp8_second_pass call:
+//     source_alt_ref_pending and alt_ref_source are preserved so that the
+//     next vp8_get_compressed_data ARF block can fire; only
+//     frames_till_alt_ref_frame decrements per the libvpx update.
 func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
+	t.Run("no-arf-schedule", func(t *testing.T) {
+		e := &VP8Encoder{
+			framesSinceGolden:     7,
+			sourceAltRefActive:    true,
+			sourceAltRefPending:   false,
+			altRefSourceValid:     false,
+			framesTillAltRefFrame: 5,
+		}
+		e.resetGoldenFrameStats()
+		if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
+			e.framesTillAltRefFrame != 4 {
+			t.Fatalf("post-keyframe state = {fsg:%d active:%v till:%d}, want {0 false 4}",
+				e.framesSinceGolden, e.sourceAltRefActive, e.framesTillAltRefFrame)
+		}
+	})
+	t.Run("preserves-arf-schedule", func(t *testing.T) {
+		e := &VP8Encoder{
+			framesSinceGolden:     3,
+			sourceAltRefActive:    true,
+			sourceAltRefPending:   true,
+			altRefSourceValid:     true,
+			altRefSourcePTS:       1234,
+			framesTillAltRefFrame: 7,
+		}
+		e.resetGoldenFrameStats()
+		if e.framesSinceGolden != 0 {
+			t.Fatalf("framesSinceGolden = %d, want 0", e.framesSinceGolden)
+		}
+		if !e.sourceAltRefActive {
+			t.Fatalf("sourceAltRefActive cleared while pending=true; libvpx only zeroes active when !pending")
+		}
+		if !e.sourceAltRefPending || !e.altRefSourceValid || e.altRefSourcePTS != 1234 {
+			t.Fatalf("ARF schedule mutated: pending=%v valid=%v pts=%d, want true/true/1234",
+				e.sourceAltRefPending, e.altRefSourceValid, e.altRefSourcePTS)
+		}
+		if e.framesTillAltRefFrame != 6 {
+			t.Fatalf("framesTillAltRefFrame = %d, want 6 (decremented from 7)", e.framesTillAltRefFrame)
+		}
+	})
+}
+
+// TestClearAltRefScheduleDropsPendingState pins the lifecycle reset path used
+// from Reset()/encoder init: dropping any in-flight ARF schedule entirely so
+// that no leftover pending state survives into a fresh stream.
+func TestClearAltRefScheduleDropsPendingState(t *testing.T) {
 	e := &VP8Encoder{
-		framesSinceGolden:     7,
-		sourceAltRefActive:    true,
 		sourceAltRefPending:   true,
 		altRefSourceValid:     true,
+		altRefSourcePTS:       42,
 		framesTillAltRefFrame: 5,
 	}
-	e.resetGoldenFrameStats()
-	if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
-		e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
-		t.Fatalf("post-keyframe state = {fsg:%d active:%v pending:%v valid:%v till:%d}, want all-zero",
-			e.framesSinceGolden, e.sourceAltRefActive, e.sourceAltRefPending,
-			e.altRefSourceValid, e.framesTillAltRefFrame)
+	e.clearAltRefSchedule()
+	if e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
+		t.Fatalf("post-clear state = {pending:%v valid:%v till:%d}, want {false false 0}",
+			e.sourceAltRefPending, e.altRefSourceValid, e.framesTillAltRefFrame)
 	}
 }
 

@@ -1053,10 +1053,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
-	// Mirror libvpx onyx_if.c key-frame branch: clear source_alt_ref_active
-	// and frames_since_golden so the next inter frame's RD ref-prob
-	// heuristic starts from a clean slate.
-	e.resetGoldenFrameStats()
+	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
+	// drop source_alt_ref_active when no ARF schedule is pending, and
+	// decrement frames_till_alt_ref_frame. Carried out by
+	// `refreshKeyFrameReferencesFromAnalysis -> resetGoldenFrameStats`,
+	// which is the single keyframe-path call point. Calling it twice
+	// (legacy code did) would double-decrement framesTillAltRefFrame and
+	// silently shorten any pass2-armed ARF schedule.
 	e.refreshKeyFrameReferencesFromAnalysis()
 	// Seed denoiser running averages from the key-frame source (libvpx
 	// onyx_if.c update_reference_frames key-frame branch).
@@ -1743,14 +1746,41 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 	}
 }
 
-// resetGoldenFrameStats mirrors libvpx's key-frame branch in onyx_if.c, which
-// clears source_alt_ref_active and resets frames_since_golden so the next
-// inter frame's RD scoring starts from a clean slate. libvpx also clears
-// source_alt_ref_pending and resets frames_till_alt_ref_frame on key frame
-// reset since the prior ARF schedule is invalidated.
+// resetGoldenFrameStats mirrors libvpx vp8/encoder/onyx_if.c
+// `update_golden_frame_stats`'s `cm->refresh_golden_frame` branch, which is
+// the routine that runs after every keyframe (vp8_setup_key_frame asserts
+// `cm->refresh_golden_frame=1`). The libvpx update:
+//
+//   - frames_since_golden = 0
+//   - if (!source_alt_ref_pending) source_alt_ref_active = 0
+//   - if (frames_till_gf_update_due > 0) frames_till_gf_update_due--
+//
+// It leaves `source_alt_ref_pending` and `alt_ref_source` intact so that
+// `define_gf_group` can arm a fresh ARF schedule from inside `vp8_second_pass`
+// (which runs at the top of Pass2Encode for the keyframe) and have it survive
+// the post-encode lifecycle bookkeeping. govpx mirrors that here so a
+// pass2-armed ARF schedule produced during keyframe encoding is not clobbered
+// before the next frame's `autoAltRefMaybeEncode` reads it.
+//
+// For full state reset (Reset(), encoder init), use `clearAltRefSchedule` to
+// also drop `source_alt_ref_pending`/`altRefSourceValid`/`framesTillAltRefFrame`.
 func (e *VP8Encoder) resetGoldenFrameStats() {
 	e.framesSinceGolden = 0
-	e.sourceAltRefActive = false
+	if !e.sourceAltRefPending {
+		e.sourceAltRefActive = false
+	}
+	if e.framesTillAltRefFrame > 0 {
+		e.framesTillAltRefFrame--
+	}
+}
+
+// clearAltRefSchedule drops any pending auto-ARF schedule, mirroring the
+// libvpx `cpi->source_alt_ref_pending=0; cpi->alt_ref_source=NULL` reset that
+// runs from `vp8_create_compressor` and on explicit reconfiguration paths
+// (encoder init, Reset(), error-resilient enable). It is the lifecycle
+// counterpart to `resetGoldenFrameStats`, which is the libvpx-faithful
+// per-keyframe stats update and intentionally preserves the schedule.
+func (e *VP8Encoder) clearAltRefSchedule() {
 	e.sourceAltRefPending = false
 	e.altRefSourceValid = false
 	e.framesTillAltRefFrame = 0
@@ -2509,6 +2539,7 @@ func (e *VP8Encoder) Reset() {
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
+	e.clearAltRefSchedule()
 	e.resetGoldenFrameStats()
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
