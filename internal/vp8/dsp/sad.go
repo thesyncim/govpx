@@ -30,6 +30,18 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 	if width == 16 && height == 16 {
 		return sadBlock16x16(src, srcStride, ref, refStride)
 	}
+	if width == 16 && height == 8 {
+		return sadBlock16x8(src, srcStride, ref, refStride)
+	}
+	if width == 8 && height == 16 {
+		return sadBlock8x16(src, srcStride, ref, refStride)
+	}
+	if width == 8 && height == 8 {
+		return sadBlock8x8(src, srcStride, ref, refStride)
+	}
+	if width == 4 && height == 4 {
+		return sadBlock4x4(src, srcStride, ref, refStride)
+	}
 	sad := 0
 	for y := 0; y < height; y++ {
 		srcRow := src[y*srcStride:]
