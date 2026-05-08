@@ -1343,15 +1343,30 @@ the anchor and look for the surrounding mismatch.
     fixture, the per-MB SPLITMV-pick agreement, partition-index agreement
     over the SPLITMV-on-both-sides subset, per-block-MV agreement over the
     same subset, mode_match across all inter MBs, and segment_id agreement.
-    Best- and good-quality cpu-used 0 settle every macroblock on SPLITMV in
-    both encoders so mode_match is 100%; the residual gap is in
-    partition-index choice (84.82% / 68.75% on cpu0 best/good) and per-
-    block-MV (57.14% / 45.54%), which reflects libvpx's `rd_check_segment`
-    label-RD tie-break vs govpx's transform-token RD when several
-    partitions are RD-equivalent. cpu3 (compressor-speed pruning) drops
-    SPLITMV picks to 22 govpx vs 28 libvpx, showing as
-    `splitmv_pick_match_pct=89.29%`. The scoreboard test gates each
-    metric within 2pp of the recorded baseline.
+    The segment-RD inter-shape cutoff now ports libvpx
+    `rd_check_segment`'s
+    `if (this_segment_rd >= bsi->segment_rd) break;` cumulative cap into
+    govpx via `selectInterFrameSplitMotionModeWithSegmentCutoff` and the
+    `splitMotionShapeResult.SegmentYRD` accumulator: per-shape evaluation
+    sums the per-label RDCOST(rate, distortion) entries; when the running
+    sum reaches the cap the shape is abandoned mid-evaluation. The cap is
+    initialized to maxInt at the start of `selectInterFrameSplitModeRDScore`
+    and tightened to `min(cap, shape.SegmentYRD)` after each completed
+    shape, so later-evaluated shapes are bounded by the smallest
+    completed-shape Y-side label-RD-sum so far — mirroring
+    rd_check_segment's `bsi->segment_rd = this_segment_rd` commit. The
+    legacy per-shape `acct.yrd >= bestYRD` reject filter is now removed
+    (libvpx never had it; the segment-RD cutoff is the sole gate, and the
+    outer mode-loop bestScore comparison is the exact counterpart of
+    libvpx's final `tmp_rd < best_mode.yrd` check).
+    With the cutoff in place the cpu3 partition-index agreement jumps
+    +10pp (81.82% -> 92.00%) and SPLITMV-pick agreement +3.58pp; cpu0
+    paths preserve 100% mode/SPLITMV-pick agreement. The block_mv
+    agreement on cpu3 reflects the larger SPLITMV-agreed sample set
+    (the 3 newly-agreed MBs add per-block-MV disagreement at the
+    granular level the cutoff cannot fix without aligning the per-
+    label MV picker further). The scoreboard test gates each metric
+    within 2pp of the recorded baseline.
   - Test: TestOracleInterDecisionMatchRate, TestOracleSplitMVDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.

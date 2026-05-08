@@ -4,21 +4,21 @@
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
       "partition_match_pct": 87.5,
-      "block_mv_match_pct": 58.92857142857143,
+      "block_mv_match_pct": 59.82142857142857,
       "segment_id_match_pct": 100
     },
     "good-cpu0-vbr": {
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
-      "partition_match_pct": 72.32142857142857,
-      "block_mv_match_pct": 46.42857142857143,
+      "partition_match_pct": 71.42857142857143,
+      "block_mv_match_pct": 45.535714285714285,
       "segment_id_match_pct": 100
     },
     "good-cpu3-vbr": {
-      "mode_match_pct": 91.96428571428571,
-      "splitmv_pick_match_pct": 91.96428571428571,
-      "partition_match_pct": 81.81818181818181,
-      "block_mv_match_pct": 36.36363636363637,
+      "mode_match_pct": 95.53571428571429,
+      "splitmv_pick_match_pct": 95.53571428571429,
+      "partition_match_pct": 92,
+      "block_mv_match_pct": 28,
       "segment_id_match_pct": 100
     }
   }
