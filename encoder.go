@@ -245,9 +245,9 @@ type VP8Encoder struct {
 	// the timers IIR-update (7*avg + duration)>>3. Cold start: Speed=4,
 	// timers=0. Govpx tracks the same state and feeds e.autoSpeed to
 	// libvpxCPUUsed for realtime+positive-cpu_used branches.
-	autoSpeed             int    // current adaptive Speed (libvpx cpi->Speed)
-	avgPickModeTime       uint64 // microseconds (libvpx cpi->avg_pick_mode_time)
-	avgEncodeTime         uint64 // microseconds (libvpx cpi->avg_encode_time)
+	autoSpeed             int // current adaptive Speed (libvpx cpi->Speed)
+	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
+	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
 	autoSpeedFrameStartNS int64
 
 	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
@@ -2974,12 +2974,21 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 	msForCompress := 1000000 / fps
 	msForCompress = msForCompress * (16 - cpuUsed) / 16
-	if e.avgPickModeTime < uint64(msForCompress) &&
-		(e.avgEncodeTime-e.avgPickModeTime) < uint64(msForCompress) {
+	// Note: avgPickModeTime and avgEncodeTime are signed int to mirror
+	// libvpx's signed-int avg_pick_mode_time / avg_encode_time
+	// (vp8/encoder/onyx_int.h:455-456). The (avgEncodeTime - avgPickModeTime)
+	// difference is signed-negative on the first inter frame after a key
+	// frame (avg_encode_time is skipped for KFs while avg_pick_mode_time is
+	// updated, so EncodeTime=0 < PickModeTime). Using uint64 here would let
+	// the subtraction underflow to a huge unsigned value, fail the
+	// "< msForCompress" guard, and force the bump branch (Speed += 4) on
+	// frame 1, breaking the auto-select trajectory libvpx follows.
+	if e.avgPickModeTime < msForCompress &&
+		(e.avgEncodeTime-e.avgPickModeTime) < msForCompress {
 		if e.avgPickModeTime == 0 {
 			e.autoSpeed = 4
 		} else {
-			if msForCompress*100 < int(e.avgEncodeTime)*95 {
+			if msForCompress*100 < e.avgEncodeTime*95 {
 				e.autoSpeed += 2
 				e.avgPickModeTime = 0
 				e.avgEncodeTime = 0
@@ -2988,7 +2997,7 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 				}
 			}
 			if e.autoSpeed >= 0 && e.autoSpeed < len(libvpxAutoSpeedThresh) &&
-				msForCompress*100 > int(e.avgEncodeTime)*libvpxAutoSpeedThresh[e.autoSpeed] {
+				msForCompress*100 > e.avgEncodeTime*libvpxAutoSpeedThresh[e.autoSpeed] {
 				e.autoSpeed -= 1
 				e.avgPickModeTime = 0
 				e.avgEncodeTime = 0
@@ -3020,7 +3029,7 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	if durationNS < 0 {
 		durationNS = 0
 	}
-	duration := uint64(durationNS / 1000) // microseconds
+	duration := int(durationNS / 1000) // microseconds
 	duration2 := duration / 2
 	if !isKeyFrame {
 		if e.avgEncodeTime == 0 {
