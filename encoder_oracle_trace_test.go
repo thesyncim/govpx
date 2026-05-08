@@ -347,6 +347,47 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	}
 }
 
+func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
+	var buf bytes.Buffer
+	e := &VP8Encoder{
+		opts: EncoderOptions{OracleTraceWriter: &buf},
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 1,
+		MV:        vp8enc.MotionVector{Row: 8, Col: 16},
+	}
+	for i := range mode.BlockMV {
+		mode.BlockMV[i] = vp8enc.MotionVector{Row: int16(i), Col: int16(-i)}
+	}
+	mode.MV = mode.BlockMV[15]
+	var coeffs vp8enc.MacroblockCoefficients
+
+	e.emitOracleMBTrace(0, 0, &mode, &coeffs)
+	e.flushOracleMBTraceBuffer()
+
+	lines := splitNonEmptyLines(buf.Bytes())
+	if len(lines) != 1 {
+		t.Fatalf("trace rows = %d, want 1", len(lines))
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(lines[0], &row); err != nil {
+		t.Fatalf("trace row is not valid JSON: %v", err)
+	}
+	if got := row["partition"].(float64); got != 1 {
+		t.Fatalf("partition = %v, want 1", got)
+	}
+	rows := row["block_mv_rows"].([]interface{})
+	cols := row["block_mv_cols"].([]interface{})
+	if len(rows) != 16 || len(cols) != 16 {
+		t.Fatalf("block MV arrays lengths = %d/%d, want 16/16", len(rows), len(cols))
+	}
+	if rows[15].(float64) != 15 || cols[15].(float64) != -15 {
+		t.Fatalf("block 15 MV = %v,%v, want 15,-15", rows[15], cols[15])
+	}
+}
+
 func TestOracleInterCandidateTraceIncludesImprovedMVStart(t *testing.T) {
 	var buf bytes.Buffer
 	e := &VP8Encoder{

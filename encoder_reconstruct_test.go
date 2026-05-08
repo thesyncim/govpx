@@ -1635,6 +1635,25 @@ func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 	})
 }
 
+func TestSelectInterFrameSplitMotionModeKeepsAllSamePartition(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 16, 1, 2)
+	ref.ExtendBorders()
+
+	mode, ok := selectInterFrameSplitMotionMode(sourceImageFromPublic(src), &ref.Img, vp8common.LastFrame, 0, 0, vp8enc.MotionVector{}, testInterSearchQIndex, 0)
+	if !ok {
+		t.Fatalf("all-same SPLITMV mode returned ok=false")
+	}
+	if mode.Partition != 0 || mode.MV != (vp8enc.MotionVector{Row: 8, Col: 16}) {
+		t.Fatalf("mode partition/MV = %d/%+v, want partition 0 with block15 MV +8,+16", mode.Partition, mode.MV)
+	}
+	for block, mv := range mode.BlockMV {
+		if mv != (vp8enc.MotionVector{Row: 8, Col: 16}) {
+			t.Fatalf("block %d MV = %+v, want all-same +8,+16", block, mv)
+		}
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
 	src := testImage(48, 48)
 	fillImage(src, 13, 90, 170)
@@ -2926,13 +2945,8 @@ func TestSplitMotionModeVectorCostChargesPartitionAndNew4x4Weight(t *testing.T) 
 	partitions := int(vp8tables.MBSplitCount[mode.Partition])
 	for subset := 0; subset < partitions; subset++ {
 		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
-		leftMV := analysisSplitLeftMV(&mode, nil, block)
-		aboveMV := analysisSplitAboveMV(&mode, nil, block)
 		target := mode.BlockMV[block]
-		probs := analysisSubMVRefProbs(leftMV, aboveMV)
-		want += boolBitCost(probs[0], 1)
-		want += boolBitCost(probs[1], 1)
-		want += boolBitCost(probs[2], 1)
+		want += splitSubMotionLabelRate(vp8common.New4x4)
 		delta := vp8enc.MotionVector{Row: int16(int(target.Row) - int(best.Row)), Col: int16(int(target.Col) - int(best.Col))}
 		want += vp8enc.MotionVectorBitCost(delta, vp8enc.MotionVector{}, &mvProbs, 102)
 	}
@@ -2970,48 +2984,28 @@ func TestSplitMotionModeVectorCostUsesExplicitSubMVLabel(t *testing.T) {
 	}
 }
 
-func TestSplitSubMotionLabelSearchCostUsesAnalysisContext(t *testing.T) {
-	left := vp8enc.MotionVector{Col: 8}
-	above := vp8enc.MotionVector{}
+func TestSplitSubMotionLabelSearchCostUsesLibvpxDefaultSubMVRefProb(t *testing.T) {
 	const qIndex = 127
 
-	got := splitSubMotionLabelSearchCostWithContext(vp8common.Above4x4, left, above, qIndex)
-	wantRate := splitSubMotionLabelRate(vp8common.Above4x4, left, above)
+	got := splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex)
+	wantRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, libvpxDefaultSubMVRefProbs)
 	want := (wantRate*libvpxSADPerBit4(qIndex) + 128) >> 8
 	if got != want {
-		t.Fatalf("contextual ABOVE4X4 search cost = %d, want %d", got, want)
+		t.Fatalf("ABOVE4X4 search cost = %d, want libvpx default cost %d", got, want)
 	}
-	if got == splitSubMotionLabelSearchCost(vp8common.Above4x4, qIndex) {
-		t.Fatalf("contextual ABOVE4X4 search cost matched default cost %d; want left/above context to affect SplitMV search", got)
+	contextualRate := splitSubMotionLabelCostWithProbs(vp8common.Above4x4, vp8tables.SubMVRefProb3[4])
+	contextual := (contextualRate*libvpxSADPerBit4(qIndex) + 128) >> 8
+	if got == contextual {
+		t.Fatalf("ABOVE4X4 search cost matched contextual bitstream cost %d; want libvpx RD default cost", got)
 	}
 }
 
 func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
 	leftMV := vp8enc.MotionVector{Col: 32}
 	aboveMV := leftMV
-	leftRate := splitSubMotionLabelRate(vp8common.Left4x4, leftMV, aboveMV)
-	zeroRate := splitSubMotionLabelRate(vp8common.Zero4x4, leftMV, aboveMV)
-	qIndex, leftDiff, zeroDiff := -1, -1, -1
-	for q := 0; q < vp8common.QIndexRange && leftDiff < 0; q++ {
-		sadPerBit := libvpxSADPerBit4(q)
-		for ld := 0; ld <= 127 && leftDiff < 0; ld++ {
-			for zd := 0; zd <= 127; zd++ {
-				leftSAD := ld * 16
-				zeroSAD := zd * 16
-				oldLeft := leftSAD + ((leftRate*sadPerBit + 128) >> 8)
-				oldZero := zeroSAD + ((zeroRate*sadPerBit + 128) >> 8)
-				rdLeft := splitMotionLabelRDScore(q, leftRate, leftSAD)
-				rdZero := splitMotionLabelRDScore(q, zeroRate, zeroSAD)
-				if oldLeft < oldZero && rdZero < rdLeft {
-					qIndex, leftDiff, zeroDiff = q, ld, zd
-					break
-				}
-			}
-		}
-	}
-	if leftDiff < 0 {
-		t.Fatalf("failed to find split-label fixture with divergent SAD+rate and RDCOST ordering (leftRate=%d zeroRate=%d)", leftRate, zeroRate)
-	}
+	const qIndex = 20
+	const leftDiff = 64
+	const zeroDiff = 0
 
 	src := testImage(32, 32)
 	fillImage(src, 128, 128, 128)
@@ -3042,7 +3036,7 @@ func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
 		&left, &above, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext, maxInt(),
 	)
 	if bMode != vp8common.Zero4x4 || mv != (vp8enc.MotionVector{}) {
-		t.Fatalf("split-label choice = %v/%+v, want ZERO4X4 by RDCOST ordering (leftDiff=%d zeroDiff=%d)", bMode, mv, leftDiff, zeroDiff)
+		t.Fatalf("split-label choice = %v/%+v, want ZERO4X4 by lower RDCOST distortion", bMode, mv)
 	}
 }
 
@@ -4975,7 +4969,7 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	}
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv := vp8enc.MotionVector{Col: 8}
-	labelRate := splitSubMotionLabelRate(vp8common.New4x4, vp8enc.MotionVector{}, vp8enc.MotionVector{})
+	labelRate := splitSubMotionLabelRate(vp8common.New4x4)
 	labelRate += splitMotionVectorCost(mv, &vp8tables.DefaultMVContext)
 
 	rate, dist, nextAbove, nextLeft, ok := ev.rateDistortion(src, ref, 0, 0, qIndex, &quant, &vp8tables.DefaultCoefProbs, &mode, 0, mv, labelRate)

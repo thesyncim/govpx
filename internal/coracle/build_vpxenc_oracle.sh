@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates-v2
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates-v4
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -137,6 +137,9 @@ typedef struct {
     int mv_col;
     int skip;
     int uv_mode;
+    int partition;
+    int block_mv_row[16];
+    int block_mv_col[16];
     int b_modes_valid;
     int b_modes[16];
     unsigned char eobs[25];
@@ -412,7 +415,7 @@ void govpx_oracle_capture_inter_candidate(
     row->distortion_uv = distortion_uv;
     row->sse = sse;
     row->skip = loop_break;
-    if (row->ref_frame == INTRA_FRAME) {
+    if (row->ref_frame == INTRA_FRAME || row->mode == SPLITMV) {
         row->mv_row = 0;
         row->mv_col = 0;
     } else {
@@ -470,6 +473,17 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     row->mv_col = xd->mode_info_context->mbmi.mv.as_mv.col;
     row->skip = xd->mode_info_context->mbmi.mb_skip_coeff;
     row->uv_mode = xd->mode_info_context->mbmi.uv_mode;
+    row->partition = -1;
+    if (cm->frame_type != KEY_FRAME &&
+        xd->mode_info_context->mbmi.mode == SPLITMV) {
+        row->partition = xd->mode_info_context->mbmi.partitioning;
+        for (i = 0; i < 16; ++i) {
+            row->block_mv_row[i] =
+                xd->mode_info_context->bmi[i].mv.as_mv.row;
+            row->block_mv_col[i] =
+                xd->mode_info_context->bmi[i].mv.as_mv.col;
+        }
+    }
     row->b_modes_valid = 0;
     if (cm->frame_type == KEY_FRAME &&
         xd->mode_info_context->mbmi.mode == B_PRED) {
@@ -756,7 +770,22 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                 }
                 fprintf(out, ",\"eob_sum\":%d,\"qcoeff\":[", r->eob_sum);
             } else {
-                fprintf(out, "],\"eob_sum\":%d,\"qcoeff\":[", r->eob_sum);
+                fprintf(out, "]");
+                if (r->mode == SPLITMV) {
+                    fprintf(out, ",\"partition\":%d,\"block_mv_rows\":[",
+                            r->partition);
+                    for (j = 0; j < 16; ++j) {
+                        fprintf(out, "%s%d", j == 0 ? "" : ",",
+                                r->block_mv_row[j]);
+                    }
+                    fprintf(out, "],\"block_mv_cols\":[");
+                    for (j = 0; j < 16; ++j) {
+                        fprintf(out, "%s%d", j == 0 ? "" : ",",
+                                r->block_mv_col[j]);
+                    }
+                    fprintf(out, "]");
+                }
+                fprintf(out, ",\"eob_sum\":%d,\"qcoeff\":[", r->eob_sum);
             }
             for (j = 0; j < 25; ++j) {
                 fprintf(out, "%s[", j == 0 ? "" : ",");

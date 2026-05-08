@@ -160,6 +160,9 @@ type oracleTraceMBRow struct {
 	MVRow      int16         `json:"mv_row"`
 	MVCol      int16         `json:"mv_col"`
 	Skip       bool          `json:"skip"`
+	Partition  *int          `json:"partition,omitempty"`
+	BlockMVRow []int16       `json:"block_mv_rows,omitempty"`
+	BlockMVCol []int16       `json:"block_mv_cols,omitempty"`
 	UVMode     string        `json:"uv_mode,omitempty"`
 	BModes     []string      `json:"b_modes,omitempty"`
 	EOB        [25]uint8     `json:"eob"`
@@ -562,6 +565,9 @@ func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandi
 			improvedMVPredictor = summary.ModeTrace.ImprovedMVPredictor
 		}
 	}
+	if summary.RefFrame == vp8common.IntraFrame || summary.Mode == vp8common.SplitMV {
+		mv = vp8enc.MotionVector{}
+	}
 	outcome := summary.Outcome
 	if outcome == "" {
 		outcome = "tested"
@@ -644,6 +650,16 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		row.ImprovedMVRow = mode.ImprovedMVPredictor.Row
 		row.ImprovedMVCol = mode.ImprovedMVPredictor.Col
 		row.ImprovedMVSR = int(mode.ImprovedMVSR)
+	}
+	if mode.Mode == vp8common.SplitMV {
+		partition := int(mode.Partition)
+		row.Partition = &partition
+		row.BlockMVRow = make([]int16, len(mode.BlockMV))
+		row.BlockMVCol = make([]int16, len(mode.BlockMV))
+		for i := range mode.BlockMV {
+			row.BlockMVRow[i] = mode.BlockMV[i].Row
+			row.BlockMVCol[i] = mode.BlockMV[i].Col
+		}
 	}
 	sum := 0
 	for i := 0; i < 25; i++ {
