@@ -1993,20 +1993,36 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 
 // libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame
 // would assign to cpi->frames_till_gf_update_due (== baseline_gf_interval) at
-// the time the next key frame is being encoded. libvpx onyx_if.c
-// vp8_create_compressor sets baseline_gf_interval = gf_interval_onepass_cbr
-// for any (Mode <= 2 && CBR && !error_resilient) compressor (line ~1886);
-// vp8_change_config later resets baseline_gf_interval to DEFAULT_GF_INTERVAL
-// for non-realtime modes (line ~1542) and only re-arms the
-// gf_interval_onepass_cbr value for realtime CBR (line ~1547). vpxenc invokes
-// vp8_change_config after vp8_create_compressor, so the effective value at
-// first-keyframe time is:
+// the time the next key frame is being encoded.
+//
+// One-pass: libvpx onyx_if.c vp8_create_compressor sets baseline_gf_interval =
+// gf_interval_onepass_cbr for any (Mode <= 2 && CBR && !error_resilient)
+// compressor (line ~1886); vp8_change_config later resets baseline_gf_interval
+// to DEFAULT_GF_INTERVAL for non-realtime modes (line ~1542) and only re-arms
+// the gf_interval_onepass_cbr value for realtime CBR (line ~1547). vpxenc
+// invokes vp8_change_config after vp8_create_compressor, so the effective
+// value at first-keyframe time is:
 //   - realtime CBR: gf_interval_onepass_cbr (cyclic-refresh derived, [6,40])
 //   - good/best quality CBR: DEFAULT_GF_INTERVAL == 7
-//   - non-CBR: DEFAULT_GF_INTERVAL == 7
+//   - non-CBR (one-pass): DEFAULT_GF_INTERVAL == 7
+//
+// Two-pass: libvpx vp8/encoder/firstpass.c find_next_key_frame zeroes
+// frames_till_gf_update_due (line ~2521); define_gf_group then runs and
+// derives baseline_gf_interval from the per-frame motion stats walk
+// (line ~1860/1906/1910). calc_iframe_target_size finally seeds
+// frames_till_gf_update_due = baseline_gf_interval (vp8/encoder/ratectrl.c
+// line ~513). Govpx's twoPassState mirrors that derivation: prepareKFGroup
+// + defineGFGroup populate t.framesTillGFUpdate with the two-pass-derived
+// baseline_gf_interval before this function is consulted. Returning the
+// libvpx-derived value here (instead of the one-pass DEFAULT_GF_INTERVAL
+// fallback) avoids a spurious mid-section GF refresh at frame
+// DEFAULT_GF_INTERVAL when libvpx's section runs longer.
 func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
 	if e.opts.Deadline == DeadlineRealtime && e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
 		return e.goldenFrameCBRInterval(rows, cols)
+	}
+	if e.twoPass.enabled() && e.twoPass.gfGroupValid && e.twoPass.framesTillGFUpdate > 0 {
+		return e.twoPass.framesTillGFUpdate
 	}
 	return libvpxDefaultGFInterval
 }
