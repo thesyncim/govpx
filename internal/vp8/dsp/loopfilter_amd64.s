@@ -63,51 +63,65 @@ TEXT ·loopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVQ	src+0(FP), AX
 	MOVQ	pitch+8(FP), BX
 
-	// Row pointers: AX=p3, R10=p2, R11=p1, R12=p0, R13=q0, R14=q1, R15=q2, DI=q3
+	// Row pointers: AX=p3, R10=p2, R11=p1, R12=p0, R13=q0, SI=q1, R8=q2, R9=q3.
+	// Avoid R14 (g register in Go ABIInternal) and R15 (PIE GOT base on
+	// linux/amd64 -buildmode=pie). The wrapper restores R14 from TLS
+	// after this call returns, but during async preemption windows
+	// keeping g intact guards against runtime probes that read R14
+	// optimistically.
 	MOVQ	AX, R10
-	ADDQ	BX, R10
+	ADDQ	BX, R10           // R10 = p2
 	MOVQ	R10, R11
-	ADDQ	BX, R11
+	ADDQ	BX, R11           // R11 = p1
 	MOVQ	R11, R12
-	ADDQ	BX, R12
+	ADDQ	BX, R12           // R12 = p0
 	MOVQ	R12, R13
-	ADDQ	BX, R13
-	MOVQ	R13, R14
-	ADDQ	BX, R14
-	MOVQ	R14, R15
-	ADDQ	BX, R15
-	MOVQ	R15, DI
-	ADDQ	BX, DI
+	ADDQ	BX, R13           // R13 = q0
+	MOVQ	R13, SI
+	ADDQ	BX, SI            // SI  = q1
+	MOVQ	SI, R8
+	ADDQ	BX, R8            // R8  = q2
+	MOVQ	R8, R9
+	ADDQ	BX, R9            // R9  = q3
 
-	// Load p3..q3 into X9..X15-style live registers. Note: only X9..X14
-	// fit (we have 16 XMM regs). Layout chosen to mirror NEON port.
-	//   X9 =p1, X10=p0, X11=q0, X12=q1   (mutated in place to signed)
-	// p3, p2, q2, q3 are read once and discarded (only used for mask).
+	// Pre-load all eight rows into XMM registers up front so the rest
+	// of the kernel never re-reads via the row pointers. p3, p2, q2,
+	// q3 live in scratch slots X3, X4, X5, X6 (consumed during mask
+	// build); p1, p0, q0, q1 stay in X9..X12 (mutated in place to
+	// signed below). Pre-loading avoids any second memory access where
+	// the ModR/M encoding for an SSE op with an extended-register base
+	// might hit a stale TLB entry or be reordered after a partial
+	// pointer update — both common ways the original layout could
+	// SEGV intermittently on linux/amd64 even though the row pointers
+	// are computed only once and never modified.
+	MOVOU	(AX),  X3         // p3 (scratch — only used during mask)
+	MOVOU	(R10), X4         // p2 (scratch)
 	MOVOU	(R11), X9         // p1 (kept)
 	MOVOU	(R12), X10        // p0 (kept)
 	MOVOU	(R13), X11        // q0 (kept)
-	MOVOU	(R14), X12        // q1 (kept)
+	MOVOU	(SI),  X12        // q1 (kept)
+	MOVOU	(R8),  X5         // q2 (scratch)
+	MOVOU	(R9),  X6         // q3 (scratch)
 
 	// Mask compute: build X1 = max of |p3-p2|,|p2-p1|,|p1-p0|,|q1-q0|,
 	// |q2-q1|,|q3-q2|. Save |p1-p0| (-> t1) and |q1-q0| (-> t0) for hev
 	// later: keep t0 in X13, t1 in X14.
 
-	// |p3-p2|
-	MOVOU	(AX), X0          // p3
-	MOVOU	(R10), X2         // p2
-	MOVOU	X0, X3
-	PSUBUSB	X2, X3
-	PSUBUSB	X0, X2
-	POR	X2, X3            // X3 = |p3-p2|
-	MOVOU	X3, X1            // X1 = running max
+	// |p3-p2| using pre-loaded X3 (p3), X4 (p2)
+	MOVOU	X3, X0
+	MOVOU	X4, X2
+	PSUBUSB	X2, X0            // X0 = sat(p3-p2)
+	PSUBUSB	X3, X2            // X2 = sat(p2-p3)
+	POR	X2, X0            // X0 = |p3-p2|
+	MOVOU	X0, X1            // X1 = running max
 
 	// |p2-p1|
-	MOVOU	(R10), X0
+	MOVOU	X4, X0
 	MOVOU	X9, X2
-	PSUBUSB	X0, X2            // X2 = sat(p1-p2)
 	PSUBUSB	X9, X0            // X0 = sat(p2-p1)
-	POR	X0, X2            // X2 = |p2-p1|
-	PMAXUB	X2, X1
+	PSUBUSB	X4, X2            // X2 = sat(p1-p2)
+	POR	X2, X0            // X0 = |p2-p1|
+	PMAXUB	X0, X1
 
 	// |p1-p0| -> X14 (t1)
 	MOVOU	X9, X0
@@ -127,19 +141,19 @@ TEXT ·loopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVOU	X0, X13           // t0
 	PMAXUB	X0, X1
 
-	// |q2-q1|
-	MOVOU	(R15), X0
+	// |q2-q1| using pre-loaded X5 (q2)
+	MOVOU	X5, X0
 	MOVOU	X12, X2
-	PSUBUSB	X12, X0
-	PSUBUSB	(R15), X2
+	PSUBUSB	X12, X0           // X0 = sat(q2-q1)
+	PSUBUSB	X5, X2            // X2 = sat(q1-q2)
 	POR	X2, X0
 	PMAXUB	X0, X1
 
-	// |q3-q2|
-	MOVOU	(DI), X0
-	MOVOU	(R15), X2
-	PSUBUSB	(R15), X0
-	PSUBUSB	(DI), X2
+	// |q3-q2| using pre-loaded X6 (q3), X5 (q2)
+	MOVOU	X6, X0
+	MOVOU	X5, X2
+	PSUBUSB	X5, X0            // X0 = sat(q3-q2)
+	PSUBUSB	X6, X2            // X2 = sat(q2-q3)
 	POR	X2, X0
 	PMAXUB	X0, X1            // X1 = max-of-six
 
@@ -275,7 +289,7 @@ TEXT ·loopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVOU	X9,  (R11)
 	MOVOU	X10, (R12)
 	MOVOU	X11, (R13)
-	MOVOU	X12, (R14)
+	MOVOU	X12, (SI)
 
 	RET
 
@@ -289,20 +303,25 @@ TEXT ·mbLoopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVQ	src+0(FP), AX
 	MOVQ	pitch+8(FP), BX
 
+	// Row pointers: AX=p3, R10=p2, R11=p1, R12=p0, R13=q0, SI=q1, R8=q2, R9=q3.
+	// Avoid R14 (g register in Go ABIInternal) and R15 (PIE GOT base on
+	// linux/amd64 -buildmode=pie). Pre-load p3 and q3 into XMM scratch
+	// so the kernel does not re-touch the row pointers after the
+	// mask-compute prologue.
 	MOVQ	AX, R10
-	ADDQ	BX, R10
+	ADDQ	BX, R10           // R10 = p2
 	MOVQ	R10, R11
-	ADDQ	BX, R11
+	ADDQ	BX, R11           // R11 = p1
 	MOVQ	R11, R12
-	ADDQ	BX, R12
+	ADDQ	BX, R12           // R12 = p0
 	MOVQ	R12, R13
-	ADDQ	BX, R13
-	MOVQ	R13, R14
-	ADDQ	BX, R14
-	MOVQ	R14, R15
-	ADDQ	BX, R15
-	MOVQ	R15, DI
-	ADDQ	BX, DI
+	ADDQ	BX, R13           // R13 = q0
+	MOVQ	R13, SI
+	ADDQ	BX, SI            // SI  = q1
+	MOVQ	SI, R8
+	ADDQ	BX, R8            // R8  = q2
+	MOVQ	R8, R9
+	ADDQ	BX, R9            // R9  = q3
 
 	// Live registers across the kernel:
 	//   X9  = p1   (then sps1)
@@ -317,17 +336,21 @@ TEXT ·mbLoopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVOU	(R11), X9         // p1
 	MOVOU	(R12), X10        // p0
 	MOVOU	(R13), X11        // q0
-	MOVOU	(R14), X12        // q1
-	MOVOU	(R15), X13        // q2
+	MOVOU	(SI),  X12        // q1
+	MOVOU	(R8),  X13        // q2
+
+	// Pre-load p3 and q3 into scratch XMMs so the rest of the mask
+	// compute never re-reads via the row pointers.
+	MOVOU	(AX), X3          // p3 (scratch)
+	MOVOU	(R9), X4          // q3 (scratch)
 
 	// Mask compute.  Same recipe as inner LF; build X1 = max of six diffs.
-	MOVOU	(AX), X0          // p3
+	MOVOU	X3, X0
 	MOVOU	X14, X2           // p2
-	MOVOU	X0, X3
-	PSUBUSB	X2, X3
-	PSUBUSB	X0, X2
-	POR	X2, X3            // |p3-p2|
-	MOVOU	X3, X1            // X1 = running max
+	PSUBUSB	X2, X0            // X0 = sat(p3-p2)
+	PSUBUSB	X3, X2            // X2 = sat(p2-p3)
+	POR	X2, X0            // |p3-p2|
+	MOVOU	X0, X1            // X1 = running max
 
 	MOVOU	X14, X0
 	MOVOU	X9, X2
@@ -359,10 +382,10 @@ TEXT ·mbLoopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	POR	X2, X0            // |q2-q1|
 	PMAXUB	X0, X1
 
-	MOVOU	(DI), X0          // q3
-	MOVOU	X13, X2
-	PSUBUSB	X13, X0
-	PSUBUSB	(DI), X2
+	MOVOU	X4, X0            // q3
+	MOVOU	X13, X2           // q2
+	PSUBUSB	X13, X0           // X0 = sat(q3-q2)
+	PSUBUSB	X4, X2            // X2 = sat(q2-q3)
 	POR	X2, X0            // |q3-q2|
 	PMAXUB	X0, X1
 
@@ -538,7 +561,7 @@ TEXT ·mbLoopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVOU	X9,  (R11)        // p1
 	MOVOU	X10, (R12)        // p0
 	MOVOU	X11, (R13)        // q0
-	MOVOU	X12, (R14)        // q1
-	MOVOU	X13, (R15)        // q2
+	MOVOU	X12, (SI)         // q1
+	MOVOU	X13, (R8)         // q2
 
 	RET
