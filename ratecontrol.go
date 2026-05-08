@@ -124,6 +124,17 @@ type rateControlState struct {
 	normalInterFrames         int
 	normalInterAvgQuantizer   int
 
+	// framesSinceLastDropOvershoot mirrors libvpx
+	// `cpi->frames_since_last_drop_overshoot` (vp8/encoder/onyx_int.h). It
+	// is incremented on every `vp8_drop_encodedframe_overshoot` non-drop
+	// return and reset to 0 when an overshoot drop fires; the post-encode
+	// drop gate at vp8/encoder/ratectrl.c
+	// `vp8_drop_encodedframe_overshoot` requires both
+	// `frames_since_last_drop_overshoot > framerate` AND
+	// `rate_correction_factor < 8 * MIN_BPB_FACTOR` before it engages
+	// outside screen-content-mode==2.
+	framesSinceLastDropOvershoot int
+
 	rateCorrectionFactor     float64
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64

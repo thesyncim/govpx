@@ -924,21 +924,11 @@ the anchor and look for the surrounding mismatch.
     `force_src_buffer` to `cpi->alt_ref_buffer` is not wired here, so
     ARNR temporal filtering for the ARF source still runs through the
     existing `applyARNRFilter` pipeline rather than the dedicated
-    alt_ref_buffer; on the 64x64 two-pass `TestOracleARNRBufferAdler`
-    fixture this still produces a Y/U/V Adler32 match against libvpx
-    because both sides borrow the visible-area predictor reads (govpx
-    via `gatherBlock`, libvpx via the lookahead's edge-replicated
-    16-pixel border, which `gatherBlock`'s edge clamp reproduces
-    pixel-for-pixel). `applyARNRFilter` is gated on the libvpx
-    `cpi->source_alt_ref_pending` equivalent so it only runs for the
-    hidden ARF source — visible frames carrying `flags == 0` skip
-    ARNR entirely, mirroring `vp8_get_compressed_data`'s
-    `if (...play_alternate && cpi->source_alt_ref_pending)` block.
-    The remaining gap is hidden-frame emission timing: libvpx peeks
-    the lookahead at offset `frames_till_gf_update_due` and emits the
-    hidden ARF on the first inter call after the ARF is armed, while
-    govpx waits for the future PTS to reach the head of the lookahead,
-    which delays the emission by the section interval.
+    alt_ref_buffer. The remaining gap is hidden-frame emission timing:
+    libvpx peeks the lookahead at offset `frames_till_gf_update_due`
+    and emits the hidden ARF on the first inter call after the ARF is
+    armed, while govpx waits for the future PTS to reach the head of
+    the lookahead, which delays the emission by the section interval.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded
     output match libvpx with alternate-reference enabled.
 
