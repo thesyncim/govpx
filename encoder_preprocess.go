@@ -271,8 +271,31 @@ func copyActivePlaneRect(dst []byte, dstStride int, src []byte, srcStride int, w
 
 func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFlags, meta encodeSourceMetadata) (vp8enc.SourceImage, encodeSourceMetadata) {
 	src := source
-	if e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
+	// ARNR (libvpx vp8/encoder/temporal_filter.c vp8_temporal_filter_prepare_c)
+	// only fires for the hidden alt-ref source. libvpx's onyx_if.c
+	// vp8_get_compressed_data gates it on
+	// `cpi->source_alt_ref_pending && oxcf.arnr_max_frames > 0` and, on the
+	// firing branch, redirects `force_src_buffer = &cpi->alt_ref_buffer` so
+	// every subsequent encode-pass read of `cpi->Source` consumes the filtered
+	// output rather than the raw lookahead frame. govpx schedules the hidden
+	// ARF emission with the EncodeInvisibleFrame|EncodeForceAltRefFrame flag
+	// pair (see `autoAltRefHiddenFlags` in encoder_altref_driver.go), so the
+	// same flag pair gates the filter here. Without the gate, ARNR runs on
+	// every popped frame including the keyframe, which mutates the source
+	// before the keyframe encode reads it and pushes Y reconstruction off
+	// byte-identity (the gate was originally landed in commit 0af0a25 as
+	// "Gate VP8 ARNR temporal filter on hidden alt-ref source" but was lost
+	// in a subsequent merge of d2c00ed; this restores it).
+	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
+	if hiddenAltRefFrame && e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
 		if e.applyARNRFilter(src, flags) {
+			// The filtered output lives in `arnrScratch`, govpx's analogue
+			// of libvpx's `cpi->alt_ref_buffer`. Returning it here is the
+			// equivalent of libvpx's
+			// `cpi->Source = force_src_buffer ? force_src_buffer : ...`
+			// branch — every downstream read of the source for this hidden
+			// ARF encode (motion search, RD picker, transform residual,
+			// loop-filter trial SSE) consumes the filtered pixels.
 			src = sourceImageFromVP8(&e.arnrScratch.Img)
 			meta.arnrFiltered = true
 		}
