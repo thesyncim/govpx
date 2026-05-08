@@ -30,6 +30,9 @@ func BilinearPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, d
 // prediction origin so the six filter taps are addressable with positive
 // indexes.
 func SixTapPredict4x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if sixTapPredict4x4Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 4, 4)
 }
 
@@ -42,6 +45,9 @@ func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst 
 }
 
 func SixTapPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if sixTapPredict8x4Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 4)
 }
 
