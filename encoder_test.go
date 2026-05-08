@@ -1297,6 +1297,61 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 	}
 }
 
+// TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames pins libvpx
+// vp8/encoder/onyx_if.c cyclic_background_refresh: the cyclic_refresh_mode_index
+// is reset to 0 only on init (line 1213) and resize, not on each key frame
+// (the iteration loop at line 534 is gated on frame_type != KEY_FRAME so a
+// key frame leaves the index untouched). govpx must mirror that — resetting
+// the index on each forced keyframe shifts the rolling refresh window
+// relative to libvpx for every GOP after the first.
+func TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               80,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        20,
+		MaxQuantizer:        56,
+		StaticThreshold:     1,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, 65536)
+	src := testImage(80, 64)
+	fillImage(src, 128, 128, 128)
+	if _, err := e.EncodeInto(packet, src, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	// Drive a few inter frames so the cyclic refresh index advances away
+	// from zero. A 5x4 frame has 20 MBs and refreshCount = 20/20 = 1, so
+	// each inter frame advances the index by exactly 1.
+	for frame := 0; frame < 3; frame++ {
+		s := publicImageFromVP8(&e.lastRef.Img)
+		if _, err := e.EncodeInto(packet, s, uint64(frame+1), 1, 0); err != nil {
+			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
+		}
+	}
+	beforeKey := e.cyclicRefreshIndex
+	if beforeKey == 0 {
+		t.Fatalf("cyclicRefreshIndex stayed at 0 after 3 inter frames; expected forward progress")
+	}
+	// Force a second keyframe and confirm the index survives.
+	e.ForceKeyFrame()
+	src2 := testImage(80, 64)
+	fillImage(src2, 128, 128, 128)
+	if _, err := e.EncodeInto(packet, src2, 4, 1, 0); err != nil {
+		t.Fatalf("forced key EncodeInto returned error: %v", err)
+	}
+	if e.cyclicRefreshIndex != beforeKey {
+		t.Fatalf("cyclicRefreshIndex after key frame = %d, want libvpx-preserved %d", e.cyclicRefreshIndex, beforeKey)
+	}
+}
+
 func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentationForMatchingReference(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

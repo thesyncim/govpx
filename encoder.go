@@ -1274,7 +1274,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
-	e.cyclicRefreshIndex = 0
+	// libvpx vp8/encoder/onyx_if.c does NOT reset cyclic_refresh_mode_index
+	// on key frames — only on init/resize (see lines 1213/1870 vs the
+	// frame_type != KEY_FRAME gate around the loop at line 534). The
+	// persistent index is preserved so the first inter frame after each
+	// keyframe continues the rolling refresh from where it left off.
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
