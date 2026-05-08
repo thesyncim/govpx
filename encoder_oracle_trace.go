@@ -11,6 +11,7 @@ package govpx
 //
 //   {"type":"frame", ...}  one per encoded (non-dropped) frame
 //   {"type":"mb",    ...}  one per macroblock
+//   {"type":"inter_candidate", ...} evaluated inter-mode candidates
 //
 // Output is emitted in deterministic order (frame trace after the frame is
 // committed; per-MB rows in raster scan order). When the writer is nil there
@@ -171,6 +172,77 @@ type oracleTraceMBRow struct {
 	ImprovedMVCol          int16 `json:"improved_mv_col"`
 	ImprovedMVSR           int   `json:"improved_mv_sr"`
 }
+
+type oracleTraceInterCandidateRow struct {
+	Type       string `json:"type"`
+	FrameIndex uint64 `json:"frame_index"`
+	MBRow      int    `json:"mb_row"`
+	MBCol      int    `json:"mb_col"`
+
+	Picker    string `json:"picker"`
+	ModeIndex int    `json:"mode_index"`
+	Mode      string `json:"mode"`
+	RefSlot   int    `json:"ref_slot"`
+	RefFrame  string `json:"ref_frame"`
+
+	Threshold       int    `json:"threshold"`
+	BestScoreBefore int    `json:"best_score_before"`
+	BestYRDBefore   int    `json:"best_yrd_before"`
+	BestSSEBefore   int    `json:"best_sse_before"`
+	Outcome         string `json:"outcome"`
+	BecameBest      bool   `json:"became_best"`
+	LoopBreak       bool   `json:"loop_break"`
+
+	Score        int  `json:"score"`
+	YRD          int  `json:"yrd"`
+	Rate         int  `json:"rate"`
+	RateY        int  `json:"rate_y"`
+	RateUV       int  `json:"rate_uv"`
+	Distortion   int  `json:"distortion"`
+	DistortionUV int  `json:"distortion_uv"`
+	SSE          int  `json:"sse"`
+	Skip         bool `json:"skip"`
+
+	MVRow int16 `json:"mv_row"`
+	MVCol int16 `json:"mv_col"`
+
+	ImprovedMVStart        bool  `json:"improved_mv_start"`
+	ImprovedMVNearSADIndex int   `json:"improved_mv_near_sadidx"`
+	ImprovedMVRow          int16 `json:"improved_mv_row"`
+	ImprovedMVCol          int16 `json:"improved_mv_col"`
+	ImprovedMVSR           int   `json:"improved_mv_sr"`
+}
+
+type oracleTraceInterCandidateSummary struct {
+	Picker          string
+	MBRow           int
+	MBCol           int
+	ModeIndex       int
+	Mode            vp8common.MBPredictionMode
+	RefSlot         int
+	RefFrame        vp8common.MVReferenceFrame
+	Threshold       int
+	BestScoreBefore int
+	BestYRDBefore   int
+	BestSSEBefore   int
+	Outcome         string
+	BecameBest      bool
+	LoopBreak       bool
+	Score           int
+	YRD             int
+	Rate            int
+	RateY           int
+	RateUV          int
+	Distortion      int
+	DistortionUV    int
+	SSE             int
+	Skip            bool
+	MV              vp8enc.MotionVector
+	ModeTrace       vp8enc.InterFrameMacroblockMode
+	HasModeTrace    bool
+}
+
+const oracleTraceInterCandidateUnknown = -1
 
 // oracleTraceEnabled reports whether the encoder is configured to emit the
 // oracle trace. Callers should guard tracing logic with this so the per-MB
@@ -454,6 +526,7 @@ func (e *VP8Encoder) resetOracleMBTraceBuffer() {
 		return
 	}
 	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
+	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
 }
 
 // flushOracleMBTraceBuffer writes the buffered per-MB rows to the configured
@@ -463,10 +536,76 @@ func (e *VP8Encoder) flushOracleMBTraceBuffer() {
 		return
 	}
 	w := e.opts.OracleTraceWriter
+	for i := range e.oracleTraceInterCandidateBuffer {
+		emitOracleTraceRow(w, &e.oracleTraceInterCandidateBuffer[i])
+	}
 	for i := range e.oracleTraceMBBuffer {
 		emitOracleTraceRow(w, &e.oracleTraceMBBuffer[i])
 	}
+	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
 	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
+}
+
+func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandidateSummary) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	mv := summary.MV
+	improvedMVNearSADIndex := oracleTraceInterCandidateUnknown
+	improvedMVSR := oracleTraceInterCandidateUnknown
+	var improvedMVPredictor vp8enc.MotionVector
+	if summary.HasModeTrace {
+		mv = summary.ModeTrace.MV
+		if summary.ModeTrace.ImprovedMVStart {
+			improvedMVNearSADIndex = int(summary.ModeTrace.ImprovedMVNearSADIndex)
+			improvedMVSR = int(summary.ModeTrace.ImprovedMVSR)
+			improvedMVPredictor = summary.ModeTrace.ImprovedMVPredictor
+		}
+	}
+	outcome := summary.Outcome
+	if outcome == "" {
+		outcome = "tested"
+	}
+	row := oracleTraceInterCandidateRow{
+		Type:       "inter_candidate",
+		FrameIndex: e.frameCount,
+		MBRow:      summary.MBRow,
+		MBCol:      summary.MBCol,
+
+		Picker:    summary.Picker,
+		ModeIndex: summary.ModeIndex,
+		Mode:      oracleTraceModeName(summary.Mode),
+		RefSlot:   summary.RefSlot,
+		RefFrame:  oracleTraceRefName(summary.RefFrame),
+
+		Threshold:       summary.Threshold,
+		BestScoreBefore: summary.BestScoreBefore,
+		BestYRDBefore:   summary.BestYRDBefore,
+		BestSSEBefore:   summary.BestSSEBefore,
+		Outcome:         outcome,
+		BecameBest:      summary.BecameBest,
+		LoopBreak:       summary.LoopBreak,
+
+		Score:        summary.Score,
+		YRD:          summary.YRD,
+		Rate:         summary.Rate,
+		RateY:        summary.RateY,
+		RateUV:       summary.RateUV,
+		Distortion:   summary.Distortion,
+		DistortionUV: summary.DistortionUV,
+		SSE:          summary.SSE,
+		Skip:         summary.Skip,
+
+		MVRow: mv.Row,
+		MVCol: mv.Col,
+
+		ImprovedMVStart:        summary.HasModeTrace && summary.ModeTrace.ImprovedMVStart,
+		ImprovedMVNearSADIndex: improvedMVNearSADIndex,
+		ImprovedMVRow:          improvedMVPredictor.Row,
+		ImprovedMVCol:          improvedMVPredictor.Col,
+		ImprovedMVSR:           improvedMVSR,
+	}
+	e.oracleTraceInterCandidateBuffer = append(e.oracleTraceInterCandidateBuffer, row)
 }
 
 // emitOracleMBTrace appends a per-macroblock trace row to the encoder's

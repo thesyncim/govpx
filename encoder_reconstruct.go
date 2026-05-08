@@ -1415,6 +1415,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
+	traceEnabled := e.oracleTraceEnabled()
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
@@ -1446,12 +1447,43 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
+			bestScoreBefore := bestScore
+			bestYRDBefore := bestYRD
 			mode, score, yrd, rate, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			if !ok {
 				continue
 			}
 			mode.SegmentID = segmentID
-			if !bestSet || score < bestScore {
+			becameBest := !bestSet || score < bestScore
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker:          "rd",
+					MBRow:           mbRow,
+					MBCol:           mbCol,
+					ModeIndex:       modeIndex,
+					Mode:            mode.Mode,
+					RefSlot:         0,
+					RefFrame:        vp8common.IntraFrame,
+					Threshold:       threshold,
+					BestScoreBefore: bestScoreBefore,
+					BestYRDBefore:   bestYRDBefore,
+					BestSSEBefore:   oracleTraceInterCandidateUnknown,
+					Outcome:         "tested",
+					BecameBest:      becameBest,
+					Score:           score,
+					YRD:             yrd,
+					Rate:            rate,
+					RateY:           oracleTraceInterCandidateUnknown,
+					RateUV:          oracleTraceInterCandidateUnknown,
+					Distortion:      oracleTraceInterCandidateUnknown,
+					DistortionUV:    oracleTraceInterCandidateUnknown,
+					SSE:             oracleTraceInterCandidateUnknown,
+					Skip:            mode.MBSkipCoeff,
+					ModeTrace:       mode,
+					HasModeTrace:    true,
+				})
+			}
+			if becameBest {
 				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
@@ -1472,10 +1504,17 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 		e.recordInterRDModeTest(modeIndex)
+		bestScoreBefore := bestScore
+		bestYRDBefore := bestYRD
 		var mode vp8enc.InterFrameMacroblockMode
 		var score int
 		var yrd int
 		var rate int
+		rateY := oracleTraceInterCandidateUnknown
+		rateUV := oracleTraceInterCandidateUnknown
+		distortion := oracleTraceInterCandidateUnknown
+		distortionUV := oracleTraceInterCandidateUnknown
+		mbSkipCoeff := false
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
@@ -1489,13 +1528,48 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				score = acct.rd
 				yrd = acct.yrd
 				rate = acct.rate2
+				rateY = acct.rateY
+				rateUV = acct.rateUV
+				distortion = acct.distortion2
+				distortionUV = acct.distortionUV
+				mbSkipCoeff = acct.mbSkipCoeff
 				rdLoopSkip = acct.rdLoopSkip
 			}
 		}
 		if !ok {
 			continue
 		}
-		if rdLoopSkip || !bestSet || score < bestScore {
+		becameBest := rdLoopSkip || !bestSet || score < bestScore
+		if traceEnabled {
+			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+				Picker:          "rd",
+				MBRow:           mbRow,
+				MBCol:           mbCol,
+				ModeIndex:       modeIndex,
+				Mode:            mode.Mode,
+				RefSlot:         refSlot,
+				RefFrame:        ref.Frame,
+				Threshold:       threshold,
+				BestScoreBefore: bestScoreBefore,
+				BestYRDBefore:   bestYRDBefore,
+				BestSSEBefore:   oracleTraceInterCandidateUnknown,
+				Outcome:         "tested",
+				BecameBest:      becameBest,
+				LoopBreak:       rdLoopSkip,
+				Score:           score,
+				YRD:             yrd,
+				Rate:            rate,
+				RateY:           rateY,
+				RateUV:          rateUV,
+				Distortion:      distortion,
+				DistortionUV:    distortionUV,
+				SSE:             oracleTraceInterCandidateUnknown,
+				Skip:            mbSkipCoeff || mode.MBSkipCoeff,
+				ModeTrace:       mode,
+				HasModeTrace:    true,
+			})
+		}
+		if becameBest {
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score
@@ -1689,6 +1763,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
+	traceEnabled := e.oracleTraceEnabled()
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
@@ -1719,12 +1794,43 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
+			bestScoreBefore := bestScore
+			bestSSEBefore := bestSSE
 			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE)
 			if !ok {
 				continue
 			}
 			mode.SegmentID = segmentID
-			if !bestSet || score < bestScore {
+			becameBest := !bestSet || score < bestScore
+			if traceEnabled {
+				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+					Picker:          "fast",
+					MBRow:           mbRow,
+					MBCol:           mbCol,
+					ModeIndex:       modeIndex,
+					Mode:            mode.Mode,
+					RefSlot:         0,
+					RefFrame:        vp8common.IntraFrame,
+					Threshold:       threshold,
+					BestScoreBefore: bestScoreBefore,
+					BestYRDBefore:   oracleTraceInterCandidateUnknown,
+					BestSSEBefore:   bestSSEBefore,
+					Outcome:         "tested",
+					BecameBest:      becameBest,
+					Score:           score,
+					YRD:             oracleTraceInterCandidateUnknown,
+					Rate:            rate,
+					RateY:           oracleTraceInterCandidateUnknown,
+					RateUV:          oracleTraceInterCandidateUnknown,
+					Distortion:      distortion,
+					DistortionUV:    oracleTraceInterCandidateUnknown,
+					SSE:             sse,
+					Skip:            mode.MBSkipCoeff,
+					ModeTrace:       mode,
+					HasModeTrace:    true,
+				})
+			}
+			if becameBest {
 				e.lowerInterRDThresholdForImprovement(modeIndex)
 				bestSet = true
 				bestScore = score
@@ -1746,6 +1852,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		e.recordInterRDModeTest(modeIndex)
+		bestScoreBefore := bestScore
+		bestSSEBefore := bestSSE
 		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
 		if mbMode == vp8common.SplitMV {
 			e.raiseInterRDThreshold(modeIndex)
@@ -1759,7 +1867,37 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if !ok {
 			continue
 		}
-		if breakoutSkip || !bestSet || score < bestScore {
+		becameBest := breakoutSkip || !bestSet || score < bestScore
+		if traceEnabled {
+			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+				Picker:          "fast",
+				MBRow:           mbRow,
+				MBCol:           mbCol,
+				ModeIndex:       modeIndex,
+				Mode:            mode.Mode,
+				RefSlot:         refSlot,
+				RefFrame:        ref.Frame,
+				Threshold:       threshold,
+				BestScoreBefore: bestScoreBefore,
+				BestYRDBefore:   oracleTraceInterCandidateUnknown,
+				BestSSEBefore:   bestSSEBefore,
+				Outcome:         "tested",
+				BecameBest:      becameBest,
+				LoopBreak:       breakoutSkip,
+				Score:           score,
+				YRD:             oracleTraceInterCandidateUnknown,
+				Rate:            rate,
+				RateY:           oracleTraceInterCandidateUnknown,
+				RateUV:          oracleTraceInterCandidateUnknown,
+				Distortion:      distortion,
+				DistortionUV:    oracleTraceInterCandidateUnknown,
+				SSE:             sse,
+				Skip:            breakoutSkip,
+				ModeTrace:       mode,
+				HasModeTrace:    true,
+			})
+		}
+		if becameBest {
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
 			bestScore = score

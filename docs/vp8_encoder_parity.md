@@ -48,20 +48,20 @@ the anchor and look for the surrounding mismatch.
   the production oracle gate for a projected frame/rate decision subset, but
   the full corpus driver that counts matching candidate and MB decisions is
   still missing.
-- The largest remaining parity weights are candidate-level inter-mode tracing,
-  rejected recode-attempt tracing, automatic hidden-ARF/ARNR border proof,
-  first-pass/two-pass proof beyond the deterministic ramp and Y4M-shaped
-  `.fpf` oracle gates, rate parity tracking vs libvpx output bitrate/frame
-  sizes, and remaining quality-relevant entropy/refresh edge cases. A
-  pre-pack `projected_frame_size` oracle gate now exists for the VBR panning
-  trace, but candidate-level rate rows are still needed to close the last
-  sub-64-bit estimator noise.
+- The largest remaining parity weights are libvpx-side candidate-level
+  inter-mode trace hooks/comparison, rejected recode-attempt tracing,
+  automatic hidden-ARF/ARNR border proof, first-pass/two-pass proof beyond the
+  deterministic ramp and Y4M-shaped `.fpf` oracle gates, rate parity tracking
+  vs libvpx output bitrate/frame sizes, and remaining quality-relevant
+  entropy/refresh edge cases. A pre-pack `projected_frame_size` oracle gate now
+  exists for the VBR panning trace, but candidate-level rate comparison is
+  still needed to close the last sub-64-bit estimator noise.
 - If only three more things are fixed, they should be: (1) add
-  candidate-level inter-mode / motion-search trace rows, (2) broaden the
-  first-pass `.fpf` oracle gate to external/two-pass allocation corpora, and
-  (3) close the remaining direct rate-control trace gaps, especially rejected
-  recode-attempt rows and candidate-level rate attribution for projected-size
-  tolerances.
+  libvpx-side candidate-level inter-mode / motion-search trace rows and wire
+  them into comparison, (2) broaden the first-pass `.fpf` oracle gate to
+  external/two-pass allocation corpora, and (3) close the remaining direct
+  rate-control trace gaps, especially rejected recode-attempt rows and
+  candidate-level rate attribution for projected-size tolerances.
 
 ## Acceptance Gates
 
@@ -125,6 +125,7 @@ the anchor and look for the surrounding mismatch.
 
 | Date | Commit | Gate | Result | Notes |
 | --- | --- | --- | --- | --- |
+| 2026-05-08 | Govpx inter-candidate trace rows | `make verify-production` | pass | Adds govpx-side evaluated inter-candidate rows for RD and fast pickers while preserving the projected frame/rate oracle gate. |
 | 2026-05-08 | Projected-size parity stack | `make verify-production` | pass | Includes timebase-aligned trace compare with `this_frame_target`, `projected_frame_size` within 64 bits, first-pass ramp + Y4M-shaped `.fpf` oracle coverage, and direct synthetic output-kbps gates. |
 
 ## Accepted Non-Bitexact Differences
@@ -357,8 +358,12 @@ the anchor and look for the surrounding mismatch.
   rows, and rejected recode attempts.
   - Status: key-frame MB rows are now covered on both govpx and patched-libvpx
     trace paths, including Y mode, UV mode, B modes for `B_PRED`, EOBs, and
-    qcoeffs. Candidate-level mode-loop rows and rejected recode-attempt rows
-    remain open.
+    qcoeffs. govpx now buffers evaluated inter-mode candidate rows for the
+    accepted encode attempt, with picker, mode/ref slot, threshold, best-before
+    score state, RD/rate/distortion fields where available, skip/breakout
+    decisions, MV, and improved-MV-start diagnostics. The libvpx-side
+    candidate hooks/comparison, skipped/pruned candidate rows, and rejected
+    recode-attempt rows remain open.
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV

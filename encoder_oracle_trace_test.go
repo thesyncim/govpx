@@ -13,7 +13,8 @@ import (
 // TestOracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
 // by an inter frame with the trace writer enabled and asserts the JSONL
 // stream has 1 frame row for the keyframe, 1 frame row for the inter frame,
-// and 8 MB rows (32x32 = 2x2 macroblocks for each frame).
+// inter-candidate rows for the inter frame, and 8 MB rows (32x32 = 2x2
+// macroblocks for each frame).
 func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	const w, h = 32, 32
 	var buf bytes.Buffer
@@ -79,6 +80,7 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	lines := splitNonEmptyLines(buf.Bytes())
 	var frameRows []map[string]interface{}
 	var mbRows []map[string]interface{}
+	var candidateRows []map[string]interface{}
 	var rateRows []map[string]interface{}
 	var recodeRows []map[string]interface{}
 	for i, line := range lines {
@@ -95,6 +97,8 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			frameRows = append(frameRows, row)
 		case "mb":
 			mbRows = append(mbRows, row)
+		case "inter_candidate":
+			candidateRows = append(candidateRows, row)
 		case "rate":
 			rateRows = append(rateRows, row)
 		case "recode":
@@ -109,6 +113,9 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	}
 	if len(mbRows) != 8 {
 		t.Fatalf("mb rows = %d, want 8 (2x2 key frame + 2x2 inter frame)", len(mbRows))
+	}
+	if len(candidateRows) == 0 {
+		t.Fatalf("inter_candidate rows = 0, want tested candidates for inter frame")
 	}
 	// Each committed frame emits exactly one rate row; recode rows only
 	// appear when the frame's recode loop iterated more than once.
@@ -134,6 +141,33 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		} {
 			if _, ok := row[key]; !ok {
 				t.Fatalf("recode[%d] missing field %q", i, key)
+			}
+		}
+	}
+	for i, row := range candidateRows {
+		if got := row["frame_index"]; got != float64(1) {
+			t.Fatalf("candidate[%d].frame_index = %v, want inter frame 1", i, got)
+		}
+		picker, ok := row["picker"].(string)
+		if !ok || (picker != "rd" && picker != "fast") {
+			t.Fatalf("candidate[%d].picker = %v, want rd or fast", i, row["picker"])
+		}
+		if got := row["outcome"]; got != "tested" {
+			t.Fatalf("candidate[%d].outcome = %v, want tested", i, got)
+		}
+		for _, key := range []string{
+			"frame_index", "mb_row", "mb_col",
+			"picker", "mode_index", "mode", "ref_slot", "ref_frame",
+			"threshold", "best_score_before", "best_yrd_before", "best_sse_before",
+			"outcome", "became_best", "loop_break",
+			"score", "yrd", "rate", "rate_y", "rate_uv",
+			"distortion", "distortion_uv", "sse", "skip",
+			"mv_row", "mv_col",
+			"improved_mv_start", "improved_mv_near_sadidx",
+			"improved_mv_row", "improved_mv_col", "improved_mv_sr",
+		} {
+			if _, ok := row[key]; !ok {
+				t.Fatalf("candidate[%d] missing field %q", i, key)
 			}
 		}
 	}
@@ -310,6 +344,97 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	block2 := qcoeff[2].([]interface{})
 	if got := block2[3].(float64); got != -7 {
 		t.Fatalf("qcoeff[2][3] = %v, want -7", got)
+	}
+}
+
+func TestOracleInterCandidateTraceIncludesImprovedMVStart(t *testing.T) {
+	var buf bytes.Buffer
+	e := &VP8Encoder{
+		opts: EncoderOptions{OracleTraceWriter: &buf},
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:               vp8common.LastFrame,
+		Mode:                   vp8common.NewMV,
+		MV:                     vp8enc.MotionVector{Row: 12, Col: -4},
+		ImprovedMVStart:        true,
+		ImprovedMVNearSADIndex: 2,
+		ImprovedMVSR:           1,
+		ImprovedMVPredictor:    vp8enc.MotionVector{Row: 8, Col: -12},
+	}
+
+	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+		Picker:          "rd",
+		MBRow:           1,
+		MBCol:           2,
+		ModeIndex:       13,
+		Mode:            vp8common.NewMV,
+		RefSlot:         1,
+		RefFrame:        vp8common.LastFrame,
+		Threshold:       99,
+		BestScoreBefore: 1000,
+		BestYRDBefore:   900,
+		BestSSEBefore:   oracleTraceInterCandidateUnknown,
+		BecameBest:      true,
+		LoopBreak:       true,
+		Score:           77,
+		YRD:             66,
+		Rate:            55,
+		RateY:           11,
+		RateUV:          7,
+		Distortion:      44,
+		DistortionUV:    5,
+		SSE:             oracleTraceInterCandidateUnknown,
+		Skip:            true,
+		ModeTrace:       mode,
+		HasModeTrace:    true,
+	})
+	e.flushOracleMBTraceBuffer()
+
+	lines := splitNonEmptyLines(buf.Bytes())
+	if len(lines) != 1 {
+		t.Fatalf("trace rows = %d, want 1", len(lines))
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(lines[0], &row); err != nil {
+		t.Fatalf("trace row is not valid JSON: %v", err)
+	}
+	for key, want := range map[string]interface{}{
+		"type":                    "inter_candidate",
+		"picker":                  "rd",
+		"mode":                    "NEWMV",
+		"ref_frame":               "LAST_FRAME",
+		"outcome":                 "tested",
+		"became_best":             true,
+		"loop_break":              true,
+		"skip":                    true,
+		"improved_mv_start":       true,
+		"frame_index":             float64(0),
+		"mb_row":                  float64(1),
+		"mb_col":                  float64(2),
+		"mode_index":              float64(13),
+		"ref_slot":                float64(1),
+		"threshold":               float64(99),
+		"best_score_before":       float64(1000),
+		"best_yrd_before":         float64(900),
+		"best_sse_before":         float64(oracleTraceInterCandidateUnknown),
+		"score":                   float64(77),
+		"yrd":                     float64(66),
+		"rate":                    float64(55),
+		"rate_y":                  float64(11),
+		"rate_uv":                 float64(7),
+		"distortion":              float64(44),
+		"distortion_uv":           float64(5),
+		"sse":                     float64(oracleTraceInterCandidateUnknown),
+		"mv_row":                  float64(12),
+		"mv_col":                  float64(-4),
+		"improved_mv_near_sadidx": float64(2),
+		"improved_mv_row":         float64(8),
+		"improved_mv_col":         float64(-12),
+		"improved_mv_sr":          float64(1),
+	} {
+		if got := row[key]; got != want {
+			t.Fatalf("%s = %v, want %v", key, got, want)
+		}
 	}
 }
 

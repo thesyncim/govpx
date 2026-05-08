@@ -381,6 +381,9 @@ type VP8Encoder struct {
 	// EncoderOptions.OracleTraceWriter at frame end. Unused (nil) when the
 	// oracle trace is disabled.
 	oracleTraceMBBuffer []oracleTraceMBRow
+	// oracleTraceInterCandidateBuffer accumulates evaluated inter-mode
+	// candidate rows for the same accepted encode attempt as oracleTraceMBBuffer.
+	oracleTraceInterCandidateBuffer []oracleTraceInterCandidateRow
 
 	// oracleTraceRecodeLoopCount counts encode-attempt iterations within the
 	// in-flight key/inter recode loop. Reset to 0 at the start of each loop
