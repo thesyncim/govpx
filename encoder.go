@@ -545,9 +545,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		return nil, err
 	}
 	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
-	// cpi->oxcf.key_freq for the first-keyframe bootstrap; seed it so
-	// kf_bitrate_adjustment matches libvpx for early frames.
+	// cpi->output_framerate plus cpi->oxcf.auto_key/key_freq for the
+	// first-keyframe bootstrap; seed the options that are not part of the
+	// public rate-control config so early kf_bitrate_adjustment matches
+	// libvpx.
 	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
+	e.rc.autoKeyFrames = normalized.AdaptiveKeyFrames
 	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
 	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
 	// that so calc_pframe_target_size's min_frame_target floor and
@@ -2170,6 +2173,7 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 		return ErrClosed
 	}
 	e.opts.AdaptiveKeyFrames = enabled
+	e.rc.autoKeyFrames = enabled
 	return nil
 }
 

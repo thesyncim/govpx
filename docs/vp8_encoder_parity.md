@@ -42,7 +42,7 @@ the anchor and look for the surrounding mismatch.
   external Y4M/YUV sources, panning clips across best/good/realtime deadlines,
   and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15. These are smoke gates, not
   the full representative 100% parity corpus.
-- Encoder decision parity: roughly 72% overall, or about 82% on the core
+- Encoder decision parity: roughly 73% overall, or about 83% on the core
   one-pass quality path, weighted by libvpx LOC. This is still an engineering
   estimate, not a measured percentage: `CompareOracleTraces` is now wired into
   the production oracle gate for a projected frame/rate decision subset, but
@@ -50,14 +50,15 @@ the anchor and look for the surrounding mismatch.
   still missing.
 - The largest remaining parity weights are first-pass/two-pass proof against a
   libvpx first-pass oracle, candidate-level inter-mode tracing, rejected
-  recode-attempt tracing, automatic hidden-ARF/ARNR border proof, rate
-  parity tracking vs libvpx output bitrate/frame sizes, and remaining
+  recode-attempt tracing, automatic hidden-ARF/ARNR border proof,
+  `projected_frame_size` / rejected recode feedback proof, rate parity
+  tracking vs libvpx output bitrate/frame sizes, and remaining
   quality-relevant entropy/refresh edge cases.
 - If only three more things are fixed, they should be: (1) add
   candidate-level inter-mode / motion-search trace rows, (2) replace
   self-captured first-pass fixtures with libvpx first-pass oracle fixtures,
   and (3) close the remaining direct rate-control trace gaps such as
-  one-pass VBR `this_frame_target` and rejected recode-attempt rows.
+  `projected_frame_size` and rejected recode-attempt rows.
 
 ## Acceptance Gates
 
@@ -113,7 +114,7 @@ the anchor and look for the surrounding mismatch.
 
 | Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / rate-control deltas | candidate mode rows, `this_frame_target`, per-frame-size deltas |
+| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / projected-size deltas | candidate mode rows, per-frame-size deltas |
 | first-pass Y4M corpus | two-pass stats | self-captured fixture | missing libvpx oracle fixture | unknown | open | firstpass scoring / GOLDEN selection | first-pass oracle rows |
 | ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
 
@@ -121,7 +122,7 @@ the anchor and look for the surrounding mismatch.
 
 | Date | Commit | Gate | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 2026-05-08 | local parity stack | `make verify-production` | pass | Includes projected trace decision compare and direct synthetic output-kbps gates; update with exact commit after commit. |
+| 2026-05-08 | VBR buffer-model parity stack | `make verify-production` | pass | Includes timebase-aligned projected trace decision compare with `this_frame_target` and direct synthetic output-kbps gates. |
 
 ## Accepted Non-Bitexact Differences
 
@@ -215,10 +216,13 @@ the anchor and look for the surrounding mismatch.
     `vpxenc-oracle`, exports `GOVPX_VPXENC_ORACLE`, and runs
     `TestOracleEncoderTraceDecisionCompare` on a small one-pass VBR panning
     clip. The enforced projection compares Q, active best/worst bounds,
-    zbin-over-quant, refresh/sign-bias flags, frame identity, and recode row
-    identity. It intentionally does not compare `this_frame_target`,
-    projected size, byte counts, probability digests, reference checksums, or
-    per-MB residuals yet; those remain open quality/rate diagnosis fields.
+    `this_frame_target`, zbin-over-quant, refresh/sign-bias flags, frame
+    identity, and recode row identity. The libvpx oracle command pins
+    `--timebase` to the same effective timebase govpx uses so the rate-control
+    target gate compares codec behavior, not vpxenc's default millisecond
+    timestamp rounding. It intentionally does not compare projected size, byte
+    counts, probability digests, reference checksums, or per-MB residuals yet;
+    those remain open quality/rate diagnosis fields.
   - Remaining: per-frame segmentation tree probabilities (the per-MB
     `segment_id` already lands in the row schema, but the frame-level
     tree-probability bytes are not yet captured); a broader corpus trace
@@ -406,7 +410,7 @@ the anchor and look for the surrounding mismatch.
     `calc_gf_params`, `calc_pframe_target_size`,
     `vp8_adjust_key_frame_context`, `estimate_keyframe_frequency`,
     `vp8_pick_frame_size`, and GF/ARF update branches in `onyx_if.c`
-    (`update_golden_frame_stats`).
+    (`update_golden_frame_stats`, `USAGE_LOCAL_FILE_PLAYBACK` buffer setup).
   - Status: partial. The libvpx `calc_gf_params` boost computation now
     runs end-to-end: `vp8_gf_boost_qadjustment` (GFQ_ADJUSTMENT),
     `gf_intra_usage_adjustment`, `gf_adjust_table`,
@@ -422,7 +426,10 @@ the anchor and look for the surrounding mismatch.
     `non_gf_bitrate_adjustment`; hidden ARF post-pack accounting now
     follows `update_alt_ref_frame_stats` and accumulates the full
     `projected_frame_size` into `gf_overspend_bits` instead of using the
-    GF delta path. The next p-frame target now drains
+    GF delta path. Key frames that also refresh GOLDEN now seed
+    `non_gf_bitrate_adjustment = gf_overspend_bits /
+    frames_till_gf_update_due`, matching the `update_golden_frame_stats`
+    ordering before the countdown is decremented. The next p-frame target now drains
     KF then GF overspend via the libvpx adjustment ordering, applies
     the small +/- `last_boost` boost for non-GF frames inside long
     GF intervals (`current_gf_interval >= 2*MIN_GF_INTERVAL`), and
@@ -435,8 +442,11 @@ the anchor and look for the surrounding mismatch.
     `postDropFrame`. `estimate_keyframe_frequency` now follows the
     libvpx weighted-average over prior_key_frame_distance with
     {1,2,3,4,5} weights and the keyFrameCount==1 bootstrap; the
-    encoder seeds `keyFrameFrequency` from `EncoderOptions.KeyFrameInterval`
-    so the bootstrap matches libvpx's `oxcf.key_freq`. The libvpx
+    bootstrap uses `1 + (int)output_framerate*2`, clamped to
+    `oxcf.key_freq` only when auto-key is enabled. The encoder seeds
+    `keyFrameFrequency` from `EncoderOptions.KeyFrameInterval` and
+    `autoKeyFrames` from `EncoderOptions.AdaptiveKeyFrames` so the
+    bootstrap matches libvpx's `oxcf.auto_key` / `oxcf.key_freq`. The libvpx
     boost-weighted GF target sizing
     (`Boost*bits_in_section/allocation_chunks` with the >1000-boost
     halving and high-precision divide-first branch) is exposed as
@@ -477,7 +487,14 @@ the anchor and look for the surrounding mismatch.
     and the key-frame GOLDEN refresh decrements that countdown, preventing the
     non-libvpx immediate frame-1 GOLDEN refresh; pinned by
     `TestEncodeIntoOnePassVBRDoesNotRefreshGoldenImmediatelyAfterKey` and the
-    projected trace gate.
+    projected trace gate. One-pass VBR now mirrors libvpx's
+    `USAGE_LOCAL_FILE_PLAYBACK` setup by forcing a relaxed 60000ms
+    initial/optimal buffer and 240000ms maximum buffer, regardless of the
+    public buffer controls, and uses libvpx's long-term
+    `bits_off_target / total_byte_count` style high/low buffer target
+    shaping instead of CBR's short-term optimal-buffer delta formula. The
+    defaults used by `defaultRateControlConfig` now match libvpx's
+    6000/4000/5000ms public defaults.
   - Out of scope (deferred): temporal-layer propagation of KF/GF
     overspend through libvpx's per-layer `layer_context` state (govpx
     already mirrors the single-layer-vs-multi-layer KF split toggle

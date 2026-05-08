@@ -904,6 +904,53 @@ func TestRateControlConfigDefaultPercentThresholds(t *testing.T) {
 	}
 }
 
+func TestDefaultRateControlConfigUsesLibvpxBufferDefaults(t *testing.T) {
+	cfg := defaultRateControlConfig(EncoderOptions{
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if cfg.BufferSizeMs != libvpxDefaultBufferSizeMs ||
+		cfg.BufferInitialSizeMs != libvpxDefaultBufferInitialMs ||
+		cfg.BufferOptimalSizeMs != libvpxDefaultBufferOptimalMs {
+		t.Fatalf("default buffers = size:%d initial:%d optimal:%d, want libvpx %d/%d/%d",
+			cfg.BufferSizeMs, cfg.BufferInitialSizeMs, cfg.BufferOptimalSizeMs,
+			libvpxDefaultBufferSizeMs, libvpxDefaultBufferInitialMs, libvpxDefaultBufferOptimalMs)
+	}
+}
+
+func TestRateControlVBRUsesLibvpxLocalPlaybackBufferModel(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlVBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	if rc.bufferSizeMs != libvpxVBRBufferSizeMs ||
+		rc.bufferInitialSizeMs != libvpxVBRBufferInitialMs ||
+		rc.bufferOptimalSizeMs != libvpxVBRBufferOptimalMs {
+		t.Fatalf("VBR buffer ms = size:%d initial:%d optimal:%d, want libvpx local playback %d/%d/%d",
+			rc.bufferSizeMs, rc.bufferInitialSizeMs, rc.bufferOptimalSizeMs,
+			libvpxVBRBufferSizeMs, libvpxVBRBufferInitialMs, libvpxVBRBufferOptimalMs)
+	}
+	if rc.bufferInitialBits != 42_000_000 || rc.bufferOptimalBits != 42_000_000 || rc.maximumBufferBits != 168_000_000 {
+		t.Fatalf("VBR buffer bits = initial:%d optimal:%d maximum:%d, want 42000000/42000000/168000000",
+			rc.bufferInitialBits, rc.bufferOptimalBits, rc.maximumBufferBits)
+	}
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{firstFrame: true})
+	if rc.frameTargetBits != 1_050_000 {
+		t.Fatalf("initial VBR key target = %d, want target_bandwidth*3/2 = 1050000", rc.frameTargetBits)
+	}
+}
+
 func TestRateControlConfigInitializesLibvpxRollingBitAverages(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{
@@ -1078,6 +1125,21 @@ func TestRateControlBeginFrameAdjustsTargetForHighBuffer(t *testing.T) {
 	}
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("currentQuantizer = %d, want unchanged before target-based regulation", rc.currentQuantizer)
+	}
+}
+
+func TestRateControlVBRHighBufferUsesTotalActualBits(t *testing.T) {
+	rc := rateControlState{
+		mode:              RateControlVBR,
+		overshootPct:      100,
+		bitsPerFrame:      1000,
+		bufferOptimalBits: 2000,
+		bufferLevelBits:   5000,
+		totalActualBits:   1000,
+	}
+	got := rc.bufferAdjustedFrameTargetBits(1000)
+	if got != 1500 {
+		t.Fatalf("VBR high-buffer target = %d, want 1500 after total-byte-count capped +50%% boost", got)
 	}
 }
 
@@ -1412,6 +1474,33 @@ func TestRateControlAccumulatesKeyFrameOverspend(t *testing.T) {
 	// First keyframe -> kf_bitrate_adjustment = kf_overspend_bits / 1.
 	if rc.kfBitrateAdjustment != rc.kfOverspendBits {
 		t.Fatalf("kfBitrateAdjustment = %d, want %d", rc.kfBitrateAdjustment, rc.kfOverspendBits)
+	}
+}
+
+func TestRateControlKeyFrameOverspendSeedsGoldenRecoveryAdjustment(t *testing.T) {
+	rc := rateControlState{
+		mode:                  RateControlVBR,
+		minQuantizer:          4,
+		maxQuantizer:          56,
+		currentQuantizer:      30,
+		bitsPerFrame:          1000,
+		bufferLevelBits:       500,
+		maximumBufferBits:     5000,
+		framesTillGFUpdateDue: libvpxDefaultGFInterval,
+		outputFrameRate:       30,
+	}
+	rc.postEncodeFrameWithPacketContext(2000, rateControlPostEncodeContext{
+		keyFrame:    true,
+		macroblocks: 1,
+		showFrame:   true,
+	})
+	if rc.kfBitrateAdjustment != (15000*7/8)/61 {
+		t.Fatalf("kfBitrateAdjustment = %d, want two-second bootstrap drain %d",
+			rc.kfBitrateAdjustment, (15000*7/8)/61)
+	}
+	if rc.nonGFBitrateAdjustment != (15000/8)/libvpxDefaultGFInterval {
+		t.Fatalf("nonGFBitrateAdjustment = %d, want key-as-golden drain %d",
+			rc.nonGFBitrateAdjustment, (15000/8)/libvpxDefaultGFInterval)
 	}
 }
 
@@ -1838,14 +1927,25 @@ func TestRateControlPickFrameSizeKeyFrameAlwaysKept(t *testing.T) {
 
 // TestRateControlEstimateKeyFrameFrequencyBootstraps pins libvpx's
 // estimate_keyframe_frequency special case for keyFrameCount==1: the
-// bootstrap returns the configured key_freq when set.
+// bootstrap assumes a keyframe every two seconds, clamped to key_freq only
+// when auto_key is enabled.
 func TestRateControlEstimateKeyFrameFrequencyBootstraps(t *testing.T) {
 	rc := rateControlState{
 		keyFrameCount:     1,
-		keyFrameFrequency: 60,
+		keyFrameFrequency: 999,
+		outputFrameRate:   30,
 	}
-	if got := rc.estimateKeyFrameFrequency(); got != 60 {
-		t.Fatalf("first keyframe estimate = %d, want configured 60", got)
+	if got := rc.estimateKeyFrameFrequency(); got != 61 {
+		t.Fatalf("first keyframe estimate = %d, want two-second bootstrap 61", got)
+	}
+	rc = rateControlState{
+		keyFrameCount:     1,
+		keyFrameFrequency: 24,
+		autoKeyFrames:     true,
+		outputFrameRate:   30,
+	}
+	if got := rc.estimateKeyFrameFrequency(); got != 24 {
+		t.Fatalf("auto-key first keyframe estimate = %d, want clamped key_freq 24", got)
 	}
 	rc = rateControlState{keyFrameCount: 1}
 	if got := rc.estimateKeyFrameFrequency(); got != 1 {

@@ -93,6 +93,7 @@ type rateControlState struct {
 	rollingTargetBits     int
 	longRollingActualBits int
 	longRollingTargetBits int
+	totalActualBits       int64
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
@@ -121,6 +122,8 @@ type rateControlState struct {
 	framesSinceGolden      int
 	keyFrameCount          int
 	keyFrameFrequency      int
+	autoKeyFrames          bool
+	outputFrameRate        int
 	priorKeyFrameDistance  [keyFrameContextSize]int
 
 	// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats accumulates
@@ -138,6 +141,12 @@ const (
 	defaultRateControlUndershootPct = 50
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
+	libvpxDefaultBufferSizeMs       = 6000
+	libvpxDefaultBufferInitialMs    = 4000
+	libvpxDefaultBufferOptimalMs    = 5000
+	libvpxVBRBufferSizeMs           = 240000
+	libvpxVBRBufferInitialMs        = 60000
+	libvpxVBRBufferOptimalMs        = 60000
 	libvpxBPerMBNormBits            = 9
 	libvpxIntMax                    = 1<<31 - 1
 	libvpxMinBPBFactor              = 0.01
@@ -177,6 +186,14 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.bufferSizeMs = cfg.BufferSizeMs
 	rc.bufferInitialSizeMs = cfg.BufferInitialSizeMs
 	rc.bufferOptimalSizeMs = cfg.BufferOptimalSizeMs
+	if rc.mode == RateControlVBR {
+		// libvpx maps VPX_VBR to USAGE_LOCAL_FILE_PLAYBACK and forces a
+		// relaxed buffer model inside init_config, ignoring the public buffer
+		// controls for this mode.
+		rc.bufferSizeMs = libvpxVBRBufferSizeMs
+		rc.bufferInitialSizeMs = libvpxVBRBufferInitialMs
+		rc.bufferOptimalSizeMs = libvpxVBRBufferOptimalMs
+	}
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
@@ -187,6 +204,8 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.rateCorrectionFactor = 1.0
 	rc.keyFrameCorrectionFactor = 1.0
 	rc.goldenCorrectionFactor = 1.0
+	rc.totalActualBits = 0
+	rc.outputFrameRate = int(outputFrameRate(timing))
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
@@ -283,10 +302,11 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			}
 		}
 	}
-	if !keyFrame && rc.mode == RateControlCBR && rc.rollingTargetBits > 0 && ctx.temporalLayerCount <= 1 {
+	if !keyFrame && ctx.temporalLayerCount <= 1 {
 		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits)
 		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
-	} else if rc.mode == RateControlCQ {
+	}
+	if rc.mode == RateControlCQ {
 		if rc.currentQuantizer < rc.cqLevel {
 			rc.currentQuantizer = rc.cqLevel
 		}
@@ -716,6 +736,14 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 	}
 	rc.bufferLevelBits = saturatingSub(rc.bufferLevelBits, actualBits)
 	rc.clampBuffer()
+	if actualBits > 0 {
+		const maxInt64 = int64(^uint64(0) >> 1)
+		if rc.totalActualBits > maxInt64-int64(actualBits) {
+			rc.totalActualBits = maxInt64
+		} else {
+			rc.totalActualBits += int64(actualBits)
+		}
+	}
 
 	// libvpx vp8/encoder/ratectrl.c vp8_adjust_key_frame_context and
 	// onyx_if.c update_golden_frame_stats / update_alt_ref_frame_stats
@@ -791,6 +819,9 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				kfFreq = 1
 			}
 			rc.kfBitrateAdjustment = rc.kfOverspendBits / kfFreq
+			if rc.framesTillGFUpdateDue > 0 {
+				rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
+			}
 		}
 		return
 	}
@@ -840,25 +871,22 @@ func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int) {
 // estimateKeyFrameFrequency ports vp8/encoder/ratectrl.c
 // estimate_keyframe_frequency: a weighted average of the last
 // KEY_FRAME_CONTEXT key-frame distances (weights 1..5), with the
-// key_frame_count == 1 bootstrap returning 1 + 2*output_framerate (or
-// key_frame_frequency for auto-key).
+// key_frame_count == 1 bootstrap returning 1 + 2*output_framerate, clamped
+// to key_frame_frequency only when auto-key is active.
 func (rc *rateControlState) estimateKeyFrameFrequency() int {
 	if rc.keyFrameCount == 1 {
-		var avg int
-		if rc.keyFrameFrequency > 0 {
-			avg = rc.keyFrameFrequency
-		} else {
+		avg := 1 + rc.outputFrameRate*2
+		if avg <= 0 {
 			avg = 1
 		}
-		// libvpx's first-keyframe bootstrap uses
-		// 1 + (int)output_framerate * 2; without timing data fall back
-		// to the configured key-frame frequency.
 		if rc.keyFrameFrequency > 0 {
-			rc.priorKeyFrameDistance[keyFrameContextSize-1] = avg
+			// libvpx only clamps the two-second bootstrap to key_freq when
+			// automatic key-frame detection is active.
+			if rc.autoKeyFrames && avg > rc.keyFrameFrequency {
+				avg = rc.keyFrameFrequency
+			}
 		}
-		if avg < 1 {
-			avg = 1
-		}
+		rc.priorKeyFrameDistance[keyFrameContextSize-1] = avg
 		return avg
 	}
 	last := rc.framesSinceKeyframe
@@ -1499,7 +1527,15 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 	target := int64(targetBits)
 	switch {
 	case rc.bufferLevelBits < rc.bufferOptimalBits:
-		percentLow := (rc.bufferOptimalBits - rc.bufferLevelBits) / onePercentBits
+		var percentLow int
+		if rc.mode == RateControlCBR {
+			percentLow = (rc.bufferOptimalBits - rc.bufferLevelBits) / onePercentBits
+		} else {
+			if rc.bufferLevelBits >= 0 || rc.totalActualBits <= 0 {
+				return targetBits
+			}
+			percentLow = int((100 * int64(-rc.bufferLevelBits)) / rc.totalActualBits)
+		}
 		if percentLow > rc.undershootPct {
 			percentLow = rc.undershootPct
 		}
@@ -1508,7 +1544,14 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 		}
 		target -= target * int64(percentLow) / 200
 	case rc.bufferLevelBits > rc.bufferOptimalBits:
-		percentHigh := (rc.bufferLevelBits - rc.bufferOptimalBits) / onePercentBits
+		var percentHigh int
+		if rc.mode == RateControlCBR {
+			percentHigh = (rc.bufferLevelBits - rc.bufferOptimalBits) / onePercentBits
+		} else if rc.totalActualBits > 0 {
+			percentHigh = int((100 * int64(rc.bufferLevelBits)) / rc.totalActualBits)
+		} else {
+			percentHigh = rc.overshootPct
+		}
 		if percentHigh > rc.overshootPct {
 			percentHigh = rc.overshootPct
 		}
@@ -1674,15 +1717,15 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 
 	bufferSize := opts.BufferSizeMs
 	if bufferSize == 0 {
-		bufferSize = 600
+		bufferSize = libvpxDefaultBufferSizeMs
 	}
 	bufferInitial := opts.BufferInitialSizeMs
 	if bufferInitial == 0 {
-		bufferInitial = 400
+		bufferInitial = libvpxDefaultBufferInitialMs
 	}
 	bufferOptimal := opts.BufferOptimalSizeMs
 	if bufferOptimal == 0 {
-		bufferOptimal = 500
+		bufferOptimal = libvpxDefaultBufferOptimalMs
 	}
 
 	return RateControlConfig{

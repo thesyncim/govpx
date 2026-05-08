@@ -121,6 +121,7 @@ func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, name string, o
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
+		"--timebase=1/" + strconv.Itoa(opts.FPS),
 		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
 		"--limit=" + strconv.Itoa(len(sources)),
 		"--output=" + ivfPath,
@@ -150,6 +151,7 @@ func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
 			"q_index":              true,
 			"active_worst_quality": true,
 			"active_best_quality":  true,
+			"this_frame_target":    true,
 			"zbin_over_quant":      true,
 		},
 		"recode": {
