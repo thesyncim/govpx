@@ -71,37 +71,46 @@ lives in [Makefile](Makefile).
 
 ### Encoder Quality
 
-- Inter-frame chroma sub-pel filter rounding: at sizes >64x64 (96x96,
-  128x128, 160x96 verified), the realtime-CBR inter Y/U/V Adler32 still
-  differ from libvpx even though Q matches keyframe-side and on most
-  inter frames. Per-frame size delta is +1.16..+1.51% at 128x128, but
-  spikes to ±8..10% at 96x96 frame 1 / 160x96 frames 1-2 (with a 1-step
-  Q drift on 160x96 frame 2: govpx 12 vs libvpx 13). Decoded per-pixel
-  deltas peak at 4 (Y) / 3 (U) / 1 (V) with mean magnitude < 0.04 -
-  quality-equivalent (PSNR vs libvpx > 60 dB) but breaks strict
-  byte-identity. Tracked by
+- Inter-frame chroma sub-pel filter rounding: tracked by
   [`TestOracleChromaSubpelScoreboard`](oracle_chroma_subpel_scoreboard_test.go)
   with a per-fixture baseline at
   [`testdata/chroma_subpel_scoreboard_baseline.json`](testdata/chroma_subpel_scoreboard_baseline.json).
-  **Localized 2026-05-08 (round 2)**: per-pixel predictor + reconstructed
-  dumps from both encoders prove that the inter prediction and post-residual
-  reconstruction are byte-identical for every MB of frame 1 on the
-  128x128 panning fixture (all 64 MBs, Y/U/V). The cascading divergence
-  in frame 2+ predictors is **driven by the loop-filter level fast picker**:
-  govpx picks LF=11 vs libvpx LF=5 for the same q=16 frame 1 inputs and
-  the same clamped seed (libvpx `vp8cx_pick_filter_level_fast` / govpx
-  `pickLoopFilterLevelFast`). The chroma sixtap math itself is correct;
-  the residual diff is purely a downstream consequence of a different LF
-  strength on the LAST reference. Diagnostic harness lives in
+  **Closed 2026-05-08 (round 3)**: the dominant root cause turned out
+  to be the libvpx full loop-filter picker's bias scaling. libvpx
+  unconditionally scales `Bias = (best_err >> (15 - filt_mid/8)) *
+  filter_step` by `section_intra_rating / 20` whenever
+  `section_intra_rating < 20`, and because `cpi->twopass` is calloc'd
+  and `section_intra_rating` is never written in one-pass / realtime /
+  CBR, the scaling forces `Bias = 0` every iteration. govpx's
+  `loopFilterFullPickerBias` previously omitted the scaling and used
+  the unscaled bias, which caused the full picker to converge on a
+  different `filt_best` than libvpx whenever multiple trials scored
+  within the bias delta of `best_err` (e.g. govpx LF=2/1 vs libvpx
+  LF=8/4 on frames 2/3 of the 128x128 panning fixture). Closing the
+  bias scaling collapses the entire downstream cascade through the
+  LAST reference. Mirrored libvpx's behaviour by piping
+  `twoPassState.sectionIntraRating` (defaults to 0 like libvpx's
+  calloc) into `loopFilterFullPickerBias`. Effect on the scoreboard:
+  - 160x96 realtime CBR cpu8: 3/3/3 -> 0/0/0 (every inter frame
+    byte-identical Y/U/V).
+  - 96x96 realtime CBR cpu8: Y 3 -> 0; U/V remain 3 but
+    max_inter_size_pct_abs falls 25.72% -> 0.115% and the inter Q
+    drift collapses (govpx now matches libvpx q every frame).
+  - 128x128 realtime CBR cpu8: Y/U/V counts unchanged, but
+    max_inter_size_pct_abs falls 1.42% -> 1.11%; per-MB predictor diff
+    confirms the residual is right-edge chroma (cols 6-7) on MB rows
+    1..5, not the LF picker. The LF picker per-trial-level eval order
+    now matches libvpx exactly on every frame
+    (TestOracleLFTrialDiag).
+
+  The remaining 96x96 / 128x128 chroma U/V residual lives in chroma
+  subpel rounding on right-edge MBs at specific MVs; per-pixel
+  `last_ref_window` bytes (including border extension) are
+  byte-identical between encoders, so the divergence is downstream of
+  the reference plane in the chroma predictor or in the per-MB mode
+  decisions for cols 6-7 from MB row 1+. Diagnostic harness lives in
   [`oracle_chroma_subpel_predictor_diag_test.go`](oracle_chroma_subpel_predictor_diag_test.go)
-  (gate `GOVPX_DEBUG=1`, optional `GOVPX_DEBUG_ALL_ROWS=1`); the libvpx
-  oracle exposes the capture via `GOVPX_ORACLE_PREDICTOR_DUMP` /
-  `GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS` env vars and the govpx side
-  mirrors them through `EncoderOptions.OracleTracePredictorDump` /
-  `OracleTracePredictorDumpAllRows`. Closing this needs a deeper LF
-  picker per-trial SSE diff between the two encoders (govpx's
-  `loopFilterTrialLumaSSE` vs libvpx's `calc_partial_ssl_err`) on the
-  same partial-frame input.
+  (gate `GOVPX_DEBUG=1`, optional `GOVPX_DEBUG_ALL_ROWS=1`).
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor; per-call
   tree walks are functionally equivalent).
 - Intra/Quant/Tokens: SSIM-gated activity tuning and oracle token-cost
