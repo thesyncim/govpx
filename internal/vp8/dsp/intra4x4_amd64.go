@@ -1,0 +1,85 @@
+//go:build amd64
+
+package dsp
+
+// amd64 SSE2 dispatch for VP8 4x4 B_PRED intra-prediction kernels.
+// Mirrors libvpx v1.16.0 vp8/common/reconintra4x4.c semantics with
+// byte-identical output to the scalar reference. SSE2 is part of the
+// x86-64 baseline, so the SIMD entry points are always safe to call
+// without a runtime feature check.
+//
+// libvpx's SSE2 paths in the upstream tree handle only the 8x8/16x16
+// whole-block predictors; the 4x4 directional kernels run via the
+// scalar reference. Keeping the same int16-lane formula here lets us
+// avoid the rounding-halving idiom that VP9's NEON predictors use,
+// which is not bit-exact for the VP8 reconintra4x4.c AVG3 definition.
+
+//go:noescape
+func intra4x4DCPredictSSE2(dst *byte, stride int, above *byte, left *byte)
+
+//go:noescape
+func intra4x4TMPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLeft byte)
+
+//go:noescape
+func intra4x4VEPredictSSE2(dst *byte, stride int, above *byte, topLeft byte)
+
+//go:noescape
+func intra4x4HEPredictSSE2(dst *byte, stride int, left *byte, topLeft byte)
+
+//go:noescape
+func intra4x4LDPredictSSE2(dst *byte, stride int, above *byte)
+
+//go:noescape
+func intra4x4RDPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLeft byte)
+
+//go:noescape
+func intra4x4VRPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLeft byte)
+
+//go:noescape
+func intra4x4VLPredictSSE2(dst *byte, stride int, above *byte)
+
+//go:noescape
+func intra4x4HDPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLeft byte)
+
+//go:noescape
+func intra4x4HUPredictSSE2(dst *byte, stride int, left *byte)
+
+func intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
+	intra4x4DCPredictSSE2(&dst[0], dstStride, &above[0], &left[0])
+}
+
+func intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intra4x4TMPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+}
+
+func intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
+	intra4x4VEPredictSSE2(&dst[0], dstStride, &above[0], topLeft)
+}
+
+func intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
+	intra4x4HEPredictSSE2(&dst[0], dstStride, &left[0], topLeft)
+}
+
+func intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
+	intra4x4LDPredictSSE2(&dst[0], dstStride, &above[0])
+}
+
+func intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intra4x4RDPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+}
+
+func intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intra4x4VRPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+}
+
+func intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
+	intra4x4VLPredictSSE2(&dst[0], dstStride, &above[0])
+}
+
+func intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	intra4x4HDPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+}
+
+func intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
+	intra4x4HUPredictSSE2(&dst[0], dstStride, &left[0])
+}
