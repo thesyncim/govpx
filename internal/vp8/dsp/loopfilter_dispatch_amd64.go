@@ -3,11 +3,17 @@
 package dsp
 
 // amd64 dispatch for VP8 loop-filter apply paths (libvpx v1.16.0 baseline).
-// SSE2 kernels handle the 16-wide (count=2) horizontal-edge cases for
-// both inner and MB filters. Vertical-edge variants gather the 16x8
-// row-window into a transposed 8x16 stack buffer, run the same SSE2
-// horizontal kernel, then scatter the 4 (or 6) modified rows back.
-// count=1 (chroma 8-wide) uses the libvpx-style scalar reference.
+// SSE2 kernels handle the horizontal-edge cases for both inner and MB
+// filters. The kernel itself is 16-wide; count=2 (luma, 16 columns)
+// feeds it directly. count=1 (chroma, 8 columns) feeds the same kernel
+// after gathering 8x8 into a [8*16]byte buffer with the high 8 lanes
+// padded — every op in the kernel is per-byte (PSUBUSB / PSUBSB / PMAXUB
+// / PADDSB / PSRAW / PACKSSWB ...) so lanes are independent and the
+// padding bytes don't affect the active 8 lanes' output.
+// Vertical-edge variants gather the row-window into a transposed
+// stack buffer (16x8 for count=2, 8x8 for count=1 with high lanes
+// padded), run the same SSE2 horizontal kernel, then scatter the
+// modified rows back.
 
 import (
 	"encoding/binary"
@@ -17,6 +23,13 @@ import (
 func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
 		loopFilterEdgeH16SSE2(&s[0], stride, blimit, limit, thresh)
+		return
+	}
+	if count == 1 && len(s) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherH8x8AMD64(&tmp, s, stride)
+		loopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterH8x8AMD64(s, stride, &tmp, 2, 4)
 		return
 	}
 	loopFilterHorizontalEdgeScalar(s, stride, blimit, limit, thresh, count)
@@ -30,12 +43,26 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 		scatterV16x8AMD64(s, stride, &tmp, 2, 4)
 		return
 	}
+	if count == 1 && len(s) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherV8x8AMD64(&tmp, s, stride)
+		loopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterV8x8AMD64(s, stride, &tmp, 2, 4)
+		return
+	}
 	loopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
 }
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
 		mbLoopFilterEdgeH16SSE2(&s[0], stride, blimit, limit, thresh)
+		return
+	}
+	if count == 1 && len(s) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherH8x8AMD64(&tmp, s, stride)
+		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterH8x8AMD64(s, stride, &tmp, 1, 6)
 		return
 	}
 	mbLoopFilterHorizontalEdgeScalar(s, stride, blimit, limit, thresh, count)
@@ -47,6 +74,13 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 		gatherV16x8AMD64(&tmp, s, stride)
 		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterV16x8AMD64(s, stride, &tmp, 1, 6)
+		return
+	}
+	if count == 1 && len(s) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherV8x8AMD64(&tmp, s, stride)
+		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterV8x8AMD64(s, stride, &tmp, 1, 6)
 		return
 	}
 	mbLoopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
@@ -119,6 +153,72 @@ func gatherV16x8AMD64(tmp *[8 * 16]byte, s []byte, stride int) {
 func scatterV16x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
 	src := tmp[:]
 	for i := 0; i < 16; i++ {
+		row := s[i*stride : i*stride+8]
+		for r := 0; r < nrows; r++ {
+			row[first+r] = src[(first+r)*16+i]
+		}
+	}
+}
+
+// gatherH8x8AMD64 copies 8 rows of 8 bytes into a [8*16]byte stack
+// buffer at row stride 16. The high 8 lanes of each row are zeroed —
+// the H16 kernel filters all 16 lanes but lanes 8..15 are inactive
+// downstream because we only scatter back the first 8 lanes per row.
+func gatherH8x8AMD64(tmp *[8 * 16]byte, s []byte, stride int) {
+	dst := tmp[:]
+	for r := 0; r < 8; r++ {
+		base := r * 16
+		w := binary.LittleEndian.Uint64(s[r*stride : r*stride+8])
+		binary.LittleEndian.PutUint64(dst[base:base+8], w)
+		// Padding lanes 8..15 — zero is fine; they're just dummy
+		// inputs that the kernel filters but we never read back.
+		binary.LittleEndian.PutUint64(dst[base+8:base+16], 0)
+	}
+}
+
+// scatterH8x8AMD64 writes the modified rows [first..first+nrows-1] of
+// tmp back to the corresponding source rows of s, copying only the
+// first 8 lanes (the chroma 8-wide window).
+func scatterH8x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
+	src := tmp[:]
+	for r := 0; r < nrows; r++ {
+		w := binary.LittleEndian.Uint64(src[(first+r)*16 : (first+r)*16+8])
+		binary.LittleEndian.PutUint64(s[(first+r)*stride:(first+r)*stride+8], w)
+	}
+}
+
+// gatherV8x8AMD64 reads 8 rows of 8 bytes each from s and packs them
+// into tmp at the count=2 vertical-edge transpose layout, but only
+// fills lanes 0..7. tmp[r*16+i] = s[i*stride+r] for i in 0..7,
+// r in 0..7. Lanes 8..15 are zeroed — they're inactive on writeback
+// (only lanes 0..7 are scattered).
+func gatherV8x8AMD64(tmp *[8 * 16]byte, s []byte, stride int) {
+	dst := tmp[:]
+	// Zero the whole 128-byte buffer first so the high 8 lanes of
+	// every row carry deterministic padding bytes.
+	for i := range dst {
+		dst[i] = 0
+	}
+	for i := 0; i < 8; i++ {
+		row := s[i*stride : i*stride+8]
+		w := binary.LittleEndian.Uint64(row)
+		dst[0*16+i] = byte(w)
+		dst[1*16+i] = byte(w >> 8)
+		dst[2*16+i] = byte(w >> 16)
+		dst[3*16+i] = byte(w >> 24)
+		dst[4*16+i] = byte(w >> 32)
+		dst[5*16+i] = byte(w >> 40)
+		dst[6*16+i] = byte(w >> 48)
+		dst[7*16+i] = byte(w >> 56)
+	}
+}
+
+// scatterV8x8AMD64 writes the modified rows [first..first+nrows-1] of
+// tmp back to the corresponding column positions in s, scattering
+// only the first 8 lanes of each tmp row (the active chroma rows).
+func scatterV8x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
+	src := tmp[:]
+	for i := 0; i < 8; i++ {
 		row := s[i*stride : i*stride+8]
 		for r := 0; r < nrows; r++ {
 			row[first+r] = src[(first+r)*16+i]
