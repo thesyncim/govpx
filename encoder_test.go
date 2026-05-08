@@ -4214,6 +4214,13 @@ func TestEncodeIntoLookaheadBuffersAndFlushes(t *testing.T) {
 }
 
 func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
+	// libvpx vp8_temporal_filter_prepare_c only fires for the hidden alt-ref
+	// source (gated on `cpi->source_alt_ref_pending`). govpx mirrors that by
+	// running ARNR only when the encode flags carry the hidden-ARF combo
+	// (EncodeForceAltRefFrame|EncodeInvisibleFrame). Drive the encoder with
+	// AutoAltRef=true so the auto-ARF driver schedules a hidden frame on the
+	// libvpx-faithful path; on that hidden frame both ARNR and the spatial
+	// denoiser report having run.
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:             16,
 		Height:            16,
@@ -4223,7 +4230,8 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 		MinQuantizer:      4,
 		MaxQuantizer:      56,
 		KeyFrameInterval:  120,
-		LookaheadFrames:   2,
+		LookaheadFrames:   8,
+		AutoAltRef:        true,
 		ARNRMaxFrames:     3,
 		ARNRStrength:      6,
 		ARNRType:          2,
@@ -4234,7 +4242,6 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 	}
 	dst := make([]byte, 8192)
 	noisy := testImage(16, 16)
-	clean := testImage(16, 16)
 	for i := range noisy.Y {
 		if i%2 == 0 {
 			noisy.Y[i] = 40
@@ -4242,16 +4249,55 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 			noisy.Y[i] = 60
 		}
 	}
+	clean := testImage(16, 16)
 	fillImage(clean, 50, 90, 170)
-	if _, err := e.EncodeInto(dst, noisy, 0, 1, 0); !errors.Is(err, ErrFrameNotReady) {
-		t.Fatalf("first EncodeInto error = %v, want ErrFrameNotReady", err)
+	const totalFrames = 12
+	frames := make([]Image, totalFrames)
+	for i := range frames {
+		if i == 0 {
+			frames[i] = noisy
+		} else {
+			frames[i] = clean
+		}
 	}
-	result, err := e.EncodeInto(dst, clean, 1, 1, 0)
-	if err != nil {
-		t.Fatalf("second EncodeInto returned error: %v", err)
+	var sawARNR bool
+	for i, src := range frames {
+		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
+		if err != nil {
+			if errors.Is(err, ErrFrameNotReady) {
+				continue
+			}
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.ARNRFiltered {
+			if !result.Denoised {
+				t.Fatalf("frame %d arnr=true but denoised=false", i)
+			}
+			sawARNR = true
+			break
+		}
 	}
-	if !result.ARNRFiltered || !result.Denoised {
-		t.Fatalf("preprocess flags = arnr:%t denoised:%t, want both", result.ARNRFiltered, result.Denoised)
+	if !sawARNR {
+		// Drain the lookahead so the hidden ARF can fire on flush.
+		for {
+			result, err := e.FlushInto(dst)
+			if err != nil {
+				if errors.Is(err, ErrFrameNotReady) {
+					break
+				}
+				t.Fatalf("FlushInto returned error: %v", err)
+			}
+			if result.ARNRFiltered {
+				if !result.Denoised {
+					t.Fatalf("flush arnr=true but denoised=false")
+				}
+				sawARNR = true
+				break
+			}
+		}
+	}
+	if !sawARNR {
+		t.Fatalf("no encoded frame reported ARNRFiltered=true")
 	}
 }
 

@@ -271,7 +271,17 @@ func copyActivePlaneRect(dst []byte, dstStride int, src []byte, srcStride int, w
 
 func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFlags, meta encodeSourceMetadata) (vp8enc.SourceImage, encodeSourceMetadata) {
 	src := source
-	if e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
+	// ARNR (libvpx vp8_temporal_filter_prepare_c) only fires for the
+	// hidden alt-ref source. libvpx's onyx_if.c gates this on
+	// `cpi->source_alt_ref_pending && oxcf.arnr_max_frames > 0`, redirecting
+	// `force_src_buffer = &cpi->alt_ref_buffer` so subsequent encoding reads
+	// the filtered output. govpx schedules the ARF emission with the
+	// EncodeInvisibleFrame|EncodeForceAltRefFrame flag pair (see
+	// `autoAltRefHiddenFlags` in encoder_altref_driver.go), so we use the
+	// same flag gate here to avoid filtering visible source frames whose
+	// downstream reconstruction must remain byte-identical to libvpx.
+	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
+	if hiddenAltRefFrame && e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
 		if e.applyARNRFilter(src, flags) {
 			src = sourceImageFromVP8(&e.arnrScratch.Img)
 			meta.arnrFiltered = true
