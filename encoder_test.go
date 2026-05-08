@@ -139,6 +139,28 @@ func TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp(t *testing.T) {
 	}
 }
 
+func TestLibvpxSpeedFeatureCPUUsedMirrorsRealtimeAutoSelect(t *testing.T) {
+	tests := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     int
+	}{
+		{name: "realtime zero auto-selects initial speed four", deadline: DeadlineRealtime, cpuUsed: 0, want: 4},
+		{name: "realtime positive auto-selects initial speed four", deadline: DeadlineRealtime, cpuUsed: 16, want: 4},
+		{name: "realtime negative is explicit speed", deadline: DeadlineRealtime, cpuUsed: -9, want: 9},
+		{name: "good high clamps to five", deadline: DeadlineGoodQuality, cpuUsed: 16, want: 5},
+		{name: "good low clamps to negative five", deadline: DeadlineGoodQuality, cpuUsed: -16, want: -5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := libvpxSpeedFeatureCPUUsed(tt.deadline, tt.cpuUsed); got != tt.want {
+				t.Fatalf("libvpxSpeedFeatureCPUUsed(%v, %d) = %d, want %d", tt.deadline, tt.cpuUsed, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	e := newTestEncoder(t)
 
@@ -2398,9 +2420,10 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 		cpuUsed  int
 		want     vp8dec.LoopFilterType
 	}{
-		{name: "realtime speed thirteen", deadline: DeadlineRealtime, cpuUsed: 13, want: vp8dec.NormalLoopFilter},
-		{name: "realtime speed fourteen", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.SimpleLoopFilter},
-		{name: "realtime speed fifteen", deadline: DeadlineRealtime, cpuUsed: 15, want: vp8dec.SimpleLoopFilter},
+		{name: "realtime positive cpu-used auto-speed", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.NormalLoopFilter},
+		{name: "realtime explicit speed thirteen", deadline: DeadlineRealtime, cpuUsed: -13, want: vp8dec.NormalLoopFilter},
+		{name: "realtime explicit speed fourteen", deadline: DeadlineRealtime, cpuUsed: -14, want: vp8dec.SimpleLoopFilter},
+		{name: "realtime explicit speed fifteen", deadline: DeadlineRealtime, cpuUsed: -15, want: vp8dec.SimpleLoopFilter},
 		{name: "good quality speed fifteen", deadline: DeadlineGoodQuality, cpuUsed: 15, want: vp8dec.NormalLoopFilter},
 	}
 	for _, tt := range tests {
@@ -2423,7 +2446,7 @@ func TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter(t *testing.T) {
 		MinQuantizer:      20,
 		MaxQuantizer:      20,
 		Deadline:          DeadlineRealtime,
-		CpuUsed:           14,
+		CpuUsed:           -14,
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
@@ -2465,10 +2488,11 @@ func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.
 		{name: "best quality uses full search", deadline: DeadlineBestQuality, cpuUsed: 8, want: false},
 		{name: "good speed four uses full search", deadline: DeadlineGoodQuality, cpuUsed: 4, want: false},
 		{name: "good speed five uses fast search", deadline: DeadlineGoodQuality, cpuUsed: 5, want: true},
-		{name: "realtime speed two uses full search", deadline: DeadlineRealtime, cpuUsed: 2, want: false},
-		{name: "realtime speed three uses fast search", deadline: DeadlineRealtime, cpuUsed: 3, want: true},
-		{name: "realtime speed four uses full search", deadline: DeadlineRealtime, cpuUsed: 4, want: false},
-		{name: "realtime speed five uses fast search", deadline: DeadlineRealtime, cpuUsed: 5, want: true},
+		{name: "realtime positive cpu-used auto-speed uses full search", deadline: DeadlineRealtime, cpuUsed: 5, want: false},
+		{name: "realtime explicit speed two uses full search", deadline: DeadlineRealtime, cpuUsed: -2, want: false},
+		{name: "realtime explicit speed three uses fast search", deadline: DeadlineRealtime, cpuUsed: -3, want: true},
+		{name: "realtime explicit speed four uses full search", deadline: DeadlineRealtime, cpuUsed: -4, want: false},
+		{name: "realtime explicit speed five uses fast search", deadline: DeadlineRealtime, cpuUsed: -5, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

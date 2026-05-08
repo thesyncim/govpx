@@ -41,7 +41,10 @@ the anchor and look for the surrounding mismatch.
   The current gates cover token partitions, static-threshold behavior,
   external Y4M/YUV sources, panning clips across best/good/realtime deadlines,
   and realtime `CpuUsed` 0, 3, 4, 5, 8, 9, and 15. These are smoke gates, not
-  the full representative 100% parity corpus.
+  the full representative 100% parity corpus. Positive realtime `CpuUsed`
+  values now follow libvpx's auto-speed entry path, which starts speed-feature
+  selection at `Speed = 4`; explicit realtime speed-feature values use
+  negative `CpuUsed` (`-N` means speed `N`) like libvpx.
 - Encoder decision parity: roughly 74% overall, or about 84% on the core
   one-pass quality path, weighted by libvpx LOC. This is still an engineering
   estimate, not a measured percentage: `CompareOracleTraces` is now wired into
@@ -125,6 +128,7 @@ the anchor and look for the surrounding mismatch.
 
 | Date | Commit | Gate | Result | Notes |
 | --- | --- | --- | --- | --- |
+| 2026-05-08 | Realtime CPU-used speed-feature mapping | `go test ./...`; `make verify-production`; focused oracle candidate compare | pass | Positive realtime `CpuUsed` now follows libvpx auto-speed cold start (`Speed = 4`), while negative realtime values request explicit speeds; remaining realtime candidate desync is documented as a score/distortion gap after speed mapping. |
 | 2026-05-08 | Libvpx inter-candidate trace rows | `GOVPX_WITH_ORACLE=1 go test . -run 'TestOracleEncoderTraceCandidateRowsPresent|TestOracleEncoderTraceDecisionCompare'` | pass | Patched vpxenc-oracle now emits evaluated `inter_candidate` rows for RD and realtime fast pickers; production frame/rate projection remains unchanged. |
 | 2026-05-08 | Govpx inter-candidate trace rows | `make verify-production` | pass | Adds govpx-side evaluated inter-candidate rows for RD and fast pickers while preserving the projected frame/rate oracle gate. |
 | 2026-05-08 | Staged inter-candidate comparison | `GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=internal/coracle/build/vpxenc-oracle go test . -run 'TestOracleEncoderTraceInterCandidateCompare'` | pass | Compares VBR panning RD candidate sequence and mode/ref/MV decision fields; noisy RD/rate scalar fields remain open for attribution before tightening. |
@@ -369,8 +373,12 @@ the anchor and look for the surrounding mismatch.
     `TestOracleEncoderTraceInterCandidateCompare` now compares the staged VBR
     panning RD candidate sequence and quality-relevant mode/ref/MV fields
     (`mode_index`, mode/ref slot, outcome, best/break flags, and MV). Realtime
-    candidate comparison, skipped/pruned candidate rows, RD/rate scalar fields,
-    and rejected recode-attempt rows remain open.
+    positive-`CpuUsed` candidate diagnosis now uses libvpx's auto-selected
+    initial speed 4; the remaining realtime candidate desync starts after that
+    mapping, at frame 1 MB `(0,1)`, where the NEAREST candidate score /
+    distortion differs enough for govpx to prune `TM_PRED` that libvpx still
+    tests. Skipped/pruned candidate rows, RD/rate scalar fields, and rejected
+    recode-attempt rows remain open.
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV
@@ -1012,13 +1020,18 @@ the anchor and look for the surrounding mismatch.
     `TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins`, and
     `TestFastInterModeErrorBinsResetAndClampLikeLibvpx`.
     Deadline / speed-feature plumbing now follows libvpx's mode-specific
-    `cpu-used` range: realtime accepts `[-16,16]`, while good-quality mode is
-    clamped to `[-5,5]` before search-step, RD-threshold, coefficient
-    optimization, fast-quant, block-4x4-search, and loop-filter fast-search
-    gates are evaluated. Constructor, `SetCPUUsed`, and `SetDeadline` all store
+    `cpu-used` range and realtime auto-speed semantics: realtime stores the
+    clamped public `[-16,16]` value, positive realtime values enter libvpx's
+    auto-speed path with initial speed-feature `Speed = 4`, negative realtime
+    values request explicit speed `-cpu_used`, and good-quality mode is clamped
+    to `[-5,5]`. That resolved speed drives search-step, RD-threshold,
+    coefficient optimization, fast-quant, block-4x4-search, and loop-filter
+    fast-search gates. Constructor, `SetCPUUsed`, and `SetDeadline` all store
     the libvpx-effective value; pinned by
-    `TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp` and the good-mode
-    case in `TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds`.
+    `TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp`,
+    `TestLibvpxSpeedFeatureCPUUsedMirrorsRealtimeAutoSelect`, and the
+    realtime cases in
+    `TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds`.
   - High-level sign-bias policy is now wired: frame headers derive
     `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
     `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,
@@ -1464,10 +1477,13 @@ the anchor and look for the surrounding mismatch.
 - [ ] Audit `vp8_set_speed_features` behavior across deadline and CPU-used
   values.
   - Status: partial. Good-quality `CpuUsed` is now clamped to libvpx's
-    `[-5,5]` range before speed-feature gates run; realtime keeps `[-16,16]`.
-    Remaining work is candidate-level proof of mode-loop scoring, threshold
-    mutation, and skipped-mode decisions across the representative speed
-    matrix.
+    `[-5,5]` range before speed-feature gates run. Realtime keeps the public
+    `[-16,16]` range but follows libvpx's split semantics: negative values are
+    explicit speeds and nonnegative values enter `vp8_auto_select_speed`, whose
+    cold-start path sets speed-feature `Speed = 4`. Remaining work is
+    candidate-level proof of mode-loop scoring, threshold mutation, dynamic
+    realtime auto-speed feedback, and skipped-mode decisions across the
+    representative speed matrix.
   - Done when speed-feature-selected search methods, RD thresholds, quantizer
     family, coefficient optimization gates, subpel settings, static breakout,
     and mode-loop decisions match libvpx for best/good/realtime speeds.

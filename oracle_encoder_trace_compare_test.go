@@ -159,18 +159,38 @@ func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(width, height, i)
 	}
 
-	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
-	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-inter-candidates-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
-	govpxProjected := projectOracleInterCandidateTrace(t, govpxTrace)
-	libvpxProjected := projectOracleInterCandidateTrace(t, libvpxTrace)
-	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
-		MaxDivergences: 16,
-	})
-	if err != nil {
-		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	cases := []struct {
+		name      string
+		opts      EncoderOptions
+		extraArgs []string
+	}{
+		{
+			name: "good-quality-rd",
+			opts: opts,
+			extraArgs: []string{
+				"--end-usage=vbr",
+			},
+		},
 	}
-	if len(div) != 0 {
-		t.Fatalf("projected inter-candidate trace diverged:\n%s", formatOracleTraceDivergences(div))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			govpxTrace := captureGovpxEncoderTrace(t, tc.opts, sources)
+			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-inter-candidates-"+tc.name, tc.opts, targetKbps, sources, tc.extraArgs)
+			govpxProjected := projectOracleInterCandidateTrace(t, govpxTrace)
+			libvpxProjected := projectOracleInterCandidateTrace(t, libvpxTrace)
+			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+				MaxDivergences: 16,
+			})
+			if err != nil {
+				t.Fatalf("CompareOracleTraces returned error: %v", err)
+			}
+			if len(div) != 0 {
+				t.Fatalf("projected inter-candidate trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
+					formatOracleTraceDivergences(div),
+					formatFirstOracleTraceRows(govpxProjected, 14),
+					formatFirstOracleTraceRows(libvpxProjected, 14))
+			}
+		})
 	}
 }
 
@@ -474,12 +494,33 @@ func formatOracleTraceDivergences(div []coracle.Divergence) string {
 		buf.WriteString(d.RowKind)
 		buf.WriteString(" frame=")
 		buf.WriteString(strconv.FormatInt(d.FrameIndex, 10))
+		if d.MBRow >= 0 || d.MBCol >= 0 {
+			buf.WriteString(" mb=")
+			buf.WriteString(strconv.Itoa(d.MBRow))
+			buf.WriteByte(',')
+			buf.WriteString(strconv.Itoa(d.MBCol))
+		}
 		buf.WriteString(" field=")
 		buf.WriteString(d.Field)
 		buf.WriteString(" govpx=")
 		buf.WriteString(strconv.Quote(toTraceValueString(d.Govpx)))
 		buf.WriteString(" libvpx=")
 		buf.WriteString(strconv.Quote(toTraceValueString(d.Libvpx)))
+		buf.WriteByte('\n')
+	}
+	return buf.String()
+}
+
+func formatFirstOracleTraceRows(trace []byte, limit int) string {
+	var buf bytes.Buffer
+	lines := splitNonEmptyLines(trace)
+	if len(lines) < limit {
+		limit = len(lines)
+	}
+	for i := 0; i < limit; i++ {
+		buf.WriteString(strconv.Itoa(i))
+		buf.WriteString(": ")
+		buf.Write(lines[i])
 		buf.WriteByte('\n')
 	}
 	return buf.String()

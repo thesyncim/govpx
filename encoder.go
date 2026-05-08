@@ -2136,7 +2136,7 @@ func (e *VP8Encoder) libvpxCPUUsed() int {
 	if e == nil {
 		return 0
 	}
-	return libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	return libvpxSpeedFeatureCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 }
 
 func libvpxEffectiveCPUUsed(deadline Deadline, cpuUsed int) int {
@@ -2152,6 +2152,17 @@ func libvpxEffectiveCPUUsed(deadline Deadline, cpuUsed int) int {
 		if cpuUsed > 5 {
 			return 5
 		}
+	}
+	return cpuUsed
+}
+
+func libvpxSpeedFeatureCPUUsed(deadline Deadline, cpuUsed int) int {
+	cpuUsed = libvpxEffectiveCPUUsed(deadline, cpuUsed)
+	if deadline == DeadlineRealtime {
+		if cpuUsed < 0 {
+			return -cpuUsed
+		}
+		return 4
 	}
 	return cpuUsed
 }

@@ -617,20 +617,20 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	}
 	speed := e.libvpxCPUUsed()
 	cfg.fullPixelSearch = interAnalysisFullPixelSearchNstep
-	cfg.fullPixelSearchParam = libvpxInterFrameSearchParam(e.opts.Deadline, speed)
+	cfg.fullPixelSearchParam = libvpxInterFrameSearchParamForFeatureSpeed(e.opts.Deadline, speed)
 	cfg.fullPixelFinalRefine = e.interAnalysisUsesRDModeDecision()
 	cfg.fullPixelSpeed = speed
 	cfg.fullPixelSpeedAdjust = libvpxInterFrameSpeedAdjust(speed)
 	furtherStepsSpeed := speed
 	if e.interAnalysisUsesRDModeDecision() {
-		cfg.fullPixelSearchParam = libvpxInterFrameFirstStep(e.opts.Deadline, speed)
+		cfg.fullPixelSearchParam = libvpxInterFrameFirstStepForFeatureSpeed(e.opts.Deadline, speed)
 		cfg.fullPixelSpeedAdjust = 0
 		if e.opts.Deadline == DeadlineBestQuality {
 			furtherStepsSpeed = 0
 		}
 	}
 	cfg.fullPixelFurtherSteps = libvpxInterFrameFurtherSteps(furtherStepsSpeed, cfg.fullPixelSearchParam)
-	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPrediction(e.opts.Deadline, speed)
+	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, speed)
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
@@ -725,8 +725,12 @@ func (e *VP8Encoder) interAnalysisNoSkipBlock4x4Search() bool {
 }
 
 func libvpxInterFrameSearchParam(deadline Deadline, speed int) int {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
-	firstStep := libvpxInterFrameFirstStep(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	return libvpxInterFrameSearchParamForFeatureSpeed(deadline, speed)
+}
+
+func libvpxInterFrameSearchParamForFeatureSpeed(deadline Deadline, speed int) int {
+	firstStep := libvpxInterFrameFirstStepForFeatureSpeed(deadline, speed)
 	stepParam := firstStep + libvpxInterFrameSpeedAdjust(speed)
 	if stepParam < 0 {
 		return 0
@@ -738,7 +742,11 @@ func libvpxInterFrameSearchParam(deadline Deadline, speed int) int {
 }
 
 func libvpxInterFrameFirstStep(deadline Deadline, speed int) int {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	return libvpxInterFrameFirstStepForFeatureSpeed(deadline, speed)
+}
+
+func libvpxInterFrameFirstStepForFeatureSpeed(deadline Deadline, speed int) int {
 	if deadline != DeadlineBestQuality && speed > 0 {
 		return 1
 	}
@@ -767,7 +775,11 @@ func libvpxInterFrameFurtherSteps(speed int, stepParam int) int {
 }
 
 func libvpxInterFrameImprovedMVPrediction(deadline Deadline, speed int) bool {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	return libvpxInterFrameImprovedMVPredictionForFeatureSpeed(deadline, speed)
+}
+
+func libvpxInterFrameImprovedMVPredictionForFeatureSpeed(deadline Deadline, speed int) bool {
 	return deadline != DeadlineRealtime || speed <= 6
 }
 
@@ -790,7 +802,7 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
-	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.libvpxCPUUsed(), context)
+	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, e.opts.CpuUsed, context)
 	if !e.interRDFrameActive {
 		return baseline
 	}
@@ -842,7 +854,7 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		}
 	}
 	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
-	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.libvpxCPUUsed())
+	e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
 	e.interModeSpeedErrorBins = e.interModeErrorBins
@@ -997,8 +1009,8 @@ func libvpxInterModeThresholdMultipliers(deadline Deadline, speed int) [libvpxIn
 }
 
 func libvpxInterModeThresholdMultipliersForContext(deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
-	continuousSpeed := libvpxInterFrameContinuousSpeed(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	continuousSpeed := libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
 	znn := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapZNN[:])
 	vhPred := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapVHPred[:])
 	bPred := libvpxSpeedMap(continuousSpeed, libvpxThreshMultMapBPred[:])
@@ -1099,8 +1111,8 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 }
 
 func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterModeCount]int {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
-	continuousSpeed := libvpxInterFrameContinuousSpeed(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	continuousSpeed := libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
 	new1Speed := continuousSpeed
 	if deadline == DeadlineRealtime && speed == 10 {
 		new1Speed = 16
@@ -1138,7 +1150,11 @@ func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterM
 }
 
 func libvpxInterFrameContinuousSpeed(deadline Deadline, speed int) int {
-	speed = libvpxEffectiveCPUUsed(deadline, speed)
+	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
+	return libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
+}
+
+func libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline Deadline, speed int) int {
 	switch deadline {
 	case DeadlineBestQuality:
 		return 0

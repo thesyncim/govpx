@@ -50,9 +50,19 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
-			name:       "realtime speed three RD uses first step directly",
+			name:       "realtime positive cpu-used auto-selects speed four",
 			deadline:   DeadlineRealtime,
-			cpuUsed:    3,
+			cpuUsed:    8,
+			fullPixel:  interAnalysisFullPixelSearchNstep,
+			stepParam:  2,
+			further:    5,
+			improved:   true,
+			fractional: interAnalysisFractionalSearchIterative,
+		},
+		{
+			name:       "realtime explicit speed three RD uses first step directly",
+			deadline:   DeadlineRealtime,
+			cpuUsed:    -3,
 			fullPixel:  interAnalysisFullPixelSearchNstep,
 			stepParam:  1,
 			further:    6,
@@ -60,19 +70,9 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
-			name:       "realtime speed four keeps nstep-equivalent baseline",
+			name:       "realtime explicit speed five switches to hex and step subpixel",
 			deadline:   DeadlineRealtime,
-			cpuUsed:    4,
-			fullPixel:  interAnalysisFullPixelSearchNstep,
-			stepParam:  2,
-			further:    5,
-			improved:   true,
-			fractional: interAnalysisFractionalSearchIterative,
-		},
-		{
-			name:       "realtime speed five switches to hex and step subpixel",
-			deadline:   DeadlineRealtime,
-			cpuUsed:    5,
+			cpuUsed:    -5,
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  2,
 			further:    5,
@@ -80,9 +80,9 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fractional: interAnalysisFractionalSearchStep,
 		},
 		{
-			name:       "realtime speed nine keeps hex and half-pixel only",
+			name:       "realtime explicit speed nine keeps hex and half-pixel only",
 			deadline:   DeadlineRealtime,
-			cpuUsed:    9,
+			cpuUsed:    -9,
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  4,
 			further:    0,
@@ -90,9 +90,9 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			fractional: interAnalysisFractionalSearchHalf,
 		},
 		{
-			name:       "realtime speed fifteen skips fractional search",
+			name:       "realtime explicit speed fifteen skips fractional search",
 			deadline:   DeadlineRealtime,
-			cpuUsed:    15,
+			cpuUsed:    -15,
 			fullPixel:  interAnalysisFullPixelSearchHex,
 			stepParam:  4,
 			further:    0,
@@ -120,8 +120,9 @@ func TestInterFrameImprovedMVPredictionGateMirrorsLibvpxQualities(t *testing.T) 
 	}{
 		{name: "best quality keeps improved MV prediction", deadline: DeadlineBestQuality, cpuUsed: 15, want: true},
 		{name: "good quality keeps improved MV prediction", deadline: DeadlineGoodQuality, cpuUsed: 8, want: true},
-		{name: "realtime speed six keeps improved MV prediction", deadline: DeadlineRealtime, cpuUsed: 6, want: true},
-		{name: "realtime speed seven disables improved MV prediction", deadline: DeadlineRealtime, cpuUsed: 7, want: false},
+		{name: "realtime positive cpu-used auto-speed keeps improved MV prediction", deadline: DeadlineRealtime, cpuUsed: 7, want: true},
+		{name: "realtime explicit speed six keeps improved MV prediction", deadline: DeadlineRealtime, cpuUsed: -6, want: true},
+		{name: "realtime explicit speed seven disables improved MV prediction", deadline: DeadlineRealtime, cpuUsed: -7, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -165,9 +166,9 @@ func TestLibvpxUseFastQuantGateMirrorsSpeedFeatures(t *testing.T) {
 		{name: "best quality uses regular quant", deadline: DeadlineBestQuality, cpuUsed: 15, want: false},
 		{name: "good speed two final encode uses regular quant", deadline: DeadlineGoodQuality, cpuUsed: 2, want: false},
 		{name: "good speed three uses fast quant", deadline: DeadlineGoodQuality, cpuUsed: 3, want: true},
-		{name: "realtime speed zero uses regular quant", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
-		{name: "realtime speed one uses fast quant", deadline: DeadlineRealtime, cpuUsed: 1, want: true},
-		{name: "realtime speed eight uses fast quant", deadline: DeadlineRealtime, cpuUsed: 8, want: true},
+		{name: "realtime positive cpu-used auto-speed uses fast quant", deadline: DeadlineRealtime, cpuUsed: 0, want: true},
+		{name: "realtime explicit speed one uses fast quant", deadline: DeadlineRealtime, cpuUsed: -1, want: true},
+		{name: "realtime explicit speed eight uses fast quant", deadline: DeadlineRealtime, cpuUsed: -8, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,8 +191,8 @@ func TestLibvpxUseFastQuantForPickGateMirrorsSpeedFeatures(t *testing.T) {
 		{name: "good speed zero keeps regular quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 0, want: false},
 		{name: "good speed one uses fast quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 1, want: true},
 		{name: "good speed two uses fast quant for pick", deadline: DeadlineGoodQuality, cpuUsed: 2, want: true},
-		{name: "realtime speed zero keeps regular quant for pick", deadline: DeadlineRealtime, cpuUsed: 0, want: false},
-		{name: "realtime speed one uses fast quant for pick", deadline: DeadlineRealtime, cpuUsed: 1, want: true},
+		{name: "realtime positive cpu-used auto-speed uses fast quant for pick", deadline: DeadlineRealtime, cpuUsed: 0, want: true},
+		{name: "realtime explicit speed one uses fast quant for pick", deadline: DeadlineRealtime, cpuUsed: -1, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,8 +268,9 @@ func TestInterAnalysisRDModeDecisionMirrorsLibvpxSpeedFeature(t *testing.T) {
 		{name: "best quality keeps RD mode decision", deadline: DeadlineBestQuality, cpuUsed: 8, want: true},
 		{name: "good speed three keeps RD mode decision", deadline: DeadlineGoodQuality, cpuUsed: 3, want: true},
 		{name: "good speed four uses fast pick mode", deadline: DeadlineGoodQuality, cpuUsed: 4, want: false},
-		{name: "realtime speed three keeps RD mode decision", deadline: DeadlineRealtime, cpuUsed: 3, want: true},
-		{name: "realtime speed four uses fast pick mode", deadline: DeadlineRealtime, cpuUsed: 4, want: false},
+		{name: "realtime positive cpu-used auto-speed uses fast pick mode", deadline: DeadlineRealtime, cpuUsed: 3, want: false},
+		{name: "realtime explicit speed three keeps RD mode decision", deadline: DeadlineRealtime, cpuUsed: -3, want: true},
+		{name: "realtime explicit speed four uses fast pick mode", deadline: DeadlineRealtime, cpuUsed: -4, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -326,11 +328,19 @@ func TestLibvpxInterModeThresholdMultipliersMirrorSpeedFeatures(t *testing.T) {
 	}
 
 	realtime := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 8)
-	if realtime[libvpxThrVPred] != libvpxInterModeThresholdDisabled || realtime[libvpxThrHPred] != libvpxInterModeThresholdDisabled || realtime[libvpxThrBPred] != libvpxInterModeThresholdDisabled {
-		t.Fatalf("realtime speed 8 intra thresholds = V:%d H:%d B:%d, want disabled", realtime[libvpxThrVPred], realtime[libvpxThrHPred], realtime[libvpxThrBPred])
+	if realtime[libvpxThrVPred] != 2000 || realtime[libvpxThrHPred] != 2000 || realtime[libvpxThrBPred] != 5000 {
+		t.Fatalf("realtime positive cpu-used auto-speed intra thresholds = V:%d H:%d B:%d, want 2000/2000/5000", realtime[libvpxThrVPred], realtime[libvpxThrHPred], realtime[libvpxThrBPred])
 	}
-	if realtime[libvpxThrZero2] != 2000 || realtime[libvpxThrNew2] != 4000 || realtime[libvpxThrSplit1] != libvpxInterModeThresholdDisabled {
-		t.Fatalf("realtime speed 8 thresholds = ZERO2:%d NEW2:%d SPLIT1:%d, want 2000/4000/disabled", realtime[libvpxThrZero2], realtime[libvpxThrNew2], realtime[libvpxThrSplit1])
+	if realtime[libvpxThrZero2] != 2000 || realtime[libvpxThrNew2] != 2500 || realtime[libvpxThrSplit1] != libvpxInterModeThresholdDisabled {
+		t.Fatalf("realtime positive cpu-used auto-speed thresholds = ZERO2:%d NEW2:%d SPLIT1:%d, want 2000/2500/disabled", realtime[libvpxThrZero2], realtime[libvpxThrNew2], realtime[libvpxThrSplit1])
+	}
+
+	explicitRealtime := libvpxInterModeThresholdMultipliers(DeadlineRealtime, -8)
+	if explicitRealtime[libvpxThrVPred] != libvpxInterModeThresholdDisabled || explicitRealtime[libvpxThrHPred] != libvpxInterModeThresholdDisabled || explicitRealtime[libvpxThrBPred] != libvpxInterModeThresholdDisabled {
+		t.Fatalf("realtime explicit speed 8 intra thresholds = V:%d H:%d B:%d, want disabled", explicitRealtime[libvpxThrVPred], explicitRealtime[libvpxThrHPred], explicitRealtime[libvpxThrBPred])
+	}
+	if explicitRealtime[libvpxThrZero2] != 2000 || explicitRealtime[libvpxThrNew2] != 4000 || explicitRealtime[libvpxThrSplit1] != libvpxInterModeThresholdDisabled {
+		t.Fatalf("realtime explicit speed 8 thresholds = ZERO2:%d NEW2:%d SPLIT1:%d, want 2000/4000/disabled", explicitRealtime[libvpxThrZero2], explicitRealtime[libvpxThrNew2], explicitRealtime[libvpxThrSplit1])
 	}
 }
 
@@ -361,7 +371,7 @@ func TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins(t *testing.T)
 		totalMBs:      100,
 		errorBins:     &bins,
 	}
-	got := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 8, ctx)
+	got := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -8, ctx)
 	if got[libvpxThrNew1] != 1023<<7 ||
 		got[libvpxThrNearest1] != (1023<<7)>>1 ||
 		got[libvpxThrNear1] != (1023<<7)>>1 {
@@ -382,7 +392,7 @@ func TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins(t *testing.T)
 }
 
 func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
-	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 160, Height: 160}}
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -8, Width: 160, Height: 160}}
 	e.recordFastInterModeErrorBin(64 << 7)
 	e.recordFastInterModeErrorBin(1 << 30)
 	if e.interModeErrorBins[64] != 1 || e.interModeErrorBins[1023] != 1 {
@@ -451,15 +461,15 @@ func TestLibvpxInterModeCheckFrequenciesMirrorSpeedFeatures(t *testing.T) {
 		t.Fatalf("good speed 5 frequencies = V:%d NEW2:%d SPLIT2:%d, want 2/4/15", good[libvpxThrVPred], good[libvpxThrNew2], good[libvpxThrSplit2])
 	}
 
-	realtime := libvpxInterModeCheckFrequencies(DeadlineRealtime, 10)
+	realtime := libvpxInterModeCheckFrequencies(DeadlineRealtime, -10)
 	if realtime[libvpxThrZero2] != 2 || realtime[libvpxThrNew1] != 0 || realtime[libvpxThrNew2] != 8 {
-		t.Fatalf("realtime speed 10 frequencies = ZERO2:%d NEW1:%d NEW2:%d, want 2/0/8", realtime[libvpxThrZero2], realtime[libvpxThrNew1], realtime[libvpxThrNew2])
+		t.Fatalf("realtime explicit speed 10 frequencies = ZERO2:%d NEW1:%d NEW2:%d, want 2/0/8", realtime[libvpxThrZero2], realtime[libvpxThrNew1], realtime[libvpxThrNew2])
 	}
 }
 
 func TestLibvpxInterModeThresholdMultipliersTemporalLayerTweaks(t *testing.T) {
-	baseline := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 6)
-	unchanged := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+	baseline := libvpxInterModeThresholdMultipliers(DeadlineRealtime, -6)
+	unchanged := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -6, libvpxInterModeThresholdContext{
 		temporalLayers: 1,
 		lastEnabled:    true,
 		goldenEnabled:  true,
@@ -469,17 +479,17 @@ func TestLibvpxInterModeThresholdMultipliersTemporalLayerTweaks(t *testing.T) {
 		t.Fatalf("one-layer temporal multipliers changed: %v want %v", unchanged, baseline)
 	}
 
-	tooFast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 7, libvpxInterModeThresholdContext{
+	tooFast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -7, libvpxInterModeThresholdContext{
 		temporalLayers: 2,
 		lastEnabled:    true,
 		goldenEnabled:  true,
 		closestRef:     vp8common.GoldenFrame,
 	})
-	if want := libvpxInterModeThresholdMultipliers(DeadlineRealtime, 7); tooFast != want {
-		t.Fatalf("speed 7 temporal multipliers changed: %v want %v", tooFast, want)
+	if want := libvpxInterModeThresholdMultipliers(DeadlineRealtime, -7); tooFast != want {
+		t.Fatalf("explicit speed 7 temporal multipliers changed: %v want %v", tooFast, want)
 	}
 
-	missingGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+	missingGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -6, libvpxInterModeThresholdContext{
 		temporalLayers: 2,
 		lastEnabled:    true,
 		closestRef:     vp8common.LastFrame,
@@ -488,7 +498,7 @@ func TestLibvpxInterModeThresholdMultipliersTemporalLayerTweaks(t *testing.T) {
 		t.Fatalf("missing-GOLDEN temporal multipliers changed: %v want %v", missingGolden, baseline)
 	}
 
-	closestGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+	closestGolden := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -6, libvpxInterModeThresholdContext{
 		temporalLayers: 2,
 		lastEnabled:    true,
 		goldenEnabled:  true,
@@ -507,7 +517,7 @@ func TestLibvpxInterModeThresholdMultipliersTemporalLayerTweaks(t *testing.T) {
 		t.Fatalf("temporal tweak touched unrelated thresholds ZERO3:%d/%d NEW2:%d/%d", closestGolden[libvpxThrZero3], baseline[libvpxThrZero3], closestGolden[libvpxThrNew2], baseline[libvpxThrNew2])
 	}
 
-	closestLast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, 6, libvpxInterModeThresholdContext{
+	closestLast := libvpxInterModeThresholdMultipliersForContext(DeadlineRealtime, -6, libvpxInterModeThresholdContext{
 		temporalLayers: 2,
 		lastEnabled:    true,
 		goldenEnabled:  true,
@@ -787,8 +797,8 @@ func TestInterAnalysisNoSkipBlock4x4SearchMirrorsLibvpxSpeedFeature(t *testing.T
 		{name: "best quality always keeps 4x4 search", deadline: DeadlineBestQuality, cpuUsed: 8, want: true},
 		{name: "good speed zero keeps 4x4 search", deadline: DeadlineGoodQuality, cpuUsed: 0, want: true},
 		{name: "good positive speed can skip 4x4 search", deadline: DeadlineGoodQuality, cpuUsed: 1, want: false},
-		{name: "realtime negative speed keeps 4x4 search", deadline: DeadlineRealtime, cpuUsed: -1, want: true},
-		{name: "realtime positive speed can skip 4x4 search", deadline: DeadlineRealtime, cpuUsed: 1, want: false},
+		{name: "realtime explicit speed one can skip 4x4 search", deadline: DeadlineRealtime, cpuUsed: -1, want: false},
+		{name: "realtime positive auto-speed can skip 4x4 search", deadline: DeadlineRealtime, cpuUsed: 1, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
