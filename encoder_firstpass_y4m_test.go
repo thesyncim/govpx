@@ -316,14 +316,14 @@ const (
 	y4mExpectSSIM1      = 85.42624999999998
 	y4mExpectPcntInter1 = 1.0
 
-	y4mExpectIntra2     = 3280.0
-	y4mExpectCoded2     = 117.0
-	y4mExpectSSIM2      = 109.83374999999994
+	y4mExpectIntra2     = 3289.0
+	y4mExpectCoded2     = 114.0
+	y4mExpectSSIM2      = 107.01749999999994
 	y4mExpectPcntInter2 = 1.0
 
-	y4mExpectIntra3     = 3036.0
-	y4mExpectCoded3     = 117.0
-	y4mExpectSSIM3      = 109.83374999999992
+	y4mExpectIntra3     = 2998.0
+	y4mExpectCoded3     = 111.0
+	y4mExpectSSIM3      = 104.20124999999992
 	y4mExpectPcntInter3 = 1.0
 
 	// Terminal total-stats packet: per-field sum across all four

@@ -50,13 +50,13 @@ the anchor and look for the surrounding mismatch.
   still missing.
 - The largest remaining parity weights are candidate-level inter-mode tracing,
   rejected recode-attempt tracing, automatic hidden-ARF/ARNR border proof,
-  broad first-pass/two-pass corpus proof beyond the deterministic `.fpf`
-  oracle gate, `projected_frame_size` / rejected recode feedback proof, rate
-  parity tracking vs libvpx output bitrate/frame sizes, and remaining
-  quality-relevant entropy/refresh edge cases.
+  first-pass/two-pass proof beyond the deterministic ramp and Y4M-shaped
+  `.fpf` oracle gates, `projected_frame_size` / rejected recode feedback
+  proof, rate parity tracking vs libvpx output bitrate/frame sizes, and
+  remaining quality-relevant entropy/refresh edge cases.
 - If only three more things are fixed, they should be: (1) add
   candidate-level inter-mode / motion-search trace rows, (2) broaden the
-  first-pass `.fpf` oracle gate to the Y4M/external/two-pass corpus, and
+  first-pass `.fpf` oracle gate to external/two-pass allocation corpora, and
   (3) close the remaining direct rate-control trace gaps such as
   `projected_frame_size` and rejected recode-attempt rows.
 
@@ -115,8 +115,7 @@ the anchor and look for the surrounding mismatch.
 | Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / projected-size deltas | candidate mode rows, per-frame-size deltas |
-| first-pass ramp corpus | pass-1 `.fpf` stats | `TestOracleFirstPassStatsCompare` | libvpx v1.16.0 `vpxenc --pass=1 --fpf` | <=2 post-shift error units on residual score; exact MV/percentage fields | partial | first-pass q / predictor-residual scoring now aligned; broad corpus still open | Y4M/external `.fpf` rows, two-pass allocation traces |
-| first-pass Y4M corpus | two-pass stats | deterministic regression fixture | missing libvpx oracle fixture | unknown | open | corpus breadth / two-pass allocation proof | first-pass oracle rows |
+| first-pass ramp + Y4M-shaped corpora | pass-1 `.fpf` stats | `TestOracleFirstPassStatsCompare` | libvpx v1.16.0 `vpxenc --pass=1 --fpf` | <=2 post-shift error units on residual score; exact MV/percentage fields | partial | first-pass q, predictor-residual scoring, fast-quant pass-1 reconstruction aligned; external/two-pass allocation proof still open | external `.fpf` rows, two-pass allocation traces |
 | ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
 
 ## Last Measured
@@ -576,7 +575,9 @@ the anchor and look for the surrounding mismatch.
     the libvpx `vp8_encode_intra` predictor-residual SSE rather than the old
     mean-luma variance proxy, and pass 1 forces the libvpx
     `vp8_set_quantizer(cpi, 26)` reconstruction path independent of user
-    min/max quantizer bounds. First-pass search uses SAD for the diamond walk,
+    min/max quantizer bounds. It also mirrors libvpx's first-pass speed
+    override by using fast quantization and disabling coefficient
+    optimization. First-pass search uses SAD for the diamond walk,
     SSE plus MV error cost for the final score, applies the libvpx
     `new_mv_mode_penalty=256` to motion-search results, wires
     `EncoderOptions.StaticThreshold` through libvpx's
@@ -595,7 +596,8 @@ the anchor and look for the surrounding mismatch.
     which parses libvpx v1.16.0 `vpxenc --pass=1 --fpf` binary
     `FIRSTPASS_STATS` packets and compares them against govpx with exact
     mode/MV percentages and a <=2 post-shift tolerance on predictor-residual
-    score fields. Fast deterministic coverage remains in
+    score fields on both the deterministic ramp and fixed Y4M-shaped corpora.
+    Fast deterministic coverage remains in
     [`TestFirstPassStatsRegression32x32`](../encoder_firstpass_test.go) on a
     deterministic 32x32 ramp clip; plausibility coverage is in
     `TestFirstPassStatsPopulatesLibvpxFields`, zero-motion MSE and GOLDEN reset
@@ -615,10 +617,9 @@ the anchor and look for the surrounding mismatch.
     on a fixed in-memory Y4M-shaped 4-frame 32x32 corpus, plus
     `TestAccumulateFirstPassStatsMatchesLibvpx` and
     `TestFinalizeFirstPassStatsEmpty`.
-  - Remaining: broaden the `.fpf` oracle comparison from the deterministic
-    ramp clip to the fixed Y4M corpus, external sources, and second-pass
-    allocation traces that consume those stats.
-  - Done when fixed Y4M/external first-pass stats and downstream second-pass
+  - Remaining: broaden the `.fpf` oracle comparison to external sources and
+    second-pass allocation traces that consume those stats.
+  - Done when fixed/external first-pass stats and downstream second-pass
     allocation decisions match libvpx within defined quality-equivalent
     tolerances for every quality-relevant field.
 

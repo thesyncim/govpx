@@ -21,28 +21,46 @@ func TestOracleFirstPassStatsCompare(t *testing.T) {
 		height     = 32
 		fps        = 30
 		targetKbps = 400
-		frameCount = 3
 	)
-	frames := make([]Image, frameCount)
-	for i := range frames {
-		frames[i] = firstPassOracleRampFrame(width, height, i)
-	}
-	opts := EncoderOptions{
-		Width:             width,
-		Height:            height,
-		FPS:               fps,
-		RateControlMode:   RateControlVBR,
-		TargetBitrateKbps: targetKbps,
-		MinQuantizer:      4,
-		MaxQuantizer:      56,
-		KeyFrameInterval:  60,
-		Deadline:          DeadlineGoodQuality,
-		CpuUsed:           0,
+	cases := []struct {
+		name   string
+		frames []Image
+	}{
+		{name: "ramp", frames: firstPassOracleFrames(3, func(i int) Image {
+			return firstPassOracleRampFrame(width, height, i)
+		})},
+		{name: "y4m-shaped", frames: firstPassOracleFrames(4, func(i int) Image {
+			return firstPassOracleY4MFrame(width, height, i)
+		})},
 	}
 
-	govpxStats := captureGovpxFirstPassStats(t, opts, frames)
-	libvpxStats := captureLibvpxFirstPassStats(t, vpxenc, "firstpass-ramp", opts, targetKbps, frames)
-	compareFirstPassStats(t, govpxStats, libvpxStats)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlVBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  60,
+				Deadline:          DeadlineGoodQuality,
+				CpuUsed:           0,
+			}
+			govpxStats := captureGovpxFirstPassStats(t, opts, tc.frames)
+			libvpxStats := captureLibvpxFirstPassStats(t, vpxenc, "firstpass-"+tc.name, opts, targetKbps, tc.frames)
+			compareFirstPassStats(t, govpxStats, libvpxStats)
+		})
+	}
+}
+
+func firstPassOracleFrames(count int, fn func(int) Image) []Image {
+	frames := make([]Image, count)
+	for i := range frames {
+		frames[i] = fn(i)
+	}
+	return frames
 }
 
 func firstPassOracleRampFrame(width int, height int, shift int) Image {
@@ -57,6 +75,40 @@ func firstPassOracleRampFrame(width int, height int, shift int) Image {
 				v = 235
 			}
 			img.Y[y*img.YStride+x] = byte(v)
+		}
+	}
+	for i := range img.U {
+		img.U[i] = 128
+	}
+	for i := range img.V {
+		img.V[i] = 128
+	}
+	return img
+}
+
+func firstPassOracleY4MFrame(width int, height int, shift int) Image {
+	img := testImage(width, height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			v := 64 + (y+shift)*3 + (x+shift)*2
+			if v < 0 {
+				v = 0
+			}
+			if v > 235 {
+				v = 235
+			}
+			img.Y[y*img.YStride+x] = byte(v)
+		}
+	}
+	px := 4 + shift
+	py := 4 + shift
+	for dy := 0; dy < 8; dy++ {
+		for dx := 0; dx < 8; dx++ {
+			x := px + dx
+			y := py + dy
+			if x >= 0 && x < width && y >= 0 && y < height {
+				img.Y[y*img.YStride+x] = 16
+			}
 		}
 	}
 	for i := range img.U {

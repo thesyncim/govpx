@@ -1462,12 +1462,12 @@ func TestTwoPassFramesToKeyHonoursTestCandidateKF(t *testing.T) {
 const (
 	firstPassRegressionExpectIntraError0    = 2557.0
 	firstPassRegressionExpectIntraError1    = 2243.0
-	firstPassRegressionExpectIntraError2    = 2132.0
+	firstPassRegressionExpectIntraError2    = 2131.0
 	firstPassRegressionExpectCodedError1    = 32.0
-	firstPassRegressionExpectCodedError2    = 39.0
+	firstPassRegressionExpectCodedError2    = 37.0
 	firstPassRegressionExpectSSIM0          = 2468.3259118652345
 	firstPassRegressionExpectSSIM1          = 31.306640625
-	firstPassRegressionExpectSSIM2          = 38.51678466796875
+	firstPassRegressionExpectSSIM2          = 36.54156494140625
 	firstPassRegressionExpectMVr1           = 18.0
 	firstPassRegressionExpectMVrAbs1        = 18.0
 	firstPassRegressionExpectMVc1           = -6.0

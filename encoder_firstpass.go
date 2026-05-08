@@ -443,8 +443,8 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 		0, 0,
 		false,
 		true,
-		e.libvpxUseFastQuant(),
-		e.libvpxOptimizeCoefficients(),
+		true,
+		false,
 		&coeffs,
 	)
 	var tokens vp8dec.MacroblockTokens
@@ -480,7 +480,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
-		eob := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, qIndex, 3, ctx, 0, 0, 0, true, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		eob := quantizeEncodedBlock(&vp8tables.DefaultCoefProbs, qIndex, 3, ctx, 0, 0, 0, true, true, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 		coeffs.SetBlockEOB(block, eob)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
@@ -521,8 +521,8 @@ func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage,
 		0, 0,
 		false,
 		false,
-		e.libvpxUseFastQuant(),
-		e.libvpxOptimizeCoefficients(),
+		true,
+		false,
 		&coeffs,
 	)
 	var tokens vp8dec.MacroblockTokens
