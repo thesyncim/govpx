@@ -1083,10 +1083,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
-	// Mirror libvpx onyx_if.c key-frame branch: clear source_alt_ref_active
-	// and frames_since_golden so the next inter frame's RD ref-prob
-	// heuristic starts from a clean slate.
-	e.resetGoldenFrameStats()
+	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
+	// drop source_alt_ref_active when no ARF schedule is pending, and
+	// decrement frames_till_alt_ref_frame. Carried out by
+	// `refreshKeyFrameReferencesFromAnalysis -> resetGoldenFrameStats`,
+	// which is the single keyframe-path call point. Calling it twice
+	// (legacy code did) would double-decrement framesTillAltRefFrame and
+	// silently shorten any pass2-armed ARF schedule.
 	e.refreshKeyFrameReferencesFromAnalysis()
 	// Seed denoiser running averages from the key-frame source (libvpx
 	// onyx_if.c update_reference_frames key-frame branch).
@@ -1255,6 +1258,19 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			e.restoreCodingContext()
 			continue
 		}
+		// libvpx gates the size-recode branch on cpi->sf.recode_loop in
+		// recode_loop_test (vp8/encoder/onyx_if.c). Mode 2 (realtime) and
+		// good-quality cpu_used >= 4 set recode_loop=0 in set_speed_features,
+		// so libvpx accepts the regulator's first Q and lets the
+		// rate-correction-factor reconcile across subsequent frames. govpx
+		// mirrors that gate via libvpxKeyFrameRecodeLoopActive; the
+		// recode_loop_test in libvpx itself feeds the pre-pack
+		// `cpi->projected_frame_size` (totalrate>>8 minus entropy savings)
+		// from vp8_encode_frame, which is what result.ProjectedSizeBits
+		// already mirrors.
+		if !e.libvpxKeyFrameRecodeLoopActive() {
+			return result, nil
+		}
 		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
 			return result, nil
 		}
@@ -1285,7 +1301,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
-	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required)
+	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required, segmentation)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
@@ -1390,6 +1406,27 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 		default:
 			return false
 		}
+	default:
+		return true
+	}
+}
+
+// libvpxKeyFrameRecodeLoopActive mirrors recode_loop_test for KEY_FRAME:
+// the size_recode branch fires when recode_loop is 1 (or 2, since KEY_FRAME
+// satisfies the second clause). At realtime (recode_loop=0) and good-quality
+// cpu_used >= 4 (also recode_loop=0), libvpx skips KF size recoding entirely
+// and accepts the regulator's first Q. The forced-KF SS-error special path
+// (vp8_special_case_for_forced_key_frame) is independent of recode_loop and
+// is gated separately at the call site.
+func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
+	if e == nil {
+		return true
+	}
+	switch e.opts.Deadline {
+	case DeadlineRealtime:
+		return false
+	case DeadlineGoodQuality:
+		return e.libvpxCPUUsed() <= 3
 	default:
 		return true
 	}
@@ -1511,7 +1548,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// Output goes to denoiser.runningAvg[INTRA] which propagates to
 	// reference-aligned buffers in commitInterFrameAttempt.
 	e.applyDenoiserToInterFrame(source, rows, cols)
-	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required)
+	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
@@ -1906,14 +1943,41 @@ func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bo
 	}
 }
 
-// resetGoldenFrameStats mirrors libvpx's key-frame branch in onyx_if.c, which
-// clears source_alt_ref_active and resets frames_since_golden so the next
-// inter frame's RD scoring starts from a clean slate. libvpx also clears
-// source_alt_ref_pending and resets frames_till_alt_ref_frame on key frame
-// reset since the prior ARF schedule is invalidated.
+// resetGoldenFrameStats mirrors libvpx vp8/encoder/onyx_if.c
+// `update_golden_frame_stats`'s `cm->refresh_golden_frame` branch, which is
+// the routine that runs after every keyframe (vp8_setup_key_frame asserts
+// `cm->refresh_golden_frame=1`). The libvpx update:
+//
+//   - frames_since_golden = 0
+//   - if (!source_alt_ref_pending) source_alt_ref_active = 0
+//   - if (frames_till_gf_update_due > 0) frames_till_gf_update_due--
+//
+// It leaves `source_alt_ref_pending` and `alt_ref_source` intact so that
+// `define_gf_group` can arm a fresh ARF schedule from inside `vp8_second_pass`
+// (which runs at the top of Pass2Encode for the keyframe) and have it survive
+// the post-encode lifecycle bookkeeping. govpx mirrors that here so a
+// pass2-armed ARF schedule produced during keyframe encoding is not clobbered
+// before the next frame's `autoAltRefMaybeEncode` reads it.
+//
+// For full state reset (Reset(), encoder init), use `clearAltRefSchedule` to
+// also drop `source_alt_ref_pending`/`altRefSourceValid`/`framesTillAltRefFrame`.
 func (e *VP8Encoder) resetGoldenFrameStats() {
 	e.framesSinceGolden = 0
-	e.sourceAltRefActive = false
+	if !e.sourceAltRefPending {
+		e.sourceAltRefActive = false
+	}
+	if e.framesTillAltRefFrame > 0 {
+		e.framesTillAltRefFrame--
+	}
+}
+
+// clearAltRefSchedule drops any pending auto-ARF schedule, mirroring the
+// libvpx `cpi->source_alt_ref_pending=0; cpi->alt_ref_source=NULL` reset that
+// runs from `vp8_create_compressor` and on explicit reconfiguration paths
+// (encoder init, Reset(), error-resilient enable). It is the lifecycle
+// counterpart to `resetGoldenFrameStats`, which is the libvpx-faithful
+// per-keyframe stats update and intentionally preserves the schedule.
+func (e *VP8Encoder) clearAltRefSchedule() {
 	e.sourceAltRefPending = false
 	e.altRefSourceValid = false
 	e.framesTillAltRefFrame = 0
@@ -2672,6 +2736,7 @@ func (e *VP8Encoder) Reset() {
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false
+	e.clearAltRefSchedule()
 	e.resetGoldenFrameStats()
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
@@ -2933,7 +2998,7 @@ func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
 	return -2
 }
 
-func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
 	if len(e.reconstructModes) < required {
 		return 0, ErrInvalidConfig
 	}
@@ -2941,9 +3006,9 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 		return 0, nil
 	}
 	if e.loopFilterUsesFastSearch() {
-		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required)
+		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
 	}
-	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required)
+	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
@@ -2961,22 +3026,24 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	}
 }
 
-func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
 	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
-	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true)
+	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
 	if err != nil {
 		return 0, err
 	}
+	e.emitOracleLFTrial("seed", level, bestErr)
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
-		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true)
+		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
 		if err != nil {
 			return 0, err
 		}
+		e.emitOracleLFTrial("down", filtLevel, filtErr)
 		if filtErr < bestErr {
 			bestErr = filtErr
 			bestLevel = filtLevel
@@ -2990,10 +3057,11 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
-			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true)
+			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
 			if err != nil {
 				return 0, err
 			}
+			e.emitOracleLFTrial("up", filtLevel, filtErr)
 			if filtErr < bestErr {
 				bestErr = filtErr - (filtErr >> 10)
 				bestLevel = filtLevel
@@ -3006,7 +3074,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	return uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel)), nil
 }
 
-func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int) (uint8, error) {
+func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
 	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
@@ -3020,12 +3088,13 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		if ssSet[level] {
 			return ssErr[level], nil
 		}
-		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false)
+		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false, segmentation)
 		if err != nil {
 			return 0, err
 		}
 		ssErr[level] = trialErr
 		ssSet[level] = true
+		e.emitOracleLFTrial("full", level, trialErr)
 		return trialErr, nil
 	}
 
@@ -3083,13 +3152,21 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	return uint8(filtBest), nil
 }
 
-func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool) (int, error) {
+// loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy
+// of the analysis image (full frame or partial-frame window depending on
+// `partial`) and returns the Y SSE between the source and the filtered
+// buffer. The supplied segmentation must mirror the segmentation that
+// actually fires at reconstruction time so the per-segment LF deltas
+// (e.g. cyclic refresh's MB_LVL_ALT_LF[1] = lf_adjustment) modulate the
+// per-MB filter level the same way libvpx's vp8cx_set_alt_lf_level +
+// vp8_loop_filter_frame_init does inside vp8cx_pick_filter_level.
+func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig) (int, error) {
 	if partial {
 		startRow, rowCount := loopFilterPartialFrameWindow(rows)
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
 		if level > 0 {
 			header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-			if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo, startRow, rowCount); err != nil {
+			if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount); err != nil {
 				return 0, ErrInvalidConfig
 			}
 		}
@@ -3098,7 +3175,7 @@ func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	if level > 0 {
 		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-		if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
+		if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 			return 0, ErrInvalidConfig
 		}
 	}

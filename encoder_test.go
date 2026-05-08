@@ -2588,11 +2588,11 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 
 	srcImg := sourceImageFromPublic(src)
 	for _, level := range []int{8, 24, 48} {
-		partialErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true)
+		partialErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true, vp8enc.SegmentationConfig{})
 		if err != nil {
 			t.Fatalf("partial trial level=%d returned error: %v", level, err)
 		}
-		fullErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false)
+		fullErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
 		if err != nil {
 			t.Fatalf("full trial level=%d returned error: %v", level, err)
 		}
@@ -2651,7 +2651,7 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 
 	srcImg := sourceImageFromPublic(src)
 	ePartial := buildEncoder()
-	got, err := ePartial.pickLoopFilterLevelFast(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required)
+	got, err := ePartial.pickLoopFilterLevelFast(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 	if err != nil {
 		t.Fatalf("pickLoopFilterLevelFast returned error: %v", err)
 	}
@@ -2665,7 +2665,7 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	level := clampLoopFilterPickLevel(24, minLevel, maxLevel)
 	bestLevel := level
 	score := func(lvl int) int {
-		if _, err := eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false); err != nil {
+		if _, err := eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false, vp8enc.SegmentationConfig{}); err != nil {
 			t.Fatalf("reference trial returned error: %v", err)
 		}
 		return loopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
@@ -2830,7 +2830,7 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 	b.Run("partial", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true); err != nil {
+			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true, vp8enc.SegmentationConfig{}); err != nil {
 				b.Fatalf("partial trial returned error: %v", err)
 			}
 		}
@@ -2838,7 +2838,7 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 	b.Run("full", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false); err != nil {
+			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false, vp8enc.SegmentationConfig{}); err != nil {
 				b.Fatalf("full trial returned error: %v", err)
 			}
 		}
@@ -5710,23 +5710,77 @@ func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
 	}
 }
 
-// TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch verifies the key-frame
-// reset branch of libvpx onyx_if.c: source_alt_ref_active and
-// frames_since_golden are zeroed.
+// TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch pins
+// `resetGoldenFrameStats` to the libvpx
+// `update_golden_frame_stats(refresh_golden_frame=1)` keyframe branch in
+// vp8/encoder/onyx_if.c. Two regimes are exercised:
+//
+//  1. No ARF schedule armed: source_alt_ref_active is zeroed (libvpx
+//     `if (!cpi->source_alt_ref_pending) cpi->source_alt_ref_active = 0`),
+//     frames_since_golden is reset, and frames_till_gf_update_due is
+//     decremented (libvpx `if (frames_till_gf_update_due > 0)
+//     frames_till_gf_update_due--`).
+//
+//  2. ARF schedule armed during the keyframe's vp8_second_pass call:
+//     source_alt_ref_pending and alt_ref_source are preserved so that the
+//     next vp8_get_compressed_data ARF block can fire; only
+//     frames_till_alt_ref_frame decrements per the libvpx update.
 func TestResetGoldenFrameStatsMirrorsLibvpxKeyFrameBranch(t *testing.T) {
+	t.Run("no-arf-schedule", func(t *testing.T) {
+		e := &VP8Encoder{
+			framesSinceGolden:     7,
+			sourceAltRefActive:    true,
+			sourceAltRefPending:   false,
+			altRefSourceValid:     false,
+			framesTillAltRefFrame: 5,
+		}
+		e.resetGoldenFrameStats()
+		if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
+			e.framesTillAltRefFrame != 4 {
+			t.Fatalf("post-keyframe state = {fsg:%d active:%v till:%d}, want {0 false 4}",
+				e.framesSinceGolden, e.sourceAltRefActive, e.framesTillAltRefFrame)
+		}
+	})
+	t.Run("preserves-arf-schedule", func(t *testing.T) {
+		e := &VP8Encoder{
+			framesSinceGolden:     3,
+			sourceAltRefActive:    true,
+			sourceAltRefPending:   true,
+			altRefSourceValid:     true,
+			altRefSourcePTS:       1234,
+			framesTillAltRefFrame: 7,
+		}
+		e.resetGoldenFrameStats()
+		if e.framesSinceGolden != 0 {
+			t.Fatalf("framesSinceGolden = %d, want 0", e.framesSinceGolden)
+		}
+		if !e.sourceAltRefActive {
+			t.Fatalf("sourceAltRefActive cleared while pending=true; libvpx only zeroes active when !pending")
+		}
+		if !e.sourceAltRefPending || !e.altRefSourceValid || e.altRefSourcePTS != 1234 {
+			t.Fatalf("ARF schedule mutated: pending=%v valid=%v pts=%d, want true/true/1234",
+				e.sourceAltRefPending, e.altRefSourceValid, e.altRefSourcePTS)
+		}
+		if e.framesTillAltRefFrame != 6 {
+			t.Fatalf("framesTillAltRefFrame = %d, want 6 (decremented from 7)", e.framesTillAltRefFrame)
+		}
+	})
+}
+
+// TestClearAltRefScheduleDropsPendingState pins the lifecycle reset path used
+// from Reset()/encoder init: dropping any in-flight ARF schedule entirely so
+// that no leftover pending state survives into a fresh stream.
+func TestClearAltRefScheduleDropsPendingState(t *testing.T) {
 	e := &VP8Encoder{
-		framesSinceGolden:     7,
-		sourceAltRefActive:    true,
 		sourceAltRefPending:   true,
 		altRefSourceValid:     true,
+		altRefSourcePTS:       42,
 		framesTillAltRefFrame: 5,
 	}
-	e.resetGoldenFrameStats()
-	if e.framesSinceGolden != 0 || e.sourceAltRefActive ||
-		e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
-		t.Fatalf("post-keyframe state = {fsg:%d active:%v pending:%v valid:%v till:%d}, want all-zero",
-			e.framesSinceGolden, e.sourceAltRefActive, e.sourceAltRefPending,
-			e.altRefSourceValid, e.framesTillAltRefFrame)
+	e.clearAltRefSchedule()
+	if e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
+		t.Fatalf("post-clear state = {pending:%v valid:%v till:%d}, want {false false 0}",
+			e.sourceAltRefPending, e.altRefSourceValid, e.framesTillAltRefFrame)
 	}
 }
 

@@ -1361,11 +1361,22 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 
 // pass2MaybeArmAltRefPending wires the libvpx
 // vp8/encoder/firstpass.c `define_gf_group` ARF-pending decision into
-// the encoder. It runs once per non-key inter frame at a GF-group
-// boundary (framesTillAltRefFrame == 0 and ARF not already pending or
-// active) and, when the second-pass stats indicate a high-motion
-// section ahead, calls `scheduleAltRefSource` so the auto-ARF driver
-// can emit the hidden alt-ref at the predicted offset.
+// the encoder. It runs at a GF-group boundary (framesTillAltRefFrame ==
+// 0 and ARF not already pending or active) and, when the second-pass
+// stats indicate a high-motion section ahead, calls
+// `scheduleAltRefSource` so the auto-ARF driver can emit the hidden
+// alt-ref at the predicted offset.
+//
+// libvpx fires this from `vp8_second_pass`, which runs on every
+// non-hidden frame including the keyframe (find_next_key_frame zeros
+// `frames_till_gf_update_due` so the same `if (frames_till_gf_update_due
+// == 0)` predicate triggers `define_gf_group` from inside Pass2Encode
+// for the keyframe). govpx mirrors that by allowing the arming call to
+// fire on `keyFrame == true`; the keyframe-path lifecycle update inside
+// `resetGoldenFrameStats` no longer clobbers the schedule (it now
+// matches libvpx's `update_golden_frame_stats`, which leaves
+// `source_alt_ref_pending` intact). Without arming on the keyframe the
+// hidden ARF would slip by one frame relative to libvpx.
 //
 // The wiring is gated on:
 //   - Two-pass stats loaded.
@@ -1373,11 +1384,10 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 //   - `LookaheadFrames > 1` (the auto-ARF driver requires future peeks).
 //   - `!ErrorResilient` (libvpx zeroes source_alt_ref_pending in
 //     error-resilient mode inside Pass2Encode).
-//   - `keyFrame == false` (KF frames reset the ARF lifecycle in
-//     libvpx).
 //   - No alt-ref already pending or active.
 func (e *VP8Encoder) pass2MaybeArmAltRefPending(currentFrame uint64, currentPTS uint64, keyFrame bool) {
-	if e == nil || keyFrame {
+	_ = keyFrame
+	if e == nil {
 		return
 	}
 	if !e.twoPass.enabled() {
