@@ -100,9 +100,22 @@ func (e *VP8Encoder) autoAltRefMaybeSchedule() {
 }
 
 // autoAltRefShouldEmitHidden reports whether the next encoder call should
-// emit a hidden alt-ref instead of advancing the normal pop. Mirrors the
-// libvpx `cpi->source_alt_ref_pending` check inside `vp8_get_compressed_data`
-// guarded by error-resilient and play-alternate.
+// emit a hidden alt-ref instead of advancing the normal pop. Mirrors libvpx
+// `vp8_get_compressed_data`:
+//
+//	if (cpi->oxcf.error_resilient_mode == 0 && cpi->oxcf.play_alternate &&
+//	    cpi->source_alt_ref_pending) {
+//	    if ((cpi->source = vp8_lookahead_peek(
+//	             cpi->lookahead, cpi->frames_till_gf_update_due, PEEK_FORWARD))) {
+//	        ...
+//	    }
+//	}
+//
+// libvpx fires the hidden ARF on the first call after `source_alt_ref_pending`
+// is set, peeking the lookahead at the schedule offset. The earlier govpx
+// model deferred emission until the ARF source reached the head of the queue;
+// matching libvpx's emission timing requires that the schedule offset already
+// be reachable inside the lookahead, which is what `peekLookahead` validates.
 func (e *VP8Encoder) autoAltRefShouldEmitHidden() bool {
 	if !e.autoAltRefDriverEnabled() {
 		return false
@@ -110,19 +123,37 @@ func (e *VP8Encoder) autoAltRefShouldEmitHidden() bool {
 	if !e.sourceAltRefPending {
 		return false
 	}
-	if e.framesTillAltRefFrame != 0 {
-		return false
-	}
-	// The deferred ARF source must already be at the head of the queue. If
-	// the queue is empty we cannot peek the source; libvpx falls through to
-	// the normal pop in this case.
 	if e.lookaheadSize() == 0 {
 		return false
 	}
-	if e.peekLookahead(0, true) == nil {
+	offset := e.altRefPeekOffset()
+	if offset < 0 {
+		return false
+	}
+	if e.peekLookahead(offset, true) == nil {
 		return false
 	}
 	return true
+}
+
+// altRefPeekOffset returns the lookahead offset at which the hidden ARF
+// source lives. It mirrors libvpx's `cpi->frames_till_gf_update_due` at the
+// moment of `vp8_get_compressed_data`'s ARF block: that counter is decremented
+// once during the keyframe encode (vp8/encoder/onyx_if.c
+// update_golden_frame_stats: `if (frames_till_gf_update_due > 0)
+// frames_till_gf_update_due--`), so by the time the immediately following
+// frame call enters the ARF block the peek offset is `baseline_gf_interval -
+// 1`. govpx's `framesTillAltRefFrame` is updated through the same lifecycle
+// (see `updateGoldenFrameStats` and the keyframe-path decrement inside
+// `resetGoldenFrameStats`), so we can use it directly as the peek index.
+func (e *VP8Encoder) altRefPeekOffset() int {
+	if e == nil {
+		return -1
+	}
+	if e.framesTillAltRefFrame < 0 {
+		return -1
+	}
+	return e.framesTillAltRefFrame
 }
 
 // autoAltRefStashInput tucks the caller's input frame into the single-slot
@@ -199,16 +230,26 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		if err := validateEncodeFlags(flags); err != nil {
 			return EncodeResult{}, true, err
 		}
-		head := e.peekLookahead(0, true)
-		if head == nil {
+		offset := e.altRefPeekOffset()
+		peeked := e.peekLookahead(offset, true)
+		if peeked == nil {
 			return EncodeResult{}, false, nil
 		}
-		hiddenSource := sourceImageFromVP8(&head.frame.Img)
-		hiddenPTS := head.pts
-		hiddenDuration := head.duration
+		hiddenSource := sourceImageFromVP8(&peeked.frame.Img)
+		hiddenPTS := peeked.pts
+		hiddenDuration := peeked.duration
 		if hiddenDuration == 0 {
 			hiddenDuration = 1
 		}
+		// libvpx vp8/encoder/onyx_if.c sets cpi->alt_ref_source = cpi->source
+		// at the moment of ARF emission. govpx uses the source PTS as the
+		// alt-ref identifier so the deferred show frame's
+		// `is_src_frame_alt_ref` check matches when the lookahead later pops
+		// this entry. Re-anchor altRefSourcePTS to the actual peeked entry
+		// in case the schedule was armed with an extrapolated PTS that does
+		// not exactly match the queued frame (e.g. variable-duration input).
+		e.altRefSourcePTS = hiddenPTS
+		e.altRefSourceValid = true
 		if err := e.autoAltRefStashInput(src, pts, duration, flags); err != nil {
 			return EncodeResult{}, true, err
 		}
@@ -275,16 +316,19 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	if !e.autoAltRefShouldEmitHidden() {
 		return EncodeResult{}, false, nil
 	}
-	head := e.peekLookahead(0, true)
-	if head == nil {
+	offset := e.altRefPeekOffset()
+	peeked := e.peekLookahead(offset, true)
+	if peeked == nil {
 		return EncodeResult{}, false, nil
 	}
-	hiddenSource := sourceImageFromVP8(&head.frame.Img)
-	hiddenPTS := head.pts
-	hiddenDuration := head.duration
+	hiddenSource := sourceImageFromVP8(&peeked.frame.Img)
+	hiddenPTS := peeked.pts
+	hiddenDuration := peeked.duration
 	if hiddenDuration == 0 {
 		hiddenDuration = 1
 	}
+	e.altRefSourcePTS = hiddenPTS
+	e.altRefSourceValid = true
 	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
 	result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 	if err != nil {

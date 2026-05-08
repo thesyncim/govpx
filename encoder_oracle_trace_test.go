@@ -103,6 +103,12 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 			rateRows = append(rateRows, row)
 		case "recode":
 			recodeRows = append(recodeRows, row)
+		case "lf_trial":
+			// Per-trial-level loop-filter picker rows are emitted from
+			// pickLoopFilterLevelFast / pickLoopFilterLevelFull and are
+			// not relevant to the per-frame / per-MB invariants this test
+			// exercises; ignore them here.
+			continue
 		default:
 			t.Fatalf("trace line %d has unexpected type %q", i, typ)
 		}
