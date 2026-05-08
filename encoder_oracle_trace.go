@@ -94,6 +94,45 @@ type oracleTraceFrameRow struct {
 	SizeBytes      int `json:"size_bytes"`
 }
 
+// oracleTraceDroppedFrameRow mirrors the libvpx-side "dropped_frame" row
+// emitted from internal/coracle/build_vpxenc_oracle.sh at each of the three
+// drop-decision return paths in vp8/encoder/onyx_if.c
+// (vp8_check_drop_buffer, vp8_pick_frame_size buffer-underrun, and
+// vp8_drop_encodedframe_overshoot). The schema captures the rate-control
+// state that the libvpx parity oracle exposes for drop-frame parity:
+//
+//	frame_index   - source-frame ordinal (matches a non-dropped frame row's
+//	                FrameIndex slot in the encoded output)
+//	dropped       - always true on this row; set so a downstream consumer
+//	                that filters on type=="frame" still distinguishes
+//	                emitted frames from dropped ones
+//	force_maxqp   - libvpx cpi->force_maxqp AFTER the drop decision committed
+//	                its lifecycle update (set on overshoot drops, cleared on
+//	                the next non-dropped frame)
+//	buffer_level  - cpi->buffer_level (bits) AFTER the drop accounting
+//	                refunded av_per_frame_bandwidth and clamped to
+//	                maximum_buffer_size (mirrors govpx's rc.bufferLevelBits
+//	                after rc.postDropFrame)
+//	this_frame_target - the per-frame bandwidth target that was active when
+//	                the drop fired (libvpx cpi->this_frame_target / govpx
+//	                rc.frameTargetBits or rc.bitsPerFrame)
+//	reason        - inferred classification: "buffer_underrun" when the
+//	                buffer-underrun branch fired; "overshoot" when the
+//	                post-encode overshoot drop fired; "decimation" when the
+//	                drop-frames-water-mark decimation branch fired. govpx
+//	                only implements the buffer-underrun branch today, so it
+//	                always emits "buffer_underrun".
+type oracleTraceDroppedFrameRow struct {
+	Type            string `json:"type"`
+	FrameIndex      uint64 `json:"frame_index"`
+	FrameType       string `json:"frame_type"`
+	Dropped         bool   `json:"dropped"`
+	ForceMaxQP      bool   `json:"force_maxqp"`
+	BufferLevel     int64  `json:"buffer_level"`
+	ThisFrameTarget int    `json:"this_frame_target"`
+	Reason          string `json:"reason"`
+}
+
 // oracleTraceRateRow mirrors the libvpx-side "rate" row emitted from
 // internal/coracle/build_vpxenc_oracle.sh just before vp8_pack_bitstream.
 // Field semantics match the libvpx VP8_COMP fields documented in
@@ -466,6 +505,41 @@ func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
 	}
 	if row.Reason == "" {
 		row.Reason = "size_recode"
+	}
+	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+}
+
+// emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
+// a drop decision. Called from the encoder's CBR drop branch in encoder.go
+// after rc.postDropFrame() has committed the buffer accounting and
+// e.forceMaxQuantizer has been set, so BufferLevel and ForceMaxQP reflect
+// the post-drop state the next frame will see (matching libvpx's emission
+// point right after vp8_check_drop_buffer / vp8_pick_frame_size returns 1
+// or vp8_drop_encodedframe_overshoot returns 1, with cpi->buffer_level and
+// cpi->force_maxqp already updated).
+//
+// reason is one of:
+//
+//	"buffer_underrun" - libvpx calc_pframe_target_size buffer<0 branch
+//	"overshoot"       - libvpx vp8_drop_encodedframe_overshoot
+//	"decimation"      - libvpx vp8_check_drop_buffer decimation_factor
+//
+// govpx currently only implements the buffer_underrun branch (see
+// rateControlState.shouldDropInterFrame which gates on bufferLevelBits<0);
+// the helper takes reason as a parameter so future govpx drops can reuse it.
+func (e *VP8Encoder) emitOracleDroppedFrameTrace(reason string) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	row := oracleTraceDroppedFrameRow{
+		Type:            "frame",
+		FrameIndex:      e.frameCount,
+		FrameType:       "inter",
+		Dropped:         true,
+		ForceMaxQP:      e.forceMaxQuantizer,
+		BufferLevel:     int64(e.rc.bufferLevelBits),
+		ThisFrameTarget: e.rc.frameTargetBits,
+		Reason:          reason,
 	}
 	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
 }

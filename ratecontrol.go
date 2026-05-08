@@ -29,6 +29,16 @@ type RateControlConfig struct {
 	BufferOptimalSizeMs int
 
 	DropFrameAllowed bool
+	// DropFrameWaterMark mirrors libvpx's oxcf.drop_frames_water_mark
+	// (driven by the public --drop-frame=N CLI knob and
+	// rc_dropframe_thresh in vpx_codec_enc_cfg_t). It is the buffer-level
+	// percentage threshold at which the decimation drop branch in
+	// vp8_check_drop_buffer (vp8/encoder/onyx_if.c) starts dropping
+	// frames; values from 1..100 are valid. Zero is treated as "use 60"
+	// when DropFrameAllowed is true so the historical govpx behavior
+	// (buffer-underrun-only) does not regress for callers that toggle
+	// DropFrameAllowed without setting an explicit threshold.
+	DropFrameWaterMark int
 
 	MaxIntraBitratePct int
 	GFCBRBoostPct      int
@@ -86,6 +96,17 @@ type rateControlState struct {
 
 	dropFrameAllowed  bool
 	frameDropPressure int
+
+	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer state. When the
+	// buffer dips through the per-25/50/75% drop_marks the decimation
+	// factor is bumped up (1->2->3) so every other (or every third)
+	// inter frame is dropped to defend the buffer; the factor decays
+	// back to 0 as the buffer recovers. dropFramesWaterMark mirrors
+	// cpi->oxcf.drop_frames_water_mark (percent of optimal_buffer_level)
+	// and gates the entire decimation branch.
+	decimationFactor    int
+	decimationCount     int
+	dropFramesWaterMark int
 
 	framesSinceKeyframe   int
 	currentTemporalLayers int
@@ -195,6 +216,26 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 		rc.bufferOptimalSizeMs = libvpxVBRBufferOptimalMs
 	}
 	rc.dropFrameAllowed = cfg.DropFrameAllowed
+	// Mirror libvpx vp8_cx_iface.c set_vp8e_config: oxcf->allow_df is
+	// (rc_dropframe_thresh > 0). govpx splits the toggle and the
+	// threshold so callers can opt into drop semantics with the libvpx
+	// default percentage (60) without rummaging through CLI parity. Any
+	// non-zero DropFrameWaterMark wins; zero with DropFrameAllowed=true
+	// inherits libvpx's current default of 60 from
+	// vpxenc.c (rc_dropframe_thresh defaults to 0 there, so users must
+	// pass --drop-frame to opt in; here we make the toggle alone enough).
+	rc.dropFramesWaterMark = cfg.DropFrameWaterMark
+	if rc.dropFrameAllowed && rc.dropFramesWaterMark <= 0 {
+		rc.dropFramesWaterMark = 60
+	}
+	if rc.dropFramesWaterMark > 100 {
+		rc.dropFramesWaterMark = 100
+	}
+	if !rc.dropFrameAllowed {
+		rc.dropFramesWaterMark = 0
+	}
+	rc.decimationFactor = 0
+	rc.decimationCount = 0
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
 	rc.avgFrameQuantizer = rc.maxQuantizer
@@ -1057,6 +1098,106 @@ func (rc *rateControlState) postDropFrame() {
 	rc.framesSinceKeyframe++
 }
 
+// checkDropBuffer mirrors libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer.
+// It examines the current buffer level against the configured drop_mark
+// (cpi->oxcf.drop_frames_water_mark percent of optimal_buffer_level) and
+// adjusts the decimation factor 0->1->2->3 in lockstep with libvpx, then
+// reports whether the current frame is to be dropped because the
+// decimation_count has hit zero.
+//
+// The boolean return mirrors libvpx's "1 = dropped". When true, the caller
+// must perform the post-drop accounting (refund av_per_frame_bandwidth +
+// clamp to maximum_buffer_size) just like libvpx does inline; expressed
+// here as `postDecimationDropFrame` for a clean single-call drop branch.
+//
+// keyFrame matches libvpx's `cm->frame_type == KEY_FRAME` early-out: keys
+// are never dropped, but the count is still seeded so the next inter frame
+// honors the decimation pattern. This keeps the count/factor lifecycle
+// independent of which frame ultimately fired the buffer-test.
+func (rc *rateControlState) checkDropBuffer(keyFrame bool) bool {
+	if rc.mode != RateControlCBR || !rc.dropFrameAllowed {
+		// Match libvpx's else branch: when drop_frames_allowed is false,
+		// reset decimation_count so a later allow-toggle doesn't honor a
+		// stale count.
+		rc.decimationCount = 0
+		return false
+	}
+	dropMarkBits := rc.dropMarkBits()
+	dropMark75 := dropMarkBits * 2 / 3
+	dropMark50 := dropMarkBits / 4
+	dropMark25 := dropMarkBits / 8
+
+	// Decimation-factor adjustment ladder. The clauses are evaluated in
+	// libvpx's exact order and use exactly the same comparisons; the
+	// only difference is govpx's bufferLevelBits is in bits while
+	// libvpx's cpi->buffer_level is also in bits, so the marks are
+	// interchangeable.
+	bl := rc.bufferLevelBits
+	if bl > dropMarkBits && rc.decimationFactor > 0 {
+		rc.decimationFactor--
+	}
+	if bl > dropMark75 && rc.decimationFactor > 0 {
+		rc.decimationFactor = 1
+	} else if bl < dropMark25 && (rc.decimationFactor == 2 || rc.decimationFactor == 3) {
+		rc.decimationFactor = 3
+	} else if bl < dropMark50 && (rc.decimationFactor == 1 || rc.decimationFactor == 2) {
+		rc.decimationFactor = 2
+	} else if bl < dropMark75 && (rc.decimationFactor == 0 || rc.decimationFactor == 1) {
+		rc.decimationFactor = 1
+	}
+
+	if rc.decimationFactor <= 0 {
+		// Match libvpx's else branch (cpi->decimation_count = 0).
+		rc.decimationCount = 0
+		return false
+	}
+	// libvpx's per_frame_bandwidth boost (1->3/2, 2->5/4, 3->5/4) is not
+	// modeled here because govpx's frameTargetBits is already on the
+	// path for size selection independently; a future patch can push the
+	// boost into rc.frameTargetBits if size parity needs it.
+	if keyFrame {
+		// Key frames are never dropped via decimation; refresh the
+		// count so the next inter respects the pattern.
+		rc.decimationCount = rc.decimationFactor
+		return false
+	}
+	if rc.decimationCount > 0 {
+		rc.decimationCount--
+		return true
+	}
+	rc.decimationCount = rc.decimationFactor
+	return false
+}
+
+// postDecimationDropFrame commits the buffer accounting libvpx applies
+// inside vp8_check_drop_buffer when the function decides to drop:
+//
+//	cpi->bits_off_target += cpi->av_per_frame_bandwidth;
+//	if (cpi->bits_off_target > cpi->oxcf.maximum_buffer_size)
+//	    cpi->bits_off_target = cpi->oxcf.maximum_buffer_size;
+//	cpi->buffer_level = cpi->bits_off_target;
+//
+// govpx tracks bufferLevelBits as the equivalent of cpi->bits_off_target
+// (the post-encode running buffer balance); the saturating refund matches
+// libvpx's clamp.
+func (rc *rateControlState) postDecimationDropFrame() {
+	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.clampBuffer()
+	rc.framesSinceKeyframe++
+}
+
+// dropMarkBits returns libvpx's cpi->oxcf.drop_frames_water_mark *
+// optimal_buffer_level / 100, expressed in bits to align with govpx's
+// bufferLevelBits unit. When the water mark is unset (allow_df=false on
+// libvpx), it returns 0 so all four ladder comparisons collapse to "no
+// decimation".
+func (rc *rateControlState) dropMarkBits() int {
+	if rc.dropFramesWaterMark <= 0 {
+		return 0
+	}
+	return rc.bufferOptimalBits * rc.dropFramesWaterMark / 100
+}
+
 func (rc *rateControlState) updateRollingBitAverages(actualBits int, targetBits int) {
 	rc.rollingActualBits = libvpxRollingBits(rc.rollingActualBits, actualBits, 3, 2)
 	rc.rollingTargetBits = libvpxRollingBits(rc.rollingTargetBits, targetBits, 3, 2)
@@ -1745,6 +1886,7 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 		BufferInitialSizeMs: bufferInitial,
 		BufferOptimalSizeMs: bufferOptimal,
 		DropFrameAllowed:    opts.DropFrameAllowed,
+		DropFrameWaterMark:  opts.DropFrameWaterMark,
 		MaxIntraBitratePct:  opts.MaxIntraBitratePct,
 		GFCBRBoostPct:       opts.GFCBRBoostPct,
 	}

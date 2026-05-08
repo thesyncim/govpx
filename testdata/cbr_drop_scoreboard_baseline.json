@@ -1,0 +1,84 @@
+{
+  "fixtures": {
+    "panning-30f-80kbps-cpu8": {
+      "name": "panning-30f-80kbps-cpu8",
+      "frames": 30,
+      "govpx_dropped_count": 6,
+      "libvpx_dropped_count": 8,
+      "govpx_dropped_indices": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "libvpx_dropped_indices": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12,
+        14,
+        16
+      ],
+      "jaccard": 0.75,
+      "force_maxqp_divergences": 2,
+      "buffer_level_mean_abs_pct": 8.819223534346225,
+      "buffer_level_max_abs_pct": 18.784470048599356,
+      "post_drop_q_max_drift": 24,
+      "post_drop_q_mean_drift": 16,
+      "govpx_buffer_level_mean": 24793.433333333334,
+      "govpx_post_drop_q_mean": 71.375,
+      "libvpx_buffer_level_mean": 23009.1,
+      "libvpx_post_drop_q_mean": 56.875
+    },
+    "panning-60f-120kbps-tight-buf": {
+      "name": "panning-60f-120kbps-tight-buf",
+      "frames": 60,
+      "govpx_dropped_count": 3,
+      "libvpx_dropped_count": 5,
+      "govpx_dropped_indices": [
+        2,
+        4,
+        6
+      ],
+      "libvpx_dropped_indices": [
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "jaccard": 0.6,
+      "force_maxqp_divergences": 2,
+      "buffer_level_mean_abs_pct": 3.235694690177022,
+      "buffer_level_max_abs_pct": 15.768094534711965,
+      "post_drop_q_max_drift": 19,
+      "post_drop_q_mean_drift": 14.2,
+      "govpx_buffer_level_mean": 37398,
+      "govpx_post_drop_q_mean": 41,
+      "libvpx_buffer_level_mean": 36389.73333333333,
+      "libvpx_post_drop_q_mean": 26.8
+    },
+    "scene-switch-30f-200kbps": {
+      "name": "scene-switch-30f-200kbps",
+      "frames": 30,
+      "govpx_dropped_count": 0,
+      "libvpx_dropped_count": 0,
+      "govpx_dropped_indices": [],
+      "libvpx_dropped_indices": [],
+      "jaccard": 1,
+      "force_maxqp_divergences": 0,
+      "buffer_level_mean_abs_pct": 0.5818354266999967,
+      "buffer_level_max_abs_pct": 1.6159132324851253,
+      "post_drop_q_max_drift": 0,
+      "post_drop_q_mean_drift": 0,
+      "govpx_buffer_level_mean": 54908.566666666666,
+      "govpx_post_drop_q_mean": 0,
+      "libvpx_buffer_level_mean": 54600.3,
+      "libvpx_post_drop_q_mean": 0
+    }
+  }
+}

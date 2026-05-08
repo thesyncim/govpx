@@ -1568,6 +1568,32 @@ the anchor and look for the surrounding mismatch.
     temporal modes.
 
 - [ ] Audit CBR drop-frame and buffer-pressure behavior.
+  - Status: partial. Decimation drops are now implemented in govpx
+    (`rateControlState.checkDropBuffer` + `postDecimationDropFrame` in
+    `ratecontrol.go` mirroring libvpx `vp8_check_drop_buffer` in
+    `vp8/encoder/onyx_if.c`). The new `EncoderOptions.DropFrameWaterMark`
+    (mirrors libvpx `rc_dropframe_thresh`) feeds the per-25/50/75% drop
+    mark ladder so the decimation factor 0->1->2->3 lifecycle now tracks
+    libvpx exactly when both encoders see the same buffer pressure. The
+    libvpx-side oracle in `internal/coracle/build_vpxenc_oracle.sh` emits
+    a `frame` row with `dropped=true` (with `force_maxqp` and
+    `buffer_level`) at all three drop return paths in
+    `encode_frame_to_data_rate`, and govpx mirrors the row from
+    `encoder.go` after the corresponding `postDecimationDropFrame` /
+    `postDropFrame` calls. The new
+    `TestOracleCBRDropFrameScoreboard`+
+    `testdata/cbr_drop_scoreboard_baseline.json` pin the residuals: at
+    80kbps/30f panning govpx drops 6 vs libvpx 8 (Jaccard 0.75 on the
+    matched indices); at 120kbps/60f tight-buffer govpx drops 3 vs
+    libvpx 5 (Jaccard 0.6); both fixtures show post-drop Q drift of
+    ~16 indices because govpx's CBR Q regulator climbs more aggressively
+    after a drop than libvpx does. Remaining work: align the post-drop
+    Q recovery (track libvpx's `cpi->ni_av_qi` reset semantics so the
+    follow-up Q lands within ~4 indices of libvpx's choice), and wire
+    the post-encode overshoot drop branch (libvpx
+    `vp8_drop_encodedframe_overshoot`) which govpx currently does not
+    implement.
+  - Test: TestOracleCBRDropFrameScoreboard
   - Done when drop/no-drop decisions, buffer level, force-max-Q aftermath,
     result flags, rate recovery, and next-frame Q/target decisions match libvpx.
 

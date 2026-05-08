@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-inter-candidates-v4
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-drop-frames-v1
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -820,6 +820,46 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
  * onyx_if.c with two narrow anchor edits. */
 static int govpx_recode_iter_count;
 
+/* Emit a dropped-frame row mirroring govpx's emitOracleDroppedFrameTrace.
+ * Called from encode_frame_to_data_rate at each of the three drop-decision
+ * return paths in onyx_if.c (vp8_check_drop_buffer decimation, the
+ * vp8_pick_frame_size buffer-underrun branch, and the post-encode
+ * vp8_drop_encodedframe_overshoot branch). The libvpx-side state is fully
+ * committed at the time of each call: cpi->buffer_level reflects the post-
+ * drop refund/clamp accounting and cpi->force_maxqp reflects the lifecycle
+ * update applied for that drop class. The frame_index is advanced AFTER
+ * emitting so the next non-dropped frame's row carries the next ordinal,
+ * matching govpx semantics where e.frameCount++ runs after the trace
+ * emission inside the drop branch of EncodeInto. */
+void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,
+                                     const char *reason) {
+    FILE *out;
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"frame\","
+            "\"frame_index\":%llu,"
+            "\"frame_type\":\"inter\","
+            "\"dropped\":true,"
+            "\"force_maxqp\":%s,"
+            "\"buffer_level\":%lld,"
+            "\"this_frame_target\":%d,"
+            "\"reason\":\"%s\"}\n",
+            govpx_oracle_state.frame_index,
+            cpi->force_maxqp ? "true" : "false",
+            (long long)cpi->buffer_level,
+            cpi->this_frame_target,
+            reason != NULL ? reason : "");
+    fflush(out);
+    /* Reset recode counter so a previously-aborted attempt's count cannot
+     * leak into the next non-dropped frame's recode row. */
+    govpx_recode_iter_count = 0;
+    govpx_oracle_state.frame_index++;
+}
+
 void govpx_oracle_recode_iter(void) {
     govpx_recode_iter_count++;
 }
@@ -1015,7 +1055,9 @@ if sentinel in text:
 # compiles.
 decl = ('extern void govpx_oracle_begin_attempt(void);\n'
         'extern void govpx_oracle_recode_iter(void);\n'
-        'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n')
+        'extern void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q);\n'
+        'extern void govpx_oracle_emit_dropped_frame(struct VP8_COMP *cpi,\n'
+        '                                            const char *reason);\n')
 ext_anchor = 'extern void vp8cx_init_quantizer(VP8_COMP *cpi);'
 if ext_anchor in text:
     text = text.replace(ext_anchor, ext_anchor + '\n' + decl, 1)
@@ -1054,6 +1096,69 @@ pack_replacement = ('  ' + sentinel + '\n'
                     '  govpx_oracle_emit_rate(cpi, Q);\n'
                     + pack_anchor)
 text = text.replace(pack_anchor, pack_replacement, 1)
+# Anchor 4: emit a dropped-frame row at each of the three drop-decision
+# return paths inside encode_frame_to_data_rate (decimation,
+# buffer-underrun, post-encode overshoot). Each anchor is unique in v1.16.0.
+drop_sentinel = '/* govpx oracle: drop emit hook. */'
+# 4a: decimation drop via vp8_check_drop_buffer.
+decimation_anchor = ('  if (vp8_check_drop_buffer(cpi)) {\n'
+                     '    return;\n'
+                     '  }\n')
+decimation_replacement = ('  if (vp8_check_drop_buffer(cpi)) {\n'
+                          '    ' + drop_sentinel + '\n'
+                          '    govpx_oracle_emit_dropped_frame(cpi, "decimation");\n'
+                          '    return;\n'
+                          '  }\n')
+if decimation_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: drop decimation anchor missing in onyx_if.c\n')
+    sys.exit(2)
+text = text.replace(decimation_anchor, decimation_replacement, 1)
+# 4b: buffer-underrun drop via vp8_pick_frame_size returning 0.
+underrun_anchor = ('  if (!vp8_pick_frame_size(cpi)) {\n'
+                   '/*TODO: 2 drop_frame and return code could be put together. */\n'
+                   '#if CONFIG_MULTI_RES_ENCODING\n'
+                   '    vp8_store_drop_frame_info(cpi);\n'
+                   '#endif\n'
+                   '    cm->current_video_frame++;\n'
+                   '    cpi->frames_since_key++;\n'
+                   '    cpi->ext_refresh_frame_flags_pending = 0;\n'
+                   '    // We advance the temporal pattern for dropped frames.\n'
+                   '    cpi->temporal_pattern_counter++;\n'
+                   '    return;\n'
+                   '  }\n')
+underrun_replacement = ('  if (!vp8_pick_frame_size(cpi)) {\n'
+                        '/*TODO: 2 drop_frame and return code could be put together. */\n'
+                        '#if CONFIG_MULTI_RES_ENCODING\n'
+                        '    vp8_store_drop_frame_info(cpi);\n'
+                        '#endif\n'
+                        '    cm->current_video_frame++;\n'
+                        '    cpi->frames_since_key++;\n'
+                        '    cpi->ext_refresh_frame_flags_pending = 0;\n'
+                        '    // We advance the temporal pattern for dropped frames.\n'
+                        '    cpi->temporal_pattern_counter++;\n'
+                        '    ' + drop_sentinel + '\n'
+                        '    govpx_oracle_emit_dropped_frame(cpi, "buffer_underrun");\n'
+                        '    return;\n'
+                        '  }\n')
+if underrun_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: drop underrun anchor missing in onyx_if.c\n')
+    sys.exit(2)
+text = text.replace(underrun_anchor, underrun_replacement, 1)
+# 4c: post-encode overshoot drop via vp8_drop_encodedframe_overshoot.
+overshoot_anchor = ('      if (vp8_drop_encodedframe_overshoot(cpi, Q)) {\n'
+                    '        vpx_clear_system_state();\n'
+                    '        return;\n'
+                    '      }\n')
+overshoot_replacement = ('      if (vp8_drop_encodedframe_overshoot(cpi, Q)) {\n'
+                         '        ' + drop_sentinel + '\n'
+                         '        govpx_oracle_emit_dropped_frame(cpi, "overshoot");\n'
+                         '        vpx_clear_system_state();\n'
+                         '        return;\n'
+                         '      }\n')
+if overshoot_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: drop overshoot anchor missing in onyx_if.c\n')
+    sys.exit(2)
+text = text.replace(overshoot_anchor, overshoot_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_ONYX_PY
