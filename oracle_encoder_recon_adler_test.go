@@ -25,9 +25,13 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 		targetKbps = 700
 		frames     = 4
 	)
-	sources := make([]Image, frames)
-	for i := range sources {
-		sources[i] = encoderValidationPanningFrame(width, height, i)
+	panningSources := make([]Image, frames)
+	for i := range panningSources {
+		panningSources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	splitMVSources := make([]Image, frames)
+	for i := range splitMVSources {
+		splitMVSources[i] = encoderValidationSplitMVQuadrantFrame(width, height, i)
 	}
 	baseOpts := EncoderOptions{
 		Width:             width,
@@ -39,15 +43,39 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 		MaxQuantizer:      56,
 		KeyFrameInterval:  999,
 	}
+	type fixture struct {
+		name    string
+		sources []Image
+	}
+	panning := fixture{name: "panning", sources: panningSources}
+	splitmv := fixture{name: "splitmv-quadrant", sources: splitMVSources}
 	cases := []struct {
 		name     string
 		deadline Deadline
 		cpuUsed  int
+		fixture  fixture
+		// frameLimit pins how many leading frames must byte-match
+		// (Adler32 + q_index + size_bytes). The trailing frames in
+		// (frames - frameLimit) are exercised but excluded from all
+		// per-frame assertions, mirroring the residual inter-frame drift
+		// on later frames that lives outside the keyframe-recon scope of
+		// this ratchet (see r9-4 capture).
+		frameLimit int
 	}{
-		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0},
-		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4},
-		{name: "realtime-cbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8},
-		{name: "good-quality-cbr-cpu5", deadline: DeadlineGoodQuality, cpuUsed: 5},
+		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fixture: panning, frameLimit: frames},
+		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fixture: panning, frameLimit: frames},
+		{name: "realtime-cbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fixture: panning, frameLimit: frames},
+		{name: "good-quality-cbr-cpu5", deadline: DeadlineGoodQuality, cpuUsed: 5, fixture: panning, frameLimit: frames},
+		// r9-4: the BestQuality keyframe RD picker now byte-matches libvpx
+		// across all 4 frames of the SPLITMV-quadrant fixture (was: Y
+		// reconstruction diverged starting at the keyframe due to the
+		// per-block trellis optimizer running on B_PRED Y sub-blocks,
+		// which libvpx never does in vp8_encode_intra4x4mby).
+		{name: "best-quality-cbr-cpu0-splitmv", deadline: DeadlineBestQuality, cpuUsed: 0, fixture: splitmv, frameLimit: frames},
+		// r9-4: GoodQuality cpu=0 byte-matches frames 0-1 of the SPLITMV
+		// fixture; frames 2-3 still drift in the inter pipeline (separate
+		// from the keyframe-picker trellis fix). Pin what we have.
+		{name: "good-quality-cbr-cpu0-splitmv", deadline: DeadlineGoodQuality, cpuUsed: 0, fixture: splitmv, frameLimit: 2},
 	}
 	for _, cfg := range cases {
 		cfg := cfg
@@ -55,8 +83,8 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 			opts := baseOpts
 			opts.Deadline = cfg.deadline
 			opts.CpuUsed = cfg.cpuUsed
-			govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
-			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recon-adler-"+cfg.name, opts, targetKbps, sources, []string{"--end-usage=cbr"})
+			govpxTrace := captureGovpxEncoderTrace(t, opts, cfg.fixture.sources)
+			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recon-adler-"+cfg.name, opts, targetKbps, cfg.fixture.sources, []string{"--end-usage=cbr"})
 
 			gFrames := oracleTraceFrameRows(t, govpxTrace)
 			lFrames := oracleTraceFrameRows(t, libvpxTrace)
@@ -66,7 +94,7 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 			if len(lFrames) != frames {
 				t.Fatalf("[%s] libvpx frame rows = %d, want %d", cfg.name, len(lFrames), frames)
 			}
-			for i := 0; i < frames; i++ {
+			for i := 0; i < cfg.frameLimit; i++ {
 				g := gFrames[i]
 				l := lFrames[i]
 				if g["y_adler32"] != l["y_adler32"] {

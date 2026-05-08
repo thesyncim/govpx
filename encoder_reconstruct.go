@@ -7145,7 +7145,18 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
-		eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		// libvpx vp8_encode_intra4x4mby (encodeintra.c) never invokes the
+		// trellis optimizer for B_PRED Y sub-blocks: it calls
+		// vp8_encode_intra4x4block which runs only x->quantize_b before the
+		// IDCT-add. The frame-level vp8_optimize_mby pass is wired only
+		// from vp8_encode_intra16x16mby. So the Y plane of any B_PRED MB
+		// (keyframe or inter intra-coded) must be quantized without
+		// trellising regardless of the encoder-level optimize flag; only
+		// the UV blocks below pick up the optimizer (they go through
+		// vp8_encode_intra16x16mbuv -> vp8_optimize_mbuv). Without this
+		// gate the BestQuality keyframe Y reconstruction byte-diverges
+		// from libvpx on B_PRED MBs (see r9-4 SplitMV-quadrant fixture).
+		eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, mode.RefFrame == vp8common.IntraFrame, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 		coeffs.SetBlockEOB(block, eob)
 		hasCoeffs := uint8(0)
 		if eob > 0 {
