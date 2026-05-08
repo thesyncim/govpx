@@ -42,6 +42,7 @@ var baselines = []baselineSpec{
 	{test: "TestOracleImprovedMVScoreboard", path: "testdata/improved_mv_match_rate_baseline.json"},
 	{test: "TestOracleCBRDropFrameScoreboard", path: "testdata/cbr_drop_scoreboard_baseline.json"},
 	{test: "TestOracleCandidateRateScoreboard", path: "testdata/candidate_rate_scoreboard_baseline.json"},
+	{test: "TestOracleInterModeDistributionScoreboard", path: "testdata/inter_mode_distribution_baseline.json"},
 }
 
 type testEvent struct {
