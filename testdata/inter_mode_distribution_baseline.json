@@ -1,0 +1,59 @@
+{
+  "fixtures": {
+    "rt-cpu8-128x128-bench-noise": {
+      "diff_pp": {
+        "zeromv": 0,
+        "nearestmv": 0.8928571428571388,
+        "nearmv": -1.5625,
+        "newmv": 0.6696428571428559,
+        "intra": 0
+      },
+      "l1_pp": 3.1249999999999947,
+      "eob_sum_ratio": 1.1799671944087862
+    },
+    "rt-cpu8-128x128-panning": {
+      "diff_pp": {
+        "zeromv": 0,
+        "nearestmv": -0.2232142857142776,
+        "nearmv": 0,
+        "newmv": 0.2232142857142856,
+        "intra": 0
+      },
+      "l1_pp": 0.4464285714285632,
+      "eob_sum_ratio": 0.9883769198837692
+    },
+    "rt-cpu8-256x256-bench-noise": {
+      "diff_pp": {
+        "zeromv": 0,
+        "nearestmv": -1.0602678571428612,
+        "nearmv": -0.5580357142857144,
+        "newmv": 1.6183035714285712,
+        "intra": 0
+      },
+      "l1_pp": 3.236607142857147,
+      "eob_sum_ratio": 1.0971482517233395
+    },
+    "rt-cpu8-256x256-panning": {
+      "diff_pp": {
+        "zeromv": 0,
+        "nearestmv": 0.0558035714285694,
+        "nearmv": 0,
+        "newmv": 0,
+        "intra": -0.05580357142857143
+      },
+      "l1_pp": 0.11160714285714082,
+      "eob_sum_ratio": 1.1118301439092786
+    },
+    "rt-cpu8-64x64-panning": {
+      "diff_pp": {
+        "zeromv": 0,
+        "nearestmv": 0,
+        "nearmv": 0,
+        "newmv": 0,
+        "intra": 0
+      },
+      "l1_pp": 0,
+      "eob_sum_ratio": 1
+    }
+  }
+}
