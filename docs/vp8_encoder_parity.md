@@ -373,6 +373,30 @@ the anchor and look for the surrounding mismatch.
     [`encoder_oracle_trace.go`](../encoder_oracle_trace.go), and
     `TestCompareOracleTracesDetectsZbinOverQuantDivergence` exercises
     the diff path on synthetic JSONL.
+    On the recode-vbr-tight 64x64 panning fixture (8 frames, kbps=200,
+    MaxQ=8 GoodQuality cpu-used=3) `TestOracleRecodeRowParity` still
+    diverges with `matched=0 asymmetric=1`. libvpx fires `size_recode`
+    at frame 7 (final_q=6, loop_count=2) because its first-attempt RD
+    projection at Q=4 lands at ~14 kbits — over the GF over-shoot
+    bound of `target*9/8+200 = 12211` for `this_frame_target=10676` —
+    and the recode's regulate_q step lands at Q=6 with projection 11208.
+    govpx's first-attempt RD projection at the same Q=4 / GF target
+    is ~10250, which fits inside the GF undershoot/overshoot window
+    `[9103, 12161]`, so no recode fires and the loop accepts q=4
+    directly. The govpx GF target itself now matches libvpx (`10632`
+    vs `10676`) since 8fe47b8 wired `libvpxGoldenFrameTargetBits`
+    into the one-pass non-CBR refresh branch, so the residual gap is
+    a per-MB RD-rate aggregator delta in `estimateInterResidualRDAccounting`
+    (encoder_reconstruct.go), not in the recode trigger logic itself.
+    Suspected source: libvpx's GF refresh swaps the coefficient token
+    cost table to `cpi->lfc_g.coef_probs` (rdopt.c line 244-249);
+    govpx's `buildPredictedMacroblockCoefficientsRD` always uses
+    `e.coefProbs` regardless of frame type, so its GF-frame coefficient
+    rate2 contributions are systematically lower at low Q and the
+    recode-loop test never fires. Closing this would require porting
+    the per-frame-type frame-context (`lfc_n`, `lfc_g`, `lfc_a`)
+    save/restore that libvpx maintains across vp8_save_coding_context
+    boundaries.
   - Test: TestOracleEncoderTraceDecisionCompare, TestOracleRecodeRowParity, TestOracleSecondPassAllocationCompare
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
