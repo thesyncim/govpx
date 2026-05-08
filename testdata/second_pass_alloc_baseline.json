@@ -1,10 +1,22 @@
 {
   "fixtures": {
+    "desktopqvga-vbr": {
+      "q_match_pct": 8.333333333333334,
+      "target_match_pct": 8.333333333333334,
+      "max_qindex_delta": 25,
+      "max_target_rel_delta": -0.6071501811470367
+    },
     "good-quality-cpu0-vbr": {
       "q_match_pct": 100,
       "target_match_pct": 100,
       "max_qindex_delta": 0,
       "max_target_rel_delta": -0.013513513513513514
+    },
+    "park-joy-90p-vbr": {
+      "q_match_pct": 0,
+      "target_match_pct": 0,
+      "max_qindex_delta": 47,
+      "max_target_rel_delta": -0.6502750458409735
     }
   }
 }
