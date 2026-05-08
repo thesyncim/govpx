@@ -60,6 +60,41 @@ type EncoderOptions struct {
 	TimebaseNum int
 	TimebaseDen int
 
+	// Threads selects the worker-goroutine count for the per-frame
+	// macroblock pipeline. Mirrors libvpx's VP8E_SET_TOKEN_PARTITIONS / the
+	// `--threads` vpxenc flag and the `cpi->oxcf.multi_threaded` knob in
+	// vp8/encoder/onyx_if.c.
+	//
+	// Semantics:
+	//   - 0 (default in zero-initialized opts) is treated as 1: a single
+	//     goroutine drives the macroblock loop, byte-identical to the
+	//     historical govpx encoder.
+	//   - 1 is the pinned single-threaded reference path. All 16 oracle
+	//     scoreboards and parity tests run with this default; the
+	//     committed bitstream and reconstructed pixels are the canonical
+	//     output the parity baselines lock against.
+	//   - Values >1 are accepted by the configuration validator and
+	//     reserved for the libvpx-style row-threaded macroblock pipeline
+	//     (see internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ethreading.c
+	//     thread_encoding_proc and vp8cx_create_encoder_threads). The
+	//     current encoder collapses any Threads >= 1 onto the same serial
+	//     loop because the per-MB adaptive RD-threshold state
+	//     (interRDThreshMult, interMBsTestedSoFar, interModeErrorBins,
+	//     consecZeroLastMVBias, dotArtifactChecked, mbsZeroLastDotSuppress)
+	//     is read and mutated in raster order during mode decision; libvpx
+	//     copies that state per worker (setup_mbby_copy in
+	//     vp8/encoder/ethreading.c) and accepts that the threaded encoder
+	//     produces a different bitstream than the single-threaded one.
+	//     govpx's parity scoreboards pin against the single-threaded
+	//     output, so a future row-threaded path must either land behind
+	//     the same flag (and refresh baselines) or stage the adaptive RD
+	//     state into per-row shadows that the post-row merge replays in
+	//     deterministic order. The validator accepts the value today so
+	//     callers can plumb the option through and so cmd/govpx-bench /
+	//     scripts can sweep it as soon as the parallel implementation
+	//     lands; until then the bench-reported ns/frame is independent of
+	//     this field.
+	//   - A negative value is rejected with ErrInvalidConfig.
 	Threads int
 
 	// Rate control.
@@ -3298,6 +3333,16 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	}
 	if opts.Threads < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
+	}
+	if opts.Threads == 0 {
+		// Mirror libvpx default (vp8/encoder/onyx_if.c init: oxcf
+		// multi_threaded defaults to 0/1). Threads=0 is the historical
+		// zero-initialized govpx default; collapse it onto 1 so internal
+		// code can call effectiveThreadCount() without re-checking.
+		opts.Threads = 1
+	}
+	if opts.Threads > maxEncoderThreads {
+		opts.Threads = maxEncoderThreads
 	}
 	if opts.FPS < 0 || opts.TimebaseNum < 0 || opts.TimebaseDen < 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
