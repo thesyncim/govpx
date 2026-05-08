@@ -5096,12 +5096,22 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		return vp8enc.MotionVector{}, 0, false
 	}
 	bestCost := bestDist + interMotionSearchErrorVectorCost(bestMV, bestRefMV, qIndex, mvProbs)
+	mbRows := (src.Height + 15) >> 4
+	mbCols := (src.Width + 15) >> 4
+	bounds := interFrameSubpelSearchBoundsFor(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	cand := func(r, c int) int {
+		if !bounds.contains(r, c) {
+			return maxInt()
+		}
+		cost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, r, c, bestRefMV, qIndex, mvProbs)
+		return cost
+	}
 
 	for halfiters := 0; halfiters < 3; halfiters++ {
-		leftCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr, tc-2, bestRefMV, qIndex, mvProbs)
-		rightCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr, tc+2, bestRefMV, qIndex, mvProbs)
-		upCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr-2, tc, bestRefMV, qIndex, mvProbs)
-		downCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr+2, tc, bestRefMV, qIndex, mvProbs)
+		leftCost := cand(tr, tc-2)
+		rightCost := cand(tr, tc+2)
+		upCost := cand(tr-2, tc)
+		downCost := cand(tr+2, tc)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, leftCost, tr, tc-2)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, rightCost, tr, tc+2)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, upCost, tr-2, tc)
@@ -5115,7 +5125,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		if leftCost >= rightCost {
 			diagCol = tc + 2
 		}
-		diagCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, diagRow, diagCol, bestRefMV, qIndex, mvProbs)
+		diagCost := cand(diagRow, diagCol)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, diagCost, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -5126,10 +5136,10 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 	}
 
 	for quarteriters := 0; quarteriters < 3; quarteriters++ {
-		leftCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr, tc-1, bestRefMV, qIndex, mvProbs)
-		rightCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr, tc+1, bestRefMV, qIndex, mvProbs)
-		upCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr-1, tc, bestRefMV, qIndex, mvProbs)
-		downCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, tr+1, tc, bestRefMV, qIndex, mvProbs)
+		leftCost := cand(tr, tc-1)
+		rightCost := cand(tr, tc+1)
+		upCost := cand(tr-1, tc)
+		downCost := cand(tr+1, tc)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, leftCost, tr, tc-1)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, rightCost, tr, tc+1)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, upCost, tr-1, tc)
@@ -5143,7 +5153,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		if leftCost >= rightCost {
 			diagCol = tc + 1
 		}
-		diagCost, _ := splitBlockSubpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, block, width, height, diagRow, diagCol, bestRefMV, qIndex, mvProbs)
+		diagCost := cand(diagRow, diagCol)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, diagCost, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -5166,7 +5176,10 @@ func splitBlockSubpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp
 		return maxInt(), false
 	}
 	mv := vp8enc.MotionVector{Row: int16(row * 2), Col: int16(col * 2)}
-	return dist + interMotionSearchErrorVectorCost(mv, bestRefMV, qIndex, mvProbs), true
+	// Iterative subpel candidate cost: libvpx CHECK_BETTER uses the MVC
+	// macro (1/4-pel signed index built from `(mv>>1) - (ref>>1)`), not
+	// mv_err_cost.
+	return dist + interMotionSubpelCandidateVectorCost(mv, bestRefMV, qIndex, mvProbs), true
 }
 
 func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int) (int, int, bool) {
@@ -5626,6 +5639,60 @@ func interFrameSubpixelMotionVectorInRange(mv vp8enc.MotionVector, bestRefMV vp8
 	return rowDelta <= maxFullPelEighths && colDelta <= maxFullPelEighths
 }
 
+// interFrameSubpelSearchBounds mirrors the minc/maxc/minr/maxr clamps libvpx
+// computes at the head of vp8_find_best_sub_pixel_step_iteratively (and
+// _step). The bounds are the intersection of the UMV window (in 1/4-pel:
+// x->mv_col_min*4, x->mv_col_max*4) and a per-component window of size
+// `(1 << mvlong_width) - 1` 1/4-pel sites around the 1/4-pel-aligned ref_mv
+// (`ref_mv->as_mv.col >> 1`).  CHECK_BETTER's IFMVCV macro short-circuits any
+// candidate outside this rectangle to UINT_MAX, which the govpx iter searches
+// previously skipped — letting the iter chase variance gradients past the
+// UMV edge into the replicated border, where the synthetic SPLITMV fixture
+// finds an artificially low residual at large offsets and commits a wildly
+// drifted MV.
+type interFrameSubpelSearchBounds struct {
+	rowMin int
+	rowMax int
+	colMin int
+	colMax int
+}
+
+const subpelMVQuarterPelLongLimit = (1 << 10) - 1 // libvpx mvlong_width = 10.
+
+func interFrameSubpelSearchBoundsFor(bestRefMV vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) interFrameSubpelSearchBounds {
+	// libvpx mv_col_min / mv_col_max are in integer-pel; *4 converts to 1/4-pel.
+	// The UMV window: -(mb_col*16 + (UMV_BORDER - 16)) ... ((mb_cols-1-mb_col)*16 + (UMV_BORDER - 16)).
+	umv := interFrameUMVBorderPixels - 16
+	rowMinIPel := -((mbRow * 16) + umv)
+	rowMaxIPel := ((mbRows - 1 - mbRow) * 16) + umv
+	colMinIPel := -((mbCol * 16) + umv)
+	colMaxIPel := ((mbCols - 1 - mbCol) * 16) + umv
+
+	rrQuarter := int(bestRefMV.Row) >> 1
+	rcQuarter := int(bestRefMV.Col) >> 1
+	rowMin := rowMinIPel * 4
+	if rrQuarter-subpelMVQuarterPelLongLimit > rowMin {
+		rowMin = rrQuarter - subpelMVQuarterPelLongLimit
+	}
+	rowMax := rowMaxIPel * 4
+	if rrQuarter+subpelMVQuarterPelLongLimit < rowMax {
+		rowMax = rrQuarter + subpelMVQuarterPelLongLimit
+	}
+	colMin := colMinIPel * 4
+	if rcQuarter-subpelMVQuarterPelLongLimit > colMin {
+		colMin = rcQuarter - subpelMVQuarterPelLongLimit
+	}
+	colMax := colMaxIPel * 4
+	if rcQuarter+subpelMVQuarterPelLongLimit < colMax {
+		colMax = rcQuarter + subpelMVQuarterPelLongLimit
+	}
+	return interFrameSubpelSearchBounds{rowMin: rowMin, rowMax: rowMax, colMin: colMin, colMax: colMax}
+}
+
+func (b interFrameSubpelSearchBounds) contains(row int, col int) bool {
+	return row >= b.rowMin && row <= b.rowMax && col >= b.colMin && col <= b.colMax
+}
+
 // iterativeInterFrameSubpixelMotionVector performs the libvpx half- then
 // quarter-pel refinement (vp8_find_best_sub_pixel_step_iteratively) anchored
 // to bestRefMV: candidate MVs farther from bestRefMV than MAX_FULL_PEL_VAL
@@ -5645,12 +5712,22 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 		return vp8enc.MotionVector{}, 0, false
 	}
 	bestCost := bestDist + interMotionSearchErrorVectorCost(bestMV, bestRefMV, qIndex, mvProbs)
+	mbRows := (src.Height + 15) >> 4
+	mbCols := (src.Width + 15) >> 4
+	bounds := interFrameSubpelSearchBoundsFor(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	cand := func(r, c int) int {
+		if !bounds.contains(r, c) {
+			return maxInt()
+		}
+		cost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, r, c, bestRefMV, qIndex, mvProbs)
+		return cost
+	}
 
 	for halfiters := 0; halfiters < 3; halfiters++ {
-		leftCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr, tc-2, bestRefMV, qIndex, mvProbs)
-		rightCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr, tc+2, bestRefMV, qIndex, mvProbs)
-		upCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr-2, tc, bestRefMV, qIndex, mvProbs)
-		downCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr+2, tc, bestRefMV, qIndex, mvProbs)
+		leftCost := cand(tr, tc-2)
+		rightCost := cand(tr, tc+2)
+		upCost := cand(tr-2, tc)
+		downCost := cand(tr+2, tc)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, leftCost, tr, tc-2)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, rightCost, tr, tc+2)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, upCost, tr-2, tc)
@@ -5664,7 +5741,7 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 		if leftCost >= rightCost {
 			diagCol = tc + 2
 		}
-		diagCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, diagRow, diagCol, bestRefMV, qIndex, mvProbs)
+		diagCost := cand(diagRow, diagCol)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, diagCost, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -5675,10 +5752,10 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 	}
 
 	for quarteriters := 0; quarteriters < 3; quarteriters++ {
-		leftCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr, tc-1, bestRefMV, qIndex, mvProbs)
-		rightCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr, tc+1, bestRefMV, qIndex, mvProbs)
-		upCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr-1, tc, bestRefMV, qIndex, mvProbs)
-		downCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, tr+1, tc, bestRefMV, qIndex, mvProbs)
+		leftCost := cand(tr, tc-1)
+		rightCost := cand(tr, tc+1)
+		upCost := cand(tr-1, tc)
+		downCost := cand(tr+1, tc)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, leftCost, tr, tc-1)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, rightCost, tr, tc+1)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, upCost, tr-1, tc)
@@ -5692,7 +5769,7 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 		if leftCost >= rightCost {
 			diagCol = tc + 1
 		}
-		diagCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, diagRow, diagCol, bestRefMV, qIndex, mvProbs)
+		diagCost := cand(diagRow, diagCol)
 		bestCost, br, bc = updateSubpixelSearchBest(bestCost, br, bc, diagCost, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -5715,7 +5792,10 @@ func subpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp8common.Im
 		return maxInt(), false
 	}
 	mv := vp8enc.MotionVector{Row: int16(row * 2), Col: int16(col * 2)}
-	return dist + interMotionSearchErrorVectorCost(mv, bestRefMV, qIndex, mvProbs), true
+	// Iterative subpel candidate cost: libvpx CHECK_BETTER uses the MVC
+	// macro (1/4-pel signed index built from `(mv>>1) - (ref>>1)`), not
+	// mv_err_cost.
+	return dist + interMotionSubpelCandidateVectorCost(mv, bestRefMV, qIndex, mvProbs), true
 }
 
 func updateSubpixelSearchBest(bestCost int, bestRow int, bestCol int, candidateCost int, candidateRow int, candidateCol int) (int, int, int) {
@@ -5778,6 +5858,21 @@ func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.M
 		return 0
 	}
 	return vp8enc.MotionVectorErrorCost(mv, bestRefMV, mvProbs, libvpxErrorPerBit(qIndex))
+}
+
+// interMotionSubpelCandidateVectorCost charges the sub-pel MV bits like the
+// MVC macro inside libvpx's vp8_find_best_sub_pixel_step{_iteratively}: the
+// 1/4-pel index is built from (mv>>1) - (ref>>1) — i.e. each operand is
+// arithmetic-shifted to 1/4-pel before subtraction — and the lookup is
+// signed (no clamp-to-zero). This matches the CHECK_BETTER candidate cost
+// shape exactly when bestRefMV is fractional in 1/8-pel, which the
+// mv_err_cost / vp8_mv_bit_cost variants used for the central cost do not.
+// See MotionVectorSubpelSearchCost for the full derivation.
+func interMotionSubpelCandidateVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
+	if mvProbs == nil {
+		return 0
+	}
+	return vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, libvpxErrorPerBit(qIndex))
 }
 
 func interMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
