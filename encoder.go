@@ -1228,18 +1228,20 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			e.restoreCodingContext()
 			continue
 		}
-		// libvpx feeds `cpi->projected_frame_size = bc[0].pos << 3` (post-pack
-		// actual bits) into recode_loop_test, AND gates the size-recode branch
-		// on cpi->sf.recode_loop. At realtime cpu_used=8 recode_loop=0, so
-		// libvpx never bumps Q on the first KF even when it overshoots target -
-		// it accepts the regulator's pick and lets the rate-correction-factor
-		// reconcile across subsequent frames. govpx must mirror both gates,
-		// otherwise the recode loop reads ProjectedSizeBits from the coeff
-		// model (or even the actual size) and drives Q away from libvpx's.
+		// libvpx gates the size-recode branch on cpi->sf.recode_loop in
+		// recode_loop_test (vp8/encoder/onyx_if.c). Mode 2 (realtime) and
+		// good-quality cpu_used >= 4 set recode_loop=0 in set_speed_features,
+		// so libvpx accepts the regulator's first Q and lets the
+		// rate-correction-factor reconcile across subsequent frames. govpx
+		// mirrors that gate via libvpxKeyFrameRecodeLoopActive; the
+		// recode_loop_test in libvpx itself feeds the pre-pack
+		// `cpi->projected_frame_size` (totalrate>>8 minus entropy savings)
+		// from vp8_encode_frame, which is what result.ProjectedSizeBits
+		// already mirrors.
 		if !e.libvpxKeyFrameRecodeLoopActive() {
 			return result, nil
 		}
-		if !e.updateQuantizerForProjectedFrameSize(encodedSizeBits(result.Size), true, false, required, &recode) {
+		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
 			return result, nil
 		}
 		e.oracleTraceRecodeReason = "size_recode"
@@ -1330,9 +1332,7 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		// See encodeKeyFrameWithQuantizerFeedback: feed actual packed bits
-		// to the recode loop, mirroring libvpx's cpi->projected_frame_size.
-		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(encodedSizeBits(result.Size), false, boostedReferenceFrame, required, &recode) {
+		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 		e.oracleTraceRecodeReason = "size_recode"
