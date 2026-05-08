@@ -3682,36 +3682,53 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 	pt := ctx
 	cost := 0
 	pos := skipDC
+	// elidedThreshold mirrors libvpx's skip_eob_node firing condition: in
+	// the type==0 (Y after Y2) plane the first encoded band is index 1, in
+	// every other plane it is index 0. Hoisted out of the inner loop so the
+	// per-position elision check is a single int compare.
+	elidedThreshold := 0
+	if blockType == 0 {
+		elidedThreshold = 1
+	}
+	signCost0 := vp8tables.ProbCost[128]
+	signCost1 := vp8tables.ProbCost[255-128]
 	for pos < eob {
 		band := int(vp8tables.CoefBandsTable[pos])
 		p := (*probs)[blockType][band][pt]
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
-		var token int
 		if coeff == 0 {
-			token = vp8tables.ZeroToken
-			cost += coefTokenCostElided(p, token, blockType, band, pt)
-		} else {
-			t, mag, ok := coefficientTokenMagnitude(coeff)
-			if !ok {
-				return maxInt() / 4
-			}
-			token = t
-			cost += coefTokenCostElided(p, token, blockType, band, pt)
-			if coeff < 0 {
-				cost += boolBitCost(128, 1)
+			// ZeroToken sits two edges deep in CoefTree (root, then the
+			// non-EOB branch). The libvpx elision drops the EOB bit when
+			// pt==0 and band > elidedThreshold, leaving only the second
+			// edge at probs[1].
+			if pt == 0 && band > elidedThreshold {
+				cost += coefZeroTokenCostElided(&p)
 			} else {
-				cost += boolBitCost(128, 0)
+				cost += coefZeroTokenCost(&p)
 			}
-			cost += coefficientExtraBitsRate(token, mag)
+			pt = int(vp8tables.PrevTokenClass[vp8tables.ZeroToken])
+			pos++
+			continue
 		}
-		pt = int(vp8tables.PrevTokenClass[token])
+		t, mag, ok := coefficientTokenMagnitude(coeff)
+		if !ok {
+			return maxInt() / 4
+		}
+		cost += coefTokenCostElided(p, t, blockType, band, pt)
+		if coeff < 0 {
+			cost += signCost1
+		} else {
+			cost += signCost0
+		}
+		cost += coefficientExtraBitsRate(t, mag)
+		pt = int(vp8tables.PrevTokenClass[t])
 		pos++
 	}
 	if pos < 16 {
 		band := int(vp8tables.CoefBandsTable[pos])
 		p := (*probs)[blockType][band][pt]
-		cost += treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+		cost += coefEOBTokenCost(&p)
 	}
 	return cost
 }
@@ -3809,13 +3826,17 @@ func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int
 // plane's first encoded band, the EOB-vs-not bit is elided and only the
 // non-EOB subtree cost is charged. Otherwise the full tree cost is charged.
 func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
+	if token < 0 || token >= len(coefTokenPaths) {
+		return maxInt() / 4
+	}
 	threshold := 0
 	if blockType == 0 {
 		threshold = 1
 	}
-	full := treeTokenCost(vp8tables.CoefTree[:], probs[:], token)
+	full := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
 	if pt == 0 && band > threshold {
-		nonEOB := boolBitCost(probs[0], 1)
+		// nonEOB == boolBitCost(probs[0], 1) == ProbCost[255-probs[0]].
+		nonEOB := vp8tables.ProbCost[255-int(probs[0])]
 		if full <= nonEOB {
 			return maxInt() / 4
 		}
@@ -3829,8 +3850,11 @@ func coefficientTokenCost(probs [vp8tables.EntropyNodes]uint8, token int, blockT
 }
 
 func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
-	cost := treeTokenCost(vp8tables.CoefTree[:], probs[:], token)
-	nonEOBRate := boolBitCost(probs[0], 1)
+	if token < 0 || token >= len(coefTokenPaths) {
+		return maxInt() / 4
+	}
+	cost := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
+	nonEOBRate := vp8tables.ProbCost[255-int(probs[0])]
 	if cost <= nonEOBRate {
 		return maxInt() / 4
 	}
@@ -3882,6 +3906,19 @@ func coefficientExtraBitsRate(token int, mag int) int {
 }
 
 func treeTokenCost(tree []int16, probs []uint8, token int) int {
+	if paths := lookupTreeTokenPaths(tree); paths != nil {
+		if token < 0 || token >= len(paths) {
+			return maxInt() / 4
+		}
+		return treeTokenCostFromPath(&paths[token], probs)
+	}
+	return treeTokenCostSlow(tree, probs, token)
+}
+
+// treeTokenCostSlow is the fallback walker for trees that do not have a
+// precomputed path table (e.g. ad-hoc trees in tests). It mirrors the
+// historical implementation byte-for-byte.
+func treeTokenCostSlow(tree []int16, probs []uint8, token int) int {
 	var encoded vp8enc.TreeToken
 	if !vp8enc.BuildTreeToken(tree, token, &encoded) {
 		return maxInt() / 4

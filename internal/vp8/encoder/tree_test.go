@@ -86,3 +86,46 @@ func BenchmarkWriteTreeToken(b *testing.B) {
 		w.Finish()
 	}
 }
+
+// BenchmarkFindTreeToken exercises BuildTreeToken across the canonical VP8
+// fixed trees and the tokens RD callers ask for.
+func BenchmarkFindTreeToken(b *testing.B) {
+	cases := []struct {
+		name   string
+		tree   []int16
+		tokens []int
+	}{
+		{"KeyFrameYMode", tables.KeyFrameYModeTree[:], []int{0, 1, 2, 3, 4}},
+		{"YMode", tables.YModeTree[:], []int{0, 1, 2, 3, 4}},
+		{"UVMode", tables.UVModeTree[:], []int{0, 1, 2, 3}},
+		{"BMode", tables.BModeTree[:], []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+		{"Coef", tables.CoefTree[:], []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
+	}
+	var sink TreeToken
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, c := range cases {
+			for _, tok := range c.tokens {
+				_ = BuildTreeToken(c.tree, tok, &sink)
+			}
+		}
+	}
+	_ = sink
+}
+
+// BenchmarkFindTreeTokenCoef focuses on the CoefTree fast-path that fires
+// during coefficient cost evaluation.
+func BenchmarkFindTreeTokenCoef(b *testing.B) {
+	tree := tables.CoefTree[:]
+	tokens := [12]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	var sink TreeToken
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, tok := range tokens {
+			_ = BuildTreeToken(tree, tok, &sink)
+		}
+	}
+	_ = sink
+}
