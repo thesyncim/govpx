@@ -2997,6 +2997,13 @@ func (e *VP8Encoder) Reset() {
 	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
 	e.rc.framesSinceKeyframe = 0
 	e.rc.currentTemporalLayers = 0
+	// libvpx vp8_create_compressor seeds cpi->force_maxqp = 0 and
+	// cpi->frames_since_last_drop_overshoot = 0; mirror that on Reset
+	// so a sequence re-init does not leak overshoot-drop state from the
+	// previous run.
+	e.forceMaxQuantizer = false
+	e.lastPredErrorMB = 0
+	e.rc.framesSinceLastDropOvershoot = 0
 	e.rc.resetRollingBitAverages()
 	e.rc.bufferLevelBits = e.rc.bufferInitialBits
 	e.rc.frameDropPressure = 0
