@@ -1034,6 +1034,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, true)
 			}
 			e.rc.selectQuantizerForFrameKindWithScreenContent(true, false, required, e.opts.ScreenContentMode)
+			// Same force_maxqp regulator gate as the primary path
+			// above: if the prior frame's overshoot drop set the flag,
+			// libvpx vp8_regulate_q honors it on the next frame
+			// regardless of frame type, including a scene-cut KF
+			// promoted from this auto-key recode path.
+			if e.forceMaxQuantizer {
+				e.rc.currentQuantizer = e.rc.maxQuantizer
+				e.rc.currentZbinOverQuant = 0
+			}
 			e.rc.applyCQFloor()
 			result.KeyFrame = true
 			result.SceneCut = true
