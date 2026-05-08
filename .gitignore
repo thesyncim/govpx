@@ -1,4 +1,5 @@
 .idea/
 .gocache/
+.claude/
 internal/coracle/build/
 .scoreboard.log
