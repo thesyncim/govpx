@@ -70,6 +70,36 @@ func MotionVectorErrorCost(mv MotionVector, ref MotionVector, probs *[2][tables.
 	return (cost*errorPerBit + 128) >> 8
 }
 
+// MotionVectorSubpelSearchCost mirrors libvpx's MVC macro inside
+// vp8_find_best_sub_pixel_step_iteratively / vp8_find_best_sub_pixel_step in
+// mcomp.c. CHECK_BETTER and the half/quarter-pel candidate cost calculation
+// look up mvcost with a signed 1/4-pel index computed as
+//
+//	idx = r - (ref->row >> 1)
+//
+// where r is the candidate row in 1/4-pel and ref is in 1/8-pel. That index
+// shape differs from mv_err_cost / vp8_mv_bit_cost (see MotionVectorErrorCost
+// above): mv_err_cost computes (mv-ref)>>1 once and CLAMPS the result to
+// [0, MVvals], so negative deltas all collapse to mvcost[0][0]. The MVC
+// macro uses the bidirectional mvcost table (the pointer is offset by mv_max
+// + 1 in onyx_if.c so negative indices are valid) and never clamps. The two
+// formulas only agree when ref is an exact full-pel multiple of 1/8 (i.e.
+// ref&1 == 0); otherwise they differ by one 1/4-pel index, which biases the
+// subpel candidate ranking and shows up as block_mv match-rate deficits on
+// the SPLITMV scoreboard whenever bestRefMV is fractional.
+//
+// mv is in 1/8-pel; ref is in 1/8-pel. The returned cost is the
+// MVC-formatted RD-shaped error cost (i.e. ((mvcost[row]+mvcost[col])*error_per_bit+128)>>8).
+func MotionVectorSubpelSearchCost(mv MotionVector, ref MotionVector, probs *[2][tables.MVPCount]uint8, errorPerBit int) int {
+	if probs == nil {
+		return 0
+	}
+	row := clampMVSignedComponent((int(mv.Row) >> 1) - (int(ref.Row) >> 1))
+	col := clampMVSignedComponent((int(mv.Col) >> 1) - (int(ref.Col) >> 1))
+	cost := motionVectorComponentCost(row, probs[0][:]) + motionVectorComponentCost(col, probs[1][:])
+	return (cost*errorPerBit + 128) >> 8
+}
+
 // MotionVectorSADCost mirrors libvpx mvsad_err_cost (mcomp.c). libvpx
 // pre-shifts both operands to full-pel before subtracting:
 //
@@ -135,6 +165,19 @@ func motionVectorComponentCost(component int, probs []uint8) int {
 func clampMVMCompCostInput(component int) int {
 	if component < 0 {
 		return 0
+	}
+	if component > mvComponentMax {
+		return mvComponentMax
+	}
+	return component
+}
+
+// clampMVSignedComponent clamps a signed 1/4-pel component delta to the
+// libvpx mvcost table extents (-mv_max..mv_max), preserving sign so the
+// MVC-style signed lookup remains valid.
+func clampMVSignedComponent(component int) int {
+	if component < -mvComponentMax {
+		return -mvComponentMax
 	}
 	if component > mvComponentMax {
 		return mvComponentMax
