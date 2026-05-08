@@ -5137,3 +5137,56 @@ func TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError(t *testing.T) 
 		t.Fatalf("YDist = %d, want strictly positive on non-zero residual fixture", decision.YDist)
 	}
 }
+
+// BenchmarkBuildPredictedMacroblockCoefficientsRD exercises the per-MB
+// fused predict+transform+quantize+token-grid pipeline that R11-C
+// merged into a single dispatch (gather residuals once, FDCT-batch Y
+// and UV, serial token-context update). The benchmark runs whole-block
+// inter (is4x4=false), 4x4 SPLITMV (is4x4=true), and the keyframe
+// intra16x16 path so a regression in any branch surfaces here.
+func BenchmarkBuildPredictedMacroblockCoefficientsRD(b *testing.B) {
+	src := testImage(16, 16)
+	// Fill src with a deterministic pattern so the residual is
+	// non-trivial (otherwise FDCT/quantize/token-cost short-circuit and
+	// the bench under-measures).
+	for i := range src.Y {
+		src.Y[i] = byte(64 + (i*17)%96)
+	}
+	for i := range src.U {
+		src.U[i] = byte(80 + (i*11)%48)
+		src.V[i] = byte(144 + (i*7)%48)
+	}
+	ref := testVP8Frame(b, 16, 16, 96, 90, 170)
+	quant := testRegularMacroblockQuant(b, 20)
+	source := sourceImageFromPublic(src)
+	probs := &vp8tables.DefaultCoefProbs
+
+	cases := []struct {
+		name     string
+		is4x4    bool
+		intra    bool
+		fast     bool
+		optimize bool
+	}{
+		{"InterWholeBlockFast", false, false, true, false},
+		{"InterWholeBlockRegular", false, false, false, false},
+		{"InterSplitMV4x4Fast", true, false, true, false},
+		{"IntraKeyFrame16x16", false, true, false, false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		b.Run(tc.name, func(b *testing.B) {
+			var coeffs vp8enc.MacroblockCoefficients
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = buildPredictedMacroblockCoefficientsRD(
+					probs, source, 0, 0, &ref.Img, nil, nil,
+					&quant, 20, 0, 0, tc.is4x4, tc.intra,
+					tc.fast, tc.optimize, &coeffs,
+				)
+			}
+		})
+	}
+}
