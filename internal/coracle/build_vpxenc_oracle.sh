@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r9-5
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1993,6 +1993,11 @@ full_seed_anchor = ('  best_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
                     '  filt_best = filt_mid;\n')
 full_seed_replacement = ('  best_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
                          '  govpx_oracle_emit_lf_trial(cpi, "full", filt_mid, best_err);\n'
+                         '  /* govpx oracle: emit pre-filter SSE for full picker by\n'
+                         '   * scoring saved_frame (the unfiltered recon) against sd.\n'
+                         '   * This pins whether the gap is in LF apply or upstream\n'
+                         '   * recon for the per-trial diff harness. */\n'
+                         '  govpx_oracle_emit_lf_trial(cpi, "pre", 0, vp8_calc_ss_err(sd, saved_frame));\n'
                          '\n'
                          '  ss_err[filt_mid] = best_err;\n'
                          '\n'
