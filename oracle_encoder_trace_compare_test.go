@@ -47,7 +47,12 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
 	govpxProjected := projectOracleDecisionTrace(t, govpxTrace)
 	libvpxProjected := projectOracleDecisionTrace(t, libvpxTrace)
-	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{MaxDivergences: 8})
+	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+		MaxDivergences: 8,
+		NumericFieldTolerances: map[string]float64{
+			"projected_frame_size": 64,
+		},
+	})
 	if err != nil {
 		t.Fatalf("CompareOracleTraces returned error: %v", err)
 	}
@@ -151,6 +156,7 @@ func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
 			"q_index":              true,
 			"active_worst_quality": true,
 			"active_best_quality":  true,
+			"projected_frame_size": true,
 			"this_frame_target":    true,
 			"zbin_over_quant":      true,
 		},

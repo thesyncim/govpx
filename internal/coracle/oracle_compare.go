@@ -65,6 +65,10 @@ type CompareOptions struct {
 	// post-loopfilter reference and the other hashes the unfiltered
 	// reconstruction).
 	IgnoreFields map[string]bool
+	// NumericFieldTolerances allows selected numeric fields to differ by an
+	// absolute amount without reporting a divergence. Fields omitted from
+	// this map remain exact.
+	NumericFieldTolerances map[string]float64
 }
 
 // CompareOracleTraces walks the two JSON Lines streams in lockstep and
@@ -233,6 +237,9 @@ func CompareOracleTraces(govpxJSONL io.Reader, libvpxJSONL io.Reader, opts Compa
 				continue
 			}
 			if !valuesEqual(gv, lv) {
+				if tolerance, ok := opts.NumericFieldTolerances[field]; ok && numericValuesWithinTolerance(gv, lv, tolerance) {
+					continue
+				}
 				divergences = append(divergences, Divergence{
 					RowIndex:   rowIndex,
 					RowKind:    gType,
@@ -257,6 +264,56 @@ func CompareOracleTraces(govpxJSONL io.Reader, libvpxJSONL io.Reader, opts Compa
 		return divergences, fmt.Errorf("coracle: libvpx scanner: %w", err)
 	}
 	return divergences, nil
+}
+
+func numericValuesWithinTolerance(a any, b any, tolerance float64) bool {
+	if tolerance < 0 {
+		return false
+	}
+	af, ok := numericValue(a)
+	if !ok {
+		return false
+	}
+	bf, ok := numericValue(b)
+	if !ok {
+		return false
+	}
+	diff := af - bf
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= tolerance
+}
+
+func numericValue(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint8:
+		return float64(n), true
+	case uint16:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 // valuesEqual reports whether two JSON-decoded values are equal. JSON numbers

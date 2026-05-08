@@ -1824,7 +1824,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 
 	var scratch vp8dec.IntraReconstructionScratch
 	quant := testMacroblockQuant(20)
-	mode, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, nil, nil, &quant, &pred.Img, &scratch, false)
+	mode, _, ok := predictBestKeyFrameIntraMode(sourceImageFromPublic(src), 20, 1, 1, nil, nil, nil, nil, &quant, &pred.Img, &scratch, false)
 	if !ok {
 		t.Fatalf("predictBestKeyFrameIntraMode returned ok=false")
 	}
@@ -1865,7 +1865,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 		}
 	}
 
-	mode, _, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
+	mode, _, _, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt())
 	if !ok {
 		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
 	}
@@ -2764,7 +2764,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -2804,7 +2804,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -2846,7 +2846,7 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore BPred returned ok=false")
 	}
@@ -3253,7 +3253,7 @@ func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *te
 	noBreakout.lastRef.ExtendBorders()
 	noBreakoutModes := make([]vp8enc.InterFrameMacroblockMode, 1)
 	noBreakoutCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := noBreakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, noBreakoutModes, noBreakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+	if _, err := noBreakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, noBreakoutModes, noBreakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
 		t.Fatalf("no-breakout inter reconstruction returned error: %v", err)
 	}
 	if noBreakoutModes[0].MBSkipCoeff || macroblockCoeffAbsSum(&noBreakoutCoeffs[0]) == 0 {
@@ -3269,7 +3269,7 @@ func TestBuildReconstructingInterFrameCoefficientsUsesStaticEncodeBreakout(t *te
 	breakout.lastRef.ExtendBorders()
 	breakoutModes := make([]vp8enc.InterFrameMacroblockMode, 1)
 	breakoutCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := breakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, breakoutModes, breakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+	if _, err := breakout.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), 20, breakoutModes, breakoutCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
 		t.Fatalf("breakout inter reconstruction returned error: %v", err)
 	}
 	if !breakoutModes[0].MBSkipCoeff || macroblockCoeffAbsSum(&breakoutCoeffs[0]) != 0 {
@@ -3692,10 +3692,10 @@ func TestBuildReconstructingKeyFrameCoefficientsWithSegmentationQuantizesPerSegm
 
 	lowSegmentation := testAltQSegmentation(1, 0)
 	highSegmentation := testAltQSegmentation(1, 100)
-	if err := lowEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, lowSegmentation, true, lowModes, lowCoeffs, 1, 2); err != nil {
+	if _, err := lowEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, lowSegmentation, true, lowModes, lowCoeffs, 1, 2); err != nil {
 		t.Fatalf("low-q keyframe reconstruction returned error: %v", err)
 	}
-	if err := highEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, highSegmentation, true, highModes, highCoeffs, 1, 2); err != nil {
+	if _, err := highEncoder.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, highSegmentation, true, highModes, highCoeffs, 1, 2); err != nil {
 		t.Fatalf("high-q keyframe reconstruction returned error: %v", err)
 	}
 
@@ -3734,7 +3734,7 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegme
 	coeffs := make([]vp8enc.MacroblockCoefficients, 2)
 	segmentation := testAltQSegmentation(1, 100)
 
-	if err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, segmentation, true, modes, coeffs, 1, 2, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+	if _, err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 0, segmentation, true, modes, coeffs, 1, 2, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
 		t.Fatalf("inter reconstruction returned error: %v", err)
 	}
 
@@ -3771,7 +3771,7 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSe
 	segmentation.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
 	segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = -10
 
-	err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(
+	_, err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(
 		sourceImageFromPublic(src), 20, segmentation, true, modes, coeffs, 1, 1,
 		EncodeNoReferenceLast|EncodeNoReferenceAltRef,
 	)
@@ -3792,13 +3792,13 @@ func TestBuildReconstructingCoefficientsWithSegmentationRejectsInvalidSegmentID(
 	segmentation := testAltQSegmentation(1, 63)
 	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: vp8common.MaxMBSegments}}
 	keyCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := e.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, keyModes, keyCoeffs, 1, 1); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := e.buildReconstructingKeyFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, keyModes, keyCoeffs, 1, 1); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("keyframe invalid segment error = %v, want ErrInvalidConfig", err)
 	}
 
 	interModes := []vp8enc.InterFrameMacroblockMode{{SegmentID: vp8common.MaxMBSegments}}
 	interCoeffs := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, interModes, interCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := e.buildReconstructingInterFrameCoefficientsWithSegmentation(sourceImageFromPublic(src), 20, segmentation, true, interModes, interCoeffs, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("inter invalid segment error = %v, want ErrInvalidConfig", err)
 	}
 }
@@ -4865,7 +4865,7 @@ func TestRecodeLoopResetsTokenContext(t *testing.T) {
 
 	modesA := make([]vp8enc.InterFrameMacroblockMode, 1)
 	coeffsA := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesA, coeffsA, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+	if _, err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesA, coeffsA, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
 		t.Fatalf("first recode attempt returned error: %v", err)
 	}
 
@@ -4885,7 +4885,7 @@ func TestRecodeLoopResetsTokenContext(t *testing.T) {
 
 	modesB := make([]vp8enc.InterFrameMacroblockMode, 1)
 	coeffsB := make([]vp8enc.MacroblockCoefficients, 1)
-	if err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesB, coeffsB, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
+	if _, err := e.buildReconstructingInterFrameCoefficients(sourceImageFromPublic(src), testInterSearchQIndex, modesB, coeffsB, 1, 1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef); err != nil {
 		t.Fatalf("second recode attempt returned error: %v", err)
 	}
 

@@ -42,7 +42,7 @@ lives in [Makefile](Makefile).
   libvpx post-inter auto-key recode for opt-in one-pass non-realtime encodes.
   Exact libvpx
   quality/rate-control tuning parity is still open. Current estimate is roughly
-  65% overall encoder parity, or about 75% on the core one-pass quality path;
+  74% overall encoder parity, or about 84% on the core one-pass quality path;
   these are quality/rate-equivalence estimates, not bit-exactness percentages.
   See the detailed checklist for caveats.
 - Performance: intentionally deferred until parity gates are strong enough to
@@ -68,8 +68,10 @@ lives in [Makefile](Makefile).
   test-count/threshold raise side effect; improved-MV oracle rows now expose
   the govpx predictor slot, predictor MV, and search range. The dormant
   four-site DIAMOND table/path is also implemented for explicit libvpx-surface
-  parity and future first-pass reuse. Remaining gap is the libvpx-side
-  improved-MV comparator.
+  parity and future first-pass reuse. The rate trace now carries libvpx-style
+  pre-pack `projected_frame_size` with a bounded 64-bit oracle tolerance.
+  Remaining gap is the libvpx-side improved-MV comparator plus candidate-level
+  rate attribution to remove that projected-size tolerance.
 - Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
   compressor-speed partition ordering, 8x8-first pruning, and the
   `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while

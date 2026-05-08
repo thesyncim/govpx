@@ -151,7 +151,7 @@ func TestLibvpxDecideKeyFrameSecondTierThresholds(t *testing.T) {
 	}
 }
 
-func TestUpdateQuantizerForEncodedFrameSizeUsesPacketSizeWithoutDoubleSubtractingSavings(t *testing.T) {
+func TestProjectedFrameSizeBitsSubtractsLibvpxEntropySavings(t *testing.T) {
 	const macroblocks = 16
 	modes := make([]vp8enc.InterFrameMacroblockMode, macroblocks)
 	for i := range modes {
@@ -175,12 +175,14 @@ func TestUpdateQuantizerForEncodedFrameSizeUsesPacketSizeWithoutDoubleSubtractin
 		bufferLevelBits:   800,
 		maximumBufferBits: 2000,
 	}
-	recode := e.rc.newFrameSizeRecodeState(false, false)
-	if recoded := e.updateQuantizerForEncodedFrameSize(54, false, false, macroblocks, &recode); recoded {
-		t.Fatalf("packet-size recode fired after entropy savings double-subtraction, want no recode for 432-bit packet above undershoot bound")
+	savings := e.estimatedEntropySavingsBits(false, macroblocks)
+	if savings <= 0 {
+		t.Fatalf("entropy savings = %d, want positive test fixture", savings)
 	}
-	if e.rc.currentQuantizer != 20 {
-		t.Fatalf("currentQuantizer = %d, want unchanged 20", e.rc.currentQuantizer)
+	projectedBitsBeforeSavings := savings + 123
+	got := e.projectedFrameSizeBitsFromRate(false, macroblocks, projectedBitsBeforeSavings<<8)
+	if got != 123 {
+		t.Fatalf("projected frame size = %d, want prepack bits %d - savings %d = 123", got, projectedBitsBeforeSavings, savings)
 	}
 }
 

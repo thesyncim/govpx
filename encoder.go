@@ -387,6 +387,7 @@ type VP8Encoder struct {
 	// and incremented per attempt; consumed when the rate/recode rows are
 	// emitted at frame commit. Unused outside the trace harness.
 	oracleTraceRecodeLoopCount int
+	oracleTraceRecodeReason    string
 
 	// oracleTraceTotalByteCount accumulates the total bytes emitted across
 	// every committed frame, mirroring libvpx's cpi->total_byte_count for
@@ -473,6 +474,7 @@ func (e *VP8Encoder) restoreCodingContext() {
 type keyFrameEncodeAttempt struct {
 	FrameCoefProbs      vp8tables.CoefficientProbs
 	Size                int
+	ProjectedSizeBits   int
 	LoopFilterLevel     uint8
 	SharpnessLevel      uint8
 	LFDeltaEnabled      bool
@@ -492,6 +494,7 @@ type interFrameEncodeAttempt struct {
 	RefFrame               vp8common.MVReferenceFrame
 	Ref                    *vp8common.Image
 	Size                   int
+	ProjectedSizeBits      int
 	ZeroReference          bool
 	CyclicRefresh          bool
 	CyclicRefreshNextIndex int
@@ -833,6 +836,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.SizeBytes = attempt.Size
 			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 			result.Droppable = interFrameDroppable(attempt.Config)
+			e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits)
 			e.rc.postEncodeFrameWithPacketContext(attempt.Size, rateControlPostEncodeContext{
 				goldenFrame:           attempt.Config.RefreshGolden,
 				altRefFrame:           attempt.Config.RefreshAltRef,
@@ -880,7 +884,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				AltRef: attempt.Config.RefreshAltRef,
 			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
-			e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size)
 			e.emitOracleFrameTrace(oracleTraceFrameSummary{
 				FrameType:            vp8common.InterFrame,
 				BaseQIndex:           int(attempt.Config.BaseQIndex),
@@ -937,6 +940,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
+	e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size, keyAttempt.ProjectedSizeBits)
 	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, rateControlPostEncodeContext{
 		keyFrame:              true,
 		macroblocks:           required,
@@ -973,7 +977,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
-	e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size)
 	e.emitOracleFrameTrace(oracleTraceFrameSummary{
 		FrameType:            vp8common.KeyFrame,
 		BaseQIndex:           e.rc.currentQuantizer,
@@ -1068,6 +1071,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	// same pre-attempt entropy/skip-prob state.
 	e.saveCodingContext()
 	e.oracleTraceRecodeLoopCount = 0
+	e.oracleTraceRecodeReason = ""
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
 		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
@@ -1088,13 +1092,15 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			if !recoded {
 				return result, nil
 			}
+			e.oracleTraceRecodeReason = "kf_forced_quality"
 			e.rc.currentQuantizer = nextQ
 			e.restoreCodingContext()
 			continue
 		}
-		if !e.updateQuantizerForEncodedFrameSize(result.Size, true, false, required, &recode) {
+		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
 			return result, nil
 		}
+		e.oracleTraceRecodeReason = "size_recode"
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
 		e.restoreCodingContext()
 	}
@@ -1110,11 +1116,12 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		segmentation = e.cyclicRefreshSegmentationConfig(true)
 	}
 	var err error
+	projectedRate := 0
 	if segmentation.Enabled {
 		assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
-		err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
+		projectedRate, err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	} else {
-		err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
+		projectedRate, err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	}
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
@@ -1152,7 +1159,8 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
+	projectedBits := e.projectedFrameSizeBitsFromRate(true, required, projectedRate)
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
@@ -1163,15 +1171,17 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// as libvpx.
 	e.saveCodingContext()
 	e.oracleTraceRecodeLoopCount = 0
+	e.oracleTraceRecodeReason = ""
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForEncodedFrameSize(result.Size, false, boostedReferenceFrame, required, &recode) {
+		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
+		e.oracleTraceRecodeReason = "size_recode"
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
 		e.restoreCodingContext()
 	}
@@ -1235,7 +1245,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ZeroReference: true}, nil
+			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ProjectedSizeBits: encodedSizeBits(n), ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -1259,12 +1269,13 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		e.refProbGolden = previousRefProbGolden
 	}()
 	var err error
+	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	if segmentation.Enabled {
 		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
-		err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	} else {
-		err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		projectedRate, err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
@@ -1295,16 +1306,12 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	projectedBits := e.projectedFrameSizeBitsFromRate(false, required, projectedRate)
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
-func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
-	// libvpx subtracts vp8_estimate_entropy_savings from its pre-pack RD
-	// projected_frame_size, not from the final packet size. govpx does not yet
-	// carry that RD projection through reconstruction, and the packet already
-	// reflects entropy probability updates, so subtracting savings here would
-	// double-count them and make the recode loop artificially undershoot.
-	next, ok := e.rc.frameSizeRecodeQuantizerWithContext(sizeBytes, keyFrame, goldenFrame, macroblocks, recode)
+func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
+	next, ok := e.rc.frameSizeRecodeQuantizerWithContextBits(projectedBits, keyFrame, goldenFrame, macroblocks, recode)
 	if !ok {
 		return false
 	}
@@ -1315,6 +1322,27 @@ func (e *VP8Encoder) updateQuantizerForEncodedFrameSize(sizeBytes int, keyFrame 
 	e.rc.currentQuantizer = next
 	e.rc.currentZbinOverQuant = recode.zbinOverQuant
 	return true
+}
+
+func (e *VP8Encoder) projectedFrameSizeBitsFromRate(keyFrame bool, macroblocks int, projectedRate int) int {
+	if projectedRate <= 0 {
+		return 0
+	}
+	projectedBits := projectedRate >> 8
+	projectedBits -= e.estimatedEntropySavingsBits(keyFrame, macroblocks)
+	if projectedBits < 0 {
+		return 0
+	}
+	return projectedBits
+}
+
+func (e *VP8Encoder) estimatedEntropySavingsBits(keyFrame bool, macroblocks int) int {
+	savings := e.coefficientEntropySavingsBits(keyFrame, macroblocks)
+	if keyFrame || macroblocks <= 0 || len(e.interFrameModes) < macroblocks {
+		return savings
+	}
+	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:macroblocks])
+	return savings + libvpxRefFrameEntropySavings(false, intra, last, golden, alt, int(e.refProbIntra), int(e.refProbLast), int(e.refProbGolden))
 }
 
 func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {

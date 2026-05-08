@@ -406,14 +406,14 @@ func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
 // inter/golden branch. sizeBytes accumulates into oracleTraceTotalByteCount
 // AFTER the rate row is emitted so the field reflects libvpx's
 // cpi->total_byte_count which is updated post-pack (i.e. before this
-// frame's contribution).
-func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType, finalQuantizer int, sizeBytes int) {
+// frame's contribution). projectedBits is the accepted attempt's pre-pack
+// RD projection after libvpx-style entropy-savings subtraction.
+func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType, finalQuantizer int, sizeBytes int, projectedBits int) {
 	if !e.oracleTraceEnabled() {
 		return
 	}
 	keyFrame := frameType == vp8common.KeyFrame
 	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBounds(keyFrame, false)
-	projectedBits := sizeBytes * 8
 	e.emitOracleRateTrace(oracleTraceRateSummary{
 		FrameType:              frameType,
 		QIndex:                 finalQuantizer,
@@ -428,11 +428,10 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		ZbinOverQuant:          e.rc.currentZbinOverQuant,
 	})
 	if e.oracleTraceRecodeLoopCount > 1 {
-		reason := "size_recode"
-		// govpx does not currently model libvpx's is_src_frame_alt_ref or
-		// this_key_frame_forced gating on its recode loop; fall back to
-		// "size_recode" which is libvpx's default reason once the alt-ref
-		// override and forced-keyframe quality branches are excluded.
+		reason := e.oracleTraceRecodeReason
+		if reason == "" {
+			reason = "size_recode"
+		}
 		e.emitOracleRecodeTrace(oracleTraceRecodeSummary{
 			LoopCount: e.oracleTraceRecodeLoopCount,
 			FinalQ:    finalQuantizer,

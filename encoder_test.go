@@ -4575,15 +4575,18 @@ func encodeRateControlTestClip(t testing.TB, targetKbps int) rateControlClipResu
 		frames = 20
 	)
 	e, err := NewVP8Encoder(EncoderOptions{
-		Width:               width,
-		Height:              height,
-		FPS:                 fps,
-		RateControlMode:     RateControlCBR,
-		TargetBitrateKbps:   targetKbps,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		Deadline:            DeadlineRealtime,
-		CpuUsed:             8,
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		// Keep this on a libvpx recode-enabled speed. Realtime speeds disable
+		// the normal size recode loop, so they are covered by oracle smoke
+		// rate-gap tests rather than this tight target assertion.
+		Deadline:            DeadlineGoodQuality,
+		CpuUsed:             0,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,

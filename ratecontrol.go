@@ -1106,6 +1106,10 @@ func (rc *rateControlState) newFrameSizeRecodeStateWithAltRef(keyFrame bool, gol
 }
 
 func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {
+	return rc.frameSizeRecodeQuantizerWithContextBits(encodedSizeBits(sizeBytes), keyFrame, goldenFrame, macroblocks, recode)
+}
+
+func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) (int, bool) {
 	if recode == nil {
 		return rc.currentQuantizer, false
 	}
@@ -1117,7 +1121,6 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContext(sizeBytes int, k
 	if targetBits <= 0 || macroblocks <= 0 {
 		return rc.clampedFrameQuantizerValue(q), false
 	}
-	actualBits := encodedSizeBits(sizeBytes)
 	undershootLimit, overshootLimit := rc.frameSizeBoundsBits(keyFrame, goldenFrame, targetBits)
 	recode.activeWorstQChanged = rc.relaxActiveWorstQuantizerForOvershoot(actualBits, overshootLimit, q, recode)
 	rc.activeWorstQChanged = recode.activeWorstQChanged

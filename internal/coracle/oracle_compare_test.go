@@ -304,6 +304,31 @@ func TestCompareOracleTracesIgnoreField(t *testing.T) {
 	}
 }
 
+func TestCompareOracleTracesNumericFieldTolerance(t *testing.T) {
+	t.Parallel()
+
+	govpx := rateRow(0, 60, 80, 50000, 9872, 12000, 0) + "\n"
+	libvpx := rateRow(0, 60, 80, 50000, 9900, 12000, 0) + "\n"
+
+	opts := CompareOptions{NumericFieldTolerances: map[string]float64{"projected_frame_size": 32}}
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), opts)
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 0 {
+		t.Fatalf("expected zero divergences within projected_frame_size tolerance, got: %+v", div)
+	}
+
+	opts.NumericFieldTolerances["projected_frame_size"] = 16
+	div, err = CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), opts)
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 1 || div[0].Field != "projected_frame_size" {
+		t.Fatalf("expected projected_frame_size divergence outside tolerance, got: %+v", div)
+	}
+}
+
 func TestCompareOracleTracesTypeMismatch(t *testing.T) {
 	t.Parallel()
 
