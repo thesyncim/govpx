@@ -39,6 +39,22 @@ type MacroblockCoefficients struct {
 	// libvpx. It does not influence bitstream emission, reconstruction,
 	// or any other encoding decision.
 	OracleY1DCEOB1 [16]uint8
+
+	// OracleStaleY2EOB and OracleStaleY2QCoeff carry a "would-be" Y2
+	// second-order block snapshot for SPLITMV/B_PRED macroblocks. libvpx's
+	// vp8_quantize_mb skips block 24 when has_2nd_order is false, so
+	// xd->block[24].qcoeff and xd->eobs[24] retain stale data from
+	// whichever earlier RD-pick mode last quantized Y2. The libvpx oracle
+	// trace captures that stale state, which makes the per-MB eob_sum
+	// scoreboard diverge from govpx (which keeps block 24 zero for
+	// SPLITMV/B_PRED). This field lets the trace emitter mirror libvpx's
+	// stale Y2 contribution by running govpx's chosen-mode predictor
+	// through the Y2 walsh + quantize even when the actual encoder path
+	// skips it. Only consulted by emitOracleMBTrace; never feeds
+	// bitstream emission, reconstruction, or any RD decision.
+	OracleStaleY2EOB    uint8
+	OracleStaleY2QCoeff [16]int16
+	OracleStaleY2Set    bool
 }
 
 const (

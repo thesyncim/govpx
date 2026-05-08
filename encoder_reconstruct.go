@@ -5907,6 +5907,10 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
 		if is4x4 {
+			// Capture the chosen-mode FDCT DC of every Y block so the
+			// oracle trace can mirror libvpx's stale Y2 second-order
+			// snapshot for SPLITMV/B_PRED (see OracleStaleY2EOB).
+			y2Input[block] = dct[0]
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
@@ -5961,6 +5965,25 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	} else {
 		coeffs.SetBlockEOB(24, 0)
 		stats.distortionY >>= 2
+		// Compute a Y2 walsh+quantize on the chosen mode's FDCT DCs so
+		// the oracle trace can mirror libvpx's stale block[24] snapshot
+		// without changing any encode-path state. Stored separately
+		// because the bitstream and reconstruction must keep block 24
+		// empty for SPLITMV/B_PRED.
+		var staleY2Coeff [16]int16
+		var staleY2Q [16]int16
+		var staleY2DQ [16]int16
+		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
+		staleEOB := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ)
+		if staleEOB < 0 {
+			staleEOB = 0
+		}
+		if staleEOB > 16 {
+			staleEOB = 16
+		}
+		coeffs.OracleStaleY2EOB = uint8(staleEOB)
+		coeffs.OracleStaleY2QCoeff = staleY2Q
+		coeffs.OracleStaleY2Set = true
 	}
 
 	uvWidth := (src.Width + 1) >> 1
@@ -6870,12 +6893,16 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	var dq [16]int16
 	var yAbove [4]uint8
 	var yLeft [4]uint8
+	var y2Above, y2Left uint8
 	if aboveTok != nil {
 		yAbove = aboveTok.Y1
+		y2Above = aboveTok.Y2
 	}
 	if leftTok != nil {
 		yLeft = leftTok.Y1
+		y2Left = leftTok.Y2
 	}
+	var staleY2Input [16]int16
 	for block := 0; block < 16; block++ {
 		blockOffset := analysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
@@ -6885,6 +6912,9 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		yCoord := mbRow*16 + (block>>2)*4
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		// Capture chosen-mode FDCT DC for the oracle stale-Y2 trace
+		// snapshot (see OracleStaleY2EOB).
+		staleY2Input[block] = dct[0]
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
@@ -6900,6 +6930,25 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	}
 	coeffs.QCoeff[24] = [16]int16{}
 	coeffs.SetBlockEOB(24, 0)
+	// Mirror libvpx's stale Y2 second-order snapshot for B_PRED. See
+	// OracleStaleY2EOB for the rationale.
+	{
+		var staleY2Coeff [16]int16
+		var staleY2Q [16]int16
+		var staleY2DQ [16]int16
+		intra := mode.RefFrame == vp8common.IntraFrame
+		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
+		staleEOB := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ)
+		if staleEOB < 0 {
+			staleEOB = 0
+		}
+		if staleEOB > 16 {
+			staleEOB = 16
+		}
+		coeffs.OracleStaleY2EOB = uint8(staleEOB)
+		coeffs.OracleStaleY2QCoeff = staleY2Q
+		coeffs.OracleStaleY2Set = true
+	}
 
 	if !vp8dec.PredictIntraUV8x8(mode.UVMode, u, img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {
 		return false
