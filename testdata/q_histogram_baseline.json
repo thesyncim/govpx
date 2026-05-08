@@ -1,0 +1,44 @@
+{
+  "fixtures": {
+    "good-cpu5-128x128": {
+      "q_mean": 12.875,
+      "q_max": 16,
+      "hist_l1_to_libvpx": 2
+    },
+    "good-cpu5-64x64": {
+      "q_mean": 4,
+      "q_max": 4,
+      "hist_l1_to_libvpx": 0
+    },
+    "rt-cpu0-128x128": {
+      "q_mean": 11.75,
+      "q_max": 14,
+      "hist_l1_to_libvpx": 2
+    },
+    "rt-cpu0-64x64": {
+      "q_mean": 4,
+      "q_max": 4,
+      "hist_l1_to_libvpx": 0
+    },
+    "rt-cpu4-128x128": {
+      "q_mean": 11.75,
+      "q_max": 14,
+      "hist_l1_to_libvpx": 2
+    },
+    "rt-cpu4-64x64": {
+      "q_mean": 4,
+      "q_max": 4,
+      "hist_l1_to_libvpx": 0
+    },
+    "rt-cpu8-128x128": {
+      "q_mean": 11.75,
+      "q_max": 14,
+      "hist_l1_to_libvpx": 2
+    },
+    "rt-cpu8-64x64": {
+      "q_mean": 4,
+      "q_max": 4,
+      "hist_l1_to_libvpx": 0
+    }
+  }
+}

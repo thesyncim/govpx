@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 )
 
@@ -15,7 +14,7 @@ import (
 // improved-MV start fields on NEWMV inter MBs that took the improved-MV
 // predictor path on either side.
 type FixtureImprovedMVReport struct {
-	Name               string  `json:"name"`
+	Name               string  `json:"-"`
 	MBTotalNEWMV       int     `json:"mb_total_newmv"`
 	NearSadIdxMatchPct float64 `json:"near_sadidx_match_pct"`
 	MVMatchPct         float64 `json:"mv_match_pct"`
@@ -23,8 +22,11 @@ type FixtureImprovedMVReport struct {
 	CombinedMatchPct   float64 `json:"combined_match_pct"`
 }
 
+// improvedMVBaseline matches the on-disk schema used by every other
+// scoreboard baseline JSON: a top-level `"fixtures"` map keyed by
+// fixture name, so cmd/scoreboard-report can render it uniformly.
 type improvedMVBaseline struct {
-	Fixtures []FixtureImprovedMVReport `json:"fixtures"`
+	Fixtures map[string]FixtureImprovedMVReport `json:"fixtures"`
 }
 
 const improvedMVBaselinePath = "testdata/improved_mv_match_rate_baseline.json"
@@ -127,12 +129,8 @@ func TestOracleImprovedMVScoreboard(t *testing.T) {
 	if len(baseline.Fixtures) == 0 {
 		t.Fatalf("baseline %s is empty; run with GOVPX_UPDATE_BASELINES=1 to bootstrap", improvedMVBaselinePath)
 	}
-	baselineByName := make(map[string]FixtureImprovedMVReport, len(baseline.Fixtures))
-	for _, f := range baseline.Fixtures {
-		baselineByName[f.Name] = f
-	}
 	for _, r := range reports {
-		want, ok := baselineByName[r.Name]
+		want, ok := baseline.Fixtures[r.Name]
 		if !ok {
 			t.Errorf("fixture %q missing from baseline %s", r.Name, improvedMVBaselinePath)
 			continue
@@ -352,24 +350,19 @@ func readImprovedMVBaseline(t *testing.T) improvedMVBaseline {
 
 func writeImprovedMVBaseline(t *testing.T, reports []FixtureImprovedMVReport) {
 	t.Helper()
-	sorted := append([]FixtureImprovedMVReport(nil), reports...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	file := improvedMVBaseline{Fixtures: make(map[string]FixtureImprovedMVReport, len(reports))}
+	for _, r := range reports {
+		file.Fixtures[r.Name] = r
+	}
 	if err := os.MkdirAll(filepath.Dir(improvedMVBaselinePath), 0o755); err != nil {
 		t.Fatalf("MkdirAll testdata: %v", err)
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(improvedMVBaseline{Fixtures: sorted}); err != nil {
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
 		t.Fatalf("encode baseline: %v", err)
 	}
-	// Strip trailing newline from json.Encoder so the file matches gofmt-ish
-	// expectations (single trailing newline kept).
-	out := buf.Bytes()
-	if !bytes.HasSuffix(out, []byte("\n")) {
-		out = append(out, '\n')
-	}
-	if err := os.WriteFile(improvedMVBaselinePath, out, 0o644); err != nil {
+	data = append(data, '\n')
+	if err := os.WriteFile(improvedMVBaselinePath, data, 0o644); err != nil {
 		t.Fatalf("write baseline %s: %v", improvedMVBaselinePath, err)
 	}
 }

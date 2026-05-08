@@ -372,8 +372,23 @@ type VP8Encoder struct {
 	reconstructScratch vp8dec.IntraReconstructionScratch
 	loopInfo           vp8common.LoopFilterInfo
 	loopFilterLevel    uint8
-	coefProbs          vp8tables.CoefficientProbs
-	modeProbs          vp8dec.ModeProbs
+	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
+	// vp8/encoder/bitstream.c pack_lf_deltas: the encoder signals the
+	// mode/ref loop-filter deltas with `update=1` on the very first packed
+	// frame (when xd->mode_ref_lf_delta_update is 1 from set_default_lf_deltas)
+	// and clears the flag after the bitstream is written, so subsequent
+	// frames pack `update=0` until something changes the deltas. We mirror
+	// that by tracking whether the deltas have been signaled at least once
+	// and what values were last signaled; the bitstream writer compares the
+	// frame's deltas against that snapshot to decide whether to emit
+	// `mode_ref_lf_delta_update`. The snapshot is committed to the encoder
+	// state only on the accepted attempt (see commitKeyFrameAttempt /
+	// commitInterFrameAttempt) so recode iterations see consistent state.
+	lfDeltasSignaledOnce     bool
+	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
+	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
+	coefProbs                vp8tables.CoefficientProbs
+	modeProbs                vp8dec.ModeProbs
 
 	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
 	// frame currently being built. Rows from intermediate recode attempts are
@@ -732,12 +747,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// auto-ARF driver can emit it at the predicted offset.
 	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
 	if goldenCBRRefresh {
-		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
-		// libvpx vp8/encoder/ratectrl.c calc_gf_params runs at the
-		// tail of calc_pframe_target_size on the GF refresh frame and
-		// updates cpi->last_boost for the next GF section's small +/-
-		// adjustment. Mirror that here so the next non-GF frame sees
-		// the right boost.
+		// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when the
+		// GF refresh fires, calc_gf_params runs FIRST (auto_adjust_gold_quantizer=1
+		// is the default) and updates cpi->last_boost AND
+		// cpi->frames_till_gf_update_due. Then the GF target formula
+		// consumes those just-computed values. Mirror that order here so
+		// the non-CBR boost path below sees the new boost / interval.
 		gfOut := calcGFParams(gfParamsInput{
 			Q:                     e.rc.lastInterQuantizer,
 			RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
@@ -751,6 +766,34 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			MaxGFInterval:         e.rc.framesTillGFUpdateDue,
 		})
 		e.rc.lastBoost = gfOut.Boost
+		if e.rc.mode == RateControlCBR {
+			// One-pass CBR: libvpx multiplies this_frame_target by
+			// (100 + gf_cbr_boost_pct) / 100 (vp8/encoder/ratectrl.c
+			// gf_update_onepass_cbr branch).
+			e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
+		} else {
+			// One-pass VBR/CQ: libvpx splits the upcoming GF section
+			// across (frames_till_gf_update_due+1) frames, weighting the
+			// GF by `last_boost`. See libvpxGoldenFrameTargetBits for the
+			// exact formula. Falls back to the previous boostPct path if
+			// inter_frame_target was not yet recorded (i.e. the first
+			// inter frame after a key) - in that case the small +/- branch
+			// has not yet seeded interFrameTarget so use bitsPerFrame.
+			interFrameTarget := e.rc.interFrameTarget
+			if interFrameTarget <= 0 {
+				interFrameTarget = e.rc.bitsPerFrame
+			}
+			boosted := libvpxGoldenFrameTargetBits(gfOut.Boost, gfOut.FramesTillUpdate, interFrameTarget)
+			if boosted > 0 {
+				e.rc.frameTargetBits = boosted
+			}
+		}
+		// Propagate the just-computed GF interval into rc state so the
+		// next non-GF frame's small +/- branch sees the right value.
+		// Mirrors libvpx's calc_gf_params tail (cpi->frames_till_gf_update_due
+		// = baseline_gf_interval; cpi->current_gf_interval = ...).
+		e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
+		e.rc.currentGFInterval = gfOut.FramesTillUpdate
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/firstpass.c estimate_max_q applies a CQ floor
@@ -922,6 +965,27 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// driven. The recode loop reads it to engage the SS-error feedback Q
 	// adjustment branch around line 4065.
 	e.thisKeyFrameForced = forcedKeyFrame && !sceneCutKeyFrame && e.frameCount > 0
+	// libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame seeds the next GF
+	// section countdown to baseline_gf_interval and asserts
+	// refresh_golden_frame=1 / refresh_alt_ref_frame=1 on every key frame
+	// before encoding. update_golden_frame_stats reads this on the
+	// post-encode path to compute non_gf_bitrate_adjustment =
+	// gf_overspend_bits / frames_till_gf_update_due, which the next inter
+	// frame's calc_pframe_target_size drains. Without seeding it here,
+	// govpx's CBR / multi-keyframe paths leave frames_till_gf_update_due at
+	// 0 across the keyframe boundary, so non_gf_bitrate_adjustment stays at
+	// 0 and the gf_overspend_bits drain never fires - causing per-frame
+	// target bits to drift higher than libvpx's, which lowers Q on the
+	// inter-recode path at good-quality cpu5 128x128.
+	//
+	// libvpx onyx_if.c sets baseline_gf_interval to gf_interval_onepass_cbr
+	// (==goldenFrameCBRInterval below) for realtime CBR but resets it back
+	// to DEFAULT_GF_INTERVAL on subsequent vp8_change_config invocations
+	// that don't take the realtime branch (line 1547). vpxenc invokes
+	// vp8_change_config after vp8_create_compressor, so good-quality CBR
+	// observes baseline_gf_interval=DEFAULT_GF_INTERVAL=7 at first-keyframe
+	// time while realtime CBR observes the cyclic-refresh gf_interval.
+	e.rc.framesTillGFUpdateDue = e.libvpxKeyFrameSetupGFInterval(rows, cols)
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
 		return EncodeResult{}, err
@@ -1151,7 +1215,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		LoopFilterLevel:     lfLevel,
 		SharpnessLevel:      lfSharpness,
 		LFDeltaEnabled:      lfHeader.DeltaEnabled,
-		LFDeltaUpdate:       lfHeader.DeltaUpdate,
+		LFDeltaUpdate:       e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas),
 		RefLFDeltas:         lfHeader.RefDeltas,
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
@@ -1202,10 +1266,22 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 
 // libvpxInterRecodeLoopActive returns true when libvpx's inter recode loop
 // would run for this frame, mirroring `cpi->sf.recode_loop` in the encoder
-// speed-feature table. Realtime always returns false (recode_loop = 0).
-// Good-quality returns true when cpu-used <= 3 for plain inter frames, and
-// when cpu-used <= 4 for boosted (golden/altref) frames. Best-quality
-// returns true unconditionally.
+// speed-feature table at vp8/encoder/onyx_if.c set_speed_features and the
+// recode_loop_test in the same file. The libvpx mapping is:
+//
+//   - Mode == 2 (realtime):                       recode_loop = 0 (off)
+//   - Mode == 1 (good), Speed in 0..2:            recode_loop = 1 (recode all)
+//   - Mode == 1 (good), Speed == 3:               recode_loop = 2 (KF/GF/AR only)
+//   - Mode == 1 (good), Speed >= 4:               recode_loop = 0 (off)
+//   - Mode == 0 (best):                           recode_loop = 1 (recode all)
+//
+// recode_loop_test returns true when:
+//   - recode_loop == 1, OR
+//   - recode_loop == 2 AND (KEY || refresh_golden || refresh_alt_ref)
+//
+// govpx encodes the KF path separately, so this helper covers the inter
+// branch only. boostedReferenceFrame mirrors `(cm->refresh_golden_frame
+// || cm->refresh_alt_ref_frame)`.
 func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) bool {
 	if e == nil {
 		return true
@@ -1215,10 +1291,14 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 		return false
 	case DeadlineGoodQuality:
 		speed := e.libvpxCPUUsed()
-		if boostedReferenceFrame {
-			return speed <= 4
+		switch {
+		case speed <= 2:
+			return true
+		case speed == 3:
+			return boostedReferenceFrame
+		default:
+			return false
 		}
-		return speed <= 3
 	default:
 		return true
 	}
@@ -1328,7 +1408,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled
-	cfg.LFDeltaUpdate = lfHeader.DeltaUpdate
+	cfg.LFDeltaUpdate = e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas)
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
 	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
@@ -1431,12 +1511,23 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
+	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
+	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
+	// next frame's send_update bit reflects whether anything actually
+	// changed. The keyframe is the first packed frame in a clip, so this
+	// is also where lfDeltasSignaledOnce flips to true.
+	e.updateLastSignaledLFDeltas(attempt.LFDeltaEnabled, attempt.RefLFDeltas, attempt.ModeLFDeltas)
 }
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
 	e.updateRefFrameProbsFromAttempt(attempt)
+	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
+	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
+	// next frame's send_update bit reflects whether anything actually
+	// changed. We snapshot the accepted attempt's deltas to match.
+	e.updateLastSignaledLFDeltas(attempt.Config.LFDeltaEnabled, attempt.Config.RefLFDeltas, attempt.Config.ModeLFDeltas)
 	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
 	// counters used by applyRdRefFrameProbHeuristics next frame.
 	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
@@ -1898,6 +1989,26 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 		return 40
 	}
 	return interval
+}
+
+// libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame
+// would assign to cpi->frames_till_gf_update_due (== baseline_gf_interval) at
+// the time the next key frame is being encoded. libvpx onyx_if.c
+// vp8_create_compressor sets baseline_gf_interval = gf_interval_onepass_cbr
+// for any (Mode <= 2 && CBR && !error_resilient) compressor (line ~1886);
+// vp8_change_config later resets baseline_gf_interval to DEFAULT_GF_INTERVAL
+// for non-realtime modes (line ~1542) and only re-arms the
+// gf_interval_onepass_cbr value for realtime CBR (line ~1547). vpxenc invokes
+// vp8_change_config after vp8_create_compressor, so the effective value at
+// first-keyframe time is:
+//   - realtime CBR: gf_interval_onepass_cbr (cyclic-refresh derived, [6,40])
+//   - good/best quality CBR: DEFAULT_GF_INTERVAL == 7
+//   - non-CBR: DEFAULT_GF_INTERVAL == 7
+func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
+	if e.opts.Deadline == DeadlineRealtime && e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
+		return e.goldenFrameCBRInterval(rows, cols)
+	}
+	return libvpxDefaultGFInterval
 }
 
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
@@ -2529,6 +2640,49 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 
 func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 	return e != nil && e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 14
+}
+
+// computeLFDeltaUpdateBit mirrors libvpx vp8/encoder/bitstream.c pack_lf_deltas:
+//
+//	int send_update = xd->mode_ref_lf_delta_update || cpi->oxcf.error_resilient_mode;
+//
+// libvpx's `mode_ref_lf_delta_update` flag is set once at init in
+// set_default_lf_deltas and cleared after every packed frame (see
+// vp8/encoder/onyx_if.c). In effect, libvpx writes `update=1` on the very
+// first packed frame (when last_*_lf_deltas are still the all-zero memset
+// from setup_features) and `update=0` thereafter, since the default deltas
+// never change at runtime. We mirror that by also re-emitting `update=1`
+// when the encoder's chosen deltas drift away from the last-signaled values
+// or in error-resilient mode. The "signaled once" gate covers the keyframe
+// invariant: until we have packed a frame at all, the deltas have not been
+// communicated to the decoder.
+func (e *VP8Encoder) computeLFDeltaUpdateBit(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) bool {
+	if !deltaEnabled {
+		return false
+	}
+	if e == nil {
+		return true
+	}
+	if e.opts.ErrorResilient {
+		return true
+	}
+	if !e.lfDeltasSignaledOnce {
+		return true
+	}
+	return refDeltas != e.lastSignaledRefLFDeltas || modeDeltas != e.lastSignaledModeLFDeltas
+}
+
+// updateLastSignaledLFDeltas commits the per-frame loop-filter delta
+// snapshot that future frames compare against to decide whether to set
+// mode_ref_lf_delta_update. Called from the keyframe / inter-frame commit
+// paths so recode iterations within a frame see the pre-frame state.
+func (e *VP8Encoder) updateLastSignaledLFDeltas(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) {
+	if e == nil || !deltaEnabled {
+		return
+	}
+	e.lastSignaledRefLFDeltas = refDeltas
+	e.lastSignaledModeLFDeltas = modeDeltas
+	e.lfDeltasSignaledOnce = true
 }
 
 func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {

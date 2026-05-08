@@ -1,0 +1,36 @@
+{
+  "fixtures": {
+    "good-quality-cpu3-vbr": {
+      "level_match_pct": 100,
+      "sharpness_match_pct": 100,
+      "ref_deltas_match_pct": 100,
+      "mode_deltas_match_pct": 100,
+      "enabled_match_pct": 100,
+      "update_match_pct": 100
+    },
+    "realtime-cpu0-cbr": {
+      "level_match_pct": 100,
+      "sharpness_match_pct": 100,
+      "ref_deltas_match_pct": 100,
+      "mode_deltas_match_pct": 100,
+      "enabled_match_pct": 100,
+      "update_match_pct": 100
+    },
+    "realtime-cpu15-cbr": {
+      "level_match_pct": 100,
+      "sharpness_match_pct": 100,
+      "ref_deltas_match_pct": 100,
+      "mode_deltas_match_pct": 100,
+      "enabled_match_pct": 100,
+      "update_match_pct": 100
+    },
+    "realtime-cpu8-cbr": {
+      "level_match_pct": 100,
+      "sharpness_match_pct": 100,
+      "ref_deltas_match_pct": 100,
+      "mode_deltas_match_pct": 100,
+      "enabled_match_pct": 100,
+      "update_match_pct": 100
+    }
+  }
+}

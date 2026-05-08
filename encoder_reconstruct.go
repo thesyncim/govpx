@@ -4028,20 +4028,23 @@ func selectInterFrameMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8comm
 	return selectInterFrameMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{}, mvProbs)
 }
 
+// selectInterFrameMotionVectorWithSearchStart mirrors libvpx pickinter.c's
+// fast NEWMV path: integer-pel search followed by unconditional acceptance of
+// the fractional refinement (find_fractional_mv_step). libvpx uses bilinear
+// variance during the subpel search and trusts that result; second-guessing
+// it with a 6-tap SSE recompute biases us toward integer-pel even when the
+// bilinear-best candidate scores lower distortion AND lower MV-rate, which
+// is the realtime-cbr cpu0/4/8 NEWMV mv_row divergence at frame=2 mb=(0,3),
+// (2,3) on the 64x64 panning fixture.
 func selectInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
 	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs)
 	if bestCost == 0 {
 		return best, bestCost
 	}
-	bestRD := interMotionRDScore(src, ref, mbRow, mbCol, best, qIndex, mvProbs)
-	if refined, _, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search, mvProbs); ok {
-		refinedRD := interMotionRDScore(src, ref, mbRow, mbCol, refined, qIndex, mvProbs)
-		if refinedRD < bestRD {
-			best = refined
-			bestRD = refinedRD
-		}
+	if refined, refinedCost, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search, mvProbs); ok {
+		return refined, refinedCost
 	}
-	return best, bestRD
+	return best, bestCost
 }
 
 func selectRDInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
@@ -5922,6 +5925,12 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 			yLeft[l] = hasCoeffs
 		} else {
 			y2Input[block] = dct[0]
+			// Use quant.Y1 (not quant.Y1DC) because govpx's Y1DC dequant
+			// table is normalized so dequant[0]=1 (the actual DC value
+			// lives in the Y2 second-order block); the libvpx Y1quant[Q]
+			// the encode path actually exercises has the proper DC at
+			// slot 0, which govpx mirrors in quant.Y1.
+			coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
 			dct[0] = 0
 			a := block & 3
 			l := (block & 0x0c) >> 2
@@ -6121,6 +6130,64 @@ func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
 	default:
 		return nonZeroInterModeZbinBoost
 	}
+}
+
+// libvpxY1DCWouldQuantizeNonzero returns 1 when libvpx's vp8_quantize_mb path
+// would have produced a non-zero quantized DC for the given Y1DC quantizer
+// on the supplied input coefficient dct0.
+//
+// Why: libvpx's transform_mb does NOT zero block[i].coeff[0] before
+// vp8_quantize_mb, so vp8_fast_quantize_b_c / vp8_regular_quantize_b_c
+// quantize the original Y-block DC against Y1DC's zbin/round/quant tables.
+// When that quantization produces y != 0, libvpx records *d->eob = 1 even
+// for an otherwise empty Y_NO_DC block. Later, vp8_inverse_transform_mby
+// overwrites qcoeff[0] (with the inverse-Walsh DC) and
+// vp8_dequant_idct_add_y_block memsets qcoeff[0..1] back to zero, but eob=1
+// is preserved through the pipeline. The libvpx-side oracle reads this
+// post-IDCT eob.
+//
+// govpx's pipeline zeroes dct[0] before quantize because Y_NO_DC tokenize
+// starts at c=1 anyway, so coeffs.EOB[block] never carries that DC bump.
+// This helper recovers the bump for the per-MB oracle trace so the
+// scoreboard's eob_sum match-rate aligns with libvpx. The helper does NOT
+// influence bitstream emission or reconstruction; the OracleY1DCEOB1 flag
+// it populates is read only by emitOracleMBTrace.
+//
+// fastQuant selects between vp8_fast_quantize_b_c (no zbin gate) and
+// vp8_regular_quantize_b_c (zbin gate at position 0, where zbin_boost[0]=0
+// so only zbin_extra contributes). zbinOverQuant and zbinModeBoost mirror
+// the macroblock-level fields fed to vp8_update_zbin_extra.
+func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, fastQuant bool) uint8 {
+	if quant == nil {
+		return 0
+	}
+	z := int(dct0)
+	if z == 0 {
+		return 0
+	}
+	x := z
+	if x < 0 {
+		x = -x
+	}
+	if fastQuant {
+		y := ((x + int(quant.Round[0])) * int(quant.QuantFast[0])) >> 16
+		if y != 0 {
+			return 1
+		}
+		return 0
+	}
+	zbin := int(quant.Zbin[0])
+	zbin += int(quant.ZbinBoost[0])
+	zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
+	if x < zbin {
+		return 0
+	}
+	x += int(quant.Round[0])
+	y := ((((x * int(quant.Quant[0])) >> 16) + x) * int(quant.QuantShift[0])) >> 16
+	if y != 0 {
+		return 1
+	}
+	return 0
 }
 
 func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {

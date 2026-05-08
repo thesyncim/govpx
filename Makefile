@@ -28,16 +28,7 @@ VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
-# SCOREBOARD_TESTS lists oracle-side per-MB match-rate scoreboards. Each
-# scoreboard captures govpx + libvpx oracle traces, computes the per-field
-# match rate against a recorded baseline JSON in testdata/, and fails when
-# the rate regresses below baseline - tolerance. Run with
-# GOVPX_UPDATE_BASELINES=1 to refresh the baseline after a deliberate
-# parity change. The `scoreboard` make target runs only these tests with
-# the oracle wiring required to capture libvpx-side traces.
-SCOREBOARD_TESTS := TestOracleImprovedMVScoreboard
-
-.PHONY: all ci fmtcheck test verify verify-production verify-decoder-parity oracle-test decoder-oracle-test scoreboard oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data
+.PHONY: all ci fmtcheck test verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
 
 all: ci
 
@@ -52,7 +43,7 @@ fmtcheck:
 
 verify: ci
 
-verify-production: ci oracle-test scoreboard
+verify-production: ci oracle-test
 
 verify-decoder-parity: ci decoder-oracle-test
 
@@ -79,6 +70,35 @@ oracle-test: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
 	$(GO) test . -run 'TestOracle' -count=1 -timeout 10m
 
+SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard
+
+scoreboard: oracle-tools fetch-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_ORACLE="$(ORACLE)" \
+	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
+	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
+	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
+	$(GO) run ./cmd/scoreboard-report -- . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+
+scoreboard-update: oracle-tools fetch-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_UPDATE_BASELINES=1 \
+	GOVPX_ORACLE="$(ORACLE)" \
+	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
+	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
+	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
+	$(GO) run ./cmd/scoreboard-report -- . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+
 decoder-oracle-test: oracle-tools fetch-vp8-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
@@ -92,19 +112,6 @@ decoder-oracle-test: oracle-tools fetch-vp8-test-data
 	GOVPX_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_INVALID_TEST_DATA_MIN="$(VP8_INVALID_IVF_MIN)" \
 	$(GO) test . -run 'TestOracle(Libvpx(ExtendedDecodeModesAvailable|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)$$' -count=1 -timeout 10m
-
-# scoreboard runs SCOREBOARD_TESTS, the per-MB match-rate scoreboards that
-# gate libvpx parity with a recorded baseline + tolerance. Pass
-# GOVPX_UPDATE_BASELINES=1 to refresh.
-scoreboard: oracle-tools
-	GOCACHE="$(GOCACHE)" \
-	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
-	GOVPX_WITH_ORACLE=1 \
-	GOVPX_ORACLE="$(ORACLE)" \
-	GOVPX_VPXDEC="$(VPXDEC)" \
-	GOVPX_VPXENC="$(VPXENC)" \
-	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
-	$(GO) test . -run '^($(shell printf '%s' '$(SCOREBOARD_TESTS)' | tr ' ' '|'))$$' -count=1 -timeout 10m -v
 
 oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null
