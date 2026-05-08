@@ -39,6 +39,39 @@ func ApplyLoopFilter(img *common.Image, rows int, cols int, modes []MacroblockMo
 	return applyNormalLoopFilterGrid(img, rows, cols, modes, frameType, lfi)
 }
 
+// ApplyLoopFilterFullLuma walks every MB in the frame but applies the
+// loop filter to the luma plane only. It exists so the encoder's full
+// pick-loop-filter-level search can score levels using luma SSE
+// without paying for chroma filtering work that the picker never reads.
+// Reconstruction-time loop filtering still goes through ApplyLoopFilter
+// so the committed reference matches libvpx exactly.
+func ApplyLoopFilterFullLuma(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
+	if header.Level == 0 {
+		return nil
+	}
+	if rows < 0 || cols < 0 {
+		return ErrLoopFilterBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrLoopFilterBufferTooSmall
+	}
+	required := rows * cols
+	if img == nil || lfi == nil || len(modes) < required || frameType < common.KeyFrame || frameType > common.InterFrame {
+		return ErrLoopFilterBufferTooSmall
+	}
+	if !imageHasMacroblockGrid(img, rows, cols) {
+		return ErrLoopFilterBufferTooSmall
+	}
+
+	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
+	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+
+	if header.Type == SimpleLoopFilter {
+		return applySimpleLoopFilterPartialLuma(img, rows, cols, modes, lfi, 0, rows)
+	}
+	return applyNormalLoopFilterPartialLuma(img, rows, cols, modes, frameType, lfi, 0, rows)
+}
+
 // ApplyLoopFilterPartial mirrors libvpx's vp8_loop_filter_partial_frame: it
 // filters only the luma plane for MB rows in [startRow, startRow+rowCount) and
 // is intended for use by the encoder's fast loop-filter level picker. Unlike

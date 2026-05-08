@@ -807,6 +807,10 @@ func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
 	copy(dst.V, src.V)
 }
 
+func copyFrameImageLuma(dst *vp8common.Image, src *vp8common.Image) {
+	copy(dst.Y, src.Y)
+}
+
 func publicImageFromVP8(src *vp8common.Image) Image {
 	return Image{
 		Width:   src.Width,

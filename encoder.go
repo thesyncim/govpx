@@ -2666,10 +2666,10 @@ func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp
 		}
 		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true), nil
 	}
-	copyFrameImage(&e.loopFilterPick.Img, &e.analysis.Img)
+	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	if level > 0 {
 		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-		if err := vp8dec.ApplyLoopFilter(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
+		if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, vp8dec.SegmentationHeader{}, &e.loopInfo); err != nil {
 			return 0, ErrInvalidConfig
 		}
 	}
