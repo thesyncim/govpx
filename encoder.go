@@ -3311,6 +3311,18 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	// libvpx vp8_create_compressor seeds cpi->Speed=0 and avg_pick_mode_time
+	// /avg_encode_time = 0 (zero-initialised under calloc). Mirror that on
+	// Reset() so a sequence re-init does not leak the warmed adaptive Speed
+	// from the previous run; otherwise the bench harness's warmup pass
+	// drives e.autoSpeed away from the cold-start seed of 4 before the
+	// measured pass starts, producing a non-deterministic per-frame size
+	// distribution and an inflated avg_interframe_bytes ratio vs libvpx
+	// (which always starts cold under vpxenc).
+	e.autoSpeed = 0
+	e.avgPickModeTime = 0
+	e.avgEncodeTime = 0
+	e.autoSpeedFrameStartNS = 0
 	e.current.Reset()
 	e.analysis.Reset()
 	e.lastRef.Reset()
