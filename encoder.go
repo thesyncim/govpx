@@ -3,6 +3,7 @@ package govpx
 import (
 	"errors"
 	"io"
+	"os"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -3309,6 +3310,17 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
+	// Diagnostic: when GOVPX_LF_DEBUG=1, also score the unfiltered (level=0)
+	// partial-frame Y SSE against the source so the per-trial-level diff
+	// harness can pin whether the gap is in the LF math or in the
+	// pre-filter reconstruction itself. This scores the partial-frame
+	// window only and the result is otherwise unused.
+	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
+		preErr, perr := e.loopFilterTrialLumaSSE(src, frameType, 0, sharpness, rows, cols, required, true, segmentation)
+		if perr == nil {
+			e.emitOracleLFTrial("pre", 0, preErr)
+		}
+	}
 	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
 	if err != nil {
 		return 0, err
@@ -3376,6 +3388,16 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		return trialErr, nil
 	}
 
+	// Diagnostic: when GOVPX_LF_DEBUG=1, also score level 0 to expose the
+	// pre-filter SSE so the per-trial divergence harness can localize whether
+	// the gap is in the unfiltered reconstruction (matches at 0 -> LF math
+	// diverges) or in the source itself (mismatched at 0 -> upstream recon
+	// gap). This level-0 score is otherwise unused because the picker never
+	// considers a level below min_filter_level.
+	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
+		_, _ = score(0)
+	}
+
 	bestErr, err := score(filtMid)
 	if err != nil {
 		return 0, err
@@ -3383,7 +3405,17 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	filtBest := filtMid
 	filtDirection := 0
 	for filterStep > 0 {
-		bias := 0
+		// Mirror libvpx vp8/encoder/picklpf.c vp8cx_pick_filter_level
+		// (Bias = (best_err >> (15 - (filt_mid / 8))) * filter_step). The
+		// shift saturates at zero (filt_mid/8 >= 15 only when filt_mid >=
+		// 120, which is above MAX_LOOP_FILTER=63), so it always preserves
+		// some bias against raising the filter level. govpx's full picker
+		// previously hard-coded bias=0, which silently dropped libvpx's
+		// "prefer lower filter level" tie-breaker and steered the picker
+		// to a different filt_best on inter frames where multiple trials
+		// score within the bias delta of best_err (e.g. the 128x128 panning
+		// CBR cpu8 fixture frame 1: govpx picked level 11, libvpx 5).
+		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep)
 		filtHigh := filtMid + filterStep
 		if filtHigh > maxLevel {
 			filtHigh = maxLevel
@@ -3428,6 +3460,24 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		}
 	}
 	return uint8(filtBest), nil
+}
+
+// loopFilterFullPickerBias mirrors libvpx vp8/encoder/picklpf.c
+// vp8cx_pick_filter_level's `Bias = (best_err >> (15 - (filt_mid / 8))) *
+// filter_step;`. The shift amount is `15 - filt_mid/8`. For filt_mid in
+// [0, 63] the shift ranges [8, 15]; we mirror libvpx's behaviour of
+// performing the right-shift on a signed int (negative shift count is
+// undefined in C; libvpx never reaches that case for valid filt_mid).
+// Note libvpx also scales by `cpi->twopass.section_intra_rating / 20`
+// when section_intra_rating < 20; that's a two-pass branch and doesn't
+// fire on realtime/cbr fixtures (section_intra_rating defaults to 20),
+// so we omit it here.
+func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int) int {
+	shift := 15 - (filtMid / 8)
+	if shift < 0 {
+		shift = 0
+	}
+	return (bestErr >> uint(shift)) * filterStep
 }
 
 // loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy
