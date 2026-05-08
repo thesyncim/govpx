@@ -1175,18 +1175,52 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	e.saveCodingContext()
 	e.oracleTraceRecodeLoopCount = 0
 	e.oracleTraceRecodeReason = ""
+	// libvpx gates the inter recode loop on `cpi->sf.recode_loop`:
+	// 0 -> no recode, 1 -> recode all, 2 -> recode key/golden/altref only.
+	// At realtime (`compressor_speed == 2`) recode_loop is always 0, so a
+	// non-boosted inter frame never recodes; at good-quality the threshold
+	// rises with cpu-used. Without this gate the inter frame keeps cycling
+	// through Q values driven by the picker's pre-pack rate estimate, which
+	// is per-design coarse - the resulting Q drifts well below libvpx's at
+	// constrained bitrates. See libvpx vp8/encoder/onyx_if.c
+	// `recode_loop_test` and `set_speed_features` case 1/2/3.
+	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
-		if attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
+		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
 		e.oracleTraceRecodeReason = "size_recode"
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
 		e.restoreCodingContext()
+	}
+}
+
+// libvpxInterRecodeLoopActive returns true when libvpx's inter recode loop
+// would run for this frame, mirroring `cpi->sf.recode_loop` in the encoder
+// speed-feature table. Realtime always returns false (recode_loop = 0).
+// Good-quality returns true when cpu-used <= 3 for plain inter frames, and
+// when cpu-used <= 4 for boosted (golden/altref) frames. Best-quality
+// returns true unconditionally.
+func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) bool {
+	if e == nil {
+		return true
+	}
+	switch e.opts.Deadline {
+	case DeadlineRealtime:
+		return false
+	case DeadlineGoodQuality:
+		speed := e.libvpxCPUUsed()
+		if boostedReferenceFrame {
+			return speed <= 4
+		}
+		return speed <= 3
+	default:
+		return true
 	}
 }
 
