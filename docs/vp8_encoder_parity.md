@@ -1395,6 +1395,29 @@ the anchor and look for the surrounding mismatch.
     improvement on best-cpu0 and a 0.89pp mode_match regression on
     good-cpu0, confirming the per-label picker is no longer the
     dominant block_mv divergence source on this fixture.
+    R9-4 fix (2026-05-08): The keyframe Y-recon drift on the
+    SPLITMV-quadrant fixture under
+    `Deadline=BestQuality cpu_used=0` (and good-cpu0 frames 0-1) was
+    a govpx-side bug in `buildReconstructingBPredMacroblockCoefficients`:
+    govpx ran the trellis optimizer (`optimizeQuantizedBlock`) on the
+    16 Y sub-blocks of every B_PRED MB whenever
+    `libvpxOptimizeCoefficients()` returned true (i.e. BestQuality at
+    any cpu, GoodQuality at cpu=0). libvpx's `vp8_encode_intra4x4mby`
+    (encodeintra.c) calls `vp8_encode_intra4x4block` per sub-block,
+    which runs only `x->quantize_b` before the IDCT-add — the
+    frame-level `vp8_optimize_mby` pass is wired exclusively from
+    `vp8_encode_intra16x16mby`, so libvpx never trellises B_PRED Y
+    sub-blocks (only the UV plane via `vp8_encode_intra16x16mbuv ->
+    vp8_optimize_mbuv`). With the trellis gated off for the Y plane in
+    govpx's B_PRED path, the SPLITMV-quadrant keyframe Y reconstruction
+    now byte-matches libvpx across all 4 frames under
+    `Deadline=BestQuality cpu_used=0`, and the panning fixture also
+    closes its frame-0 Y-Adler gap under the same deadline.
+    `TestOracleReconstructionAdler32Match` extends with
+    `best-quality-cbr-cpu0-splitmv` (full 4-frame ratchet) and
+    `good-quality-cbr-cpu0-splitmv` (frames 0-1 ratcheted; 2-3 still
+    drift due to a separate inter-pipeline residual that lives outside
+    the keyframe-recon scope of this win).
   - Test: TestOracleInterDecisionMatchRate, TestOracleSplitMVDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
