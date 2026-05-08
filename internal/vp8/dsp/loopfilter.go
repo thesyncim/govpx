@@ -1,26 +1,37 @@
 package dsp
 
+import "unsafe"
+
 // Ported from libvpx v1.16.0 vp8/common/loopfilter_filters.c.
 
 const MaxLoopFilter = 63
 
 func LoopFilterSimpleHorizontalEdge(s []byte, stride int, blimit byte) {
 	_ = s[3*stride+15]
+	base := unsafe.Pointer(&s[0])
 
 	for i := 0; i < 16; i++ {
-		q0 := 2*stride + i
-		mask := simpleFilterMask(blimit, s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride])
-		simpleFilter(mask, &s[q0-2*stride], &s[q0-stride], &s[q0], &s[q0+stride])
+		p1 := (*byte)(unsafe.Add(base, i))
+		p0 := (*byte)(unsafe.Add(base, i+stride))
+		q0 := (*byte)(unsafe.Add(base, i+2*stride))
+		q1 := (*byte)(unsafe.Add(base, i+3*stride))
+		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
+		simpleFilter(mask, p1, p0, q0, q1)
 	}
 }
 
 func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
 	_ = s[15*stride+3]
+	base := unsafe.Pointer(&s[0])
 
 	for i := 0; i < 16; i++ {
-		q0 := i*stride + 2
-		mask := simpleFilterMask(blimit, s[q0-2], s[q0-1], s[q0], s[q0+1])
-		simpleFilter(mask, &s[q0-2], &s[q0-1], &s[q0], &s[q0+1])
+		row := unsafe.Add(base, i*stride)
+		p1 := (*byte)(unsafe.Add(row, 0))
+		p0 := (*byte)(unsafe.Add(row, 1))
+		q0 := (*byte)(unsafe.Add(row, 2))
+		q1 := (*byte)(unsafe.Add(row, 3))
+		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
+		simpleFilter(mask, p1, p0, q0, q1)
 	}
 }
 
@@ -45,58 +56,96 @@ func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thr
 // the SIMD dispatch can't take the fast path. Body unchanged from the
 // original libvpx loopfilter_filters.c port.
 func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
-	_ = s[7*stride+count*8-1]
+	n := count * 8
+	_ = s[7*stride+n-1]
+	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < count*8; i++ {
-		q0 := 4*stride + i
-		mask := filterMask(limit, blimit, s[q0-4*stride], s[q0-3*stride], s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride], s[q0+2*stride], s[q0+3*stride])
+	for i := 0; i < n; i++ {
+		p3 := (*byte)(unsafe.Add(base, i))
+		p2 := (*byte)(unsafe.Add(base, i+stride))
+		p1 := (*byte)(unsafe.Add(base, i+2*stride))
+		p0 := (*byte)(unsafe.Add(base, i+3*stride))
+		q0 := (*byte)(unsafe.Add(base, i+4*stride))
+		q1 := (*byte)(unsafe.Add(base, i+5*stride))
+		q2 := (*byte)(unsafe.Add(base, i+6*stride))
+		q3 := (*byte)(unsafe.Add(base, i+7*stride))
+		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
 		if mask == 0 {
 			continue
 		}
-		hev := hevMask(thresh, s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride])
-		loopFilter(mask, hev, &s[q0-2*stride], &s[q0-stride], &s[q0], &s[q0+stride])
+		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
+		loopFilter(mask, hev, p1, p0, q0, q1)
 	}
 }
 
 func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
-	_ = s[(count*8-1)*stride+7]
+	n := count * 8
+	_ = s[(n-1)*stride+7]
+	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < count*8; i++ {
-		q0 := i*stride + 4
-		mask := filterMask(limit, blimit, s[q0-4], s[q0-3], s[q0-2], s[q0-1], s[q0], s[q0+1], s[q0+2], s[q0+3])
+	for i := 0; i < n; i++ {
+		row := unsafe.Add(base, i*stride)
+		p3 := (*byte)(unsafe.Add(row, 0))
+		p2 := (*byte)(unsafe.Add(row, 1))
+		p1 := (*byte)(unsafe.Add(row, 2))
+		p0 := (*byte)(unsafe.Add(row, 3))
+		q0 := (*byte)(unsafe.Add(row, 4))
+		q1 := (*byte)(unsafe.Add(row, 5))
+		q2 := (*byte)(unsafe.Add(row, 6))
+		q3 := (*byte)(unsafe.Add(row, 7))
+		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
 		if mask == 0 {
 			continue
 		}
-		hev := hevMask(thresh, s[q0-2], s[q0-1], s[q0], s[q0+1])
-		loopFilter(mask, hev, &s[q0-2], &s[q0-1], &s[q0], &s[q0+1])
+		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
+		loopFilter(mask, hev, p1, p0, q0, q1)
 	}
 }
 
 func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
-	_ = s[7*stride+count*8-1]
+	n := count * 8
+	_ = s[7*stride+n-1]
+	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < count*8; i++ {
-		q0 := 4*stride + i
-		mask := filterMask(limit, blimit, s[q0-4*stride], s[q0-3*stride], s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride], s[q0+2*stride], s[q0+3*stride])
+	for i := 0; i < n; i++ {
+		p3 := (*byte)(unsafe.Add(base, i))
+		p2 := (*byte)(unsafe.Add(base, i+stride))
+		p1 := (*byte)(unsafe.Add(base, i+2*stride))
+		p0 := (*byte)(unsafe.Add(base, i+3*stride))
+		q0 := (*byte)(unsafe.Add(base, i+4*stride))
+		q1 := (*byte)(unsafe.Add(base, i+5*stride))
+		q2 := (*byte)(unsafe.Add(base, i+6*stride))
+		q3 := (*byte)(unsafe.Add(base, i+7*stride))
+		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
 		if mask == 0 {
 			continue
 		}
-		hev := hevMask(thresh, s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride])
-		mbLoopFilter(mask, hev, &s[q0-3*stride], &s[q0-2*stride], &s[q0-stride], &s[q0], &s[q0+stride], &s[q0+2*stride])
+		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
+		mbLoopFilter(mask, hev, p2, p1, p0, q0, q1, q2)
 	}
 }
 
 func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
-	_ = s[(count*8-1)*stride+7]
+	n := count * 8
+	_ = s[(n-1)*stride+7]
+	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < count*8; i++ {
-		q0 := i*stride + 4
-		mask := filterMask(limit, blimit, s[q0-4], s[q0-3], s[q0-2], s[q0-1], s[q0], s[q0+1], s[q0+2], s[q0+3])
+	for i := 0; i < n; i++ {
+		row := unsafe.Add(base, i*stride)
+		p3 := (*byte)(unsafe.Add(row, 0))
+		p2 := (*byte)(unsafe.Add(row, 1))
+		p1 := (*byte)(unsafe.Add(row, 2))
+		p0 := (*byte)(unsafe.Add(row, 3))
+		q0 := (*byte)(unsafe.Add(row, 4))
+		q1 := (*byte)(unsafe.Add(row, 5))
+		q2 := (*byte)(unsafe.Add(row, 6))
+		q3 := (*byte)(unsafe.Add(row, 7))
+		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
 		if mask == 0 {
 			continue
 		}
-		hev := hevMask(thresh, s[q0-2], s[q0-1], s[q0], s[q0+1])
-		mbLoopFilter(mask, hev, &s[q0-3], &s[q0-2], &s[q0-1], &s[q0], &s[q0+1], &s[q0+2])
+		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
+		mbLoopFilter(mask, hev, p2, p1, p0, q0, q1, q2)
 	}
 }
 

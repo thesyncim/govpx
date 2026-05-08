@@ -23,18 +23,22 @@ func BuildTreeToken(tree []int16, token int, out *TreeToken) bool {
 
 func WriteTreeToken(w *BoolWriter, tree []int16, probs []uint8, token TreeToken) bool {
 	node := int16(0)
+	value := token.Value
+	probsLen := len(probs)
+	treeLen := len(tree)
 	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= len(probs) || int(node)+1 >= len(tree) {
+		nodeIdx := int(node)
+		if probIndex < 0 || probIndex >= probsLen || nodeIdx+1 >= treeLen {
 			return false
 		}
-		bit := uint8((token.Value >> uint(bitIndex)) & 1)
+		bit := uint8((value >> uint(bitIndex)) & 1)
 		w.WriteBool(bit, probs[probIndex])
-		if w.Err() != nil {
-			return false
-		}
-		next := tree[int(node)+int(bit)]
+		next := tree[nodeIdx+int(bit)]
 		if next <= 0 {
+			if w.err != nil {
+				return false
+			}
 			return bitIndex == 0
 		}
 		node = next
