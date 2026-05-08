@@ -64,9 +64,19 @@ lives in [Makefile](Makefile).
 
 ### Encoder Quality
 
-- 128x128 inter-frame Q regulation: govpx selects Q=5..7 where libvpx
-  selects Q=13..14 on the panning realtime CBR fixture, driving +23..+44%
-  per-frame size deltas. Top-priority gap.
+- Inter-frame chroma sub-pel filter rounding: at sizes >64x64 (96x96,
+  128x128, 160x96 verified), the realtime-CBR inter Y/U/V Adler32 still
+  differ from libvpx even though Q now matches and per-frame size delta
+  is 0.5..1.5%. Decoded per-pixel deltas peak at 4 (Y) / 3 (U) / 1 (V)
+  with mean magnitude < 0.04 - quality-equivalent (PSNR vs libvpx > 60
+  dB) but breaks strict byte-identity. Subagent localized to
+  `internal/vp8/dsp/subpixel.go sixTapPredict` outputs at MB(0,0) row 0
+  cols 3 / 7 (govpx 118/137 vs libvpx 117/139); the H/V tap math
+  matches libvpx C reference, so the residual disagreement most likely
+  lives in a sub-pel rounding edge case the test corpus exercises.
+  Closing this needs a per-pixel libvpx-side predictor dump
+  (patch `build_vpxenc_oracle.sh` to capture `xd->predictor` after
+  `vp8_build_inter_predictors_mb`).
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor; per-call
   tree walks are functionally equivalent).
 - Intra/Quant/Tokens: SSIM-gated activity tuning and oracle token-cost
