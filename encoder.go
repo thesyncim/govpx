@@ -922,6 +922,27 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// driven. The recode loop reads it to engage the SS-error feedback Q
 	// adjustment branch around line 4065.
 	e.thisKeyFrameForced = forcedKeyFrame && !sceneCutKeyFrame && e.frameCount > 0
+	// libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame seeds the next GF
+	// section countdown to baseline_gf_interval and asserts
+	// refresh_golden_frame=1 / refresh_alt_ref_frame=1 on every key frame
+	// before encoding. update_golden_frame_stats reads this on the
+	// post-encode path to compute non_gf_bitrate_adjustment =
+	// gf_overspend_bits / frames_till_gf_update_due, which the next inter
+	// frame's calc_pframe_target_size drains. Without seeding it here,
+	// govpx's CBR / multi-keyframe paths leave frames_till_gf_update_due at
+	// 0 across the keyframe boundary, so non_gf_bitrate_adjustment stays at
+	// 0 and the gf_overspend_bits drain never fires - causing per-frame
+	// target bits to drift higher than libvpx's, which lowers Q on the
+	// inter-recode path at good-quality cpu5 128x128.
+	//
+	// libvpx onyx_if.c sets baseline_gf_interval to gf_interval_onepass_cbr
+	// (==goldenFrameCBRInterval below) for realtime CBR but resets it back
+	// to DEFAULT_GF_INTERVAL on subsequent vp8_change_config invocations
+	// that don't take the realtime branch (line 1547). vpxenc invokes
+	// vp8_change_config after vp8_create_compressor, so good-quality CBR
+	// observes baseline_gf_interval=DEFAULT_GF_INTERVAL=7 at first-keyframe
+	// time while realtime CBR observes the cyclic-refresh gf_interval.
+	e.rc.framesTillGFUpdateDue = e.libvpxKeyFrameSetupGFInterval(rows, cols)
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
 		return EncodeResult{}, err
@@ -1898,6 +1919,26 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 		return 40
 	}
 	return interval
+}
+
+// libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame
+// would assign to cpi->frames_till_gf_update_due (== baseline_gf_interval) at
+// the time the next key frame is being encoded. libvpx onyx_if.c
+// vp8_create_compressor sets baseline_gf_interval = gf_interval_onepass_cbr
+// for any (Mode <= 2 && CBR && !error_resilient) compressor (line ~1886);
+// vp8_change_config later resets baseline_gf_interval to DEFAULT_GF_INTERVAL
+// for non-realtime modes (line ~1542) and only re-arms the
+// gf_interval_onepass_cbr value for realtime CBR (line ~1547). vpxenc invokes
+// vp8_change_config after vp8_create_compressor, so the effective value at
+// first-keyframe time is:
+//   - realtime CBR: gf_interval_onepass_cbr (cyclic-refresh derived, [6,40])
+//   - good/best quality CBR: DEFAULT_GF_INTERVAL == 7
+//   - non-CBR: DEFAULT_GF_INTERVAL == 7
+func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
+	if e.opts.Deadline == DeadlineRealtime && e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
+		return e.goldenFrameCBRInterval(rows, cols)
+	}
+	return libvpxDefaultGFInterval
 }
 
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
