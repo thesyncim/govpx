@@ -54,22 +54,22 @@ type frameInterRefState struct {
 	// Cached bounds limits used by imageHasReferenceBlock. These are
 	// constant per-reference and per-plane so we evaluate them once
 	// and re-use across all 3600 macroblocks of a 720p frame.
-	yMaxRowFor16   int // codedHeight + yBorder - 16
-	yMaxColFor16   int // codedWidth  + yBorder - 16
-	yMaxRowFor21   int // codedHeight + yBorder - 21
-	yMaxColFor21   int // codedWidth  + yBorder - 21
-	yMaxRowFor17   int // codedHeight + yBorder - 17 (bilinear)
-	yMaxColFor17   int // codedWidth  + yBorder - 17 (bilinear)
-	yMinRow        int // -yBorder
-	yMinCol        int // -yBorder
-	uvMaxRowFor8   int
-	uvMaxColFor8   int
-	uvMaxRowFor13  int
-	uvMaxColFor13  int
-	uvMaxRowFor9   int
-	uvMaxColFor9   int
-	uvMinRow       int
-	uvMinCol       int
+	yMaxRowFor16  int // codedHeight + yBorder - 16
+	yMaxColFor16  int // codedWidth  + yBorder - 16
+	yMaxRowFor21  int // codedHeight + yBorder - 21
+	yMaxColFor21  int // codedWidth  + yBorder - 21
+	yMaxRowFor17  int // codedHeight + yBorder - 17 (bilinear)
+	yMaxColFor17  int // codedWidth  + yBorder - 17 (bilinear)
+	yMinRow       int // -yBorder
+	yMinCol       int // -yBorder
+	uvMaxRowFor8  int
+	uvMaxColFor8  int
+	uvMaxRowFor13 int
+	uvMaxColFor13 int
+	uvMaxRowFor9  int
+	uvMaxColFor9  int
+	uvMinRow      int
+	uvMinCol      int
 
 	useBilinear bool
 	fullPixel   bool
@@ -288,4 +288,3 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
 	return true
 }
-
