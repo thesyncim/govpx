@@ -1,0 +1,28 @@
+{
+  "fixtures": {
+    "good-cpu3-vbr": {
+      "mode_match_pct": 97.32142857142857,
+      "ref_frame_match_pct": 100,
+      "mv_match_pct": 100,
+      "skip_match_pct": 100,
+      "segment_id_match_pct": 100,
+      "eob_sum_match_pct": 20.535714285714285
+    },
+    "rt-cpu0-cbr": {
+      "mode_match_pct": 99.10714285714286,
+      "ref_frame_match_pct": 100,
+      "mv_match_pct": 99.10714285714286,
+      "skip_match_pct": 100,
+      "segment_id_match_pct": 100,
+      "eob_sum_match_pct": 22.321428571428573
+    },
+    "rt-cpu8-cbr": {
+      "mode_match_pct": 99.10714285714286,
+      "ref_frame_match_pct": 100,
+      "mv_match_pct": 99.10714285714286,
+      "skip_match_pct": 100,
+      "segment_id_match_pct": 100,
+      "eob_sum_match_pct": 22.321428571428573
+    }
+  }
+}
