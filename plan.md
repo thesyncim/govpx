@@ -44,7 +44,19 @@ lives in [Makefile](Makefile).
   quality/rate-control tuning parity is still open. Current estimate is roughly
   74% overall encoder parity, or about 84% on the core one-pass quality path;
   these are quality/rate-equivalence estimates, not bit-exactness percentages.
-  See the detailed checklist for caveats.
+  See the detailed checklist for caveats. The May 2026 survey under
+  `docs/vp8_encoder_parity.md` "Quality Gap Ledger" pinned the next concrete
+  gap: the production decision trace projection drops the per-frame
+  `y_adler32`/`u_adler32`/`v_adler32` columns, and a govpx-vs-vpxenc-oracle
+  comparison on a 64x64 realtime CBR panning fixture shows reconstruction
+  divergence from the keyframe onward (frame 0 govpx `y_adler32=3990355763`
+  vs libvpx `3046244131`, ~8% keyframe size delta) at the same final Q. This
+  divergence then propagates into frame 1's LAST reference and explains the
+  realtime fast-picker `MB(0,1)` candidate-pruning desync (NEAREST best score
+  26138 vs 28738 -> `TM_PRED` threshold gate flips). Closing this requires
+  per-MB qcoeff/EOB comparison on the panning corpus to localize the driver
+  (dequant rounding vs token quant policy vs mode-decision tie-breaks), then
+  aligning the offending stage.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
