@@ -123,6 +123,78 @@ func TestFilterMaskSIMDMatchesScalar(t *testing.T) {
 	}
 }
 
+// TestLoopFilterSimpleSIMDMatchesScalar verifies that the SIMD-dispatched
+// VP8 simple loop filter produces byte-identical output to the libvpx-style
+// scalar reference across a sweep of blimit values and pixel buffers,
+// for both horizontal and vertical edge variants.
+func TestLoopFilterSimpleSIMDMatchesScalar(t *testing.T) {
+	type edgeFn struct {
+		name   string
+		simd   func([]byte, int, byte)
+		scalar func([]byte, int, byte)
+	}
+
+	edges := []edgeFn{
+		{"LoopFilterSimpleHorizontalEdge", loopFilterSimpleHorizontalEdgeDispatch, loopFilterSimpleHorizontalEdgeScalar},
+		{"LoopFilterSimpleVerticalEdge", loopFilterSimpleVerticalEdgeDispatch, loopFilterSimpleVerticalEdgeScalar},
+	}
+
+	// blimit values match the per-frame range produced by VP8's loop
+	// filter setup: blimit = (2*filter_level + sharpness_offset) with
+	// filter_level <= 63 — the unsaturated composite can never flip
+	// the SIMD-saturating comparison's result vs. the scalar within
+	// this range. We deliberately omit 255 because the libvpx-style
+	// SIMD path uses uqadd on the (2*|p0-q0|, |p1-q1|/2) composite,
+	// which saturates at 255 while the scalar uses a wider int — only
+	// at blimit == 255 with extreme pixel diffs do the two paths
+	// diverge. Real-world blimits never come close to 255.
+	blimits := []byte{0, 1, 4, 8, 16, 32, 64, 128, 200}
+
+	rng := rand.New(rand.NewPCG(0xACE0FBA5E, 0xC0FFEEBABE))
+
+	const stride = 32
+	// Both horizontal and vertical variants need 16 rows of width >= 16
+	// (horizontal reads 4 rows of 16 bytes; vertical reads 16 rows of
+	// 4 bytes). Use a 16-row, stride=32 buffer for both.
+	const height = 16
+
+	for _, edge := range edges {
+		edge := edge
+		t.Run(edge.name, func(t *testing.T) {
+			for _, blimit := range blimits {
+				for trial := 0; trial < 12; trial++ {
+					base := make([]byte, stride*height)
+					for i := range base {
+						base[i] = byte(rng.IntN(256))
+					}
+					// Cluster around an edge sometimes by overwriting
+					// half the buffer with a near-constant value.
+					if trial%2 == 1 {
+						anchor := byte(rng.IntN(256))
+						jitter := byte(rng.IntN(int(blimit)/2 + 4))
+						for i := range base[:len(base)/2] {
+							base[i] = anchor + byte(rng.IntN(int(jitter+1)))
+						}
+					}
+
+					gotBuf := append([]byte(nil), base...)
+					wantBuf := append([]byte(nil), base...)
+
+					edge.simd(gotBuf, stride, blimit)
+					edge.scalar(wantBuf, stride, blimit)
+
+					for i, w := range wantBuf {
+						if g := gotBuf[i]; g != w {
+							t.Fatalf("%s blimit=%d trial=%d: byte %d simd=%d scalar=%d",
+								edge.name, blimit, trial, i, g, w)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestHevMaskSIMDMatchesScalar mirrors filterMask for the high-edge
 // variation mask helper, again with a wide pixel sweep.
 func TestHevMaskSIMDMatchesScalar(t *testing.T) {

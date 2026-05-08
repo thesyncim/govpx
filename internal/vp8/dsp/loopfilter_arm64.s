@@ -683,3 +683,170 @@ TEXT ·mbLoopFilterEdgeV16NEON(SB), NOSPLIT, $0-19
 	WORD	$0xfc286940                 // str	d0, [x10, x8]
 
 	RET
+
+// loopFilterSimpleEdgeH16NEON ABI ($0-17, no stack):
+//   src+0(FP)     *byte (points at p1 row, 16 contiguous bytes)
+//   pitch+8(FP)   int
+//   blimit+16(FP) byte
+//
+// Mirror of libvpx vp8_loop_filter_simple_horizontal_edge_neon. Reads
+// p1 (row0), p0 (row1), q0 (row2), q1 (row3) at +pitch increments and
+// writes p0 and q0 back. Encodings produced by clang -O3 -mcpu=apple-m4
+// from a hand-written intrinsics translation.
+TEXT ·loopFilterSimpleEdgeH16NEON(SB), NOSPLIT, $0-17
+	MOVD	src+0(FP), R0
+	MOVD	pitch+8(FP), R1
+	MOVBU	blimit+16(FP), R2
+
+	WORD	$0x4e010c40                 // dup.16b v0, w2
+	WORD	$0x3dc00001                 // ldr q1, [x0]
+	WORD	$0x93407c28                 // sxtw x8, w1
+	WORD	$0x3ce86802                 // ldr q2, [x0, x8]
+	WORD	$0x937f7c29                 // sbfiz x9, x1, #1, #32
+	WORD	$0x3ce96803                 // ldr q3, [x0, x9]
+	WORD	$0x8b08012a                 // add x10, x9, x8
+	WORD	$0x3cea6804                 // ldr q4, [x0, x10]
+	WORD	$0x6e237445                 // uabd.16b v5, v2, v3
+	WORD	$0x6e247426                 // uabd.16b v6, v1, v4
+	WORD	$0x6e250ca5                 // uqadd.16b v5, v5, v5
+	WORD	$0x6f0f04c6                 // ushr.16b v6, v6, #0x1
+	WORD	$0x6e260ca5                 // uqadd.16b v5, v5, v6
+	WORD	$0x4f04e406                 // movi.16b v6, #0x80
+	WORD	$0x6e261c21                 // eor.16b v1, v1, v6
+	WORD	$0x6e261c42                 // eor.16b v2, v2, v6
+	WORD	$0x6e261c63                 // eor.16b v3, v3, v6
+	WORD	$0x6e261c84                 // eor.16b v4, v4, v6
+	WORD	$0x0f00e467                 // movi.8b v7, #0x3
+	WORD	$0x0e27c070                 // smull.8h v16, v3, v7
+	WORD	$0x0e27a050                 // smlsl.8h v16, v2, v7
+	WORD	$0x4f00e467                 // movi.16b v7, #0x3
+	WORD	$0x4e27c071                 // smull2.8h v17, v3, v7
+	WORD	$0x4e27a051                 // smlsl2.8h v17, v2, v7
+	WORD	$0x4e242c21                 // sqsub.16b v1, v1, v4
+	WORD	$0x0e211204                 // saddw.8h v4, v16, v1
+	WORD	$0x4e211221                 // saddw2.8h v1, v17, v1
+	WORD	$0x0e214884                 // sqxtn.8b v4, v4
+	WORD	$0x4e214824                 // sqxtn2.16b v4, v1
+	WORD	$0x6e253c00                 // cmhs.16b v0, v0, v5
+	WORD	$0x4e241c00                 // and.16b v0, v0, v4
+	WORD	$0x4f00e481                 // movi.16b v1, #0x4
+	WORD	$0x4e210c01                 // sqadd.16b v1, v0, v1
+	WORD	$0x4f0d0421                 // sshr.16b v1, v1, #0x3
+	WORD	$0x4e270c00                 // sqadd.16b v0, v0, v7
+	WORD	$0x4f0d0400                 // sshr.16b v0, v0, #0x3
+	WORD	$0x4e200c40                 // sqadd.16b v0, v2, v0
+	WORD	$0x4e212c61                 // sqsub.16b v1, v3, v1
+	WORD	$0x6e261c00                 // eor.16b v0, v0, v6
+	WORD	$0x6e261c21                 // eor.16b v1, v1, v6
+	WORD	$0x3ca86800                 // str q0, [x0, x8]   ; p0
+	WORD	$0x3ca96801                 // str q1, [x0, x9]   ; q0
+
+	RET
+
+// loopFilterSimpleEdgeV16NEON ABI ($0-17, no stack):
+//   src+0(FP)     *byte (points at q0 column of row 0)
+//   pitch+8(FP)   int
+//   blimit+16(FP) byte
+//
+// Mirror of libvpx vp8_loop_filter_simple_vertical_edge_neon. Loads 4
+// bytes (p1,p0,q0,q1) per row at src-2 across 16 rows via VLD4, applies
+// the same kernel as the horizontal variant, and writes 2 modified
+// bytes (p0,q0) per row at src-1 across 16 rows via VST2. Encodings
+// produced by clang -O3 -mcpu=apple-m4 from a hand-written intrinsics
+// translation.
+TEXT ·loopFilterSimpleEdgeV16NEON(SB), NOSPLIT, $0-17
+	MOVD	src+0(FP), R0
+	MOVD	pitch+8(FP), R1
+	MOVBU	blimit+16(FP), R2
+
+	WORD	$0xd1000809                 // sub x9, x0, #0x2
+	WORD	$0x6f00e400                 // movi.2d v0, #0
+	WORD	$0x4ea01c01                 // mov.16b v1, v0
+	WORD	$0x4ea01c02                 // mov.16b v2, v0
+	WORD	$0x4ea01c03                 // mov.16b v3, v0
+	WORD	$0x93407c28                 // sxtw x8, w1
+	WORD	$0x4ea01c04                 // mov.16b v4, v0
+	WORD	$0x4ea11c25                 // mov.16b v5, v1
+	WORD	$0x4ea21c46                 // mov.16b v6, v2
+	WORD	$0x4ea31c67                 // mov.16b v7, v3
+	WORD	$0x0de82124                 // ld4.b { v4-v7 }[0], [x9], x8
+	WORD	$0x0de82524                 // ld4.b { v4-v7 }[1], [x9], x8
+	WORD	$0x0de82924                 // ld4.b { v4-v7 }[2], [x9], x8
+	WORD	$0x0de82d24                 // ld4.b { v4-v7 }[3], [x9], x8
+	WORD	$0x0de83124                 // ld4.b { v4-v7 }[4], [x9], x8
+	WORD	$0x0de83524                 // ld4.b { v4-v7 }[5], [x9], x8
+	WORD	$0x0de83924                 // ld4.b { v4-v7 }[6], [x9], x8
+	WORD	$0x0de83d24                 // ld4.b { v4-v7 }[7], [x9], x8
+	WORD	$0x0de82120                 // ld4.b { v0-v3 }[0], [x9], x8
+	WORD	$0x0de82520                 // ld4.b { v0-v3 }[1], [x9], x8
+	WORD	$0x0de82920                 // ld4.b { v0-v3 }[2], [x9], x8
+	WORD	$0x0de82d20                 // ld4.b { v0-v3 }[3], [x9], x8
+	WORD	$0x0de83120                 // ld4.b { v0-v3 }[4], [x9], x8
+	WORD	$0x0de83520                 // ld4.b { v0-v3 }[5], [x9], x8
+	WORD	$0x0de83920                 // ld4.b { v0-v3 }[6], [x9], x8
+	WORD	$0x0d603d20                 // ld4.b { v0-v3 }[7], [x9]
+	WORD	$0x4e010c50                 // dup.16b v16, w2
+	WORD	$0x6e180404                 // mov.d v4[1], v0[0]
+	WORD	$0x4ea51cb1                 // mov.16b v17, v5
+	WORD	$0x6e180431                 // mov.d v17[1], v1[0]
+	WORD	$0x4ea61cd2                 // mov.16b v18, v6
+	WORD	$0x6e180452                 // mov.d v18[1], v2[0]
+	WORD	$0x6e180467                 // mov.d v7[1], v3[0]
+	WORD	$0x6e327633                 // uabd.16b v19, v17, v18
+	WORD	$0x6e277494                 // uabd.16b v20, v4, v7
+	WORD	$0x6e330e73                 // uqadd.16b v19, v19, v19
+	WORD	$0x6f0f0694                 // ushr.16b v20, v20, #0x1
+	WORD	$0x6e340e73                 // uqadd.16b v19, v19, v20
+	WORD	$0x4f04e414                 // movi.16b v20, #0x80
+	WORD	$0x6e341c95                 // eor.16b v21, v4, v20
+	WORD	$0x6e341e31                 // eor.16b v17, v17, v20
+	WORD	$0x6e341e52                 // eor.16b v18, v18, v20
+	WORD	$0x6e341cf6                 // eor.16b v22, v7, v20
+	WORD	$0x0f04e417                 // movi.8b v23, #0x80
+	WORD	$0x2e371cd8                 // eor.8b v24, v6, v23
+	WORD	$0x2e371ca4                 // eor.8b v4, v5, v23
+	WORD	$0x2e371c45                 // eor.8b v5, v2, v23
+	WORD	$0x2e371c20                 // eor.8b v0, v1, v23
+	WORD	$0x0f00e461                 // movi.8b v1, #0x3
+	WORD	$0x0e21c302                 // smull.8h v2, v24, v1
+	WORD	$0x0e21a082                 // smlsl.8h v2, v4, v1
+	WORD	$0x0e21c0a3                 // smull.8h v3, v5, v1
+	WORD	$0x0e21a003                 // smlsl.8h v3, v0, v1
+	WORD	$0x4e362ea0                 // sqsub.16b v0, v21, v22
+	WORD	$0x0e201041                 // saddw.8h v1, v2, v0
+	WORD	$0x4e201060                 // saddw2.8h v0, v3, v0
+	WORD	$0x0e214821                 // sqxtn.8b v1, v1
+	WORD	$0x4e214801                 // sqxtn2.16b v1, v0
+	WORD	$0x6e333e00                 // cmhs.16b v0, v16, v19
+	WORD	$0x4e211c00                 // and.16b v0, v0, v1
+	WORD	$0x4f00e481                 // movi.16b v1, #0x4
+	WORD	$0x4e210c01                 // sqadd.16b v1, v0, v1
+	WORD	$0x4f0d0421                 // sshr.16b v1, v1, #0x3
+	WORD	$0x4f00e462                 // movi.16b v2, #0x3
+	WORD	$0x4e220c00                 // sqadd.16b v0, v0, v2
+	WORD	$0x4f0d0400                 // sshr.16b v0, v0, #0x3
+	WORD	$0x4e200e20                 // sqadd.16b v0, v17, v0
+	WORD	$0x4e212e41                 // sqsub.16b v1, v18, v1
+	WORD	$0x6e341c02                 // eor.16b v2, v0, v20
+	WORD	$0x6e341c23                 // eor.16b v3, v1, v20
+	WORD	$0x6e024040                 // ext.16b v0, v2, v2, #0x8
+	WORD	$0x6e034061                 // ext.16b v1, v3, v3, #0x8
+	WORD	$0xd1000409                 // sub x9, x0, #0x1
+	WORD	$0x0da80122                 // st2.b { v2, v3 }[0], [x9], x8
+	WORD	$0x0da80522                 // st2.b { v2, v3 }[1], [x9], x8
+	WORD	$0x0da80922                 // st2.b { v2, v3 }[2], [x9], x8
+	WORD	$0x0da80d22                 // st2.b { v2, v3 }[3], [x9], x8
+	WORD	$0x0da81122                 // st2.b { v2, v3 }[4], [x9], x8
+	WORD	$0x0da81522                 // st2.b { v2, v3 }[5], [x9], x8
+	WORD	$0x0da81922                 // st2.b { v2, v3 }[6], [x9], x8
+	WORD	$0x0da81d22                 // st2.b { v2, v3 }[7], [x9], x8
+	WORD	$0x0da80120                 // st2.b { v0, v1 }[0], [x9], x8
+	WORD	$0x0da80520                 // st2.b { v0, v1 }[1], [x9], x8
+	WORD	$0x0da80920                 // st2.b { v0, v1 }[2], [x9], x8
+	WORD	$0x0da80d20                 // st2.b { v0, v1 }[3], [x9], x8
+	WORD	$0x0da81120                 // st2.b { v0, v1 }[4], [x9], x8
+	WORD	$0x0da81520                 // st2.b { v0, v1 }[5], [x9], x8
+	WORD	$0x0da81920                 // st2.b { v0, v1 }[6], [x9], x8
+	WORD	$0x0d201d20                 // st2.b { v0, v1 }[7], [x9]
+
+	RET
