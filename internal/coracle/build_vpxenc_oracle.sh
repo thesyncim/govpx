@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-drop-frames-predictor-allrows-v1
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-lf-trial-full-v1
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1157,6 +1157,36 @@ void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
     fprintf(out, "\"}\n");
     fflush(out);
 }
+
+/* Emit a single per-trial-level row from vp8cx_pick_filter_level_fast. The
+ * row records (frame_index, trial_level, trial_y_sse) so the govpx-side
+ * picker can be diffed level-by-level. Phase indicates which call site
+ * inside the picker emitted the row: "seed" for the initial cm->filter_level
+ * scoring, "down" for the decreasing-level loop, "up" for the increasing-
+ * level loop. The emitted frame_index intentionally matches the *upcoming*
+ * frame's index (i.e. govpx_oracle_state.frame_index is incremented after
+ * govpx_oracle_emit_frame, so the picker call for frame N sees N). */
+void govpx_oracle_emit_lf_trial(struct VP8_COMP *cpi, const char *phase,
+                                int trial_level, int trial_y_sse) {
+    FILE *out;
+    (void)cpi;
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"lf_trial\","
+            "\"frame_index\":%llu,"
+            "\"phase\":\"%s\","
+            "\"trial_level\":%d,"
+            "\"trial_y_sse\":%d}\n",
+            govpx_oracle_state.frame_index,
+            phase != NULL ? phase : "",
+            trial_level,
+            trial_y_sse);
+    fflush(out);
+}
 GOVPX_ORACLE_TU
 
 	# (2) Add extern declarations + the per-MB capture call to encodeframe.c.
@@ -1695,6 +1725,130 @@ text = text.replace(emit_anchor, emit_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_PICKINTER_PY
+
+	# (3.8) Instrument vp8cx_pick_filter_level_fast in picklpf.c so each
+	# evaluated trial filter level emits a {"type":"lf_trial",...} row. Three
+	# anchor sites: the seed scoring, the decreasing-level loop body, and the
+	# increasing-level loop body. Each row records the trial level and the
+	# calc_partial_ssl_err result, which lets the govpx-side picker be diffed
+	# level-by-level. This localizes a divergence in either the LF function
+	# applied to the trial buffer (different filter math) or the partial-SSE
+	# region (different rows sampled).
+	python3 - "$src_dir/vp8/encoder/picklpf.c" <<'GOVPX_PICKLPF_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: lf-trial emit hook. */'
+if sentinel in text:
+    sys.exit(0)  # already patched
+# Anchor 1: extern decl just before vp8cx_pick_filter_level_fast.
+extern_anchor = 'void vp8cx_pick_filter_level_fast(YV12_BUFFER_CONFIG *sd, VP8_COMP *cpi) {\n'
+extern_decl = ('extern void govpx_oracle_emit_lf_trial(struct VP8_COMP *cpi,\n'
+               '                                       const char *phase,\n'
+               '                                       int trial_level,\n'
+               '                                       int trial_y_sse);\n\n')
+if extern_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf extern anchor missing\n')
+    sys.exit(2)
+text = text.replace(extern_anchor, extern_decl + extern_anchor, 1)
+# Anchor 2: seed scoring. Emit immediately after the initial best_err is set.
+seed_anchor = ('  best_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
+               '\n'
+               '  filt_val -= 1 + (filt_val > 10);\n')
+seed_replacement = ('  best_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
+                    '  ' + sentinel + '\n'
+                    '  govpx_oracle_emit_lf_trial(cpi, "seed", filt_val, best_err);\n'
+                    '\n'
+                    '  filt_val -= 1 + (filt_val > 10);\n')
+if seed_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf seed anchor missing\n')
+    sys.exit(2)
+text = text.replace(seed_anchor, seed_replacement, 1)
+# Anchor 3: decreasing-level loop. Emit just after calc_partial_ssl_err.
+down_anchor = ('  /* Search lower filter levels */\n'
+               '  while (filt_val >= min_filter_level) {\n'
+               '    /* Apply the loop filter */\n'
+               '    yv12_copy_partial_frame(saved_frame, cm->frame_to_show);\n'
+               '    vp8_loop_filter_partial_frame(cm, &cpi->mb.e_mbd, filt_val);\n'
+               '\n'
+               '    /* Get the err for filtered frame */\n'
+               '    filt_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n')
+down_replacement = ('  /* Search lower filter levels */\n'
+                    '  while (filt_val >= min_filter_level) {\n'
+                    '    /* Apply the loop filter */\n'
+                    '    yv12_copy_partial_frame(saved_frame, cm->frame_to_show);\n'
+                    '    vp8_loop_filter_partial_frame(cm, &cpi->mb.e_mbd, filt_val);\n'
+                    '\n'
+                    '    /* Get the err for filtered frame */\n'
+                    '    filt_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
+                    '    govpx_oracle_emit_lf_trial(cpi, "down", filt_val, filt_err);\n')
+if down_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf down anchor missing\n')
+    sys.exit(2)
+text = text.replace(down_anchor, down_replacement, 1)
+# Anchor 4: increasing-level loop body.
+up_anchor = ('    while (filt_val < max_filter_level) {\n'
+             '      /* Apply the loop filter */\n'
+             '      yv12_copy_partial_frame(saved_frame, cm->frame_to_show);\n'
+             '\n'
+             '      vp8_loop_filter_partial_frame(cm, &cpi->mb.e_mbd, filt_val);\n'
+             '\n'
+             '      /* Get the err for filtered frame */\n'
+             '      filt_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n')
+up_replacement = ('    while (filt_val < max_filter_level) {\n'
+                  '      /* Apply the loop filter */\n'
+                  '      yv12_copy_partial_frame(saved_frame, cm->frame_to_show);\n'
+                  '\n'
+                  '      vp8_loop_filter_partial_frame(cm, &cpi->mb.e_mbd, filt_val);\n'
+                  '\n'
+                  '      /* Get the err for filtered frame */\n'
+                  '      filt_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
+                  '      govpx_oracle_emit_lf_trial(cpi, "up", filt_val, filt_err);\n')
+if up_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf up anchor missing\n')
+    sys.exit(2)
+text = text.replace(up_anchor, up_replacement, 1)
+# Anchor 5: the full picker vp8cx_pick_filter_level emits "full" rows after
+# each vp8_calc_ss_err call. Three call sites: the baseline filt_mid score,
+# the filt_low loop-body score, and the filt_high loop-body score. Each is
+# uniquely identifiable by the surrounding context.
+full_seed_anchor = ('  best_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                    '\n'
+                    '  ss_err[filt_mid] = best_err;\n'
+                    '\n'
+                    '  filt_best = filt_mid;\n')
+full_seed_replacement = ('  best_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                         '  govpx_oracle_emit_lf_trial(cpi, "full", filt_mid, best_err);\n'
+                         '\n'
+                         '  ss_err[filt_mid] = best_err;\n'
+                         '\n'
+                         '  filt_best = filt_mid;\n')
+if full_seed_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf full-seed anchor missing\n')
+    sys.exit(2)
+text = text.replace(full_seed_anchor, full_seed_replacement, 1)
+full_low_anchor = ('        filt_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                   '        ss_err[filt_low] = filt_err;\n')
+full_low_replacement = ('        filt_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                        '        govpx_oracle_emit_lf_trial(cpi, "full", filt_low, filt_err);\n'
+                        '        ss_err[filt_low] = filt_err;\n')
+if full_low_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf full-low anchor missing\n')
+    sys.exit(2)
+text = text.replace(full_low_anchor, full_low_replacement, 1)
+full_high_anchor = ('        filt_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                    '        ss_err[filt_high] = filt_err;\n')
+full_high_replacement = ('        filt_err = vp8_calc_ss_err(sd, cm->frame_to_show);\n'
+                         '        govpx_oracle_emit_lf_trial(cpi, "full", filt_high, filt_err);\n'
+                         '        ss_err[filt_high] = filt_err;\n')
+if full_high_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: picklpf full-high anchor missing\n')
+    sys.exit(2)
+text = text.replace(full_high_anchor, full_high_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_PICKLPF_PY
 
 	# (4) Wire the new TU into the makefile.
 	if ! grep -q 'encoder/oracle_trace\.c' "$src_dir/vp8/vp8cx.mk"; then
