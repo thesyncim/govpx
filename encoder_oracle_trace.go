@@ -255,6 +255,23 @@ type oracleTraceLastRefWindowRow struct {
 	Hex        string `json:"hex"`
 }
 
+// oracleTraceLFTrialRow records a single per-trial-level evaluation inside
+// the fast loop-filter picker (pickLoopFilterLevelFast). Each row carries
+// the trial filter level and the resulting partial-frame Y SSE as scored
+// by loopFilterTrialLumaSSE. The libvpx-side oracle patch in
+// internal/coracle/build_vpxenc_oracle.sh emits the matching
+// {"type":"lf_trial",...} rows from vp8cx_pick_filter_level_fast after
+// each calc_partial_ssl_err call. Phase mirrors the libvpx call site and
+// is one of "seed", "down", "up". FrameIndex uses the upcoming frame's
+// index so the picker call for frame N reports N.
+type oracleTraceLFTrialRow struct {
+	Type       string `json:"type"`
+	FrameIndex uint64 `json:"frame_index"`
+	Phase      string `json:"phase"`
+	TrialLevel int    `json:"trial_level"`
+	TrialYSSE  int    `json:"trial_y_sse"`
+}
+
 type oracleTraceInterCandidateRow struct {
 	Type       string `json:"type"`
 	FrameIndex uint64 `json:"frame_index"`
@@ -913,6 +930,27 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 			eob[js] = 1
 		}
 	}
+}
+
+// emitOracleLFTrial writes a single per-trial-level row for the fast
+// loop-filter picker. Each call corresponds to one libvpx-side
+// calc_partial_ssl_err invocation inside vp8cx_pick_filter_level_fast,
+// at one of three phases: "seed" (initial cm->filter_level scoring),
+// "down" (decreasing-level loop body), "up" (increasing-level loop
+// body). The libvpx-side oracle patch in
+// internal/coracle/build_vpxenc_oracle.sh emits the matching row from
+// govpx_oracle_emit_lf_trial after each calc_partial_ssl_err call.
+func (e *VP8Encoder) emitOracleLFTrial(phase string, trialLevel int, trialYSSE int) {
+	if !e.oracleTraceEnabled() {
+		return
+	}
+	emitOracleTraceRow(e.opts.OracleTraceWriter, &oracleTraceLFTrialRow{
+		Type:       "lf_trial",
+		FrameIndex: e.frameCount,
+		Phase:      phase,
+		TrialLevel: trialLevel,
+		TrialYSSE:  trialYSSE,
+	})
 }
 
 // emitOracleInterPredictorTrace writes "predictor" rows for the supplied
