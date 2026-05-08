@@ -2,18 +2,24 @@
 
 package dsp
 
-// IDCT dispatch on amd64. The 4x4 IDCT and DC-only fast path currently
-// fall through to the scalar reference; the libvpx v1.16.0 SSE2 IDCT
-// (vp8/common/x86/idctllm_sse2.asm) operates on pairs of blocks
-// (idct_dequant_*_2x_sse2) and adapting to govpx's single-block API isn't
-// a meaningful win compared to the cost of the port. The hot paths on
-// amd64 are FastQuantizeBlock and ForwardDCT4x4 which receive SSE2 ports
-// in their respective package files.
+// SSE2 ports of libvpx v1.16.0 vp8/common/idctllm.c
+// (vp8_short_idct4x4llm_c) and the DC-only fast path. The libvpx SSE2
+// reference processes pairs of blocks (vp8_idct_dequant_full_2x_sse2
+// in vp8/common/x86/idctllm_sse2.asm); we mirror its butterfly +
+// PMULHW MAC approach but on a single block, matching govpx's
+// per-block API. Output is byte-identical to the scalar reference for
+// VP8 coefficient ranges.
+
+//go:noescape
+func idct4x4AddSSE2(input *int16, pred *byte, predStride int, dst *byte, dstStride int)
+
+//go:noescape
+func dcOnlyIDCT4x4AddSSE2(inputDC int16, pred *byte, predStride int, dst *byte, dstStride int)
 
 func idct4x4AddSIMD(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
-	idct4x4AddScalar(input, pred, predStride, dst, dstStride)
+	idct4x4AddSSE2(&input[0], &pred[0], predStride, &dst[0], dstStride)
 }
 
 func dcOnlyIDCT4x4AddSIMD(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
-	dcOnlyIDCT4x4AddScalar(inputDC, pred, predStride, dst, dstStride)
+	dcOnlyIDCT4x4AddSSE2(inputDC, &pred[0], predStride, &dst[0], dstStride)
 }
