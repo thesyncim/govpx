@@ -400,6 +400,14 @@ type VP8Encoder struct {
 	lastFrameInterModesValid bool
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
 	tokenAbove               []vp8enc.TokenContextPlanes
+	// reconstructAboveTok is a per-frame scratch buffer reused by the
+	// reconstructing key-frame and inter-frame builders to track each row's
+	// above-token context without allocating per call. Sized by
+	// NewVP8Encoder to encoderMacroblockCols(width) and zeroed at the start
+	// of every reconstruction pass. Distinct from tokenAbove to avoid
+	// aliasing with the bitstream-pack stage that consumes tokenAbove
+	// downstream of the build.
+	reconstructAboveTok []vp8enc.TokenContextPlanes
 
 	interRDThreshMult       [libvpxInterModeCount]int
 	interRDThreshTouched    [libvpxInterModeCount]bool
@@ -654,6 +662,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		lastFrameInterModeBias:  make([]bool, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
+		reconstructAboveTok:     make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
 
 		reconstructModes:   make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
 		reconstructTokens:  make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),

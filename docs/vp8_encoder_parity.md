@@ -1638,7 +1638,22 @@ the anchor and look for the surrounding mismatch.
 
 ## Temporal, Speed, And Packetization
 
-- [ ] Audit temporal-layer parity end-to-end.
+- [~] Audit temporal-layer parity end-to-end.
+  - Status: partial. The new `TestOracleTemporalSVCParity` scoreboard
+    (`oracle_temporal_svc_scoreboard_test.go` +
+    `testdata/temporal_svc_scoreboard_baseline.json`) drives a 3-layer
+    SVC pattern (`TemporalLayeringThreeLayers`, libvpx
+    `vpx_temporal_svc_encoder` `layering_mode=4`) on two panning fixtures
+    and pins govpx-vs-libvpx parity on per-frame layer ID, TL0PICIDX
+    progression, layer_sync flags, and refresh_last/golden/altref bits at
+    100% match (structural). Per-layer input/encoded/dropped frame
+    counts match libvpx exactly on the bootstrap baseline, and per-layer
+    rate adherence is captured (govpx layer-0 rate overshoots libvpx by
+    ~58pp on the lower-bitrate fixture; layer 2 is within 13pp). The
+    scoreboard gates are: pattern parity must remain at 100%, per-layer
+    dropped-frame parity within +/- 1, and govpx-vs-libvpx rate
+    mismatch delta must not drift more than 5pp from baseline.
+  - Test: TestOracleTemporalSVCParity
   - Done when layer pattern, flags, TL0PICIDX, sync flags, per-layer buffers,
     reference refresh/copy policy, per-layer rate targets, dropped-frame
     accounting, and subsequent mode decisions match libvpx on all exposed
