@@ -1909,6 +1909,31 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 	}
 }
 
+// selectFastInterFrameModeDecision mirrors libvpx vp8/encoder/pickinter.c
+// vp8_pick_inter_mode (the non-RD fast picker used by good-cpu>=4 and
+// realtime). The fast picker scores each mode_index candidate by
+// `RDCOST(rdmult, rddiv, rate2, distortion2)` where distortion2 is
+// `vpx_variance16x16(src, predictor)` — pixel-domain variance of the
+// motion-compensated residual.
+//
+// PIN: 1 inter MB in TestOracleEncoderQHistogramScoreboard's
+// good-cpu5-128x128 fixture (frame 5 MB(0,7)) picks NEWMV/GOLDEN_FRAME
+// at MV(-120,-76) here while libvpx picks B_PRED at the same MB. Both
+// pickers find the same NEWMV(GOLDEN, -120, -76) candidate (MB(0,7) is
+// the top-right corner so the search hits a flat UMV-extension region
+// with low variance), but their B_PRED-vs-NEWMV scoring diverges. This
+// 1 MB ref-frame mismatch propagates: the divergent ref-frame counts
+// flow into `prob_intra_coded`/`prob_gf_coded`/`prob_last_coded` after
+// frame 5, which shifts entropy-savings projection and rate-correction
+// factor for frames 5-7. By frame 7 the regulator picks Q=13 here vs
+// Q=12 in libvpx (hist_l1=2 in q_histogram_baseline.json). The other
+// 7 fixtures in that scoreboard sit at hist_l1=0, so the fast-picker
+// scoring divergence is localized to good-cpu5 + 128x128 + this one
+// edge-corner MB. Closing the residual would require either
+//  1. lining up the fast-picker's B_PRED-vs-NEWMV RDCOST tiebreak with
+//     libvpx for this corner case, or
+//  2. rejecting NEWMV candidates whose subpel predictor lands in the
+//     UMV extension region at the top-right corner.
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
@@ -6149,6 +6174,29 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		// without changing any encode-path state. Stored separately
 		// because the bitstream and reconstruction must keep block 24
 		// empty for SPLITMV/B_PRED.
+		//
+		// PIN: 1 SPLITMV MB in TestOracleInterDecisionMatchRate's
+		// good-cpu3-vbr fixture (frame 7 MB(3,2)) emits eob[24]=15 here
+		// while libvpx emits eob[24]=16 (eob_sum 99.11% vs 100%). The
+		// other 5 SPLITMV MBs across that fixture all match. Why this
+		// path can't byte-match libvpx for every SPLITMV MB:
+		// libvpx's `xd->block[24].qcoeff/eobs[24]` at oracle-capture
+		// time (post-`vp8_inverse_transform_mby` skip for SPLITMV)
+		// reflects whatever the LAST 16x16 inter mode (NEAREST / NEAR /
+		// ZERO / NEW from rd_pick_inter_mode's mode_index 0..15) wrote
+		// via macro_block_yrd before the SPLITMV branch was tested.
+		// That mode's predictor used an MV that differs from SPLITMV's
+		// chosen MV in general, and macro_block_yrd's `zbin_mode_boost`
+		// also differed (MV_ZBIN_BOOST=4 for NEW/NEAR/NEAREST,
+		// LF_ZEROMV_ZBIN_BOOST=6 for ZEROMV(LAST), etc.) — so the Y2
+		// Walsh input AND the quantize zbin both diverge. govpx
+		// approximates this by reusing the chosen-SPLITMV per-block
+		// FDCT DCs and the SPLITMV `zbinModeBoost`(=0); the
+		// approximation matches libvpx whenever the SPLITMV per-block
+		// MVs collapse to the same MV the last 16x16 inter mode found,
+		// and diverges by 1 EOB scan position when they don't. Closing
+		// the residual to 100% would require tracking the actual last-
+		// tested 16x16 inter mode predictor through the picker.
 		var staleY2Coeff [16]int16
 		var staleY2Q [16]int16
 		var staleY2DQ [16]int16
