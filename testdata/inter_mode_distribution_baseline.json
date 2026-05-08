@@ -16,11 +16,11 @@
         "zeromv": 0,
         "nearestmv": -0.2232142857142776,
         "nearmv": 0,
-        "newmv": 0.2232142857142856,
-        "intra": 0
+        "newmv": 0,
+        "intra": 0.2232142857142856
       },
       "l1_pp": 0.4464285714285632,
-      "eob_sum_ratio": 0.9794642639122897
+      "eob_sum_ratio": 0.9891583034209948
     },
     "rt-cpu8-256x256-bench-noise": {
       "diff_pp": {
@@ -36,13 +36,13 @@
     "rt-cpu8-256x256-panning": {
       "diff_pp": {
         "zeromv": 0,
-        "nearestmv": 0.1116071428571388,
+        "nearestmv": 0,
         "nearmv": 0,
-        "newmv": -0.0558035714285714,
-        "intra": -0.05580357142857143
+        "newmv": 0,
+        "intra": 0
       },
-      "l1_pp": 0.22321428571428162,
-      "eob_sum_ratio": 0.9952543835320945
+      "l1_pp": 0,
+      "eob_sum_ratio": 0.999198792024899
     },
     "rt-cpu8-64x64-panning": {
       "diff_pp": {

@@ -158,7 +158,10 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 
 // TestPredictBestBPredLumaModeRDInterUsesDefaultBModeProbs confirms that
 // non-key-frame runs ignore neighbor B-modes (libvpx's `inter_bmode_costs`
-// path) and that bPredModeRate uses DefaultBModeProbs in that branch.
+// path) and that bPredModeRate uses DefaultBModeProbs in that branch. The
+// RD picker intentionally does NOT mirror libvpx's sub_mv_ref overwrite of
+// inter_bmode_costs[0..3] — see predictBestBPredLumaModeRD comment for the
+// good-cpu3-vbr SPLITMV regression that pinned this choice.
 func TestPredictBestBPredLumaModeRDInterUsesDefaultBModeProbs(t *testing.T) {
 	src := newIntra4x4PickerSource()
 	pred := newIntra4x4PickerPred(t)
