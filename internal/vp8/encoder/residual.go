@@ -1,6 +1,10 @@
 package encoder
 
-import "github.com/thesyncim/govpx/internal/vp8/common"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp8/common"
+)
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodeframe.c and
 // vp8/encoder/encodemb.c intra residual transform/quantization flow, limited
@@ -65,40 +69,80 @@ func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, delt
 }
 
 func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbCol int, quant *MacroblockQuant, coeffs *MacroblockCoefficients) {
-	var y2Input [16]int16
+	// Whole-MB transform/quantize pipeline mirroring libvpx v1.16.0
+	// vp8_transform_mb / vp8_quantize_mb call sequence: build the
+	// contiguous 24-block (16 Y + 8 UV) residual buffer, run the 4x4
+	// forward DCT batched across all 24 blocks, lift the 16 Y DCs
+	// into the Y2 block (with the Y AC slot zeroed), Walsh-transform
+	// Y2, and batch-quantize Y (Y1DC quant), Y2 (one block), and UV
+	// (UV quant) using the shared per-plane BlockQuant. Each batched
+	// dispatch amortizes the Go<->asm boundary that
+	// libvpx hides via short_fdct8x4 / vp8_quantize_mby.
+	var residuals [24 * 16]int16
+	var dct [25 * 16]int16
+	var dqAll [25 * 16]int16
+	var eobs [25]uint8
 	var y2Coeff [16]int16
-	var dq [16]int16
-	var input [16]int16
-	var dct [16]int16
-
-	for block := 0; block < 16; block++ {
-		x := mbCol*16 + (block&3)*4
-		y := mbRow*16 + (block>>2)*4
-		fillResidual4x4(src.Y, src.YStride, src.Width, src.Height, x, y, &input)
-		ForwardDCT4x4(input[:], 4, &dct)
-		y2Input[block] = dct[0]
-		dct[0] = 0
-		coeffs.SetBlockEOB(block, FastQuantizeBlock(&dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq))
-	}
-	ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
-	coeffs.SetBlockEOB(24, FastQuantizeBlock(&y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq))
+	var y2Input [16]int16
 
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
+	for block := 0; block < 16; block++ {
+		x := mbCol*16 + (block&3)*4
+		y := mbRow*16 + (block>>2)*4
+		fillResidual4x4Slice(src.Y, src.YStride, src.Width, src.Height, x, y, residuals[block*16:block*16+16])
+	}
 	for block := 0; block < 4; block++ {
 		x := mbCol*8 + (block&1)*4
 		y := mbRow*8 + (block>>1)*4
-		fillResidual4x4(src.U, src.UStride, uvWidth, uvHeight, x, y, &input)
-		ForwardDCT4x4(input[:], 4, &dct)
-		coeffs.SetBlockEOB(16+block, FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[16+block], &dq))
+		fillResidual4x4Slice(src.U, src.UStride, uvWidth, uvHeight, x, y, residuals[(16+block)*16:(16+block)*16+16])
+		fillResidual4x4Slice(src.V, src.VStride, uvWidth, uvHeight, x, y, residuals[(20+block)*16:(20+block)*16+16])
+	}
 
-		fillResidual4x4(src.V, src.VStride, uvWidth, uvHeight, x, y, &input)
-		ForwardDCT4x4(input[:], 4, &dct)
-		coeffs.SetBlockEOB(20+block, FastQuantizeBlock(&dct, &quant.UV, &coeffs.QCoeff[20+block], &dq))
+	// Single dispatched 24-block 4x4 forward DCT (Y0..Y15, U0..U3, V0..V3).
+	ForwardDCT4x4Batch(residuals[:], dct[:24*16], 24)
+
+	// Lift 16 Y DCs into the Y2 input, then zero the Y AC slot 0
+	// (matches libvpx's build_dcblock + the y_no_dc tokenize start).
+	for block := 0; block < 16; block++ {
+		y2Input[block] = dct[block*16]
+		dct[block*16] = 0
+	}
+	ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
+	copy(dct[24*16:], y2Coeff[:])
+
+	// QCoeff is [25][16]int16 — contiguous in memory. Re-view as a
+	// single [25*16]int16 so the batched fast-quantize writes the
+	// per-block qcoeffs directly into the MacroblockCoefficients layout.
+	qAll := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[0][0])), 25*16)
+	FastQuantizeBlockBatch(dct[:16*16], &quant.Y1DC, qAll[:16*16], dqAll[:16*16], eobs[:16], 16)
+	FastQuantizeBlockBatch(dct[16*16:24*16], &quant.UV, qAll[16*16:24*16], dqAll[16*16:24*16], eobs[16:24], 8)
+	FastQuantizeBlockBatch(dct[24*16:25*16], &quant.Y2, qAll[24*16:25*16], dqAll[24*16:25*16], eobs[24:25], 1)
+
+	// Commit per-block EOBs into the coefficient layout. Using the
+	// loop variable bound to 25 lets the Go compiler hoist the
+	// SetBlockEOB bounds checks (eob slice and EOB array share the
+	// same length).
+	for i := 0; i < 25; i++ {
+		coeffs.SetBlockEOB(i, int(eobs[i]))
 	}
 }
 
 func fillResidual4x4(plane []byte, stride int, width int, height int, x int, y int, out *[16]int16) {
+	for row := 0; row < 4; row++ {
+		sampleY := clampCoord(y+row, height)
+		for col := 0; col < 4; col++ {
+			sampleX := clampCoord(x+col, width)
+			out[row*4+col] = int16(int(plane[sampleY*stride+sampleX]) - 128)
+		}
+	}
+}
+
+// fillResidual4x4Slice mirrors fillResidual4x4 but writes into a
+// caller-supplied slice instead of a fixed-size [16]int16 array. Used
+// by the whole-MB residual builder so all 24 4x4 blocks land in one
+// contiguous buffer ready for ForwardDCT4x4Batch.
+func fillResidual4x4Slice(plane []byte, stride int, width int, height int, x int, y int, out []int16) {
 	for row := 0; row < 4; row++ {
 		sampleY := clampCoord(y+row, height)
 		for col := 0; col < 4; col++ {
