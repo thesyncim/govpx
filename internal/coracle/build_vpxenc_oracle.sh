@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-lf-trial-full-v1
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -87,6 +87,7 @@ if [ ! -f "$patch_stamp" ]; then
 #include "vp8/common/blockd.h"
 #include "vp8/common/onyxc_int.h"
 #include "vp8/encoder/onyx_int.h"
+#include "vp8/encoder/bitstream.h"
 
 /* Adler-32 over a Y/U/V plane's visible region. Mirrors govpx's
  * planeAdler32 (encoder_oracle_trace.go) so reference checksums line up. */
@@ -160,6 +161,16 @@ typedef struct {
     int improved_mv_row;
     int improved_mv_col;
     int improved_mv_sr;
+    /* Per-MB picker rate (return value of vp8cx_encode_inter_macroblock /
+     * vp8cx_encode_intra_macroblock) and the running totalrate accumulator
+     * after this MB's contribution has been added. Mirrors the govpx-side
+     * oracleTraceMBRow.MBRate / AggregatedRate captured at
+     * libvpxAddProjectedMacroblockRate in encoder_reconstruct.go. Both
+     * scalars are pre-shift (libvpx units, not bits): the final
+     * `cpi->projected_frame_size = totalrate >> 8` is applied once after
+     * all rows are processed. */
+    int mb_rate;
+    int aggregated_rate;
 } govpx_mb_row_t;
 
 typedef struct {
@@ -526,6 +537,39 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
     govpx_oracle_clear_improved_mv_slots();
 }
 
+/* Record the per-MB rate accumulator scalars at the same point libvpx
+ * folds the picker's chosen-mode rate into `*totalrate` inside
+ * encode_mb_row (vp8/encoder/encodeframe.c). `mb_rate` is the rate
+ * returned by vp8cx_encode_inter_macroblock / vp8cx_encode_intra_macroblock;
+ * `aggregated_rate` is the running total after this MB's contribution
+ * has been added but before any clamp to INT_MAX. The pair mirrors the
+ * govpx-side oracleTraceMBRow.MBRate / AggregatedRate captured by
+ * libvpxAddProjectedMacroblockRate in encoder_reconstruct.go. Stored
+ * onto the existing govpx_oracle_state.mb_rows slot so the per-MB JSON
+ * row carries both scalars. */
+void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col,
+                                 int mb_rate, int aggregated_rate) {
+    VP8_COMMON *cm;
+    int idx;
+    govpx_mb_row_t *row;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled) {
+        return;
+    }
+    cm = &cpi->common;
+    if (govpx_oracle_state.mb_rows == NULL) {
+        return;
+    }
+    idx = mb_row * cm->mb_cols + mb_col;
+    if (idx < 0 || idx >= cm->mb_rows * cm->mb_cols) {
+        return;
+    }
+    row = &govpx_oracle_state.mb_rows[idx];
+    row->mb_rate = mb_rate;
+    row->aggregated_rate = aggregated_rate;
+}
+
 /* Emit per-frame and accumulated per-MB rows. Called from bitstream.c at
  * the tail of vp8_pack_bitstream so size_bytes reflects the final packed
  * frame and so per-MB rows are flushed only for the accepted recode
@@ -801,12 +845,16 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                     "\"improved_mv_near_sadidx\":%d,"
                     "\"improved_mv_row\":%d,"
                     "\"improved_mv_col\":%d,"
-                    "\"improved_mv_sr\":%d}\n",
+                    "\"improved_mv_sr\":%d,"
+                    "\"mb_rate\":%d,"
+                    "\"aggregated_rate\":%d}\n",
                     r->improved_mv_start ? "true" : "false",
                     r->improved_mv_near_sadidx,
                     r->improved_mv_row,
                     r->improved_mv_col,
-                    r->improved_mv_sr);
+                    r->improved_mv_sr,
+                    r->mb_rate,
+                    r->aggregated_rate);
             r->valid = 0;
         }
     }
@@ -864,6 +912,51 @@ void govpx_oracle_recode_iter(void) {
     govpx_recode_iter_count++;
 }
 
+/* Recompute the inter-frame ref-frame branch of vp8_estimate_entropy_savings
+ * (vp8/encoder/bitstream.c) using the same inputs libvpx feeds at the
+ * pre-pack entropy-savings subtraction point in encode_frame_to_data_rate
+ * (cpi->prob_intra_coded / prob_last_coded / prob_gf_coded after
+ * update_rd_ref_frame_probs ran for this frame, plus the per-frame ref-
+ * frame usage histogram). Returns 0 on key frames. Used by the oracle
+ * rate row to expose the entropy-savings breakdown alongside
+ * projected_frame_size for parity-gap localization. */
+static int govpx_oracle_ref_frame_savings(struct VP8_COMP *cpi) {
+    const int *rfct;
+    int rf_intra, rf_inter;
+    int new_intra, new_last, new_garf;
+    int oldtotal, newtotal;
+    int ref_frame_cost[4];
+
+    if (cpi == NULL || cpi->common.frame_type == KEY_FRAME) {
+        return 0;
+    }
+    rfct = cpi->mb.count_mb_ref_frame_usage;
+    rf_intra = rfct[INTRA_FRAME];
+    rf_inter = rfct[LAST_FRAME] + rfct[GOLDEN_FRAME] + rfct[ALTREF_FRAME];
+    if (rf_intra + rf_inter <= 0) {
+        return 0;
+    }
+    new_intra = (rf_intra * 255) / (rf_intra + rf_inter);
+    if (new_intra == 0) new_intra = 1;
+    new_last = rf_inter ? (rfct[LAST_FRAME] * 255) / rf_inter : 128;
+    new_garf = (rfct[GOLDEN_FRAME] + rfct[ALTREF_FRAME])
+                   ? (rfct[GOLDEN_FRAME] * 255) /
+                         (rfct[GOLDEN_FRAME] + rfct[ALTREF_FRAME])
+                   : 128;
+    vp8_calc_ref_frame_costs(ref_frame_cost, new_intra, new_last, new_garf);
+    newtotal = rfct[INTRA_FRAME] * ref_frame_cost[INTRA_FRAME] +
+               rfct[LAST_FRAME] * ref_frame_cost[LAST_FRAME] +
+               rfct[GOLDEN_FRAME] * ref_frame_cost[GOLDEN_FRAME] +
+               rfct[ALTREF_FRAME] * ref_frame_cost[ALTREF_FRAME];
+    vp8_calc_ref_frame_costs(ref_frame_cost, cpi->prob_intra_coded,
+                             cpi->prob_last_coded, cpi->prob_gf_coded);
+    oldtotal = rfct[INTRA_FRAME] * ref_frame_cost[INTRA_FRAME] +
+               rfct[LAST_FRAME] * ref_frame_cost[LAST_FRAME] +
+               rfct[GOLDEN_FRAME] * ref_frame_cost[GOLDEN_FRAME] +
+               rfct[ALTREF_FRAME] * ref_frame_cost[ALTREF_FRAME];
+    return (oldtotal - newtotal) / 256;
+}
+
 /* Emit per-frame rate-control state and (when the recode loop ran more than
  * once) a "recode" row capturing loop count, final Q, and an inferred reason
  * for why the loop terminated. Called from encode_frame_to_data_rate just
@@ -872,6 +965,9 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
     VP8_COMMON *cm;
     FILE *out;
     const char *reason;
+    int total_savings;
+    int ref_frame_savings;
+    int coef_savings;
 
     govpx_oracle_init();
     if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
@@ -880,6 +976,20 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
     }
     cm = &cpi->common;
     out = govpx_oracle_state.out;
+    /* Re-derive the entropy-savings breakdown so the oracle stream can
+     * pin which component (coefficient-prob update savings vs ref-frame
+     * branch savings) drove projected_frame_size divergence. The total
+     * matches what libvpx already subtracted from cpi->projected_frame_size
+     * at line 3996 of onyx_if.c (vp8_estimate_entropy_savings). On every
+     * inter frame where vp8_encode_frame's trailing vp8_convert_rfct_to_prob
+     * hook fired (encodeframe.c around line 980 -- single-layer non-GF/AR
+     * refresh, or any multi-layer case), cpi->prob_*_coded has already been
+     * overwritten with the rfct-derived probabilities, so the inter-frame
+     * branch of vp8_estimate_entropy_savings returns 0; the breakdown
+     * pins this contract for the govpx parity test. */
+    total_savings = vp8_estimate_entropy_savings(cpi);
+    ref_frame_savings = govpx_oracle_ref_frame_savings(cpi);
+    coef_savings = total_savings - ref_frame_savings;
     fprintf(out,
             "{\"type\":\"rate\","
             "\"frame_index\":%llu,"
@@ -893,7 +1003,9 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             "\"this_frame_target\":%d,"
             "\"kf_overspend_bits\":%d,"
             "\"gf_overspend_bits\":%d,"
-            "\"zbin_over_quant\":%d}\n",
+            "\"zbin_over_quant\":%d,"
+            "\"coef_savings_bits\":%d,"
+            "\"ref_frame_savings_bits\":%d}\n",
             govpx_oracle_state.frame_index,
             cm->frame_type == KEY_FRAME ? "key" : "inter",
             final_q,
@@ -905,7 +1017,9 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             cpi->this_frame_target,
             cpi->kf_overspend_bits,
             cpi->gf_overspend_bits,
-            cpi->mb.zbin_over_quant);
+            cpi->mb.zbin_over_quant,
+            coef_savings,
+            ref_frame_savings);
     if (govpx_recode_iter_count > 1) {
         if (cpi->is_src_frame_alt_ref) {
             reason = "altref_src";
@@ -1196,6 +1310,7 @@ GOVPX_ORACLE_TU
 		BEGIN { inserted_decl = 0; inserted_call = 0 }
 		!inserted_decl && /^extern void vp8_stuff_mb\(/ {
 			print "extern void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col);"
+			print "extern void govpx_oracle_record_mb_rate(struct VP8_COMP *cpi, int mb_row, int mb_col, int mb_rate, int aggregated_rate);"
 			print "extern void govpx_oracle_emit_predictor(struct VP8_COMP *cpi, int mb_row, int mb_col);"
 			print "extern void govpx_oracle_emit_reconstructed(struct VP8_COMP *cpi, int mb_row, int mb_col);"
 			print "extern void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi);"
@@ -1224,6 +1339,59 @@ GOVPX_ORACLE_TU
 		}
 	' "$src_dir/vp8/encoder/encodeframe.c" > "$src_dir/vp8/encoder/encodeframe.c.tmp"
 	mv "$src_dir/vp8/encoder/encodeframe.c.tmp" "$src_dir/vp8/encoder/encodeframe.c"
+
+	# (2.1) Inject per-MB rate-aggregator capture calls after libvpx folds
+	# the picker's chosen-mode rate into `*totalrate` inside encode_mb_row.
+	# The capture point matches the govpx-side libvpxAddProjectedMacroblockRate
+	# in encoder_reconstruct.go: rate is captured for both the KEY and INTER
+	# branches, and the running totalrate is captured after this MB's
+	# contribution has been added (matching the post-add snapshot govpx
+	# emits via emitOracleMBTrace / emitOracleKeyFrameMBTrace).
+	python3 - "$src_dir/vp8/encoder/encodeframe.c" <<'GOVPX_RATE_PY'
+import sys, io
+path = sys.argv[1]
+with io.open(path, 'r', encoding='utf-8') as f:
+    text = f.read()
+sentinel = '/* govpx oracle: capture per-MB rate aggregator. */'
+if sentinel in text:
+    sys.exit(0)  # already patched
+intra_anchor = ('      const int intra_rate_cost = vp8cx_encode_intra_macroblock(cpi, x, tp);\n'
+                '      if (INT_MAX - *totalrate > intra_rate_cost)\n'
+                '        *totalrate += intra_rate_cost;\n'
+                '      else\n'
+                '        *totalrate = INT_MAX;\n')
+intra_replacement = ('      const int intra_rate_cost = vp8cx_encode_intra_macroblock(cpi, x, tp);\n'
+                     '      if (INT_MAX - *totalrate > intra_rate_cost)\n'
+                     '        *totalrate += intra_rate_cost;\n'
+                     '      else\n'
+                     '        *totalrate = INT_MAX;\n'
+                     '      ' + sentinel + '\n'
+                     '      govpx_oracle_record_mb_rate(cpi, mb_row, mb_col, intra_rate_cost, *totalrate);\n')
+if intra_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: intra rate anchor missing in encodeframe.c\n')
+    sys.exit(2)
+text = text.replace(intra_anchor, intra_replacement, 1)
+inter_anchor = ('      const int inter_rate_cost = vp8cx_encode_inter_macroblock(\n'
+                '          cpi, x, tp, recon_yoffset, recon_uvoffset, mb_row, mb_col);\n'
+                '      if (INT_MAX - *totalrate > inter_rate_cost)\n'
+                '        *totalrate += inter_rate_cost;\n'
+                '      else\n'
+                '        *totalrate = INT_MAX;\n')
+inter_replacement = ('      const int inter_rate_cost = vp8cx_encode_inter_macroblock(\n'
+                     '          cpi, x, tp, recon_yoffset, recon_uvoffset, mb_row, mb_col);\n'
+                     '      if (INT_MAX - *totalrate > inter_rate_cost)\n'
+                     '        *totalrate += inter_rate_cost;\n'
+                     '      else\n'
+                     '        *totalrate = INT_MAX;\n'
+                     '      ' + sentinel + '\n'
+                     '      govpx_oracle_record_mb_rate(cpi, mb_row, mb_col, inter_rate_cost, *totalrate);\n')
+if inter_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: inter rate anchor missing in encodeframe.c\n')
+    sys.exit(2)
+text = text.replace(inter_anchor, inter_replacement, 1)
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(text)
+GOVPX_RATE_PY
 
 	# (2.5) Inject predictor-dump and reconstruction-dump calls into
 	# vp8cx_encode_inter_macroblock. The predictor dump captures

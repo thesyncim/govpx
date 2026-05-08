@@ -163,6 +163,17 @@ type oracleTraceRateRow struct {
 	ThisFrameTarget    int    `json:"this_frame_target"`
 	KFOverspendBits    int    `json:"kf_overspend_bits"`
 	GFOverspendBits    int    `json:"gf_overspend_bits"`
+	// Entropy-savings breakdown matching libvpx vp8_estimate_entropy_savings:
+	// coef_savings_bits is the coefficient-prob update savings
+	// (default_coef_context_savings or independent_coef_context_savings),
+	// ref_frame_savings_bits is the inter-frame ref-frame probability
+	// re-coding savings (zero on key frames). The pre-entropy-savings
+	// projection equals projected_frame_size + coef_savings_bits +
+	// ref_frame_savings_bits. Used to localize entropy-savings parity gaps
+	// behind projected_frame_size (see docs/vp8_encoder_parity.md "Encode
+	// Driver, Recode, And Q Bounds").
+	CoefSavingsBits     int `json:"coef_savings_bits"`
+	RefFrameSavingsBits int `json:"ref_frame_savings_bits"`
 	// ZbinOverQuant mirrors libvpx's `cpi->mb.zbin_over_quant` at the
 	// emission point (just before vp8_pack_bitstream), i.e. the active
 	// zbin-overshoot value that drove quantize for the accepted recode
@@ -214,6 +225,18 @@ type oracleTraceMBRow struct {
 	ImprovedMVRow          int16 `json:"improved_mv_row"`
 	ImprovedMVCol          int16 `json:"improved_mv_col"`
 	ImprovedMVSR           int   `json:"improved_mv_sr"`
+
+	// MBRate is the chosen-mode rate accumulated by the per-MB picker for
+	// this MB (libvpx `rate` returned from vp8cx_encode_inter_macroblock /
+	// vp8cx_encode_intra_macroblock). AggregatedRate is the running
+	// `totalrate` after this MB's contribution has been added (libvpx's
+	// `*totalrate` in encode_mb_row, before the final `>>8` to bits and
+	// the entropy-savings subtraction). Both are emitted to localize
+	// per-MB rate-aggregator drift behind the projected_frame_size scalar
+	// (see docs/vp8_encoder_parity.md "Encode Driver, Recode, And Q
+	// Bounds").
+	MBRate         int `json:"mb_rate"`
+	AggregatedRate int `json:"aggregated_rate"`
 }
 
 // oracleTracePredictorRow captures the inter-prediction output for a single
@@ -502,6 +525,12 @@ type oracleTraceRateSummary struct {
 	// recode loop commits for the GF/ARF boost branch and the regular
 	// size-recode branch alike.
 	ZbinOverQuant int
+	// Entropy-savings breakdown captured at the same point the rate row
+	// is emitted (after the accepted attempt's entropy-savings subtraction
+	// has been applied to ProjectedFrameSizeBits). See oracleTraceRateRow
+	// for field semantics.
+	CoefSavingsBits     int
+	RefFrameSavingsBits int
 }
 
 // emitOracleRateTrace writes a single per-frame "rate" row capturing the
@@ -513,18 +542,20 @@ func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
 		return
 	}
 	row := oracleTraceRateRow{
-		Type:               "rate",
-		FrameIndex:         e.frameCount,
-		QIndex:             summary.QIndex,
-		ActiveWorstQ:       summary.ActiveWorstQ,
-		ActiveBestQ:        summary.ActiveBestQ,
-		BufferLevel:        summary.BufferLevelBits,
-		TotalByteCount:     summary.TotalByteCount,
-		ProjectedFrameSize: summary.ProjectedFrameSizeBits,
-		ThisFrameTarget:    summary.ThisFrameTargetBits,
-		KFOverspendBits:    summary.KFOverspendBits,
-		GFOverspendBits:    summary.GFOverspendBits,
-		ZbinOverQuant:      summary.ZbinOverQuant,
+		Type:                "rate",
+		FrameIndex:          e.frameCount,
+		QIndex:              summary.QIndex,
+		ActiveWorstQ:        summary.ActiveWorstQ,
+		ActiveBestQ:         summary.ActiveBestQ,
+		BufferLevel:         summary.BufferLevelBits,
+		TotalByteCount:      summary.TotalByteCount,
+		ProjectedFrameSize:  summary.ProjectedFrameSizeBits,
+		ThisFrameTarget:     summary.ThisFrameTargetBits,
+		KFOverspendBits:     summary.KFOverspendBits,
+		GFOverspendBits:     summary.GFOverspendBits,
+		ZbinOverQuant:       summary.ZbinOverQuant,
+		CoefSavingsBits:     summary.CoefSavingsBits,
+		RefFrameSavingsBits: summary.RefFrameSavingsBits,
 	}
 	switch summary.FrameType {
 	case vp8common.KeyFrame:
@@ -614,7 +645,7 @@ func (e *VP8Encoder) emitOracleDroppedFrameTrace(reason string) {
 // cpi->total_byte_count which is updated post-pack (i.e. before this
 // frame's contribution). projectedBits is the accepted attempt's pre-pack
 // RD projection after libvpx-style entropy-savings subtraction.
-func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType, finalQuantizer int, sizeBytes int, projectedBits int) {
+func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType, finalQuantizer int, sizeBytes int, projectedBits int, coefSavings int, refFrameSavings int) {
 	if !e.oracleTraceEnabled() {
 		return
 	}
@@ -632,6 +663,8 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		KFOverspendBits:        e.rc.kfOverspendBits,
 		GFOverspendBits:        e.rc.gfOverspendBits,
 		ZbinOverQuant:          e.rc.currentZbinOverQuant,
+		CoefSavingsBits:        coefSavings,
+		RefFrameSavingsBits:    refFrameSavings,
 	})
 	if e.oracleTraceRecodeLoopCount > 1 {
 		reason := e.oracleTraceRecodeReason
@@ -756,6 +789,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	mbRow int, mbCol int,
 	mode *vp8enc.InterFrameMacroblockMode,
 	coeffs *vp8enc.MacroblockCoefficients,
+	mbRate int, aggregatedRate int,
 ) {
 	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
 		return
@@ -774,6 +808,9 @@ func (e *VP8Encoder) emitOracleMBTrace(
 
 		ImprovedMVNearSADIndex: -1,
 		ImprovedMVSR:           -1,
+
+		MBRate:         mbRate,
+		AggregatedRate: aggregatedRate,
 	}
 	if mode.ImprovedMVStart {
 		row.ImprovedMVStart = true
@@ -829,6 +866,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 	mbRow int, mbCol int,
 	mode *vp8enc.KeyFrameMacroblockMode,
 	coeffs *vp8enc.MacroblockCoefficients,
+	mbRate int, aggregatedRate int,
 ) {
 	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
 		return
@@ -845,6 +883,9 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 
 		ImprovedMVNearSADIndex: -1,
 		ImprovedMVSR:           -1,
+
+		MBRate:         mbRate,
+		AggregatedRate: aggregatedRate,
 	}
 	if mode.YMode == vp8common.BPred {
 		row.BModes = make([]string, len(mode.BModes))

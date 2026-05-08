@@ -50,21 +50,27 @@ func TestOracleEncoderTraceDecisionCompare(t *testing.T) {
 	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
 		MaxDivergences: 8,
 		NumericFieldTolerances: map[string]float64{
-			// projected_frame_size tolerance: was 64 bits.
-			// TestOracleCandidateRateScoreboard pins the
-			// per-candidate rate scalar at 100% match (mean abs
-			// rate delta 0.66 bits) for the same VBR/cpu3
-			// fixture, so the residual frame-size drift is the
-			// libvpx accumulator's per-MB rate aggregation /
-			// entropy-savings subtraction (govpx adds with
-			// libvpxAddProjectedMacroblockRate, libvpx with the
-			// `totalrate >> 8` truncation; see
-			// docs/vp8_encoder_parity.md "Encode Driver, Recode,
-			// And Q Bounds"), not per-candidate noise. Held at
-			// 64 here pending an entropy-savings parity pass --
-			// tightening below 64 would surface the +64 bits at
-			// frame 4 we see today and block CI.
-			"projected_frame_size": 64,
+			// projected_frame_size tolerance: tightened from 64
+			// bits to 4 bits after closing the per-MB rate
+			// aggregator parity gap. The residual ~2-bit drift on
+			// frame 1 of this VBR/cpu3 panning fixture is per-MB
+			// picker rate quantisation noise (the full per-MB
+			// rate aggregator matches byte-for-byte on every
+			// other frame; see TestDiagMBRateAggregator).
+			//
+			// Closing the gap required mirroring libvpx's
+			// vp8/encoder/encodeframe.c trailing
+			// vp8_convert_rfct_to_prob hook in
+			// refFrameEntropySavingsBitsForFrame: libvpx zeros
+			// the inter-frame ref-frame entropy savings on every
+			// frame where vp8_convert_rfct_to_prob fires
+			// (single-layer non-GF/AR-refresh, multi-layer)
+			// because the hook overwrites cpi->prob_*_coded with
+			// rfct-derived values BEFORE
+			// vp8_estimate_entropy_savings runs. govpx now uses
+			// the same gate (libvpxShouldConvertRefCountsToProb)
+			// to skip the heuristic-biased ref-frame branch.
+			"projected_frame_size": 4,
 		},
 	})
 	if err != nil {
