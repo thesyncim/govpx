@@ -30,6 +30,9 @@ func LoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thr
 	for i := 0; i < count*8; i++ {
 		q0 := 4*stride + i
 		mask := filterMask(limit, blimit, s[q0-4*stride], s[q0-3*stride], s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride], s[q0+2*stride], s[q0+3*stride])
+		if mask == 0 {
+			continue
+		}
 		hev := hevMask(thresh, s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride])
 		loopFilter(mask, hev, &s[q0-2*stride], &s[q0-stride], &s[q0], &s[q0+stride])
 	}
@@ -41,6 +44,9 @@ func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thres
 	for i := 0; i < count*8; i++ {
 		q0 := i*stride + 4
 		mask := filterMask(limit, blimit, s[q0-4], s[q0-3], s[q0-2], s[q0-1], s[q0], s[q0+1], s[q0+2], s[q0+3])
+		if mask == 0 {
+			continue
+		}
 		hev := hevMask(thresh, s[q0-2], s[q0-1], s[q0], s[q0+1])
 		loopFilter(mask, hev, &s[q0-2], &s[q0-1], &s[q0], &s[q0+1])
 	}
@@ -52,6 +58,9 @@ func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, t
 	for i := 0; i < count*8; i++ {
 		q0 := 4*stride + i
 		mask := filterMask(limit, blimit, s[q0-4*stride], s[q0-3*stride], s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride], s[q0+2*stride], s[q0+3*stride])
+		if mask == 0 {
+			continue
+		}
 		hev := hevMask(thresh, s[q0-2*stride], s[q0-stride], s[q0], s[q0+stride])
 		mbLoopFilter(mask, hev, &s[q0-3*stride], &s[q0-2*stride], &s[q0-stride], &s[q0], &s[q0+stride], &s[q0+2*stride])
 	}
@@ -63,6 +72,9 @@ func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thr
 	for i := 0; i < count*8; i++ {
 		q0 := i*stride + 4
 		mask := filterMask(limit, blimit, s[q0-4], s[q0-3], s[q0-2], s[q0-1], s[q0], s[q0+1], s[q0+2], s[q0+3])
+		if mask == 0 {
+			continue
+		}
 		hev := hevMask(thresh, s[q0-2], s[q0-1], s[q0], s[q0+1])
 		mbLoopFilter(mask, hev, &s[q0-3], &s[q0-2], &s[q0-1], &s[q0], &s[q0+1], &s[q0+2])
 	}
