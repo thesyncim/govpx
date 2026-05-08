@@ -732,12 +732,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// auto-ARF driver can emit it at the predicted offset.
 	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
 	if goldenCBRRefresh {
-		e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
-		// libvpx vp8/encoder/ratectrl.c calc_gf_params runs at the
-		// tail of calc_pframe_target_size on the GF refresh frame and
-		// updates cpi->last_boost for the next GF section's small +/-
-		// adjustment. Mirror that here so the next non-GF frame sees
-		// the right boost.
+		// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size: when the
+		// GF refresh fires, calc_gf_params runs FIRST (auto_adjust_gold_quantizer=1
+		// is the default) and updates cpi->last_boost AND
+		// cpi->frames_till_gf_update_due. Then the GF target formula
+		// consumes those just-computed values. Mirror that order here so
+		// the non-CBR boost path below sees the new boost / interval.
 		gfOut := calcGFParams(gfParamsInput{
 			Q:                     e.rc.lastInterQuantizer,
 			RecentRefIntra:        e.rc.recentRefFrameUsageIntra,
@@ -751,6 +751,34 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			MaxGFInterval:         e.rc.framesTillGFUpdateDue,
 		})
 		e.rc.lastBoost = gfOut.Boost
+		if e.rc.mode == RateControlCBR {
+			// One-pass CBR: libvpx multiplies this_frame_target by
+			// (100 + gf_cbr_boost_pct) / 100 (vp8/encoder/ratectrl.c
+			// gf_update_onepass_cbr branch).
+			e.rc.frameTargetBits = boostedFrameTargetBits(e.rc.frameTargetBits, e.rc.gfCBRBoostPct)
+		} else {
+			// One-pass VBR/CQ: libvpx splits the upcoming GF section
+			// across (frames_till_gf_update_due+1) frames, weighting the
+			// GF by `last_boost`. See libvpxGoldenFrameTargetBits for the
+			// exact formula. Falls back to the previous boostPct path if
+			// inter_frame_target was not yet recorded (i.e. the first
+			// inter frame after a key) - in that case the small +/- branch
+			// has not yet seeded interFrameTarget so use bitsPerFrame.
+			interFrameTarget := e.rc.interFrameTarget
+			if interFrameTarget <= 0 {
+				interFrameTarget = e.rc.bitsPerFrame
+			}
+			boosted := libvpxGoldenFrameTargetBits(gfOut.Boost, gfOut.FramesTillUpdate, interFrameTarget)
+			if boosted > 0 {
+				e.rc.frameTargetBits = boosted
+			}
+		}
+		// Propagate the just-computed GF interval into rc state so the
+		// next non-GF frame's small +/- branch sees the right value.
+		// Mirrors libvpx's calc_gf_params tail (cpi->frames_till_gf_update_due
+		// = baseline_gf_interval; cpi->current_gf_interval = ...).
+		e.rc.framesTillGFUpdateDue = gfOut.FramesTillUpdate
+		e.rc.currentGFInterval = gfOut.FramesTillUpdate
 	}
 	e.rc.selectQuantizerForFrameKindWithScreenContent(keyFrame, boostedReferenceFrame, required, e.opts.ScreenContentMode)
 	// libvpx vp8/encoder/firstpass.c estimate_max_q applies a CQ floor
