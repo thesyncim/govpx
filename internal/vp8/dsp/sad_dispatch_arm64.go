@@ -17,3 +17,19 @@ func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, li
 	}
 	return int(sadBlock16x16LimitNEON(&src[0], srcStride, &ref[0], refStride, int32(limit)))
 }
+
+func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(sadBlock16x8NEON(&src[0], srcStride, &ref[0], refStride))
+}
+
+func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(sadBlock8x16NEON(&src[0], srcStride, &ref[0], refStride))
+}
+
+func sadBlock8x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(sadBlock8x8NEON(&src[0], srcStride, &ref[0], refStride))
+}
+
+func sadBlock4x4(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(sadBlock4x4NEON(&src[0], srcStride, &ref[0], refStride))
+}
