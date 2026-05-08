@@ -2,7 +2,19 @@ package dsp
 
 // Ported from libvpx v1.16.0 vp8/common/idctllm.c.
 
+// InverseWalsh4x4 dispatches to the SIMD or scalar 4x4 inverse Walsh-Hadamard
+// kernel. The SIMD implementations mirror libvpx v1.16.0
+// vp8/common/arm/neon/iwalsh_neon.c (vp8_short_inv_walsh4x4_neon) and
+// vp8/common/x86/iwalsh_sse2.asm (vp8_short_inv_walsh4x4_sse2). Output is
+// byte-identical to inverseWalsh4x4Scalar for the decoder's coefficient range.
 func InverseWalsh4x4(input *[16]int16, mbDQCoeff []int16) {
+	inverseWalsh4x4SIMD(input, mbDQCoeff)
+}
+
+// inverseWalsh4x4Scalar is the canonical scalar port of libvpx
+// vp8/common/idctllm.c vp8_short_inv_walsh4x4_c. SIMD ports must produce
+// byte-identical output for the decoder's coefficient range.
+func inverseWalsh4x4Scalar(input *[16]int16, mbDQCoeff []int16) {
 	_ = mbDQCoeff[15*16]
 
 	var output [16]int16

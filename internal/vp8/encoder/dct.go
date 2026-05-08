@@ -51,7 +51,19 @@ func ForwardDCT8x4(input []int16, stride int, output *[32]int16) {
 	copy(output[16:32], right[:])
 }
 
+// ForwardWalsh4x4 dispatches to the SIMD or scalar 4x4 forward Walsh-Hadamard
+// kernel. The SIMD implementations mirror libvpx v1.16.0
+// vp8/encoder/arm/neon/vp8_shortwalsh4x4_neon.c (vp8_short_walsh4x4_neon) and
+// vp8/encoder/x86/fwalsh_sse2.asm (vp8_short_walsh4x4_sse2). Output is
+// byte-identical to forwardWalsh4x4Scalar for the encoder's residual range.
 func ForwardWalsh4x4(input []int16, stride int, output *[16]int16) {
+	forwardWalsh4x4SIMD(input, stride, output)
+}
+
+// forwardWalsh4x4Scalar is the canonical scalar port of libvpx
+// vp8/encoder/dct.c vp8_short_walsh4x4_c. SIMD ports must produce
+// byte-identical output for the encoder's residual range.
+func forwardWalsh4x4Scalar(input []int16, stride int, output *[16]int16) {
 	var tmp [16]int
 
 	for row := 0; row < 4; row++ {
