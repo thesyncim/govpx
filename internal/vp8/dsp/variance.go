@@ -107,6 +107,16 @@ func varianceBlock(src []byte, srcStride int, ref []byte, refStride int, width i
 	if width == 16 && height == 16 {
 		return varianceBlock16x16(src, srcStride, ref, refStride)
 	}
+	if (width == 16 || width == 8 || width == 4) && height > 0 {
+		return varianceBlockSized(src, srcStride, ref, refStride, width, height)
+	}
+	return varianceBlockGeneric(src, srcStride, ref, refStride, width, height)
+}
+
+// varianceBlockGeneric is the size-agnostic scalar fallback used by
+// varianceBlock when the width is not in {4, 8, 16} or height is zero.
+// Tests also reference it directly as the parity oracle.
+func varianceBlockGeneric(src []byte, srcStride int, ref []byte, refStride int, width int, height int) (int, int) {
 	sum := 0
 	sse := 0
 	for y := 0; y < height; y++ {
@@ -132,8 +142,15 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 }
 
 func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]uint16, width int, height int, filter [2]int16) {
-	if width == 16 {
+	switch width {
+	case 16:
 		varFilterBlock2DBilinearFirstPass16(src, srcStride, dst, height, filter)
+		return
+	case 8:
+		varFilterBlock2DBilinearFirstPass8(src, srcStride, dst, height, filter)
+		return
+	case 4:
+		varFilterBlock2DBilinearFirstPass4(src, srcStride, dst, height, filter)
 		return
 	}
 	for y := 0; y < height; y++ {
@@ -147,9 +164,18 @@ func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]
 }
 
 func varFilterBlock2DBilinearSecondPass(src *[17 * 16]uint16, dst []byte, srcStride int, pixelStep int, height int, width int, filter [2]int16) {
-	if width == 16 && srcStride == 16 && pixelStep == 16 {
-		varFilterBlock2DBilinearSecondPass16(src, dst, height, filter)
-		return
+	if srcStride == width && pixelStep == width {
+		switch width {
+		case 16:
+			varFilterBlock2DBilinearSecondPass16(src, dst, height, filter)
+			return
+		case 8:
+			varFilterBlock2DBilinearSecondPass8(src, dst, height, filter)
+			return
+		case 4:
+			varFilterBlock2DBilinearSecondPass4(src, dst, height, filter)
+			return
+		}
 	}
 	for y := 0; y < height; y++ {
 		srcRow := y * srcStride
