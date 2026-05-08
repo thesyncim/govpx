@@ -828,10 +828,66 @@ func (e *VP8Encoder) interModeRDThresholds(qIndex int) [libvpxInterModeCount]int
 	return e.interModeRDThresholdsForReferences(qIndex, nil, 0)
 }
 
-func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
-	if e == nil {
-		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
+// interRDThreshBaselineSlotCount caps the per-frame qIndex cache used by the
+// fast/RD inter-mode picker thresholds. VP8 segmentation produces at most 4
+// distinct quantizers per frame; a 4-slot LRU is enough to absorb the entire
+// per-MB call sequence without falling back to the heavy
+// libvpxInterModeRDThresholdsForContext recompute.
+const interRDThreshBaselineSlotCount = 4
+
+// interRDThreshBaselineSlot caches one (qIndex, refSig, baseline) entry. gen
+// matches the encoder's interRDThreshBaselineGen at the time the slot was
+// filled; a stale gen invalidates the slot without an explicit clear at frame
+// start. refSig packs the threshold-context inputs that depend on the refs
+// list (refCount, lastEnabled, goldenEnabled, closestRef, refFrameCount) plus
+// zbinOverQuant — so the cache stays correct if a caller drives the picker
+// with shifting refs without an intervening beginInterRDModeDecisionFrame.
+type interRDThreshBaselineSlot struct {
+	gen      uint32
+	qIndex   int32
+	refSig   uint32
+	valid    bool
+	baseline [libvpxInterModeCount]int
+}
+
+// interRDThreshBaselineRefSig packs the refs-derived threshold-context inputs
+// into a uint32 fingerprint. The packing is dense — refCount fits in 8 bits,
+// closestRef in 8 bits, refFrameCount in 8 bits, lastEnabled+goldenEnabled in
+// 2 bits, leaving 6 bits for zbinOverQuant. Within VP8 zbinOverQuant is
+// bounded to a few small values, so 6 bits is plenty; if it ever overflows
+// the bit field the cache simply collides with another zbinOverQuant value
+// (which forces a recompute on the next call — correct, just unhelpful).
+func interRDThreshBaselineRefSig(refCount int, lastEnabled bool, goldenEnabled bool, closestRef vp8common.MVReferenceFrame, refFrameCount int, zbinOverQuant int) uint32 {
+	var sig uint32
+	sig |= uint32(uint8(refCount))
+	sig |= uint32(uint8(closestRef)) << 8
+	sig |= uint32(uint8(refFrameCount)) << 16
+	if lastEnabled {
+		sig |= 1 << 24
 	}
+	if goldenEnabled {
+		sig |= 1 << 25
+	}
+	sig |= uint32(uint8(zbinOverQuant)&0x3F) << 26
+	return sig
+}
+
+// interModeRDThresholdsBaseline returns the picker-threshold baseline for
+// (qIndex, current frame refs/error-bins/speed) and caches the result by
+// (qIndex, refSig) within the current frame. Within a frame the only per-MB-
+// variable input is qIndex (via cyclic-refresh segmentation); the rest of
+// the threshold-context inputs (refs, errorBins, speed, deadline, totalMBs,
+// staticThreshold, temporalLayers, zbinOverQuant) are frame-stable, so the
+// expensive libvpxInterModeRDThresholdsForContext math (math.Pow, 8 speed
+// maps, 1024-bin error scan) runs at most 4× per frame instead of per-MB.
+//
+// The refSig fingerprint captures (refCount, lastEnabled, goldenEnabled,
+// closestRef, refFrameCount, zbinOverQuant) so the cache stays correct under
+// callers that mutate refs / referenceFrameNumbers between calls within the
+// same generation (e.g. test fixtures that re-call the helper with shifted
+// closest-ref distances). Building the fingerprint is cheap relative to the
+// cached body and only walks the refs slice once.
+func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
 	context := libvpxInterModeThresholdContext{}
 	if refCount > 0 {
 		context.temporalLayers = e.libvpxTemporalLayerCount()
@@ -843,6 +899,17 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
+	zbinOverQuant := e.rc.currentZbinOverQuant
+	gen := e.interRDThreshBaselineGen
+	q32 := int32(qIndex)
+	refSig := interRDThreshBaselineRefSig(refCount, context.lastEnabled, context.goldenEnabled, context.closestRef, context.refFrameCount, zbinOverQuant)
+	slots := &e.interRDThreshBaselineSlots
+	for i := range slots {
+		slot := &slots[i]
+		if slot.valid && slot.gen == gen && slot.qIndex == q32 && slot.refSig == refSig {
+			return slot.baseline
+		}
+	}
 	cpuUsedForThresholds := e.opts.CpuUsed
 	if e.libvpxAutoSelectSpeedActive() {
 		// Round-trip the dynamically picked Speed through
@@ -853,20 +920,45 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 		// touching the static helper's contract.
 		cpuUsedForThresholds = -e.libvpxCPUUsed()
 	}
-	baseline := libvpxInterModeRDThresholdsForContext(qIndex, e.rc.currentZbinOverQuant, e.opts.Deadline, cpuUsedForThresholds, context)
+	baseline := libvpxInterModeRDThresholdsForContext(qIndex, zbinOverQuant, e.opts.Deadline, cpuUsedForThresholds, context)
+	// Pick the first invalid/stale slot, else replace slot 0 (LRU is fine
+	// here — at most 4 distinct (qIndex, refSig) pairs per frame so
+	// collisions are rare).
+	victim := 0
+	for i := range slots {
+		slot := &slots[i]
+		if !slot.valid || slot.gen != gen {
+			victim = i
+			break
+		}
+	}
+	slot := &slots[victim]
+	slot.valid = true
+	slot.gen = gen
+	slot.qIndex = q32
+	slot.refSig = refSig
+	slot.baseline = baseline
+	return baseline
+}
+
+func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
+	if e == nil {
+		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
+	}
+	baseline := e.interModeRDThresholdsBaseline(qIndex, refs, refCount)
 	if !e.interRDFrameActive {
 		return baseline
 	}
-	var thresholds [libvpxInterModeCount]int
-	for i, value := range baseline {
-		if value == libvpxInterModeThresholdDisabled {
-			thresholds[i] = libvpxInterModeThresholdDisabled
+	thresholds := baseline
+	touched := &e.interRDThreshTouched
+	mult := &e.interRDThreshMult
+	for i := range thresholds {
+		v := thresholds[i]
+		if v == libvpxInterModeThresholdDisabled {
 			continue
 		}
-		if e.interRDThreshTouched[i] {
-			thresholds[i] = (value >> 7) * e.interRDThreshMult[i]
-		} else {
-			thresholds[i] = value
+		if touched[i] {
+			thresholds[i] = (v >> 7) * mult[i]
 		}
 	}
 	return thresholds
@@ -893,6 +985,10 @@ func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
 	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
+	// Bump the baseline cache generation so a follow-up frame doesn't
+	// reuse a stale entry whose context inputs may have shifted.
+	e.interRDThreshBaselineGen++
+	e.interRDFrameRefSearchOrderValid = false
 }
 
 func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
@@ -915,6 +1011,12 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 	e.interModeSpeedErrorBins = e.interModeErrorBins
 	e.interModeErrorBins = [1024]uint32{}
 	e.interRDFrameActive = true
+	// Bump the per-frame baseline-threshold cache generation so the prior
+	// frame's cached entries miss without an explicit clear.
+	e.interRDThreshBaselineGen++
+	// Also invalidate the per-frame ref-search-order pre-bind so the next
+	// picker call recomputes it from this frame's refs.
+	e.interRDFrameRefSearchOrderValid = false
 }
 
 func (e *VP8Encoder) endInterRDModeDecisionFrame() {
@@ -934,14 +1036,22 @@ func (e *VP8Encoder) beginInterRDModeDecisionMacroblock() {
 	e.interMBsTestedSoFar++
 }
 
+// interRDModeTestAllowed gates per-mode candidate evaluation by libvpx's
+// rd_threshes hit-count throttle. It is callable from outside the picker
+// loops via tests, so it accepts nil receivers / out-of-range indices, but
+// the hot path always passes a non-nil encoder and a 0..libvpxInterModeCount-1
+// modeIndex (callers iterate libvpxFastInterModeOrder). The two early returns
+// keep the inlining cost low so the picker loop sees a flattened test.
 func (e *VP8Encoder) interRDModeTestAllowed(modeIndex int) bool {
-	if e == nil || !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if e == nil || !e.interRDFrameActive {
 		return true
 	}
-	if e.interModeTestHitCounts[modeIndex] == 0 || e.interModeCheckFreq[modeIndex] <= 1 {
+	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return true
 	}
-	if e.interMBsTestedSoFar > e.interModeCheckFreq[modeIndex]*e.interModeTestHitCounts[modeIndex] {
+	hits := e.interModeTestHitCounts[modeIndex]
+	freq := e.interModeCheckFreq[modeIndex]
+	if hits == 0 || freq <= 1 || e.interMBsTestedSoFar > freq*hits {
 		return true
 	}
 	e.raiseInterRDThreshold(modeIndex)
@@ -1501,7 +1611,12 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
 	}
-	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
+	var nearCache nearMVCandidateCache
+	if !e.interRDFrameRefSearchOrderValid {
+		e.interRDFrameRefSearchOrder = libvpxInterReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrderValid = true
+	}
+	refSearchOrder := e.interRDFrameRefSearchOrder
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
@@ -1591,7 +1706,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
 			mode, score, yrd, rate, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
-			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
+			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 			if ok {
 				mode.SegmentID = segmentID
 				acct, acctOK := e.estimateInterResidualRDAccounting(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref))
@@ -1868,12 +1983,24 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
 	},
+	nearCache *nearMVCandidateCache,
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
 	case vp8common.ZeroMV:
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
 	case vp8common.NearestMV, vp8common.NearMV:
-		nearest, near := e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		var nearest, near vp8enc.MotionVector
+		if nearCache != nil && refIndex >= 0 && refIndex < len(nearCache) {
+			cached := &nearCache[refIndex]
+			if !cached.computed {
+				cached.nearest, cached.near = e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+				cached.computed = true
+			}
+			nearest = cached.nearest
+			near = cached.near
+		} else {
+			nearest, near = e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		}
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
@@ -1958,7 +2085,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
 	}
-	refSearchOrder := libvpxInterReferenceSearchOrder(refs, refCount)
+	var nearCache nearMVCandidateCache
+	if !e.interRDFrameRefSearchOrderValid {
+		e.interRDFrameRefSearchOrder = libvpxInterReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrderValid = true
+	}
+	refSearchOrder := e.interRDFrameRefSearchOrder
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
@@ -2035,7 +2167,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		e.recordInterRDModeTest(modeIndex)
 		bestScoreBefore := bestScore
 		bestSSEBefore := bestSSE
-		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates)
+		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 		if mbMode == vp8common.SplitMV {
 			e.raiseInterRDThreshold(modeIndex)
 			continue
@@ -2138,6 +2270,19 @@ func libvpxInterReferenceSearchAt(refs []interAnalysisReference, searchOrder [4]
 	return refs[refIndex], refIndex, true
 }
 
+// nearMVCandidateCache memoizes (nearest, near) motion-vector predictors per
+// ref slot for one macroblock's picker loop. The fast/RD inter pickers walk
+// libvpxFastInterModeOrder and call into fastInterModeForLoopEntry once for
+// each mode_index — Nearest and Near for the same ref reduce to identical
+// vp8enc.InterFrameNearMotionVectorsAt inputs (ref.Frame, above/left/aboveLeft,
+// mbRow, mbCol, signBias), so caching by refIndex turns up to 6 redundant
+// neighbor walks per MB into 3.
+type nearMVCandidateCache [3]struct {
+	computed bool
+	nearest  vp8enc.MotionVector
+	near     vp8enc.MotionVector
+}
+
 func (e *VP8Encoder) fastInterModeForLoopEntry(
 	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, refSlot int, mbMode vp8common.MBPredictionMode,
 	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
@@ -2148,12 +2293,29 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
 	},
+	nearCache *nearMVCandidateCache,
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
 	case vp8common.ZeroMV:
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
 	case vp8common.NearestMV, vp8common.NearMV:
-		nearest, near := e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		var nearest, near vp8enc.MotionVector
+		// libvpx's fast picker calls vp8_find_near_mvs once per ref slot
+		// inside vp8_pick_inter_mode and reuses (nearest, near) across the
+		// per-mode rd_threshes loop. Mirror that here: nearCache is
+		// populated lazily per refIndex so back-to-back NearestMV / NearMV
+		// candidates against the same reference share the neighbor walk.
+		if nearCache != nil && refIndex >= 0 && refIndex < len(nearCache) {
+			cached := &nearCache[refIndex]
+			if !cached.computed {
+				cached.nearest, cached.near = e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+				cached.computed = true
+			}
+			nearest = cached.nearest
+			near = cached.near
+		} else {
+			nearest, near = e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+		}
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
