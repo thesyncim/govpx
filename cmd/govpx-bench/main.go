@@ -33,6 +33,7 @@ type benchConfig struct {
 	BitrateKbps  int
 	Mode         string
 	Decode       bool
+	Threads      int
 	LibvpxVpxenc string
 	LibvpxOracle string
 	LibvpxArgs   []string
@@ -173,6 +174,7 @@ func main() {
 	flag.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	flag.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
+	flag.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
 	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
@@ -798,6 +800,10 @@ func parityFor(cfg benchConfig) encoderParity {
 	if kf <= 0 {
 		kf = 30
 	}
+	threads := cfg.Threads
+	if threads < 0 {
+		threads = 1
+	}
 	return encoderParity{
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
@@ -807,7 +813,7 @@ func parityFor(cfg benchConfig) encoderParity {
 		BufferOptimalSizeMs: 500,
 		UndershootPct:       100,
 		OvershootPct:        15,
-		Threads:             1,
+		Threads:             threads,
 		CpuUsed:             8,
 	}
 }
@@ -828,6 +834,7 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 		BufferSizeMs:        p.BufferSizeMs,
 		BufferInitialSizeMs: p.BufferInitialSizeMs,
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
+		Threads:             p.Threads,
 	})
 }
 

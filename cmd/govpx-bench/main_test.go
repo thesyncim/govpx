@@ -362,8 +362,10 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 
 func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	// Sanity check that benchConfig.FPS feeds the kf interval and that
-	// the parity defaults match the values the bench encoder uses.
-	got := parityFor(benchConfig{FPS: 24})
+	// the parity defaults match the values the bench encoder uses. The
+	// CLI default for -threads is 1, so the equivalent benchConfig
+	// passed in here mirrors that explicitly.
+	got := parityFor(benchConfig{FPS: 24, Threads: 1})
 	if got.KeyFrameInterval != 24 {
 		t.Fatalf("KeyFrameInterval = %d, want 24", got.KeyFrameInterval)
 	}
@@ -375,6 +377,16 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	}
 	if got.CpuUsed != 8 || got.Threads != 1 {
 		t.Fatalf("cpu/threads = %d/%d, want 8/1", got.CpuUsed, got.Threads)
+	}
+
+	// -threads=0 propagates as 0 to libvpx (its native "auto" sentinel)
+	// and to govpx (where normalizeEncoderOptions folds it onto the
+	// historical single-thread default). The flag is plumbed verbatim.
+	if got := parityFor(benchConfig{FPS: 24, Threads: 0}); got.Threads != 0 {
+		t.Fatalf("Threads=0 propagates as %d, want 0", got.Threads)
+	}
+	if got := parityFor(benchConfig{FPS: 24, Threads: 4}); got.Threads != 4 {
+		t.Fatalf("Threads=4 propagates as %d, want 4", got.Threads)
 	}
 
 	// Zero FPS falls back to a sane default rather than passing 0 to libvpx.
