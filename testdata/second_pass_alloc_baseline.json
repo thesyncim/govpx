@@ -15,7 +15,7 @@
     "park-joy-90p-vbr": {
       "q_match_pct": 100,
       "target_match_pct": 100,
-      "max_qindex_delta": -2,
+      "max_qindex_delta": -1,
       "max_target_rel_delta": 0.024271844660194174
     }
   }
