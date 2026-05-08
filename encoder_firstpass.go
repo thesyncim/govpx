@@ -733,6 +733,22 @@ type twoPassState struct {
 	// avg intra_error / coded_error. Used by estimate_max_q as a
 	// multiplicative factor on the per-Q bit estimate.
 	sectionMaxQFactor float64
+	// sectionIntraRating mirrors libvpx's
+	// `cpi->twopass.section_intra_rating`. The libvpx full-frame loop
+	// filter picker (vp8cx_pick_filter_level) reads this to scale the
+	// "prefer lower filter level" Bias term: `if (section_intra_rating <
+	// 20) Bias = Bias * section_intra_rating / 20;`. The libvpx
+	// twopass struct is calloc'd, so in one-pass / realtime / CBR (where
+	// neither find_next_key_frame nor define_gf_group runs) it stays at
+	// 0 and the unconditional VP8 guard then forces Bias = 0. govpx
+	// previously omitted the scaling and used the unscaled bias, which
+	// caused the realtime CBR full picker to converge on a different
+	// filt_best than libvpx (e.g. on the 128x128 panning fixture
+	// frames 2/3, govpx LF=2/1 vs libvpx LF=8/4). Two-pass branches
+	// that compute this value must update it via setSectionIntraRating
+	// before the next picker call; otherwise it stays 0 (matching
+	// libvpx's calloc default).
+	sectionIntraRating int
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -983,6 +999,11 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 	// handles the DOUBLE_DIVIDE_CHECK fallback.
 	if framesToKey > 0 {
 		t.sectionMaxQFactor = libvpxSectionMaxQFactor(sectionIntra, sectionCoded)
+		// Mirror libvpx find_next_key_frame line 2772: alongside the
+		// section_max_qfactor (which estimate_max_q reads), the same
+		// avg intra/coded ratio drives section_intra_rating, which the
+		// loop-filter full picker reads to scale its lower-level Bias.
+		t.sectionIntraRating = libvpxSectionIntraRating(sectionIntra, sectionCoded)
 	}
 	kfModErr = t.modifiedError(t.stats[frame])
 	t.framesToKeyRemaining = framesToKey
@@ -1389,6 +1410,10 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	}
 	if gfInterval > 0 {
 		t.sectionMaxQFactor = libvpxSectionMaxQFactor(gfSectionIntra, gfSectionCoded)
+		// Mirror libvpx define_gf_group line 2138: GF section also
+		// resets section_intra_rating from this group's avg
+		// intra/coded ratio.
+		t.sectionIntraRating = libvpxSectionIntraRating(gfSectionIntra, gfSectionCoded)
 	}
 	if keyFrameAtBoundary {
 		gfGroupErr -= t.modifiedError(t.stats[frame])
