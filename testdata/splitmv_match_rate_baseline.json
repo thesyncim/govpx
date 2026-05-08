@@ -1,0 +1,25 @@
+{
+  "fixtures": {
+    "best-cpu0-vbr": {
+      "mode_match_pct": 100,
+      "splitmv_pick_match_pct": 100,
+      "partition_match_pct": 84.82142857142857,
+      "block_mv_match_pct": 57.142857142857146,
+      "segment_id_match_pct": 100
+    },
+    "good-cpu0-vbr": {
+      "mode_match_pct": 100,
+      "splitmv_pick_match_pct": 100,
+      "partition_match_pct": 68.75,
+      "block_mv_match_pct": 45.535714285714285,
+      "segment_id_match_pct": 100
+    },
+    "good-cpu3-vbr": {
+      "mode_match_pct": 89.28571428571429,
+      "splitmv_pick_match_pct": 89.28571428571429,
+      "partition_match_pct": 94.73684210526316,
+      "block_mv_match_pct": 42.10526315789474,
+      "segment_id_match_pct": 100
+    }
+  }
+}
