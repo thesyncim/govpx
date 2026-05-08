@@ -156,6 +156,15 @@ type EncoderOptions struct {
 
 	// VP8 behavior.
 	ErrorResilient bool
+	// ErrorResilientPartitions mirrors libvpx's
+	// VPX_ERROR_RESILIENT_PARTITIONS bit (set via `--error-resilient=2` or
+	// `--error-resilient=3`). It enables the independent-prev-coef-context
+	// algorithm in vp8_update_coef_probs (bitstream.c:879-928) so a lost
+	// partition cannot corrupt the per-context coefficient-probability
+	// tables. Off by default; the plain ErrorResilient bool maps to
+	// VPX_ERROR_RESILIENT_DEFAULT, which does NOT touch the per-context
+	// algorithm.
+	ErrorResilientPartitions bool
 	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
@@ -1546,7 +1555,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		ModeLFDeltas:        lfHeader.ModeDeltas,
 		Segmentation:        segmentation,
 		RefreshEntropyProbs: true,
-		IndependentContexts: e.opts.ErrorResilient,
+		IndependentContexts: e.opts.ErrorResilientPartitions,
 	}
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 	if err != nil {
@@ -1777,7 +1786,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.SimpleLoopFilter = e.encoderUsesSimpleLoopFilter()
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
-	cfg.IndependentContexts = e.opts.ErrorResilient
+	cfg.IndependentContexts = e.opts.ErrorResilientPartitions
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy updates them.
@@ -2013,7 +2022,7 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 		if len(e.keyFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
 			return 0
 		}
-		if e.opts.ErrorResilient {
+		if e.opts.ErrorResilientPartitions {
 			savings, err := vp8enc.KeyFrameCoefficientEntropySavingsIndependent(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
 			if err != nil {
 				return 0
@@ -2029,7 +2038,7 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 	if len(e.interFrameModes) < macroblocks || len(e.keyFrameCoeffs) < macroblocks {
 		return 0
 	}
-	if e.opts.ErrorResilient {
+	if e.opts.ErrorResilientPartitions {
 		savings, err := vp8enc.InterCoefficientEntropySavingsIndependent(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
 		if err != nil {
 			return 0

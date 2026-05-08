@@ -3805,11 +3805,18 @@ func TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly(t *testing.T) {
 }
 
 func TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient(t *testing.T) {
+	// The independent-context coefficient entropy-savings path mirrors
+	// libvpx's VPX_ERROR_RESILIENT_PARTITIONS branch (bit 0x2). The plain
+	// `--error-resilient=1` (DEFAULT, bit 0x1) does NOT enable that branch
+	// in libvpx; only the partitions mode does. govpx exposes this as
+	// EncoderOptions.ErrorResilientPartitions; the simpler ErrorResilient
+	// bool stays on the default coef-savings path so the keyframe coef-prob
+	// emission stays byte-equivalent with libvpx's `--error-resilient=1`.
 	e := &VP8Encoder{
 		opts: EncoderOptions{
-			Width:          16,
-			Height:         16,
-			ErrorResilient: true,
+			Width:                    16,
+			Height:                   16,
+			ErrorResilientPartitions: true,
 		},
 		coefProbs: vp8tables.DefaultCoefProbs,
 		interFrameModes: []vp8enc.InterFrameMacroblockMode{{
