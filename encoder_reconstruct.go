@@ -4028,20 +4028,23 @@ func selectInterFrameMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8comm
 	return selectInterFrameMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{}, mvProbs)
 }
 
+// selectInterFrameMotionVectorWithSearchStart mirrors libvpx pickinter.c's
+// fast NEWMV path: integer-pel search followed by unconditional acceptance of
+// the fractional refinement (find_fractional_mv_step). libvpx uses bilinear
+// variance during the subpel search and trusts that result; second-guessing
+// it with a 6-tap SSE recompute biases us toward integer-pel even when the
+// bilinear-best candidate scores lower distortion AND lower MV-rate, which
+// is the realtime-cbr cpu0/4/8 NEWMV mv_row divergence at frame=2 mb=(0,3),
+// (2,3) on the 64x64 panning fixture.
 func selectInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
 	best, bestCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs)
 	if bestCost == 0 {
 		return best, bestCost
 	}
-	bestRD := interMotionRDScore(src, ref, mbRow, mbCol, best, qIndex, mvProbs)
-	if refined, _, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search, mvProbs); ok {
-		refinedRD := interMotionRDScore(src, ref, mbRow, mbCol, refined, qIndex, mvProbs)
-		if refinedRD < bestRD {
-			best = refined
-			bestRD = refinedRD
-		}
+	if refined, refinedCost, ok := refineInterFrameSubpixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, search, mvProbs); ok {
+		return refined, refinedCost
 	}
-	return best, bestRD
+	return best, bestCost
 }
 
 func selectRDInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
