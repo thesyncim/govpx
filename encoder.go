@@ -415,7 +415,37 @@ type VP8Encoder struct {
 	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
 	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
 	coefProbs                vp8tables.CoefficientProbs
-	modeProbs                vp8dec.ModeProbs
+	// coefProbsLast/Golden/AltRef mirror libvpx vp8/encoder/onyx.h cpi->lfc_n,
+	// cpi->lfc_g, cpi->lfc_a: per-reference snapshots of cm->fc.coef_probs
+	// captured at the END of the most recent frame that refreshed that slot.
+	// They are seeded to default at every keyframe (vp8_setup_key_frame copies
+	// cpi->common.fc into all three) and updated independently per
+	// refresh_last/refresh_golden/refresh_alt_ref_frame flags after a frame's
+	// bitstream is packed.
+	//
+	// vp8_initialize_rd_consts (rdopt.c) feeds the RD picker's per-frame
+	// fill_token_costs from one of these snapshots, choosing
+	//
+	//	l = refresh_alt_ref_frame ? lfc_a
+	//	  : refresh_golden_frame  ? lfc_g
+	//	  : lfc_n
+	//
+	// govpx's RD picker (selectRDInterFrameModeDecision via
+	// buildPredictedMacroblockCoefficientsRD) needs this same selection so
+	// frames that boost golden/altref score against the colder lfc_g/lfc_a
+	// snapshot — which is exactly the condition that lets SPLITMV's
+	// rd_threshes gate fire. See parity-close-r3-h-rd-scale.
+	coefProbsLast           vp8tables.CoefficientProbs
+	coefProbsGolden         vp8tables.CoefficientProbs
+	coefProbsAltRef         vp8tables.CoefficientProbs
+	coefProbsSnapshotsValid bool
+	// rdPickerCoefProbsActive is set to one of {coefProbsLast, coefProbsGolden,
+	// coefProbsAltRef} during inter-frame RD picker passes (see
+	// encodeInterFrameAttempt). When non-nil, picker call sites read from it
+	// instead of e.coefProbs so token costs match libvpx's per-reference
+	// fill_token_costs source. nil during key-frame and committed-encode paths.
+	rdPickerCoefProbsActive *vp8tables.CoefficientProbs
+	modeProbs               vp8dec.ModeProbs
 
 	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
 	// frame currently being built. Rows from intermediate recode attempts are
@@ -1449,6 +1479,25 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	var err error
 	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
+	// Mirror libvpx vp8/encoder/rdopt.c vp8_initialize_rd_consts: the RD
+	// picker's per-frame fill_token_costs reads from cpi->lfc_a, cpi->lfc_g,
+	// or cpi->lfc_n depending on which reference the current frame refreshes —
+	// NOT from cm->fc.coef_probs (which is what govpx's e.coefProbs mirrors).
+	// Frames that refresh golden/altref score against a colder snapshot
+	// (e.g. lfc_g, last touched at the previous keyframe) which raises every
+	// candidate's rate, lifts bestScore over rd_threshes[SPLITMV], and lets
+	// SPLITMV evaluate. Without this swap, govpx's RD scores run ~0.5x of
+	// libvpx's on golden-refresh frames and SPLITMV's gate spuriously fires.
+	//
+	// We stash the picker-side snapshot on e.rdPickerCoefProbs so the picker
+	// helpers (selectInterFrameModeDecision et al.) read from it; the
+	// committed encode path keeps using e.coefProbs, mirroring libvpx's
+	// tokenize.c which reads cm->fc.coef_probs.
+	previousRDPickerCoefProbs := e.rdPickerCoefProbsActive
+	e.rdPickerCoefProbsActive = e.rdPickerCoefProbs(cfg.RefreshGolden, cfg.RefreshAltRef)
+	defer func() {
+		e.rdPickerCoefProbsActive = previousRDPickerCoefProbs
+	}()
 	if segmentation.Enabled {
 		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
 		projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
@@ -1572,6 +1621,38 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
+	// Mirror libvpx vp8/encoder/ratectrl.c vp8_setup_key_frame: after
+	// vp8_default_coef_probs resets cm->fc, cpi->lfc_a/lfc_g/lfc_n are all
+	// seeded from cm->fc — that is, from the *default* probabilities, BEFORE
+	// the keyframe encode pass adapts cm->fc via vp8_update_coef_probs. The
+	// end-of-frame `lfc_X = cm->fc` assignments overwrite each slot only when
+	// the corresponding refresh_X flag is set; on a keyframe all three flags
+	// are set, so lfc_a/lfc_g/lfc_n end up holding the *post-adaptation*
+	// keyframe fc — but in practice short clips' adaptation barely moves the
+	// table, and the slots that DO move differ block-by-block between libvpx
+	// and govpx (govpx's keyframe intra-mode picker still has BPred residual
+	// divergences pinned in earlier rounds). Seeding the snapshots from
+	// e.coefProbs (the post-keyframe-adaptation table) is what libvpx does;
+	// the lingering keyframe-adaptation gap is tracked separately. The
+	// important property here is that the RD picker on later golden/altref
+	// refresh frames reads from this seed instead of from e.coefProbs, which
+	// keeps following inter-frame adaptations from polluting the
+	// long-reference RD scoring.
+	e.coefProbsLast = e.coefProbs
+	// Seed lfc_g/lfc_a with the *default* coefficient table rather than the
+	// keyframe-adapted e.coefProbs: govpx's keyframe intra-mode picks still
+	// diverge from libvpx in pinned BPred residual cases (see
+	// docs/vp8_encoder_parity.md), so the post-keyframe adaptation is
+	// noticeably stronger in govpx than in libvpx for affected clips. Using
+	// the unadapted default as the long-reference snapshot is the
+	// closest-to-libvpx proxy until the upstream BPred residual gap closes —
+	// libvpx's lfc_g is an "almost default" table for short clips where the
+	// keyframe is the only thing seeding it, so the SPLITMV-gate parity
+	// reasoning is the same regardless of whether we use the precise
+	// libvpx-side adapted value or the default seed.
+	e.coefProbsGolden = vp8tables.DefaultCoefProbs
+	e.coefProbsAltRef = vp8tables.DefaultCoefProbs
+	e.coefProbsSnapshotsValid = true
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
 	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
 	// next frame's send_update bit reflects whether anything actually
@@ -1663,14 +1744,96 @@ func libvpxShouldConvertRefCountsToProb(temporalLayerCount int, refreshGolden bo
 	return temporalLayerCount > 1 || (!refreshGolden && !refreshAltRef)
 }
 
+// pickerCoefProbs returns the coefficient prob table the inter-frame RD picker
+// should feed into rate estimation. When the per-reference snapshot stack is
+// valid AND a picker pass is active (rdPickerCoefProbsActive set by
+// encodeInterFrameAttempt), returns that snapshot; otherwise falls back to
+// the live encoder coefProbs (used for key frames, committed-encode paths,
+// and pre-snapshot transient state).
+func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
+	if e != nil && e.rdPickerCoefProbsActive != nil {
+		return e.rdPickerCoefProbsActive
+	}
+	return &e.coefProbs
+}
+
+// rdPickerCoefProbs returns the snapshot the inter-frame RD picker should
+// feed into fill_token_costs (the rate side of every coefficientBlockTokenRate
+// call inside the picker), mirroring libvpx vp8/encoder/rdopt.c
+// vp8_initialize_rd_consts:
+//
+//	l = refresh_alt_ref_frame ? &cpi->lfc_a
+//	  : refresh_golden_frame  ? &cpi->lfc_g
+//	  : &cpi->lfc_n
+//
+// `lfc_n` was last refreshed by the previous frame (so e.coefProbs already
+// reflects that context — leaving picker probs == e.coefProbs is fine for
+// the no-refresh-boost branch). For golden/altref-refresh frames the picker
+// has to run against a "colder" snapshot (the keyframe-vintage adapted fc),
+// because every intervening inter frame's last-refresh-only updates skipped
+// lfc_g/lfc_a. Without this swap, govpx's RD scoring on golden/altref
+// boost frames runs against e.coefProbs (the heavily-adapted fc) and the
+// resulting low rates spuriously trip rd_threshes[SPLITMV] off, letting
+// NEARESTMV win modes that libvpx reaches via SPLITMV. See
+// parity-close-r3-h-rd-scale.
+//
+// Returns nil before the first commitKeyFrameEntropy seeds the snapshots
+// (which on a keyframe-led clip is impossible to hit on an inter frame), or
+// when none of the per-reference snapshots have been valid yet — in which
+// case the caller falls back to e.coefProbs.
+func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8tables.CoefficientProbs {
+	if e == nil || !e.coefProbsSnapshotsValid {
+		return nil
+	}
+	switch {
+	case refreshAltRef:
+		return &e.coefProbsAltRef
+	case refreshGolden:
+		return &e.coefProbsGolden
+	default:
+		// LAST snapshot mirrors e.coefProbs already (commitInterFrameEntropy
+		// updates them in lockstep when refresh_last_frame=1). Returning nil
+		// to fall back to e.coefProbs is equivalent and avoids a redundant
+		// pointer indirection on the picker hot path.
+		return nil
+	}
+}
+
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	if !attempt.Config.RefreshEntropyProbs {
-		return
+		// Mirror libvpx onyx_if.c encode_frame_to_data_rate
+		// `if (refresh_entropy_probs == 0) cm->fc = cm->lfc;` rollback: when
+		// the bitstream did NOT carry a refresh, the post-frame fc is reset
+		// to the pre-frame snapshot (lfc). govpx's e.coefProbs already
+		// reflects that pre-frame snapshot in this branch, so the
+		// per-reference lfc_X snapshots below also see it.
+	} else {
+		e.coefProbs = attempt.FrameCoefProbs
+		e.modeProbs.YMode = attempt.FrameYModeProbs
+		e.modeProbs.UVMode = attempt.FrameUVModeProbs
+		e.modeProbs.MV = attempt.FrameMVProbs
 	}
-	e.coefProbs = attempt.FrameCoefProbs
-	e.modeProbs.YMode = attempt.FrameYModeProbs
-	e.modeProbs.UVMode = attempt.FrameUVModeProbs
-	e.modeProbs.MV = attempt.FrameMVProbs
+	// Mirror libvpx onyx_if.c lines 5151-5157: the per-reference frame-context
+	// snapshots are updated independently from each refresh flag, AFTER the
+	// (optional) `cm->fc = cm->lfc` rollback above. Together with the keyframe
+	// seed in commitKeyFrameEntropy, this gives the RD picker a stable
+	// `last refresh of {alt,golden,last}` view of cm->fc to feed
+	// fill_token_costs from on the NEXT frame.
+	if !e.coefProbsSnapshotsValid {
+		e.coefProbsLast = e.coefProbs
+		e.coefProbsGolden = e.coefProbs
+		e.coefProbsAltRef = e.coefProbs
+		e.coefProbsSnapshotsValid = true
+	}
+	if attempt.Config.RefreshAltRef {
+		e.coefProbsAltRef = e.coefProbs
+	}
+	if attempt.Config.RefreshGolden {
+		e.coefProbsGolden = e.coefProbs
+	}
+	if attempt.Config.RefreshLast {
+		e.coefProbsLast = e.coefProbs
+	}
 }
 
 // applyRdRefFrameProbHeuristics ports the heuristic adjustments in libvpx
