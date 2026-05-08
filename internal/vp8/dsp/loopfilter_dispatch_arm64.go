@@ -10,7 +10,6 @@ package dsp
 // count=1 (chroma 8-wide) uses the libvpx-style scalar reference.
 
 import (
-	"encoding/binary"
 	"unsafe"
 )
 
@@ -60,29 +59,35 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 // Implementation: read each input row as a uint64 (8 bytes little-endian
 // at byte 0..7) and scatter each byte at the right lane position.
 func gatherV16x8(tmp *[8 * 16]byte, s []byte, stride int) {
-	dst := tmp[:]
+	_ = s[15*stride+7]
+	srcBase := unsafe.Pointer(&s[0])
+	dstBase := unsafe.Pointer(&tmp[0])
 	for i := 0; i < 16; i++ {
-		row := s[i*stride : i*stride+8]
-		w := binary.LittleEndian.Uint64(row)
-		dst[0*16+i] = byte(w)
-		dst[1*16+i] = byte(w >> 8)
-		dst[2*16+i] = byte(w >> 16)
-		dst[3*16+i] = byte(w >> 24)
-		dst[4*16+i] = byte(w >> 32)
-		dst[5*16+i] = byte(w >> 40)
-		dst[6*16+i] = byte(w >> 48)
-		dst[7*16+i] = byte(w >> 56)
+		w := *(*uint64)(unsafe.Add(srcBase, i*stride))
+		*(*byte)(unsafe.Add(dstBase, 0*16+i)) = byte(w)
+		*(*byte)(unsafe.Add(dstBase, 1*16+i)) = byte(w >> 8)
+		*(*byte)(unsafe.Add(dstBase, 2*16+i)) = byte(w >> 16)
+		*(*byte)(unsafe.Add(dstBase, 3*16+i)) = byte(w >> 24)
+		*(*byte)(unsafe.Add(dstBase, 4*16+i)) = byte(w >> 32)
+		*(*byte)(unsafe.Add(dstBase, 5*16+i)) = byte(w >> 40)
+		*(*byte)(unsafe.Add(dstBase, 6*16+i)) = byte(w >> 48)
+		*(*byte)(unsafe.Add(dstBase, 7*16+i)) = byte(w >> 56)
 	}
 }
 
 // scatterV16x8 writes the modified rows [first..first+nrows-1] of tmp
 // back to the corresponding column positions in s.
 func scatterV16x8(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
-	src := tmp[:]
+	_ = s[15*stride+7]
+	if first < 0 || nrows < 0 || first+nrows > 8 {
+		return
+	}
+	srcBase := unsafe.Pointer(&tmp[0])
+	dstBase := unsafe.Pointer(&s[0])
 	for i := 0; i < 16; i++ {
-		row := s[i*stride : i*stride+8]
+		row := unsafe.Add(dstBase, i*stride)
 		for r := 0; r < nrows; r++ {
-			row[first+r] = src[(first+r)*16+i]
+			*(*byte)(unsafe.Add(row, first+r)) = *(*byte)(unsafe.Add(srcBase, (first+r)*16+i))
 		}
 	}
 }

@@ -169,14 +169,18 @@ func mvBoolCost(prob uint8, bit int) int {
 func mvTreeTokenCost(tree []int16, probs []uint8, token TreeToken) int {
 	node := int16(0)
 	cost := 0
+	value := token.Value
+	probsLen := len(probs)
+	treeLen := len(tree)
 	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= len(probs) || int(node)+1 >= len(tree) {
+		nodeIdx := int(node)
+		if probIndex < 0 || probIndex >= probsLen || nodeIdx+1 >= treeLen {
 			return 1 << 30
 		}
-		bit := int((token.Value >> uint(bitIndex)) & 1)
+		bit := int((value >> uint(bitIndex)) & 1)
 		cost += mvBoolCost(probs[probIndex], bit)
-		next := tree[int(node)+bit]
+		next := tree[nodeIdx+bit]
 		if next <= 0 {
 			if bitIndex == 0 {
 				return cost

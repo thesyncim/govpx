@@ -1,5 +1,7 @@
 package dsp
 
+import "unsafe"
+
 // Ported from libvpx v1.16.0 vp8/encoder/mcomp.c scalar SAD primitives.
 
 func SAD16x16(src []byte, srcStride int, ref []byte, refStride int) int {
@@ -42,12 +44,32 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 	if width == 4 && height == 4 {
 		return sadBlock4x4(src, srcStride, ref, refStride)
 	}
+	return sadBlockScalarFallback(src, srcStride, ref, refStride, width, height)
+}
+
+func sadBlockLimit(src []byte, srcStride int, ref []byte, refStride int, width int, height int, limit int) int {
+	if width == 16 && height == 16 {
+		return sadBlock16x16Limit(src, srcStride, ref, refStride, limit)
+	}
+	return sadBlockLimitScalarFallback(src, srcStride, ref, refStride, width, height, limit)
+}
+
+func sadBlockScalarFallback(src []byte, srcStride int, ref []byte, refStride int, width, height int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	_ = src[(height-1)*srcStride+(width-1)]
+	_ = ref[(height-1)*refStride+(width-1)]
+	srcBase := unsafe.Pointer(&src[0])
+	refBase := unsafe.Pointer(&ref[0])
 	sad := 0
 	for y := 0; y < height; y++ {
-		srcRow := src[y*srcStride:]
-		refRow := ref[y*refStride:]
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
 		for x := 0; x < width; x++ {
-			diff := int(srcRow[x]) - int(refRow[x])
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
 			if diff < 0 {
 				diff = -diff
 			}
@@ -57,16 +79,22 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 	return sad
 }
 
-func sadBlockLimit(src []byte, srcStride int, ref []byte, refStride int, width int, height int, limit int) int {
-	if width == 16 && height == 16 {
-		return sadBlock16x16Limit(src, srcStride, ref, refStride, limit)
+func sadBlockLimitScalarFallback(src []byte, srcStride int, ref []byte, refStride int, width, height, limit int) int {
+	if width <= 0 || height <= 0 {
+		return 0
 	}
+	_ = src[(height-1)*srcStride+(width-1)]
+	_ = ref[(height-1)*refStride+(width-1)]
+	srcBase := unsafe.Pointer(&src[0])
+	refBase := unsafe.Pointer(&ref[0])
 	sad := 0
 	for y := 0; y < height; y++ {
-		srcRow := src[y*srcStride:]
-		refRow := ref[y*refStride:]
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
 		for x := 0; x < width; x++ {
-			diff := int(srcRow[x]) - int(refRow[x])
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
 			if diff < 0 {
 				diff = -diff
 			}

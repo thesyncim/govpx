@@ -2,6 +2,8 @@
 
 package dsp
 
+import "unsafe"
+
 // Pure-Go fallback for the SAD primitives on architectures without a SIMD
 // port. Mirrors libvpx v1.16.0 vpx_dsp/sad.c semantics.
 
@@ -30,12 +32,21 @@ func sadBlock4x4(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func sadBlockScalar(src []byte, srcStride int, ref []byte, refStride int, width, height int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	_ = src[(height-1)*srcStride+(width-1)]
+	_ = ref[(height-1)*refStride+(width-1)]
+	srcBase := unsafe.Pointer(&src[0])
+	refBase := unsafe.Pointer(&ref[0])
 	sad := 0
 	for y := 0; y < height; y++ {
-		srcRow := src[y*srcStride:]
-		refRow := ref[y*refStride:]
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
 		for x := 0; x < width; x++ {
-			diff := int(srcRow[x]) - int(refRow[x])
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
 			if diff < 0 {
 				diff = -diff
 			}
@@ -46,12 +57,21 @@ func sadBlockScalar(src []byte, srcStride int, ref []byte, refStride int, width,
 }
 
 func sadBlockLimitScalar(src []byte, srcStride int, ref []byte, refStride int, width, height, limit int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	_ = src[(height-1)*srcStride+(width-1)]
+	_ = ref[(height-1)*refStride+(width-1)]
+	srcBase := unsafe.Pointer(&src[0])
+	refBase := unsafe.Pointer(&ref[0])
 	sad := 0
 	for y := 0; y < height; y++ {
-		srcRow := src[y*srcStride:]
-		refRow := ref[y*refStride:]
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
 		for x := 0; x < width; x++ {
-			diff := int(srcRow[x]) - int(refRow[x])
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
 			if diff < 0 {
 				diff = -diff
 			}
