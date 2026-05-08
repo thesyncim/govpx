@@ -304,6 +304,13 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 		return ErrReconstructGridBufferTooSmall
 	}
 
+	// Cache frame-level reference state once per reference image to
+	// amortize codedWidth/Height resolution, plane lookups, and
+	// origin/border math out of the per-MB inter-predictor builder.
+	lastState := newFrameInterRefState(last, cfg)
+	goldenState := newFrameInterRefState(golden, cfg)
+	altState := newFrameInterRefState(alt, cfg)
+
 	for row := 0; row < rows; row++ {
 		yRow := row * 16 * img.YStride
 		uRow := row * 8 * img.UStride
@@ -325,8 +332,19 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 				continue
 			}
 
-			ref := referenceImageForMode(mode.RefFrame, last, golden, alt)
-			if ref == nil {
+			var refState *frameInterRefState
+			var ref *common.Image
+			switch mode.RefFrame {
+			case common.LastFrame:
+				refState = &lastState
+				ref = last
+			case common.GoldenFrame:
+				refState = &goldenState
+				ref = golden
+			case common.AltRefFrame:
+				refState = &altState
+				ref = alt
+			default:
 				return ErrUnsupportedInterReconstructionMode
 			}
 			if mode.Mode == common.SplitMV {
@@ -335,7 +353,7 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 				}
 				continue
 			}
-			if !ReconstructWholeMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
+			if !reconstructWholeMVInterMacroblockFast(refState, mode, &tokens[index], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 		}
@@ -345,27 +363,11 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 }
 
 func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
-	if mode.RefFrame == common.IntraFrame || mode.Is4x4 || !isWholeMacroblockInterMode(mode.Mode) {
+	if ref == nil {
 		return false
 	}
-	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {
-		return false
-	}
-	mv := fullPixelMotionVector(mode.MV, cfg)
-	mv = clampMotionVectorToUMVBorder(mv, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
-	plan, ok := wholeMVReferencePlan(ref, mbRow, mbCol, mv, cfg)
-	if !ok {
-		return false
-	}
-	predictInter16x16(plan.YPlane[plan.YOffset:], ref.YStride, plan.YXOffset, plan.YYOffset, y, yStride, cfg)
-	predictInter8x8(plan.UPlane[plan.UOffset:], ref.UStride, plan.UVXOffset, plan.UVYOffset, u, uStride, cfg)
-	predictInter8x8(plan.VPlane[plan.VOffset:], ref.VStride, plan.UVXOffset, plan.UVYOffset, v, vStride, cfg)
-	if mode.MBSkipCoeff {
-		return true
-	}
-	TransformMacroblockTokens(tokens, dequant, false, scratch)
-	AddMacroblockResidual(tokens, scratch, y, yStride, u, uStride, v, vStride)
-	return true
+	state := newFrameInterRefState(ref, cfg)
+	return reconstructWholeMVInterMacroblockFast(&state, mode, tokens, dequant, y, yStride, u, uStride, v, vStride, scratch, mbRow, mbCol)
 }
 
 func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
