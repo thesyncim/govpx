@@ -2,13 +2,13 @@
 
 package encoder
 
-// ForwardDCT4x4 dispatch on amd64. The libvpx v1.16.0
-// vp8/encoder/x86/dct_sse2.asm vp8_short_fdct4x4_sse2 kernel uses a
-// non-trivial transpose layout that's tricky to translate into Go's
-// amd64 mnemonics with cross-target verification; FastQuantize (4% of
-// CPU) carries the heaviest load on amd64, so the FDCT (1.5%) stays
-// scalar here pending a follow-up port.
+// SSE2 port of libvpx v1.16.0 vp8/encoder/x86/dct_sse2.asm
+// vp8_short_fdct4x4_sse2. Output is byte-identical to ForwardDCT4x4
+// scalar reference for the encoder's residual range.
+
+//go:noescape
+func forwardDCT4x4SSE2(input *int16, stride int, output *int16)
 
 func forwardDCT4x4SIMD(input []int16, stride int, output *[16]int16) {
-	forwardDCT4x4Scalar(input, stride, output)
+	forwardDCT4x4SSE2(&input[0], stride, &output[0])
 }
