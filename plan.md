@@ -111,6 +111,36 @@ lives in [Makefile](Makefile).
   decisions for cols 6-7 from MB row 1+. Diagnostic harness lives in
   [`oracle_chroma_subpel_predictor_diag_test.go`](oracle_chroma_subpel_predictor_diag_test.go)
   (gate `GOVPX_DEBUG=1`, optional `GOVPX_DEBUG_ALL_ROWS=1`).
+- R11-J localizer (2026-05-08): a focused diag harness in
+  [`diag_r11_j_pre_lf_recon_test.go`](diag_r11_j_pre_lf_recon_test.go)
+  drives the chroma-subpel scoreboard's exact option set (no buffer
+  overrides -> libvpx defaults) for the 128x128 panning fixture and
+  walks per-MB mb / predictor / reconstructed rows on frame 1. Findings
+  for that config (q=14 on both sides, govpx LF=5 vs libvpx LF=10):
+  - **First divergent reconstructed MB: MB(2,7) Y pos 200** (16x16
+    offset 12,8 = block 14 row 0); 4 divergent MBs total on frame 1,
+    all col-7 B_PRED (MB(2,7), (3,7), (4,7), (5,7)) — Y/U/V all diverge
+    by 32-55 of 256 / 38-64 of 64 bytes per plane.
+  - mode matches (both INTRA_FRAME B_PRED) but residual MV state
+    diverges (govpx (0,0) vs libvpx (6..8,16)) — for intra B_PRED the
+    MV doesn't drive prediction but the per-4x4 sub-mode picks evidently
+    do.
+  - qcoeff diverges on every MB (mostly chroma AC -1/+1 magnitudes that
+    govpx keeps but libvpx zeros); pre-LF reconstructed Y on the other
+    60 inter MBs is byte-identical.
+  - Frame 1 LF fast-picker diverges: govpx pre:0 SSE=29350 vs libvpx
+    pre:0 SSE=29467 (delta=117 over the 4 col-7 B_PRED MBs); chosen
+    LF=5 vs 10 cascades into the y_adler/u_adler/v_adler mismatch the
+    scoreboard counts.
+  - The buf-override config (q=16, LF=5 on both sides) shows the col-7
+    B_PRED Y plane MATCH and only U/V DIFFER, so the Y-plane B_PRED
+    divergence is q-state dependent and only surfaces under the
+    scoreboard config.
+  Next step is to surface b_modes for inter B_PRED on both encoder
+  oracle and govpx trace so the per-4x4 sub-mode picks can be diffed
+  directly. The reconstruction emit was widened to include intra B_PRED
+  inter MBs (encoder_reconstruct.go) so the harness no longer silently
+  skips them.
 - Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor; per-call
   tree walks are functionally equivalent).
 - Intra/Quant/Tokens: SSIM-gated activity tuning and oracle token-cost
