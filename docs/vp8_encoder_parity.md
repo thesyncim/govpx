@@ -872,14 +872,27 @@ the anchor and look for the surrounding mismatch.
     [`TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats`](../encoder_altref_driver_test.go).
   - Simplification vs. libvpx: in one-pass mode govpx schedules every
     `DEFAULT_GF_INTERVAL`-bounded interval as soon as the lookahead has
-    enough entries; two-pass mode uses the FIRSTPASS_STATS-driven
-    `pass2MaybeArmAltRefPending` path above. The hidden frame is encoded
-    directly from the peeked source image; libvpx's
+    enough entries; libvpx's vp8/encoder/ratectrl.c `calc_gf_params`
+    instead unconditionally clears `source_alt_ref_pending` whenever
+    `cpi->pass != 2`, so one-pass libvpx never fires the hidden ARF.
+    The govpx one-pass scheduler is therefore strictly more eager and
+    is exercised by `TestAutoAltRefDriverEmitsHiddenFrame` rather than
+    by oracle parity. Two-pass mode uses the FIRSTPASS_STATS-driven
+    `pass2MaybeArmAltRefPending` path above and is the libvpx-faithful
+    comparison; `TestOracleARNRBufferAdler` drives both sides through
+    two-pass (`captureGovpxFirstPassStats` + `TwoPassStats` on the
+    govpx side, `--passes=2 --pass=1`/`--pass=2` on the libvpx side)
+    so the auto-ARF scheduler is symmetric. The hidden frame is
+    encoded directly from the peeked source image; libvpx's
     `vp8_temporal_filter_prepare_c` redirection of
     `force_src_buffer` to `cpi->alt_ref_buffer` is not wired here, so
     ARNR temporal filtering for the ARF source still runs through the
     existing `applyARNRFilter` pipeline rather than the dedicated
-    alt_ref_buffer.
+    alt_ref_buffer. The remaining gap is hidden-frame emission timing:
+    libvpx peeks the lookahead at offset `frames_till_gf_update_due`
+    and emits the hidden ARF on the first inter call after the ARF is
+    armed, while govpx waits for the future PTS to reach the head of
+    the lookahead, which delays the emission by the section interval.
   - Done when hidden/show cadence, timestamps, refresh flags, and decoded
     output match libvpx with alternate-reference enabled.
 
