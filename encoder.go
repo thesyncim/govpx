@@ -76,6 +76,15 @@ type EncoderOptions struct {
 	GFCBRBoostPct       int
 
 	DropFrameAllowed bool
+	// DropFrameWaterMark mirrors libvpx's rc_dropframe_thresh / oxcf
+	// drop_frames_water_mark (vpx_codec_enc_cfg_t). It is the
+	// percentage of optimal_buffer_level at which the libvpx decimation
+	// drop branch (vp8_check_drop_buffer in vp8/encoder/onyx_if.c)
+	// starts engaging the 1->2->3 decimation factor ladder. When
+	// DropFrameAllowed is true and this is zero, govpx defaults to 60
+	// (the typical realtime CBR knob). When DropFrameAllowed is false,
+	// no decimation ever fires.
+	DropFrameWaterMark int
 
 	TemporalScalability TemporalScalabilityConfig
 
@@ -823,6 +832,32 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		TemporalLayerTargetBitrateKbps:     temporalFrame.LayerTargetBitrateKbps,
 		TemporalLayerCumulativeBitrateKbps: temporalFrame.LayerCumulativeBitrateKbps,
 	}
+	// Decimation drop check. Mirrors libvpx vp8/encoder/onyx_if.c
+	// vp8_check_drop_buffer which runs at the top of
+	// encode_frame_to_data_rate (before vp8_pick_frame_size). The
+	// decimation factor / count state machine is independent of the
+	// buffer-underrun branch below, so both checks coexist and can fire
+	// on different frames in the same stream. Key frames are never
+	// dropped here but participate in the count seeding so the post-key
+	// inter cadence honors the configured decimation pattern.
+	if !invisible && e.rc.checkDropBuffer(keyFrame) {
+		e.rc.postDecimationDropFrame()
+		e.twoPass.finishFrame(0)
+		result.Dropped = true
+		result.BufferLevelBits = e.rc.bufferLevelBits
+		e.forceKeyFrame = false
+		// libvpx's decimation drop does NOT set force_maxqp: only the
+		// post-encode overshoot drop does that. Mirror that exactly so
+		// the next inter frame's Q regulation runs through the normal
+		// path instead of being clamped at max-Q. cyclicRefresh
+		// suppression also belongs to overshoot drops only.
+		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
+		e.populateTemporalLayerBufferResult(&result, temporalFrame)
+		e.emitOracleDroppedFrameTrace("decimation")
+		e.frameCount++
+		finishSourceAltRef()
+		return result, nil
+	}
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
 		e.twoPass.finishFrame(0)
@@ -835,6 +870,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.forceMaxQuantizer = true
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
+		// Oracle trace: emit a dropped-frame row before frameCount advances.
+		// libvpx's parity oracle emits the same row from
+		// build_vpxenc_oracle.sh at the buffer-underrun return path inside
+		// encode_frame_to_data_rate. govpx's drop trigger
+		// (rc.shouldDropInterFrame) gates on bufferLevelBits<0 which is the
+		// libvpx-equivalent calc_pframe_target_size buffer-underrun branch,
+		// so the reason is "buffer_underrun".
+		e.emitOracleDroppedFrameTrace("buffer_underrun")
 		e.frameCount++
 		finishSourceAltRef()
 		return result, nil
@@ -2057,6 +2100,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
 	e.opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
 	e.opts.DropFrameAllowed = cfg.DropFrameAllowed
+	e.opts.DropFrameWaterMark = cfg.DropFrameWaterMark
 	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
 	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
