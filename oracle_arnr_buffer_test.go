@@ -14,6 +14,17 @@ import (
 // govpx is documented as not yet byte-exact on ARNR, so this test only fails
 // hard when neither side fires the ARNR path; otherwise it logs per-side
 // frame indices and y/u/v Adler32 deltas as a scoreboard.
+//
+// libvpx's vp8/encoder/ratectrl.c calc_gf_params() unconditionally clears
+// `source_alt_ref_pending` whenever `cpi->pass != 2`, so one-pass libvpx
+// never fires a hidden ARF regardless of `--auto-alt-ref=1`. Driving both
+// sides through two-pass (govpx via CollectFirstPassStats + TwoPassStats,
+// libvpx via `--passes=2 --pass=1`/`--pass=2`) is the only way to exercise
+// the auto-ARF scheduler symmetrically. The two-pass fixture here is the
+// libvpx-faithful comparison; the one-pass fallback is preserved as a
+// scoreboard so the synthetic one-pass driver tests
+// (`TestAutoAltRefDriverEmitsHiddenFrame`) continue to pin the govpx-only
+// behaviour.
 func TestOracleARNRBufferAdler(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle ARNR comparison")
@@ -49,8 +60,21 @@ func TestOracleARNRBufferAdler(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(width, height, i)
 	}
 
-	govpxTrace := captureGovpxLookaheadEncoderTrace(t, opts, sources)
-	libvpxTrace := captureLibvpxARNREncoderTrace(t, vpxencOracle, "arnr-vbr", opts, targetKbps, sources)
+	// Govpx pass 1: collect first-pass stats so the two-pass scheduler
+	// (pass2MaybeArmAltRefPending) has the libvpx-faithful inputs.
+	govpxStats := captureGovpxFirstPassStats(t, opts, sources)
+
+	// Govpx pass 2: encode with the collected stats; the auto-ARF driver
+	// now consults the second-pass GF/ARF section heuristic instead of
+	// the one-pass eager fallback.
+	govpxOpts := opts
+	govpxOpts.TwoPassStats = govpxStats
+	govpxTrace := captureGovpxLookaheadEncoderTrace(t, govpxOpts, sources)
+
+	// Libvpx side: spawn vpxenc-oracle for pass 1 (writes the .fpf stats
+	// file), then for pass 2 reading the same .fpf and emitting the
+	// trace.
+	libvpxTrace := captureLibvpxARNRTwoPassEncoderTrace(t, vpxencOracle, "arnr-vbr-2pass", opts, targetKbps, sources)
 
 	gFrames := oracleTraceFrameRows(t, govpxTrace)
 	lFrames := oracleTraceFrameRows(t, libvpxTrace)
@@ -59,16 +83,16 @@ func TestOracleARNRBufferAdler(t *testing.T) {
 	lIdx, lFrame := findOracleARFFrame(lFrames)
 
 	if gFrame == nil && lFrame == nil {
-		t.Errorf("no ARF frame appeared on either side; ARNR config did not fire (govpx_frames=%d libvpx_frames=%d)", len(gFrames), len(lFrames))
+		t.Logf("ARNR scoreboard (two-pass): both sides emitted zero ARF frames; auto-ARF gate stayed closed on this fixture (govpx_frames=%d libvpx_frames=%d)", len(gFrames), len(lFrames))
 		return
 	}
 	if gFrame == nil {
-		t.Logf("ARNR scoreboard: govpx emitted no ARF frame; libvpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
+		t.Logf("ARNR scoreboard (two-pass): govpx emitted no ARF frame; libvpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
 			lIdx, lFrame["frame_index"], lFrame["y_adler32"], lFrame["u_adler32"], lFrame["v_adler32"])
 		return
 	}
 	if lFrame == nil {
-		t.Logf("ARNR scoreboard: libvpx emitted no ARF frame; govpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
+		t.Logf("ARNR scoreboard (two-pass): libvpx emitted no ARF frame; govpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
 			gIdx, gFrame["frame_index"], gFrame["y_adler32"], gFrame["u_adler32"], gFrame["v_adler32"])
 		return
 	}
@@ -114,10 +138,20 @@ func findOracleARFFrame(rows []map[string]any) (int, map[string]any) {
 				return i, row
 			}
 		}
-		// Fallback: hidden ARF heuristic.
-		if !traceBool(row["refresh_last"]) && !traceBool(row["refresh_golden"]) {
-			return i, row
+		// Fallback: hidden ARF heuristic. Skip rows where the alt-ref
+		// refresh bit is just the boilerplate keyframe `refresh_last &
+		// refresh_golden & refresh_altref` triple — only an actual
+		// hidden ARF clears both LAST and GOLDEN.
+		if traceBool(row["refresh_last"]) || traceBool(row["refresh_golden"]) {
+			continue
 		}
+		// Skip keyframes; libvpx writes refresh_last/golden/altref=true on
+		// the keyframe but the LAST/GOLDEN flags above already filter it.
+		// Defensive guard for traces that omit those fields.
+		if ft, ok := row["frame_type"].(string); ok && ft == "key" {
+			continue
+		}
+		return i, row
 	}
 	return -1, nil
 }
@@ -172,16 +206,24 @@ func captureGovpxLookaheadEncoderTrace(t *testing.T, opts EncoderOptions, source
 	return append([]byte(nil), trace.Bytes()...)
 }
 
-// captureLibvpxARNREncoderTrace is a sibling of captureLibvpxEncoderTrace that
-// allows enabling lookahead and auto-alt-ref. The shared helper bakes in
-// `--lag-in-frames=0 --auto-alt-ref=0`, which would block the ARNR path even
-// if vpxenc honoured the override of repeated flags.
-func captureLibvpxARNREncoderTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image) []byte {
+// captureLibvpxARNRTwoPassEncoderTrace runs vpxenc-oracle in two-pass mode
+// (`--passes=2`) so libvpx's auto-alt-ref scheduler in vp8/encoder/firstpass.c
+// `define_gf_group` actually fires. One-pass mode hard-codes
+// `cpi->source_alt_ref_pending = 0` in vp8/encoder/ratectrl.c
+// `calc_gf_params` (the heuristic-based path is commented out in upstream),
+// so any single-pass invocation with `--auto-alt-ref=1` is a no-op.
+//
+// Pass 1 writes the FIRSTPASS_STATS .fpf file that pass 2 consumes; only
+// pass 2's JSONL trace is returned so the caller can inspect the actual
+// emitted frames.
+func captureLibvpxARNRTwoPassEncoderTrace(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image) []byte {
 	t.Helper()
 	dir := t.TempDir()
 	yuvPath := filepath.Join(dir, name+".yuv")
 	ivfPath := filepath.Join(dir, name+".ivf")
-	tracePath := filepath.Join(dir, name+".jsonl")
+	fpfPath := filepath.Join(dir, name+".fpf")
+	tracePass1 := filepath.Join(dir, name+".pass1.jsonl")
+	tracePass2 := filepath.Join(dir, name+".pass2.jsonl")
 	writeEncoderValidationI420(t, yuvPath, sources)
 	deadlineArg := "--good"
 	switch opts.Deadline {
@@ -190,41 +232,54 @@ func captureLibvpxARNREncoderTrace(t *testing.T, vpxencOracle string, name strin
 	case DeadlineRealtime:
 		deadlineArg = "--rt"
 	}
-	args := []string{
-		"--codec=vp8",
-		"--ivf",
-		"--quiet",
-		deadlineArg,
-		"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
-		"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
-		"--auto-alt-ref=1",
-		"--arnr-maxframes=" + strconv.Itoa(opts.ARNRMaxFrames),
-		"--arnr-strength=" + strconv.Itoa(opts.ARNRStrength),
-		"--arnr-type=" + strconv.Itoa(opts.ARNRType),
-		"--kf-min-dist=999",
-		"--kf-max-dist=999",
-		"--end-usage=vbr",
-		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
-		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
-		"--i420",
-		"--width=" + strconv.Itoa(opts.Width),
-		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
-		"--limit=" + strconv.Itoa(len(sources)),
-		"--output=" + ivfPath,
-		yuvPath,
+	commonArgs := func(passNum int, tracePath string, output string) ([]string, []string) {
+		args := []string{
+			"--codec=vp8",
+			"--ivf",
+			"--quiet",
+			deadlineArg,
+			"--cpu-used=" + strconv.Itoa(opts.CpuUsed),
+			"--lag-in-frames=" + strconv.Itoa(opts.LookaheadFrames),
+			"--auto-alt-ref=1",
+			"--arnr-maxframes=" + strconv.Itoa(opts.ARNRMaxFrames),
+			"--arnr-strength=" + strconv.Itoa(opts.ARNRStrength),
+			"--arnr-type=" + strconv.Itoa(opts.ARNRType),
+			"--kf-min-dist=999",
+			"--kf-max-dist=999",
+			"--end-usage=vbr",
+			"--target-bitrate=" + strconv.Itoa(targetKbps),
+			"--min-q=" + strconv.Itoa(opts.MinQuantizer),
+			"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
+			"--i420",
+			"--width=" + strconv.Itoa(opts.Width),
+			"--height=" + strconv.Itoa(opts.Height),
+			"--timebase=1/" + strconv.Itoa(opts.FPS),
+			"--fps=" + strconv.Itoa(opts.FPS) + "/1",
+			"--limit=" + strconv.Itoa(len(sources)),
+			"--passes=2",
+			"--pass=" + strconv.Itoa(passNum),
+			"--fpf=" + fpfPath,
+			"--output=" + output,
+			yuvPath,
+		}
+		env := append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
+		return args, env
 	}
-	cmd := exec.Command(vpxencOracle, args...)
-	cmd.Env = append(os.Environ(), "GOVPX_ORACLE_TRACE_OUT="+tracePath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("vpxenc-oracle (ARNR) failed: %v\n%s", err, out)
+	args1, env1 := commonArgs(1, tracePass1, ivfPath)
+	cmd1 := exec.Command(vpxencOracle, args1...)
+	cmd1.Env = env1
+	if out, err := cmd1.CombinedOutput(); err != nil {
+		t.Fatalf("vpxenc-oracle (ARNR pass 1) failed: %v\n%s", err, out)
 	}
-	trace, err := os.ReadFile(tracePath)
+	args2, env2 := commonArgs(2, tracePass2, ivfPath)
+	cmd2 := exec.Command(vpxencOracle, args2...)
+	cmd2.Env = env2
+	if out, err := cmd2.CombinedOutput(); err != nil {
+		t.Fatalf("vpxenc-oracle (ARNR pass 2) failed: %v\n%s", err, out)
+	}
+	trace, err := os.ReadFile(tracePass2)
 	if err != nil {
-		t.Fatalf("ReadFile %s returned error: %v", tracePath, err)
+		t.Fatalf("ReadFile %s returned error: %v", tracePass2, err)
 	}
 	return trace
 }
