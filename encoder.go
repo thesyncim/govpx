@@ -746,13 +746,24 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.framesTillGFUpdateDue = gfInterval
 		e.rc.currentGFInterval = gfInterval
 	}
+	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer adjusts
+	// cpi->decimation_factor from the post-encode buffer level of the
+	// previous frame BEFORE vp8_pick_frame_size / vp8_regulate_q runs, then
+	// boosts cpi->per_frame_bandwidth (1->3/2, 2->5/4, 3->5/4) so the
+	// boosted target flows through calc_pframe_target_size into
+	// vp8_regulate_q. Mirror that ordering here: refresh the decimation
+	// factor first, then feed the boosted bits-per-frame into
+	// beginFrameWithTargetAndContext so the rate-control regulator sees the
+	// same target-size baseline as libvpx on frames that follow a
+	// decimation drop.
+	e.rc.prepareDecimationForFrame()
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount: temporalFrame.LayerCount,
 			timing:             e.timing,
 		})
 	} else {
-		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.bitsPerFrame, rateControlFrameContext{
+		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
 			firstFrame:         e.frameCount == 0,
 			forcedKeyFrame:     forcedKeyFrame,
 			temporalLayerCount: temporalFrame.LayerCount,
@@ -918,7 +929,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// reset the rest of the golden-frame/alt-ref lifecycle.
 			e.sourceAltRefActive = false
 			e.resetOracleMBTraceBuffer()
-			e.rc.beginFrameWithTargetAndContext(true, e.rc.bitsPerFrame, rateControlFrameContext{
+			e.rc.beginFrameWithTargetAndContext(true, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
 				temporalLayerCount: temporalFrame.LayerCount,
 				timing:             e.timing,
 			})
