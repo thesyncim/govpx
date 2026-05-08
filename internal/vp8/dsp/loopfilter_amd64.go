@@ -16,6 +16,17 @@ func loopFilterEdgeH16SSE2(src *byte, pitch int, blimit, limit, thresh byte)
 //go:noescape
 func mbLoopFilterEdgeH16SSE2(src *byte, pitch int, blimit, limit, thresh byte)
 
+// AVX2 (VEX-encoded) variants of the inner / mb LF horizontal-edge
+// kernels. Same 16-wide window as the SSE2 paths but use 3-operand
+// non-destructive instructions to eliminate the per-step MOVOU copies.
+// Gated at runtime by internal/cpu.HasAVX2.
+
+//go:noescape
+func loopFilterEdgeH16AVX2(src *byte, pitch int, blimit, limit, thresh byte)
+
+//go:noescape
+func mbLoopFilterEdgeH16AVX2(src *byte, pitch int, blimit, limit, thresh byte)
+
 // loopFilterSimpleEdgeH16SSE2 mirrors libvpx
 // vp8_loop_filter_simple_horizontal_edge_sse2 (vp8/common/x86/loopfilter_sse2.asm).
 // Caller passes a pointer at the p1 row of an 8-row by 16-column window;

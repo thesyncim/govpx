@@ -18,17 +18,40 @@ package dsp
 import (
 	"encoding/binary"
 	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
 )
+
+// loopFilterEdgeH16 routes to the AVX2 VEX-encoded kernel when
+// available; otherwise falls back to SSE2. Both kernels operate on
+// the same 16-wide horizontal-edge window and produce byte-identical
+// output (the AVX2 kernel mirrors the SSE2 schedule with 3-op form
+// and zero functional changes).
+func loopFilterEdgeH16(src *byte, pitch int, blimit, limit, thresh byte) {
+	if cpu.HasAVX2 {
+		loopFilterEdgeH16AVX2(src, pitch, blimit, limit, thresh)
+		return
+	}
+	loopFilterEdgeH16SSE2(src, pitch, blimit, limit, thresh)
+}
+
+func mbLoopFilterEdgeH16(src *byte, pitch int, blimit, limit, thresh byte) {
+	if cpu.HasAVX2 {
+		mbLoopFilterEdgeH16AVX2(src, pitch, blimit, limit, thresh)
+		return
+	}
+	mbLoopFilterEdgeH16SSE2(src, pitch, blimit, limit, thresh)
+}
 
 func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		loopFilterEdgeH16SSE2(&s[0], stride, blimit, limit, thresh)
+		loopFilterEdgeH16(&s[0], stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
 		var tmp [8 * 16]byte
 		gatherH8x8AMD64(&tmp, s, stride)
-		loopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterH8x8AMD64(s, stride, &tmp, 2, 4)
 		return
 	}
@@ -39,14 +62,14 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 	if count == 2 && len(s) >= 15*stride+8 {
 		var tmp [8 * 16]byte
 		gatherV16x8AMD64(&tmp, s, stride)
-		loopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterV16x8AMD64(s, stride, &tmp, 2, 4)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
 		var tmp [8 * 16]byte
 		gatherV8x8AMD64(&tmp, s, stride)
-		loopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterV8x8AMD64(s, stride, &tmp, 2, 4)
 		return
 	}
@@ -55,13 +78,13 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		mbLoopFilterEdgeH16SSE2(&s[0], stride, blimit, limit, thresh)
+		mbLoopFilterEdgeH16(&s[0], stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
 		var tmp [8 * 16]byte
 		gatherH8x8AMD64(&tmp, s, stride)
-		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterH8x8AMD64(s, stride, &tmp, 1, 6)
 		return
 	}
@@ -72,14 +95,14 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 	if count == 2 && len(s) >= 15*stride+8 {
 		var tmp [8 * 16]byte
 		gatherV16x8AMD64(&tmp, s, stride)
-		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterV16x8AMD64(s, stride, &tmp, 1, 6)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
 		var tmp [8 * 16]byte
 		gatherV8x8AMD64(&tmp, s, stride)
-		mbLoopFilterEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
 		scatterV8x8AMD64(s, stride, &tmp, 1, 6)
 		return
 	}
