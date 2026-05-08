@@ -51,27 +51,19 @@ the anchor and look for the surrounding mismatch.
   the production oracle gate for a projected frame/rate decision subset, but
   the full corpus driver that counts matching candidate and MB decisions is
   still missing.
-- Reconstruction byte-identity (May 2026): the 64x64 realtime CBR panning
-  fixture (CpuUsed=8, q-bounds 4..56) now produces a byte-identical
-  `y_adler32`/`u_adler32`/`v_adler32` to libvpx on every frame across realtime
-  CpuUsed 0/4/8 and good-quality CpuUsed 5; size deltas are 0.03..0.8% per
-  frame, and the frame-0 mode histogram matches `{B_PRED:14, DC_PRED:2}`
-  exactly. The 128x128 realtime CBR fixture matches on frame 0 (keyframe) and
-  the keyframe path is fully aligned, but inter frames 1+ diverge; the gap
-  is bounded (size delta ~0.5..1% per frame) but byte-identity is lost. Diff
-  localizes to the chroma path: a `vpxenc-oracle` -> `vpxdec` round-trip on
-  the 128x128 frame-1 output shows govpx's chroma reconstruction is
-  consistently off by 1..3 pixel values starting at U(0,0), suggesting
-  either a sixtap chroma sub-pel filter rounding difference at the right /
-  left frame edge, or a missing border-extension pre-state vs libvpx's
-  `vp8_setup_intra_recon` initialisation. The Y2 (`block 24`) qcoeffs at
-  the rightmost MB column are 1.5..2x larger in govpx than libvpx, which is
-  consistent with the right-edge predictor source diverging by a small
-  per-row constant. Closing this needs a per-pixel chroma predictor diff
-  (subagent groundwork in `debug_predictor_test.go` /
-  `debug_libvpx_decode_test.go` if revived) and likely a fix in the sixtap
-  chroma filter rounding or the LAST-reference border-extension on the
-  encoder's path that libvpx's stale-dst quirk hides on its side.
+- Reconstruction byte-identity (measured 2026-05-08 by capturing both
+  oracle traces and diffing the projected-out
+  `y_adler32`/`u_adler32`/`v_adler32`/`size_bytes` fields):
+  - 64x64 panning fixture, realtime CBR CpuUsed 0/4/8 + good CpuUsed 5,
+    q-bounds 4..56, 4 frames: y/u/v Adler32 byte-identical on every frame;
+    per-frame size delta -0.03..+0.77%; Q matches.
+  - 128x128 panning realtime CBR CpuUsed 8: keyframe byte-identical
+    (size delta -0.07%, Q=4 both sides); inter frames 1..3 diverge with
+    **Q drift** (govpx Q=5..7 vs libvpx Q=13..14 at the same min-q/max-q
+    bounds), producing size deltas of +23..+44%. Earlier diagnosis
+    suggested chroma sixtap rounding alone, but the dominant driver at
+    this resolution is inter-frame Q regulation. Per-pixel reconstruction
+    diff is not informative until Q parity is restored.
 - The largest remaining parity weights are candidate-level inter-mode
   comparison beyond the VBR panning staged field gate, rejected recode-attempt
   tracing, automatic hidden-ARF/ARNR border proof, first-pass/two-pass proof
@@ -139,25 +131,21 @@ the anchor and look for the surrounding mismatch.
 
 ## Quality Gap Ledger
 
-| Case | Config | govpx PSNR/SSIM/kbps | libvpx PSNR/SSIM/kbps | Max frame gap | Status | Suspected driver | Next trace field |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| panning / motion smokes | best/good/realtime CPU bands | measured in oracle tests | measured in oracle tests | see test logs | smoke-gated with direct output-kbps tolerance, not 100% corpus | mode-loop / MV / projected-size deltas | candidate mode rows, per-frame-size deltas |
-| first-pass ramp + Y4M-shaped corpora | pass-1 `.fpf` stats | `TestOracleFirstPassStatsCompare` | libvpx v1.16.0 `vpxenc --pass=1 --fpf` | <=2 post-shift units for intra/coded residuals; <=3 units or 1e-3 relative for SSIM-weighted residuals; exact MV/percentage fields | partial | first-pass q, predictor-residual scoring, fast-quant pass-1 reconstruction aligned; external/two-pass allocation proof still open | external `.fpf` rows, two-pass allocation traces |
-| ARNR border-sensitive clips | AutoAltRef + ARNR | missing matrix | missing matrix | unknown | open | source border / alt-ref buffer semantics | ARNR buffer checksums |
-| 64x64 panning realtime cbr cpu-used=8 | `RateControlCBR`, `Deadline=Realtime`, `CpuUsed=8`, `MinQ=4`, `MaxQ=56`, 4 frames | `y_adler32` and `size_bytes` differ at every frame; e.g. frame 0 govpx `y=3990355763 size=3223`, frame 1 govpx `y=4246733039 size=1353` | frame 0 libvpx `y=3046244131 size=3472`; frame 1 `y=1974010230 size=1288` | ~8% size delta on key frame, ~5% on inter frame 1 at q=4; both sides at the same final Q | open | reconstruction divergence (dequant rounding / token quant / mode-decision tie-breaks); production trace gate does not currently compare `y_adler32`/`u_adler32`/`v_adler32` so the gap is invisible | per-MB qcoeff / EOB rows on the panning corpus |
-| same case, MB(0,1) frame 1 fast picker | inter candidate trace rows | `ZEROMV(LAST) variance=1258796 sse=1264581`; `NEARESTMV(LAST) variance=257 sse=260` | `ZEROMV(LAST) variance=1262564 sse=1268416`; `NEARESTMV(LAST) variance=283 sse=284` | NEAREST best score 26138 vs 28738 — drops below `TM_PRED` threshold 26796, so govpx prunes `TM_PRED` while libvpx tests it | open | upstream reconstruction divergence on frame 0 keyframe propagates into frame 1 LAST reference; inter variance/sse computation logic itself matches | first-frame qcoeff/EOB rows |
-| same case, MB(0,0) frame 0 keyframe intra picker | `predictBestKeyFrameIntraMode` -> `predictBestBPredLumaModeRD` | `mode=B_PRED, uv_mode=DC_PRED, b_modes=[DC,DC,DC,DC,VL,DC,VL,VE,VL,VL,LD,DC,VL,DC,LD,LD]` | `mode=B_PRED, uv_mode=H_PRED, b_modes=[VE,TM,DC,HE,VE,VE,TM,DC,VE,TM,DC,DC,DC,VE,DC,HE]` | block 0 chooses `B_DC_PRED` in govpx (cost 11788, second-best `B_TM_PRED` at 12572) vs `B_VE_PRED` in libvpx; aggregate frame-0 mode hist is govpx `{B_PRED=16}` vs libvpx `{B_PRED=14, DC_PRED=2}`; nonzero qcoeff count govpx 4172 vs libvpx 2916 (+43%) | open | picker math (mode rate via `KeyFrameBModeProbs[A][L]`, `coefficientBlockTokenRate`, `transformBlockError>>2`, `libvpxRDCost`) is structurally aligned with libvpx; a 4-frame replay of the picker on the encoder-fed `(src, pred, A, L)` for block 0 gives govpx a clear `B_DC_PRED` win driven entirely by the cheapest mode-rate cell (37 vs 1151+ for the other 9 candidates), so the divergence is a libvpx-side cost component govpx is not modeling — most likely a pre-pack `cost_coeffs` band/EOB-elision detail or a cached `rd_costs->bmode_costs[A][L]` entry that diverges from the per-call `treeTokenCost(BModeTree, KeyFrameBModeProbs[A][L], m)` value | per-mode `cost_coeffs` rows on the libvpx side at MB(0,0) block 0 |
+| Case | Config | Status | Driver / next step |
+| --- | --- | --- | --- |
+| 64x64 panning realtime cbr cpu-used=0/4/8 + good cpu-used=5 | q-bounds 4..56, 4 frames | byte-identical y/u/v Adler32 every frame; size delta -0.03..+0.77%; Q matches | resolved on this fixture as of 2026-05-08; widen to other resolutions/configs |
+| 128x128 panning realtime cbr cpu-used=8 | q-bounds 4..56, 4 frames | keyframe byte-identical; inter frames 1..3 diverge with govpx Q=5..7 vs libvpx Q=13..14, size delta +23..+44% | inter-frame Q regulation diverges before reconstruction can be diffed; align Q selection at this resolution first |
+| panning / motion smokes | best/good/realtime CPU bands | smoke-gated by output-kbps tolerance; not 100% corpus | candidate mode rows, per-frame-size deltas |
+| first-pass ramp + Y4M-shaped corpora | pass-1 `.fpf` stats | partial — deterministic ramp + Y4M corpus pinned by `TestOracleFirstPassStatsCompare`; external/two-pass allocation proof still open | external `.fpf` rows, two-pass allocation traces |
+| ARNR border-sensitive clips | AutoAltRef + ARNR | open — no matrix | source-border / alt-ref-buffer semantics; ARNR buffer checksums |
 
 ## Last Measured
 
 | Date | Commit | Gate | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 2026-05-08 | Realtime CPU-used speed-feature mapping | `go test ./...`; `make verify-production`; focused oracle candidate compare | pass | Positive realtime `CpuUsed` now follows libvpx auto-speed cold start (`Speed = 4`), while negative realtime values request explicit speeds; remaining realtime candidate desync is documented as a score/distortion gap after speed mapping. |
-| 2026-05-08 | Libvpx inter-candidate trace rows | `GOVPX_WITH_ORACLE=1 go test . -run 'TestOracleEncoderTraceCandidateRowsPresent|TestOracleEncoderTraceDecisionCompare'` | pass | Patched vpxenc-oracle now emits evaluated `inter_candidate` rows for RD and realtime fast pickers; production frame/rate projection remains unchanged. |
-| 2026-05-08 | Govpx inter-candidate trace rows | `make verify-production` | pass | Adds govpx-side evaluated inter-candidate rows for RD and fast pickers while preserving the projected frame/rate oracle gate. |
-| 2026-05-08 | Staged inter-candidate comparison | `GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=internal/coracle/build/vpxenc-oracle go test . -run 'TestOracleEncoderTraceInterCandidateCompare'` | pass | Compares VBR panning RD candidate sequence and mode/ref/MV decision fields; noisy RD/rate scalar fields remain open for attribution before tightening. |
-| 2026-05-08 | Projected-size parity stack | `make verify-production` | pass | Includes timebase-aligned trace compare with `this_frame_target`, `projected_frame_size` within 64 bits, first-pass ramp + Y4M-shaped `.fpf` oracle coverage, and direct synthetic output-kbps gates. |
-| 2026-05-08 | Reconstruction Adler32 survey | manual JSON inspection of govpx vs vpxenc-oracle traces | gap documented | The production decision trace projection does not include `y_adler32`/`u_adler32`/`v_adler32`; running the same panning realtime fixture through both encoders shows the reconstructions diverge from the keyframe onward (e.g. frame 0 `y_adler32`: govpx `3990355763` vs libvpx `3046244131`) at the same final Q, with a ~8% keyframe size delta. The smoke gates pass because they cap PSNR/SSIM/output-kbps deltas; the trace-level gate hides per-frame reconstruction divergence. Closing this requires per-MB qcoeff/EOB comparison to localize whether the driver is dequant rounding, token quant policy, or mode-decision tie-breaks, then aligning the offending stage. |
+| 2026-05-08 | bfac6a7 | `make verify-production` | pass | Full production parity gate, including `TestOracleEncoderTraceDecisionCompare`, `TestOracleEncoderTraceInterCandidateCompare`, and external Y4M/YUV corpus minima. |
+| 2026-05-08 | bfac6a7 | per-frame Adler32 / size_bytes diff on 64x64 panning, realtime CBR CpuUsed 0/4/8 + good CpuUsed 5, q-bounds 4..56, 4 frames | byte-identical | y/u/v Adler32 match every frame; per-frame size delta -0.03..+0.77%; Q matches at 4. |
+| 2026-05-08 | bfac6a7 | per-frame Adler32 / size_bytes diff on 128x128 panning realtime CBR CpuUsed 8 | gap | Keyframe byte-identical (size delta -0.07%, Q=4 both sides); inter frames 1..3 diverge with govpx Q=5..7 vs libvpx Q=13..14 at the same min-q/max-q bounds, size deltas +23..+44%. The dominant driver is inter-frame Q regulation, not chroma sixtap rounding. |
 
 ## Accepted Non-Bitexact Differences
 

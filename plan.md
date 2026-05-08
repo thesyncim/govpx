@@ -40,23 +40,23 @@ lives in [Makefile](Makefile).
   lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
   two-pass VBR targeting, pre-analysis scene-cut keyframe placement, and
   libvpx post-inter auto-key recode for opt-in one-pass non-realtime encodes.
-  Exact libvpx
-  quality/rate-control tuning parity is still open. Current estimate is roughly
-  74% overall encoder parity, or about 84% on the core one-pass quality path;
-  these are quality/rate-equivalence estimates, not bit-exactness percentages.
-  See the detailed checklist for caveats. The May 2026 survey under
-  `docs/vp8_encoder_parity.md` "Quality Gap Ledger" pinned the next concrete
-  gap: the production decision trace projection drops the per-frame
-  `y_adler32`/`u_adler32`/`v_adler32` columns, and a govpx-vs-vpxenc-oracle
-  comparison on a 64x64 realtime CBR panning fixture shows reconstruction
-  divergence from the keyframe onward (frame 0 govpx `y_adler32=3990355763`
-  vs libvpx `3046244131`, ~8% keyframe size delta) at the same final Q. This
-  divergence then propagates into frame 1's LAST reference and explains the
-  realtime fast-picker `MB(0,1)` candidate-pruning desync (NEAREST best score
-  26138 vs 28738 -> `TM_PRED` threshold gate flips). Closing this requires
-  per-MB qcoeff/EOB comparison on the panning corpus to localize the driver
-  (dequant rounding vs token quant policy vs mode-decision tie-breaks), then
-  aligning the offending stage.
+  Estimate ~74% overall, ~84% on the core one-pass quality path
+  (quality/rate-equivalence estimates, not bit-exactness percentages).
+  See [docs/vp8_encoder_parity.md](docs/vp8_encoder_parity.md) for the
+  per-area checklist.
+- Reconstruction byte-identity, 2026-05-08 (measured by capturing both
+  oracle traces and diffing the projected-out
+  `y_adler32`/`u_adler32`/`v_adler32`/`size_bytes` fields):
+  - 64x64 panning fixture, realtime CBR CpuUsed 0/4/8 and good CpuUsed 5:
+    y/u/v Adler32 byte-identical on every frame; per-frame size delta in
+    -0.03..+0.77%; Q matches.
+  - 128x128 panning realtime CBR CpuUsed 8: keyframe byte-identical
+    (size delta -0.07%); inter frames 1+ diverge with **Q drift** (govpx
+    picks Q=5..7 vs libvpx Q=13..14 at the same min-q/max-q bounds)
+    producing size deltas of +23..+44%. The Q divergence — not chroma
+    sixtap rounding alone — dominates the inter-frame gap. Closing this
+    needs Q-regulation parity on inter frames at this resolution before
+    per-pixel reconstruction diff is meaningful.
 - Performance: intentionally deferred until parity gates are strong enough to
   catch regressions.
 
@@ -64,49 +64,20 @@ lives in [Makefile](Makefile).
 
 ### Encoder Quality
 
-- Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor — current
-  per-call tree walks are functionally equivalent, but the libvpx pattern
-  precomputes once per frame).
-- Remaining Intra/Quant/Tokens parity is mostly SSIM-gated activity tuning and
-  oracle token-cost anchors; B_PRED now uses libvpx's Y-only RD bailout budget
-  for key-frame, inter-intra, and inter RD-loop pruning.
-- Faithful remaining motion-search branches: the `bestRefMV` centring,
-  MV-cost ref, sub-pel `±MAX_FULL_PEL_VAL` reject, libvpx NSTEP
-  `vp8_init3smotion_compensation` table, and realtime `CpuUsed > 4`
-  `vp8_hex_search` path are in place. The realtime/non-RD branch now uses
-  libvpx-style luma-variance pickinter scoring, applies pickinter's mode-loop
-  threshold and hit-count model, applies static encode-breakout during
-  candidate evaluation, and skips SPLITMV evaluation while preserving libvpx's
-  test-count/threshold raise side effect; improved-MV oracle rows now expose
-  the govpx predictor slot, predictor MV, and search range. The dormant
-  four-site DIAMOND table/path is also implemented for explicit libvpx-surface
-  parity and future first-pass reuse. The rate trace now carries libvpx-style
-  pre-pack `projected_frame_size` with a bounded 64-bit oracle tolerance.
-  Remaining gap is the libvpx-side improved-MV comparator plus candidate-level
-  rate attribution to remove that projected-size tolerance.
-- Remaining SPLITMV RD/mode-cost parity and oracle coverage; libvpx
-  compressor-speed partition ordering, 8x8-first pruning, and the
-  `no_skip_block4x4_search` gate are in place for RD-enabled speeds, while
-  per-subset LEFT/ABOVE/ZERO/NEW mode trials and explicit sub-MV labels are
-  now wired into selection, cost, MV-probability counting, and syntax. Split
-  NEW candidates now get fractional refinement, and compressor-speed 4x4
-  searches reuse the previous left/above block MV as the next search center.
-  Speed-path 8x8 seed reuse for 16x8/8x16 search centers is in place, and the
-  saved 8x8-pair distances now feed libvpx-style `vp8_cal_step_param` values
-  into NSTEP diamond/further-step SplitMV NEW searches. Best-quality SplitMV
-  NEW searches now also use libvpx's conditional distance-16 full-search
-  fallback. Search-time sub-MV label costs now use the same left/above
-  contextual probabilities as final SplitMV label accounting, label candidates
-  are ranked with an RDCOST-shaped score, and `THR_NEW1/2/3` SplitMV NEW4X4
-  gating now follows libvpx's compacted reference search slot instead of
-  absolute LAST/GOLDEN/ALTREF enum values. Remaining gaps are token-context
-  commit parity, transform/quant token segment RD inside label selection, and
-  oracle-backed label-level RD.
-- Remaining loop-filter parity; previous filter-level carry, libvpx Q-based
-  min/max clamps, fast/full trial-filter search, partial-frame luma SSE
-  scoring, default mode/ref deltas, and realtime `CpuUsed >= 14` simple-filter
-  signaling are in place, while ALT_LF segmentation and VP8 version 1-3
-  behavior remain open.
+- 128x128 inter-frame Q regulation: govpx selects Q=5..7 where libvpx
+  selects Q=13..14 on the panning realtime CBR fixture, driving +23..+44%
+  per-frame size deltas. Top-priority gap.
+- Precomputed `vp8_init_mode_costs` `ModeCosts` table (refactor; per-call
+  tree walks are functionally equivalent).
+- Intra/Quant/Tokens: SSIM-gated activity tuning and oracle token-cost
+  anchors remain. Exhaustive small-block oracle for qcoeff/dqcoeff/EOB
+  parity is open.
+- Motion search: improved-MV libvpx-side comparator and candidate-level
+  rate attribution remain — without them the recode-loop
+  `projected_frame_size` keeps a 64-bit oracle tolerance.
+- SPLITMV RD: token-context commit parity, transform/quant token segment
+  RD inside label selection, and oracle-backed label-level RD are open.
+- Loop filter: ALT_LF segmentation and VP8 version 1-3 behavior remain.
 
 Primary references:
 [encodeintra.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/encodeintra.c),
@@ -119,48 +90,17 @@ Primary references:
 
 ### Encoder Rate Control And Segmentation
 
-- Public 0..63 quantizers now map through libvpx `q_trans` into internal
-  0..127 VP8 qindex before rate-control, segmentation, loop-filter, and packet
-  writing; `EncodeResult.Quantizer` remains public-facing.
-- Exact cyclic/background refresh segmentation policy.
-- Segment-aware quantizer selection.
-- More complete CBR feedback behavior.
+- One-pass CBR and golden-frame correction-factor branches.
 - Exact constrained-quality behavior.
-- Remaining one-pass CBR and golden-frame correction-factor branches.
+- Exact cyclic/background refresh segmentation policy and segment-aware
+  quantizer selection.
+- Exact static-background segmentation policy.
 - Fixed-Q and exact two-pass allocation branches if those modes become
   production requirements.
-- Exact static-background segmentation policy.
-- Cross-frame ref-frame probability tracking (`prob_intra_coded`,
-  `prob_last_coded`, `prob_gf_coded`) is wired against
-  `vp8_estimate_entropy_savings`'s default mode-count formula (63/128/128
-  init), the `update_rd_ref_frame_probs` keyframe/altref/golden heuristics, and
-  the `source_alt_ref_active` branch from `onyx_if.c`.
-- Inter-frame ALTREF sign bias is wired from libvpx-shaped
-  `sourceAltRefActive` into headers, high-level near/best predictors, improved
-  MV predictor slots, mode-rate counts, and NEWMV vector cost anchors.
-- Inter RD now costs skip signaling from libvpx-style live
-  `prob_skip_false` history and uses the current coefficient probability base
-  for token-rate decisions; subpel, NEWMV, and SPLITMV vector RD costs now use
-  the current MV probability base. Recode size checks now subtract libvpx-style
-  ref-frame and coefficient-context entropy savings, including
-  error-resilient independent contexts, before deciding whether to retry.
-  Skip/ref-frame probability headers now use libvpx's exact floor formulas,
-  and visible single-layer auto-ARF source frames force analysis
-  `prob_skip_false=1` like libvpx. Remaining current-prob work is mostly
-  broader libvpx mode-cost caching, exact per-frame mode-table setup, and
-  oracle coverage; zero-reference shortcut frames now feed libvpx-style
-  ref-count probability conversion for the next frame.
-- Encoder oracle validation now drives libvpx with the case's configured
-  deadline and `CpuUsed`, so realtime quality gaps are measured against the
-  matching libvpx speed class rather than hardcoded `--good --cpu-used=0`.
-- First-pass stats now keep libvpx-style raw previous source for
-  `zz_motion_search` / `encode_breakout` separately from the reconstructed
-  first-pass LAST reference used by motion search. Two-pass configuration now
-  consumes libvpx terminal total stats when present and synthesizes the same
-  totals when callers provide per-frame stats only, so modified-error
-  allocation uses the libvpx total `ssim_weighted_pred_err` / `count` model.
-  Remaining first-pass gaps are section stats and fixed-corpus oracle trace
-  coverage.
+- First-pass section stats and external/two-pass `.fpf` oracle coverage
+  beyond the deterministic ramp + Y4M-shaped corpus.
+- Broader mode-cost caching, exact per-frame mode-table setup, and
+  current-prob oracle coverage.
 
 Primary references:
 [ratectrl.c](internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ratectrl.c),
