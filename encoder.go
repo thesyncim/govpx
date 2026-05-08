@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	_ "unsafe" // for go:linkname
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -11,6 +12,12 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
+
+// nanotime returns the monotonic clock in nanoseconds. Linked to
+// runtime.nanotime to avoid time.Now()'s per-call wall+mono allocation.
+//
+//go:linkname nanotime runtime.nanotime
+func nanotime() int64
 
 type Deadline int
 
@@ -229,6 +236,19 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+
+	// libvpx vp8_auto_select_speed (rdopt.c:261) state. Mirrored exactly:
+	// at realtime+positive-cpu_used, at the start of each encode_mb_row
+	// libvpx runs vp8_auto_select_speed, which evolves cpi->Speed in
+	// [4,16] based on avg_pick_mode_time and avg_encode_time vs the
+	// (1e6/framerate)*(16-cpu_used)/16 budget. After each frame's encode
+	// the timers IIR-update (7*avg + duration)>>3. Cold start: Speed=4,
+	// timers=0. Govpx tracks the same state and feeds e.autoSpeed to
+	// libvpxCPUUsed for realtime+positive-cpu_used branches.
+	autoSpeed             int    // current adaptive Speed (libvpx cpi->Speed)
+	avgPickModeTime       uint64 // microseconds (libvpx cpi->avg_pick_mode_time)
+	avgEncodeTime         uint64 // microseconds (libvpx cpi->avg_encode_time)
+	autoSpeedFrameStartNS int64
 
 	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
 	// is set when the encoder is producing a key frame whose timing was
@@ -737,6 +757,11 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 
 func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
 	e.currentSourcePTS = pts
+	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
+	// at the top of encode_mb_row for realtime+positive-cpu_used, evolving
+	// cpi->Speed based on cumulative timing. Mirror the same call point.
+	e.libvpxAutoSelectSpeed()
+	e.autoSpeedFrameStartNS = nowMonotonicNS()
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
 	if err := validateEncodeFlags(flags); err != nil {
@@ -1142,6 +1167,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// baseline to compare against.
 			e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
 			if !hiddenAltRefFrame {
+				e.finishAutoSpeedTiming(false)
 				e.frameCount++
 			}
 			finishSourceAltRef()
@@ -1258,6 +1284,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// ambient_err capture.
 	e.thisKeyFrameForced = false
 	e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
+	e.finishAutoSpeedTiming(true)
 	e.frameCount++
 	finishSourceAltRef()
 	return result, nil
@@ -2856,6 +2883,20 @@ func (e *VP8Encoder) libvpxCPUUsed() int {
 	if e == nil {
 		return 0
 	}
+	// libvpx encodeframe.c:685-691: realtime mode runs vp8_auto_select_speed
+	// which evolves cpi->Speed. Mirror that: for realtime+positive-cpu_used,
+	// return the adaptive autoSpeed (seeded to 4 at cold start, cf.
+	// libvpxAutoSelectSpeed). For realtime+negative-cpu_used and other
+	// deadlines, fall back to the static formula.
+	if e.opts.Deadline == DeadlineRealtime {
+		cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+		if cpuUsed >= 0 {
+			if e.autoSpeed == 0 {
+				return 4 // cold start before first encode_mb_row
+			}
+			return e.autoSpeed
+		}
+	}
 	return libvpxSpeedFeatureCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 }
 
@@ -2885,6 +2926,105 @@ func libvpxSpeedFeatureCPUUsed(deadline Deadline, cpuUsed int) int {
 		return 4
 	}
 	return cpuUsed
+}
+
+// libvpx vp8/encoder/rdopt.c:65 auto_speed_thresh table indexed by
+// cpi->Speed (0..16). vp8_auto_select_speed lowers Speed when budget
+// dwarfs avg_encode_time: ms_for_compress*100 > avg_encode_time*thresh.
+var libvpxAutoSpeedThresh = [17]int{
+	1000, 200, 150, 130, 150, 125,
+	120, 115, 115, 115, 115, 115,
+	115, 115, 115, 115, 105,
+}
+
+func nowMonotonicNS() int64 { return nanotime() }
+
+// libvpxAutoSelectSpeed mirrors libvpx vp8/encoder/rdopt.c:261
+// vp8_auto_select_speed exactly. Called at the top of each encode_mb_row
+// for realtime+positive-cpu_used. Cold start (avg_pick_mode_time==0):
+// Speed=4. Otherwise raise/lower based on the (1e6/framerate)*(16-cpu)/16
+// ms budget vs cumulative timer state, capped at [4,16].
+func (e *VP8Encoder) libvpxAutoSelectSpeed() {
+	if e == nil {
+		return
+	}
+	if e.opts.Deadline != DeadlineRealtime {
+		return
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed < 0 {
+		// libvpx encodeframe.c:686-687: explicit-Speed branch (no auto-select).
+		e.autoSpeed = -cpuUsed
+		return
+	}
+	fps := e.opts.FPS
+	if fps <= 0 {
+		fps = 30
+	}
+	msForCompress := 1000000 / fps
+	msForCompress = msForCompress * (16 - cpuUsed) / 16
+	if e.avgPickModeTime < uint64(msForCompress) &&
+		(e.avgEncodeTime-e.avgPickModeTime) < uint64(msForCompress) {
+		if e.avgPickModeTime == 0 {
+			e.autoSpeed = 4
+		} else {
+			if msForCompress*100 < int(e.avgEncodeTime)*95 {
+				e.autoSpeed += 2
+				e.avgPickModeTime = 0
+				e.avgEncodeTime = 0
+				if e.autoSpeed > 16 {
+					e.autoSpeed = 16
+				}
+			}
+			if e.autoSpeed >= 0 && e.autoSpeed < len(libvpxAutoSpeedThresh) &&
+				msForCompress*100 > int(e.avgEncodeTime)*libvpxAutoSpeedThresh[e.autoSpeed] {
+				e.autoSpeed -= 1
+				e.avgPickModeTime = 0
+				e.avgEncodeTime = 0
+				if e.autoSpeed < 4 {
+					e.autoSpeed = 4
+				}
+			}
+		}
+	} else {
+		e.autoSpeed += 4
+		if e.autoSpeed > 16 {
+			e.autoSpeed = 16
+		}
+		e.avgPickModeTime = 0
+		e.avgEncodeTime = 0
+	}
+}
+
+// finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of
+// encode_mb_row in realtime, measure duration in microseconds and IIR-update
+// avg_encode_time (skipped for keyframes) and avg_pick_mode_time
+// (duration2 = duration/2 by libvpx convention).
+func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
+	if e == nil || e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
+		return
+	}
+	durationNS := nowMonotonicNS() - e.autoSpeedFrameStartNS
+	e.autoSpeedFrameStartNS = 0
+	if durationNS < 0 {
+		durationNS = 0
+	}
+	duration := uint64(durationNS / 1000) // microseconds
+	duration2 := duration / 2
+	if !isKeyFrame {
+		if e.avgEncodeTime == 0 {
+			e.avgEncodeTime = duration
+		} else {
+			e.avgEncodeTime = (7*e.avgEncodeTime + duration) >> 3
+		}
+	}
+	if duration2 > 0 {
+		if e.avgPickModeTime == 0 {
+			e.avgPickModeTime = duration2
+		} else {
+			e.avgPickModeTime = (7*e.avgPickModeTime + duration2) >> 3
+		}
+	}
 }
 
 func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
