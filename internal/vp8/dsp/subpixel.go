@@ -13,10 +13,16 @@ func BilinearPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst
 }
 
 func BilinearPredict8x8(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if bilinearPredict8x8Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	bilinearPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 8)
 }
 
 func BilinearPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if bilinearPredict16x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	bilinearPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 16)
 }
 
