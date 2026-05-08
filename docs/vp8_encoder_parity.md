@@ -1947,6 +1947,23 @@ probs walk is downstream of an inter-mode-pick disagreement, not a
 savings-threshold or snapshot-timing bug. With `cpu_used=3` (no auto-
 select, recode loop active) coef-probs match across all 8 frames in
 the test corpus, ruling out any default-coef reset condition gap.
+R11-O update: the error-resilient keyframe size gap noted below was
+caused by a flag-mapping mismatch — govpx wired
+`EncoderOptions.ErrorResilient` to `IndependentContexts=true`, which
+mirrors libvpx's `VPX_ERROR_RESILIENT_PARTITIONS` (bit 0x2) branch in
+`vp8_update_coef_probs`. libvpx's `--error-resilient=1` only sets
+`VPX_ERROR_RESILIENT_DEFAULT` (bit 0x1), which leaves the regular
+`default_coef_context_savings` path active. Splitting the option into
+the existing `ErrorResilient` (DEFAULT, bit 0x1) and a new
+`ErrorResilientPartitions` (bit 0x2) drops the 64×64 panning ER
+keyframe from 8353 B to 3471 B against libvpx's 3472 B (1-byte rounding
+delta only) and brings the post-KF `coef_probs_adler` into agreement
+on frame 0 of the trace; subsequent inter frames now run on the same
+default coef-prob update logic and govpx is consistently ~50 B smaller
+than libvpx with byte-identical Y/U/V reconstruction.
+
+The original audit notes the gap below; preserved for context.
+
 The audit also surfaces a separate (non-R9-7-scope) coding-efficiency
 gap in the error-resilient (`IndependentContexts=true`) keyframe
 path: govpx's KF in `--good --cpu-used=5 --error-resilient=1` is
