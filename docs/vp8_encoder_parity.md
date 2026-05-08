@@ -271,6 +271,7 @@ the anchor and look for the surrounding mismatch.
     walks both streams and reports field-level divergences (with row
     index, frame index, MB coordinates, field name, and both decoded
     values).
+  - Test: TestOracleEncoderTraceDecisionCompare, TestOracleEncoderTraceCandidateRowsPresent, TestOracleEncoderTraceInterCandidateCompare
   - Remaining: broadening the production trace gate from the current projected
     frame/rate decision subset to candidate-level, full per-MB residual, and
     frame-size fields; plus libvpx-side coverage of the partition /
@@ -370,6 +371,7 @@ the anchor and look for the surrounding mismatch.
     [`encoder_oracle_trace.go`](../encoder_oracle_trace.go), and
     `TestCompareOracleTracesDetectsZbinOverQuantDivergence` exercises
     the diff path on synthetic JSONL.
+  - Test: TestOracleEncoderTraceDecisionCompare, TestOracleRecodeRowParity, TestOracleSecondPassAllocationCompare
   - Done when oracle traces match Q attempts, final Q, recode reasons, frame
     size bounds, and encoded bytes across CBR/VBR/CQ/key/golden/alt-ref frames.
 
@@ -392,6 +394,7 @@ the anchor and look for the surrounding mismatch.
     distortion differs enough for govpx to prune `TM_PRED` that libvpx still
     tests. Skipped/pruned candidate rows, RD/rate scalar fields, and rejected
     recode-attempt rows remain open.
+  - Test: TestOracleEncoderTraceCandidateRowsPresent, TestOracleEncoderTraceInterCandidateCompare, TestOracleEncoderTraceInterCandidateScoreboard, TestOracleInterDecisionMatchRate
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV
@@ -432,6 +435,7 @@ the anchor and look for the surrounding mismatch.
     against representative QINDEX_RANGE samples so the future two-pass
     `vp8_regulate_q` port can flip on `cpi->gfu_boost` without re-reading
     the libvpx C source.
+  - Test: TestOracleEncoderQHistogramScoreboard, TestOracle128x128InterQDriftScoreboard
   - Done when table-driven oracle tests match active best/worst Q and chosen Q
     for first frames, low/full buffer, key, GF, ARF, CQ, CBR, and screen
     content cases.
@@ -539,6 +543,7 @@ the anchor and look for the surrounding mismatch.
     shaping instead of CBR's short-term optimal-buffer delta formula. The
     defaults used by `defaultRateControlConfig` now match libvpx's
     6000/4000/5000ms public defaults.
+  - Test: TestOracleEncoderCorpusValidation
   - Out of scope (deferred): temporal-layer propagation of KF/GF
     overspend through libvpx's per-layer `layer_context` state (govpx
     already mirrors the single-layer-vs-multi-layer KF split toggle
@@ -587,6 +592,7 @@ the anchor and look for the surrounding mismatch.
     `cm->ref_frame_sign_bias[ALTREF_FRAME]` values at the same emit
     point, so `CompareOracleTraces` flags any divergence as a frame-row
     field diff.
+  - Test: TestOracleEncoderTraceDecisionCompare, TestOracleEncoderCorpusValidation
   - Done when forced and natural GF/ARF sequences match header copy bits,
     reference checksums, reference availability, and subsequent mode choices.
 
@@ -658,6 +664,7 @@ the anchor and look for the surrounding mismatch.
     on a fixed in-memory Y4M-shaped 4-frame 32x32 corpus, plus
     `TestAccumulateFirstPassStatsMatchesLibvpx` and
     `TestFinalizeFirstPassStatsEmpty`.
+  - Test: TestOracleFirstPassStatsCompare, TestFirstPassY4MCorpusSectionAccumulators
   - Remaining: broaden the `.fpf` oracle comparison to external sources and
     second-pass allocation traces that consume those stats.
   - Done when fixed/external first-pass stats and downstream second-pass
@@ -802,6 +809,7 @@ the anchor and look for the surrounding mismatch.
     it after `selectQuantizerForFrameKindWithScreenContent` so
     recode-style adjustments never push the final quantizer below
     `cqLevel`; pinned by `TestSelectQuantizerCQFloorApplied`.
+  - Test: TestOracleSecondPassAllocationCompare, TestSelectQuantizerCQFloorApplied
   - Done when second-pass oracle tests match frame type, GF/ARF decisions,
     target bits, final Q, and bitrate distribution on multi-scene clips.
 
@@ -854,6 +862,7 @@ the anchor and look for the surrounding mismatch.
     semantics: the packet is not a real show frame, so it does not advance
     `current_video_frame` / govpx `frameCount` or rate-control
     `framesSinceKeyframe`; only the packet bits are charged in two-pass mode.
+  - Test: TestOracleEncoderCorpusValidation, TestOracleARNRBufferAdler, TestAutoAltRefDriverEmitsHiddenFrame, TestAutoAltRefDriverDeferredShowFrameMatchesSource, TestAutoAltRefDriverSignBiasUpdatesPostHidden, TestSourceAltRefShowFrameForcesZeroMVAltRefWhenARNROff, TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats
   - Tests:
     [`TestAutoAltRefDriverEmitsHiddenFrame`](../encoder_altref_driver_test.go),
     [`TestAutoAltRefDriverDeferredShowFrameMatchesSource`](../encoder_altref_driver_test.go),
@@ -904,6 +913,7 @@ the anchor and look for the surrounding mismatch.
     rejection of unsupported backward indices, the active-map row-walk's
     multi-run copy semantics, and `lookaheadDepth` accounting through
     push/drain.
+  - Test: none yet — measurement gap
 
 - [~] Replace simplified ARNR with libvpx motion-compensated temporal filter.
   - govpx: [`applyARNRFilter`](../encoder_preprocess.go),
@@ -964,6 +974,7 @@ the anchor and look for the surrounding mismatch.
     on a half-pel-shifted noisy clip yields lower SSE vs ground truth
     than the integer-only baseline
     (`TestARNRSubpelRefinementImprovesNoisyMatch`).
+  - Test: TestOracleARNRBufferAdler, TestARNRSubpelDeterministicAdler32, TestARNRSubpelRefinementImprovesNoisyMatch
   - Remaining:
     prove or port libvpx ARNR border/`alt_ref_buffer` semantics. Done when
     ARNR-filtered buffers and downstream visible-frame quality/rate match
@@ -1045,6 +1056,7 @@ the anchor and look for the surrounding mismatch.
     `TestLibvpxSpeedFeatureCPUUsedMirrorsRealtimeAutoSelect`, and the
     realtime cases in
     `TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds`.
+  - Test: TestOracleEncoderTraceInterCandidateCompare, TestOracleInterDecisionMatchRate, TestOracleEncoderTraceInterCandidateScoreboard
   - High-level sign-bias policy is now wired: frame headers derive
     `GoldenSignBias`/`AltRefSignBias` from libvpx-shaped
     `sourceAltRefActive`, RD/fast near/best predictor selection uses that map,
@@ -1177,6 +1189,7 @@ the anchor and look for the surrounding mismatch.
     `TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias`
     pins the per-reference sign-bias flip on a 3x3 grid for both
     LAST↔ALTREF directions.
+  - Test: TestOracleInterDecisionMatchRate, TestOracleEncoderTraceInterCandidateScoreboard, TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias, TestCompareOracleTracesDetectsImprovedMVPredictorDivergence
   - Done when panning, alternating-reference, dropped-frame, and all-quality
     clips match libvpx predictor MV, search range, and final NEWMV choices.
 
@@ -1264,6 +1277,7 @@ the anchor and look for the surrounding mismatch.
     `TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError`.
     Remaining full label-RD work is broader oracle coverage and a fixture
     that demonstrates a SAD-winner / transform-RD-winner split choice.
+  - Test: TestOracleInterDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 
@@ -1298,6 +1312,7 @@ the anchor and look for the surrounding mismatch.
     Y+UV/ref/penalty score for later B_PRED/SPLITMV pruning. Tests:
     `TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty` and
     `TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts`.
+  - Test: TestOracleEncoderTraceDecisionCompare, TestOracleReconstructionAdler32Match, TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty, TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts
   - Missing: exact thresholds and activity/tuning hooks (gated on
     `VP8_TUNE_SSIM`, which govpx does not expose). Key-frame per-MB oracle
     rows now expose Y mode, UV mode, B modes for `B_PRED`, EOBs, and qcoeffs;
@@ -1347,6 +1362,7 @@ the anchor and look for the surrounding mismatch.
     thresholding uses `zbin_over_quant/2`, but the trellis optimizer scores
     with `mb->rdmult` derived from the full frame-level `zbin_over_quant`;
     pinned by `TestY2OptimizedQuantUsesFullZbinOverQuantForTrellis`.
+  - Test: TestOracleReconstructionAdler32Match, TestCoefCoeffsParityMatchesReferenceWalk, TestY2OptimizedQuantUsesFullZbinOverQuantForTrellis
   - Required/keep: libvpx Viterbi trellis coefficient optimization, including
     `RDTRUNC` tie-breaks; do not replace it with a cheaper greedy optimizer.
   - Missing: `act_zbin_adj` (gated on `VP8_TUNE_SSIM`, which govpx does not
@@ -1388,6 +1404,7 @@ the anchor and look for the surrounding mismatch.
     `cyclic_background_refresh` denoiser branch. Per-MB segment transitions
     are oracle-tested across the libvpx state machine
     (`updateCyclicRefreshMapFromInterFrame`).
+  - Test: none yet — measurement gap
   - Done when per-frame segment map, feature data, tree probabilities, and
     segment IDs match for CBR, error-resilient, temporal, and screen-content
     modes.
@@ -1411,6 +1428,7 @@ the anchor and look for the surrounding mismatch.
     `consec_zero_last_mvbias` counter is tracked separately and reset on any
     MB that this frame's dot-artifact eligibility check inspected, so the
     threshold gate gives the same MB a fresh num_frames window.
+  - Test: none yet — measurement gap
   - Done when per-MB skin/dot flags and resulting RD adjustments match on face,
     noisy-flat, and screen-dot patterns.
 
@@ -1430,6 +1448,7 @@ the anchor and look for the surrounding mismatch.
     prove determinism (per-MB modes and decoded pixels match). govpx encodes
     single-threaded by design, so libvpx's row-threaded ethreading.c
     encodeframe loop is N/A.
+  - Test: none yet — measurement gap
   - Done when inactive macroblocks match active-map oracle vectors across
     single-threaded and threaded encodeframe paths.
 
@@ -1466,6 +1485,7 @@ the anchor and look for the surrounding mismatch.
     mc input; libvpx motion-comps from the parallel running_avg buffer
     directly via `vp8_build_inter_predictors_mb`, which is a deeper
     integration that would require shared inter-prediction plumbing.
+  - Test: none yet — measurement gap
   - Remaining:
     prove or port libvpx denoiser `running_avg` motion-comp integration. Done
     when denoised buffers, denoiser re-evaluation decisions, and final
@@ -1497,6 +1517,7 @@ the anchor and look for the surrounding mismatch.
     candidate-level proof of mode-loop scoring, threshold mutation, dynamic
     realtime auto-speed feedback, and skipped-mode decisions across the
     representative speed matrix.
+  - Test: TestOracleEncoderQHistogramScoreboard, TestOracleInterDecisionMatchRate
   - Done when speed-feature-selected search methods, RD thresholds, quantizer
     family, coefficient optimization gates, subpel settings, static breakout,
     and mode-loop decisions match libvpx for best/good/realtime speeds.
@@ -1558,6 +1579,7 @@ the anchor and look for the surrounding mismatch.
     `TestKeyFrameBitstreamCarriesAltLFDelta`,
     `TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData`, and
     `TestCompareOracleTracesDetectsLoopFilterDeltaDivergence`.
+  - Test: TestOracleLoopFilterHeaderMatchRate, TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities, TestCompareOracleTracesDetectsLoopFilterDeltaDivergence
   - Missing: VP8 version 1-3 loop-filter behavior if that encoder surface
     is exposed.
   - Done when frame traces match filter type, level, sharpness, ref/mode
@@ -1716,6 +1738,7 @@ the anchor and look for the surrounding mismatch.
     so parity tests can confirm govpx and libvpx took the same branch;
     `TestCompareOracleTracesDetectsDefaultCoefResetDivergence`
     exercises the diff path on synthetic JSONL.
+  - Test: TestOracleEncoderTraceDecisionCompare, TestCompareOracleTracesDetectsDefaultCoefResetDivergence
   - Done when every frame matches coefficient probs, MV probs, Y/UV mode
     probs, ref probs, refresh entropy bit, projected entropy savings, and
     next-frame mode-cost inputs.
