@@ -678,6 +678,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.opts.TemporalScalability = e.temporal.config
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	return e, nil
 }
 
@@ -830,6 +831,17 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// (USAGE_STREAM_FROM_SERVER); apply that here so the two-pass
 		// override does not erase the buffer-aware shaping.
 		e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, keyFrame)
+	}
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass first-frame branch:
+	// estimate_max_q sets cpi->active_worst_quality. Push the seeded
+	// override into the rate controller so the regulator's worst-Q
+	// ceiling matches libvpx for the upcoming Q regulation. Without
+	// this, the regulator picks Q values much lower than libvpx for
+	// the same per-frame target on real-content pass-2 fixtures
+	// (q_match=8% on desktopqvga while target_match=100%).
+	if q, ok := e.twoPass.pass2ActiveWorstQOverride(); ok {
+		e.rc.pass2ActiveWorstQOverride = q
+		e.rc.pass2ActiveWorstQValid = true
 	}
 	// libvpx vp8/encoder/firstpass.c define_gf_group ARF-pending decision:
 	// when second-pass stats indicate the upcoming GF section is high
@@ -2961,6 +2973,7 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	}
 	e.opts.TwoPassStats = stats
 	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	return nil
 }
 
@@ -3040,6 +3053,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	e.temporal.buffersSet = false
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.current.Reset()

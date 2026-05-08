@@ -5,10 +5,10 @@
       "matched_candidates": 437,
       "unmatched_govpx_candidates": 0,
       "unmatched_libvpx_candidates": 0,
-      "mean_abs_rate_delta_bits": 0.66,
-      "max_abs_rate_delta_bits": 158,
+      "mean_abs_rate_delta_bits": 0.36,
+      "max_abs_rate_delta_bits": 132,
       "frames_compared": 3,
-      "frames_with_aggregate_match": 2,
+      "frames_with_aggregate_match": 3,
       "frames_with_per_candidate_match": 2,
       "per_candidate_match_rate": 1
     }
