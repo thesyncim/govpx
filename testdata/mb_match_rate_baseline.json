@@ -9,20 +9,20 @@
       "eob_sum_match_pct": 93.75
     },
     "rt-cpu0-cbr": {
-      "mode_match_pct": 99.10714285714286,
+      "mode_match_pct": 100,
       "ref_frame_match_pct": 100,
-      "mv_match_pct": 99.10714285714286,
+      "mv_match_pct": 100,
       "skip_match_pct": 100,
       "segment_id_match_pct": 100,
-      "eob_sum_match_pct": 94.64285714285714
+      "eob_sum_match_pct": 100
     },
     "rt-cpu8-cbr": {
-      "mode_match_pct": 99.10714285714286,
+      "mode_match_pct": 100,
       "ref_frame_match_pct": 100,
-      "mv_match_pct": 99.10714285714286,
+      "mv_match_pct": 100,
       "skip_match_pct": 100,
       "segment_id_match_pct": 100,
-      "eob_sum_match_pct": 94.64285714285714
+      "eob_sum_match_pct": 100
     }
   }
 }
