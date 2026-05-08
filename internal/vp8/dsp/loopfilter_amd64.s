@@ -53,6 +53,17 @@ DATA  lfS63<>+0x00(SB)/8, $0x003F003F003F003F
 DATA  lfS63<>+0x08(SB)/8, $0x003F003F003F003F
 GLOBL lfS63<>(SB), RODATA|NOPTR, $16
 
+// 16x byte 0xE0 (te0) — upper-3-bit mask used in the simple-LF signed
+// arith-shift-right-by-3 trick (libvpx vp8_loop_filter_simple_*_sse2).
+DATA  lfTe0<>+0x00(SB)/8, $0xE0E0E0E0E0E0E0E0
+DATA  lfTe0<>+0x08(SB)/8, $0xE0E0E0E0E0E0E0E0
+GLOBL lfTe0<>(SB), RODATA|NOPTR, $16
+
+// 16x byte 0x1F (t1f) — bottom-5-bit mask, paired with te0 above.
+DATA  lfT1f<>+0x00(SB)/8, $0x1F1F1F1F1F1F1F1F
+DATA  lfT1f<>+0x08(SB)/8, $0x1F1F1F1F1F1F1F1F
+GLOBL lfT1f<>(SB), RODATA|NOPTR, $16
+
 // loopFilterEdgeH16SSE2 ABI ($0-19, no stack):
 //   src+0(FP)     *byte (points at p3 row, 16 contiguous bytes)
 //   pitch+8(FP)   int
@@ -540,5 +551,119 @@ TEXT ·mbLoopFilterEdgeH16SSE2(SB), NOSPLIT, $0-19
 	MOVOU	X11, (R13)        // q0
 	MOVOU	X12, (R14)        // q1
 	MOVOU	X13, (R15)        // q2
+
+	RET
+
+// loopFilterSimpleEdgeH16SSE2 ABI ($0-17, no stack):
+//   src+0(FP)     *byte (points at p1 row, 16 contiguous bytes)
+//   pitch+8(FP)   int
+//   blimit+16(FP) byte
+TEXT ·loopFilterSimpleEdgeH16SSE2(SB), NOSPLIT, $0-17
+	MOVQ	src+0(FP), AX
+	MOVQ	pitch+8(FP), BX
+
+	MOVQ	AX, R10           // p0 row
+	ADDQ	BX, R10
+	MOVQ	R10, R11          // q0 row
+	ADDQ	BX, R11
+	MOVQ	R11, R12          // q1 row
+	ADDQ	BX, R12
+
+	// Live registers across the kernel:
+	//   X1 = p1, X2 = p0, X3 = q0, X4 = q1   (then sign-converted in place)
+	//   X5 = filter_mask
+	MOVOU	(AX),  X1         // p1
+	MOVOU	(R10), X2         // p0
+	MOVOU	(R11), X3         // q0
+	MOVOU	(R12), X4         // q1
+
+	// abs(p1-q1) → X0, then & 0xFE, >>1 → |p1-q1|/2
+	MOVOU	X1, X0
+	MOVOU	X4, X6
+	PSUBUSB	X4, X0            // sat(p1-q1)
+	PSUBUSB	X1, X6            // sat(q1-p1)
+	POR	X6, X0            // |p1-q1|
+	PAND	lfTfe<>(SB), X0
+	PSRLW	$1, X0            // X0 = |p1-q1|/2
+
+	// abs(p0-q0)*2 (saturating) + |p1-q1|/2 → X5
+	MOVOU	X2, X5
+	MOVOU	X3, X6
+	PSUBUSB	X3, X5            // sat(p0-q0)
+	PSUBUSB	X2, X6            // sat(q0-p0)
+	POR	X6, X5            // |p0-q0|
+	PADDUSB	X5, X5            // *2 (sat)
+	PADDUSB	X0, X5            // + |p1-q1|/2
+
+	// blimit broadcast → X6
+	XORL	CX, CX
+	MOVB	blimit+16(FP), CL
+	MOVQ	CX, X6
+	PUNPCKLBW X6, X6
+	PSHUFLW	$0, X6, X6
+	PSHUFD	$0, X6, X6
+	PSUBUSB	X6, X5            // 0 iff composite <= blimit
+	PXOR	X6, X6
+	PCMPEQB	X6, X5            // X5 = filter_mask (0xFF where filtered)
+
+	// Sign-convert p1, p0, q0, q1.
+	MOVOU	lfT80<>(SB), X7
+	PXOR	X7, X1            // sps1
+	PXOR	X7, X2            // sps0
+	PXOR	X7, X3            // sqs0
+	PXOR	X7, X4            // sqs1
+
+	// fv = sat(sps1 - sqs1)  [signed]
+	MOVOU	X1, X0
+	PSUBSB	X4, X0            // X0 = sat(sps1 - sqs1)
+
+	// fv += 3 * (sqs0 - sps0)  via three signed-add-sat steps
+	MOVOU	X3, X6
+	PSUBSB	X2, X6            // X6 = sat(sqs0 - sps0)
+	PADDSB	X6, X0
+	PADDSB	X6, X0
+	PADDSB	X6, X0            // X0 = pre-mask vp8_filter
+
+	PAND	X5, X0            // X0 = fv & mask
+
+	// f1 = sra((fv + 4), 3); f2 = sra((fv + 3), 3)
+	// libvpx trick: pcmpgtb to extract sign, mask upper-3 bits via te0,
+	// PSRLW by 3 then mask off bottom 5 bits via t1f, OR the sign bits
+	// back. This implements the per-byte arithmetic-shift-right-by-3
+	// without PSRAB.
+	MOVOU	X0, X5            // copy fv
+	PADDSB	lfT3<>(SB), X0    // fv + 3 (sat)
+	PADDSB	lfT4<>(SB), X5    // fv + 4 (sat)
+
+	MOVOU	lfTe0<>(SB), X8
+	MOVOU	lfT1f<>(SB), X9
+
+	// f2 in X0
+	PXOR	X6, X6
+	PCMPGTB	X0, X6            // X6 = 0xFF where (fv+3) < 0
+	PAND	X8, X6            // keep upper 3 bits of sign extension
+	PSRLW	$3, X0
+	PAND	X9, X0
+	POR	X6, X0            // X0 = sra(fv+3, 3) = f2
+
+	// f1 in X5
+	PXOR	X6, X6
+	PCMPGTB	X5, X6
+	PAND	X8, X6
+	PSRLW	$3, X5
+	PAND	X9, X5
+	POR	X6, X5            // X5 = sra(fv+4, 3) = f1
+
+	// sps0 += f2; sqs0 -= f1
+	PADDSB	X0, X2            // sps0 += f2
+	PSUBSB	X5, X3            // sqs0 -= f1
+
+	// Convert back to unsigned and store p0, q0 only.
+	MOVOU	lfT80<>(SB), X7
+	PXOR	X7, X2
+	PXOR	X7, X3
+
+	MOVOU	X2, (R10)         // p0
+	MOVOU	X3, (R11)         // q0
 
 	RET

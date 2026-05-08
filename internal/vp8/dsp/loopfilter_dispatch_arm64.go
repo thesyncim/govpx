@@ -42,3 +42,26 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 	}
 	mbLoopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
 }
+
+// loopFilterSimpleHorizontalEdgeDispatch routes the 16-wide simple-LF
+// horizontal edge through the NEON kernel when the input window is
+// large enough; otherwise falls back to the libvpx-style scalar.
+func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if len(s) >= 3*stride+16 {
+		loopFilterSimpleEdgeH16NEON(&s[0], stride, blimit)
+		return
+	}
+	loopFilterSimpleHorizontalEdgeScalar(s, stride, blimit)
+}
+
+// loopFilterSimpleVerticalEdgeDispatch invokes the direct vertical-edge
+// NEON kernel: caller passes the slice base; the kernel reads 4 bytes
+// per row at &s[2]-2 = &s[0] across 16 rows and writes 2 modified bytes
+// per row at &s[2]-1 = &s[1].
+func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if len(s) >= 15*stride+4 {
+		loopFilterSimpleEdgeV16NEON(&s[2], stride, blimit)
+		return
+	}
+	loopFilterSimpleVerticalEdgeScalar(s, stride, blimit)
+}

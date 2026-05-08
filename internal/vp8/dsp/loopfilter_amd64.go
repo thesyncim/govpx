@@ -15,3 +15,14 @@ func loopFilterEdgeH16SSE2(src *byte, pitch int, blimit, limit, thresh byte)
 
 //go:noescape
 func mbLoopFilterEdgeH16SSE2(src *byte, pitch int, blimit, limit, thresh byte)
+
+// loopFilterSimpleEdgeH16SSE2 mirrors libvpx
+// vp8_loop_filter_simple_horizontal_edge_sse2 (vp8/common/x86/loopfilter_sse2.asm).
+// Caller passes a pointer at the p1 row of an 8-row by 16-column window;
+// the kernel reads p1=row0, p0=row1, q0=row2, q1=row3 at +pitch
+// increments and writes p0,q0 back. The vertical-edge variant gathers
+// 16x4 columns into a transposed 4x16 stack buffer, runs the same
+// kernel, then scatters the 2 modified rows back.
+//
+//go:noescape
+func loopFilterSimpleEdgeH16SSE2(src *byte, pitch int, blimit byte)

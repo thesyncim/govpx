@@ -52,6 +52,49 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 	mbLoopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
 }
 
+// loopFilterSimpleHorizontalEdgeDispatch routes the 16-wide simple-LF
+// horizontal edge through the SSE2 kernel when the input window is
+// large enough; otherwise falls back to the libvpx-style scalar.
+func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if len(s) >= 3*stride+16 {
+		loopFilterSimpleEdgeH16SSE2(&s[0], stride, blimit)
+		return
+	}
+	loopFilterSimpleHorizontalEdgeScalar(s, stride, blimit)
+}
+
+// loopFilterSimpleVerticalEdgeDispatch gathers the 16x4 column window
+// into a transposed 4x16 buffer, runs the SSE2 horizontal kernel, and
+// scatters the modified p0 and q0 columns back.
+func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if len(s) >= 15*stride+4 {
+		var tmp [4 * 16]byte
+		gatherV16x4AMD64(&tmp, s, stride)
+		loopFilterSimpleEdgeH16SSE2((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit)
+		// p0 (slot 1) and q0 (slot 2) were modified by the kernel.
+		for i := 0; i < 16; i++ {
+			row := s[i*stride : i*stride+4]
+			row[1] = tmp[1*16+i]
+			row[2] = tmp[2*16+i]
+		}
+		return
+	}
+	loopFilterSimpleVerticalEdgeScalar(s, stride, blimit)
+}
+
+// gatherV16x4AMD64 reads 16 rows of 4 bytes each from s and packs them
+// into tmp such that tmp[r*16+i] = s[i*stride+r] for r in 0..3.
+func gatherV16x4AMD64(tmp *[4 * 16]byte, s []byte, stride int) {
+	dst := tmp[:]
+	for i := 0; i < 16; i++ {
+		row := s[i*stride : i*stride+4]
+		dst[0*16+i] = row[0]
+		dst[1*16+i] = row[1]
+		dst[2*16+i] = row[2]
+		dst[3*16+i] = row[3]
+	}
+}
+
 // gatherV16x8AMD64 reads 16 rows of 8 bytes each from s (row stride =
 // stride) and packs them into tmp such that tmp[r*16+i] = s[i*stride+r].
 // Same shape as gatherV16x8 in the arm64 dispatch.

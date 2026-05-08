@@ -28,3 +28,21 @@ func loopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
 //go:noescape
 func mbLoopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
+
+// NEON kernel for the VP8 simple loop filter, horizontal edge variant
+// (libvpx vp8_loop_filter_simple_horizontal_edge_neon). Caller passes a
+// pointer at the p1 row; the kernel reads p1, p0, q0, q1 at +pitch
+// increments and writes p0 and q0 back.
+//
+//go:noescape
+func loopFilterSimpleEdgeH16NEON(src *byte, pitch int, blimit byte)
+
+// NEON kernel for the VP8 simple loop filter, vertical edge variant
+// (libvpx vp8_loop_filter_simple_vertical_edge_neon). Caller passes a
+// pointer at the q0 column of row 0 (filter is applied around the edge
+// between bytes -1 and 0). The kernel reads 4 bytes per row at src-2
+// across 16 rows, transposes, filters, and writes 2 modified bytes
+// (p0 and q0) at offset src-1 across 16 rows.
+//
+//go:noescape
+func loopFilterSimpleEdgeV16NEON(src *byte, pitch int, blimit byte)

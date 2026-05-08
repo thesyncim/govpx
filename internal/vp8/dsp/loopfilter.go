@@ -7,6 +7,17 @@ import "unsafe"
 const MaxLoopFilter = 63
 
 func LoopFilterSimpleHorizontalEdge(s []byte, stride int, blimit byte) {
+	loopFilterSimpleHorizontalEdgeDispatch(s, stride, blimit)
+}
+
+func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
+	loopFilterSimpleVerticalEdgeDispatch(s, stride, blimit)
+}
+
+// loopFilterSimpleHorizontalEdgeScalar is the libvpx-style scalar reference
+// for LoopFilterSimpleHorizontalEdge; kept as the per-platform fallback
+// when the SIMD dispatch can't take the fast path.
+func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[3*stride+15]
 	base := unsafe.Pointer(&s[0])
 
@@ -20,7 +31,7 @@ func LoopFilterSimpleHorizontalEdge(s []byte, stride int, blimit byte) {
 	}
 }
 
-func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
+func loopFilterSimpleVerticalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[15*stride+3]
 	base := unsafe.Pointer(&s[0])
 

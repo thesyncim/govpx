@@ -19,3 +19,11 @@ func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thr
 func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	mbLoopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
 }
+
+func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
+	loopFilterSimpleHorizontalEdgeScalar(s, stride, blimit)
+}
+
+func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
+	loopFilterSimpleVerticalEdgeScalar(s, stride, blimit)
+}
