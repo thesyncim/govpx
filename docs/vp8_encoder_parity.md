@@ -1367,6 +1367,34 @@ the anchor and look for the surrounding mismatch.
     granular level the cutoff cannot fix without aligning the per-
     label MV picker further). The scoreboard test gates each metric
     within 2pp of the recorded baseline.
+    R8-C diagnosis (2026-05-08): The remaining
+    `TestOracleSplitMVDecisionMatchRate` per-block-MV gap (best-cpu0
+    40.18pp, good-cpu0 54.46pp, good-cpu3 72pp) is upstream of the
+    SPLITMV picker — it cascades from a Y-reconstruction byte-identity
+    drift on the SPLITMV-quadrant fixture under
+    `Deadline=BestQuality/GoodQuality`. The split-MV scoreboard
+    fixture passes 100% partition / 100% mode / 100% segment_id on
+    frames 1-3 (where MV picks match libvpx exactly), then begins to
+    diverge from frame 4 onward. A `y_adler32` capture confirms the
+    luma reconstruction differs from frame 0 (the keyframe) — both
+    encoders pick identical inter-mode decisions for frames 1-3, but
+    the underlying Y reference image used by the SAD/variance cost
+    landscape already differs from the very first frame. By frame 4
+    the cumulative pixel-level drift is large enough that small SAD
+    differences flip per-label NEW-vs-LEFT-vs-ZERO winners, yielding
+    completely-different per-block MV picks (134 of 136 mismatched
+    blocks have row+col delta >= 1 full-pel; only 2 are ≤1 quarter-pel
+    drifts). Closing the per-block-MV gap on this fixture therefore
+    requires extending the byte-identity ratchet
+    (`TestOracleReconstructionAdler32Match`) to cover
+    `DeadlineBestQuality` / `DeadlineGoodQuality` plus the SPLITMV-
+    quadrant fixture, not adjusting the per-label search itself.
+    Speculative R8-C edits to the per-label MV bounds gate
+    (matching libvpx's "Trap vectors that reach beyond the UMV
+    borders" `continue` for LEFT/ABOVE/ZERO/NEW) yielded no block_mv
+    improvement on best-cpu0 and a 0.89pp mode_match regression on
+    good-cpu0, confirming the per-label picker is no longer the
+    dominant block_mv divergence source on this fixture.
   - Test: TestOracleInterDecisionMatchRate, TestOracleSplitMVDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
