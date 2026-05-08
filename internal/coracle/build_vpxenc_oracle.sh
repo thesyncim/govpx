@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1927,6 +1927,11 @@ seed_anchor = ('  best_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
 seed_replacement = ('  best_err = calc_partial_ssl_err(sd, cm->frame_to_show);\n'
                     '  ' + sentinel + '\n'
                     '  govpx_oracle_emit_lf_trial(cpi, "seed", filt_val, best_err);\n'
+                    '  /* govpx oracle: emit pre-filter (unfiltered) partial Y SSE so the\n'
+                    '   * per-trial diff harness can pin whether the gap is in the LF math\n'
+                    '   * or in the upstream reconstruction. saved_frame still points at\n'
+                    '   * the post-encode pre-LF Y plane at this point. */\n'
+                    '  govpx_oracle_emit_lf_trial(cpi, "pre", 0, calc_partial_ssl_err(sd, saved_frame));\n'
                     '\n'
                     '  filt_val -= 1 + (filt_val > 10);\n')
 if seed_anchor not in text:

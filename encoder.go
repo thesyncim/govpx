@@ -3,6 +3,7 @@ package govpx
 import (
 	"errors"
 	"io"
+	"os"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -678,6 +679,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	}
 	e.opts.TemporalScalability = e.temporal.config
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	return e, nil
 }
 
@@ -830,6 +832,17 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// (USAGE_STREAM_FROM_SERVER); apply that here so the two-pass
 		// override does not erase the buffer-aware shaping.
 		e.rc.frameTargetBits = e.rc.applyPass2CBRBufferAdjustment(e.rc.frameTargetBits, keyFrame)
+	}
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass first-frame branch:
+	// estimate_max_q sets cpi->active_worst_quality. Push the seeded
+	// override into the rate controller so the regulator's worst-Q
+	// ceiling matches libvpx for the upcoming Q regulation. Without
+	// this, the regulator picks Q values much lower than libvpx for
+	// the same per-frame target on real-content pass-2 fixtures
+	// (q_match=8% on desktopqvga while target_match=100%).
+	if q, ok := e.twoPass.pass2ActiveWorstQOverride(); ok {
+		e.rc.pass2ActiveWorstQOverride = q
+		e.rc.pass2ActiveWorstQValid = true
 	}
 	// libvpx vp8/encoder/firstpass.c define_gf_group ARF-pending decision:
 	// when second-pass stats indicate the upcoming GF section is high
@@ -2961,6 +2974,7 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	}
 	e.opts.TwoPassStats = stats
 	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	return nil
 }
 
@@ -3040,6 +3054,7 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	e.temporal.buffersSet = false
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	e.current.Reset()
@@ -3295,6 +3310,17 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
+	// Diagnostic: when GOVPX_LF_DEBUG=1, also score the unfiltered (level=0)
+	// partial-frame Y SSE against the source so the per-trial-level diff
+	// harness can pin whether the gap is in the LF math or in the
+	// pre-filter reconstruction itself. This scores the partial-frame
+	// window only and the result is otherwise unused.
+	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
+		preErr, perr := e.loopFilterTrialLumaSSE(src, frameType, 0, sharpness, rows, cols, required, true, segmentation)
+		if perr == nil {
+			e.emitOracleLFTrial("pre", 0, preErr)
+		}
+	}
 	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
 	if err != nil {
 		return 0, err
@@ -3362,6 +3388,16 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		return trialErr, nil
 	}
 
+	// Diagnostic: when GOVPX_LF_DEBUG=1, also score level 0 to expose the
+	// pre-filter SSE so the per-trial divergence harness can localize whether
+	// the gap is in the unfiltered reconstruction (matches at 0 -> LF math
+	// diverges) or in the source itself (mismatched at 0 -> upstream recon
+	// gap). This level-0 score is otherwise unused because the picker never
+	// considers a level below min_filter_level.
+	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
+		_, _ = score(0)
+	}
+
 	bestErr, err := score(filtMid)
 	if err != nil {
 		return 0, err
@@ -3369,7 +3405,17 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	filtBest := filtMid
 	filtDirection := 0
 	for filterStep > 0 {
-		bias := 0
+		// Mirror libvpx vp8/encoder/picklpf.c vp8cx_pick_filter_level
+		// (Bias = (best_err >> (15 - (filt_mid / 8))) * filter_step). The
+		// shift saturates at zero (filt_mid/8 >= 15 only when filt_mid >=
+		// 120, which is above MAX_LOOP_FILTER=63), so it always preserves
+		// some bias against raising the filter level. govpx's full picker
+		// previously hard-coded bias=0, which silently dropped libvpx's
+		// "prefer lower filter level" tie-breaker and steered the picker
+		// to a different filt_best on inter frames where multiple trials
+		// score within the bias delta of best_err (e.g. the 128x128 panning
+		// CBR cpu8 fixture frame 1: govpx picked level 11, libvpx 5).
+		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep)
 		filtHigh := filtMid + filterStep
 		if filtHigh > maxLevel {
 			filtHigh = maxLevel
@@ -3414,6 +3460,24 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		}
 	}
 	return uint8(filtBest), nil
+}
+
+// loopFilterFullPickerBias mirrors libvpx vp8/encoder/picklpf.c
+// vp8cx_pick_filter_level's `Bias = (best_err >> (15 - (filt_mid / 8))) *
+// filter_step;`. The shift amount is `15 - filt_mid/8`. For filt_mid in
+// [0, 63] the shift ranges [8, 15]; we mirror libvpx's behaviour of
+// performing the right-shift on a signed int (negative shift count is
+// undefined in C; libvpx never reaches that case for valid filt_mid).
+// Note libvpx also scales by `cpi->twopass.section_intra_rating / 20`
+// when section_intra_rating < 20; that's a two-pass branch and doesn't
+// fire on realtime/cbr fixtures (section_intra_rating defaults to 20),
+// so we omit it here.
+func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int) int {
+	shift := 15 - (filtMid / 8)
+	if shift < 0 {
+		shift = 0
+	}
+	return (bestErr >> uint(shift)) * filterStep
 }
 
 // loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy

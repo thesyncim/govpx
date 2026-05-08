@@ -141,6 +141,20 @@ type rateControlState struct {
 	currentZbinOverQuant     int
 	activeWorstQChanged      bool
 
+	// pass2ActiveWorstQOverride mirrors libvpx's
+	// `cpi->active_worst_quality` after vp8_second_pass runs
+	// estimate_max_q on the first frame (and damps it on subsequent
+	// frames). When pass2ActiveWorstQValid is true, the regulator's
+	// `libvpxActiveWorstQuantizer` returns this value (clamped to
+	// [minQuantizer, maxQuantizer]) instead of `maxQuantizer`. The
+	// encoder pushes the value via `setPass2ActiveWorstQ` before
+	// `selectQuantizerForFrameKindWithScreenContent`. Without this
+	// the regulator picks a much lower Q than libvpx for the same
+	// per-frame target on real-content pass-2 fixtures (q_match=8%
+	// on desktopqvga while target_match=100%).
+	pass2ActiveWorstQOverride int
+	pass2ActiveWorstQValid    bool
+
 	// libvpx vp8/encoder/ratectrl.c one-pass GF/KF overspend bookkeeping.
 	kfOverspendBits        int
 	gfOverspendBits        int
@@ -634,10 +648,27 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 
 	gfOrArf := goldenFrame || altRefFrame
 	activeBest := rc.minQuantizer
-	if rc.normalInterFrames > 150 {
+	// libvpx vp8/encoder/onyx_if.c line 3619 gates the active-best
+	// branches on `(cpi->pass == 2) || (cpi->ni_frames > 150)`. govpx
+	// historically only honored the ni_frames>150 arm; for pass-2 we
+	// also enable the libvpxKeyFrameHighMotionMinQ / GoldenMinQ /
+	// InterMinQ floor lookups so the regulator sees the same active
+	// best-Q lower bound libvpx does. Without this, pass-2 inter
+	// frames pick Q values much lower than libvpx (q_match=8% on
+	// desktopqvga vs 100% target_match) because the regulator's
+	// activeBest stays at minQuantizer.
+	pass2 := rc.pass2ActiveWorstQValid
+	if rc.normalInterFrames > 150 || pass2 {
 		q := clampQuantizerValue(activeWorst, 0, vp8MaxQIndex)
 		switch {
 		case keyFrame:
+			// libvpx pass-2 KF branch (onyx_if.c lines 3624-3642):
+			// kf_low_motion_minq when gfu_boost > 600, else
+			// kf_high_motion_minq. govpx does not track gfu_boost
+			// from the pass-2 driver here, so we use the high-motion
+			// table for both ni_frames>150 and pass-2 fallthrough.
+			// TODO: thread gfu_boost from twoPassState to pick the
+			// low-motion table when boost > 600.
 			activeBest = libvpxKeyFrameHighMotionMinQ[q]
 		case gfOrArf && rc.currentTemporalLayers <= 1:
 			if rc.framesSinceKeyframe > 1 && rc.avgFrameQuantizer < q {
@@ -672,6 +703,24 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 
 func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 	activeWorst := rc.maxQuantizer
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass first-frame branch
+	// (lines 2349-2363) overwrites active_worst_quality with the
+	// estimate_max_q result, then damps it on subsequent frames
+	// (lines 2381-2392). When the pass-2 driver has seeded the
+	// override we substitute it here so the regulator's worst-Q
+	// ceiling matches libvpx's. The override is clamped to the
+	// user-configured [minQuantizer, maxQuantizer] envelope to honor
+	// CLI / public-API bounds.
+	if rc.pass2ActiveWorstQValid {
+		override := rc.pass2ActiveWorstQOverride
+		if override > rc.maxQuantizer {
+			override = rc.maxQuantizer
+		}
+		if override < rc.minQuantizer {
+			override = rc.minQuantizer
+		}
+		activeWorst = override
+	}
 	if rc.mode != RateControlCBR || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
 		if rc.mode == RateControlCQ && activeWorst < rc.cqLevel {
 			activeWorst = rc.cqLevel

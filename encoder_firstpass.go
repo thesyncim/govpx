@@ -684,6 +684,55 @@ type twoPassState struct {
 	// frames_since_golden to 0 (without incrementing), while every
 	// other visible frame increments it by 1.
 	currentFrameIsGFRefresh bool
+	// lastInterQ mirrors libvpx's `cpi->last_q[INTER_FRAME]`. It is
+	// the Q used by `define_gf_group` to look up GFQ_ADJUSTMENT
+	// (vp8_gf_boost_qadjustment[Q]) when scaling the gfu_boost for
+	// the GF allocation chunks. libvpx initializes it to 0 (zeroed
+	// by calloc), and updates it after each inter-frame encode at
+	// `cpi->last_q[cm->frame_type] = cm->base_qindex`. The encoder
+	// pushes this value via `setLastInterQ` after each inter frame.
+	lastInterQ int
+	// gfIntraErrMin mirrors libvpx's `cpi->twopass.gf_intra_err_min`,
+	// the per-frame floor on intra_error used by `calc_frame_boost`
+	// when computing the per-frame boost contribution to gfu_boost.
+	// libvpx sets it to `GF_MB_INTRA_MIN * cpi->common.MBs` in
+	// vp8_init_second_pass. The encoder pushes this value via
+	// `setGFIntraErrMin` after computing the MB count for the
+	// configured frame size.
+	gfIntraErrMin float64
+	// frameWidth, frameHeight mirror the encoder's configured frame
+	// dimensions. They are used by `kfBitsTarget` to derive the
+	// `kf_intra_err_min` floor (KF_MB_INTRA_MIN * MBs) and the
+	// size-dependent `kf_boost` adjustment libvpx applies in
+	// find_next_key_frame.
+	frameWidth  int
+	frameHeight int
+	// numMBs caches `(width/16) * (height/16)` so estimate_max_q does
+	// not have to recompute it per frame. Set by configureFrameDims.
+	numMBs int
+	// pass2ActiveWorstQ mirrors libvpx's `cpi->active_worst_quality`
+	// after vp8_second_pass runs estimate_max_q (frame 0) or the
+	// damped update branch (the early-portion-of-clip damped path).
+	// govpx's regulator reads this in libvpxActiveWorstQuantizer to
+	// substitute it for `maxQuantizer` when in pass-2 VBR mode. The
+	// encoder pushes the value into rateControlState.pass2ActiveWorstQ
+	// before each frame's selectQuantizerForFrameKind call.
+	pass2ActiveWorstQ      int
+	pass2ActiveWorstQValid bool
+	// estMaxQCorrection mirrors libvpx's
+	// `cpi->twopass.est_max_qcorrection_factor`. Initialized to 1.0
+	// on the first pass-2 frame (libvpx vp8/encoder/firstpass.c
+	// vp8_second_pass line 2329), then updated frame-to-frame from
+	// rolling actual/target bits (estimate_max_q rolling-ratio
+	// branch). The encoder pushes the rolling stats via
+	// `setRollingBits` so this tracks libvpx within rounding.
+	estMaxQCorrection float64
+	// sectionMaxQFactor mirrors libvpx's
+	// `cpi->twopass.section_max_qfactor`. Computed by find_next_key_frame
+	// (KF group) and define_gf_group (GF group) from the section's
+	// avg intra_error / coded_error. Used by estimate_max_q as a
+	// multiplicative factor on the per-Q bit estimate.
+	sectionMaxQFactor float64
 }
 
 func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, biasPct int, minPct int, maxPct int) {
@@ -719,10 +768,46 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	for i := range t.stats {
 		t.errorLeft += t.modifiedError(t.stats[i])
 	}
+	// libvpx vp8/encoder/firstpass.c vp8_second_pass line 2329 seeds
+	// est_max_qcorrection_factor=1.0 on the first frame; section_max_qfactor
+	// also starts at 1.0 (libvpx's struct is calloced; the first
+	// find_next_key_frame call overwrites it before estimate_max_q
+	// reads it). Mirror those initial values here so the very first
+	// estimate_max_q call sees libvpx-shaped state when the encoder
+	// has not yet emitted any frames.
+	t.estMaxQCorrection = 1.0
+	t.sectionMaxQFactor = 1.0
 }
 
 func (t *twoPassState) enabled() bool {
 	return len(t.stats) > 0
+}
+
+// configureFrameDims pushes the encoder's configured frame size into
+// the two-pass state. Used by `kfBitsTarget` for the size-dependent
+// kf_boost adjustment and by `defineGFGroup` to derive
+// `gf_intra_err_min` (libvpx GF_MB_INTRA_MIN * MBs).
+func (t *twoPassState) configureFrameDims(width int, height int) {
+	if width > 0 && height > 0 {
+		t.frameWidth = width
+		t.frameHeight = height
+		const gfMBIntraMin = 200 // libvpx GF_MB_INTRA_MIN
+		mbCols := (width + 15) / 16
+		mbRows := (height + 15) / 16
+		t.numMBs = mbCols * mbRows
+		t.gfIntraErrMin = float64(gfMBIntraMin * t.numMBs)
+	}
+}
+
+// setLastInterQ pushes the libvpx `last_q[INTER_FRAME]` value into the
+// two-pass state. Used by `defineGFGroup` to look up GFQ_ADJUSTMENT
+// when scaling gfu_boost. Called by the encoder after each inter
+// frame's regulated Q is finalized.
+func (t *twoPassState) setLastInterQ(q int) {
+	if q < 0 {
+		q = 0
+	}
+	t.lastInterQ = q
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
@@ -808,6 +893,20 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 		// per_frame_bandwidth assignment is gated on frame_type !=
 		// KEY_FRAME).
 		t.defineGFGroup(frame)
+		// libvpx vp8/encoder/firstpass.c vp8_second_pass lines 2328-2363:
+		// on the very first frame of pass 2, estimate_max_q computes a
+		// `tmp_q` and assigns it to cpi->active_worst_quality. This caps
+		// the regulator's worst-Q ceiling at a value derived from the
+		// per-MB error and the section target bandwidth, instead of
+		// leaving it at oxcf.worst_allowed_q (e.g., 56). Without this
+		// the govpx regulator picks Q values much lower than libvpx
+		// for the same per-frame target — visible as q_match=8% on
+		// desktopqvga while target_match=100%. We seed the active
+		// worst Q here so subsequent frames in this pass-2 see the
+		// same regulator ceiling libvpx uses.
+		if frame == 0 {
+			t.seedPass2ActiveWorstQ(defaultTargetBits)
+		}
 	} else if t.framesTillGFUpdate == 0 {
 		t.defineGFGroup(frame)
 		gfBoundary = true
@@ -864,12 +963,26 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 		return
 	}
 	var kfGroupErr, kfModErr float64
+	var sectionIntra, sectionCoded float64
 	end := frame + uint64(framesToKey)
 	if end > uint64(len(t.stats)) {
 		end = uint64(len(t.stats))
 	}
 	for i := frame; i < end; i++ {
 		kfGroupErr += t.modifiedError(t.stats[i])
+		// Accumulate raw intra/coded error totals so we can compute
+		// libvpx's section_max_qfactor (find_next_key_frame line 2778)
+		// at the same time we seed the kf-group bit budget.
+		sectionIntra += t.stats[i].IntraError
+		sectionCoded += t.stats[i].CodedError
+	}
+	// section_max_qfactor uses avg per-frame intra/coded ratio. libvpx
+	// runs avg_stats first (divides each accumulator by count) so the
+	// ratio is identical with or without the divide; we can compute it
+	// directly from the totals via libvpxSectionMaxQFactor which
+	// handles the DOUBLE_DIVIDE_CHECK fallback.
+	if framesToKey > 0 {
+		t.sectionMaxQFactor = libvpxSectionMaxQFactor(sectionIntra, sectionCoded)
 	}
 	kfModErr = t.modifiedError(t.stats[frame])
 	t.framesToKeyRemaining = framesToKey
@@ -909,21 +1022,101 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 	t.framesTillGFUpdate = 0
 }
 
-// kfBitsTarget computes libvpx's kf_bits — the per-frame target for the
-// KF — from the already-seeded kf-group state. Govpx ports the
-// err-fraction branch of libvpx's KF allocator (which dominates when
-// the KF's modified error is large relative to the rest of the
-// kf-group): kf_bits = max(boost*kf_group_bits/allocation_chunks,
-// bits_left * kf_mod_err / modified_error_left). Since the alt branch
-// `bits_left * kf_mod_err / modified_error_left` dominates for the
-// short-clip workloads in TestOracleSecondPassAllocationCompare, we
-// apply that path directly. The kf_group_bits state is then drained by
-// kf_bits so the gf-group budget is the residual.
+// kfBitsTarget computes libvpx's kf_bits — the per-frame target for
+// the KF — from the already-seeded kf-group state. It mirrors the
+// libvpx vp8/encoder/firstpass.c find_next_key_frame KF allocation
+// (lines 2814-2925):
+//
+//	kf_boost = boost_score from the IIKFACTOR2 prediction-decay walk
+//	  over the next frames_to_key-1 frames, scaled by 100/16, with
+//	  size-dependent adjustments and a 250 floor.
+//	allocation_chunks = ((frames_to_key-1) * 100) + kf_boost
+//	  (or *10 when decay_accumulator >= 0.99 — the "almost static"
+//	  branch).
+//	kf_bits = kf_boost * (kf_group_bits / allocation_chunks)
+//	if kf_mod_err >= avg: alt_kf_bits = bits_left * kf_mod_err /
+//	  modified_error_left; kf_bits = max(kf_bits, alt_kf_bits).
+//	if kf_mod_err < avg:  alt_kf_bits computed from kf_boost via
+//	  alt_kf_grp_bits; kf_bits = min(kf_bits, alt_kf_bits).
+//	kf_bits += min_frame_bandwidth
+//
+// Govpx ports both the boost-based path and the alt-branch logic so
+// the per-frame KF target tracks libvpx within rounding. The
+// kf_group_bits state is then drained by kf_bits so the gf-group
+// budget is the residual.
 func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 	if !t.kfGroupValid || t.errorLeft <= 0 {
 		return int64(float64(t.bitsLeft) * kfModErr / t.errorLeft)
 	}
-	kfBits := int64(float64(t.bitsLeft) * (kfModErr / t.errorLeft))
+	framesToKey := t.framesToKeyRemaining
+	if framesToKey < 1 {
+		framesToKey = 1
+	}
+	// Compute kf_boost via the libvpx prediction-quality walk over
+	// frames [frame+1 .. frame+framesToKey-1]. Mirrors lines
+	// 2722-2756 of find_next_key_frame.
+	kfBoost, decayAccumulator := computeKFBoost(t.stats, frame, framesToKey, t.kfIntraErrMinForFrame())
+	// Size-dependent kf_boost adjustment (lines 2837-2844). lst_yv12
+	// is the "last" YUV buffer's size, which equals encoder
+	// dimensions. govpx exposes the dimensions via t.frameWidth /
+	// t.frameHeight (set by the encoder at configure time).
+	if t.frameWidth > 0 && t.frameHeight > 0 {
+		size := t.frameWidth * t.frameHeight
+		if size > 320*240 {
+			kfBoost += 2 * size / (320 * 240)
+		} else if size < 320*240 {
+			kfBoost -= 4 * (320 * 240) / size
+		}
+	}
+	// Min KF boost.
+	kfBoost = (kfBoost * 100) >> 4
+	if kfBoost < 250 {
+		kfBoost = 250
+	}
+	// allocation_chunks. The "almost static" branch uses *10
+	// instead of *100.
+	var allocationChunks int64
+	if decayAccumulator >= 0.99 {
+		allocationChunks = int64(framesToKey-1)*10 + int64(kfBoost)
+	} else {
+		allocationChunks = int64(framesToKey-1)*100 + int64(kfBoost)
+	}
+	for kfBoost > 1000 {
+		kfBoost /= 2
+		allocationChunks /= 2
+		if allocationChunks <= 0 {
+			break
+		}
+	}
+	if allocationChunks <= 0 {
+		allocationChunks = 1
+	}
+	kfBits := int64(float64(kfBoost) * (float64(t.kfGroupBitsRemaining) / float64(allocationChunks)))
+	// alt branch: compare kf_mod_err to group avg.
+	groupAvg := 0.0
+	if framesToKey > 0 {
+		// kfGroupErrorLeft + kfModErr is the original kf_group_err
+		// (before find_next_key_frame stored kfGroupErrorLeft =
+		// kfGroupErr - kfModErr). Restore for the avg.
+		groupAvg = (t.kfGroupErrorLeft + kfModErr) / float64(framesToKey)
+	}
+	if kfModErr < groupAvg {
+		// Use min(kfBits, alt_kf_bits computed via alt_kf_grp_bits).
+		// alt_kf_grp_bits = bits_left * (kfModErr * framesToKey) /
+		//   modified_error_left; alt_kf_bits = kf_boost *
+		//   alt_kf_grp_bits / allocation_chunks.
+		altGrp := float64(t.bitsLeft) * (kfModErr * float64(framesToKey)) / t.errorLeft
+		altKFBits := int64(float64(kfBoost) * (altGrp / float64(allocationChunks)))
+		if kfBits > altKFBits {
+			kfBits = altKFBits
+		}
+	} else {
+		// Use max(kfBits, bits_left * kfModErr / modified_error_left).
+		altKFBits := int64(float64(t.bitsLeft) * kfModErr / t.errorLeft)
+		if altKFBits > kfBits {
+			kfBits = altKFBits
+		}
+	}
 	if kfBits > t.kfGroupBitsRemaining {
 		kfBits = t.kfGroupBitsRemaining
 	}
@@ -931,7 +1124,6 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 		kfBits = 0
 	}
 	// Drain kf_group_bits by kf_bits (libvpx: kf_group_bits -= kf_bits).
-	// We keep kf_group_bits available for the upcoming GF group.
 	t.kfGroupBitsRemaining -= kfBits
 	if t.kfGroupBitsRemaining < 0 {
 		t.kfGroupBitsRemaining = 0
@@ -939,6 +1131,181 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 	// Add min_frame_bandwidth (libvpx: kf_bits += min_frame_bandwidth).
 	kfBits += int64(t.minFrameBandwidth)
 	return kfBits
+}
+
+// kfIntraErrMinForFrame returns libvpx's `cpi->twopass.kf_intra_err_min`
+// equivalent for the configured encoder frame size. libvpx sets it to
+// `KF_MB_INTRA_MIN * MBs` in vp8_init_second_pass; govpx derives MBs
+// from the configured frame dimensions when available.
+func (t *twoPassState) kfIntraErrMinForFrame() float64 {
+	const kfMBIntraMin = 300 // libvpx KF_MB_INTRA_MIN
+	if t.frameWidth <= 0 || t.frameHeight <= 0 {
+		return 0
+	}
+	mbCols := (t.frameWidth + 15) / 16
+	mbRows := (t.frameHeight + 15) / 16
+	return float64(kfMBIntraMin * mbCols * mbRows)
+}
+
+// seedPass2ActiveWorstQ ports the libvpx vp8/encoder/firstpass.c
+// vp8_second_pass first-frame branch (lines 2328-2363):
+//
+//	frames_left = total_stats.count - current_video_frame
+//	section_target_bandwidth = bits_left / frames_left
+//	section_err = total_left_stats.coded_error / total_left_stats.count
+//	err_per_mb = section_err / num_mbs
+//	tmp_q = estimate_max_q(...)
+//	cpi->active_worst_quality = tmp_q
+//
+// When seeded, govpx's regulator reads the result via
+// `pass2ActiveWorstQOverride` and substitutes it for `maxQuantizer` in
+// `libvpxActiveWorstQuantizer`. This mirrors libvpx's behavior where
+// the regulator's worst-Q ceiling is dialed down from the user-specified
+// `worst_allowed_q` to a value derived from the per-MB error and
+// section target bandwidth, which is the single biggest contributor to
+// q_match parity on real-content pass-2 fixtures.
+//
+// `defaultTargetBits` is the encoder's per-frame target (typically
+// `target_bitrate / fps`); we use `t.bitsLeft / framesLeft` instead so
+// the value reflects the post-vbrmin_section budget when minPct > 0.
+// The frame parameter is kept in the call site for clarity even though
+// the computation only references frame 0 state.
+func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
+	if t.numMBs <= 0 {
+		// Without configured frame dimensions we cannot compute
+		// err_per_mb. Leave activeWorstQ unset; the regulator falls
+		// back to oxcf.worst_allowed_q.
+		return
+	}
+	framesLeft := int64(len(t.stats)) - int64(t.frameIndex)
+	if framesLeft < 1 {
+		framesLeft = 1
+	}
+	var sectionTargetBandwidth int64
+	if t.bitsLeft > 0 {
+		sectionTargetBandwidth = t.bitsLeft / framesLeft
+	} else {
+		sectionTargetBandwidth = int64(defaultTargetBits)
+	}
+	if sectionTargetBandwidth <= 0 {
+		return
+	}
+	// libvpx uses total_left_stats.coded_error / total_left_stats.count
+	// at this point. On frame 0, total_left_stats == total_stats (no
+	// frame has been subtracted yet). govpx caches the totals in
+	// t.totalStats; for the FIRST frame use those directly.
+	count := t.totalStats.Count
+	if count <= 0 {
+		// Fall back to summing over the per-frame stats.
+		count = float64(len(t.stats))
+	}
+	codedError := t.totalStats.CodedError
+	if codedError <= 0 {
+		// Sum the per-frame coded_error if the rolled total is
+		// missing. This guards against malformed pass-1 dumps.
+		for i := range t.stats {
+			codedError += t.stats[i].CodedError
+		}
+	}
+	if codedError <= 0 || count <= 0 {
+		return
+	}
+	sectionErr := codedError / count
+	errPerMB := sectionErr / float64(t.numMBs)
+	estCorrection := t.estMaxQCorrection
+	if estCorrection <= 0 {
+		estCorrection = 1.0
+	}
+	sectionMQF := t.sectionMaxQFactor
+	if sectionMQF <= 0 {
+		sectionMQF = 1.0
+	}
+	// libvpx hands estimate_max_q (best_quality, worst_quality) as the
+	// search bounds. govpx callers translate the public min/max
+	// quantizer into qindex space via libvpxPublicQuantizerToQIndex
+	// before configuring the rate controller; we treat the entire
+	// [0, vp8MaxQIndex] range as the bound here so the ported function
+	// can evaluate the full ladder. The encoder will subsequently
+	// clamp the regulator output to the user min/max anyway.
+	tmpQ := libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex)
+	if tmpQ < 0 {
+		tmpQ = 0
+	}
+	if tmpQ > vp8MaxQIndex {
+		tmpQ = vp8MaxQIndex
+	}
+	t.pass2ActiveWorstQ = tmpQ
+	t.pass2ActiveWorstQValid = true
+}
+
+// pass2ActiveWorstQOverride returns the libvpx-derived
+// `active_worst_quality` value when the pass-2 driver has seeded it
+// via seedPass2ActiveWorstQ. The boolean second return value is false
+// when the override is not available (one-pass mode, or pass 2 before
+// frame 0 has been processed). Read by ratecontrol.go's
+// `libvpxActiveWorstQuantizer` to substitute for `maxQuantizer` in the
+// VBR-pass2 path.
+func (t *twoPassState) pass2ActiveWorstQOverride() (int, bool) {
+	if !t.pass2ActiveWorstQValid {
+		return 0, false
+	}
+	return t.pass2ActiveWorstQ, true
+}
+
+// computeKFBoost mirrors the libvpx vp8/encoder/firstpass.c
+// find_next_key_frame inner walk (lines 2728-2756) that produces the
+// raw `boost_score` used to seed `kf_boost` for the KF allocation.
+//
+//	r = IIKFACTOR2 * intra_error / coded_error  (with the
+//	  kf_intra_err_min floor on intra), capped at RMAX=14.0.
+//	decay_accumulator *= libvpxGetPredictionDecayRate(next_frame),
+//	  clamped to [0.1, 1.0].
+//	boost_score += decay_accumulator * r.
+//	break when i>MIN_GF_INTERVAL && (boost_score-old_boost_score)<1.0.
+//
+// Returns the raw `boost_score` and the final `decay_accumulator`
+// (both used by `kfBitsTarget` to compute the KF chunk allocation).
+func computeKFBoost(stats []FirstPassFrameStats, frame uint64, framesToKey int, kfIntraErrMin float64) (int, float64) {
+	const (
+		iiKFFactor2 = 1.5
+		rMax        = 14.0
+	)
+	if framesToKey <= 0 || frame >= uint64(len(stats)) {
+		return 0, 1.0
+	}
+	decayAccumulator := 1.0
+	boostScore := 0.0
+	oldBoostScore := 0.0
+	for i := 0; i < framesToKey; i++ {
+		idx := int(frame) + 1 + i
+		if idx >= len(stats) {
+			break
+		}
+		next := stats[idx]
+		intra := next.IntraError
+		if intra < kfIntraErrMin {
+			intra = kfIntraErrMin
+		}
+		denom := next.CodedError
+		if denom > -1e-12 && denom < 1e-12 {
+			denom = 1.0
+		}
+		r := iiKFFactor2 * intra / denom
+		if r > rMax {
+			r = rMax
+		}
+		loopDecayRate := libvpxGetPredictionDecayRate(next)
+		decayAccumulator *= loopDecayRate
+		if decayAccumulator < 0.1 {
+			decayAccumulator = 0.1
+		}
+		boostScore += decayAccumulator * r
+		if i > libvpxMinGFInterval && (boostScore-oldBoostScore) < 1.0 {
+			break
+		}
+		oldBoostScore = boostScore
+	}
+	return int(boostScore), decayAccumulator
 }
 
 // defineGFGroup mirrors the libvpx define_gf_group GF-group seeding for
@@ -1007,12 +1374,21 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// frames [frame .. frame+gfInterval-1] and subtracting the first
 	// frame's modErr when at a KF boundary.
 	var gfGroupErr float64
+	var gfSectionIntra, gfSectionCoded float64
 	end := frame + uint64(gfInterval)
 	if end > uint64(len(t.stats)) {
 		end = uint64(len(t.stats))
 	}
 	for i := frame; i < end; i++ {
 		gfGroupErr += t.modifiedError(t.stats[i])
+		// Accumulate raw intra/coded for libvpx's section_max_qfactor
+		// (define_gf_group line 2144), which estimate_max_q reads when
+		// the GF section is the active section_max_qfactor source.
+		gfSectionIntra += t.stats[i].IntraError
+		gfSectionCoded += t.stats[i].CodedError
+	}
+	if gfInterval > 0 {
+		t.sectionMaxQFactor = libvpxSectionMaxQFactor(gfSectionIntra, gfSectionCoded)
 	}
 	if keyFrameAtBoundary {
 		gfGroupErr -= t.modifiedError(t.stats[frame])
@@ -1050,15 +1426,30 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// libvpx GF-bits allocation: Boost = (gfu_boost * GFQ_ADJUSTMENT)
 	// / 100, capped at baseline_gf_interval*150 with a floor of 125,
 	// then halved while >1000. allocation_chunks =
-	// baseline_gf_interval*100 + (Boost-100). Govpx's pass-2 path
-	// does not have access to the per-frame motion walk that produces
-	// gfu_boost, so we use a saturated proxy that mirrors the
-	// equilibrium libvpx settles at on the short-clip oracle workload
-	// (gfu_boost >= 1100 -> Boost saturates at the interval*150 cap,
-	// then halves to interval*75). The resulting per-frame target
-	// matches libvpx's emitted gf_bits chunk to within one halving
-	// step.
-	boost := int64(gfInterval) * 150
+	// baseline_gf_interval*100 + (Boost-100). gfu_boost is computed
+	// by walking the prediction-quality decay across the GF interval
+	// (libvpx vp8/encoder/firstpass.c lines 1639-1706); govpx ports
+	// the same walk in computeGFUBoost so the boost matches libvpx
+	// frame-for-frame (within rounding). The Q used to look up
+	// GFQ_ADJUSTMENT is libvpx's `last_q[INTER_FRAME]`, which is 0
+	// before any inter frame has been encoded — for short clips with
+	// a single KF that means Q=0 and GFQ_ADJUSTMENT=80.
+	gfuBoost := computeGFUBoost(t.stats, frame, gfInterval, keyFrameAtBoundary, t.gfIntraErrMin)
+	q := t.lastInterQ
+	if q < 0 {
+		q = 0
+	}
+	if q >= len(libvpxGFBoostQAdjustment) {
+		q = len(libvpxGFBoostQAdjustment) - 1
+	}
+	gfqAdjustment := libvpxGFBoostQAdjustment[q]
+	boost := int64(gfuBoost*gfqAdjustment) / 100
+	if cap := int64(gfInterval) * 150; boost > cap {
+		boost = cap
+	}
+	if boost < 125 {
+		boost = 125
+	}
 	allocationChunks := int64(gfInterval)*100 + (boost - 100)
 	for boost > 1000 {
 		boost /= 2
@@ -1067,9 +1458,6 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 			break
 		}
 	}
-	if boost < 125 {
-		boost = 125
-	}
 	if allocationChunks <= 0 {
 		allocationChunks = 1
 	}
@@ -1077,32 +1465,85 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	if gfBits < 0 {
 		gfBits = 0
 	}
+	// libvpx alt branch (lines 2017-2046): if mod_frame_err < group
+	// avg, use a smaller alt_gf_bits computed from the frame's own
+	// error scaled by interval; if mod_frame_err >= group avg, ensure
+	// gf_bits >= alt_gf_bits = kf_group_bits * mod_frame_err /
+	// kf_group_error_left. The "this_frame" in libvpx's code path
+	// here points to whatever the GF walk landed on, NOT necessarily
+	// the GF refresh frame. For our short-clip (no-ARF) path, the
+	// libvpx code path leaves mod_frame_err set to the LAST iteration
+	// value of the inner loop (libvpx walks i frames; mod_frame_err
+	// is overwritten on each iter). We approximate that by using the
+	// modErr at frame+gfInterval-1 (the last frame in the GF span).
+	// kf_group_bits at this point in libvpx flow is the value BEFORE
+	// the gf_group_bits drain (libvpx uses cpi->twopass.kf_group_bits
+	// which has just been set to bits_left for the final-kf-group
+	// case at line 1923). We restore that pre-drain value here too.
+	preGFKFGroupBits := t.kfGroupBitsRemaining + gfGroupBits
+	if preGFKFGroupBits <= 0 {
+		preGFKFGroupBits = t.bitsLeft
+	}
+	preGFKFErrorLeft := t.kfGroupErrorLeft + gfGroupErr
+	if preGFKFErrorLeft < 1 {
+		preGFKFErrorLeft = 1
+	}
+	lastIterIdx := int(frame) + gfInterval - 1
+	if lastIterIdx >= len(t.stats) {
+		lastIterIdx = len(t.stats) - 1
+	}
+	if lastIterIdx < int(frame) {
+		lastIterIdx = int(frame)
+	}
+	modFrameErr := t.modifiedError(t.stats[lastIterIdx])
+	if modFrameErr*float64(gfInterval) < gfGroupErr {
+		altGFGroupBits := float64(preGFKFGroupBits) *
+			(modFrameErr * float64(gfInterval)) /
+			preGFKFErrorLeft
+		altGFBits := int64(float64(boost) * (altGFGroupBits / float64(allocationChunks)))
+		if gfBits > altGFBits {
+			gfBits = altGFBits
+		}
+	} else {
+		altGFBits := int64(float64(preGFKFGroupBits) * modFrameErr / preGFKFErrorLeft)
+		if altGFBits > gfBits {
+			gfBits = altGFBits
+		}
+	}
+	if gfBits < 0 {
+		gfBits = 0
+	}
 	if gfBits > gfGroupBits {
 		gfBits = gfGroupBits
 	}
-	gfGroupBits -= gfBits
+	// libvpx: gf_group_bits -= (gf_bits - min_frame_bandwidth)
+	// (line 2090). Mirror that drain.
+	gfGroupBits -= gfBits - int64(t.minFrameBandwidth)
 	if gfGroupBits < 0 {
 		gfGroupBits = 0
 	}
 	// alt_extra_bits — see libvpx vp8/encoder/firstpass.c lines
-	// 2099-2120. Spreads a `pct_extra` percentage of the remaining
-	// gf_group_bits across the alternating-frame slots within the GF
-	// section. Govpx mirrors libvpx's saturated pct_extra=20 (the
-	// usual equilibrium for visually-uniform sections) and uses the
-	// libvpx denominator `(interval-1)/2` so the bonus lands on the
-	// same alternating-frame cadence libvpx records.
+	// 2099-2120. Gated on gfu_boost >= 150; spreads a `pct_extra`
+	// percentage of the remaining gf_group_bits across the
+	// alternating-frame slots within the GF section. pct_extra =
+	// (boost-100)/50, capped at 20.
 	altExtraTotal := int64(0)
 	altExtraPer := int64(0)
-	if gfInterval >= 3 {
-		const altPctExtra = 20
-		altExtraTotal = gfGroupBits * altPctExtra / 100
-		denom := int64((gfInterval - 1) / 2)
-		if denom > 0 {
-			altExtraPer = altExtraTotal / denom
+	if gfInterval >= 3 && gfuBoost >= 150 {
+		pctExtra := (gfuBoost - 100) / 50
+		if pctExtra > 20 {
+			pctExtra = 20
 		}
-		gfGroupBits -= altExtraTotal
-		if gfGroupBits < 0 {
-			gfGroupBits = 0
+		if pctExtra > 0 {
+			altExtraTotal = gfGroupBits * int64(pctExtra) / 100
+			gfGroupBits -= altExtraTotal
+			if gfGroupBits < 0 {
+				gfGroupBits = 0
+			}
+			denom := int64((gfInterval - 1) / 2)
+			if denom > 0 {
+				altExtraPer = altExtraTotal / denom
+			}
 		}
 	}
 	t.gfGroupBits = gfGroupBits
@@ -1134,6 +1575,97 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// frames_since_golden — which for the no-ARF path means frames at
 	// offset 2, 4, 6, ... after the GF refresh.
 	t.framesSinceGolden = 0
+}
+
+// computeGFUBoost mirrors the libvpx vp8/encoder/firstpass.c
+// define_gf_group inner walk that produces `cpi->gfu_boost`. It
+// walks the per-frame stats from `frame+1` through the GF interval,
+// accumulating `decay_accumulator * frame_boost` where:
+//
+//	frame_boost = IIFACTOR * intra_error / coded_error  (capped at
+//	  GF_RMAX=48), with a `gf_intra_err_min` floor on the intra_error
+//	  numerator, then biased by mv_in_out_count (positive doubles,
+//	  negative halves), then re-clamped to GF_RMAX.
+//	decay_accumulator *= libvpxGetPredictionDecayRate(next_frame)
+//	  clamped to [0.1, 1.0].
+//
+// libvpx breaks the loop when `i > MIN_GF_INTERVAL && (frames_to_key
+// - i) >= MIN_GF_INTERVAL && (boost_score>20 || pcnt_inter<0.75) &&
+// (boost_score-old_boost_score)<2.0`; govpx mirrors that. The
+// returned value is `(boost_score * 100) >> 4` matching libvpx's
+// scaling at line 1751 (`cpi->gfu_boost = (int)(boost_score *
+// 100.0) >> 4`).
+func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, keyFrameAtBoundary bool, gfIntraErrMin float64) int {
+	const (
+		iiFactor    = 1.5
+		gfRMax      = 48.0
+		minGFInterv = libvpxMinGFInterval
+	)
+	if gfInterval <= 0 || frame >= uint64(len(stats)) {
+		return 0
+	}
+	mvInOutAccumulator := 0.0
+	decayAccumulator := 1.0
+	boostScore := 0.0
+	oldBoostScore := 0.0
+	// libvpx walks i from 1 to gfInterval (inclusive). On each iter,
+	// it loads next_frame = stats[frame+i] and computes the per-frame
+	// boost from THAT next_frame's stats (NOT the current frame's).
+	for i := 1; i <= gfInterval; i++ {
+		idx := int(frame) + i
+		if idx >= len(stats) {
+			break
+		}
+		next := stats[idx]
+		// accumulate_frame_motion_stats: this_frame_mv_in_out =
+		// mv_in_out_count * pcnt_motion. mv_in_out_accumulator
+		// accumulates that.
+		thisFrameMVInOut := next.MVInOutCount * next.PcntMotion
+		mvInOutAccumulator += thisFrameMVInOut
+		// calc_frame_boost: r = IIFACTOR * intra_error / coded_error,
+		// with intra_error floored at gf_intra_err_min.
+		intra := next.IntraError
+		if intra < gfIntraErrMin {
+			intra = gfIntraErrMin
+		}
+		denom := next.CodedError
+		if denom > -1e-12 && denom < 1e-12 {
+			denom = 1.0
+		}
+		r := iiFactor * intra / denom
+		// Bias by mv_in_out_count.
+		if thisFrameMVInOut > 0 {
+			r += r * (thisFrameMVInOut * 2.0)
+		} else {
+			r += r * (thisFrameMVInOut / 2.0)
+		}
+		if r > gfRMax {
+			r = gfRMax
+		}
+		// Cumulative effect of prediction quality decay.
+		loopDecayRate := libvpxGetPredictionDecayRate(next)
+		decayAccumulator *= loopDecayRate
+		if decayAccumulator < 0.1 {
+			decayAccumulator = 0.1
+		}
+		boostScore += decayAccumulator * r
+		// Break clauses: libvpx breaks when i>MIN_GF_INTERVAL AND
+		// (boost_score>20 || pcnt_inter<0.75) AND (boost-old)<2.
+		// We can't fully model libvpx's frames_to_key breakout
+		// because govpx may not have seen frames past the GF
+		// section, but for our short-clip workloads the loop ends
+		// at EOF anyway.
+		if i > minGFInterv &&
+			((boostScore > 20.0) || (next.PcntInter < 0.75)) &&
+			((boostScore - oldBoostScore) < 2.0) {
+			boostScore = oldBoostScore
+			break
+		}
+		oldBoostScore = boostScore
+	}
+	_ = keyFrameAtBoundary // currently unused but reserved for ARF gating
+	gfuBoost := int(boostScore*100.0) >> 4
+	return gfuBoost
 }
 
 // assignStdFrameBits ports libvpx's assign_std_frame_bits inner-loop
