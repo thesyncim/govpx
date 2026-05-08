@@ -151,40 +151,7 @@ func TestLibvpxDecideKeyFrameSecondTierThresholds(t *testing.T) {
 	}
 }
 
-// TestApplyEntropySavingsToProjectedSizeReducesRecodeInput pins the
-// libvpx contract `projected_frame_size -= vp8_estimate_entropy_savings`
-// before the recode size-bounds check. Construct an encoder where the
-// per-MB ref-frame distribution diverges sharply from the prior
-// probabilities so the savings are clearly positive, then verify the
-// adjusted recode size is strictly smaller than the raw size.
-func TestApplyEntropySavingsToProjectedSizeReducesRecodeInput(t *testing.T) {
-	const macroblocks = 16
-	modes := make([]vp8enc.InterFrameMacroblockMode, macroblocks)
-	for i := range modes {
-		// Mostly-LAST distribution.
-		modes[i].Mode = vp8common.ZeroMV
-		modes[i].RefFrame = vp8common.LastFrame
-	}
-	e := &VP8Encoder{
-		interFrameModes: modes,
-		// Prior probs that under-weight LAST (high prob_intra, low
-		// prob_last) so switching to the new distribution saves bits.
-		refProbIntra:  200,
-		refProbLast:   64,
-		refProbGolden: 128,
-	}
-	originalBytes := 1000
-	got := e.applyEntropySavingsToProjectedSize(originalBytes, false, macroblocks)
-	if got >= originalBytes {
-		t.Fatalf("adjusted size = %d, want < original %d (savings should reduce projected size)",
-			got, originalBytes)
-	}
-}
-
-// TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp pins libvpx's
-// `frame_type != KEY_FRAME` gate inside vp8_estimate_entropy_savings:
-// govpx returns the original size on key frames.
-func TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp(t *testing.T) {
+func TestUpdateQuantizerForEncodedFrameSizeUsesPacketSizeWithoutDoubleSubtractingSavings(t *testing.T) {
 	const macroblocks = 16
 	modes := make([]vp8enc.InterFrameMacroblockMode, macroblocks)
 	for i := range modes {
@@ -197,17 +164,27 @@ func TestApplyEntropySavingsToProjectedSizeKeyFrameNoOp(t *testing.T) {
 		refProbLast:     64,
 		refProbGolden:   128,
 	}
-	got := e.applyEntropySavingsToProjectedSize(1000, true, macroblocks)
-	if got != 1000 {
-		t.Fatalf("KF entropy savings adjustment changed size: got %d, want 1000", got)
+	e.rc = rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  20,
+		bitsPerFrame:      1000,
+		frameTargetBits:   1000,
+		bufferOptimalBits: 1000,
+		bufferLevelBits:   800,
+		maximumBufferBits: 2000,
+	}
+	recode := e.rc.newFrameSizeRecodeState(false, false)
+	if recoded := e.updateQuantizerForEncodedFrameSize(54, false, false, macroblocks, &recode); recoded {
+		t.Fatalf("packet-size recode fired after entropy savings double-subtraction, want no recode for 432-bit packet above undershoot bound")
+	}
+	if e.rc.currentQuantizer != 20 {
+		t.Fatalf("currentQuantizer = %d, want unchanged 20", e.rc.currentQuantizer)
 	}
 }
 
-// TestApplyEntropySavingsToProjectedSizeIncludesCoefficientSavings pins the
-// default_coef_context_savings half of libvpx's vp8_estimate_entropy_savings.
-// Key frames have no ref-frame savings, so any reduction here comes from the
-// coefficient probability update savings.
-func TestApplyEntropySavingsToProjectedSizeIncludesCoefficientSavings(t *testing.T) {
+func TestCoefficientEntropySavingsBitsIncludesCoefficientSavings(t *testing.T) {
 	const rows, cols = 16, 16
 	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
 	coeffs := make([]vp8enc.MacroblockCoefficients, rows*cols)
@@ -225,20 +202,6 @@ func TestApplyEntropySavingsToProjectedSizeIncludesCoefficientSavings(t *testing
 	}
 	if savings := e.coefficientEntropySavingsBits(true, rows*cols); savings <= 0 {
 		t.Fatalf("coefficient entropy savings = %d, want positive", savings)
-	}
-	got := e.applyEntropySavingsToProjectedSize(1000, true, rows*cols)
-	if got >= 1000 {
-		t.Fatalf("adjusted size = %d, want < 1000 from coefficient entropy savings", got)
-	}
-}
-
-// TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal
-// pins the libvpx `if (sizeBytes <= 0 || macroblocks <= 0)` guard.
-func TestApplyEntropySavingsToProjectedSizeZeroMacroblocksReturnsOriginal(t *testing.T) {
-	e := &VP8Encoder{}
-	got := e.applyEntropySavingsToProjectedSize(1000, false, 0)
-	if got != 1000 {
-		t.Fatalf("zero macroblocks adjustment changed size: got %d, want 1000", got)
 	}
 }
 

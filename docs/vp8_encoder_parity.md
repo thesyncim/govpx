@@ -289,12 +289,16 @@ the anchor and look for the surrounding mismatch.
     multiplier. Oversized frames at `active_worst_quality` now relax the active
     worst bound toward worst-Q with libvpx's 4%-per-Qstep model and suppress
     rate-correction-factor updates for that loop.
-    The recode size-bounds comparison now subtracts
-    `vp8_estimate_entropy_savings` (ref-frame plus default
-    coefficient-context portions) from the just-encoded size before
-    deciding to recode, mirroring libvpx's
-    `cpi->projected_frame_size -= vp8_estimate_entropy_savings(cpi)`
-    via [`applyEntropySavingsToProjectedSize`](../encoder.go). The
+    The recode size-bounds comparison now intentionally uses the accepted
+    packet size when govpx has no libvpx-style pre-pack RD
+    `projected_frame_size`. libvpx subtracts `vp8_estimate_entropy_savings`
+    from the RD projection accumulated by `vp8_encode_frame`
+    (`totalrate >> 8`), not from final packet bytes; govpx packet bytes already
+    reflect emitted probability updates, so subtracting entropy savings from
+    them double-counted the savings and biased the recode loop toward false
+    undershoot. The remaining parity task is to carry a true pre-pack RD
+    projected rate through govpx reconstruction, then apply the existing
+    ref-frame and coefficient entropy-savings helpers to that RD base. The
     libvpx `decide_key_frame` heuristic is ported as
     [`libvpxDecideKeyFrame`](../encoder_entropy_savings.go), covering
     the unconditional thresholds (this==100 && this>last+2 ||
