@@ -18,8 +18,10 @@ import (
 //
 // R9-3 finding (2026-05-08, panning-style synthetic content matching
 // cmd/govpx-bench): under matched CBR buffer flags
-//   --buf-sz=600 --buf-initial-sz=400 --buf-optimal-sz=500
-//   --undershoot-pct=100 --overshoot-pct=15 --noise-sensitivity=0
+//
+//	--buf-sz=600 --buf-initial-sz=400 --buf-optimal-sz=500
+//	--undershoot-pct=100 --overshoot-pct=15 --noise-sensitivity=0
+//
 // govpx skips MORE than libvpx (6.84% vs 3.93% of inter MBs) and emits FEWER
 // non-zero coefficients (0.797x of libvpx's tteob), yet its inter bitstream
 // is ~1.74x larger per frame (12722 vs 7298 B). The byte gap is therefore
