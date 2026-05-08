@@ -120,7 +120,20 @@ func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segm
 	return nil
 }
 
+// FastQuantizeBlock dispatches to the SIMD or scalar fast-quantize kernel.
+// The SIMD entry point is plugged in by per-arch dispatch files
+// (quant_simd_arm64.go, quant_simd_amd64.go); on platforms without a SIMD
+// port it falls through to fastQuantizeBlockScalar.
 func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return fastQuantizeBlockSIMD(coeff, quant, qcoeff, dqcoeff)
+}
+
+// fastQuantizeBlockScalar is the canonical scalar fast quantize port of
+// libvpx v1.16.0 vp8/encoder/vp8_quantize.c vp8_fast_quantize_b_c.
+//
+// SIMD ports must produce byte-identical qcoeff/dqcoeff and the same EOB
+// count for any input that occurs in the encoder's coefficient range.
+func fastQuantizeBlockScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := -1
 	for i := 0; i < 16; i++ {
 		rc := int(tables.DefaultZigZag1D[i])

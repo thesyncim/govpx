@@ -2,7 +2,17 @@ package encoder
 
 // Ported from libvpx v1.16.0 vp8/encoder/dct.c.
 
+// ForwardDCT4x4 dispatches to the SIMD or scalar 4x4 forward DCT kernel.
+// SIMD entry points are plugged in by per-arch dispatch files; on platforms
+// without a SIMD port it falls through to forwardDCT4x4Scalar.
 func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
+	forwardDCT4x4SIMD(input, stride, output)
+}
+
+// forwardDCT4x4Scalar is the canonical scalar port of libvpx
+// vp8/encoder/dct.c vp8_short_fdct4x4_c. SIMD ports must produce
+// byte-identical output for the encoder's input range.
+func forwardDCT4x4Scalar(input []int16, stride int, output *[16]int16) {
 	var tmp [16]int
 
 	for row := 0; row < 4; row++ {

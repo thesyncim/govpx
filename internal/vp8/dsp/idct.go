@@ -7,7 +7,20 @@ const (
 	sinPI8Sqrt2       = 35468
 )
 
+// IDCT4x4Add dispatches to the SIMD or scalar 4x4 inverse DCT-add kernel.
 func IDCT4x4Add(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
+	idct4x4AddSIMD(input, pred, predStride, dst, dstStride)
+}
+
+// DCOnlyIDCT4x4Add dispatches to the SIMD or scalar DC-only fast path.
+func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
+	dcOnlyIDCT4x4AddSIMD(inputDC, pred, predStride, dst, dstStride)
+}
+
+// idct4x4AddScalar is the canonical scalar port of libvpx
+// vp8/common/idctllm.c vp8_short_idct4x4llm_c. SIMD ports must produce
+// byte-identical output for the encoder/decoder coefficient range.
+func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	var output [16]int16
 
 	for i := 0; i < 4; i++ {
@@ -58,7 +71,9 @@ func IDCT4x4Add(input *[16]int16, pred []byte, predStride int, dst []byte, dstSt
 	}
 }
 
-func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
+// dcOnlyIDCT4x4AddScalar is the canonical scalar fast path used when only
+// the DC coefficient is non-zero.
+func dcOnlyIDCT4x4AddScalar(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	a1 := int((inputDC + 4) >> 3)
 	for y := 0; y < 4; y++ {
 		predRow := y * predStride
