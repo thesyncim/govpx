@@ -388,6 +388,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
+				// B_PRED reconstruction was already written to
+				// e.analysis.Img by buildReconstructingBPredMacroblockCoefficients
+				// above, so emit the reconstructed trace here too. Without
+				// this the predictor-diff harness silently skips B_PRED MBs
+				// (e.g. the 4 right-edge col-7 B_PRED MBs on 128x128 frame
+				// 1) and reports the visible Y as MATCH even when they
+				// diverge.
+				e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
 				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
 				continue
 			}
