@@ -10,12 +10,14 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	govpx "github.com/thesyncim/govpx"
@@ -159,8 +161,11 @@ type benchConfigSummary struct {
 func main() {
 	cfg := benchConfig{}
 	autoCompare := false
+	buildLibvpx := false
 	cpuProfile := ""
 	memProfile := ""
+	format := "text"
+	flag.StringVar(&format, "format", "text", "output format: text or json")
 	flag.IntVar(&cfg.Width, "width", 64, "frame width")
 	flag.IntVar(&cfg.Height, "height", 64, "frame height")
 	flag.IntVar(&cfg.Frames, "frames", 30, "number of frames")
@@ -170,23 +175,13 @@ func main() {
 	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
 	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
-	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate vpxenc/vpxdec in PATH when -libvpx-vpxenc/-libvpx-oracle are unset, for an automatic libvpx comparison")
+	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
+	flag.BoolVar(&buildLibvpx, "build-libvpx", true, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
 	flag.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
 	flag.StringVar(&memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
 	flag.Parse()
 	if autoCompare {
-		if cfg.LibvpxVpxenc == "" {
-			if path, err := exec.LookPath("vpxenc"); err == nil {
-				cfg.LibvpxVpxenc = path
-			}
-		}
-		if cfg.LibvpxOracle == "" {
-			// The decoder benchmark expects the project's checksum oracle
-			// helper (govpx-vpx-oracle), not vpxdec, so do not auto-fill
-			// from PATH here. Auto-detection would silently fall back to
-			// the wrong binary. The user must opt in explicitly.
-			_ = cfg.LibvpxOracle
-		}
+		resolveLibvpxDefaults(&cfg, buildLibvpx)
 	}
 
 	if cpuProfile != "" {
@@ -228,12 +223,259 @@ func main() {
 		fmt.Fprintf(os.Stderr, "govpx-bench: %v\n", err)
 		os.Exit(2)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(report); err != nil {
-		fmt.Fprintf(os.Stderr, "govpx-bench: encode json: %v\n", err)
-		os.Exit(1)
+	switch format {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "govpx-bench: encode json: %v\n", err)
+			os.Exit(1)
+		}
+	case "", "text":
+		switch r := report.(type) {
+		case benchReport:
+			os.Stdout.WriteString(formatEncodeReport(r))
+		case decodeBenchReport:
+			os.Stdout.WriteString(formatDecodeReport(r))
+		default:
+			fmt.Fprintf(os.Stderr, "govpx-bench: unexpected report type %T\n", r)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "govpx-bench: unsupported -format %q (want text or json)\n", format)
+		os.Exit(2)
 	}
+}
+
+func formatEncodeReport(r benchReport) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "govpx-bench  encode  %s  %dx%d @%dfps  target=%d kbps  frames=%d\n\n",
+		r.Mode, r.Width, r.Height, r.FPS, r.TargetBitrateKbps, r.Frames)
+
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	if r.Reference != nil {
+		ref := r.Reference
+		cmp := r.Comparison
+		fmt.Fprintln(tw, "metric\tgovpx\tlibvpx\tdelta")
+		fmt.Fprintln(tw, "------\t-----\t------\t-----")
+		fmt.Fprintf(tw, "ns/frame\t%s\t%s\t%s\n",
+			formatDuration(r.NSPerFrame), formatDuration(ref.NSPerFrame), formatRatio(cmp.NSPerFrameRatio, "x"))
+		fmt.Fprintf(tw, "encode fps\t%s\t%s\t%s\n",
+			formatFloat(r.EncodeFPS, 1), formatFloat(ref.EncodeFPS, 1), formatRatio(cmp.EncodeFPSRatio, "x"))
+		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\t%s\t-\n",
+			formatFloat(r.MacroblocksPerSec/1e6, 2), formatFloat(ref.MacroblocksPerSec/1e6, 2))
+		fmt.Fprintf(tw, "output kbps\t%.2f\t%.2f\t%s\n",
+			r.OutputBitrateKbps, ref.OutputBitrateKbps, formatRatio(cmp.BitrateRatioVsReference, "x"))
+		fmt.Fprintf(tw, "bitrate err %%\t%+.2f\t%+.2f\t%+.2f pp\n",
+			r.BitrateErrorPct, ref.BitrateErrorPct, cmp.BitrateErrorPctDelta)
+		fmt.Fprintf(tw, "PSNR (dB)\t%.2f\t%.2f\t%+.2f\n",
+			r.PSNR, ref.PSNR, cmp.PSNRDeltaDB)
+		fmt.Fprintf(tw, "SSIM\t%.5f\t%.5f\t%+.5f\n",
+			r.SSIM, ref.SSIM, cmp.SSIMDelta)
+		fmt.Fprintf(tw, "output bytes\t%s\t%s\t%s\n",
+			formatBytes(int64(r.OutputBytes)), formatBytes(int64(ref.OutputBytes)), formatRatio(cmp.OutputBytesRatio, "x"))
+		fmt.Fprintf(tw, "keyframe bytes\t%s\t%s\t%s\n",
+			formatBytes(int64(r.KeyframeBytes)), formatBytes(int64(ref.KeyframeBytes)), formatRatio(cmp.KeyframeBytesRatio, "x"))
+		fmt.Fprintf(tw, "avg interframe\t%s\t%s\t%s\n",
+			formatBytes(int64(r.AvgInterBytes)), formatBytes(int64(ref.AvgInterBytes)), formatRatio(cmp.AvgInterBytesRatio, "x"))
+	} else {
+		fmt.Fprintln(tw, "metric\tgovpx")
+		fmt.Fprintln(tw, "------\t-----")
+		fmt.Fprintf(tw, "ns/frame\t%s\n", formatDuration(r.NSPerFrame))
+		fmt.Fprintf(tw, "encode fps\t%s\n", formatFloat(r.EncodeFPS, 1))
+		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\n", formatFloat(r.MacroblocksPerSec/1e6, 2))
+		fmt.Fprintf(tw, "output kbps\t%.2f\n", r.OutputBitrateKbps)
+		fmt.Fprintf(tw, "bitrate err %%\t%+.2f\n", r.BitrateErrorPct)
+		fmt.Fprintf(tw, "PSNR (dB)\t%.2f\n", r.PSNR)
+		fmt.Fprintf(tw, "SSIM\t%.5f\n", r.SSIM)
+		fmt.Fprintf(tw, "output bytes\t%s\n", formatBytes(int64(r.OutputBytes)))
+		fmt.Fprintf(tw, "keyframe bytes\t%s\n", formatBytes(int64(r.KeyframeBytes)))
+		fmt.Fprintf(tw, "avg interframe\t%s\n", formatBytes(int64(r.AvgInterBytes)))
+	}
+	tw.Flush()
+
+	fmt.Fprintf(&b, "\nquantizers      min=%d max=%d mean=%.2f  (encoded=%d dropped=%d)\n",
+		r.Quantizers.Min, r.Quantizers.Max, r.Quantizers.Mean, r.EncodedFrames, r.DroppedFrames)
+	fmt.Fprintf(&b, "govpx latency   p50=%s  p95=%s  p99=%s\n",
+		formatDuration(r.LatencyNS.P50), formatDuration(r.LatencyNS.P95), formatDuration(r.LatencyNS.P99))
+	if r.Reference != nil {
+		ref := r.Reference
+		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
+			ref.TimingSource, formatDuration(ref.WallNSPerFrame), formatDuration(ref.SubprocessOverheadNS))
+		if ref.QualityError != "" {
+			fmt.Fprintf(&b, "libvpx quality  warn: %s\n", ref.QualityError)
+		}
+	}
+	if r.AllocsPerFrame > 0 {
+		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
+	}
+	return b.String()
+}
+
+func formatDecodeReport(r decodeBenchReport) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "govpx-bench  decode  %s  %dx%d @%dfps  frames=%d  input=%s\n\n",
+		r.Mode, r.Width, r.Height, r.FPS, r.Frames, formatBytes(int64(r.InputBytes)))
+
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	if r.Reference != nil {
+		ref := r.Reference
+		fmt.Fprintln(tw, "metric\tgovpx\tlibvpx\trelative")
+		fmt.Fprintln(tw, "------\t-----\t------\t--------")
+		fmt.Fprintf(tw, "ns/frame\t%s\t%s\t%s\n",
+			formatDuration(r.NSPerFrame), formatDuration(ref.NSPerFrame), formatRatio(r.RelativeSpeedVsReference, "x faster"))
+		fmt.Fprintf(tw, "decode fps\t%s\t%s\t-\n",
+			formatFloat(r.DecodeFPS, 1), formatFloat(ref.DecodeFPS, 1))
+		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\t%s\t-\n",
+			formatFloat(r.MacroblocksPerSec/1e6, 2), formatFloat(ref.MacroblocksPerSec/1e6, 2))
+		fmt.Fprintf(tw, "coded MB/s\t%s\t%s\t-\n",
+			formatFloat(r.CodedMegabytesPerSec, 2), formatFloat(ref.CodedMegabytesPerSec, 2))
+	} else {
+		fmt.Fprintln(tw, "metric\tgovpx")
+		fmt.Fprintln(tw, "------\t-----")
+		fmt.Fprintf(tw, "ns/frame\t%s\n", formatDuration(r.NSPerFrame))
+		fmt.Fprintf(tw, "decode fps\t%s\n", formatFloat(r.DecodeFPS, 1))
+		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\n", formatFloat(r.MacroblocksPerSec/1e6, 2))
+		fmt.Fprintf(tw, "coded MB/s\t%s\n", formatFloat(r.CodedMegabytesPerSec, 2))
+	}
+	tw.Flush()
+
+	fmt.Fprintf(&b, "\ngovpx latency   p50=%s  p95=%s  p99=%s  (decoded=%d/%d)\n",
+		formatDuration(r.LatencyNS.P50), formatDuration(r.LatencyNS.P95), formatDuration(r.LatencyNS.P99),
+		r.DecodedFrames, r.Frames)
+	if r.AllocsPerFrame > 0 {
+		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
+	}
+	return b.String()
+}
+
+func formatDuration(ns int64) string {
+	switch {
+	case ns <= 0:
+		return "-"
+	case ns < 1_000:
+		return fmt.Sprintf("%d ns", ns)
+	case ns < 1_000_000:
+		return fmt.Sprintf("%.2f µs", float64(ns)/1_000)
+	case ns < 1_000_000_000:
+		return fmt.Sprintf("%.2f ms", float64(ns)/1_000_000)
+	default:
+		return fmt.Sprintf("%.2f s", float64(ns)/1_000_000_000)
+	}
+}
+
+func formatBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.2f KiB", float64(n)/1024)
+	case n < 1024*1024*1024:
+		return fmt.Sprintf("%.2f MiB", float64(n)/(1024*1024))
+	default:
+		return fmt.Sprintf("%.2f GiB", float64(n)/(1024*1024*1024))
+	}
+}
+
+func formatFloat(v float64, digits int) string {
+	return strconv.FormatFloat(v, 'f', digits, 64)
+}
+
+func formatRatio(ratio float64, suffix string) string {
+	if ratio <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f%s", ratio, suffix)
+}
+
+// resolveLibvpxDefaults fills cfg.LibvpxVpxenc / cfg.LibvpxOracle from the
+// project's makefile-built binaries at internal/coracle/build/, optionally
+// running `make oracle-tools` to build them if they are missing. Falls back
+// to a PATH lookup for vpxenc only — the decoder benchmark needs the
+// project's govpx-vpx-oracle helper, not stock vpxdec, so PATH is never
+// consulted for the oracle path.
+func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
+	root, haveRoot := findGovpxRoot()
+	repoVpxenc := ""
+	repoOracle := ""
+	if haveRoot {
+		repoVpxenc = filepath.Join(root, "internal", "coracle", "build", "vpxenc")
+		repoOracle = filepath.Join(root, "internal", "coracle", "build", "govpx-vpx-oracle")
+	}
+
+	needVpxenc := cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
+	needOracle := cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
+	if buildIfMissing && haveRoot && (needVpxenc || needOracle) {
+		fmt.Fprintln(os.Stderr, "govpx-bench: building libvpx oracle tools (make oracle-tools)")
+		make := exec.Command("make", "oracle-tools")
+		make.Dir = root
+		make.Stdout = os.Stderr
+		make.Stderr = os.Stderr
+		if err := make.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "govpx-bench: make oracle-tools failed: %v\n", err)
+		}
+	}
+
+	if cfg.LibvpxVpxenc == "" {
+		if isExecutable(repoVpxenc) {
+			cfg.LibvpxVpxenc = repoVpxenc
+		} else if path, err := exec.LookPath("vpxenc"); err == nil {
+			cfg.LibvpxVpxenc = path
+		}
+	}
+	if cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
+		cfg.LibvpxOracle = repoOracle
+	}
+}
+
+// findGovpxRoot walks up from the working directory (and, as a fallback,
+// the executable's directory) looking for a parent that contains both a
+// Makefile and the internal/coracle directory — the marker pair for the
+// govpx repo root.
+func findGovpxRoot() (string, bool) {
+	if cwd, err := os.Getwd(); err == nil {
+		if root, ok := walkUpForMarkers(cwd, "Makefile", filepath.Join("internal", "coracle")); ok {
+			return root, true
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if root, ok := walkUpForMarkers(filepath.Dir(exe), "Makefile", filepath.Join("internal", "coracle")); ok {
+			return root, true
+		}
+	}
+	return "", false
+}
+
+func walkUpForMarkers(start string, markers ...string) (string, bool) {
+	dir := start
+	for {
+		match := true
+		for _, marker := range markers {
+			if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {
+				match = false
+				break
+			}
+		}
+		if match {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+func isExecutable(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 func runBenchmark(cfg benchConfig) (benchReport, error) {
