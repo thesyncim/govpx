@@ -3594,11 +3594,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	// zbin-zerorun are block-sequential.
 	var residuals [16 * 16]int16
 	var dcts [16 * 16]int16
-	for block := 0; block < 16; block++ {
-		x := mbCol*16 + (block&3)*4
-		y := mbRow*16 + (block>>2)*4
-		fillPredictedResidual4x4Slice(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, residuals[block*16:block*16+16])
-	}
+	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 16)
 	for block := 0; block < 16; block++ {
 		copy(dct[:], dcts[block*16:block*16+16])
@@ -3681,24 +3677,8 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 	// loop serial.
 	var residuals [8 * 16]int16
 	var dcts [8 * 16]int16
-	for slot := 0; slot < 8; slot++ {
-		block := 16 + slot
-		planeBlock := slot
-		srcPlane := src.U
-		srcStride := src.UStride
-		predPlane := pred.U
-		predStride := pred.UStride
-		if block >= 20 {
-			planeBlock = block - 20
-			srcPlane = src.V
-			srcStride = src.VStride
-			predPlane = pred.V
-			predStride = pred.VStride
-		}
-		x := mbCol*8 + (planeBlock&1)*4
-		y := mbRow*8 + (planeBlock>>1)*4
-		fillPredictedResidual4x4Slice(srcPlane, srcStride, uvWidth, uvHeight, predPlane, predStride, x, y, residuals[slot*16:slot*16+16])
-	}
+	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
+	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 8)
 	for slot := 0; slot < 8; slot++ {
 		block := 16 + slot
@@ -6428,6 +6408,18 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 	_ = buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs)
 }
 
+// buildPredictedMacroblockCoefficientsRD fuses per-MB residual gather,
+// batched FDCT, per-block quantize+token-cost+context-update, and the
+// Y2 second-order pass into one whole-MB pipeline. R11-C: replaces the
+// per-block FDCT/quantize/token loop with batched FDCT (Y x16 and UV
+// x8) + a single in-bounds residual gather, mirroring libvpx
+// vp8/encoder/encodemb.c vp8_encode_inter16x16 / vp8_encode_intra16x16
+// where vp8_transform_mb -> vp8_quantize_mb -> tokenize_mb run as one
+// coordinated pass.
+//
+// Output (coeffs.QCoeff, coeffs.EOB, OracleY1DC*, OracleStaleY2*,
+// returned predictedMacroblockRDStats) is byte-identical to the
+// original per-block reference path.
 func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) predictedMacroblockRDStats {
 	var stats predictedMacroblockRDStats
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
@@ -6436,8 +6428,6 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
-	var input [16]int16
-	var dct [16]int16
 	var yAbove [4]uint8
 	var yLeft [4]uint8
 	var uvAbove [4]uint8
@@ -6454,11 +6444,15 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		y2Left = leftTok.Y2
 	}
 
+	// Whole-MB Y residual gather + batched FDCT. Mirrors libvpx
+	// vp8_subtract_mby + vp8_transform_mb (16 fdct calls).
+	var yResiduals [16 * 16]int16
+	var yDcts [16 * 16]int16
+	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
+	vp8enc.ForwardDCT4x4Batch(yResiduals[:], yDcts[:], 16)
+
 	for block := 0; block < 16; block++ {
-		x := mbCol*16 + (block&3)*4
-		y := mbRow*16 + (block>>2)*4
-		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, x, y, &input)
-		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		dct := (*[16]int16)(yDcts[block*16 : block*16+16])
 		if is4x4 {
 			// Capture the chosen-mode FDCT DC of every Y block so the
 			// oracle trace can mirror libvpx's stale Y2 second-order
@@ -6467,10 +6461,10 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
-			eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+			eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
 			stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
-			stats.distortionY += transformBlockError(&dct, &dq)
+			stats.distortionY += transformBlockError(dct, &dq)
 			if eob > 0 {
 				stats.tteob++
 			}
@@ -6492,10 +6486,10 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := int(yAbove[a] + yLeft[l])
-			eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
+			eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
 			stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
-			stats.distortionY += transformBlockError(&dct, &dq)
+			stats.distortionY += transformBlockError(dct, &dq)
 			if eob > 1 {
 				stats.tteob++
 			}
@@ -6562,19 +6556,24 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		coeffs.OracleStaleY2Set = true
 	}
 
+	// Whole-MB UV residual gather + batched FDCT (8 blocks: U0..U3, V0..V3).
+	// Mirrors libvpx vp8_subtract_mbuv + vp8_transform_mbuv (8 fdct calls).
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
+	var uvResiduals [8 * 16]int16
+	var uvDcts [8 * 16]int16
+	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
+
 	for block := 0; block < 4; block++ {
-		x := mbCol*8 + (block&1)*4
-		y := mbRow*8 + (block>>1)*4
-		fillPredictedResidual4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, x, y, &input)
-		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
-		eob := quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		eob := quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
 		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
-		stats.distortionUV += transformBlockError(&dct, &dq)
+		stats.distortionUV += transformBlockError(dct, &dq)
 		stats.tteob += eob
 		hasCoeffs := uint8(0)
 		if eob > 0 {
@@ -6583,14 +6582,13 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
 
-		fillPredictedResidual4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, x, y, &input)
-		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
 		a, l = macroblockCoefficientUVContextIndex(20 + block)
 		ctx = int(uvAbove[a] + uvLeft[l])
-		eob = quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		eob = quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
 		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
-		stats.distortionUV += transformBlockError(&dct, &dq)
+		stats.distortionUV += transformBlockError(dctV, &dq)
 		stats.tteob += eob
 		hasCoeffs = 0
 		if eob > 0 {
@@ -6601,6 +6599,70 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	}
 	stats.distortionUV >>= 2
 	return stats
+}
+
+// gatherMacroblockYResiduals4x4 writes the 16 luma 4x4 residuals of
+// the macroblock at top-left (baseX,baseY) into out as 16 contiguous
+// int16-per-block slabs in scan order (block 0 first, block 15 last,
+// each block laid out row-major at stride 4). For the in-bounds case
+// (the entire 16x16 MB lies inside src) it skips per-pixel coordinate
+// clamping; otherwise it falls back to the per-block clamped path
+// (same numeric behavior as fillPredictedResidual4x4).
+func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
+	if baseY >= 0 && baseX >= 0 && baseY+16 <= height && baseX+16 <= width {
+		// Fast path: no clamping. Iterate block-row-major.
+		for by := 0; by < 4; by++ {
+			for bx := 0; bx < 4; bx++ {
+				blockOff := (by*4 + bx) * 16
+				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
+				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
+				for r := 0; r < 4; r++ {
+					so := srcOff + r*srcStride
+					po := predOff + r*predStride
+					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
+					out[blockOff+r*4+1] = int16(int(src[so+1]) - int(pred[po+1]))
+					out[blockOff+r*4+2] = int16(int(src[so+2]) - int(pred[po+2]))
+					out[blockOff+r*4+3] = int16(int(src[so+3]) - int(pred[po+3]))
+				}
+			}
+		}
+		return
+	}
+	for block := 0; block < 16; block++ {
+		x := baseX + (block&3)*4
+		y := baseY + (block>>2)*4
+		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
+	}
+}
+
+// gatherMacroblockUVResiduals4x4 writes the 4 chroma 4x4 residuals of
+// the 8x8 MB chroma block at top-left (baseX,baseY) into out (4 blocks,
+// 16 int16 per block in scan order). Same fast/slow split as the Y
+// gatherer.
+func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
+	if baseY >= 0 && baseX >= 0 && baseY+8 <= height && baseX+8 <= width {
+		for by := 0; by < 2; by++ {
+			for bx := 0; bx < 2; bx++ {
+				blockOff := (by*2 + bx) * 16
+				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
+				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
+				for r := 0; r < 4; r++ {
+					so := srcOff + r*srcStride
+					po := predOff + r*predStride
+					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
+					out[blockOff+r*4+1] = int16(int(src[so+1]) - int(pred[po+1]))
+					out[blockOff+r*4+2] = int16(int(src[so+2]) - int(pred[po+2]))
+					out[blockOff+r*4+3] = int16(int(src[so+3]) - int(pred[po+3]))
+				}
+			}
+		}
+		return
+	}
+	for block := 0; block < 4; block++ {
+		x := baseX + (block&1)*4
+		y := baseY + (block>>1)*4
+		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
+	}
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {
@@ -7560,12 +7622,8 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	// matching libvpx v1.16.0 vp8_transform_mbuv's two fdct8x4 calls.
 	var uvResiduals [8 * 16]int16
 	var uvDcts [8 * 16]int16
-	for block := 0; block < 4; block++ {
-		x := mbCol*8 + (block&1)*4
-		yCoord := mbRow*8 + (block>>1)*4
-		fillPredictedResidual4x4Slice(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, x, yCoord, uvResiduals[block*16:block*16+16])
-		fillPredictedResidual4x4Slice(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, x, yCoord, uvResiduals[(4+block)*16:(4+block)*16+16])
-	}
+	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
 	for block := 0; block < 4; block++ {
 		copy(dct[:], uvDcts[block*16:block*16+16])
