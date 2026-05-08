@@ -10,6 +10,24 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+// acquireReconstructAboveTok returns a zeroed scratch slice of cols
+// TokenContextPlanes drawn from the per-encoder reconstructAboveTok pool.
+// The buffer is sized once at NewVP8Encoder; if a caller asks for more
+// columns than were pre-reserved (e.g. extended size on the fly) the slice
+// is grown in place. Returning a zeroed reslice keeps the per-frame
+// reconstruction pass allocation-free without changing any caller
+// invariants -- the inter and key frame builders zeroed the freshly-make()'d
+// slice implicitly before, and we restore that contract by clearing here.
+func (e *VP8Encoder) acquireReconstructAboveTok(cols int) []vp8enc.TokenContextPlanes {
+	if cap(e.reconstructAboveTok) < cols {
+		e.reconstructAboveTok = make([]vp8enc.TokenContextPlanes, cols)
+	} else {
+		e.reconstructAboveTok = e.reconstructAboveTok[:cols]
+		clear(e.reconstructAboveTok)
+	}
+	return e.reconstructAboveTok
+}
+
 var wholeBlockIntraYModeCandidates = [...]vp8common.MBPredictionMode{
 	vp8common.DCPred,
 	vp8common.VPred,
@@ -152,7 +170,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 	decSegmentation := encoderSegmentationToDecoder(segmentation)
 	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
 
-	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
+	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
 	for row := 0; row < rows; row++ {
 		var leftTok vp8enc.TokenContextPlanes
@@ -260,7 +278,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	e.emitOracleLastRefWindow(&e.lastRef.Img)
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
-	aboveTok := make([]vp8enc.TokenContextPlanes, cols)
+	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
 	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
 	var lastRefForActiveMap *interAnalysisReference

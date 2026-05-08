@@ -4494,6 +4494,55 @@ func TestEncodeIntoTemporalSuccessAllocatesZero(t *testing.T) {
 	}
 }
 
+// TestEncodeIntoMultiSizeInterFrameAllocatesZero guards the per-frame
+// reconstruction scratch pool added in parity-close-r10-d-allocs. The
+// reconstruction builder used to allocate a fresh
+// []vp8enc.TokenContextPlanes of length cols every frame, which the 16x16
+// fixture happens to mask because cols==1 and the tiny slice can sit on the
+// caller's stack. Anything wider (>=64x64) faithfully exercises the heap
+// allocator and traps regressions in the per-row above-token scratch.
+func TestEncodeIntoMultiSizeInterFrameAllocatesZero(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h int
+	}{
+		{"64x64", 64, 64},
+		{"128x128", 128, 128},
+		{"320x240", 320, 240},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			e := newSizedTestEncoder(t, tc.w, tc.h)
+			defer e.Close()
+			if err := e.SetKeyFrameInterval(0); err != nil {
+				t.Fatalf("SetKeyFrameInterval returned error: %v", err)
+			}
+			src := testImage(tc.w, tc.h)
+			fillImage(src, 220, 90, 170)
+			dst := make([]byte, tc.w*tc.h*6+4096)
+			if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+				t.Fatalf("key EncodeInto returned error: %v", err)
+			}
+			// Warm any one-shot lazy state so AllocsPerRun's first iteration
+			// does not double-count construction allocations.
+			for i := 0; i < 4; i++ {
+				if _, err := e.EncodeInto(dst, src, uint64(i+1), 1, 0); err != nil {
+					t.Fatalf("warmup EncodeInto returned error: %v", err)
+				}
+			}
+			pts := uint64(64)
+			allocs := testing.AllocsPerRun(64, func() {
+				_, _ = e.EncodeInto(dst, src, pts, 1, 0)
+				pts++
+			})
+			if allocs != 0 {
+				t.Fatalf("inter-frame EncodeInto allocs = %v at %s, want 0", allocs, tc.name)
+			}
+		})
+	}
+}
+
 func newTestEncoder(tb testing.TB) *VP8Encoder {
 	tb.Helper()
 	return newSizedTestEncoder(tb, 16, 16)
