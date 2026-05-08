@@ -4,38 +4,38 @@ package dsp
 // vp8/common/reconintra.c.
 
 func IntraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
-	intraDCPredict(dst, dstStride, above, left, 16, upAvailable, leftAvailable)
+	intraDCPredict16x16(dst, dstStride, above, left, upAvailable, leftAvailable)
 }
 
 func IntraDCPredict8x8(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
-	intraDCPredict(dst, dstStride, above, left, 8, upAvailable, leftAvailable)
+	intraDCPredict8x8(dst, dstStride, above, left, upAvailable, leftAvailable)
 }
 
 func IntraVerticalPredict16x16(dst []byte, dstStride int, above []byte) {
-	intraVerticalPredict(dst, dstStride, above, 16)
+	intraVerticalPredict16x16(dst, dstStride, above)
 }
 
 func IntraVerticalPredict8x8(dst []byte, dstStride int, above []byte) {
-	intraVerticalPredict(dst, dstStride, above, 8)
+	intraVerticalPredict8x8(dst, dstStride, above)
 }
 
 func IntraHorizontalPredict16x16(dst []byte, dstStride int, left []byte) {
-	intraHorizontalPredict(dst, dstStride, left, 16)
+	intraHorizontalPredict16x16(dst, dstStride, left)
 }
 
 func IntraHorizontalPredict8x8(dst []byte, dstStride int, left []byte) {
-	intraHorizontalPredict(dst, dstStride, left, 8)
+	intraHorizontalPredict8x8(dst, dstStride, left)
 }
 
 func IntraTMPredict16x16(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intraTMPredict(dst, dstStride, above, left, topLeft, 16)
+	intraTMPredict16x16(dst, dstStride, above, left, topLeft)
 }
 
 func IntraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intraTMPredict(dst, dstStride, above, left, topLeft, 8)
+	intraTMPredict8x8(dst, dstStride, above, left, topLeft)
 }
 
-func intraDCPredict(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) {
+func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) {
 	dc := 128
 
 	if upAvailable && leftAvailable {
@@ -61,7 +61,7 @@ func intraDCPredict(dst []byte, dstStride int, above []byte, left []byte, size i
 	fillBlock(dst, dstStride, size, byte(dc))
 }
 
-func intraVerticalPredict(dst []byte, dstStride int, above []byte, size int) {
+func intraVerticalPredictScalar(dst []byte, dstStride int, above []byte, size int) {
 	_ = above[size-1]
 	_ = dst[(size-1)*dstStride+size-1]
 
@@ -70,7 +70,7 @@ func intraVerticalPredict(dst []byte, dstStride int, above []byte, size int) {
 	}
 }
 
-func intraHorizontalPredict(dst []byte, dstStride int, left []byte, size int) {
+func intraHorizontalPredictScalar(dst []byte, dstStride int, left []byte, size int) {
 	_ = left[size-1]
 	_ = dst[(size-1)*dstStride+size-1]
 
@@ -83,7 +83,7 @@ func intraHorizontalPredict(dst []byte, dstStride int, left []byte, size int) {
 	}
 }
 
-func intraTMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte, size int) {
+func intraTMPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte, size int) {
 	_ = above[size-1]
 	_ = left[size-1]
 	_ = dst[(size-1)*dstStride+size-1]

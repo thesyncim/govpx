@@ -34,11 +34,11 @@ func Intra4x4Predict(dst []byte, dstStride int, mode common.BPredictionMode, abo
 }
 
 func Intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
-	intraDCPredict(dst, dstStride, above, left, 4, true, true)
+	intraDCPredictScalar(dst, dstStride, above, left, 4, true, true)
 }
 
 func Intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intraTMPredict(dst, dstStride, above, left, topLeft, 4)
+	intraTMPredictScalar(dst, dstStride, above, left, topLeft, 4)
 }
 
 func Intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {

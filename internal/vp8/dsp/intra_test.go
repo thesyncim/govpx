@@ -1,6 +1,9 @@
 package dsp
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 func TestIntraDCPredict16x16Availability(t *testing.T) {
 	above := make([]byte, 16)
@@ -165,6 +168,95 @@ func BenchmarkIntraTMPredict8x8(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		IntraTMPredict8x8(dst, 8, above, left, 128)
+	}
+}
+
+// TestIntraPredictSIMDParity compares the dispatched implementations
+// (which on supported architectures route to SIMD) against the scalar
+// reference across randomised inputs and several stride/availability
+// combinations. Ensures byte-for-byte parity with libvpx semantics.
+func TestIntraPredictSIMDParity(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	for iter := 0; iter < 64; iter++ {
+		var above16 [16]byte
+		var left16 [16]byte
+		for i := range above16 {
+			above16[i] = byte(rng.Intn(256))
+			left16[i] = byte(rng.Intn(256))
+		}
+		topLeft := byte(rng.Intn(256))
+
+		for _, stride := range []int{16, 32, 48} {
+			for _, up := range []bool{false, true} {
+				for _, lf := range []bool{false, true} {
+					ref := make([]byte, stride*16+stride)
+					got := make([]byte, stride*16+stride)
+
+					intraDCPredictScalar(ref, stride, above16[:], left16[:], 16, up, lf)
+					IntraDCPredict16x16(got, stride, above16[:], left16[:], up, lf)
+					assertBlocksEqual(t, "DC16", ref, got, stride, 16)
+				}
+			}
+			ref := make([]byte, stride*16+stride)
+			got := make([]byte, stride*16+stride)
+
+			intraVerticalPredictScalar(ref, stride, above16[:], 16)
+			IntraVerticalPredict16x16(got, stride, above16[:])
+			assertBlocksEqual(t, "V16", ref, got, stride, 16)
+
+			intraHorizontalPredictScalar(ref, stride, left16[:], 16)
+			IntraHorizontalPredict16x16(got, stride, left16[:])
+			assertBlocksEqual(t, "H16", ref, got, stride, 16)
+
+			intraTMPredictScalar(ref, stride, above16[:], left16[:], topLeft, 16)
+			IntraTMPredict16x16(got, stride, above16[:], left16[:], topLeft)
+			assertBlocksEqual(t, "TM16", ref, got, stride, 16)
+		}
+
+		var above8 [8]byte
+		var left8 [8]byte
+		for i := range above8 {
+			above8[i] = byte(rng.Intn(256))
+			left8[i] = byte(rng.Intn(256))
+		}
+		for _, stride := range []int{8, 16, 24} {
+			for _, up := range []bool{false, true} {
+				for _, lf := range []bool{false, true} {
+					ref := make([]byte, stride*8+stride)
+					got := make([]byte, stride*8+stride)
+
+					intraDCPredictScalar(ref, stride, above8[:], left8[:], 8, up, lf)
+					IntraDCPredict8x8(got, stride, above8[:], left8[:], up, lf)
+					assertBlocksEqual(t, "DC8", ref, got, stride, 8)
+				}
+			}
+			ref := make([]byte, stride*8+stride)
+			got := make([]byte, stride*8+stride)
+
+			intraVerticalPredictScalar(ref, stride, above8[:], 8)
+			IntraVerticalPredict8x8(got, stride, above8[:])
+			assertBlocksEqual(t, "V8", ref, got, stride, 8)
+
+			intraHorizontalPredictScalar(ref, stride, left8[:], 8)
+			IntraHorizontalPredict8x8(got, stride, left8[:])
+			assertBlocksEqual(t, "H8", ref, got, stride, 8)
+
+			intraTMPredictScalar(ref, stride, above8[:], left8[:], topLeft, 8)
+			IntraTMPredict8x8(got, stride, above8[:], left8[:], topLeft)
+			assertBlocksEqual(t, "TM8", ref, got, stride, 8)
+		}
+	}
+}
+
+func assertBlocksEqual(t *testing.T, name string, want, got []byte, stride, size int) {
+	t.Helper()
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			off := y*stride + x
+			if got[off] != want[off] {
+				t.Fatalf("%s [%d,%d]: got %d want %d", name, x, y, got[off], want[off])
+			}
+		}
 	}
 }
 
