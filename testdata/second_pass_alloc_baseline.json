@@ -3,7 +3,7 @@
     "desktopqvga-vbr": {
       "q_match_pct": 8.333333333333334,
       "target_match_pct": 8.333333333333334,
-      "max_qindex_delta": 25,
+      "max_qindex_delta": 24,
       "max_target_rel_delta": -0.6071501811470367
     },
     "good-quality-cpu0-vbr": {
