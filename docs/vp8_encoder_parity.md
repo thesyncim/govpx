@@ -1325,9 +1325,23 @@ the anchor and look for the surrounding mismatch.
     `TestSplitMotionLabelRDCommitsContextsBeforeNewGate`,
     `TestSplitMVDecisionRDUsesTransformDomainRate`, and
     `TestSplitMVDecisionRDDistortionMatchesPerBlockTransformError`.
-    Remaining full label-RD work is broader oracle coverage and a fixture
-    that demonstrates a SAD-winner / transform-RD-winner split choice.
-  - Test: TestOracleInterDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
+    SPLITMV-specific oracle parity is now pinned by
+    `TestOracleSplitMVDecisionMatchRate` over a per-8x8-quadrant motion
+    fixture (64x64, 8 frames, three RD-quality settings). The
+    `testdata/splitmv_match_rate_baseline.json` baseline records, for each
+    fixture, the per-MB SPLITMV-pick agreement, partition-index agreement
+    over the SPLITMV-on-both-sides subset, per-block-MV agreement over the
+    same subset, mode_match across all inter MBs, and segment_id agreement.
+    Best- and good-quality cpu-used 0 settle every macroblock on SPLITMV in
+    both encoders so mode_match is 100%; the residual gap is in
+    partition-index choice (84.82% / 68.75% on cpu0 best/good) and per-
+    block-MV (57.14% / 45.54%), which reflects libvpx's `rd_check_segment`
+    label-RD tie-break vs govpx's transform-token RD when several
+    partitions are RD-equivalent. cpu3 (compressor-speed pruning) drops
+    SPLITMV picks to 22 govpx vs 28 libvpx, showing as
+    `splitmv_pick_match_pct=89.29%`. The scoreboard test gates each
+    metric within 2pp of the recorded baseline.
+  - Test: TestOracleInterDecisionMatchRate, TestOracleSplitMVDecisionMatchRate, TestSelectInterFrameSplitMotionLabelLevelTrials, TestSplitMVDecisionRDUsesTransformDomainRate
   - Done when partition, subblock modes/MVs, label rates, distortion, EOBs, and
     final MB RD match libvpx.
 

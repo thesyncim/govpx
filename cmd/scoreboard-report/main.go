@@ -33,6 +33,7 @@ type baselineSpec struct {
 
 var baselines = []baselineSpec{
 	{test: "TestOracleInterDecisionMatchRate", path: "testdata/mb_match_rate_baseline.json"},
+	{test: "TestOracleSplitMVDecisionMatchRate", path: "testdata/splitmv_match_rate_baseline.json"},
 	{test: "TestOracleEncoderQHistogramScoreboard", path: "testdata/q_histogram_baseline.json"},
 	{test: "TestOracleEncoderTraceInterCandidateScoreboard", path: "testdata/realtime_candidate_scoreboard.json"},
 	{test: "TestOracle128x128InterQDriftScoreboard", path: "testdata/qdrift_128_baseline.json"},
