@@ -1226,12 +1226,16 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			continue
 		}
 		// libvpx feeds `cpi->projected_frame_size = bc[0].pos << 3` (post-pack
-		// actual bits) into recode_loop_test. govpx's pre-pack
-		// ProjectedSizeBits comes from the coefficient-model rate predictor,
-		// which underestimates real token-coding bits at high Q on dense
-		// content; using it here drove the recode loop to read every KF as
-		// "way under target" and walk Q down toward minQ. Use the actual
-		// packed size instead to mirror libvpx's signal.
+		// actual bits) into recode_loop_test, AND gates the size-recode branch
+		// on cpi->sf.recode_loop. At realtime cpu_used=8 recode_loop=0, so
+		// libvpx never bumps Q on the first KF even when it overshoots target -
+		// it accepts the regulator's pick and lets the rate-correction-factor
+		// reconcile across subsequent frames. govpx must mirror both gates,
+		// otherwise the recode loop reads ProjectedSizeBits from the coeff
+		// model (or even the actual size) and drives Q away from libvpx's.
+		if !e.libvpxKeyFrameRecodeLoopActive() {
+			return result, nil
+		}
 		if !e.updateQuantizerForProjectedFrameSize(encodedSizeBits(result.Size), true, false, required, &recode) {
 			return result, nil
 		}
@@ -1369,6 +1373,27 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 		default:
 			return false
 		}
+	default:
+		return true
+	}
+}
+
+// libvpxKeyFrameRecodeLoopActive mirrors recode_loop_test for KEY_FRAME:
+// the size_recode branch fires when recode_loop is 1 (or 2, since KEY_FRAME
+// satisfies the second clause). At realtime (recode_loop=0) and good-quality
+// cpu_used >= 4 (also recode_loop=0), libvpx skips KF size recoding entirely
+// and accepts the regulator's first Q. The forced-KF SS-error special path
+// (vp8_special_case_for_forced_key_frame) is independent of recode_loop and
+// is gated separately at the call site.
+func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
+	if e == nil {
+		return true
+	}
+	switch e.opts.Deadline {
+	case DeadlineRealtime:
+		return false
+	case DeadlineGoodQuality:
+		return e.libvpxCPUUsed() <= 3
 	default:
 		return true
 	}
