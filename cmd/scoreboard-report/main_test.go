@@ -133,4 +133,3 @@ func TestFormatGapReportRawDeltaCount(t *testing.T) {
 		t.Errorf("expected both gap and reference columns in table, got:\n%s", table)
 	}
 }
-
