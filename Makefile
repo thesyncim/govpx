@@ -28,7 +28,7 @@ VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
-.PHONY: all ci fmtcheck test verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data
+.PHONY: all ci fmtcheck test verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
 
 all: ci
 
@@ -69,6 +69,35 @@ oracle-test: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
 	$(GO) test . -run 'TestOracle' -count=1 -timeout 10m
+
+SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare
+
+scoreboard: oracle-tools fetch-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_ORACLE="$(ORACLE)" \
+	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
+	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
+	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
+	$(GO) test . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m -v
+
+scoreboard-update: oracle-tools fetch-test-data
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_UPDATE_BASELINES=1 \
+	GOVPX_ORACLE="$(ORACLE)" \
+	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
+	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
+	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
+	$(GO) test . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m -v
 
 decoder-oracle-test: oracle-tools fetch-vp8-test-data
 	GOCACHE="$(GOCACHE)" \
