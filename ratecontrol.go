@@ -184,7 +184,18 @@ type rateControlState struct {
 }
 
 const (
-	defaultRateControlUndershootPct = 50
+	// defaultRateControlUndershootPct mirrors libvpx vp8/vp8_cx_iface.c
+	// vpx_codec_enc_cfg defaults: `rc_undershoot_pct = 100`. The undershoot
+	// pct caps `percent_low` in the buffer-aware bandwidth shrink branch of
+	// calc_pframe_target_size: target -= target * percent_low / 200, where
+	// percent_low = (optimal_buffer_level - buffer_level) /
+	// (1 + optimal_buffer_level/100). On a tight CBR buffer (post-kf or
+	// post-drop) percent_low naturally lands around 70-90, so a lower cap
+	// here makes govpx shrink LESS than libvpx does, leaving an inflated
+	// per-frame target that pulls the regulated Q below libvpx's. Closing
+	// this gap is required for post_drop_q parity on the 30f tight-buffer
+	// CBR fixture; see the panning-30f-80kbps drop scoreboard.
+	defaultRateControlUndershootPct = 100
 	defaultRateControlOvershootPct  = 100
 	defaultCQLevel                  = 10
 	libvpxDefaultBufferSizeMs       = 6000

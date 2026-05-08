@@ -1096,8 +1096,11 @@ func TestRateControlBeginFrameAdjustsTargetForLowBuffer(t *testing.T) {
 
 	rc.beginFrame(false)
 
-	if rc.frameTargetBits != 750 {
-		t.Fatalf("frameTargetBits = %d, want libvpx low-buffer target 750", rc.frameTargetBits)
+	// libvpx default rc_undershoot_pct=100 gates the buffer-aware shrink
+	// at percent_low = (optimal-level)/onePercentBits = (2000-900)/21 = 52,
+	// uncapped at the libvpx default. target = 1000 - 1000*52/200 = 740.
+	if rc.frameTargetBits != 740 {
+		t.Fatalf("frameTargetBits = %d, want libvpx low-buffer target 740", rc.frameTargetBits)
 	}
 	if rc.currentQuantizer != 20 {
 		t.Fatalf("currentQuantizer = %d, want unchanged before target-based regulation", rc.currentQuantizer)
@@ -2368,13 +2371,13 @@ func TestPass2CBRBufferAdjustmentRaisesTargetUnderfilledBuffer(t *testing.T) {
 	}
 
 	// Pre-condition: with bufferOptimalBits=2000, bufferLevelBits=900,
-	// undershoot=50, the libvpx adjustment computes
-	//   percentLow = (2000-900)/21 = 52, clamped to 50,
-	//   target  -= target * 50 / 200 = target - target/4.
-	// So a 1000-bit two-pass target shrinks to 750.
+	// undershoot=100 (libvpx default), the libvpx adjustment computes
+	//   percentLow = (2000-900)/21 = 52, uncapped at default,
+	//   target  -= target * 52 / 200 = 1000 - 260.
+	// So a 1000-bit two-pass target shrinks to 740.
 	got := rc.applyPass2CBRBufferAdjustment(1000, false /*keyFrame*/)
-	if got != 750 {
-		t.Fatalf("applyPass2CBRBufferAdjustment = %d, want libvpx low-buffer 750", got)
+	if got != 740 {
+		t.Fatalf("applyPass2CBRBufferAdjustment = %d, want libvpx low-buffer 740", got)
 	}
 
 	// Key frames are deferred to libvpx's separate kf_bits / buffer cap
