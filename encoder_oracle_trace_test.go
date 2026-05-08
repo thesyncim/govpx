@@ -272,7 +272,7 @@ func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	coeffs.QCoeff[24][0] = 3
 	coeffs.SetBlockEOB(24, 1)
 
-	e.emitOracleKeyFrameMBTrace(2, 3, &mode, &coeffs)
+	e.emitOracleKeyFrameMBTrace(2, 3, &mode, &coeffs, 0, 0)
 	e.flushOracleMBTraceBuffer()
 
 	var row map[string]interface{}
@@ -314,7 +314,7 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	var coeffs vp8enc.MacroblockCoefficients
 	coeffs.QCoeff[2][3] = -7
 
-	e.emitOracleMBTrace(1, 2, &mode, &coeffs)
+	e.emitOracleMBTrace(1, 2, &mode, &coeffs, 0, 0)
 	e.flushOracleMBTraceBuffer()
 
 	lines := splitNonEmptyLines(buf.Bytes())
@@ -364,7 +364,7 @@ func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	mode.MV = mode.BlockMV[15]
 	var coeffs vp8enc.MacroblockCoefficients
 
-	e.emitOracleMBTrace(0, 0, &mode, &coeffs)
+	e.emitOracleMBTrace(0, 0, &mode, &coeffs, 0, 0)
 	e.flushOracleMBTraceBuffer()
 
 	lines := splitNonEmptyLines(buf.Bytes())

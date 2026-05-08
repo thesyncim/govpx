@@ -191,7 +191,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				}
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
 				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
-				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index])
+				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 				continue
 			}
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -204,7 +204,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				return 0, ErrInvalidConfig
 			}
 			vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
-			e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index])
+			e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
@@ -370,7 +370,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
-				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index])
+				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
 				continue
 			}
 			if modes[index].RefFrame == vp8common.IntraFrame {
@@ -389,7 +389,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// Mirrors libvpx's `govpx_oracle_emit_reconstructed` injected at
 			// the tail of vp8cx_encode_inter_macroblock.
 			e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-			e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index])
+			e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
