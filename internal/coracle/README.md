@@ -98,9 +98,12 @@ GOVPX_ORACLE_TRACE_OUT=/tmp/libvpx.jsonl \
 a projected frame/rate decision subset (Q, active bounds, zbin-over-quant,
 refresh/sign-bias flags, and recode identity), while
 `TestOracleEncoderTraceCandidateRowsPresent` separately asserts that govpx and
-patched libvpx both emit RD and realtime-fast `inter_candidate` rows. Full
-candidate field comparison and per-MB residual matching remain tracked in the
-VP8 encoder parity plan. The Go-side `CompareOracleTraces` helper is also
-covered by `TestCompareOracleTraces*` in `oracle_compare_test.go` against
-synthetic JSON Lines inputs, so comparator regressions still run in the
-standard `go test ./...` flow without depending on the patched binary.
+patched libvpx both emit RD and realtime-fast `inter_candidate` rows.
+`TestOracleEncoderTraceInterCandidateCompare` compares a staged VBR panning RD
+candidate projection for mode/ref/MV decisions. Broader realtime candidate
+comparison, RD/rate scalar tightening, and per-MB residual matching remain
+tracked in the VP8 encoder parity plan. The Go-side `CompareOracleTraces`
+helper is also covered by `TestCompareOracleTraces*` in
+`oracle_compare_test.go` against synthetic JSON Lines inputs, so comparator
+regressions still run in the standard `go test ./...` flow without depending on
+the patched binary.

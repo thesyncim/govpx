@@ -49,19 +49,19 @@ the anchor and look for the surrounding mismatch.
   the full corpus driver that counts matching candidate and MB decisions is
   still missing.
 - The largest remaining parity weights are candidate-level inter-mode
-  comparison, rejected recode-attempt tracing, automatic hidden-ARF/ARNR border
-  proof, first-pass/two-pass proof beyond the deterministic ramp and Y4M-shaped
-  `.fpf` oracle gates, rate parity tracking vs libvpx output bitrate/frame
-  sizes, and remaining quality-relevant entropy/refresh edge cases. A pre-pack
+  comparison beyond the VBR panning staged field gate, rejected recode-attempt
+  tracing, automatic hidden-ARF/ARNR border proof, first-pass/two-pass proof
+  beyond the deterministic ramp and Y4M-shaped `.fpf` oracle gates, rate parity
+  tracking vs libvpx output bitrate/frame sizes, and remaining
+  quality-relevant entropy/refresh edge cases. A pre-pack
   `projected_frame_size` oracle gate now exists for the VBR panning trace, but
   candidate-level rate comparison is still needed to close the last sub-64-bit
   estimator noise.
-- If only three more things are fixed, they should be: (1) wire the
-  candidate-level inter-mode / motion-search rows into a staged comparison
-  gate, (2) broaden the first-pass `.fpf` oracle gate to external/two-pass
-  allocation corpora, and (3) close the remaining direct rate-control trace
-  gaps, especially rejected recode-attempt rows and candidate-level rate
-  attribution for projected-size tolerances.
+- If only three more things are fixed, they should be: (1) broaden the staged
+  candidate-level inter-mode / motion-search comparison to realtime and
+  rate/RD scalar attribution, (2) broaden the first-pass `.fpf` oracle gate to
+  external/two-pass allocation corpora, and (3) close the remaining direct
+  rate-control trace gaps, especially rejected recode-attempt rows.
 
 ## Acceptance Gates
 
@@ -127,6 +127,7 @@ the anchor and look for the surrounding mismatch.
 | --- | --- | --- | --- | --- |
 | 2026-05-08 | Libvpx inter-candidate trace rows | `GOVPX_WITH_ORACLE=1 go test . -run 'TestOracleEncoderTraceCandidateRowsPresent|TestOracleEncoderTraceDecisionCompare'` | pass | Patched vpxenc-oracle now emits evaluated `inter_candidate` rows for RD and realtime fast pickers; production frame/rate projection remains unchanged. |
 | 2026-05-08 | Govpx inter-candidate trace rows | `make verify-production` | pass | Adds govpx-side evaluated inter-candidate rows for RD and fast pickers while preserving the projected frame/rate oracle gate. |
+| 2026-05-08 | Staged inter-candidate comparison | `GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=internal/coracle/build/vpxenc-oracle go test . -run 'TestOracleEncoderTraceInterCandidateCompare'` | pass | Compares VBR panning RD candidate sequence and mode/ref/MV decision fields; noisy RD/rate scalar fields remain open for attribution before tightening. |
 | 2026-05-08 | Projected-size parity stack | `make verify-production` | pass | Includes timebase-aligned trace compare with `this_frame_target`, `projected_frame_size` within 64 bits, first-pass ramp + Y4M-shaped `.fpf` oracle coverage, and direct synthetic output-kbps gates. |
 
 ## Accepted Non-Bitexact Differences
@@ -364,10 +365,12 @@ the anchor and look for the surrounding mismatch.
     threshold, best-before score state, RD/rate/distortion fields where
     available, skip/breakout decisions, MV, and improved-MV-start diagnostics.
     `TestOracleEncoderTraceCandidateRowsPresent` asserts both RD and realtime
-    fast pickers emit candidate rows on both sides. A local staged comparison
-    over the VBR panning trace now reaches real mode/MV candidate divergences,
-    so candidate field comparison, skipped/pruned candidate rows, and rejected
-    recode-attempt rows remain open.
+    fast pickers emit candidate rows on both sides.
+    `TestOracleEncoderTraceInterCandidateCompare` now compares the staged VBR
+    panning RD candidate sequence and quality-relevant mode/ref/MV fields
+    (`mode_index`, mode/ref slot, outcome, best/break flags, and MV). Realtime
+    candidate comparison, skipped/pruned candidate rows, RD/rate scalar fields,
+    and rejected recode-attempt rows remain open.
   - Done when key frames expose Y mode, UV mode, B modes, token contexts,
     qcoeff/dqcoeff/EOB, rate, distortion, RD, and reconstruction checksums;
     inter candidate rows expose tested/skipped modes, thresholds, MV

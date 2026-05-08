@@ -224,6 +224,25 @@ func TestCompareOracleTracesDetectsFieldDivergences(t *testing.T) {
 	}
 }
 
+func TestCompareOracleTracesDetectsInterCandidateDivergence(t *testing.T) {
+	t.Parallel()
+
+	govpx := `{"type":"inter_candidate","frame_index":1,"mb_row":2,"mb_col":3,"picker":"rd","mode_index":7,"mode":"NEWMV","ref_slot":1,"ref_frame":"LAST_FRAME","outcome":"tested","became_best":true,"loop_break":false,"mv_row":8,"mv_col":16}` + "\n"
+	libvpx := `{"type":"inter_candidate","frame_index":1,"mb_row":2,"mb_col":3,"picker":"rd","mode_index":7,"mode":"NEWMV","ref_slot":1,"ref_frame":"LAST_FRAME","outcome":"tested","became_best":true,"loop_break":false,"mv_row":8,"mv_col":8}` + "\n"
+
+	div, err := CompareOracleTraces(strings.NewReader(govpx), strings.NewReader(libvpx), CompareOptions{})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 1 {
+		t.Fatalf("divergences = %d %+v, want exactly one inter_candidate divergence", len(div), div)
+	}
+	d := div[0]
+	if d.RowKind != "inter_candidate" || d.Field != "mv_col" || d.FrameIndex != 1 || d.MBRow != 2 || d.MBCol != 3 {
+		t.Fatalf("divergence = %+v, want inter_candidate mv_col at frame 1 MB (2,3)", d)
+	}
+}
+
 func TestCompareOracleTracesDetectsQCoeffDivergence(t *testing.T) {
 	t.Parallel()
 

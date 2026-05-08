@@ -129,6 +129,51 @@ func TestOracleEncoderTraceCandidateRowsPresent(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderTraceInterCandidateCompare(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		width      = 64
+		height     = 64
+		fps        = 30
+		targetKbps = 700
+		frames     = 4
+	)
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           3,
+		KeyFrameInterval:  999,
+	}
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
+	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-inter-candidates-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
+	govpxProjected := projectOracleInterCandidateTrace(t, govpxTrace)
+	libvpxProjected := projectOracleInterCandidateTrace(t, libvpxTrace)
+	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+		MaxDivergences: 16,
+	})
+	if err != nil {
+		t.Fatalf("CompareOracleTraces returned error: %v", err)
+	}
+	if len(div) != 0 {
+		t.Fatalf("projected inter-candidate trace diverged:\n%s", formatOracleTraceDivergences(div))
+	}
+}
+
 func findVpxencOracle(t *testing.T) string {
 	t.Helper()
 	if path := os.Getenv("GOVPX_VPXENC_ORACLE"); path != "" {
@@ -282,6 +327,53 @@ func projectOracleDecisionTrace(t *testing.T, trace []byte) []byte {
 	return out.Bytes()
 }
 
+func projectOracleInterCandidateTrace(t *testing.T, trace []byte) []byte {
+	t.Helper()
+	keep := map[string]bool{
+		"type":        true,
+		"frame_index": true,
+		"mb_row":      true,
+		"mb_col":      true,
+		"picker":      true,
+		"mode_index":  true,
+		"mode":        true,
+		"ref_slot":    true,
+		"ref_frame":   true,
+		"outcome":     true,
+		"became_best": true,
+		"loop_break":  true,
+		"mv_row":      true,
+		"mv_col":      true,
+	}
+	var out bytes.Buffer
+	scan := bufio.NewScanner(bytes.NewReader(trace))
+	for scan.Scan() {
+		var row map[string]any
+		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
+			t.Fatalf("trace row is not valid JSON: %v\n%s", err, scan.Bytes())
+		}
+		if typ, _ := row["type"].(string); typ != "inter_candidate" {
+			continue
+		}
+		projected := make(map[string]any, len(keep))
+		for field := range keep {
+			if v, ok := row[field]; ok {
+				projected[field] = v
+			}
+		}
+		encoded, err := json.Marshal(projected)
+		if err != nil {
+			t.Fatalf("Marshal projected trace row returned error: %v", err)
+		}
+		out.Write(encoded)
+		out.WriteByte('\n')
+	}
+	if err := scan.Err(); err != nil {
+		t.Fatalf("scan trace: %v", err)
+	}
+	return out.Bytes()
+}
+
 func TestProjectOracleDecisionTraceDropsInterCandidateRows(t *testing.T) {
 	trace := []byte(
 		`{"type":"rate","frame_index":0,"frame_type":"key","q_index":4}` + "\n" +
@@ -295,6 +387,27 @@ func TestProjectOracleDecisionTraceDropsInterCandidateRows(t *testing.T) {
 	lines := splitNonEmptyLines(projected)
 	if len(lines) != 2 {
 		t.Fatalf("projected decision trace lines = %d, want 2\n%s", len(lines), projected)
+	}
+}
+
+func TestProjectOracleInterCandidateTraceKeepsStagedFields(t *testing.T) {
+	trace := []byte(
+		`{"type":"rate","frame_index":0,"frame_type":"key","q_index":4}` + "\n" +
+			`{"type":"inter_candidate","frame_index":1,"mb_row":0,"mb_col":0,"picker":"rd","mode_index":7,"mode":"NEWMV","ref_slot":1,"ref_frame":"LAST_FRAME","outcome":"tested","became_best":true,"loop_break":false,"mv_row":8,"mv_col":16,"score":99,"rate":12}` + "\n" +
+			`{"type":"mb","frame_index":1,"mb_row":0,"mb_col":0,"mode":"NEWMV"}` + "\n",
+	)
+	projected := projectOracleInterCandidateTrace(t, trace)
+	lines := splitNonEmptyLines(projected)
+	if len(lines) != 1 {
+		t.Fatalf("projected candidate trace lines = %d, want 1\n%s", len(lines), projected)
+	}
+	if !bytes.Contains(projected, []byte(`"type":"inter_candidate"`)) {
+		t.Fatalf("projected candidate trace omitted candidate row:\n%s", projected)
+	}
+	for _, dropped := range []string{"score", "rate", "q_index", `"type":"mb"`} {
+		if bytes.Contains(projected, []byte(dropped)) {
+			t.Fatalf("projected candidate trace retained %q:\n%s", dropped, projected)
+		}
 	}
 }
 
