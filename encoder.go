@@ -3341,10 +3341,25 @@ func (e *VP8Encoder) ForceKeyFrame() {
 	e.forceKeyFrame = true
 }
 
+// Reset returns the encoder to a NewVP8Encoder-equivalent cold-start state
+// without re-allocating the per-MB scratch buffers. This is what bench
+// harnesses use to run a warmup encode followed by a measured one without
+// repeating the allocation cost.
+//
+// R15-E note: previously Reset cleared a hand-curated subset of state, which
+// meant fields touched only by the encode loop (rc.kfOverspendBits, the
+// inter-RD threshold snapshots, the per-reference probabilities, etc.) leaked
+// values from the warmup pass into the measured pass. At 320x240 that drove a
+// 7% kbps undershoot vs stock libvpx (govpx 1017 kbps vs libvpx 1089 kbps
+// against the same target) because rate-correction state was warmed-up before
+// the measured run started. The fix: zero the rateControlState struct,
+// re-apply applyConfig, and explicitly reset every encoder-level field that
+// NewVP8Encoder seeds.
 func (e *VP8Encoder) Reset() {
 	if e == nil {
 		return
 	}
+	// Encoder-level scalars / flags.
 	e.forceKeyFrame = false
 	e.frameCount = 0
 	e.cyclicRefreshIndex = 0
@@ -3365,44 +3380,133 @@ func (e *VP8Encoder) Reset() {
 	e.lastFrameInterModesValid = false
 	e.clearAltRefSchedule()
 	e.resetGoldenFrameStats()
+	// Zero the inter-RD threshold-cache generation BEFORE
+	// resetInterRDThresholdMultipliers bumps it back to 1 so cold-start
+	// parity is preserved (NewVP8Encoder seeds gen=1 via this same call).
+	e.interRDThreshBaselineGen = 0
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
 	e.probSkipFalse = 128
 	e.lastSkipFalseProbs = [3]uint8{}
 	e.baseSkipFalseProbs = libvpxBaseSkipFalseProbs
+	// libvpx vp8/encoder/onyx_if.c init_config seeds these per-reference
+	// probabilities; without restoring them on Reset the warmed values
+	// from a prior run leak into the next encode, biasing rate control.
+	e.refProbIntra = 63
+	e.refProbLast = 128
+	e.refProbGolden = 128
 	e.goldenRefAliasesLast = false
 	e.altRefAliasesLast = false
 	e.goldenRefAliasesAlt = false
 	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
-	e.rc.framesSinceKeyframe = 0
-	e.rc.currentTemporalLayers = 0
+	e.thisKeyFrameForced = false
+	e.ambientErr = 0
+	e.mbsZeroLastDotSuppress = 0
+	e.currentTemporalLayer = 0
+	e.lastFramePercentIntra = 0
+	e.framesSinceGolden = 0
+	e.sourceAltRefActive = false
+	e.sourceAltRefPending = false
+	e.altRefSourceValid = false
+	e.altRefSourcePTS = 0
+	e.framesTillAltRefFrame = 0
+	e.autoAltRefStashValid = false
+	e.autoAltRefStashPTS = 0
+	e.autoAltRefStashDuration = 0
+	e.autoAltRefStashFlags = 0
+	e.currentSourcePTS = 0
+	e.savedContext = savedCodingContext{}
+	// Re-zero every per-MB and per-row decision/coefficient buffer.
+	for i := range e.keyFrameModes {
+		e.keyFrameModes[i] = vp8enc.KeyFrameMacroblockMode{}
+	}
+	for i := range e.interFrameModes {
+		e.interFrameModes[i] = vp8enc.InterFrameMacroblockMode{}
+	}
+	for i := range e.lastFrameInterModes {
+		e.lastFrameInterModes[i] = vp8enc.InterFrameMacroblockMode{}
+	}
+	for i := range e.lastFrameInterModeBias {
+		e.lastFrameInterModeBias[i] = false
+	}
+	for i := range e.keyFrameCoeffs {
+		e.keyFrameCoeffs[i] = vp8enc.MacroblockCoefficients{}
+	}
+	for i := range e.tokenAbove {
+		e.tokenAbove[i] = vp8enc.TokenContextPlanes{}
+	}
+	for i := range e.reconstructAboveTok {
+		e.reconstructAboveTok[i] = vp8enc.TokenContextPlanes{}
+	}
+	for i := range e.reconstructModes {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{}
+	}
+	for i := range e.reconstructTokens {
+		e.reconstructTokens[i] = vp8dec.MacroblockTokens{}
+	}
+	e.dequantTables = vp8common.FrameDequantTables{}
+	e.dequants = [vp8common.MaxMBSegments]vp8common.MacroblockDequant{}
+	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
+	e.loopInfo = vp8common.LoopFilterInfo{}
+	e.loopFilterLevel = 0
+	e.lfDeltasSignaledOnce = false
+	e.lastSignaledRefLFDeltas = [vp8common.MaxRefLFDeltas]int8{}
+	e.lastSignaledModeLFDeltas = [vp8common.MaxModeLFDeltas]int8{}
+	e.coefProbsLast = vp8tables.CoefficientProbs{}
+	e.coefProbsGolden = vp8tables.CoefficientProbs{}
+	e.coefProbsAltRef = vp8tables.CoefficientProbs{}
+	e.coefProbsSnapshotsValid = false
+	e.rdPickerCoefProbsActive = nil
+	// Inter-RD state captured by snapshot/restore around the recode loop.
+	e.interRDThreshMultSnapshot = [libvpxInterModeCount]int{}
+	e.interRDThreshTouchedSnapshot = [libvpxInterModeCount]bool{}
+	e.interModeTestHitCountsSnapshot = [libvpxInterModeCount]int{}
+	e.interMBsTestedSoFarSnapshot = 0
+	// resetInterRDThresholdMultipliers() bumped interRDThreshBaselineGen
+	// once during the encoder-level scalars block above; leave it at 1 to
+	// match NewVP8Encoder's cold-start trajectory.
+	e.interRDThreshBaselineSlots = [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot{}
+	e.interRDFrameRefSearchOrder = [4]int{}
+	e.interRDFrameRefSearchOrderValid = false
+	e.interMBsTestedSoFar = 0
+	e.interModeCheckFreq = [libvpxInterModeCount]int{}
+	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
+	e.interModeErrorBins = [1024]uint32{}
+	e.interModeSpeedErrorBins = [1024]uint32{}
+	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
+	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
+	e.oracleTraceRecodeLoopCount = 0
+	e.oracleTraceRecodeReason = ""
+	e.oracleTraceTotalByteCount = 0
+	// Rate-control: zero the entire struct then re-apply config so every
+	// field NewVP8Encoder ever touches lands at the cold-start value.
+	e.rc = rateControlState{}
+	cfg := defaultRateControlConfig(e.opts)
+	_ = e.rc.applyConfig(cfg, e.timing)
+	e.rc.keyFrameFrequency = e.opts.KeyFrameInterval
+	e.rc.autoKeyFrames = e.opts.AdaptiveKeyFrames
+	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, e.opts.TwoPassMinPct)
+	if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
+		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+	}
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = e.rc.cqLevel
+	} else {
+		e.rc.currentQuantizer = e.rc.minQuantizer
+	}
+	e.rc.lastQuantizer = e.rc.currentQuantizer
+	e.rc.lastInterQuantizer = e.rc.currentQuantizer
+	e.rc.bufferLevelBits = e.rc.bufferInitialBits
+	e.rc.avgFrameQuantizer = e.rc.maxQuantizer
+	e.rc.normalInterAvgQuantizer = e.rc.maxQuantizer
+	e.rc.frameTargetBits = e.rc.bitsPerFrame
 	// libvpx vp8_create_compressor seeds cpi->force_maxqp = 0 and
 	// cpi->frames_since_last_drop_overshoot = 0; mirror that on Reset
 	// so a sequence re-init does not leak overshoot-drop state from the
 	// previous run.
 	e.forceMaxQuantizer = false
 	e.lastPredErrorMB = 0
-	e.rc.framesSinceLastDropOvershoot = 0
-	e.rc.resetRollingBitAverages()
-	e.rc.bufferLevelBits = e.rc.bufferInitialBits
-	e.rc.frameDropPressure = 0
-	e.rc.avgFrameQuantizer = e.rc.maxQuantizer
-	e.rc.normalInterQuantizerTotal = 0
-	e.rc.normalInterFrames = 0
-	e.rc.normalInterAvgQuantizer = e.rc.maxQuantizer
-	e.rc.rateCorrectionFactor = 1.0
-	e.rc.keyFrameCorrectionFactor = 1.0
-	e.rc.goldenCorrectionFactor = 1.0
-	if e.rc.mode == RateControlCQ {
-		e.rc.currentQuantizer = e.rc.cqLevel
-		e.rc.lastQuantizer = e.rc.cqLevel
-		e.rc.lastInterQuantizer = e.rc.cqLevel
-	} else {
-		e.rc.currentQuantizer = e.rc.minQuantizer
-		e.rc.lastQuantizer = e.rc.minQuantizer
-		e.rc.lastInterQuantizer = e.rc.minQuantizer
-	}
-	e.rc.frameTargetBits = e.rc.bitsPerFrame
+	// Temporal layer state.
 	e.temporal.frameIndex = 0
 	e.temporal.tl0PicIdx = 0
 	e.temporal.tl0Valid = false
