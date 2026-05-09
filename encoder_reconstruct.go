@@ -6325,7 +6325,7 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 		baseY+16 <= src.Height && baseX+16 <= src.Width &&
 		refBaseY >= 0 && refBaseX >= 0 &&
 		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
-		return dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride)
+		return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
 	}
 
 	sse := 0
@@ -6363,11 +6363,11 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 		baseY+16 <= src.Height && baseX+16 <= src.Width &&
 		refBaseY >= 0 && refBaseX >= 0 &&
 		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
-		srcStart := src.Y[baseY*src.YStride+baseX:]
-		refStart := ref.Y[refBaseY*ref.YStride+refBaseX:]
-		// R14-B fused (variance, sse) reduction — single pass over the
-		// 16x16 block instead of two independent SIMD kernels.
-		return dsp.VarianceSSE16x16(srcStart, src.YStride, refStart, ref.YStride)
+		// R15-C SIMD bypass: skip the slice header + bounds-check on &src[0]
+		// by going through VarianceBlock16x16PtrFast directly. Reuses the
+		// same (sum, sse) reduction as R14-B's VarianceSSE16x16.
+		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
+		return sse - ((sum * sum) >> 8), sse
 	}
 
 	sum := 0
@@ -6409,10 +6409,15 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	// from 530 to 252 so the compiler can chase the fast-path bounds
 	// checks aggressively even though the wrapper itself stays out of
 	// the inliner budget.
+	//
+	// R15-C: bypass dsp.SAD16x16Limit's 3-call dispatch chain
+	// (sadBlockLimit -> sadBlock16x16Limit -> int32(NEON kernel)) by
+	// taking the bounds-validated *byte and the already-non-negative
+	// limit straight to the SIMD kernel via SAD16x16LimitPtrFast.
 	if (mvCol|mvRow)&7 == 0 &&
 		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
 		uint(refBaseY) <= uint(ref.CodedHeight-16) && uint(refBaseX) <= uint(ref.CodedWidth-16) {
-		return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride, limit)
+		return dsp.SAD16x16LimitPtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride, limit)
 	}
 	return macroblockSADLimitedSlow(src, ref, baseY, baseX, refBaseY, refBaseX, mvCol, mvRow, limit)
 }
@@ -6648,10 +6653,12 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	if baseY >= 0 && baseX >= 0 &&
 		baseY+8 <= uvHeight && baseX+8 <= uvWidth &&
 		baseY+8 <= refUVHeight && baseX+8 <= refUVWidth {
-		srcOffset := baseY*src.UStride + baseX
-		refOffset := baseY*ref.UStride + baseX
-		return dsp.SSE8x8(src.U[srcOffset:], src.UStride, ref.U[refOffset:], ref.UStride) +
-			dsp.SSE8x8(src.V[baseY*src.VStride+baseX:], src.VStride, ref.V[baseY*ref.VStride+baseX:], ref.VStride)
+		srcUOffset := baseY*src.UStride + baseX
+		refUOffset := baseY*ref.UStride + baseX
+		srcVOffset := baseY*src.VStride + baseX
+		refVOffset := baseY*ref.VStride + baseX
+		return dsp.SSE8x8PtrFast(&src.U[srcUOffset], src.UStride, &ref.U[refUOffset], ref.UStride) +
+			dsp.SSE8x8PtrFast(&src.V[srcVOffset], src.VStride, &ref.V[refVOffset], ref.VStride)
 	}
 
 	sse := 0
@@ -6675,10 +6682,10 @@ func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 	if baseY >= 0 && baseX >= 0 &&
 		baseY+16 <= src.Height && baseX+16 <= src.Width &&
 		baseY+16 <= ref.CodedHeight && baseX+16 <= ref.CodedWidth {
-		srcStart := src.Y[baseY*src.YStride+baseX:]
-		refStart := ref.Y[baseY*ref.YStride+baseX:]
-		return dsp.Variance16x16(srcStart, src.YStride, refStart, ref.YStride),
-			dsp.SSE16x16(srcStart, src.YStride, refStart, ref.YStride)
+		// R15-C: fused (sum, sse) read collapses Variance16x16 + SSE16x16
+		// into one SIMD pass (variance = sse - sum*sum/256).
+		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[baseY*ref.YStride+baseX], ref.YStride)
+		return sse - ((sum*sum)>>8), sse
 	}
 
 	sum := 0

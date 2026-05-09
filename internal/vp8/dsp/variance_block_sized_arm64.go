@@ -42,3 +42,14 @@ func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, wi
 	}
 	return int(sum), int(sse)
 }
+
+// VarianceBlock8x8PtrFast is the SIMD-bypass entry point for 8x8 SSE
+// (UV chroma SSE in macroblockChromaSSE, etc.). The caller must have
+// already validated that src and ref point to 8x8 windows fully
+// in-bounds. Returns (sum, sse).
+func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) (int, int) {
+	var sum int32
+	var sse uint32
+	varianceBlock8xNNEON(src, srcStride, ref, refStride, 8, &sum, &sse)
+	return int(sum), int(sse)
+}
