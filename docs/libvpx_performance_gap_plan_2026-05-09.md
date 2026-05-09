@@ -415,6 +415,11 @@ Claim a win only when:
   autospeed calibration as a measurement/control knob, not a closed perf fix.
   The parity-preserving hot path remains full loop-filter selection plus
   coefficient packing under Speed=4.
+- A temporary LF-only experiment (`loopFilterUsesFastSearch` returning true at
+  realtime Speed=4) is also not a global fix. It moved 320p encode-only to
+  about 1.75x with bytes within 0.2%, but 720p stayed around 3.25x and bytes
+  drifted about 2.45%. If revisited, scope it behind a small-frame policy and
+  prove PSNR/SSIM plus bitrate before changing the libvpx speed-feature gate.
 - Do not resurrect the old `docs/beat_libvpx_plan.md` assumption that there is
   "no SIMD anywhere"; that was true for an older checkout and is false now.
 - Be skeptical of whole-bench pprof profiles because they include govpx
