@@ -128,7 +128,6 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 	}
 }
 
-//lint:ignore U1000 libvpx parity helper, retained for future ports of fixed-array residual builder
 func fillResidual4x4(plane []byte, stride int, width int, height int, x int, y int, out *[16]int16) {
 	for row := range 4 {
 		sampleY := clampCoord(y+row, height)

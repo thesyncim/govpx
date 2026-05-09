@@ -47,7 +47,6 @@ func sadBlock(src []byte, srcStride int, ref []byte, refStride int, width int, h
 	return sadBlockScalarFallback(src, srcStride, ref, refStride, width, height)
 }
 
-//lint:ignore U1000 libvpx parity helper, retained for future ports of generic SAD-limited dispatch
 func sadBlockLimit(src []byte, srcStride int, ref []byte, refStride int, width int, height int, limit int) int {
 	if width == 16 && height == 16 {
 		return sadBlock16x16Limit(src, srcStride, ref, refStride, limit)
@@ -80,7 +79,6 @@ func sadBlockScalarFallback(src []byte, srcStride int, ref []byte, refStride int
 	return sad
 }
 
-//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 SAD-limited path
 func sadBlockLimitScalarFallback(src []byte, srcStride int, ref []byte, refStride int, width, height, limit int) int {
 	if width <= 0 || height <= 0 {
 		return 0

@@ -356,3 +356,130 @@ func decodeKeyFrameCoefUpdateDetails(t *testing.T, frame []byte) (
 	return count, updates, newProbs
 }
 
+// countLibvpxKeyFrameCoefUpdates is a thin wrapper around
+// decodeKeyFrameCoefUpdateDetails for the count-only path.
+func countLibvpxKeyFrameCoefUpdates(t *testing.T, frame []byte) int {
+	c, _, _ := decodeKeyFrameCoefUpdateDetails(t, frame)
+	return c
+}
+
+// advanceKFHeaderToCoefUpdates moves the bool reader past the keyframe
+// uncompressed/state header up to the start of the coefficient-probability
+// update section, mirroring libvpx vp8_pack_bitstream's walk.
+func advanceKFHeaderToCoefUpdates(br *kfBoolReader) {
+	_ = br.readBit() // colorspace
+	_ = br.readBit() // clamp
+	// segmentation
+	if seg := br.readBit(); seg == 1 {
+		updMap := br.readBit()
+		updData := br.readBit()
+		if updData == 1 {
+			_ = br.readBit() // abs delta
+			// 2 features * 4 segments
+			for i := range 2 {
+				for range 4 {
+					if br.readBit() == 1 {
+						bits := 7
+						if i == 1 {
+							bits = 6
+						}
+						_ = br.readLiteral(bits)
+						_ = br.readBit() // sign
+					}
+				}
+			}
+		}
+		if updMap == 1 {
+			for range 3 {
+				if br.readBit() == 1 {
+					_ = br.readLiteral(8)
+				}
+			}
+		}
+	}
+	_ = br.readBit() // simple lf
+	_ = br.readLiteral(6)
+	_ = br.readLiteral(3)
+	if br.readBit() == 1 {
+		if br.readBit() == 1 {
+			for range 4 {
+				if br.readBit() == 1 {
+					_ = br.readLiteral(6)
+					_ = br.readBit()
+				}
+			}
+			for range 4 {
+				if br.readBit() == 1 {
+					_ = br.readLiteral(6)
+					_ = br.readBit()
+				}
+			}
+		}
+	}
+	_ = br.readLiteral(2) // multi token partition
+	_ = br.readLiteral(7) // base q
+	for range 5 {
+		if br.readBit() == 1 {
+			_ = br.readLiteral(4)
+			_ = br.readBit()
+		}
+	}
+	_ = br.readBit() // refresh_entropy_probs
+}
+
+// kfBoolReader is a lightweight VP8 boolean decoder for the ER KF coef-prob
+// counting path. Adequate for parsing the prefix of the first partition.
+type kfBoolReader struct {
+	buf      []byte
+	pos      int
+	value    uint32
+	count    int
+	rangeVal uint32
+}
+
+func newKFBoolReader(buf []byte) *kfBoolReader {
+	br := &kfBoolReader{buf: buf, rangeVal: 255}
+	for i := 0; i < 2 && br.pos < len(br.buf); i++ {
+		br.value = (br.value << 8) | uint32(br.buf[br.pos])
+		br.pos++
+	}
+	return br
+}
+
+func (br *kfBoolReader) readBool(prob uint8) int {
+	split := 1 + (((br.rangeVal - 1) * uint32(prob)) >> 8)
+	splitShift := split << 8
+	bit := 0
+	if br.value >= splitShift {
+		br.rangeVal -= split
+		br.value -= splitShift
+		bit = 1
+	} else {
+		br.rangeVal = split
+	}
+	for br.rangeVal < 128 {
+		br.rangeVal <<= 1
+		br.value <<= 1
+		br.count++
+		if br.count == 8 {
+			br.count = 0
+			if br.pos < len(br.buf) {
+				br.value |= uint32(br.buf[br.pos])
+				br.pos++
+			}
+		}
+	}
+	return bit
+}
+
+func (br *kfBoolReader) readBit() int {
+	return br.readBool(128)
+}
+
+func (br *kfBoolReader) readLiteral(bits int) uint32 {
+	var v uint32
+	for range bits {
+		v = (v << 1) | uint32(br.readBit())
+	}
+	return v
+}

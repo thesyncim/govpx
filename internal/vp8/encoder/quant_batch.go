@@ -24,7 +24,6 @@ func FastQuantizeBlockBatch(coeff []int16, quant *BlockQuant, qcoeff []int16, dq
 	fastQuantizeBlockBatchSIMD(coeff, quant, qcoeff, dqcoeff, eobs, count)
 }
 
-//lint:ignore U1000 libvpx parity helper, scalar fallback retained for SIMD cross-check / non-arm64 builds
 func fastQuantizeBlockBatchScalar(coeff []int16, quant *BlockQuant, qcoeff []int16, dqcoeff []int16, eobs []uint8, count int) {
 	for i := range count {
 		var c, q, dq [16]int16

@@ -25,8 +25,6 @@ func ForwardDCT4x4Batch(input []int16, output []int16, count int) {
 // forwardDCT4x4BatchScalar is the canonical scalar reference for
 // batched 4x4 DCTs at block-stride 4. It exists so the SIMD ports
 // can be cross-checked block-for-block.
-//
-//lint:ignore U1000 libvpx parity helper, retained for SIMD cross-check / non-arm64 builds
 func forwardDCT4x4BatchScalar(input []int16, output []int16, count int) {
 	for i := range count {
 		var out [16]int16
