@@ -4386,7 +4386,6 @@ func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common
 }
 
 func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 bool, dst *vp8dec.MacroblockTokens) {
-	dst.EOB = [25]uint8{}
 	if !is4x4 {
 		eob := src.EOB[24]
 		dst.EOB[24] = eob
@@ -4397,6 +4396,7 @@ func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 boo
 			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	} else {
+		dst.EOB[24] = 0
 		for i := range 16 {
 			eob := src.EOB[i]
 			dst.EOB[i] = eob
