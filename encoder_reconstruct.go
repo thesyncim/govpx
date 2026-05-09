@@ -6670,6 +6670,12 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 	srcW := src.Width
 	refH := ref.CodedHeight
 	refW := ref.CodedWidth
+	var srcXs [16]int
+	var refXs [16]int
+	for col := range 16 {
+		srcXs[col] = clampEncodeCoord(baseX+col, srcW)
+		refXs[col] = clampEncodeCoord(refBaseX+col, refW)
+	}
 	sad := 0
 	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, srcH)
@@ -6677,9 +6683,7 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 		srcRow := srcY * srcStride
 		refRow := refY * refStride
 		for col := range 16 {
-			srcX := clampEncodeCoord(baseX+col, srcW)
-			refX := clampEncodeCoord(refBaseX+col, refW)
-			diff := int(srcY0[srcRow+srcX]) - int(refY0[refRow+refX])
+			diff := int(srcY0[srcRow+srcXs[col]]) - int(refY0[refRow+refXs[col]])
 			if diff < 0 {
 				diff = -diff
 			}
