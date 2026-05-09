@@ -18,6 +18,13 @@ import (
 //go:linkname nanotime runtime.nanotime
 func nanotime() int64
 
+// runtimeProcYield issues the runtime's architecture-specific processor
+// pause/yield instruction without handing the P back to the scheduler.
+// Row-thread wave-front waits use it for short producer/consumer gaps.
+//
+//go:linkname runtimeProcYield runtime.procyield
+func runtimeProcYield(cycles uint32)
+
 type Deadline int
 
 const (

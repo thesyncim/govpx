@@ -263,7 +263,10 @@ func (p *rowWorkerPool) waitForAboveColumnAbort(r int, col int, abort *atomic.In
 	}
 	target := int64(col)
 	above := &p.rowProgress[r-1].value
-	const spinBudget = 256
+	const (
+		spinBudget       = 4096
+		schedulerBackoff = 256
+	)
 	for i := 0; ; i++ {
 		if above.Load() >= target {
 			return true
@@ -271,9 +274,9 @@ func (p *rowWorkerPool) waitForAboveColumnAbort(r int, col int, abort *atomic.In
 		if abort != nil && abort.Load() != 0 {
 			return false
 		}
-		if i >= spinBudget {
+		runtimeProcYield(30)
+		if i >= spinBudget && i%schedulerBackoff == 0 {
 			runtime.Gosched()
-			i = 0
 		}
 	}
 }

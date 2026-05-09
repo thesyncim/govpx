@@ -97,19 +97,21 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	rowRate := 0
 	lastCol := args.cols - 1
 	for col := range args.cols {
-		target := col + pool.syncRange
-		if target > lastCol {
-			target = lastCol
-		}
-		if !pool.waitForAboveColumnAbort(row, target, abort) {
-			return rowRate, nil
+		if col%pool.syncRange == 0 {
+			target := col + pool.syncRange
+			if target > lastCol {
+				target = lastCol
+			}
+			if !pool.waitForAboveColumnAbort(row, target, abort) {
+				return rowRate, nil
+			}
 		}
 		rate, err := rs.encodeThreadedInterFrameMacroblock(args, row, col)
 		if err != nil {
 			return 0, err
 		}
 		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
-		if col != lastCol {
+		if col != lastCol && col%pool.syncRange == 0 {
 			pool.publishRowColumn(row, col)
 		}
 	}
