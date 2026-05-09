@@ -240,7 +240,7 @@ func scoreLoopFilterFrames(name string, govpxRows []loopFilterFrameRow, libvpxRo
 		enabled  int
 		update   int
 	)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		g := govpxRows[i]
 		l := libvpxRows[i]
 		if g.LoopFilter == l.LoopFilter {

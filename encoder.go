@@ -3904,10 +3904,7 @@ func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, start
 	} else {
 		startY = 0
 	}
-	endY := min((startRow+rowCount)*16, src.CodedHeight)
-	if endY > dst.CodedHeight {
-		endY = dst.CodedHeight
-	}
+	endY := min(min((startRow+rowCount)*16, src.CodedHeight), dst.CodedHeight)
 	if endY <= startY {
 		return
 	}

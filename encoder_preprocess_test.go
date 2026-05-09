@@ -290,10 +290,7 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 		for i := range p {
 			d := ((i*1103515245 + seed*12345) >> 8) & 7
 			d -= 3
-			v := max(int(p[i])+d, 0)
-			if v > 255 {
-				v = 255
-			}
+			v := min(max(int(p[i])+d, 0), 255)
 			p[i] = byte(v)
 		}
 		return p
@@ -420,10 +417,7 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 	truth := make([]byte, w*h)
 	for y := range h {
 		for x := range w {
-			v := max(96+((x*37+y*53)&0x3f)-((x*y)&0x1f), 16)
-			if v > 239 {
-				v = 239
-			}
+			v := min(max(96+((x*37+y*53)&0x3f)-((x*y)&0x1f), 16), 239)
 			truth[y*w+x] = byte(v)
 		}
 	}

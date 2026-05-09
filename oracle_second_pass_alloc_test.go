@@ -308,7 +308,7 @@ func scoreSecondPassAlloc(name string, govpxRows []secondPassRateRow, libvpxRows
 		return report, nil
 	}
 	diffs := make([]secondPassFrameDiff, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		g := govpxRows[i]
 		l := libvpxRows[i]
 		d := secondPassFrameDiff{

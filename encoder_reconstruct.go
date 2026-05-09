@@ -566,7 +566,7 @@ func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference
 	}
 	closest := vp8common.IntraFrame
 	limit := min(refCount, len(refs))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		refFrame := refs[i].Frame
 		if refFrame < vp8common.LastFrame || refFrame >= vp8common.MaxRefFrames {
 			continue
@@ -583,7 +583,7 @@ func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference
 
 func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int, frame vp8common.MVReferenceFrame) bool {
 	limit := min(refCount, len(refs))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if refs[i].Frame == frame {
 			return true
 		}
@@ -594,7 +594,7 @@ func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int,
 func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount int) int {
 	limit := min(refCount, len(refs))
 	count := 0
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if refs[i].Img != nil && refs[i].Frame >= vp8common.LastFrame && refs[i].Frame < vp8common.MaxRefFrames {
 			count++
 		}
@@ -6753,10 +6753,7 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		var staleY2Q [16]int16
 		var staleY2DQ [16]int16
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
-		staleEOB := max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0)
-		if staleEOB > 16 {
-			staleEOB = 16
-		}
+		staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 		coeffs.OracleStaleY2EOB = uint8(staleEOB)
 		coeffs.OracleStaleY2QCoeff = staleY2Q
 		coeffs.OracleStaleY2Set = true
@@ -7787,10 +7784,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		var staleY2DQ [16]int16
 		intra := mode.RefFrame == vp8common.IntraFrame
 		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
-		staleEOB := max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0)
-		if staleEOB > 16 {
-			staleEOB = 16
-		}
+		staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
 		coeffs.OracleStaleY2EOB = uint8(staleEOB)
 		coeffs.OracleStaleY2QCoeff = staleY2Q
 		coeffs.OracleStaleY2Set = true

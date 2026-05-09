@@ -1233,10 +1233,7 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// [0, vp8MaxQIndex] range as the bound here so the ported function
 	// can evaluate the full ladder. The encoder will subsequently
 	// clamp the regulator output to the user min/max anyway.
-	tmpQ := max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex), 0)
-	if tmpQ > vp8MaxQIndex {
-		tmpQ = vp8MaxQIndex
-	}
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex), 0), vp8MaxQIndex)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
 }
@@ -2386,10 +2383,7 @@ func libvpxGFGroupBits(kfGroupBits int64, gfGroupErr float64, kfGroupErrorLeft f
 	if kfGroupBits <= 0 || kfGroupErrorLeft <= 0 {
 		return 0
 	}
-	gfGroupBits := max(int64(float64(kfGroupBits)*(gfGroupErr/kfGroupErrorLeft)), 0)
-	if gfGroupBits > kfGroupBits {
-		gfGroupBits = kfGroupBits
-	}
+	gfGroupBits := min(max(int64(float64(kfGroupBits)*(gfGroupErr/kfGroupErrorLeft)), 0), kfGroupBits)
 	if maxBitsPerFrame > 0 && baselineGFInterval > 0 {
 		cap := int64(maxBitsPerFrame) * int64(baselineGFInterval)
 		if gfGroupBits > cap {

@@ -214,10 +214,7 @@ func computeQHistogramFromTrace(t *testing.T, trace []byte) (hist [128]int, qMin
 		if !ok {
 			continue
 		}
-		q := max(int(qf), 0)
-		if q > 127 {
-			q = 127
-		}
+		q := min(max(int(qf), 0), 127)
 		hist[q]++
 		sum += q
 		count++

@@ -67,10 +67,7 @@ func firstPassOracleRampFrame(width int, height int, shift int) Image {
 	img := testImage(width, height)
 	for y := range height {
 		for x := range width {
-			v := max(32+(y+shift)*3+(x+shift)*2, 0)
-			if v > 235 {
-				v = 235
-			}
+			v := min(max(32+(y+shift)*3+(x+shift)*2, 0), 235)
 			img.Y[y*img.YStride+x] = byte(v)
 		}
 	}
@@ -87,10 +84,7 @@ func firstPassOracleY4MFrame(width int, height int, shift int) Image {
 	img := testImage(width, height)
 	for y := range height {
 		for x := range width {
-			v := max(64+(y+shift)*3+(x+shift)*2, 0)
-			if v > 235 {
-				v = 235
-			}
+			v := min(max(64+(y+shift)*3+(x+shift)*2, 0), 235)
 			img.Y[y*img.YStride+x] = byte(v)
 		}
 	}

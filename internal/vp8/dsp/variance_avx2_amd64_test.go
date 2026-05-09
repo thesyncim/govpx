@@ -25,7 +25,7 @@ func TestVarianceBlock16xNAVX2MatchesScalar(t *testing.T) {
 	// exercise other even heights to stress the loop.
 	heights := []int{2, 4, 6, 8, 10, 12, 14, 16}
 	for _, h := range heights {
-		for iter := 0; iter < 25; iter++ {
+		for iter := range 25 {
 			src := make([]byte, 64*64)
 			ref := make([]byte, 64*64)
 			for i := range src {
@@ -54,7 +54,7 @@ func TestVarianceBlock8x16AVX2MatchesScalar(t *testing.T) {
 	const seed int64 = 0xb2c3d4e5
 	rng := rand.New(rand.NewSource(seed))
 
-	for iter := 0; iter < 50; iter++ {
+	for iter := range 50 {
 		src := make([]byte, 64*64)
 		ref := make([]byte, 64*64)
 		for i := range src {
@@ -82,10 +82,10 @@ func TestFirstPass16AVX2MatchesScalar(t *testing.T) {
 	const seed int64 = 0xc3d4e5f6
 	rng := rand.New(rand.NewSource(seed))
 
-	for f := 0; f < 8; f++ {
+	for f := range 8 {
 		filter := tables.BilinearFilters[f]
 		for height := 1; height <= 17; height++ {
-			for trial := 0; trial < 3; trial++ {
+			for trial := range 3 {
 				const stride = 32
 				src := make([]byte, stride*(height+2))
 				for i := range src {
@@ -114,10 +114,10 @@ func TestSecondPass16AVX2MatchesScalar(t *testing.T) {
 	const seed int64 = 0xd4e5f607
 	rng := rand.New(rand.NewSource(seed))
 
-	for f := 0; f < 8; f++ {
+	for f := range 8 {
 		filter := tables.BilinearFilters[f]
 		for height := 1; height <= 16; height++ {
-			for trial := 0; trial < 3; trial++ {
+			for trial := range 3 {
 				var src [17 * 16]uint16
 				for i := range src {
 					src[i] = uint16(rng.Intn(256))

@@ -29,8 +29,8 @@ func TestSixTapPredict16x16AVX2MatchesScalar(t *testing.T) {
 	for i := range src {
 		src[i] = byte(rng.Intn(256))
 	}
-	for xoff := 0; xoff < 8; xoff++ {
-		for yoff := 0; yoff < 8; yoff++ {
+	for xoff := range 8 {
+		for yoff := range 8 {
 			var dst [16 * 16]byte
 			ref := make([]byte, 16*16)
 			var tmp [21 * 16]byte
@@ -38,7 +38,7 @@ func TestSixTapPredict16x16AVX2MatchesScalar(t *testing.T) {
 			vF := &tables.SubPelFilters[yoff]
 			sixTapPredict16x16AVX2(&dst[0], 16, &src[0], stride, hF, vF, &tmp)
 			sixTapPredict(src, stride, xoff, yoff, ref, 16, 16, 16)
-			for i := 0; i < 16*16; i++ {
+			for i := range 16 * 16 {
 				if dst[i] != ref[i] {
 					t.Fatalf("xoff=%d yoff=%d off=%d: avx2=%d scalar=%d",
 						xoff, yoff, i, dst[i], ref[i])
@@ -109,10 +109,9 @@ func TestSADAVX2MatchesScalar(t *testing.T) {
 		{"8x8", sadBlock8x8AVX2, 8, 8},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for srcOff := 0; srcOff < 8; srcOff++ {
-				for refOff := 0; refOff < 8; refOff++ {
+			for srcOff := range 8 {
+				for refOff := range 8 {
 					srcSlice := plane[srcOff*planeStride+srcOff:]
 					refSlice := ref[refOff*planeStride+refOff:]
 					got := int(c.fn(&srcSlice[0], planeStride, &refSlice[0], planeStride))
@@ -240,7 +239,7 @@ func TestLoopFilterEdgeH16AVX2MatchesSSE2(t *testing.T) {
 	const stride = 32
 	const height = 16
 	for _, p := range cases {
-		for trial := 0; trial < 12; trial++ {
+		for trial := range 12 {
 			base := make([]byte, stride*height)
 			for i := range base {
 				base[i] = byte(rng.Intn(256))
@@ -279,7 +278,7 @@ func TestMBLoopFilterEdgeH16AVX2MatchesSSE2(t *testing.T) {
 	const stride = 32
 	const height = 16
 	for _, p := range cases {
-		for trial := 0; trial < 12; trial++ {
+		for trial := range 12 {
 			base := make([]byte, stride*height)
 			for i := range base {
 				base[i] = byte(rng.Intn(256))

@@ -70,10 +70,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 		}
 		for y := range height {
 			for x := range width {
-				v := max(64+(y+shift)*3+(x+shift)*2, 0)
-				if v > 235 {
-					v = 235
-				}
+				v := min(max(64+(y+shift)*3+(x+shift)*2, 0), 235)
 				img.Y[y*img.YStride+x] = byte(v)
 			}
 		}

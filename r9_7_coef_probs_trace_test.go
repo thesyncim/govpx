@@ -49,7 +49,7 @@ func TestR9_7_CoefProbsAdlerSpeed8(t *testing.T) {
 	max := min(len(libvpxFrames), len(govpxFrames))
 	fmt.Println("idx | coef_g       | coef_l       | match | y_match | uv_match | piG | piL | sizeG | sizeL")
 	mismatches := 0
-	for i := 0; i < max; i++ {
+	for i := range max {
 		g := govpxFrames[i]
 		l := libvpxFrames[i]
 		gC := uint32Field(g["coef_probs_adler"])
@@ -72,7 +72,7 @@ func TestR9_7_CoefProbsAdlerSpeed8(t *testing.T) {
 		t.Logf("%d/%d frames have divergent coef_probs_adler", mismatches, max)
 	}
 	// also dump raw JSON of first divergent govpx + libvpx rows
-	for i := 0; i < max; i++ {
+	for i := range max {
 		gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
 		lC := uint32Field(libvpxFrames[i]["coef_probs_adler"])
 		if gC != lC {
@@ -123,7 +123,7 @@ func TestR9_7_CoefProbsAdlerGoodCpu5(t *testing.T) {
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
 	max := min(len(libvpxFrames), len(govpxFrames))
 	mismatches := 0
-	for i := 0; i < max; i++ {
+	for i := range max {
 		gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
 		lC := uint32Field(libvpxFrames[i]["coef_probs_adler"])
 		if gC != lC {
@@ -133,7 +133,7 @@ func TestR9_7_CoefProbsAdlerGoodCpu5(t *testing.T) {
 	fmt.Printf("[good cpu5 (high Speed without auto-select)] %d/%d frames have divergent coef_probs_adler\n", mismatches, max)
 	if mismatches > 0 {
 		// Show first divergence row.
-		for i := 0; i < max; i++ {
+		for i := range max {
 			gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
 			lC := uint32Field(libvpxFrames[i]["coef_probs_adler"])
 			if gC != lC {
@@ -186,7 +186,7 @@ func TestR9_7_CoefProbsLongCpu5(t *testing.T) {
 	max := min(len(libvpxFrames), len(govpxFrames))
 	firstCoefDiverge := -1
 	firstYDiverge := -1
-	for i := 0; i < max; i++ {
+	for i := range max {
 		gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
 		lC := uint32Field(libvpxFrames[i]["coef_probs_adler"])
 		gY := uint32Field(govpxFrames[i]["y_adler32"])
@@ -343,7 +343,7 @@ func TestR9_7_CoefProbsAdlerErrorResilient(t *testing.T) {
 	max := min(len(libvpxFrames), len(govpxFrames))
 	firstCoefDiverge := -1
 	firstYDiverge := -1
-	for i := 0; i < max; i++ {
+	for i := range max {
 		gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
 		lC := uint32Field(libvpxFrames[i]["coef_probs_adler"])
 		gY := uint32Field(govpxFrames[i]["y_adler32"])
@@ -356,7 +356,7 @@ func TestR9_7_CoefProbsAdlerErrorResilient(t *testing.T) {
 		}
 	}
 	fmt.Printf("[error_resilient cpu5 %d frames] firstYDiverge=%d firstCoefDiverge=%d\n", frames, firstYDiverge, firstCoefDiverge)
-	for i := 0; i < max; i++ {
+	for i := range max {
 		g := govpxFrames[i]
 		l := libvpxFrames[i]
 		gC := uint32Field(g["coef_probs_adler"])
@@ -412,7 +412,7 @@ func TestR9_7_CoefProbsAdlerSpeed3(t *testing.T) {
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
 	max := min(len(libvpxFrames), len(govpxFrames))
 	mismatches := 0
-	for i := 0; i < max; i++ {
+	for i := range max {
 		g := govpxFrames[i]
 		l := libvpxFrames[i]
 		gC := uint32Field(g["coef_probs_adler"])

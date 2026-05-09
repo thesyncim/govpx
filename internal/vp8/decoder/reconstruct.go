@@ -713,7 +713,7 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, eob uint8, out *[16]i
 		return
 	}
 	limit := min(int(eob), 16)
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		index := int(tables.DefaultZigZag1D[i])
 		out[index] += qcoeff[index] * dequant[index]
 	}

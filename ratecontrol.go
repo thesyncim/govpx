@@ -421,24 +421,12 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 	}
 	thisFrameTarget := targetBits
 	if rc.kfOverspendBits > 0 {
-		adjustment := min(rc.kfBitrateAdjustment, rc.kfOverspendBits)
-		if adjustment > perFrameBandwidth-minFrameTarget {
-			adjustment = perFrameBandwidth - minFrameTarget
-		}
-		if adjustment < 0 {
-			adjustment = 0
-		}
+		adjustment := max(min(min(rc.kfBitrateAdjustment, rc.kfOverspendBits), perFrameBandwidth-minFrameTarget), 0)
 		rc.kfOverspendBits -= adjustment
 		thisFrameTarget = max(targetBits-adjustment, minFrameTarget)
 	}
 	if rc.gfOverspendBits > 0 && thisFrameTarget > minFrameTarget {
-		adjustment := min(rc.nonGFBitrateAdjustment, rc.gfOverspendBits)
-		if adjustment > thisFrameTarget-minFrameTarget {
-			adjustment = thisFrameTarget - minFrameTarget
-		}
-		if adjustment < 0 {
-			adjustment = 0
-		}
+		adjustment := max(min(min(rc.nonGFBitrateAdjustment, rc.gfOverspendBits), thisFrameTarget-minFrameTarget), 0)
 		rc.gfOverspendBits -= adjustment
 		thisFrameTarget -= adjustment
 	}
@@ -446,14 +434,8 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 	// frames inside long GF intervals.
 	if rc.lastBoost > 150 && rc.framesTillGFUpdateDue > 0 &&
 		rc.currentGFInterval >= (libvpxMinGFInterval<<1) {
-		adjustment := min((rc.lastBoost-100)>>5, 10)
-		if adjustment < 1 {
-			adjustment = 1
-		}
-		adjustment = min((thisFrameTarget*adjustment)/100, thisFrameTarget-minFrameTarget)
-		if adjustment < 0 {
-			adjustment = 0
-		}
+		adjustment := max(min((rc.lastBoost-100)>>5, 10), 1)
+		adjustment = max(min((thisFrameTarget*adjustment)/100, thisFrameTarget-minFrameTarget), 0)
 		if rc.framesSinceGolden == rc.currentGFInterval>>1 {
 			adjustment = (rc.currentGFInterval - 1) * adjustment
 			cap10 := (10 * thisFrameTarget) / 100
@@ -705,10 +687,7 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 	// user-configured [minQuantizer, maxQuantizer] envelope to honor
 	// CLI / public-API bounds.
 	if rc.pass2ActiveWorstQValid {
-		override := min(rc.pass2ActiveWorstQOverride, rc.maxQuantizer)
-		if override < rc.minQuantizer {
-			override = rc.minQuantizer
-		}
+		override := max(min(rc.pass2ActiveWorstQOverride, rc.maxQuantizer), rc.minQuantizer)
 		activeWorst = override
 	}
 	if rc.mode != RateControlCBR || rc.normalInterFrames <= 150 || rc.bufferOptimalBits <= 0 {
