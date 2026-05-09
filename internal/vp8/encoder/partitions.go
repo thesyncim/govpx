@@ -32,7 +32,7 @@ type PartitionScratch struct {
 // bytes. The active slice length is set exactly to size so callers can pass
 // the slice into BoolWriter.Init without a separate cap/length check.
 func (s *PartitionScratch) ensureCapacity(partitionCount int, size int) {
-	for i := 0; i < partitionCount; i++ {
+	for i := range partitionCount {
 		if cap(s.buffers[i]) < size {
 			s.buffers[i] = make([]byte, size)
 		} else {
@@ -61,7 +61,7 @@ func preparePartitionWriters(scratch *PartitionScratch, writers *[8]BoolWriter, 
 		scratch = &PartitionScratch{}
 	}
 	scratch.ensureCapacity(pc, len(dst))
-	for i := 0; i < pc; i++ {
+	for i := range pc {
 		writers[i].Init(scratch.buffers[i])
 	}
 	return scratch, pc, nil
@@ -74,7 +74,7 @@ func preparePartitionWriters(scratch *PartitionScratch, writers *[8]BoolWriter, 
 func finalizePartitionedTokenPayload(scratch *PartitionScratch, writers *[8]BoolWriter, dst []byte, tokenStart int, partitionCount int) (int, error) {
 	sizeTableBytes := 3 * (partitionCount - 1)
 	offset := tokenStart + sizeTableBytes
-	for i := 0; i < partitionCount; i++ {
+	for i := range partitionCount {
 		writers[i].Finish()
 		if err := writers[i].Err(); err != nil {
 			return 0, err

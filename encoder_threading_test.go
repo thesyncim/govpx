@@ -391,14 +391,14 @@ func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
 		t.Fatal("newRowWorkerPool returned nil")
 	}
 	pool.reset(mbRows)
-	for r := 0; r < mbRows; r++ {
+	for r := range mbRows {
 		if got := pool.rowProgress[r].Load(); got != -1 {
 			t.Fatalf("row %d: rowProgress=%d after reset, want -1", r, got)
 		}
 	}
 	// Drive a serial wave-front: publish row r col c, then verify
 	// row r+1 unblocks at col c.
-	for c := 0; c < mbCols; c++ {
+	for c := range mbCols {
 		pool.publishRowColumn(0, c)
 		pool.waitForAboveColumn(1, c)
 		if got := pool.rowProgress[0].Load(); got < int64(c) {

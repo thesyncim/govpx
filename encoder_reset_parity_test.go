@@ -55,7 +55,7 @@ func TestEncoderResetMatchesColdStart(t *testing.T) {
 	defer encB.Close()
 
 	pkt := make([]byte, W*H*6)
-	for i := 0; i < F; i++ {
+	for i := range F {
 		img := resetParityFrame(W, H, i)
 		if _, err := encB.EncodeInto(pkt, img, uint64(i), 1, 0); err != nil {
 			t.Fatal(err)
@@ -108,7 +108,7 @@ func TestEncoderResetCBRBytesMatchColdStart(t *testing.T) {
 	defer encB.Close()
 
 	pkt := make([]byte, W*H*6)
-	for i := 0; i < F; i++ {
+	for i := range F {
 		img := resetParityFrame(W, H, i)
 		if _, err := encB.EncodeInto(pkt, img, uint64(i), 1, 0); err != nil {
 			t.Fatal(err)
@@ -118,7 +118,7 @@ func TestEncoderResetCBRBytesMatchColdStart(t *testing.T) {
 
 	pkt1 := make([]byte, W*H*6)
 	pkt2 := make([]byte, W*H*6)
-	for i := 0; i < F; i++ {
+	for i := range F {
 		img := resetParityFrame(W, H, i)
 		rA, err := encA.EncodeInto(pkt1, img, uint64(i), 1, 0)
 		if err != nil {

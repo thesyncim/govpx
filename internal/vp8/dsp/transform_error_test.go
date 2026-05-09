@@ -39,7 +39,7 @@ func TestTransformBlockErrorSIMDMatchesScalar(t *testing.T) {
 	// Random fuzz with realistic DCT-coeff ranges (well within int16
 	// such that PSUBW / SUB don't see overflow).
 	rng := rand.New(rand.NewSource(0xC0FFEE))
-	for trial := 0; trial < 4096; trial++ {
+	for trial := range 4096 {
 		var coeff, dq [16]int16
 		for i := range coeff {
 			coeff[i] = int16(rng.Intn(8001) - 4000) // [-4000, 4000]

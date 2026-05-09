@@ -4616,9 +4616,7 @@ func TestEncodeIntoMultiResolutionAllocatesZero(t *testing.T) {
 	}
 	cpuBands := []int{0, 3, 5, 8, 15}
 	for _, rc := range resolutions {
-		rc := rc
 		for _, cpu := range cpuBands {
-			cpu := cpu
 			t.Run(fmt.Sprintf("%s/cpu=%d", rc.name, cpu), func(t *testing.T) {
 				e := newSizedTestEncoder(t, rc.w, rc.h)
 				defer e.Close()
@@ -4715,7 +4713,6 @@ func TestEncodeIntoMultiTokenPartitionAllocatesZero(t *testing.T) {
 		{"8parts", 3},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			e := newSizedTestEncoder(t, 320, 240)
 			defer e.Close()
@@ -4766,7 +4763,6 @@ func BenchmarkEncodeInto(b *testing.B) {
 		{"1920x1080", 1920, 1080},
 	}
 	for _, rc := range resolutions {
-		rc := rc
 		b.Run(rc.name, func(b *testing.B) {
 			e := newSizedTestEncoder(b, rc.w, rc.h)
 			defer e.Close()
