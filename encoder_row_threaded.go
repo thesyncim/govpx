@@ -62,11 +62,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 	pool.abort.Store(0)
 	for workerIndex := range workerCount {
 		pool.workerErrors[workerIndex] = nil
-		pool.start[workerIndex] <- struct{}{}
 	}
 
+	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
+		pool.start[workerIndex] <- struct{}{}
+	}
+	pool.runThreadedInterFrameWorker(0)
+
 	var firstErr error
-	for range workerCount {
+	if err := pool.workerErrors[0]; err != nil {
+		firstErr = err
+		pool.abort.Store(1)
+	}
+	for range workerCount - 1 {
 		workerIndex := <-pool.done
 		if err := pool.workerErrors[workerIndex]; err != nil && firstErr == nil {
 			firstErr = err

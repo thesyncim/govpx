@@ -820,11 +820,12 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	// calls/NEWMV where libvpx's RT(0)+ path at the matching effective Speed
 	// runs the hex topology (search_param=4, hex_range breaks early once the
 	// gradient flattens). The NEON SAD kernel is libvpx-fast (~18ns/call);
-	// the per-MB SAD-call count is the actual gap. Step subpel is NOT enabled
-	// at speed=4: the rt-cpu8-128x128-bench-noise inter-mode-distribution
-	// oracle scoreboard pins NEAR/NEAREST percentages within 4pp of libvpx
-	// and Step subpel pushes the dispersal past that gate. Iterative subpel
-	// is preserved.
+	// the per-MB SAD-call count is the actual gap. Serial speed=4 preserves
+	// iterative subpel: the rt-cpu8-128x128-bench-noise inter-mode-distribution
+	// oracle scoreboard pins NEAR/NEAREST percentages within 4pp of libvpx and
+	// Step subpel pushes the dispersal past that gate. Threaded rows already
+	// have a separate deterministic bitstream, so their worker-private picker
+	// can use the cheaper step subpel path too.
 	//
 	// The frame-size gate (>= 1080p) keeps the small/mid-frame oracle
 	// scoreboards green:
@@ -845,6 +846,9 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	largeFrame := e.opts.Width >= 1920 && e.opts.Height >= 1080
 	if speed >= 4 && (largeFrame || e.threadedRowsActive) {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
+		if e.threadedRowsActive {
+			cfg.fractionalSearch = interAnalysisFractionalSearchStep
+		}
 	}
 	if speed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex

@@ -3811,10 +3811,20 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	if seedLevel == 0 {
 		return 0, nil
 	}
-	if e.loopFilterUsesFastSearch() {
+	if e.loopFilterUsesFastSearchForFrame(frameType) {
 		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
 	}
 	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
+}
+
+func (e *VP8Encoder) loopFilterUsesFastSearchForFrame(frameType vp8common.FrameType) bool {
+	if e.loopFilterUsesFastSearch() {
+		return true
+	}
+	if e == nil || frameType != vp8common.InterFrame || e.rowWorkers == nil {
+		return false
+	}
+	return e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 4
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {

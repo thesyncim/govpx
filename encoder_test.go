@@ -2590,6 +2590,24 @@ func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.
 	}
 }
 
+func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
+	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	if serial.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
+		t.Fatalf("serial realtime speed=4 used fast loop-filter search")
+	}
+
+	threaded := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		rowWorkers: &rowWorkerPool{},
+	}
+	if !threaded.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
+		t.Fatalf("threaded realtime speed=4 did not use fast loop-filter search")
+	}
+	if threaded.loopFilterUsesFastSearchForFrame(vp8common.KeyFrame) {
+		t.Fatalf("threaded realtime key frame used threaded inter-frame loop-filter fast path")
+	}
+}
+
 func TestLoopFilterPartialFrameWindowMirrorsLibvpxMiddleSlice(t *testing.T) {
 	tests := []struct {
 		rows      int

@@ -126,8 +126,8 @@ func TestInterAnalysisSearchConfigUsesHexForThreadedRealtimeRows(t *testing.T) {
 
 	threaded := *serial
 	threaded.threadedRowsActive = true
-	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchIterative {
-		t.Fatalf("threaded 720p speed=4 search = full %d fractional %d, want hex+iterative", got.fullPixelSearch, got.fractionalSearch)
+	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchStep {
+		t.Fatalf("threaded 720p speed=4 search = full %d fractional %d, want hex+step", got.fullPixelSearch, got.fractionalSearch)
 	}
 }
 
