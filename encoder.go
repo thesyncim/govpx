@@ -3748,7 +3748,11 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 }
 
 func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
-	return e != nil && e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 14
+	if e == nil || e.opts.Deadline != DeadlineRealtime {
+		return false
+	}
+	speed := e.libvpxCPUUsed()
+	return speed >= 14 || (e.rowWorkers != nil && speed >= 4)
 }
 
 // computeLFDeltaUpdateBit mirrors libvpx vp8/encoder/bitstream.c pack_lf_deltas:
