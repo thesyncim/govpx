@@ -46,8 +46,8 @@ TEXT ·fastQuantizeBlockBatchSSE2(SB), NOSPLIT, $0-64
 	MOVOU	16(R10), X7
 
 	// inv-zigzag lives in the per-block kernel's RODATA pool
-	// (invZigZagSSE2<>), reused here for the eob reduction.
-	LEAQ	invZigZagSSE2<>(SB), AX
+	// (invZigZagSSE2), reused here for the eob reduction.
+	LEAQ	invZigZagSSE2(SB), AX
 
 batchLoop:
 	// X0/X1: z (this block).

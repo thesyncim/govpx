@@ -15,25 +15,25 @@
 
 // Inverse zigzag: 1-indexed scan position for natural-order coefficient
 // slot (matches tables.DefaultInvZigZag).
-DATA  invZigZagSSE2<>+0x00(SB)/2, $1
-DATA  invZigZagSSE2<>+0x02(SB)/2, $2
-DATA  invZigZagSSE2<>+0x04(SB)/2, $6
-DATA  invZigZagSSE2<>+0x06(SB)/2, $7
-DATA  invZigZagSSE2<>+0x08(SB)/2, $3
-DATA  invZigZagSSE2<>+0x0a(SB)/2, $5
-DATA  invZigZagSSE2<>+0x0c(SB)/2, $8
-DATA  invZigZagSSE2<>+0x0e(SB)/2, $13
-DATA  invZigZagSSE2<>+0x10(SB)/2, $4
-DATA  invZigZagSSE2<>+0x12(SB)/2, $9
-DATA  invZigZagSSE2<>+0x14(SB)/2, $12
-DATA  invZigZagSSE2<>+0x16(SB)/2, $14
-DATA  invZigZagSSE2<>+0x18(SB)/2, $10
-DATA  invZigZagSSE2<>+0x1a(SB)/2, $11
-DATA  invZigZagSSE2<>+0x1c(SB)/2, $15
-DATA  invZigZagSSE2<>+0x1e(SB)/2, $16
-GLOBL invZigZagSSE2<>(SB), RODATA|NOPTR, $32
+DATA  invZigZagSSE2+0x00(SB)/2, $1
+DATA  invZigZagSSE2+0x02(SB)/2, $2
+DATA  invZigZagSSE2+0x04(SB)/2, $6
+DATA  invZigZagSSE2+0x06(SB)/2, $7
+DATA  invZigZagSSE2+0x08(SB)/2, $3
+DATA  invZigZagSSE2+0x0a(SB)/2, $5
+DATA  invZigZagSSE2+0x0c(SB)/2, $8
+DATA  invZigZagSSE2+0x0e(SB)/2, $13
+DATA  invZigZagSSE2+0x10(SB)/2, $4
+DATA  invZigZagSSE2+0x12(SB)/2, $9
+DATA  invZigZagSSE2+0x14(SB)/2, $12
+DATA  invZigZagSSE2+0x16(SB)/2, $14
+DATA  invZigZagSSE2+0x18(SB)/2, $10
+DATA  invZigZagSSE2+0x1a(SB)/2, $11
+DATA  invZigZagSSE2+0x1c(SB)/2, $15
+DATA  invZigZagSSE2+0x1e(SB)/2, $16
+GLOBL invZigZagSSE2(SB), RODATA|NOPTR, $32
 
-// fastQuantizeBlockSSE2 ABI ($0-56):
+// fastQuantizeBlockSSE2 ABI ($0-52):
 //   coeff+0(FP)      *int16
 //   round+8(FP)      *int16
 //   quantFast+16(FP) *int16
@@ -41,7 +41,7 @@ GLOBL invZigZagSSE2<>(SB), RODATA|NOPTR, $32
 //   qcoeff+32(FP)    *int16
 //   dqcoeff+40(FP)   *int16
 //   ret+48(FP)       int32
-TEXT ·fastQuantizeBlockSSE2(SB), NOSPLIT, $0-56
+TEXT ·fastQuantizeBlockSSE2(SB), NOSPLIT, $0-52
 	MOVQ	coeff+0(FP), AX
 	MOVQ	round+8(FP), BX
 	MOVQ	quantFast+16(FP), CX
@@ -116,7 +116,7 @@ TEXT ·fastQuantizeBlockSSE2(SB), NOSPLIT, $0-56
 	PXOR	X15, X13
 
 	// invZigZag mask
-	LEAQ	invZigZagSSE2<>(SB), AX
+	LEAQ	invZigZagSSE2(SB), AX
 	MOVOU	(AX), X4
 	MOVOU	16(AX), X5
 	PAND	X4, X12

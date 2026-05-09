@@ -38,7 +38,7 @@ DATA  invZigZagFastQuant<>+0x1c(SB)/2, $15
 DATA  invZigZagFastQuant<>+0x1e(SB)/2, $16
 GLOBL invZigZagFastQuant<>(SB), RODATA|NOPTR, $32
 
-// fastQuantizeBlockNEON ABI ($0-56):
+// fastQuantizeBlockNEON ABI ($0-52):
 //   coeff+0(FP)      *int16
 //   round+8(FP)      *int16
 //   quantFast+16(FP) *int16
@@ -46,7 +46,7 @@ GLOBL invZigZagFastQuant<>(SB), RODATA|NOPTR, $32
 //   qcoeff+32(FP)    *int16
 //   dqcoeff+40(FP)   *int16
 //   ret+48(FP)       int32
-TEXT ·fastQuantizeBlockNEON(SB), NOSPLIT, $0-56
+TEXT ·fastQuantizeBlockNEON(SB), NOSPLIT, $0-52
 	MOVD	coeff+0(FP), R0
 	MOVD	round+8(FP), R1
 	MOVD	quantFast+16(FP), R2
