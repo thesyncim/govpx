@@ -4693,6 +4693,62 @@ func makeMultiResAllocFrame(width int, height int, index int) Image {
 	return img
 }
 
+// TestEncodeIntoMultiTokenPartitionAllocatesZero locks in the
+// parity-close-r15-d-v2 partition-buffer pool (PartitionScratch on
+// VP8Encoder). Multi-token-partition encodes (libvpx --token-parts=N>0)
+// previously allocated N+1 objects per frame: one byte buffer per
+// partition plus the closure passed into writePartitionedTokenPayload.
+// The new prepare/finalize split routes through e.partScratch, so the
+// steady-state alloc count is 0 across all four supported token-partition
+// modes (1/2/4/8 partitions = TokenPartitions in {0,1,2,3}).
+func TestEncodeIntoMultiTokenPartitionAllocatesZero(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-token-partition alloc sweep in -short")
+	}
+	cases := []struct {
+		name      string
+		partition int
+	}{
+		{"1part", 0},
+		{"2parts", 1},
+		{"4parts", 2},
+		{"8parts", 3},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			e := newSizedTestEncoder(t, 320, 240)
+			defer e.Close()
+			if err := e.SetTokenPartitions(tc.partition); err != nil {
+				t.Fatalf("SetTokenPartitions(%d): %v", tc.partition, err)
+			}
+			if err := e.SetKeyFrameInterval(0); err != nil {
+				t.Fatalf("SetKeyFrameInterval: %v", err)
+			}
+			src := testImage(320, 240)
+			fillImage(src, 220, 90, 170)
+			dst := make([]byte, 320*240*6+4096)
+			if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
+				t.Fatalf("key EncodeInto: %v", err)
+			}
+			// Warm the partition scratch + any other lazy state.
+			for i := 1; i <= 6; i++ {
+				if _, err := e.EncodeInto(dst, src, uint64(i), 1, 0); err != nil {
+					t.Fatalf("warmup EncodeInto: %v", err)
+				}
+			}
+			pts := uint64(7)
+			allocs := testing.AllocsPerRun(20, func() {
+				_, _ = e.EncodeInto(dst, src, pts, 1, 0)
+				pts++
+			})
+			if allocs != 0 {
+				t.Fatalf("EncodeInto allocs/op = %v at TokenPartitions=%d, want 0", allocs, tc.partition)
+			}
+		})
+	}
+}
+
 // BenchmarkEncodeInto is the parity-close-r15-d alloc-tracking sweep across
 // the same resolutions that TestEncodeIntoMultiResolutionAllocatesZero
 // guards. Run with `-benchmem -count=10 -benchtime=200x` to confirm
