@@ -10,6 +10,35 @@ func SSE16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sse
 }
 
+// SSE16x16PtrFast is the SIMD-bypass entry point used by hot callers
+// (loop-filter SSE trial, mode-picker SSE walks) when the caller has
+// already validated that the 16x16 window is fully in-bounds.
+//
+//   - Skips the slice header construction + the bounds-check on &src[0]
+//     by taking *byte directly.
+//   - Skips the dispatch chain (varianceBlock width/height switch) by
+//     going straight to varianceBlock16x16's SIMD kernel.
+func SSE16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	_, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
+	return sse
+}
+
+// Variance16x16PtrFast is the SIMD-bypass entry point matching the
+// SSE16x16PtrFast contract. Returns sse - sum*sum/256 as the variance
+// definition mandates for a 16x16 block.
+func Variance16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	sum, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
+	return sse - (sum * sum >> 8)
+}
+
+// SSE8x8PtrFast is the 8x8-SSE SIMD-bypass entry point used by hot
+// callers (chroma SSE walk in macroblockChromaSSE). The caller must
+// have already validated the 8x8 window is fully in-bounds.
+func SSE8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	_, sse := VarianceBlock8x8PtrFast(src, srcStride, ref, refStride)
+	return sse
+}
+
 func SSE16x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	_, sse := varianceBlock(src, srcStride, ref, refStride, 16, 8)
 	return sse

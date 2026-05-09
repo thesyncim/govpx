@@ -3936,14 +3936,48 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 		startRow, rowCount = loopFilterPartialFrameWindow(rows)
 	}
 	total := 0
+	srcY := src.Y
+	imgY := img.Y
+	srcStride := src.YStride
+	imgStride := img.YStride
+	srcW := src.Width
+	srcH := src.Height
+	imgW := img.CodedWidth
+	imgH := img.CodedHeight
+	// Pre-compute the column gating for the hot row (every MB in a fully
+	// in-bounds row is covered by the SSE16x16PtrFast SIMD-bypass path).
+	// 1280x720 / 1920x1080 / aligned-width frames pass this check for
+	// every column, so the inner loop collapses to a tight call sequence.
+	colsAllAligned := cols > 0 && cols*16 <= srcW && cols*16 <= imgW
 	for mbRow := startRow; mbRow < startRow+rowCount && mbRow < rows; mbRow++ {
 		baseY := mbRow * 16
-		for mbCol := range cols {
-			baseX := mbCol * 16
-			if baseY+16 <= src.Height && baseX+16 <= src.Width && baseY+16 <= img.CodedHeight && baseX+16 <= img.CodedWidth {
-				total += dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[baseY*img.YStride+baseX:], img.YStride)
+		// Hoist the per-row Y bounds + base offset out of the column loop;
+		// once baseY clears the row check, every MB on the row uses the
+		// same vertical clearance.
+		if baseY+16 <= srcH && baseY+16 <= imgH {
+			srcRowOff := baseY * srcStride
+			imgRowOff := baseY * imgStride
+			if colsAllAligned {
+				// Hot path: every MB on the row is fully in-bounds for
+				// both src and img — no per-column bounds check needed.
+				for mbCol := range cols {
+					baseX := mbCol * 16
+					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+				}
 				continue
 			}
+			for mbCol := range cols {
+				baseX := mbCol * 16
+				if baseX+16 <= srcW && baseX+16 <= imgW {
+					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+					continue
+				}
+				total += loopFilterLumaBlockSSE(src, img, baseY, baseX)
+			}
+			continue
+		}
+		for mbCol := range cols {
+			baseX := mbCol * 16
 			total += loopFilterLumaBlockSSE(src, img, baseY, baseX)
 		}
 	}

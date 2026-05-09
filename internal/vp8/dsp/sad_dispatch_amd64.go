@@ -17,6 +17,24 @@ func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return int(sadBlock16x16SSE2(&src[0], srcStride, &ref[0], refStride))
 }
 
+// SAD16x16PtrFast is the SIMD-bypass entry point for the inter motion
+// picker. See sad_dispatch_arm64.go for caller contract.
+func SAD16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	if cpu.HasAVX2 {
+		return int(sadBlock16x16AVX2(src, srcStride, ref, refStride))
+	}
+	return int(sadBlock16x16SSE2(src, srcStride, ref, refStride))
+}
+
+// SAD16x16LimitPtrFast is the limited SIMD-bypass entry point. The
+// caller must have already validated the in-bounds 16x16 windows AND
+// that limit fits in int32 (always true for cost-pruned motion search).
+func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, limit int) int {
+	// AVX2's 2-row granularity would lose byte parity with SSE2 here, so
+	// the limit kernel stays on SSE2 — same rationale as sadBlock16x16Limit.
+	return int(sadBlock16x16LimitSSE2(src, srcStride, ref, refStride, int32(limit)))
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	// The limit kernel returns the running sum at the row boundary
 	// where it exceeds the limit; mirroring that exactly under AVX2's
