@@ -326,6 +326,88 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 	}
 }
 
+// TestEncoderThreadsRowWorkerPoolGated pins the contract that the
+// row-parallel worker pool is allocated only when EncoderOptions.Threads
+// >= 2. Threads=1 must leave e.rowWorkers nil so the canonical serial
+// hot path performs no atomic ops, no goroutine spawn, and no per-row
+// scratch allocation.
+func TestEncoderThreadsRowWorkerPoolGated(t *testing.T) {
+	cases := []struct {
+		threads      int
+		wantPoolNil  bool
+		wantWorkerN  int
+	}{
+		{threads: 1, wantPoolNil: true},
+		{threads: 2, wantPoolNil: false, wantWorkerN: 2},
+		{threads: 4, wantPoolNil: false, wantWorkerN: 4},
+	}
+	for _, tc := range cases {
+		t.Run("threads_"+itoaSmall(tc.threads), func(t *testing.T) {
+			e, err := NewVP8Encoder(EncoderOptions{
+				Width:             64,
+				Height:            64,
+				FPS:               30,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: 1200,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           8,
+				Threads:           tc.threads,
+			})
+			if err != nil {
+				t.Fatalf("NewVP8Encoder Threads=%d: %v", tc.threads, err)
+			}
+			defer e.Close()
+			if tc.wantPoolNil {
+				if e.rowWorkers != nil {
+					t.Fatalf("Threads=%d: rowWorkers must be nil for the zero-cost serial path", tc.threads)
+				}
+				return
+			}
+			if e.rowWorkers == nil {
+				t.Fatalf("Threads=%d: rowWorkers must be allocated", tc.threads)
+			}
+			eff := e.effectiveThreadCount()
+			if got := len(e.rowWorkers.workers); got != eff {
+				t.Fatalf("Threads=%d: workers=%d, want %d (effective)", tc.threads, got, eff)
+			}
+			if got := len(e.rowWorkers.rowProgress); got != encoderMacroblockRows(64) {
+				t.Fatalf("Threads=%d: rowProgress=%d, want %d", tc.threads, got, encoderMacroblockRows(64))
+			}
+		})
+	}
+}
+
+// TestRowWorkerPoolWaveFrontCoordination spot-checks the atomic
+// rowProgress wave-front coordinator standalone. publishRowColumn(r,c)
+// must release the row r+1 worker waiting at waitForAboveColumn(r+1, c)
+// no later than the publisher's store. Race-checked under -race.
+func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
+	const mbRows = 4
+	const mbCols = 16
+	pool := newRowWorkerPool(mbRows, mbRows, mbCols)
+	if pool == nil {
+		t.Fatal("newRowWorkerPool returned nil")
+	}
+	pool.reset(mbRows)
+	for r := 0; r < mbRows; r++ {
+		if got := pool.rowProgress[r].Load(); got != -1 {
+			t.Fatalf("row %d: rowProgress=%d after reset, want -1", r, got)
+		}
+	}
+	// Drive a serial wave-front: publish row r col c, then verify
+	// row r+1 unblocks at col c.
+	for c := 0; c < mbCols; c++ {
+		pool.publishRowColumn(0, c)
+		pool.waitForAboveColumn(1, c)
+		if got := pool.rowProgress[0].Load(); got < int64(c) {
+			t.Fatalf("col %d: rowProgress[0]=%d, want >= %d", c, got, c)
+		}
+	}
+	pool.shutdownPool()
+}
+
 func itoaSmall(n int) string {
 	if n == 0 {
 		return "0"
