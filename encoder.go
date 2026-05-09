@@ -216,6 +216,25 @@ type EncoderOptions struct {
 	// outside the first MB row (e.g. a loop-filter level picker that
 	// scores the partial-frame window at rows/2).
 	OracleTracePredictorDumpAllRows bool
+
+	// AutoSpeedGoOverheadCalibration toggles the Go-vs-C overhead
+	// calibration applied to the wall-clock duration that
+	// vp8_auto_select_speed (libvpxAutoSelectSpeed) feeds into
+	// avg_encode_time / avg_pick_mode_time. Off by default to preserve
+	// parity with libvpx oracle binaries (oracle scoreboards exercise the
+	// patched libvpx whose per-frame wall-clock overhead matches govpx's
+	// Go runtime overhead, so calibration would *break* their convergence).
+	// On for cmd/govpx-bench and any production caller comparing against
+	// stock libvpx: govpx's per-frame wall-clock is consistently ~2.4x
+	// the C path on the bench machine, which without calibration parks the
+	// auto-select Speed at a higher bucket than libvpx hits and drives an
+	// interframe-byte / bitrate divergence at 720p+ resolutions (R12-D:
+	// 1.36x interframe pre-fix). Calibration scales the captured duration
+	// by libvpxAutoSpeedGoOverheadNum/Den so the auto_speed_thresh
+	// comparison sits in the same bucket libvpx hits on the same machine.
+	// Cold-start (avg_pick_mode_time==0) and the explicit-Speed branches
+	// are unaffected.
+	AutoSpeedGoOverheadCalibration bool
 }
 
 type EncodeResult struct {
@@ -3119,10 +3138,45 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 }
 
+// libvpxAutoSpeedGoOverheadNum / libvpxAutoSpeedGoOverheadDen scale govpx's
+// measured wall-clock duration before it feeds into avg_encode_time /
+// avg_pick_mode_time. govpx's Go runtime overhead per frame is consistently
+// higher than libvpx's C path on the same hardware (R12-D bench measured
+// 720p ns/frame at 17.36ms vs libvpx 7.12ms = 2.44x). Without this calibration
+// the auto_speed_thresh decrement check
+//
+//	ms_for_compress*100 > avg_encode_time*thresh
+//
+// pins govpx's adaptive Speed in the 6/7 oscillation bucket while libvpx
+// reaches the 4/5 bucket on the same content; the resulting mode-decision
+// divergence drives govpx's interframe bytes ~1.40x libvpx's at 1280x720
+// CBR cpu_used=8 (R12-D pre-fix). Dividing the captured duration by this
+// ratio puts both encoders in the same auto_speed_thresh bucket so
+// trajectories converge.
+//
+// The 24/10 (=2.40) ratio is the empirical Go-vs-C overhead factor measured
+// on the bench machine. It is chosen as a fixed integer ratio (no float, no
+// runtime calibration) so the trajectory is fully deterministic: identical
+// runs produce identical Speed sequences, parity tests stay reproducible,
+// and the cold-start Speed=4 path (avg_pick_mode_time==0) is unaffected.
+//
+// The calibration is gated to realtime+positive-cpu_used since
+// libvpxAutoSelectSpeed is the only consumer; other deadlines do not run
+// the auto-select path. Threads=1 callers see no extra cost (just an
+// integer divide on the duration) so the zero-cost contract is preserved.
+const (
+	libvpxAutoSpeedGoOverheadNum = 10
+	libvpxAutoSpeedGoOverheadDen = 24
+)
+
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of
 // encode_mb_row in realtime, measure duration in microseconds and IIR-update
 // avg_encode_time (skipped for keyframes) and avg_pick_mode_time
-// (duration2 = duration/2 by libvpx convention).
+// (duration2 = duration/2 by libvpx convention). govpx applies a
+// Go-vs-C overhead calibration (libvpxAutoSpeedGoOverheadNum/Den) to the
+// measured microseconds so the auto_speed_thresh comparison sits in the
+// same bucket libvpx hits on the same machine; see the constant comment for
+// the empirical justification and parity contract.
 func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	if e == nil || e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
@@ -3133,6 +3187,13 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 		durationNS = 0
 	}
 	duration := int(durationNS / 1000) // microseconds
+	// Apply the Go-vs-C overhead calibration when the caller opted in
+	// (e.g. cmd/govpx-bench). Done before the duration2 halving so both
+	// filters see the same calibrated microsecond clock. See the
+	// AutoSpeedGoOverheadCalibration field doc for why this is opt-in.
+	if e.opts.AutoSpeedGoOverheadCalibration && e.libvpxAutoSelectSpeedActive() {
+		duration = duration * libvpxAutoSpeedGoOverheadNum / libvpxAutoSpeedGoOverheadDen
+	}
 	duration2 := duration / 2
 	if !isKeyFrame {
 		if e.avgEncodeTime == 0 {
