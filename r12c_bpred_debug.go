@@ -202,7 +202,7 @@ func r12cPickerEmitIteration(frameIdx, mbRow, mbCol, modeIndex int, modeName, ga
 		frameIdx, mbRow, mbCol, modeIndex, modeName, gate, threshold, bestScore, score, mvRow, mvCol)
 }
 
-// r12cPickerEmitState dumps the picker entry state at MB-entry: the per-mode
+// r12cPickerEmitState2 dumps the picker entry state at MB-entry: the per-mode
 // thresholds and their touched/mult inputs, so we can compare directly to
 // the libvpx picker_entry hook.
 func r12cPickerEmitState2(frameIdx, mbRow, mbCol int, baseline []int, mult []int, touched []bool, thresh []int, qIndex, rdMult, rdDiv, mbsTested int) {
@@ -248,7 +248,7 @@ func r12cTrackMutation(e any, modeIndex int, kind string) bool {
 // r12cTrackContextFn is set by the picker to expose current frame/mb
 // context. It's a function pointer so the encoder package's frameCount
 // is available without reaching across packages.
-var r12cTrackContextFn = func(e any) (int, int, int) {
+var r12cTrackContextFn = func(_ any) (int, int, int) {
 	return r12cTrackFrame, r12cTrackMBRow, r12cTrackMBCol
 }
 
@@ -265,25 +265,6 @@ func r12cSetTrackContext(frame, mbRow, mbCol int) {
 	r12cTrackFrame = frame
 	r12cTrackMBRow = mbRow
 	r12cTrackMBCol = mbCol
-}
-
-func r12cPickerEmitState(frameIdx, mbRow, mbCol int, baseline []int, mult []int, touched []bool, qIndex, rdMult, rdDiv, mbsTested int) {
-	r12cPickerDebugCfg.mu.Lock()
-	defer r12cPickerDebugCfg.mu.Unlock()
-	out := r12cPickerDebugCfg.outFile
-	var w *os.File
-	if out != nil {
-		w = out
-	} else {
-		w = os.Stderr
-	}
-	fmt.Fprintf(w,
-		"r12c_picker_state frame=%d mb=(%d,%d) qIdx=%d RDMULT=%d RDDIV=%d mbsTested=%d",
-		frameIdx, mbRow, mbCol, qIndex, rdMult, rdDiv, mbsTested)
-	for i := range baseline {
-		fmt.Fprintf(w, " m%d:b=%d/m=%d/t=%v", i, baseline[i], mult[i], touched[i])
-	}
-	fmt.Fprintln(w)
 }
 
 func modeBPredName(mode vp8common.BPredictionMode) string {

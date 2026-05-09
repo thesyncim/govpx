@@ -689,8 +689,8 @@ type twoPassState struct {
 	// (vp8_gf_boost_qadjustment[Q]) when scaling the gfu_boost for
 	// the GF allocation chunks. libvpx initializes it to 0 (zeroed
 	// by calloc), and updates it after each inter-frame encode at
-	// `cpi->last_q[cm->frame_type] = cm->base_qindex`. The encoder
-	// pushes this value via `setLastInterQ` after each inter frame.
+	// `cpi->last_q[cm->frame_type] = cm->base_qindex`. govpx will
+	// thread this once two-pass GF boost regulation needs it.
 	lastInterQ int
 	// gfIntraErrMin mirrors libvpx's `cpi->twopass.gf_intra_err_min`,
 	// the per-frame floor on intra_error used by `calc_frame_boost`
@@ -812,17 +812,6 @@ func (t *twoPassState) configureFrameDims(width int, height int) {
 	}
 }
 
-// setLastInterQ pushes the libvpx `last_q[INTER_FRAME]` value into the
-// two-pass state. Used by `defineGFGroup` to look up GFQ_ADJUSTMENT
-// when scaling gfu_boost. Called by the encoder after each inter
-// frame's regulated Q is finalized.
-func (t *twoPassState) setLastInterQ(q int) {
-	if q < 0 {
-		q = 0
-	}
-	t.lastInterQ = q
-}
-
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {
 	if !t.enabled() || frame >= uint64(len(t.stats)) {
 		return FirstPassFrameStats{}
@@ -932,7 +921,7 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 			// is NOT called for the GF refresh frame itself.
 			target = int64(t.gfRefreshTarget)
 		} else if t.gfGroupValid {
-			target = t.assignStdFrameBits(frame, modErr, sectionMax)
+			target = t.assignStdFrameBits(modErr, sectionMax)
 		} else {
 			// Fallback: legacy err-fraction-of-bits_left. Used when the
 			// gf-group state has not been seeded (the keyframe was
@@ -1660,7 +1649,7 @@ func computeGFUBoost(stats []FirstPassFrameStats, frame uint64, gfInterval int, 
 // assignStdFrameBits ports libvpx's assign_std_frame_bits inner-loop
 // allocator for std P frames inside a GF group. Drains gfGroupBits and
 // gfGroupErrorLeft per call.
-func (t *twoPassState) assignStdFrameBits(frame uint64, modErr float64, maxBits int64) int64 {
+func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
 	if !t.gfGroupValid || t.gfGroupErrorLeft <= 0 || t.gfGroupBits <= 0 {
 		return int64(t.minFrameBandwidth)
 	}
