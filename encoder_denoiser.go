@@ -445,8 +445,6 @@ func (e *VP8Encoder) applyDenoiserToInterFrame(source vp8enc.SourceImage, rows i
 	}
 	avg := &e.denoiser.runningAvg[denoiserAvgIntra]
 	mcSrc := &e.analysis.Img
-	uvWidth := (e.opts.Width + 1) >> 1
-	uvHeight := (e.opts.Height + 1) >> 1
 	doYUV := e.denoiser.mode != denoiserOnYOnly
 	required := rows * cols
 	if len(e.interFrameModes) < required || len(e.denoiser.state) < required {
@@ -469,7 +467,7 @@ func (e *VP8Encoder) applyDenoiserToInterFrame(source vp8enc.SourceImage, rows i
 			// Intra blocks have no motion-compensated reference; libvpx
 			// treats them as always COPY (no denoise).
 			if mode.RefFrame == 0 /* IntraFrame */ {
-				e.copyDenoiserMacroblockSource(source, avg, row, col, yOff, uOff, vOff, yAvgOff, uAvgOff, vAvgOff, uvWidth, uvHeight, doYUV)
+				e.copyDenoiserMacroblockSource(source, avg, yOff, uOff, vOff, yAvgOff, uAvgOff, vAvgOff, doYUV)
 				e.denoiser.state[index] = denoiserStateNoFilter
 				continue
 			}
@@ -517,7 +515,7 @@ func (e *VP8Encoder) applyDenoiserToInterFrame(source vp8enc.SourceImage, rows i
 // copyDenoiserMacroblockSource copies the source macroblock pixels into the
 // running_avg[INTRA] buffer for blocks that the denoiser declines to filter
 // (intra and COPY decisions).
-func (e *VP8Encoder) copyDenoiserMacroblockSource(source vp8enc.SourceImage, avg *vp8common.FrameBuffer, row int, col int, yOff int, uOff int, vOff int, yAvgOff int, uAvgOff int, vAvgOff int, uvWidth int, uvHeight int, doYUV bool) {
+func (e *VP8Encoder) copyDenoiserMacroblockSource(source vp8enc.SourceImage, avg *vp8common.FrameBuffer, yOff int, uOff int, vOff int, yAvgOff int, uAvgOff int, vAvgOff int, doYUV bool) {
 	copyMacroblockY(avg.Img.Y[yAvgOff:], avg.Img.YStride, source.Y[yOff:], source.YStride)
 	if doYUV {
 		copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)

@@ -373,15 +373,6 @@ func clearUint8Map(values []uint8) {
 	}
 }
 
-func (e *VP8Encoder) advanceCyclicRefresh(rows int, cols int) {
-	count := rows * cols
-	if count <= 0 {
-		e.cyclicRefreshIndex = 0
-		return
-	}
-	e.cyclicRefreshIndex = (e.cyclicRefreshIndex + e.cyclicRefreshMaxMBsPerFrame(rows, cols)) % count
-}
-
 func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
 	layers := 1
 	if e != nil && e.temporal.enabled {

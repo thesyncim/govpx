@@ -805,11 +805,6 @@ func (e *VP8Encoder) interAnalysisNoSkipBlock4x4Search() bool {
 	return e.interAnalysisCompressorSpeed() == 0 || e.libvpxCPUUsed() <= 0
 }
 
-func libvpxInterFrameSearchParam(deadline Deadline, speed int) int {
-	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
-	return libvpxInterFrameSearchParamForFeatureSpeed(deadline, speed)
-}
-
 func libvpxInterFrameSearchParamForFeatureSpeed(deadline Deadline, speed int) int {
 	firstStep := libvpxInterFrameFirstStepForFeatureSpeed(deadline, speed)
 	stepParam := firstStep + libvpxInterFrameSpeedAdjust(speed)
@@ -820,11 +815,6 @@ func libvpxInterFrameSearchParamForFeatureSpeed(deadline Deadline, speed int) in
 		return interFrameMaxMVSearchSteps - 1
 	}
 	return stepParam
-}
-
-func libvpxInterFrameFirstStep(deadline Deadline, speed int) int {
-	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
-	return libvpxInterFrameFirstStepForFeatureSpeed(deadline, speed)
 }
 
 func libvpxInterFrameFirstStepForFeatureSpeed(deadline Deadline, speed int) int {
@@ -1354,11 +1344,6 @@ func libvpxInterModeCheckFrequencies(deadline Deadline, speed int) [libvpxInterM
 	return freq
 }
 
-func libvpxInterFrameContinuousSpeed(deadline Deadline, speed int) int {
-	speed = libvpxSpeedFeatureCPUUsed(deadline, speed)
-	return libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline, speed)
-}
-
 func libvpxInterFrameContinuousSpeedForFeatureSpeed(deadline Deadline, speed int) int {
 	switch deadline {
 	case DeadlineBestQuality:
@@ -1442,11 +1427,6 @@ var libvpxModeCheckFreqMapSplit1 = [...]int{
 
 var libvpxModeCheckFreqMapSplit2 = [...]int{
 	0, 2, 2, 3, 4, 4, 15, 8, 4, 9, 15, libvpxSpeedMapMax,
-}
-
-func interFrameFullPixelSearchCandidateCount() int {
-	axis := (2*interFrameMVSearchRange)/interFrameMVFullPixelStep + 1
-	return axis * axis
 }
 
 func interFrameSubpixelSearchCandidateCount() int {
@@ -1760,7 +1740,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
-			mode, score, yrd, rate, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, bestYRD, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 			if ok {
@@ -1837,7 +1817,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-	qIndex int, segmentID uint8, bestYRD int, mvthresh int,
+	qIndex int, segmentID uint8, mvthresh int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
@@ -2310,7 +2290,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		bestScoreBefore := bestScore
 		bestSSEBefore := bestSSE
-		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, refSlot, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
+		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 		if !ok {
 			continue
 		}
@@ -2483,7 +2463,7 @@ type nearMVCandidateCache [3]struct {
 }
 
 func (e *VP8Encoder) fastInterModeForLoopEntry(
-	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, refSlot int, mbMode vp8common.MBPredictionMode,
+	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, mbMode vp8common.MBPredictionMode,
 	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	newMVCandidates *[3]struct {
@@ -2859,11 +2839,11 @@ func selectInterFrameSplitSubsetMotionModeWithSegmentCutoff(src vp8enc.SourceIma
 	aboveMV := analysisSplitAboveMV(mode, above, block)
 	bestMV := leftMV
 	bestMode := vp8common.Left4x4
-	bestRD, bestAbove, bestLeft, bestHasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, bestMode, bestMV, qIndex, splitSubMotionLabelRate(bestMode), labelRD, quant, coefProbs)
+	bestRD, bestAbove, bestLeft, bestHasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, bestMV, qIndex, splitSubMotionLabelRate(bestMode), labelRD, quant, coefProbs)
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
 		rate := splitSubMotionLabelRate(candidateMode)
-		rd, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, candidateMode, mv, qIndex, rate, labelRD, quant, coefProbs)
+		rd, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, mv, qIndex, rate, labelRD, quant, coefProbs)
 		if rd < bestRD {
 			bestRD = rd
 			bestMV = mv
@@ -2900,7 +2880,7 @@ func selectInterFrameSplitSubsetMotionModeWithSegmentCutoff(src vp8enc.SourceIma
 	newRate := splitSubMotionLabelRate(vp8common.New4x4)
 	delta := vp8enc.MotionVector{Row: int16(int(newMV.Row) - int(bestRefMV.Row)), Col: int16(int(newMV.Col) - int(bestRefMV.Col))}
 	newRate += splitMotionVectorCost(delta, mvProbs)
-	newRD, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, vp8common.New4x4, newMV, qIndex, newRate, labelRD, quant, coefProbs)
+	newRD, nextAbove, nextLeft, hasContexts := splitMotionLabelCandidateRD(src, ref, mbRow, mbCol, block, width, height, mode, subset, newMV, qIndex, newRate, labelRD, quant, coefProbs)
 	if newRD < bestRD {
 		bestRD = newRD
 		bestMV = newMV
@@ -2917,7 +2897,7 @@ func selectInterFrameSplitSubsetMotionModeWithSegmentCutoff(src vp8enc.SourceIma
 	return bestMV, bestMode, bestRD
 }
 
-func splitMotionLabelCandidateRD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mode *vp8enc.InterFrameMacroblockMode, subset int, candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector, qIndex int, rate int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (int, [4]uint8, [4]uint8, bool) {
+func splitMotionLabelCandidateRD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, qIndex int, rate int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (int, [4]uint8, [4]uint8, bool) {
 	if labelRD != nil {
 		if labelRate, labelDist, nextAbove, nextLeft, ok := labelRD.rateDistortion(src, ref, mbRow, mbCol, qIndex, quant, coefProbs, mode, subset, mv, rate); ok {
 			return rdModeScoreWithZbin(qIndex, labelRD.zbinOverQuant, labelRate, labelDist), nextAbove, nextLeft, true
@@ -3376,17 +3356,6 @@ func collectInterFrameMotionCandidatesWithSearch(
 	return collectInterFrameMotionCandidatesWithEncoder(nil, src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, search, mvProbs, candidates)
 }
 
-func (e *VP8Encoder) collectInterFrameMotionCandidatesWithSearch(
-	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
-	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
-	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
-	search interAnalysisSearchConfig,
-	mvProbs *[2][vp8tables.MVPCount]uint8,
-	candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate,
-) int {
-	return collectInterFrameMotionCandidatesWithEncoder(e, src, refs, refCount, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, search, mvProbs, candidates)
-}
-
 func collectInterFrameMotionCandidatesWithEncoder(
 	e *VP8Encoder, src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
@@ -3425,10 +3394,6 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		}
 	}
 	return count
-}
-
-func interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
-	return interAnalysisReferenceMotionPredictorsWithSignBias(refFrame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, defaultInterFrameSignBias())
 }
 
 func (e *VP8Encoder) interAnalysisReferenceMotionPredictors(refFrame vp8common.MVReferenceFrame, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) (vp8enc.MotionVector, vp8enc.MotionVector) {
