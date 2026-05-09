@@ -333,9 +333,9 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 // scratch allocation.
 func TestEncoderThreadsRowWorkerPoolGated(t *testing.T) {
 	cases := []struct {
-		threads      int
-		wantPoolNil  bool
-		wantWorkerN  int
+		threads     int
+		wantPoolNil bool
+		wantWorkerN int
 	}{
 		{threads: 1, wantPoolNil: true},
 		{threads: 2, wantPoolNil: false, wantWorkerN: 2},
