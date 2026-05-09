@@ -678,13 +678,6 @@ const (
 	arnrThreshHigh = 20000
 	arnrHexRange   = 127
 	arnrDiaRange   = 8
-	// arnrBorderSlack matches libvpx's mv_row_min/mv_col_min derivation
-	// in vp8_temporal_filter_iterate_c: -((mb*16) + (16 - 5)). The 11
-	// pixel slack reflects libvpx's 16-pixel source-border extension
-	// minus the 5-pixel 6-tap subpel filter overhang on the trailing
-	// edge. govpx's gatherBlock clamps reads, so out-of-visible
-	// candidates remain well-defined.
-	arnrBorderSlack = 11
 )
 
 // arnrFindMatchingMB performs libvpx's hex search (vp8_hex_search with
@@ -825,10 +818,6 @@ func arnrSADAt(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, mvX, mvY 
 	gatherBlock(pred[:], 16, ref.y, ref.yStride, x, y, ref.width, ref.height, 16)
 	return dsp.SAD16x16(src, srcStride, pred[:], 16)
 }
-
-// arnrSubpelRange constrains the subpel search to the same legal MV window
-// the hex search obeys. Each component is in 1/8-pel units.
-const arnrSubpelMaxStep = 8 // = 1 full pel
 
 // arnrSubpelRefine implements libvpx's find_fractional_mv_step diamond walk
 // for the temporal filter. Inputs are the full-pel MV (fullX, fullY) chosen

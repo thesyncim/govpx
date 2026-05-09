@@ -1503,19 +1503,6 @@ func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
 	}
 }
 
-func (e *VP8Encoder) encodeInterFrame(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags) (int, error) {
-	attempt, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, false, false, true, false)
-	if err != nil {
-		return 0, err
-	}
-	e.commitInterFrameAttempt(attempt)
-	e.loopFilterLevel = attempt.Config.LoopFilterLevel
-	if attempt.CyclicRefresh {
-		e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
-	}
-	return attempt.Size, nil
-}
-
 func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(true, false)
 	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate snapshots the
@@ -1998,23 +1985,13 @@ func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, key
 	return true
 }
 
-func (e *VP8Encoder) projectedFrameSizeBitsFromRate(keyFrame bool, macroblocks int, projectedRate int) int {
-	// Conservative wrapper kept for callers that don't carry the refresh
-	// flags. Treats the frame as if vp8_convert_rfct_to_prob fired (matching
-	// the dominant single-layer non-GF/AR-refresh case where libvpx zeros
-	// the inter-frame ref-frame entropy savings via the encode_frame trailing
-	// convert hook).
-	bits, _, _ := e.projectedFrameSizeBitsFromRateWithSavings(keyFrame, macroblocks, projectedRate, false, false)
-	return bits
-}
-
-// projectedFrameSizeBitsFromRateWithSavings is the same computation as
-// projectedFrameSizeBitsFromRate but returns the per-component entropy-
-// savings breakdown alongside the post-savings bits. Used by the oracle
-// trace to localize entropy-savings parity gaps. The breakdown is the
-// PRE-clamp value: when the post-savings projection would underflow,
-// the bits return clamps to 0 but the savings scalars still reflect
-// what was subtracted. refreshGolden / refreshAltRef mirror libvpx
+// projectedFrameSizeBitsFromRateWithSavings projects the post-savings
+// frame-size bits and returns the per-component entropy-savings breakdown
+// alongside it. Used by the oracle trace to localize entropy-savings
+// parity gaps. The breakdown is the PRE-clamp value: when the
+// post-savings projection would underflow, the bits return clamps to 0
+// but the savings scalars still reflect what was subtracted.
+// refreshGolden / refreshAltRef mirror libvpx
 // cm->refresh_golden_frame / cm->refresh_alt_ref_frame for the in-flight
 // inter-frame attempt; the values gate the libvpx vp8_convert_rfct_to_prob
 // hook documented in refFrameEntropySavingsBitsForFrame. Key frames pass
@@ -2031,14 +2008,6 @@ func (e *VP8Encoder) projectedFrameSizeBitsFromRateWithSavings(keyFrame bool, ma
 		projectedBits = 0
 	}
 	return projectedBits, coefSavings, refFrameSavings
-}
-
-func (e *VP8Encoder) estimatedEntropySavingsBits(keyFrame bool, macroblocks int) int {
-	// Conservative wrapper kept for callers that don't carry the refresh
-	// flags. Treats the frame as if vp8_convert_rfct_to_prob fired, matching
-	// the dominant single-layer non-GF/AR-refresh case.
-	return e.coefficientEntropySavingsBits(keyFrame, macroblocks) +
-		e.refFrameEntropySavingsBitsForFrame(keyFrame, macroblocks, false, false)
 }
 
 // refFrameEntropySavingsBitsForFrame mirrors libvpx's inter-frame ref-frame
