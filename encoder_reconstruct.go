@@ -5972,20 +5972,33 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 	// R15-B: hoist errorPerBit + mvProbs into the closure capture so each
 	// candidate-cost call collapses to a SubpelVariance + LUT lookup.
 	errorPerBit := libvpxErrorPerBit(qIndex)
+	var cachedRows [48]int
+	var cachedCols [48]int
+	var cachedCosts [48]int
+	cachedCount := 0
 	cand := func(r, c int) int {
+		for i := range cachedCount {
+			if cachedRows[i] == r && cachedCols[i] == c {
+				return cachedCosts[i]
+			}
+		}
+		cost := maxInt()
 		if !bounds.contains(r, c) {
-			return maxInt()
+		} else if dist, ok := subCtx.subpelVarianceForQuarterMV(r, c); ok {
+			mv := vp8enc.MotionVector{Row: int16(r * 2), Col: int16(c * 2)}
+			mvCost := 0
+			if mvProbs != nil {
+				mvCost = vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, errorPerBit)
+			}
+			cost = dist + mvCost
 		}
-		dist, ok := subCtx.subpelVarianceForQuarterMV(r, c)
-		if !ok {
-			return maxInt()
+		if cachedCount < len(cachedRows) {
+			cachedRows[cachedCount] = r
+			cachedCols[cachedCount] = c
+			cachedCosts[cachedCount] = cost
+			cachedCount++
 		}
-		mv := vp8enc.MotionVector{Row: int16(r * 2), Col: int16(c * 2)}
-		mvCost := 0
-		if mvProbs != nil {
-			mvCost = vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, errorPerBit)
-		}
-		return dist + mvCost
+		return cost
 	}
 
 	for range 3 {
