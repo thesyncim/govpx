@@ -294,8 +294,12 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 			meta.arnrFiltered = true
 		}
 	}
-	copySourceToFrameBuffer(&e.arnrLastSource, source)
-	e.arnrLastReady = true
+	if e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
+		copySourceToFrameBuffer(&e.arnrLastSource, source)
+		e.arnrLastReady = true
+	} else {
+		e.arnrLastReady = false
+	}
 	if e.opts.NoiseSensitivity > 0 {
 		// Allocate the libvpx-style running average buffers and per-MB
 		// state map on first inter frame; the actual filter runs per-MB
