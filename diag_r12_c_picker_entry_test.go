@@ -164,18 +164,18 @@ func TestDiagR12CPickerEntry720pNoise(t *testing.T) {
 }
 
 type r12cIterationOutcome struct {
-	Frame             int
-	MBRow             int
-	MBCol             int
-	ModeIndex         int
-	Mode              string
-	RefFrame          int
-	MVRow             int
-	MVCol             int
-	Gate              string
-	ThisRD            int
-	BestRDAtGate      int
-	RDThreshesAtGate  int
+	Frame            int
+	MBRow            int
+	MBCol            int
+	ModeIndex        int
+	Mode             string
+	RefFrame         int
+	MVRow            int
+	MVCol            int
+	Gate             string
+	ThisRD           int
+	BestRDAtGate     int
+	RDThreshesAtGate int
 }
 
 func parseR12CIterationOutcomes(t *testing.T, trace []byte) []r12cIterationOutcome {
