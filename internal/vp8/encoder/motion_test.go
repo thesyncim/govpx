@@ -112,6 +112,26 @@ func TestMotionVectorSADCostMatchesLibvpxTable(t *testing.T) {
 	}
 }
 
+func TestMotionVectorSubpelSearchCostFromQuarterDeltasMatchesWrapper(t *testing.T) {
+	probs := tables.DefaultMVContext
+	tests := []struct {
+		mv  MotionVector
+		ref MotionVector
+	}{
+		{mv: MotionVector{}, ref: MotionVector{}},
+		{mv: MotionVector{Row: 6, Col: -2}, ref: MotionVector{Row: 2, Col: 4}},
+		{mv: MotionVector{Row: -14, Col: 18}, ref: MotionVector{Row: -8, Col: 6}},
+		{mv: MotionVector{Row: 4096, Col: -4096}, ref: MotionVector{}},
+	}
+	for _, tt := range tests {
+		got := MotionVectorSubpelSearchCostFromQuarterDeltas(int(tt.mv.Row)>>1, int(tt.mv.Col)>>1, int(tt.ref.Row)>>1, int(tt.ref.Col)>>1, &probs, 34)
+		want := MotionVectorSubpelSearchCost(tt.mv, tt.ref, &probs, 34)
+		if got != want {
+			t.Fatalf("mv=%+v ref=%+v subpel cost = %d, want %d", tt.mv, tt.ref, got, want)
+		}
+	}
+}
+
 func TestWriteMotionVectorAllocatesZero(t *testing.T) {
 	buf := make([]byte, 64)
 	probs := tables.DefaultMVContext

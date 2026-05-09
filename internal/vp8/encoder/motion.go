@@ -94,8 +94,19 @@ func MotionVectorSubpelSearchCost(mv MotionVector, ref MotionVector, probs *[2][
 	if probs == nil {
 		return 0
 	}
-	row := clampMVSignedComponent((int(mv.Row) >> 1) - (int(ref.Row) >> 1))
-	col := clampMVSignedComponent((int(mv.Col) >> 1) - (int(ref.Col) >> 1))
+	return MotionVectorSubpelSearchCostFromQuarterDeltas(int(mv.Row)>>1, int(mv.Col)>>1, int(ref.Row)>>1, int(ref.Col)>>1, probs, errorPerBit)
+}
+
+// MotionVectorSubpelSearchCostFromQuarterDeltas is the hot-path variant of
+// MotionVectorSubpelSearchCost for callers that already work in quarter-pel
+// coordinates. It preserves libvpx's MVC index shape while avoiding the
+// candidate MotionVector construction and the eighth-to-quarter shifts.
+func MotionVectorSubpelSearchCostFromQuarterDeltas(mvRow4 int, mvCol4 int, refRow4 int, refCol4 int, probs *[2][tables.MVPCount]uint8, errorPerBit int) int {
+	if probs == nil {
+		return 0
+	}
+	row := clampMVSignedComponent(mvRow4 - refRow4)
+	col := clampMVSignedComponent(mvCol4 - refCol4)
 	cost := motionVectorComponentCost(row, probs[0][:]) + motionVectorComponentCost(col, probs[1][:])
 	return (cost*errorPerBit + 128) >> 8
 }
