@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -4584,6 +4585,163 @@ func TestEncodeIntoMultiSizeInterFrameAllocatesZero(t *testing.T) {
 			})
 			if allocs != 0 {
 				t.Fatalf("inter-frame EncodeInto allocs = %v at %s, want 0", allocs, tc.name)
+			}
+		})
+	}
+}
+
+// TestEncodeIntoMultiResolutionAllocatesZero is the parity-close-r15-d
+// regression guard for steady-state zero allocations across the full
+// resolution + cpu_used matrix exercised by govpx-bench. The earlier
+// TestEncodeIntoMultiSizeInterFrameAllocatesZero capped at 320x240 and only
+// exercised CpuUsed=8; this covers 320x240/640x480/1280x720/1920x1080 against
+// CpuUsed in {0,3,5,8,15} (Speed bands feeding libvpx_auto_select_speed plus
+// the static "RT highest speed" 15 ceiling). The frames are spatial-temporal
+// gradients matching cmd/govpx-bench's makeBenchmarkFrame, exercising the
+// inter-mode picker, encoder match path, and rate control loops the
+// flat-fill fixture above does not.
+func TestEncodeIntoMultiResolutionAllocatesZero(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-resolution alloc sweep in -short")
+	}
+	type resCase struct {
+		name string
+		w, h int
+	}
+	resolutions := []resCase{
+		{"320x240", 320, 240},
+		{"640x480", 640, 480},
+		{"1280x720", 1280, 720},
+		{"1920x1080", 1920, 1080},
+	}
+	cpuBands := []int{0, 3, 5, 8, 15}
+	for _, rc := range resolutions {
+		rc := rc
+		for _, cpu := range cpuBands {
+			cpu := cpu
+			t.Run(fmt.Sprintf("%s/cpu=%d", rc.name, cpu), func(t *testing.T) {
+				e := newSizedTestEncoder(t, rc.w, rc.h)
+				defer e.Close()
+				if err := e.SetCPUUsed(cpu); err != nil {
+					t.Fatalf("SetCPUUsed(%d) returned error: %v", cpu, err)
+				}
+				if err := e.SetKeyFrameInterval(0); err != nil {
+					t.Fatalf("SetKeyFrameInterval returned error: %v", err)
+				}
+				const frames = 6
+				srcs := make([]Image, frames)
+				for i := range srcs {
+					srcs[i] = makeMultiResAllocFrame(rc.w, rc.h, i)
+				}
+				dst := make([]byte, rc.w*rc.h*6+4096)
+				// Encode the keyframe + a few inter frames so that any
+				// lazily-initialised per-frame state (recode scratch, segment
+				// buffers, inter-mode bookkeeping) is warm before
+				// AllocsPerRun starts counting.
+				if _, err := e.EncodeInto(dst, srcs[0], 0, 1, 0); err != nil {
+					t.Fatalf("key EncodeInto returned error: %v", err)
+				}
+				for i := 1; i < frames; i++ {
+					if _, err := e.EncodeInto(dst, srcs[i], uint64(i), 1, 0); err != nil {
+						t.Fatalf("warmup inter EncodeInto returned error: %v", err)
+					}
+				}
+				pts := uint64(frames)
+				idx := 0
+				allocs := testing.AllocsPerRun(20, func() {
+					_, _ = e.EncodeInto(dst, srcs[idx%frames], pts, 1, 0)
+					idx++
+					pts++
+				})
+				if allocs != 0 {
+					t.Fatalf("inter-frame EncodeInto allocs = %v at %s cpu=%d, want 0", allocs, rc.name, cpu)
+				}
+			})
+		}
+	}
+}
+
+// makeMultiResAllocFrame mirrors cmd/govpx-bench/main.go::makeBenchmarkFrame
+// so the alloc regression guard touches the same picker / rate-control paths
+// as the bench harness that originally exposed the per-frame allocations.
+// Keeping this helper local to encoder_test.go avoids importing the bench
+// package and the resulting test-only dependency cycle.
+func makeMultiResAllocFrame(width int, height int, index int) Image {
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	img := Image{
+		Width:   width,
+		Height:  height,
+		Y:       make([]byte, width*height),
+		U:       make([]byte, uvWidth*uvHeight),
+		V:       make([]byte, uvWidth*uvHeight),
+		YStride: width,
+		UStride: uvWidth,
+		VStride: uvWidth,
+	}
+	for row := range height {
+		for col := range width {
+			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
+		}
+	}
+	for row := range uvHeight {
+		for col := range uvWidth {
+			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
+			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
+		}
+	}
+	return img
+}
+
+// BenchmarkEncodeInto is the parity-close-r15-d alloc-tracking sweep across
+// the same resolutions that TestEncodeIntoMultiResolutionAllocatesZero
+// guards. Run with `-benchmem -count=10 -benchtime=200x` to confirm
+// allocs/op == 0 at all sizes after the encoder is warm. Each subtest covers
+// a single resolution with CpuUsed=8 (the bench-harness default); the
+// AllocsPerRun test above sweeps the CpuUsed band.
+func BenchmarkEncodeInto(b *testing.B) {
+	resolutions := []struct {
+		name string
+		w, h int
+	}{
+		{"320x240", 320, 240},
+		{"640x480", 640, 480},
+		{"1280x720", 1280, 720},
+		{"1920x1080", 1920, 1080},
+	}
+	for _, rc := range resolutions {
+		rc := rc
+		b.Run(rc.name, func(b *testing.B) {
+			e := newSizedTestEncoder(b, rc.w, rc.h)
+			defer e.Close()
+			if err := e.SetKeyFrameInterval(0); err != nil {
+				b.Fatalf("SetKeyFrameInterval returned error: %v", err)
+			}
+			const cycle = 6
+			srcs := make([]Image, cycle)
+			for i := range srcs {
+				srcs[i] = makeMultiResAllocFrame(rc.w, rc.h, i)
+			}
+			dst := make([]byte, rc.w*rc.h*6+4096)
+			// Warm the encoder so the steady-state hot path is what the
+			// benchmark measures (matches govpx-bench which also reads
+			// MemStats only after a warm pre-pass).
+			if _, err := e.EncodeInto(dst, srcs[0], 0, 1, 0); err != nil {
+				b.Fatalf("key EncodeInto returned error: %v", err)
+			}
+			for i := 1; i < cycle; i++ {
+				if _, err := e.EncodeInto(dst, srcs[i], uint64(i), 1, 0); err != nil {
+					b.Fatalf("warmup EncodeInto returned error: %v", err)
+				}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			pts := uint64(cycle)
+			for i := 0; i < b.N; i++ {
+				if _, err := e.EncodeInto(dst, srcs[i%cycle], pts, 1, 0); err != nil {
+					b.Fatalf("steady-state EncodeInto returned error: %v", err)
+				}
+				pts++
 			}
 		})
 	}
