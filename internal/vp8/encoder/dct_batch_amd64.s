@@ -47,14 +47,14 @@ batchLoop:
 	PSLLW	$3, X3
 
 	MOVO	X0, X1
-	PMADDWL	fdct4x4_mult_add<>(SB), X0
-	PMADDWL	fdct4x4_mult_sub<>(SB), X1
+	PMADDWL	fdct4x4_mult_add(SB), X0
+	PMADDWL	fdct4x4_mult_sub(SB), X1
 	MOVO	X3, X4
-	PMADDWL	fdct4x4_5352_2217<>(SB), X3
-	PMADDWL	fdct4x4_2217_neg5352<>(SB), X4
+	PMADDWL	fdct4x4_5352_2217(SB), X3
+	PMADDWL	fdct4x4_2217_neg5352(SB), X4
 
-	PADDL	fdct4x4_14500<>(SB), X3
-	PADDL	fdct4x4_7500<>(SB), X4
+	PADDL	fdct4x4_14500(SB), X3
+	PADDL	fdct4x4_7500(SB), X4
 	PSRAL	$12, X3
 	PSRAL	$12, X4
 
@@ -86,22 +86,22 @@ batchLoop:
 	PSHUFHW	$0xd8, X3, X3
 
 	MOVO	X0, X1
-	PMADDWL	fdct4x4_mult_add<>(SB), X0
-	PMADDWL	fdct4x4_mult_sub<>(SB), X1
+	PMADDWL	fdct4x4_mult_add(SB), X0
+	PMADDWL	fdct4x4_mult_sub(SB), X1
 
 	PXOR	X4, X4
-	PADDL	fdct4x4_7<>(SB), X0
-	PADDL	fdct4x4_7<>(SB), X1
+	PADDL	fdct4x4_7(SB), X0
+	PADDL	fdct4x4_7(SB), X1
 	PCMPEQW	X4, X2
 	PSRAL	$4, X0
 	PSRAL	$4, X1
-	PANDN	fdct4x4_cmp_mask<>(SB), X2
+	PANDN	fdct4x4_cmp_mask(SB), X2
 
 	MOVO	X3, X4
-	PMADDWL	fdct4x4_5352_2217<>(SB), X3
-	PMADDWL	fdct4x4_2217_neg5352<>(SB), X4
-	PADDL	fdct4x4_12000<>(SB), X3
-	PADDL	fdct4x4_51000<>(SB), X4
+	PMADDWL	fdct4x4_5352_2217(SB), X3
+	PMADDWL	fdct4x4_2217_neg5352(SB), X4
+	PADDL	fdct4x4_12000(SB), X3
+	PADDL	fdct4x4_51000(SB), X4
 	PACKSSLW	X1, X0
 	PSRAL	$16, X3
 	PSRAL	$16, X4

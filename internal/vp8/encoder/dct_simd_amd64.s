@@ -18,74 +18,74 @@
 // (5352, 2217) low/high int16 pairs — PMADDWD multiplier: when paired
 // with (d, c) input pairs gives d*5352 + c*2217 = c*2217 + d*5352.
 //   5352 = 0x14e8 ; 2217 = 0x08a9 ; little-endian dword = 0x08a914e8.
-DATA  fdct4x4_5352_2217<>+0x00(SB)/4, $0x08a914e8
-DATA  fdct4x4_5352_2217<>+0x04(SB)/4, $0x08a914e8
-DATA  fdct4x4_5352_2217<>+0x08(SB)/4, $0x08a914e8
-DATA  fdct4x4_5352_2217<>+0x0c(SB)/4, $0x08a914e8
-GLOBL fdct4x4_5352_2217<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_5352_2217+0x00(SB)/4, $0x08a914e8
+DATA  fdct4x4_5352_2217+0x04(SB)/4, $0x08a914e8
+DATA  fdct4x4_5352_2217+0x08(SB)/4, $0x08a914e8
+DATA  fdct4x4_5352_2217+0x0c(SB)/4, $0x08a914e8
+GLOBL fdct4x4_5352_2217(SB), RODATA|NOPTR, $16
 
 // (2217, -5352) low/high int16 pairs — paired with (d, c) gives
 // d*2217 + c*(-5352) = d*2217 - c*5352.
 //   2217 = 0x08a9 ; -5352 = 0xeb18 ; little-endian dword = 0xeb1808a9.
-DATA  fdct4x4_2217_neg5352<>+0x00(SB)/4, $0xeb1808a9
-DATA  fdct4x4_2217_neg5352<>+0x04(SB)/4, $0xeb1808a9
-DATA  fdct4x4_2217_neg5352<>+0x08(SB)/4, $0xeb1808a9
-DATA  fdct4x4_2217_neg5352<>+0x0c(SB)/4, $0xeb1808a9
-GLOBL fdct4x4_2217_neg5352<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_2217_neg5352+0x00(SB)/4, $0xeb1808a9
+DATA  fdct4x4_2217_neg5352+0x04(SB)/4, $0xeb1808a9
+DATA  fdct4x4_2217_neg5352+0x08(SB)/4, $0xeb1808a9
+DATA  fdct4x4_2217_neg5352+0x0c(SB)/4, $0xeb1808a9
+GLOBL fdct4x4_2217_neg5352(SB), RODATA|NOPTR, $16
 
 // 8 x int16 of 1, used as PMADDWD multiplier for "a + b".
-DATA  fdct4x4_mult_add<>+0x00(SB)/4, $0x00010001
-DATA  fdct4x4_mult_add<>+0x04(SB)/4, $0x00010001
-DATA  fdct4x4_mult_add<>+0x08(SB)/4, $0x00010001
-DATA  fdct4x4_mult_add<>+0x0c(SB)/4, $0x00010001
-GLOBL fdct4x4_mult_add<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_mult_add+0x00(SB)/4, $0x00010001
+DATA  fdct4x4_mult_add+0x04(SB)/4, $0x00010001
+DATA  fdct4x4_mult_add+0x08(SB)/4, $0x00010001
+DATA  fdct4x4_mult_add+0x0c(SB)/4, $0x00010001
+GLOBL fdct4x4_mult_add(SB), RODATA|NOPTR, $16
 
 // 8 x int16 alternating 1,-1, used as PMADDWD multiplier for "a - b".
-DATA  fdct4x4_mult_sub<>+0x00(SB)/4, $0xffff0001
-DATA  fdct4x4_mult_sub<>+0x04(SB)/4, $0xffff0001
-DATA  fdct4x4_mult_sub<>+0x08(SB)/4, $0xffff0001
-DATA  fdct4x4_mult_sub<>+0x0c(SB)/4, $0xffff0001
-GLOBL fdct4x4_mult_sub<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_mult_sub+0x00(SB)/4, $0xffff0001
+DATA  fdct4x4_mult_sub+0x04(SB)/4, $0xffff0001
+DATA  fdct4x4_mult_sub+0x08(SB)/4, $0xffff0001
+DATA  fdct4x4_mult_sub+0x0c(SB)/4, $0xffff0001
+GLOBL fdct4x4_mult_sub(SB), RODATA|NOPTR, $16
 
 // 4 x i32 = 14500 / 7500 / 12000 / 51000 rounding biases.
-DATA  fdct4x4_14500<>+0x00(SB)/4, $14500
-DATA  fdct4x4_14500<>+0x04(SB)/4, $14500
-DATA  fdct4x4_14500<>+0x08(SB)/4, $14500
-DATA  fdct4x4_14500<>+0x0c(SB)/4, $14500
-GLOBL fdct4x4_14500<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_14500+0x00(SB)/4, $14500
+DATA  fdct4x4_14500+0x04(SB)/4, $14500
+DATA  fdct4x4_14500+0x08(SB)/4, $14500
+DATA  fdct4x4_14500+0x0c(SB)/4, $14500
+GLOBL fdct4x4_14500(SB), RODATA|NOPTR, $16
 
-DATA  fdct4x4_7500<>+0x00(SB)/4, $7500
-DATA  fdct4x4_7500<>+0x04(SB)/4, $7500
-DATA  fdct4x4_7500<>+0x08(SB)/4, $7500
-DATA  fdct4x4_7500<>+0x0c(SB)/4, $7500
-GLOBL fdct4x4_7500<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_7500+0x00(SB)/4, $7500
+DATA  fdct4x4_7500+0x04(SB)/4, $7500
+DATA  fdct4x4_7500+0x08(SB)/4, $7500
+DATA  fdct4x4_7500+0x0c(SB)/4, $7500
+GLOBL fdct4x4_7500(SB), RODATA|NOPTR, $16
 
-DATA  fdct4x4_12000<>+0x00(SB)/4, $12000
-DATA  fdct4x4_12000<>+0x04(SB)/4, $12000
-DATA  fdct4x4_12000<>+0x08(SB)/4, $12000
-DATA  fdct4x4_12000<>+0x0c(SB)/4, $12000
-GLOBL fdct4x4_12000<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_12000+0x00(SB)/4, $12000
+DATA  fdct4x4_12000+0x04(SB)/4, $12000
+DATA  fdct4x4_12000+0x08(SB)/4, $12000
+DATA  fdct4x4_12000+0x0c(SB)/4, $12000
+GLOBL fdct4x4_12000(SB), RODATA|NOPTR, $16
 
-DATA  fdct4x4_51000<>+0x00(SB)/4, $51000
-DATA  fdct4x4_51000<>+0x04(SB)/4, $51000
-DATA  fdct4x4_51000<>+0x08(SB)/4, $51000
-DATA  fdct4x4_51000<>+0x0c(SB)/4, $51000
-GLOBL fdct4x4_51000<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_51000+0x00(SB)/4, $51000
+DATA  fdct4x4_51000+0x04(SB)/4, $51000
+DATA  fdct4x4_51000+0x08(SB)/4, $51000
+DATA  fdct4x4_51000+0x0c(SB)/4, $51000
+GLOBL fdct4x4_51000(SB), RODATA|NOPTR, $16
 
 // 4 x i32 of 7, the column-pass +7 bias before >>4 (PSRAD by 4).
-DATA  fdct4x4_7<>+0x00(SB)/4, $7
-DATA  fdct4x4_7<>+0x04(SB)/4, $7
-DATA  fdct4x4_7<>+0x08(SB)/4, $7
-DATA  fdct4x4_7<>+0x0c(SB)/4, $7
-GLOBL fdct4x4_7<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_7+0x00(SB)/4, $7
+DATA  fdct4x4_7+0x04(SB)/4, $7
+DATA  fdct4x4_7+0x08(SB)/4, $7
+DATA  fdct4x4_7+0x0c(SB)/4, $7
+GLOBL fdct4x4_7(SB), RODATA|NOPTR, $16
 
 // 8 x int16 mask: low 4 lanes = 1, high 4 lanes = 0. ANDN result with
 // (d == 0) compare result -> low 4 lanes get 1 where d != 0, high zeros.
-DATA  fdct4x4_cmp_mask<>+0x00(SB)/4, $0x00010001
-DATA  fdct4x4_cmp_mask<>+0x04(SB)/4, $0x00010001
-DATA  fdct4x4_cmp_mask<>+0x08(SB)/4, $0x00000000
-DATA  fdct4x4_cmp_mask<>+0x0c(SB)/4, $0x00000000
-GLOBL fdct4x4_cmp_mask<>(SB), RODATA|NOPTR, $16
+DATA  fdct4x4_cmp_mask+0x00(SB)/4, $0x00010001
+DATA  fdct4x4_cmp_mask+0x04(SB)/4, $0x00010001
+DATA  fdct4x4_cmp_mask+0x08(SB)/4, $0x00000000
+DATA  fdct4x4_cmp_mask+0x0c(SB)/4, $0x00000000
+GLOBL fdct4x4_cmp_mask(SB), RODATA|NOPTR, $16
 
 // forwardDCT4x4SSE2 ABI ($0-24):
 //   input+0(FP)   *int16
@@ -128,14 +128,14 @@ TEXT ·forwardDCT4x4SSE2(SB), NOSPLIT, $0-24
 
 	// op[0] = a1+b1 ; op[2] = a1-b1 (via PMADDWD with [1,1] / [1,-1]).
 	MOVO	X0, X1
-	PMADDWL	fdct4x4_mult_add<>(SB), X0
-	PMADDWL	fdct4x4_mult_sub<>(SB), X1
+	PMADDWL	fdct4x4_mult_add(SB), X0
+	PMADDWL	fdct4x4_mult_sub(SB), X1
 	MOVO	X3, X4
-	PMADDWL	fdct4x4_5352_2217<>(SB), X3      // c1*2217 + d1*5352
-	PMADDWL	fdct4x4_2217_neg5352<>(SB), X4   // d1*2217 - c1*5352
+	PMADDWL	fdct4x4_5352_2217(SB), X3      // c1*2217 + d1*5352
+	PMADDWL	fdct4x4_2217_neg5352(SB), X4   // d1*2217 - c1*5352
 
-	PADDL	fdct4x4_14500<>(SB), X3
-	PADDL	fdct4x4_7500<>(SB), X4
+	PADDL	fdct4x4_14500(SB), X3
+	PADDL	fdct4x4_7500(SB), X4
 	PSRAL	$12, X3
 	PSRAL	$12, X4
 
@@ -168,25 +168,25 @@ TEXT ·forwardDCT4x4SSE2(SB), NOSPLIT, $0-24
 	PSHUFHW	$0xd8, X3, X3                   // X3 = c1 d1 c1 d1 c1 d1 c1 d1
 
 	MOVO	X0, X1
-	PMADDWL	fdct4x4_mult_add<>(SB), X0      // a1+b1
-	PMADDWL	fdct4x4_mult_sub<>(SB), X1      // a1-b1
+	PMADDWL	fdct4x4_mult_add(SB), X0      // a1+b1
+	PMADDWL	fdct4x4_mult_sub(SB), X1      // a1-b1
 
 	PXOR	X4, X4
-	PADDL	fdct4x4_7<>(SB), X0
-	PADDL	fdct4x4_7<>(SB), X1
+	PADDL	fdct4x4_7(SB), X0
+	PADDL	fdct4x4_7(SB), X1
 	PCMPEQW	X4, X2                          // X2 = -1 in lanes where d == 0
 	PSRAL	$4, X0                          // (a1+b1+7)>>4
 	PSRAL	$4, X1                          // (a1-b1+7)>>4
 	// Build (d != 0) mask in low 4 lanes:
 	// PANDN dst, src does dst = (~dst) & src. With X2 = -1 where d == 0,
 	// we want (~X2) & cmp_mask -> 1 in lanes where d != 0.
-	PANDN	fdct4x4_cmp_mask<>(SB), X2
+	PANDN	fdct4x4_cmp_mask(SB), X2
 
 	MOVO	X3, X4
-	PMADDWL	fdct4x4_5352_2217<>(SB), X3     // c1*2217 + d1*5352
-	PMADDWL	fdct4x4_2217_neg5352<>(SB), X4  // d1*2217 - c1*5352
-	PADDL	fdct4x4_12000<>(SB), X3
-	PADDL	fdct4x4_51000<>(SB), X4
+	PMADDWL	fdct4x4_5352_2217(SB), X3     // c1*2217 + d1*5352
+	PMADDWL	fdct4x4_2217_neg5352(SB), X4  // d1*2217 - c1*5352
+	PADDL	fdct4x4_12000(SB), X3
+	PADDL	fdct4x4_51000(SB), X4
 	PACKSSLW	X1, X0                  // X0 = op[8] op[0]
 	PSRAL	$16, X3
 	PSRAL	$16, X4
