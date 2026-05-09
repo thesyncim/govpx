@@ -2809,6 +2809,84 @@ func TestEstimateInterResidualRDAccountingEmptyCoeffSkipBacksOutTokenRates(t *te
 	}
 }
 
+func TestAddInterResidualToAnalysisMacroblockMatchesFullReconstruct(t *testing.T) {
+	cases := []struct {
+		name string
+		mode vp8enc.InterFrameMacroblockMode
+	}{
+		{
+			name: "WholeMV",
+			mode: vp8enc.InterFrameMacroblockMode{
+				RefFrame: vp8common.LastFrame,
+				Mode:     vp8common.ZeroMV,
+				UVMode:   vp8common.DCPred,
+			},
+		},
+		{
+			name: "SplitMV",
+			mode: vp8enc.InterFrameMacroblockMode{
+				RefFrame: vp8common.LastFrame,
+				Mode:     vp8common.SplitMV,
+				UVMode:   vp8common.DCPred,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newSizedTestEncoder(t, 32, 32)
+			var decSeg vp8dec.SegmentationHeader
+			vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: 20}, &decSeg, &e.dequantTables, &e.dequants)
+			src := testImage(32, 32)
+			for i := range src.Y {
+				src.Y[i] = byte(32 + (i*13)%160)
+			}
+			for i := range src.U {
+				src.U[i] = byte(48 + (i*11)%128)
+				src.V[i] = byte(64 + (i*7)%128)
+			}
+			ref := testVP8Frame(t, 32, 32, 96, 90, 170)
+			quant := testRegularMacroblockQuant(t, 20)
+			is4x4 := interFrameModeUses4x4Tokens(tc.mode.Mode)
+
+			var decMode vp8dec.MacroblockMode
+			convertInterFrameMode(&tc.mode, &decMode)
+			predMode := decMode
+			predMode.MBSkipCoeff = true
+			var zeroTokens vp8dec.MacroblockTokens
+			reuse := testVP8Frame(t, 32, 32, 0, 0, 0)
+			if !reconstructInterAnalysisMacroblock(&reuse.Img, &ref.Img, 0, 0, &predMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
+				t.Fatalf("predictor reconstruction returned false")
+			}
+
+			var coeffs vp8enc.MacroblockCoefficients
+			stats := buildPredictedMacroblockCoefficientsRD(
+				&vp8tables.DefaultCoefProbs, sourceImageFromPublic(src), 0, 0, &reuse.Img,
+				nil, nil, &quant, 20, 0, interZbinModeBoost(&tc.mode),
+				is4x4, false, false, false, &coeffs,
+			)
+			if stats.tteob == 0 {
+				t.Fatalf("test fixture produced empty residual")
+			}
+
+			mode := tc.mode
+			mode.MBSkipCoeff = false
+			convertInterFrameMode(&mode, &decMode)
+			var tokens vp8dec.MacroblockTokens
+			convertMacroblockCoefficients(&coeffs, is4x4, &tokens)
+
+			full := testVP8Frame(t, 32, 32, 0, 0, 0)
+			if !reconstructInterAnalysisMacroblock(&full.Img, &ref.Img, 0, 0, &decMode, &tokens, &e.dequants[0], &e.reconstructScratch) {
+				t.Fatalf("full reconstruction returned false")
+			}
+			if !addInterResidualToAnalysisMacroblock(&reuse.Img, 0, 0, &decMode, &tokens, &e.dequants[0], &e.reconstructScratch) {
+				t.Fatalf("residual-only reconstruction returned false")
+			}
+			assertImagesEqual(t, "residual-only reconstruction", publicImageFromVP8(&full.Img), publicImageFromVP8(&reuse.Img))
+		})
+	}
+}
+
 func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {

@@ -37,10 +37,18 @@ func SixTapPredict4x4(src []byte, srcStride int, xoffset int, yoffset int, dst [
 }
 
 func SixTapPredict16x8(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset == 0 && yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 16, 8)
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 8)
 }
 
 func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset == 0 && yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 8, 16)
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 16)
 }
 
@@ -85,6 +93,13 @@ func bilinearPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []
 			v := (int(tmp[tmpRow+x])*int(vFilter[0]) + int(tmp[tmpRow+width+x])*int(vFilter[1]) + tables.FilterWeight/2) >> tables.FilterShift
 			dst[dstRow+x] = uint8(v)
 		}
+	}
+}
+
+func copyCentralBlock(src []byte, srcStride int, dst []byte, dstStride int, width int, height int) {
+	srcOffset := 2*srcStride + 2
+	for y := range height {
+		copy(dst[y*dstStride:y*dstStride+width], src[srcOffset+y*srcStride:srcOffset+y*srcStride+width])
 	}
 }
 

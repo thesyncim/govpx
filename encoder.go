@@ -3969,29 +3969,30 @@ func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionI
 // loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy
 // of the analysis image (full frame or partial-frame window depending on
 // `partial`) and returns the Y SSE between the source and the filtered
-// buffer. The supplied segmentation must mirror the segmentation that
+// buffer. Level 0 skips the copy and scores the analysis image directly
+// because no filtering can mutate the trial buffer. The supplied segmentation
+// must mirror the segmentation that
 // actually fires at reconstruction time so the per-segment LF deltas
 // (e.g. cyclic refresh's MB_LVL_ALT_LF[1] = lf_adjustment) modulate the
 // per-MB filter level the same way libvpx's vp8cx_set_alt_lf_level +
 // vp8_loop_filter_frame_init does inside vp8cx_pick_filter_level.
 func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig) (int, error) {
+	if level == 0 {
+		return loopFilterLumaSSE(src, &e.analysis.Img, rows, cols, partial), nil
+	}
 	if partial {
 		startRow, rowCount := loopFilterPartialFrameWindow(rows)
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
-		if level > 0 {
-			header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-			if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount); err != nil {
-				return 0, ErrInvalidConfig
-			}
+		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
+		if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount); err != nil {
+			return 0, ErrInvalidConfig
 		}
 		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true), nil
 	}
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
-	if level > 0 {
-		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-		if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
-			return 0, ErrInvalidConfig
-		}
+	header := e.encoderLoopFilterHeader(uint8(level), sharpness)
+	if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
+		return 0, ErrInvalidConfig
 	}
 	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, false), nil
 }

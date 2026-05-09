@@ -428,7 +428,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return 0, ErrInvalidConfig
 				}
 			} else {
-				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+				if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 			}
@@ -8236,6 +8236,28 @@ func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Im
 		return vp8dec.ReconstructSplitMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
 	}
 	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
+}
+
+// addInterResidualToAnalysisMacroblock assumes img already contains the
+// matching inter predictor for mode at row/col.
+func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	if img == nil || mode == nil || tokens == nil || dequant == nil || scratch == nil || mode.RefFrame == vp8common.IntraFrame {
+		return false
+	}
+	switch mode.Mode {
+	case vp8common.ZeroMV, vp8common.NearestMV, vp8common.NearMV, vp8common.NewMV, vp8common.SplitMV:
+	default:
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return true
+	}
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	vp8dec.TransformMacroblockTokens(tokens, dequant, mode.Is4x4 || mode.Mode == vp8common.SplitMV, &scratch.Residual)
+	vp8dec.AddMacroblockResidual(tokens, &scratch.Residual, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
+	return true
 }
 
 func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {

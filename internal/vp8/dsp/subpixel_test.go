@@ -70,6 +70,45 @@ func TestSixTapPredict16x16ZeroOffsetsCopiesCentralBlock(t *testing.T) {
 	}
 }
 
+func TestSixTapPredictRectangularMatchesScalar(t *testing.T) {
+	const stride = 32
+	cases := []struct {
+		name string
+		w, h int
+		fn   func([]byte, int, int, int, []byte, int)
+	}{
+		{"16x8", 16, 8, SixTapPredict16x8},
+		{"8x16", 8, 16, SixTapPredict8x16},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := makeSixTapSource(stride, tc.h+5)
+			dst := make([]byte, tc.h*tc.w)
+			want := make([]byte, tc.h*tc.w)
+
+			for xoff := range 8 {
+				for yoff := range 8 {
+					clear(dst)
+					clear(want)
+
+					tc.fn(src, stride, xoff, yoff, dst, tc.w)
+					sixTapPredict(src, stride, xoff, yoff, want, tc.w, tc.w, tc.h)
+
+					for i := range want {
+						if dst[i] != want[i] {
+							y := i / tc.w
+							x := i % tc.w
+							t.Fatalf("xoff=%d yoff=%d dst[%d,%d] = %d, want %d",
+								xoff, yoff, x, y, dst[i], want[i])
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestSixTapPredictHorizontalHalfPixel(t *testing.T) {
 	const stride = 16
 	src := makeSixTapSource(stride, 9)
@@ -175,6 +214,42 @@ func BenchmarkSixTapPredict16x16(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		SixTapPredict16x16(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict16x8(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict16x8(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict16x8ZeroOffset(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict16x8(src, 32, 0, 0, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict8x16(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict8x16(src, 32, 3, 5, dst, 32)
+	}
+}
+
+func BenchmarkSixTapPredict8x16ZeroOffset(b *testing.B) {
+	src := makeSixTapSource(32, 21)
+	dst := make([]byte, 32*32)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SixTapPredict8x16(src, 32, 0, 0, dst, 32)
 	}
 }
 

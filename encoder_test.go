@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -2594,6 +2595,48 @@ func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
 	want := 4 * 16 * 16 * 3 * 3
 	if got != want {
 		t.Fatalf("partial luma SSE = %d, want %d", got, want)
+	}
+}
+
+func TestLoopFilterTrialLumaSSELevelZeroScoresAnalysisWithoutScratchCopy(t *testing.T) {
+	const width, height = 64, 128
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	required := rows * cols
+
+	src := testImage(width, height)
+	for r := range height {
+		for c := range width {
+			src.Y[r*src.YStride+c] = byte(33 + (r*13+c*3)%170)
+			src.U[(r/2)*src.UStride+(c/2)] = 128
+			src.V[(r/2)*src.VStride+(c/2)] = 128
+		}
+	}
+
+	e := newSizedTestEncoder(t, width, height)
+	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
+		for c := 0; c < e.analysis.Img.CodedWidth; c++ {
+			e.analysis.Img.Y[r*e.analysis.Img.YStride+c] = byte(57 + (r*5+c*11)%160)
+		}
+	}
+	for i := range e.loopFilterPick.Img.Y {
+		e.loopFilterPick.Img.Y[i] = 201
+	}
+	scratchBefore := append([]byte(nil), e.loopFilterPick.Img.Y...)
+
+	srcImg := sourceImageFromPublic(src)
+	for _, partial := range []bool{false, true} {
+		want := loopFilterLumaSSE(srcImg, &e.analysis.Img, rows, cols, partial)
+		got, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 0, 0, rows, cols, required, partial, vp8enc.SegmentationConfig{})
+		if err != nil {
+			t.Fatalf("level zero trial partial=%t returned error: %v", partial, err)
+		}
+		if got != want {
+			t.Fatalf("level zero trial partial=%t SSE = %d, want direct analysis SSE %d", partial, got, want)
+		}
+		if !bytes.Equal(e.loopFilterPick.Img.Y, scratchBefore) {
+			t.Fatalf("level zero trial partial=%t modified loop-filter scratch buffer", partial)
+		}
 	}
 }
 

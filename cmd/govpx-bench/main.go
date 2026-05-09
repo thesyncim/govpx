@@ -33,6 +33,7 @@ type benchConfig struct {
 	BitrateKbps  int
 	Mode         string
 	Decode       bool
+	SkipQuality  bool
 	Threads      int
 	LibvpxVpxenc string
 	LibvpxOracle string
@@ -55,6 +56,8 @@ type benchReport struct {
 	AllocsPerFrame    float64            `json:"allocs_per_frame"`
 	PSNR              float64            `json:"psnr"`
 	SSIM              float64            `json:"ssim"`
+	QualityFrames     int                `json:"quality_frames"`
+	QualitySkipped    bool               `json:"quality_skipped,omitempty"`
 	KeyframeBytes     int                `json:"keyframe_bytes"`
 	AvgInterBytes     float64            `json:"avg_interframe_bytes"`
 	Quantizers        quantizerReport    `json:"quantizers"`
@@ -98,6 +101,7 @@ type referenceReport struct {
 	PSNR                 float64       `json:"psnr"`
 	SSIM                 float64       `json:"ssim"`
 	QualityFrames        int           `json:"quality_frames"`
+	QualitySkipped       bool          `json:"quality_skipped,omitempty"`
 	QualityError         string        `json:"quality_error,omitempty"`
 	KeyframeBytes        int           `json:"keyframe_bytes"`
 	AvgInterBytes        float64       `json:"avg_interframe_bytes"`
@@ -165,33 +169,15 @@ type benchConfigSummary struct {
 
 func main() {
 	cfg := benchConfig{}
-	autoCompare := false
-	buildLibvpx := false
-	cpuProfile := ""
-	memProfile := ""
-	format := "text"
-	flag.StringVar(&format, "format", "text", "output format: text or json")
-	flag.IntVar(&cfg.Width, "width", 64, "frame width")
-	flag.IntVar(&cfg.Height, "height", 64, "frame height")
-	flag.IntVar(&cfg.Frames, "frames", 30, "number of frames")
-	flag.IntVar(&cfg.FPS, "fps", 30, "frame rate")
-	flag.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
-	flag.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
-	flag.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
-	flag.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
-	flag.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
-	flag.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
-	flag.BoolVar(&autoCompare, "auto-libvpx", true, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
-	flag.BoolVar(&buildLibvpx, "build-libvpx", true, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
-	flag.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
-	flag.StringVar(&memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(flag.CommandLine, &cfg, &opts)
 	flag.Parse()
-	if autoCompare {
-		resolveLibvpxDefaults(&cfg, buildLibvpx)
+	if opts.autoCompare {
+		resolveLibvpxDefaults(&cfg, opts.buildLibvpx)
 	}
 
-	if cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
+	if opts.cpuProfile != "" {
+		f, err := os.Create(opts.cpuProfile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "govpx-bench: create cpu profile: %v\n", err)
 			os.Exit(2)
@@ -211,8 +197,8 @@ func main() {
 	} else {
 		report, err = runBenchmark(cfg)
 	}
-	if memProfile != "" {
-		f, err := os.Create(memProfile)
+	if opts.memProfile != "" {
+		f, err := os.Create(opts.memProfile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "govpx-bench: create mem profile: %v\n", err)
 			os.Exit(2)
@@ -229,7 +215,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "govpx-bench: %v\n", err)
 		os.Exit(2)
 	}
-	switch format {
+	switch opts.format {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -248,9 +234,45 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "govpx-bench: unsupported -format %q (want text or json)\n", format)
+		fmt.Fprintf(os.Stderr, "govpx-bench: unsupported -format %q (want text or json)\n", opts.format)
 		os.Exit(2)
 	}
+}
+
+type benchCLIOptions struct {
+	format      string
+	autoCompare bool
+	buildLibvpx bool
+	cpuProfile  string
+	memProfile  string
+}
+
+func defaultBenchCLIOptions() benchCLIOptions {
+	return benchCLIOptions{
+		format:      "text",
+		autoCompare: true,
+		buildLibvpx: true,
+	}
+}
+
+func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOptions) {
+	fs.StringVar(&opts.format, "format", opts.format, "output format: text or json")
+	fs.IntVar(&cfg.Width, "width", 64, "frame width")
+	fs.IntVar(&cfg.Height, "height", 64, "frame height")
+	fs.IntVar(&cfg.Frames, "frames", 30, "number of frames")
+	fs.IntVar(&cfg.FPS, "fps", 30, "frame rate")
+	fs.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
+	fs.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
+	fs.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
+	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
+	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
+	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
+	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
+	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
+	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
+	fs.BoolVar(&opts.buildLibvpx, "build-libvpx", opts.buildLibvpx, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
+	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
+	fs.StringVar(&opts.memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
 }
 
 func formatEncodeReport(r benchReport) string {
@@ -274,10 +296,14 @@ func formatEncodeReport(r benchReport) string {
 			r.OutputBitrateKbps, ref.OutputBitrateKbps, formatRatio(cmp.BitrateRatioVsReference, "x"))
 		fmt.Fprintf(tw, "bitrate err %%\t%+.2f\t%+.2f\t%+.2f pp\n",
 			r.BitrateErrorPct, ref.BitrateErrorPct, cmp.BitrateErrorPctDelta)
-		fmt.Fprintf(tw, "PSNR (dB)\t%.2f\t%.2f\t%+.2f\n",
-			r.PSNR, ref.PSNR, cmp.PSNRDeltaDB)
-		fmt.Fprintf(tw, "SSIM\t%.5f\t%.5f\t%+.5f\n",
-			r.SSIM, ref.SSIM, cmp.SSIMDelta)
+		if r.QualitySkipped || ref.QualitySkipped {
+			fmt.Fprintln(tw, "quality\t(skipped)\t(skipped)\t-")
+		} else {
+			fmt.Fprintf(tw, "PSNR (dB)\t%.2f\t%.2f\t%+.2f\n",
+				r.PSNR, ref.PSNR, cmp.PSNRDeltaDB)
+			fmt.Fprintf(tw, "SSIM\t%.5f\t%.5f\t%+.5f\n",
+				r.SSIM, ref.SSIM, cmp.SSIMDelta)
+		}
 		fmt.Fprintf(tw, "output bytes\t%s\t%s\t%s\n",
 			formatBytes(int64(r.OutputBytes)), formatBytes(int64(ref.OutputBytes)), formatRatio(cmp.OutputBytesRatio, "x"))
 		fmt.Fprintf(tw, "keyframe bytes\t%s\t%s\t%s\n",
@@ -292,8 +318,12 @@ func formatEncodeReport(r benchReport) string {
 		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\n", formatFloat(r.MacroblocksPerSec/1e6, 2))
 		fmt.Fprintf(tw, "output kbps\t%.2f\n", r.OutputBitrateKbps)
 		fmt.Fprintf(tw, "bitrate err %%\t%+.2f\n", r.BitrateErrorPct)
-		fmt.Fprintf(tw, "PSNR (dB)\t%.2f\n", r.PSNR)
-		fmt.Fprintf(tw, "SSIM\t%.5f\n", r.SSIM)
+		if r.QualitySkipped {
+			fmt.Fprintln(tw, "quality\t(skipped)")
+		} else {
+			fmt.Fprintf(tw, "PSNR (dB)\t%.2f\n", r.PSNR)
+			fmt.Fprintf(tw, "SSIM\t%.5f\n", r.SSIM)
+		}
 		fmt.Fprintf(tw, "output bytes\t%s\n", formatBytes(int64(r.OutputBytes)))
 		fmt.Fprintf(tw, "keyframe bytes\t%s\n", formatBytes(int64(r.KeyframeBytes)))
 		fmt.Fprintf(tw, "avg interframe\t%s\n", formatBytes(int64(r.AvgInterBytes)))
@@ -568,9 +598,14 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		}
 	}
 	runtime.ReadMemStats(&memAfter)
-	psnr, ssim, _, err := benchmarkQualityMetrics(cfg, deadline, frames)
-	if err != nil {
-		return benchReport{}, err
+	psnr := 0.0
+	ssim := 0.0
+	qualityFrames := 0
+	if !cfg.SkipQuality {
+		psnr, ssim, qualityFrames, err = benchmarkQualityMetrics(cfg, deadline, frames)
+		if err != nil {
+			return benchReport{}, err
+		}
 	}
 
 	totalLatency := int64(0)
@@ -609,6 +644,8 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		AllocsPerFrame:    float64(memAfter.Mallocs-memBefore.Mallocs) / float64(cfg.Frames),
 		PSNR:              psnr,
 		SSIM:              ssim,
+		QualityFrames:     qualityFrames,
+		QualitySkipped:    cfg.SkipQuality,
 		KeyframeBytes:     keyframeBytes,
 		AvgInterBytes:     avgInter,
 		Quantizers: quantizerReport{
@@ -1044,7 +1081,13 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	if len(sizes) > 1 {
 		avgInter = float64(interBytes) / float64(len(sizes)-1)
 	}
-	psnr, ssim, qualityFrames, qualityErr := referenceQualityMetrics(ivf, frames)
+	psnr := 0.0
+	ssim := 0.0
+	qualityFrames := 0
+	var qualityErr error
+	if !cfg.SkipQuality {
+		psnr, ssim, qualityFrames, qualityErr = referenceQualityMetrics(ivf, frames)
+	}
 	qualityError := ""
 	if qualityErr != nil {
 		qualityError = qualityErr.Error()
@@ -1065,6 +1108,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		PSNR:              psnr,
 		SSIM:              ssim,
 		QualityFrames:     qualityFrames,
+		QualitySkipped:    cfg.SkipQuality,
 		QualityError:      qualityError,
 		KeyframeBytes:     keyframeBytes,
 		AvgInterBytes:     avgInter,

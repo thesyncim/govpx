@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,8 +40,8 @@ func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.AllocsPerFrame != 0 {
 		t.Fatalf("AllocsPerFrame = %f, want 0 for measured encode pass", report.AllocsPerFrame)
 	}
-	if report.PSNR <= 0 || report.SSIM <= 0 || report.SSIM > 1 || report.Quantizers.Min <= 0 || report.Quantizers.Max < report.Quantizers.Min || len(report.QuantizerHist) == 0 {
-		t.Fatalf("quality/quantizer metrics = psnr:%f ssim:%f quant:%+v hist:%v", report.PSNR, report.SSIM, report.Quantizers, report.QuantizerHist)
+	if report.PSNR <= 0 || report.SSIM <= 0 || report.SSIM > 1 || report.QualityFrames != 3 || report.QualitySkipped || report.Quantizers.Min <= 0 || report.Quantizers.Max < report.Quantizers.Min || len(report.QuantizerHist) == 0 {
+		t.Fatalf("quality/quantizer metrics = psnr:%f ssim:%f frames:%d skipped:%v quant:%+v hist:%v", report.PSNR, report.SSIM, report.QualityFrames, report.QualitySkipped, report.Quantizers, report.QuantizerHist)
 	}
 	if _, err := json.Marshal(report); err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
@@ -71,6 +72,9 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	}
 	if report.Reference.PSNR <= 0 || report.Reference.SSIM <= 0 || report.Reference.SSIM > 1 || report.Reference.QualityFrames != 3 || report.Reference.QualityError != "" {
 		t.Fatalf("reference quality = psnr:%f ssim:%f frames:%d err:%q, want 3 decoded quality frames", report.Reference.PSNR, report.Reference.SSIM, report.Reference.QualityFrames, report.Reference.QualityError)
+	}
+	if report.QualitySkipped || report.Reference.QualitySkipped {
+		t.Fatalf("quality skipped = govpx:%v reference:%v, want false by default", report.QualitySkipped, report.Reference.QualitySkipped)
 	}
 	if report.Comparison == nil {
 		t.Fatalf("comparison_vs_reference = nil, want populated when reference is present")
@@ -115,6 +119,95 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 		if !hasFlag(want) {
 			t.Fatalf("parity flags missing %q\nhave: %v", want, report.Reference.ParityFlags)
 		}
+	}
+}
+
+func TestRunBenchmarkSkipQuality(t *testing.T) {
+	report, err := runBenchmark(benchConfig{
+		Width:       16,
+		Height:      16,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		SkipQuality: true,
+	})
+	if err != nil {
+		t.Fatalf("runBenchmark returned error: %v", err)
+	}
+	if !report.QualitySkipped {
+		t.Fatalf("QualitySkipped = false, want true")
+	}
+	if report.PSNR != 0 || report.SSIM != 0 || report.QualityFrames != 0 {
+		t.Fatalf("quality = psnr:%f ssim:%f frames:%d, want all zero when skipped", report.PSNR, report.SSIM, report.QualityFrames)
+	}
+	if report.NSPerFrame <= 0 || report.EncodeFPS <= 0 || report.OutputBytes <= 0 || report.EncodedFrames == 0 {
+		t.Fatalf("encode metrics = ns:%d fps:%f bytes:%d frames:%d, want populated", report.NSPerFrame, report.EncodeFPS, report.OutputBytes, report.EncodedFrames)
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "quality") || !strings.Contains(text, "(skipped)") {
+		t.Fatalf("formatted report did not mark skipped quality:\n%s", text)
+	}
+}
+
+func TestRunBenchmarkSkipQualityIncludesLibvpxReference(t *testing.T) {
+	report, err := runBenchmark(benchConfig{
+		Width:        16,
+		Height:       16,
+		Frames:       3,
+		FPS:          30,
+		BitrateKbps:  1200,
+		Mode:         "realtime",
+		SkipQuality:  true,
+		LibvpxVpxenc: fakeVpxencPath(t),
+	})
+	if err != nil {
+		t.Fatalf("runBenchmark returned error: %v", err)
+	}
+	if report.Reference == nil || report.Comparison == nil {
+		t.Fatalf("reference/comparison = %v/%v, want populated", report.Reference, report.Comparison)
+	}
+	if !report.QualitySkipped || !report.Reference.QualitySkipped {
+		t.Fatalf("quality skipped = govpx:%v reference:%v, want both true", report.QualitySkipped, report.Reference.QualitySkipped)
+	}
+	if report.PSNR != 0 || report.SSIM != 0 || report.QualityFrames != 0 {
+		t.Fatalf("govpx quality = psnr:%f ssim:%f frames:%d, want zero", report.PSNR, report.SSIM, report.QualityFrames)
+	}
+	if report.Reference.PSNR != 0 || report.Reference.SSIM != 0 || report.Reference.QualityFrames != 0 || report.Reference.QualityError != "" {
+		t.Fatalf("reference quality = psnr:%f ssim:%f frames:%d err:%q, want skipped zeros", report.Reference.PSNR, report.Reference.SSIM, report.Reference.QualityFrames, report.Reference.QualityError)
+	}
+	if report.Comparison.PSNRDeltaDB != 0 || report.Comparison.SSIMDelta != 0 {
+		t.Fatalf("quality deltas = psnr:%f ssim:%f, want zero when skipped", report.Comparison.PSNRDeltaDB, report.Comparison.SSIMDelta)
+	}
+	if report.Comparison.NSPerFrameRatio <= 0 || report.Reference.NSPerFrame <= 0 {
+		t.Fatalf("timing comparison = %+v reference ns=%d, want populated", *report.Comparison, report.Reference.NSPerFrame)
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "(skipped)") {
+		t.Fatalf("formatted reference report did not mark skipped quality:\n%s", text)
+	}
+}
+
+func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
+	for _, flagName := range []string{"-encode-only", "-skip-quality"} {
+		t.Run(flagName, func(t *testing.T) {
+			fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+			cfg := benchConfig{}
+			opts := defaultBenchCLIOptions()
+			registerBenchFlags(fs, &cfg, &opts)
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-auto-libvpx=false"}); err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if !cfg.SkipQuality {
+				t.Fatalf("SkipQuality = false, want true for %s", flagName)
+			}
+			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 {
+				t.Fatalf("parsed dimensions = %dx%d frames=%d, want 32x24 frames=7", cfg.Width, cfg.Height, cfg.Frames)
+			}
+			if opts.format != "json" || opts.autoCompare {
+				t.Fatalf("opts = %+v, want format=json autoCompare=false", opts)
+			}
+		})
 	}
 }
 
