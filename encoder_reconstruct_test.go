@@ -111,6 +111,26 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 	}
 }
 
+func TestInterAnalysisSearchConfigUsesHexForThreadedRealtimeRows(t *testing.T) {
+	serial := &VP8Encoder{
+		opts: EncoderOptions{
+			Width:    1280,
+			Height:   720,
+			Deadline: DeadlineRealtime,
+			CpuUsed:  8,
+		},
+	}
+	if got := serial.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchNstep || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("serial 720p speed=4 search = full %d fractional %d, want nstep+iterative", got.fullPixelSearch, got.fractionalSearch)
+	}
+
+	threaded := *serial
+	threaded.threadedRowsActive = true
+	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("threaded 720p speed=4 search = full %d fractional %d, want hex+iterative", got.fullPixelSearch, got.fractionalSearch)
+	}
+}
+
 func TestInterFrameImprovedMVPredictionGateMirrorsLibvpxQualities(t *testing.T) {
 	tests := []struct {
 		name     string

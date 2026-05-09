@@ -627,6 +627,12 @@ type VP8Encoder struct {
 	// the rate-row oracle trace. Updated only when the trace is enabled.
 	oracleTraceTotalByteCount int64
 
+	// threadedRowsActive marks the worker-private encoder view used by the
+	// row-threaded inter-frame builder. It is false on the canonical encoder
+	// state so Threads=1 remains byte-identical and does not branch into
+	// threaded-only search features.
+	threadedRowsActive bool
+
 	// rowWorkers is the row-parallel encoder worker pool. Allocated
 	// only when EncoderOptions.Threads >= 2 so the canonical
 	// Threads=1 path stays zero-cost (no goroutine spawn, no

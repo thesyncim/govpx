@@ -76,6 +76,7 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	}
 	rs.enc = *e
 	rs.enc.rowWorkers = nil
+	rs.enc.threadedRowsActive = true
 	rs.enc.reconstructScratch = rs.scratch
 	rs.enc.oracleTraceMBBuffer = nil
 	rs.enc.oracleTraceInterCandidateBuffer = nil

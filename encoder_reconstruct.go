@@ -812,18 +812,19 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	}
 	// R17-A (parity-close-r17-a-picker-speed-features): switch the realtime
 	// fast picker's full-pel search from NSTEP to HEX at the auto-selected
-	// Speed=4 floor, but only on frames that have enough macroblocks for
+	// Speed=4 floor, but only when either the frame has enough macroblocks for
 	// the picker's mode dispersal to remain libvpx-shaped under hex's local-
-	// minimum behavior. The bench pins govpx's auto-select Speed at 4 and
-	// the previous NSTEP+nine-further-steps walk ran ~70 SAD calls/NEWMV
-	// where libvpx's RT(0)+ path at the matching effective Speed runs the
-	// hex topology (search_param=4, hex_range breaks early once the
+	// minimum behavior or the call is running inside a worker-private
+	// row-threaded encoder view. The bench pins govpx's auto-select Speed at
+	// 4 and the previous NSTEP+nine-further-steps walk ran ~70 SAD
+	// calls/NEWMV where libvpx's RT(0)+ path at the matching effective Speed
+	// runs the hex topology (search_param=4, hex_range breaks early once the
 	// gradient flattens). The NEON SAD kernel is libvpx-fast (~18ns/call);
-	// the per-MB SAD-call count is the actual gap. Step subpel is NOT
-	// enabled at speed=4: the rt-cpu8-128x128-bench-noise inter-mode-
-	// distribution oracle scoreboard pins NEAR/NEAREST percentages within
-	// 4pp of libvpx and Step subpel pushes the dispersal past that gate.
-	// Iterative subpel is preserved.
+	// the per-MB SAD-call count is the actual gap. Step subpel is NOT enabled
+	// at speed=4: the rt-cpu8-128x128-bench-noise inter-mode-distribution
+	// oracle scoreboard pins NEAR/NEAREST percentages within 4pp of libvpx
+	// and Step subpel pushes the dispersal past that gate. Iterative subpel
+	// is preserved.
 	//
 	// The frame-size gate (>= 1080p) keeps the small/mid-frame oracle
 	// scoreboards green:
@@ -836,12 +837,13 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	//     fixture's NEAREST/NEW swap leaks downstream into a token-coding
 	//     EOB sum bump that the L1 dispersal alone misses.
 	// At 1080p the noise averaging keeps both the dispersal and the EOB
-	// sum stable, so the perf win is delivered exactly where the bench
-	// command points: the 1080p fast picker. The 720p bench command still
-	// runs the previous NSTEP+iterative path at parity with the prior
-	// release, so its perf gap is unchanged.
+	// sum stable, so the serial perf win is delivered exactly where the
+	// 1080p fast picker needs it. Threaded rows are already allowed to diverge
+	// from the serial oracle bitstream and use worker-private picker state, so
+	// they can take the same algorithmic win at 720p without adding any
+	// Threads=1 cost.
 	largeFrame := e.opts.Width >= 1920 && e.opts.Height >= 1080
-	if speed >= 4 && largeFrame {
+	if speed >= 4 && (largeFrame || e.threadedRowsActive) {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
 	}
 	if speed > 4 {
