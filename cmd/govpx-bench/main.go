@@ -141,6 +141,10 @@ type decodeReferenceReport struct {
 	MacroblocksPerSec    float64       `json:"macroblocks_per_second"`
 	CodedMegabytesPerSec float64       `json:"coded_megabytes_per_second"`
 	LatencyNS            latencyReport `json:"latency_ns"`
+	TimingSource         string        `json:"timing_source"`
+	WallNSPerFrame       int64         `json:"wall_ns_per_frame"`
+	WallDecodeFPS        float64       `json:"wall_decode_fps"`
+	SubprocessOverheadNS int64         `json:"subprocess_overhead_ns"`
 }
 
 type quantizerReport struct {
@@ -345,6 +349,13 @@ func formatDecodeReport(r decodeBenchReport) string {
 	fmt.Fprintf(&b, "\ngovpx latency   p50=%s  p95=%s  p99=%s  (decoded=%d/%d)\n",
 		formatDuration(r.LatencyNS.P50), formatDuration(r.LatencyNS.P95), formatDuration(r.LatencyNS.P99),
 		r.DecodedFrames, r.Frames)
+	if r.Reference != nil {
+		ref := r.Reference
+		fmt.Fprintf(&b, "libvpx latency  p50=%s  p95=%s  p99=%s\n",
+			formatDuration(ref.LatencyNS.P50), formatDuration(ref.LatencyNS.P95), formatDuration(ref.LatencyNS.P99))
+		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
+			ref.TimingSource, formatDuration(ref.WallNSPerFrame), formatDuration(ref.SubprocessOverheadNS))
+	}
 	if r.AllocsPerFrame > 0 {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
 	}
@@ -1146,18 +1157,70 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 	if err := os.WriteFile(path, ivf, 0o600); err != nil {
 		return decodeReferenceReport{}, err
 	}
+
+	// Warmup invocation primes the file cache and dyld so the measured run
+	// reflects steady-state subprocess overhead. We discard its output and
+	// timing.
+	warm := exec.Command(cfg.LibvpxOracle, "decode-bench", path)
+	warm.Stdout = nil
+	warm.Stderr = nil
+	_ = warm.Run()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command(cfg.LibvpxOracle, "decode-bench", path)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	start := time.Now()
-	cmd := exec.Command(cfg.LibvpxOracle, "decode", path)
-	out, err := cmd.CombinedOutput()
+	err = cmd.Run()
 	elapsed := time.Since(start)
 	if err != nil {
-		return decodeReferenceReport{}, fmt.Errorf("libvpx oracle decode failed: %w\n%s", err, out)
+		return decodeReferenceReport{}, fmt.Errorf("libvpx oracle decode-bench failed: %w\nstderr:\n%s", err, stderr.Bytes())
 	}
-	decodedFrames := countJSONLines(out)
+	decodedFrames := 0
+	if n, perr := strconv.Atoi(strings.TrimSpace(stdout.String())); perr == nil && n > 0 {
+		decodedFrames = n
+	} else {
+		decodedFrames = countJSONLines(stdout.Bytes())
+	}
 	if decodedFrames == 0 {
 		return decodeReferenceReport{}, errors.New("libvpx oracle decoded zero frames")
 	}
-	nsPerFrame := elapsed.Nanoseconds() / int64(frames)
+	wallNS := elapsed.Nanoseconds()
+	wallPerFrame := wallNS / int64(frames)
+	decodeNS := wallNS
+	timingSource := "wall"
+	p50 := wallPerFrame
+	p95 := wallPerFrame
+	p99 := wallPerFrame
+	if t, ok := parseOracleBenchTiming(stderr.Bytes()); ok && t.frames > 0 && t.sumNS > 0 {
+		decodeNS = t.sumNS
+		timingSource = "oracle-bench"
+		if t.p50NS > 0 {
+			p50 = t.p50NS
+		}
+		if t.p95NS > 0 {
+			p95 = t.p95NS
+		}
+		if t.p99NS > 0 {
+			p99 = t.p99NS
+		}
+	}
+	nsPerFrame := decodeNS / int64(frames)
+	if nsPerFrame <= 0 {
+		// Fall back so downstream divisions stay positive.
+		nsPerFrame = wallPerFrame
+		decodeNS = wallNS
+		timingSource = "wall"
+	}
+	overheadNS := wallNS - decodeNS
+	if overheadNS < 0 {
+		overheadNS = 0
+	}
+	wallFPS := 0.0
+	if wallPerFrame > 0 {
+		wallFPS = 1e9 / float64(wallPerFrame)
+	}
 	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	return decodeReferenceReport{
 		Decoder:              "libvpx-vp8",
@@ -1166,13 +1229,64 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 		NSPerFrame:           nsPerFrame,
 		DecodeFPS:            1e9 / float64(nsPerFrame),
 		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
-		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), elapsed.Nanoseconds()),
+		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), decodeNS),
 		LatencyNS: latencyReport{
-			P50: nsPerFrame,
-			P95: nsPerFrame,
-			P99: nsPerFrame,
+			P50: p50,
+			P95: p95,
+			P99: p99,
 		},
+		TimingSource:         timingSource,
+		WallNSPerFrame:       wallPerFrame,
+		WallDecodeFPS:        wallFPS,
+		SubprocessOverheadNS: overheadNS,
 	}, nil
+}
+
+type oracleBenchTiming struct {
+	frames  int
+	decoded int
+	sumNS   int64
+	loopNS  int64
+	p50NS   int64
+	p95NS   int64
+	p99NS   int64
+}
+
+// The govpx-vpx-oracle decode-bench subcommand emits one summary line on
+// stderr like
+//
+//	oracle-bench frames=30 decoded=30 sum_ns=2456789 loop_ns=2480010 p50_ns=78900 p95_ns=120100 p99_ns=140000
+//
+// where sum_ns is the cumulative per-frame decode time (excluding subprocess
+// startup, file read, and IVF parsing). govpx-bench uses sum_ns as libvpx's
+// ns/frame number so the comparison is decode-loop vs decode-loop instead of
+// in-process call vs whole-subprocess wall time.
+var oracleBenchRE = regexp.MustCompile(`oracle-bench\s+frames=(\d+)\s+decoded=(\d+)\s+sum_ns=(\d+)\s+loop_ns=(\d+)\s+p50_ns=(\d+)\s+p95_ns=(\d+)\s+p99_ns=(\d+)`)
+
+func parseOracleBenchTiming(stderr []byte) (oracleBenchTiming, bool) {
+	m := oracleBenchRE.FindSubmatch(stderr)
+	if m == nil {
+		return oracleBenchTiming{}, false
+	}
+	frames, _ := strconv.Atoi(string(m[1]))
+	decoded, _ := strconv.Atoi(string(m[2]))
+	sumNS, _ := strconv.ParseInt(string(m[3]), 10, 64)
+	loopNS, _ := strconv.ParseInt(string(m[4]), 10, 64)
+	p50, _ := strconv.ParseInt(string(m[5]), 10, 64)
+	p95, _ := strconv.ParseInt(string(m[6]), 10, 64)
+	p99, _ := strconv.ParseInt(string(m[7]), 10, 64)
+	if frames <= 0 || sumNS <= 0 {
+		return oracleBenchTiming{}, false
+	}
+	return oracleBenchTiming{
+		frames:  frames,
+		decoded: decoded,
+		sumNS:   sumNS,
+		loopNS:  loopNS,
+		p50NS:   p50,
+		p95NS:   p95,
+		p99NS:   p99,
+	}, true
 }
 
 func countJSONLines(out []byte) int {

@@ -529,10 +529,14 @@ func TestFakeLibvpxOracleHelper(t *testing.T) {
 	if os.Getenv("GOVPX_FAKE_LIBVPX_ORACLE") != "1" {
 		return
 	}
+	subcmd := ""
 	input := ""
 	for i, arg := range os.Args {
-		if arg == "decode" && i+1 < len(os.Args) {
-			input = os.Args[i+1]
+		if arg == "decode" || arg == "decode-bench" {
+			subcmd = arg
+			if i+1 < len(os.Args) {
+				input = os.Args[i+1]
+			}
 		}
 	}
 	if input == "" {
@@ -548,6 +552,19 @@ func TestFakeLibvpxOracleHelper(t *testing.T) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fake libvpx oracle parse input: %v\n", err)
 		os.Exit(1)
+	}
+	if subcmd == "decode-bench" {
+		// Emit a deterministic oracle-bench summary so the bench's
+		// stderr parser has something to read. 500 us/frame is
+		// arbitrary but small enough to leave room for non-zero
+		// subprocess overhead in the wall-clock measurement.
+		const nsPerFrame = int64(500 * time.Microsecond)
+		sumNS := nsPerFrame * int64(len(sizes))
+		fmt.Fprintf(os.Stderr,
+			"oracle-bench frames=%d decoded=%d sum_ns=%d loop_ns=%d p50_ns=%d p95_ns=%d p99_ns=%d\n",
+			len(sizes), len(sizes), sumNS, sumNS, nsPerFrame, nsPerFrame, nsPerFrame)
+		fmt.Println(len(sizes))
+		os.Exit(0)
 	}
 	for i := range sizes {
 		fmt.Printf("{\"frame\":%d}\n", i)

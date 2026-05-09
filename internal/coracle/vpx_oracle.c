@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
@@ -373,8 +374,164 @@ static int decode_ivf(const char *path, vpx_codec_flags_t flags, vp8_postproc_cf
 	return 0;
 }
 
+// monotonic_ns returns CLOCK_MONOTONIC in nanoseconds. Used by the
+// decode-bench subcommand so the govpx-bench harness can attribute
+// only the decode loop (not subprocess startup or file I/O) to
+// libvpx's ns/frame number.
+static int64_t monotonic_ns(void) {
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+}
+
+static int compare_int64(const void *a, const void *b) {
+	int64_t x = *(const int64_t *)a;
+	int64_t y = *(const int64_t *)b;
+	if (x < y) return -1;
+	if (x > y) return 1;
+	return 0;
+}
+
+static int64_t percentile_ns(const int64_t *sorted, size_t count, int pct) {
+	if (count == 0) return 0;
+	size_t idx = (count * (size_t)pct + 99) / 100;
+	if (idx == 0) idx = 1;
+	if (idx > count) idx = count;
+	return sorted[idx - 1];
+}
+
+// decode_ivf_bench mirrors decode_ivf but skips MD5/JSON emission and
+// times only the per-frame decode loop. The summary line on stderr is
+// what govpx-bench parses for the libvpx ns/frame number; stdout
+// carries the decoded frame count so callers can sanity-check that we
+// processed the whole stream.
+static int decode_ivf_bench(const char *path) {
+	unsigned char *data = NULL;
+	size_t len = 0;
+	size_t offset = 32;
+	unsigned int output_index = 0;
+	vpx_codec_ctx_t codec;
+	vpx_codec_dec_cfg_t cfg;
+	int64_t *latencies = NULL;
+	size_t lat_idx = 0;
+	int64_t sum_ns = 0;
+
+	if (read_file(path, &data, &len) != 0) {
+		return 1;
+	}
+	if (validate_ivf_header(data, len) != 0) {
+		fprintf(stderr, "invalid VP8 IVF input\n");
+		free(data);
+		return 1;
+	}
+
+	memset(&codec, 0, sizeof(codec));
+	memset(&cfg, 0, sizeof(cfg));
+	if (vpx_codec_dec_init(&codec, vpx_codec_vp8_dx(), &cfg, 0) != VPX_CODEC_OK) {
+		fprintf(stderr, "vpx_codec_dec_init failed: %s\n", vpx_codec_error(&codec));
+		free(data);
+		return 1;
+	}
+
+	size_t frame_count = 0;
+	{
+		size_t scan = 32;
+		while (scan + 12 <= len) {
+			uint32_t fs = load_le32(data + scan);
+			scan += 12;
+			if ((size_t)fs > len - scan) break;
+			scan += fs;
+			frame_count++;
+		}
+	}
+	if (frame_count == 0) {
+		fprintf(stderr, "no frames in IVF\n");
+		vpx_codec_destroy(&codec);
+		free(data);
+		return 1;
+	}
+	latencies = (int64_t *)malloc(frame_count * sizeof(int64_t));
+	if (latencies == NULL) {
+		fprintf(stderr, "malloc latencies failed\n");
+		vpx_codec_destroy(&codec);
+		free(data);
+		return 1;
+	}
+
+	int64_t loop_start = monotonic_ns();
+	while (offset < len) {
+		uint32_t frame_size;
+		const unsigned char *frame;
+		vpx_codec_iter_t iter = NULL;
+		vpx_image_t *img;
+		int64_t t0;
+		int64_t t1;
+
+		if (len - offset < 12) {
+			fprintf(stderr, "truncated IVF frame header\n");
+			vpx_codec_destroy(&codec);
+			free(latencies);
+			free(data);
+			return 1;
+		}
+		frame_size = load_le32(data + offset);
+		offset += 12;
+		if ((size_t)frame_size > len - offset) {
+			fprintf(stderr, "truncated IVF frame payload\n");
+			vpx_codec_destroy(&codec);
+			free(latencies);
+			free(data);
+			return 1;
+		}
+		frame = data + offset;
+		offset += frame_size;
+
+		t0 = monotonic_ns();
+		if (vpx_codec_decode(&codec, frame, frame_size, NULL, 0) != VPX_CODEC_OK) {
+			fprintf(stderr, "vpx_codec_decode failed: %s\n", vpx_codec_error(&codec));
+			vpx_codec_destroy(&codec);
+			free(latencies);
+			free(data);
+			return 1;
+		}
+		while ((img = vpx_codec_get_frame(&codec, &iter)) != NULL) {
+			(void)img;
+			output_index++;
+		}
+		t1 = monotonic_ns();
+		if (lat_idx < frame_count) {
+			latencies[lat_idx] = t1 - t0;
+			lat_idx++;
+		}
+		sum_ns += (t1 - t0);
+	}
+	int64_t loop_end = monotonic_ns();
+	int64_t loop_ns = loop_end - loop_start;
+
+	qsort(latencies, lat_idx, sizeof(int64_t), compare_int64);
+	int64_t p50 = percentile_ns(latencies, lat_idx, 50);
+	int64_t p95 = percentile_ns(latencies, lat_idx, 95);
+	int64_t p99 = percentile_ns(latencies, lat_idx, 99);
+
+	fprintf(stderr,
+	        "oracle-bench frames=%zu decoded=%u sum_ns=%lld loop_ns=%lld p50_ns=%lld p95_ns=%lld p99_ns=%lld\n",
+	        lat_idx,
+	        output_index,
+	        (long long)sum_ns,
+	        (long long)loop_ns,
+	        (long long)p50,
+	        (long long)p95,
+	        (long long)p99);
+	printf("%u\n", output_index);
+
+	vpx_codec_destroy(&codec);
+	free(latencies);
+	free(data);
+	return 0;
+}
+
 static void usage(const char *argv0) {
-	fprintf(stderr, "usage: %s decode|decode-postproc|decode-postproc-noise|decode-postproc-all-noise|decode-error-concealment input.ivf\n", argv0);
+	fprintf(stderr, "usage: %s decode|decode-bench|decode-postproc|decode-postproc-noise|decode-postproc-all-noise|decode-error-concealment input.ivf\n", argv0);
 }
 
 int main(int argc, char **argv) {
@@ -383,6 +540,9 @@ int main(int argc, char **argv) {
 	}
 	if (argc == 3 && strcmp(argv[1], "decode") == 0) {
 		return decode_ivf(argv[2], 0, NULL);
+	}
+	if (argc == 3 && strcmp(argv[1], "decode-bench") == 0) {
+		return decode_ivf_bench(argv[2]);
 	}
 	if (argc == 3 && strcmp(argv[1], "decode-postproc") == 0) {
 		vp8_postproc_cfg_t postproc = { VP8_DEBLOCK | VP8_DEMACROBLOCK | VP8_MFQE, 4, 0 };

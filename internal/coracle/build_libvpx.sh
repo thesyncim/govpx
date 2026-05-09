@@ -74,5 +74,5 @@ fi
 cc=${CC:-cc}
 libs=${GOVPX_LIBVPX_LIBS:-"-lvpx -lm -pthread"}
 
-"$cc" -std=c99 -O2 -Wall -Wextra -I"$prefix/include" "$root/vpx_oracle.c" -L"$prefix/lib" $libs -o "$oracle_bin"
+"$cc" -std=c99 -O3 -Wall -Wextra -I"$prefix/include" "$root/vpx_oracle.c" -L"$prefix/lib" $libs -o "$oracle_bin"
 printf '%s\n' "$oracle_bin"
