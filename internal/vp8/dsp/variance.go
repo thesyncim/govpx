@@ -45,6 +45,16 @@ func Variance16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sse - (sum * sum >> 8)
 }
 
+// VarianceSSE16x16 returns (variance, sse) in one pass over the 16x16
+// block. Callers that need both quantities — e.g. the inter-frame mode
+// picker's macroblockLumaMotionVarianceSSE — would otherwise issue two
+// independent SIMD kernels for the same data; this entry shares the
+// (sum, sse) reduction so the kernel runs only once.
+func VarianceSSE16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
+	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 16)
+	return sse - (sum * sum >> 8), sse
+}
+
 func Variance16x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 8)
 	return sse - (sum * sum >> 7)

@@ -9,13 +9,19 @@ func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
+	return int(sadBlock16x16LimitNEON(&src[0], srcStride, &ref[0], refStride, sadLimitClamp32(limit)))
+}
+
+// sadLimitClamp32 narrows the caller-supplied limit to the NEON kernel's
+// int32 range. Split out so the SAD dispatch entry stays inlineable.
+func sadLimitClamp32(limit int) int32 {
 	if limit > 0x7fffffff {
-		limit = 0x7fffffff
+		return 0x7fffffff
 	}
 	if limit < 0 {
-		limit = 0
+		return 0
 	}
-	return int(sadBlock16x16LimitNEON(&src[0], srcStride, &ref[0], refStride, int32(limit)))
+	return int32(limit)
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {

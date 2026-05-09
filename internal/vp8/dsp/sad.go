@@ -9,7 +9,7 @@ func SAD16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func SAD16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
-	return sadBlockLimit(src, srcStride, ref, refStride, 16, 16, limit)
+	return sadBlock16x16Limit(src, srcStride, ref, refStride, limit)
 }
 
 func SAD16x8(src []byte, srcStride int, ref []byte, refStride int) int {
