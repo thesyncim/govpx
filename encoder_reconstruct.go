@@ -6976,7 +6976,7 @@ type predictedMacroblockRDStats struct {
 }
 
 func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) {
-	_ = buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs)
+	_ = buildPredictedMacroblockCoefficientsInternal(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs, false)
 }
 
 // buildPredictedMacroblockCoefficientsRD fuses per-MB residual gather,
@@ -6992,6 +6992,10 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 // returned predictedMacroblockRDStats) is byte-identical to the
 // original per-block reference path.
 func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) predictedMacroblockRDStats {
+	return buildPredictedMacroblockCoefficientsInternal(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs, true)
+}
+
+func buildPredictedMacroblockCoefficientsInternal(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients, collectStats bool) predictedMacroblockRDStats {
 	var stats predictedMacroblockRDStats
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
 		return stats
@@ -7034,10 +7038,12 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 			ctx := int(yAbove[a] + yLeft[l])
 			eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
-			stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
-			stats.distortionY += transformBlockError(dct, &dq)
-			if eob > 0 {
-				stats.tteob++
+			if collectStats {
+				stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
+				stats.distortionY += transformBlockError(dct, &dq)
+				if eob > 0 {
+					stats.tteob++
+				}
 			}
 			hasCoeffs := uint8(0)
 			if eob > 0 {
@@ -7059,10 +7065,12 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 			ctx := int(yAbove[a] + yLeft[l])
 			eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
 			coeffs.SetBlockEOB(block, eob)
-			stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
-			stats.distortionY += transformBlockError(dct, &dq)
-			if eob > 1 {
-				stats.tteob++
+			if collectStats {
+				stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
+				stats.distortionY += transformBlockError(dct, &dq)
+				if eob > 1 {
+					stats.tteob++
+				}
 			}
 			hasCoeffs := uint8(0)
 			if eob > 1 {
@@ -7076,13 +7084,17 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 		eob := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &y2Coeff, &quant.Y2, &coeffs.QCoeff[24], &dq)
 		coeffs.SetBlockEOB(24, eob)
-		stats.rateY += coefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
-		y2Error := transformBlockError(&y2Coeff, &dq)
-		stats.distortionY = ((stats.distortionY << 2) + y2Error) >> 4
-		stats.tteob += eob
+		if collectStats {
+			stats.rateY += coefficientBlockTokenRate(coefProbs, 1, int(y2Above+y2Left), 0, &coeffs.QCoeff[24], eob)
+			y2Error := transformBlockError(&y2Coeff, &dq)
+			stats.distortionY = ((stats.distortionY << 2) + y2Error) >> 4
+			stats.tteob += eob
+		}
 	} else {
 		coeffs.SetBlockEOB(24, 0)
-		stats.distortionY >>= 2
+		if collectStats {
+			stats.distortionY >>= 2
+		}
 		// Compute a Y2 walsh+quantize on the chosen mode's FDCT DCs so
 		// the oracle trace can mirror libvpx's stale block[24] snapshot
 		// without changing any encode-path state. Stored separately
@@ -7137,9 +7149,11 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		ctx := int(uvAbove[a] + uvLeft[l])
 		eob := quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
 		coeffs.SetBlockEOB(16+block, eob)
-		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
-		stats.distortionUV += transformBlockError(dct, &dq)
-		stats.tteob += eob
+		if collectStats {
+			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
+			stats.distortionUV += transformBlockError(dct, &dq)
+			stats.tteob += eob
+		}
 		hasCoeffs := uint8(0)
 		if eob > 0 {
 			hasCoeffs = 1
@@ -7152,9 +7166,11 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		ctx = int(uvAbove[a] + uvLeft[l])
 		eob = quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
 		coeffs.SetBlockEOB(20+block, eob)
-		stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
-		stats.distortionUV += transformBlockError(dctV, &dq)
-		stats.tteob += eob
+		if collectStats {
+			stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
+			stats.distortionUV += transformBlockError(dctV, &dq)
+			stats.tteob += eob
+		}
 		hasCoeffs = 0
 		if eob > 0 {
 			hasCoeffs = 1
@@ -7162,7 +7178,9 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		uvAbove[a] = hasCoeffs
 		uvLeft[l] = hasCoeffs
 	}
-	stats.distortionUV >>= 2
+	if collectStats {
+		stats.distortionUV >>= 2
+	}
 	return stats
 }
 
