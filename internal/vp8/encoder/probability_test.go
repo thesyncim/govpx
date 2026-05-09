@@ -199,6 +199,32 @@ func TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates(t *testing.T
 	if savings <= 0 {
 		t.Fatalf("independent entropy savings = %d, want positive savings matching update decision", savings)
 	}
+	if updates.SavingsBits != savings {
+		t.Fatalf("independent updates SavingsBits = %d, want entropy savings %d", updates.SavingsBits, savings)
+	}
+}
+
+func TestCoefficientProbabilityUpdateSavingsBitsMatchesEntropySavings(t *testing.T) {
+	var counts coefficientBranchCounts
+	counts[0][1][0][0] = [2]int{7, 93}
+	counts[0][1][1][0] = [2]int{91, 9}
+	counts[2][3][2][4] = [2]int{160, 11}
+	counts[3][5][0][6] = [2]int{20, 240}
+
+	base := tables.DefaultCoefProbs
+	base[0][1][0][0] = 1
+	base[0][1][1][0] = 255
+	base[2][3][2][4] = 1
+	base[3][5][0][6] = 255
+
+	_, updates, err := coefficientProbabilityUpdatesFromCounts(&base, &counts)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
+	}
+	savings := coefficientEntropySavingsFromCounts(&base, &counts)
+	if updates.SavingsBits != savings {
+		t.Fatalf("default updates SavingsBits = %d, want entropy savings %d", updates.SavingsBits, savings)
+	}
 }
 
 // TestIndependentCoefContextKeyFrameForcesEqualization pins the

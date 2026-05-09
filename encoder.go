@@ -1972,7 +1972,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.Segmentation = segmentation
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
-	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV, &e.partScratch)
+	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, packetCoefSavings, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV, &e.partScratch)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -1980,7 +1980,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	coefSavings := 0
 	refFrameSavings := 0
 	if needProjectedSize {
-		projectedBits, coefSavings, refFrameSavings = e.projectedFrameSizeBitsFromRateWithSavings(false, required, projectedRate, cfg.RefreshGolden, cfg.RefreshAltRef)
+		coefSavings = packetCoefSavings
+		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
 	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
@@ -2014,14 +2015,22 @@ func (e *VP8Encoder) projectedFrameSizeBitsFromRateWithSavings(keyFrame bool, ma
 	if projectedRate <= 0 {
 		return 0, 0, 0
 	}
-	projectedBits := projectedRate >> 8
 	coefSavings = e.coefficientEntropySavingsBits(keyFrame, macroblocks)
+	projectedBits, refFrameSavings := e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(keyFrame, macroblocks, projectedRate, coefSavings, refreshGolden, refreshAltRef)
+	return projectedBits, coefSavings, refFrameSavings
+}
+
+func (e *VP8Encoder) projectedFrameSizeBitsFromRateWithKnownCoefSavings(keyFrame bool, macroblocks int, projectedRate int, coefSavings int, refreshGolden bool, refreshAltRef bool) (bits int, refFrameSavings int) {
+	if projectedRate <= 0 {
+		return 0, 0
+	}
+	projectedBits := projectedRate >> 8
 	refFrameSavings = e.refFrameEntropySavingsBitsForFrame(keyFrame, macroblocks, refreshGolden, refreshAltRef)
 	projectedBits -= coefSavings + refFrameSavings
 	if projectedBits < 0 {
 		projectedBits = 0
 	}
-	return projectedBits, coefSavings, refFrameSavings
+	return projectedBits, refFrameSavings
 }
 
 // refFrameEntropySavingsBitsForFrame mirrors libvpx's inter-frame ref-frame

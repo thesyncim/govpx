@@ -12,6 +12,7 @@ type CoefficientProbabilityUpdates struct {
 	Probs       tables.CoefficientProbs
 	Update      [tables.BlockTypes][tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]bool
 	UpdateCount int
+	SavingsBits int
 }
 
 type coefficientBranchCounts [tables.BlockTypes][tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes][2]int
@@ -306,13 +307,15 @@ func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, coun
 						continue
 					}
 					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
-					if coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb) <= 0 {
+					savings := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb)
+					if savings <= 0 {
 						continue
 					}
 					frameProbs[block][band][ctx][node] = newProb
 					updates.Probs[block][band][ctx][node] = newProb
 					updates.Update[block][band][ctx][node] = true
 					updates.UpdateCount++
+					updates.SavingsBits += savings
 				}
 			}
 		}
@@ -404,6 +407,11 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 					updates.Probs[block][band][ctx][node] = newProb
 					updates.Update[block][band][ctx][node] = true
 					updates.UpdateCount++
+				}
+			}
+			for node := range tables.EntropyNodes {
+				if nodeSavings[node] > 0 || keyFrame {
+					updates.SavingsBits += nodeSavings[node]
 				}
 			}
 		}
