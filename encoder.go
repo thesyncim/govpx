@@ -495,6 +495,15 @@ type VP8Encoder struct {
 	// downstream of the build.
 	reconstructAboveTok []vp8enc.TokenContextPlanes
 
+	// partScratch holds reusable per-token-partition byte buffers for the
+	// multi-token-partition packet writer (TokenPartitions in {1,2,3} maps
+	// to 2/4/8 partitions). Single-partition mode (TokenPartitions=0, the
+	// default) does not consult this; the field stays zero-valued. The
+	// buffers grow to len(dst) lazily on the first multi-partition frame
+	// and are reused thereafter so steady-state encodes hit zero
+	// allocations even with --token-parts=N>1.
+	partScratch vp8enc.PartitionScratch
+
 	interRDThreshMult       [libvpxInterModeCount]int
 	interRDThreshTouched    [libvpxInterModeCount]bool
 	interModeCheckFreq      [libvpxInterModeCount]int
@@ -1588,7 +1597,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefreshEntropyProbs: true,
 		IndependentContexts: e.opts.ErrorResilientPartitions,
 	}
-	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -1943,7 +1952,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.Segmentation = segmentation
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
-	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV)
+	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV, &e.partScratch)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
