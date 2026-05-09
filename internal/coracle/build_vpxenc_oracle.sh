@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-08-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r9-5
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r9-5-r12d-speed
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1005,7 +1005,10 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             "\"gf_overspend_bits\":%d,"
             "\"zbin_over_quant\":%d,"
             "\"coef_savings_bits\":%d,"
-            "\"ref_frame_savings_bits\":%d}\n",
+            "\"ref_frame_savings_bits\":%d,"
+            "\"cpi_speed\":%d,"
+            "\"avg_encode_time\":%d,"
+            "\"avg_pick_mode_time\":%d}\n",
             govpx_oracle_state.frame_index,
             cm->frame_type == KEY_FRAME ? "key" : "inter",
             final_q,
@@ -1019,7 +1022,10 @@ void govpx_oracle_emit_rate(struct VP8_COMP *cpi, int final_q) {
             cpi->gf_overspend_bits,
             cpi->mb.zbin_over_quant,
             coef_savings,
-            ref_frame_savings);
+            ref_frame_savings,
+            cpi->Speed,
+            cpi->avg_encode_time,
+            cpi->avg_pick_mode_time);
     if (govpx_recode_iter_count > 1) {
         if (cpi->is_src_frame_alt_ref) {
             reason = "altref_src";

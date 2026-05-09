@@ -846,6 +846,14 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 		BufferInitialSizeMs: p.BufferInitialSizeMs,
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
 		Threads:             p.Threads,
+		// Bench compares against stock (un-instrumented) libvpx, whose
+		// per-frame wall-clock is ~2.4x faster than govpx's Go path on
+		// the same hardware. Without the calibration the realtime
+		// vp8_auto_select_speed feedback parks govpx in a higher Speed
+		// bucket than libvpx hits, driving a 1.4x interframe-byte
+		// divergence at 720p+ (R12-D). The oracle scoreboards exercise
+		// the patched (slow) libvpx and intentionally leave this off.
+		AutoSpeedGoOverheadCalibration: true,
 	})
 }
 
