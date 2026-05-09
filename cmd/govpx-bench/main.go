@@ -852,7 +852,7 @@ func decodeBenchmarkPackets(dec *govpx.VP8Decoder, packets [][]byte, latencies [
 // govpx and libvpx for the comparison to be apples-to-apples. Both
 // newBenchmarkEncoder and runLibvpxBenchmark consume this so the two encoders
 // see the same problem (CBR, same buffer sizes, same q-range, same kf
-// cadence, single-pass, single-thread, zero lag).
+// cadence, single-pass, matched thread count, zero lag).
 type encoderParity struct {
 	MinQuantizer        int
 	MaxQuantizer        int
@@ -889,9 +889,9 @@ func parityFor(cfg benchConfig) encoderParity {
 	}
 }
 
-func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8Encoder, error) {
+func benchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.EncoderOptions {
 	p := parityFor(cfg)
-	return govpx.NewVP8Encoder(govpx.EncoderOptions{
+	return govpx.EncoderOptions{
 		Width:               cfg.Width,
 		Height:              cfg.Height,
 		FPS:                 cfg.FPS,
@@ -905,13 +905,19 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 		BufferSizeMs:        p.BufferSizeMs,
 		BufferInitialSizeMs: p.BufferInitialSizeMs,
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
+		UndershootPct:       p.UndershootPct,
+		OvershootPct:        p.OvershootPct,
 		Threads:             p.Threads,
 		// Default bench runs use calibrated autospeed so govpx stays in
 		// the libvpx-equivalent Speed=4 bucket across machines and
 		// resolutions. Passing -autospeed-calibration=false opts into
 		// production wall-clock autospeed.
 		AutoSpeedGoOverheadCalibration: cfg.AutoSpeedCalibration,
-	})
+	}
+}
+
+func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8Encoder, error) {
+	return govpx.NewVP8Encoder(benchmarkEncoderOptions(cfg, deadline))
 }
 
 func measuredEncodeQualityMetrics(packets []measuredEncodePacket, frames []govpx.Image) (float64, float64, int, error) {
@@ -1138,7 +1144,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 
 // libvpxParityFlags returns the vpxenc flags that mirror govpx's
 // EncoderOptions for a fair benchmark: same CBR target and buffer model,
-// same q-range and keyframe cadence, single-pass, single-thread, no lag,
+// same q-range and keyframe cadence, single-pass, matched thread count, no lag,
 // noise sensitivity off, deadline matched. The deadlineFlag is "--rt" or
 // "--good" depending on benchConfig.Mode.
 func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []string {

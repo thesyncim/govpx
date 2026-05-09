@@ -544,6 +544,45 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	}
 }
 
+func TestBenchmarkEncoderOptionsMatchLibvpxParityConfig(t *testing.T) {
+	cfg := benchConfig{
+		Width:                80,
+		Height:               64,
+		Frames:               4,
+		FPS:                  24,
+		BitrateKbps:          900,
+		Threads:              3,
+		AutoSpeedCalibration: true,
+	}
+	parity := parityFor(cfg)
+	opts := benchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if opts.MinQuantizer != parity.MinQuantizer || opts.MaxQuantizer != parity.MaxQuantizer {
+		t.Fatalf("quantizer range = [%d,%d], want parity [%d,%d]",
+			opts.MinQuantizer, opts.MaxQuantizer, parity.MinQuantizer, parity.MaxQuantizer)
+	}
+	if opts.KeyFrameInterval != parity.KeyFrameInterval {
+		t.Fatalf("KeyFrameInterval = %d, want %d", opts.KeyFrameInterval, parity.KeyFrameInterval)
+	}
+	if opts.BufferSizeMs != parity.BufferSizeMs ||
+		opts.BufferInitialSizeMs != parity.BufferInitialSizeMs ||
+		opts.BufferOptimalSizeMs != parity.BufferOptimalSizeMs {
+		t.Fatalf("buffer model = sz:%d init:%d opt:%d, want %d/%d/%d",
+			opts.BufferSizeMs, opts.BufferInitialSizeMs, opts.BufferOptimalSizeMs,
+			parity.BufferSizeMs, parity.BufferInitialSizeMs, parity.BufferOptimalSizeMs)
+	}
+	if opts.UndershootPct != parity.UndershootPct || opts.OvershootPct != parity.OvershootPct {
+		t.Fatalf("rate-control percentages = under:%d over:%d, want parity %d/%d",
+			opts.UndershootPct, opts.OvershootPct, parity.UndershootPct, parity.OvershootPct)
+	}
+	if opts.Threads != parity.Threads || opts.CpuUsed != parity.CpuUsed {
+		t.Fatalf("cpu/threads = %d/%d, want parity %d/%d",
+			opts.CpuUsed, opts.Threads, parity.CpuUsed, parity.Threads)
+	}
+	if !opts.AutoSpeedGoOverheadCalibration {
+		t.Fatalf("AutoSpeedGoOverheadCalibration = false, want true")
+	}
+}
+
 func TestRunBenchmarkRejectsBadConfig(t *testing.T) {
 	if _, err := runBenchmark(benchConfig{Width: 16, Height: 16, Frames: 1, FPS: 30, BitrateKbps: 1200, Mode: "slow"}); err == nil {
 		t.Fatalf("runBenchmark accepted unsupported mode")
