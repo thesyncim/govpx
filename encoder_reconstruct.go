@@ -2391,6 +2391,20 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	e.recordFastInterModeErrorBin(bestDistortion)
 	if !best.useIntra {
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
+	} else if best.intraMode.Mode <= vp8common.BPred {
+		// R14-E: Mirror libvpx pickinter.c vp8_pick_inter_mode (lines
+		// 1301-1304): once the winning MB mode is intra (DC/V/H/TM/BPred),
+		// dynamically pick the best chroma uv_mode via pick_intra_mbuv_mode
+		// (pixel-domain SSE between source U/V and the four predictor
+		// candidates). govpx previously hardcoded UVMode=DC_PRED in
+		// estimateFastIntraModeScore / estimateFastBPredIntraModeScore,
+		// causing chroma reconstruction divergence on B_PRED inter MBs at
+		// 128x128 frame 1 (MB(2,7), MB(3,7), MB(5,7) col-7 right-edge MBs
+		// where libvpx selected V_PRED/H_PRED/TM_PRED for UV).
+		uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
+		if ok {
+			best.intraMode.UVMode = uvMode
+		}
 	}
 	return best, true
 }
