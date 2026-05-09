@@ -858,20 +858,9 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	}
 	// R17-A (parity-close-r17-a-picker-speed-features): switch the realtime
 	// fast picker's full-pel search from NSTEP to HEX at the auto-selected
-	// Speed=4 floor, but only when either the frame has enough macroblocks for
-	// the picker's mode dispersal to remain libvpx-shaped under hex's local-
-	// minimum behavior or the call is running inside a worker-private
-	// row-threaded encoder view. The bench pins govpx's auto-select Speed at
-	// 4 and the previous NSTEP+nine-further-steps walk ran ~70 SAD
-	// calls/NEWMV where libvpx's RT(0)+ path at the matching effective Speed
-	// runs the hex topology (search_param=4, hex_range breaks early once the
-	// gradient flattens). The NEON SAD kernel is libvpx-fast (~18ns/call);
-	// the per-MB SAD-call count is the actual gap. Serial speed=4 preserves
-	// iterative subpel: the rt-cpu8-128x128-bench-noise inter-mode-distribution
-	// oracle scoreboard pins NEAR/NEAREST percentages within 4pp of libvpx and
-	// Step subpel pushes the dispersal past that gate. Threaded rows already
-	// have a separate deterministic bitstream, so their worker-private picker
-	// can use the cheaper step subpel path too.
+	// Speed=4 floor. The single-thread path keeps iterative subpel search so
+	// the zero-cost serial path stays unchanged; threaded rows inherit the same
+	// search config through their worker-private encoder state.
 	//
 	// The frame-size gate (>= 1080p) keeps the small/mid-frame oracle
 	// scoreboards green:
@@ -885,16 +874,10 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	//     EOB sum bump that the L1 dispersal alone misses.
 	// At 1080p the noise averaging keeps both the dispersal and the EOB
 	// sum stable, so the serial perf win is delivered exactly where the
-	// 1080p fast picker needs it. Threaded rows are already allowed to diverge
-	// from the serial oracle bitstream and use worker-private picker state, so
-	// they can take the same algorithmic win at 720p without adding any
-	// Threads=1 cost.
+	// 1080p fast picker needs it.
 	largeFrame := e.opts.Width >= 1920 && e.opts.Height >= 1080
-	if speed >= 4 && (largeFrame || e.threadedRowsActive) {
+	if speed >= 4 && largeFrame {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
-		if e.threadedRowsActive {
-			cfg.fractionalSearch = interAnalysisFractionalSearchStep
-		}
 	}
 	if speed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex

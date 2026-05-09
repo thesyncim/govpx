@@ -408,7 +408,7 @@ func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
 	pool.shutdownPool()
 }
 
-func TestRowWorkerPoolMergeKeepsPrimaryAdaptivePickerState(t *testing.T) {
+func TestRowWorkerPoolMergeAggregatesAdaptivePickerState(t *testing.T) {
 	const (
 		workerCount = 3
 		required    = 4
@@ -432,7 +432,7 @@ func TestRowWorkerPoolMergeKeepsPrimaryAdaptivePickerState(t *testing.T) {
 	secondary.interMBsTestedSoFar = 200
 	secondary.mbsZeroLastDotSuppress = 40
 	secondary.interRDThreshMult[modeIndex] = 300
-	secondary.interRDThreshTouched[modeIndex] = false
+	secondary.interRDThreshTouched[modeIndex] = true
 	pool.workers[1].dotArtifactChecked = []bool{false, true, false, false}
 
 	tertiary := &pool.workers[2].enc
@@ -441,6 +441,7 @@ func TestRowWorkerPoolMergeKeepsPrimaryAdaptivePickerState(t *testing.T) {
 	tertiary.interMBsTestedSoFar = 37
 	tertiary.mbsZeroLastDotSuppress = 8
 	tertiary.interRDThreshMult[modeIndex] = 77
+	tertiary.interRDThreshTouched[modeIndex] = true
 	pool.workers[2].dotArtifactChecked = []bool{false, false, true, false}
 
 	e := &VP8Encoder{dotArtifactChecked: make([]bool, required)}
@@ -452,20 +453,20 @@ func TestRowWorkerPoolMergeKeepsPrimaryAdaptivePickerState(t *testing.T) {
 	if got := e.interModeErrorBins[9]; got != 17 {
 		t.Fatalf("merged error bin 9 = %d, want 17", got)
 	}
-	if got := e.interModeTestHitCounts[modeIndex]; got != primary.interModeTestHitCounts[modeIndex] {
-		t.Fatalf("mode hit count = %d, want primary %d", got, primary.interModeTestHitCounts[modeIndex])
+	if got := e.interModeTestHitCounts[modeIndex]; got != 127 {
+		t.Fatalf("mode hit count = %d, want summed 127", got)
 	}
-	if got := e.interMBsTestedSoFar; got != primary.interMBsTestedSoFar {
-		t.Fatalf("interMBsTestedSoFar = %d, want primary %d", got, primary.interMBsTestedSoFar)
+	if got := e.interMBsTestedSoFar; got != 248 {
+		t.Fatalf("interMBsTestedSoFar = %d, want summed 248", got)
 	}
-	if got := e.mbsZeroLastDotSuppress; got != primary.mbsZeroLastDotSuppress {
-		t.Fatalf("mbsZeroLastDotSuppress = %d, want primary %d", got, primary.mbsZeroLastDotSuppress)
+	if got := e.mbsZeroLastDotSuppress; got != 51 {
+		t.Fatalf("mbsZeroLastDotSuppress = %d, want summed 51", got)
 	}
-	if got := e.interRDThreshMult[modeIndex]; got != primary.interRDThreshMult[modeIndex] {
-		t.Fatalf("rd thresh mult = %d, want primary %d", got, primary.interRDThreshMult[modeIndex])
+	if got := e.interRDThreshMult[modeIndex]; got != 259 {
+		t.Fatalf("rd thresh mult = %d, want weighted 259", got)
 	}
-	if got := e.interRDThreshTouched[modeIndex]; got != primary.interRDThreshTouched[modeIndex] {
-		t.Fatalf("rd thresh touched = %v, want primary %v", got, primary.interRDThreshTouched[modeIndex])
+	if !e.interRDThreshTouched[modeIndex] {
+		t.Fatalf("rd thresh touched = %v, want true", e.interRDThreshTouched[modeIndex])
 	}
 	for i, want := range []bool{true, true, true, false} {
 		if got := e.dotArtifactChecked[i]; got != want {

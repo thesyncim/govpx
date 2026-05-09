@@ -111,7 +111,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 	}
 }
 
-func TestInterAnalysisSearchConfigUsesHexForThreadedRealtimeRows(t *testing.T) {
+func TestInterAnalysisSearchConfigUsesHexForLargeRealtimeFrames(t *testing.T) {
 	serial := &VP8Encoder{
 		opts: EncoderOptions{
 			Width:    1280,
@@ -124,10 +124,16 @@ func TestInterAnalysisSearchConfigUsesHexForThreadedRealtimeRows(t *testing.T) {
 		t.Fatalf("serial 720p speed=4 search = full %d fractional %d, want nstep+iterative", got.fullPixelSearch, got.fractionalSearch)
 	}
 
-	threaded := *serial
-	threaded.threadedRowsActive = true
-	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchStep {
-		t.Fatalf("threaded 720p speed=4 search = full %d fractional %d, want hex+step", got.fullPixelSearch, got.fractionalSearch)
+	large := &VP8Encoder{
+		opts: EncoderOptions{
+			Width:    1920,
+			Height:   1080,
+			Deadline: DeadlineRealtime,
+			CpuUsed:  8,
+		},
+	}
+	if got := large.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("large 1080p speed=4 search = full %d fractional %d, want hex+iterative", got.fullPixelSearch, got.fractionalSearch)
 	}
 }
 

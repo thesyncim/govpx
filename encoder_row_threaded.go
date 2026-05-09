@@ -458,20 +458,43 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 		return
 	}
 	var mergedBins [1024]uint32
+	var mergedHits [libvpxInterModeCount]int
+	var mergedMult [libvpxInterModeCount]int64
+	var mergedMultWeight [libvpxInterModeCount]int64
+	var mergedTouched [libvpxInterModeCount]bool
+	mergedMBsTested := 0
+	mergedDotSuppress := 0
 	for workerIndex := range workerCount {
 		worker := &p.workers[workerIndex]
 		workerEnc := &worker.enc
 		for i := range mergedBins {
 			mergedBins[i] += workerEnc.interModeErrorBins[i]
 		}
+		weight := workerEnc.interMBsTestedSoFar
+		if weight < 1 {
+			weight = 1
+		}
+		mergedMBsTested += workerEnc.interMBsTestedSoFar
+		mergedDotSuppress += workerEnc.mbsZeroLastDotSuppress
+		for i := range mergedHits {
+			mergedHits[i] += workerEnc.interModeTestHitCounts[i]
+			if workerEnc.interRDThreshTouched[i] {
+				mergedTouched[i] = true
+			}
+			mergedMult[i] += int64(workerEnc.interRDThreshMult[i]) * int64(weight)
+			mergedMultWeight[i] += int64(weight)
+		}
 	}
 	e.interModeErrorBins = mergedBins
-	primary := &p.workers[0].enc
-	e.interModeTestHitCounts = primary.interModeTestHitCounts
-	e.interMBsTestedSoFar = primary.interMBsTestedSoFar
-	e.mbsZeroLastDotSuppress = primary.mbsZeroLastDotSuppress
-	e.interRDThreshMult = primary.interRDThreshMult
-	e.interRDThreshTouched = primary.interRDThreshTouched
+	e.interModeTestHitCounts = mergedHits
+	e.interMBsTestedSoFar = mergedMBsTested
+	e.mbsZeroLastDotSuppress = mergedDotSuppress
+	for i := range e.interRDThreshMult {
+		if mergedMultWeight[i] > 0 {
+			e.interRDThreshMult[i] = int((mergedMult[i] + mergedMultWeight[i]/2) / mergedMultWeight[i])
+		}
+	}
+	e.interRDThreshTouched = mergedTouched
 	if len(e.dotArtifactChecked) >= required {
 		clear(e.dotArtifactChecked[:required])
 		for workerIndex := range workerCount {
