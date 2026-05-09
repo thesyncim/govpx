@@ -127,11 +127,11 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 	}
 
 	var colSum [16]int
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		mcRow := mcRunningAvg[r*mcStride:]
 		sigRow := sig[r*sigStride:]
 		avgRow := runningAvg[r*avgStride:]
-		for c := 0; c < 16; c++ {
+		for c := range 16 {
 			diff := int(mcRow[c]) - int(sigRow[c])
 			absdiff := diff
 			if absdiff < 0 {
@@ -152,24 +152,18 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 				adjustment = adj[2]
 			}
 			if diff > 0 {
-				val := int(sigRow[c]) + adjustment
-				if val > 255 {
-					val = 255
-				}
+				val := min(int(sigRow[c])+adjustment, 255)
 				avgRow[c] = byte(val)
 				colSum[c] += adjustment
 			} else {
-				val := int(sigRow[c]) - adjustment
-				if val < 0 {
-					val = 0
-				}
+				val := max(int(sigRow[c])-adjustment, 0)
 				avgRow[c] = byte(val)
 				colSum[c] -= adjustment
 			}
 		}
 	}
 	sumDiff := 0
-	for c := 0; c < 16; c++ {
+	for c := range 16 {
 		if colSum[c] >= 128 {
 			colSum[c] = 127
 		}
@@ -189,11 +183,11 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 			return denoiserCopyBlock
 		}
 		// Apply weaker fallback temporal filter.
-		for r := 0; r < 16; r++ {
+		for r := range 16 {
 			mcRow := mcRunningAvg[r*mcStride:]
 			sigRow := sig[r*sigStride:]
 			avgRow := runningAvg[r*avgStride:]
-			for c := 0; c < 16; c++ {
+			for c := range 16 {
 				diff := int(mcRow[c]) - int(sigRow[c])
 				adjustment := diff
 				if adjustment < 0 {
@@ -203,24 +197,18 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 					adjustment = delta
 				}
 				if diff > 0 {
-					val := int(avgRow[c]) - adjustment
-					if val < 0 {
-						val = 0
-					}
+					val := max(int(avgRow[c])-adjustment, 0)
 					avgRow[c] = byte(val)
 					colSum[c] -= adjustment
 				} else if diff < 0 {
-					val := int(avgRow[c]) + adjustment
-					if val > 255 {
-						val = 255
-					}
+					val := min(int(avgRow[c])+adjustment, 255)
 					avgRow[c] = byte(val)
 					colSum[c] += adjustment
 				}
 			}
 		}
 		sumDiff = 0
-		for c := 0; c < 16; c++ {
+		for c := range 16 {
 			if colSum[c] >= 128 {
 				colSum[c] = 127
 			}
@@ -235,7 +223,7 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 		}
 	}
 	// Filter accepted: copy running_avg back into the source frame.
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		copy(sig[r*sigStride:r*sigStride+16], runningAvg[r*avgStride:r*avgStride+16])
 	}
 	return denoiserFilterBlock
@@ -259,9 +247,9 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 	// Skip denoising of near-neutral colour blocks (libvpx avoids the filter
 	// when chroma is close to 128).
 	sumBlock := 0
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		row := sig[r*sigStride:]
-		for c := 0; c < 8; c++ {
+		for c := range 8 {
 			sumBlock += int(row[c])
 		}
 	}
@@ -269,11 +257,11 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 		return denoiserCopyBlock
 	}
 	sumDiff := 0
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		mcRow := mcRunningAvg[r*mcStride:]
 		sigRow := sig[r*sigStride:]
 		avgRow := runningAvg[r*avgStride:]
-		for c := 0; c < 8; c++ {
+		for c := range 8 {
 			diff := int(mcRow[c]) - int(sigRow[c])
 			absdiff := diff
 			if absdiff < 0 {
@@ -294,17 +282,11 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 				adjustment = adj[2]
 			}
 			if diff > 0 {
-				val := int(sigRow[c]) + adjustment
-				if val > 255 {
-					val = 255
-				}
+				val := min(int(sigRow[c])+adjustment, 255)
 				avgRow[c] = byte(val)
 				sumDiff += adjustment
 			} else {
-				val := int(sigRow[c]) - adjustment
-				if val < 0 {
-					val = 0
-				}
+				val := max(int(sigRow[c])-adjustment, 0)
 				avgRow[c] = byte(val)
 				sumDiff -= adjustment
 			}
@@ -323,11 +305,11 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 		if delta >= 4 {
 			return denoiserCopyBlock
 		}
-		for r := 0; r < 8; r++ {
+		for r := range 8 {
 			mcRow := mcRunningAvg[r*mcStride:]
 			sigRow := sig[r*sigStride:]
 			avgRow := runningAvg[r*avgStride:]
-			for c := 0; c < 8; c++ {
+			for c := range 8 {
 				diff := int(mcRow[c]) - int(sigRow[c])
 				adjustment := diff
 				if adjustment < 0 {
@@ -337,17 +319,11 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 					adjustment = delta
 				}
 				if diff > 0 {
-					val := int(avgRow[c]) - adjustment
-					if val < 0 {
-						val = 0
-					}
+					val := max(int(avgRow[c])-adjustment, 0)
 					avgRow[c] = byte(val)
 					sumDiff -= adjustment
 				} else if diff < 0 {
-					val := int(avgRow[c]) + adjustment
-					if val > 255 {
-						val = 255
-					}
+					val := min(int(avgRow[c])+adjustment, 255)
 					avgRow[c] = byte(val)
 					sumDiff += adjustment
 				}
@@ -361,7 +337,7 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 			return denoiserCopyBlock
 		}
 	}
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		copy(sig[r*sigStride:r*sigStride+8], runningAvg[r*avgStride:r*avgStride+8])
 	}
 	return denoiserFilterBlock
@@ -476,8 +452,8 @@ func (e *VP8Encoder) applyDenoiserToInterFrame(source vp8enc.SourceImage, rows i
 	if len(e.interFrameModes) < required || len(e.denoiser.state) < required {
 		return
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			mode := e.interFrameModes[index]
 			yOff := row*16*source.YStride + col*16
@@ -550,13 +526,13 @@ func (e *VP8Encoder) copyDenoiserMacroblockSource(source vp8enc.SourceImage, avg
 }
 
 func copyMacroblockY(dst []byte, dstStride int, src []byte, srcStride int) {
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		copy(dst[r*dstStride:r*dstStride+16], src[r*srcStride:r*srcStride+16])
 	}
 }
 
 func copyMacroblock8x8(dst []byte, dstStride int, src []byte, srcStride int) {
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		copy(dst[r*dstStride:r*dstStride+8], src[r*srcStride:r*srcStride+8])
 	}
 }

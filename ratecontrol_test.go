@@ -2259,7 +2259,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 	// low-motion floor must never exceed the mid-motion floor and the
 	// mid-motion floor must never exceed the high-motion floor (a
 	// stronger boost -> a tighter active-best floor).
-	for q := 0; q < 128; q++ {
+	for q := range 128 {
 		lo := libvpxGoldenFrameLowMotionMinQ[q]
 		mid := libvpxGoldenFrameMidMotionMinQ[q]
 		hi := libvpxGoldenFrameHighMotionMinQ[q]
@@ -2270,7 +2270,7 @@ func TestSelectQuantizerGFLowMotionVsHighMotion(t *testing.T) {
 			t.Fatalf("gf_mid[%d]=%d exceeds gf_high[%d]=%d", q, mid, q, hi)
 		}
 	}
-	for q := 0; q < 128; q++ {
+	for q := range 128 {
 		if libvpxKeyFrameLowMotionMinQ[q] > libvpxKeyFrameHighMotionMinQ[q] {
 			t.Fatalf("kf_low[%d]=%d exceeds kf_high[%d]=%d", q, libvpxKeyFrameLowMotionMinQ[q], q, libvpxKeyFrameHighMotionMinQ[q])
 		}

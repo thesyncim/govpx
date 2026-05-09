@@ -194,7 +194,7 @@ func partitionPacket(t *testing.T, tokenPartition common.TokenPartition, first [
 		size := len(tokens[i])
 		packet = append(packet, byte(size), byte(size>>8), byte(size>>16))
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		packet = append(packet, tokens[i]...)
 	}
 

@@ -5,8 +5,8 @@ import "testing"
 func TestVarianceBlocks(t *testing.T) {
 	src := make([]byte, 32*32)
 	ref := make([]byte, 32*32)
-	for y := 0; y < 32; y++ {
-		for x := 0; x < 32; x++ {
+	for y := range 32 {
+		for x := range 32 {
 			src[y*32+x] = byte(17 + x*3 + y)
 			ref[y*32+x] = byte(11 + x + y*2)
 		}
@@ -333,8 +333,8 @@ func benchmarkSubpelVariance(b *testing.B, bytes int64, fn func([]byte, int, int
 
 func makeSubpelVarianceSource() []byte {
 	buf := make([]byte, 40*40)
-	for y := 0; y < 40; y++ {
-		for x := 0; x < 40; x++ {
+	for y := range 40 {
+		for x := range 40 {
 			buf[y*40+x] = byte((x*11 + y*17 + x*y*3 + 29) & 255)
 		}
 	}
@@ -343,8 +343,8 @@ func makeSubpelVarianceSource() []byte {
 
 func makeSubpelVarianceReference() []byte {
 	buf := make([]byte, 40*40)
-	for y := 0; y < 40; y++ {
-		for x := 0; x < 40; x++ {
+	for y := range 40 {
+		for x := range 40 {
 			buf[y*40+x] = byte((x*5 + y*19 + x*y + 7) & 255)
 		}
 	}
@@ -354,8 +354,8 @@ func makeSubpelVarianceReference() []byte {
 func scalarVariance(src []byte, srcStride int, ref []byte, refStride int, width int, height int) (int, int) {
 	sum := 0
 	sse := 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			diff := int(src[y*srcStride+x]) - int(ref[y*refStride+x])
 			sum += diff
 			sse += diff * diff

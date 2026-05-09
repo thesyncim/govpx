@@ -167,7 +167,7 @@ func makeLoopFilterRows(stride int, values []byte) []byte {
 	buf := make([]byte, stride*len(values))
 	for y, v := range values {
 		row := y * stride
-		for x := 0; x < stride; x++ {
+		for x := range stride {
 			buf[row+x] = v
 		}
 	}
@@ -176,7 +176,7 @@ func makeLoopFilterRows(stride int, values []byte) []byte {
 
 func makeLoopFilterCols(stride int, rows int, values []byte) []byte {
 	buf := make([]byte, stride*rows)
-	for y := 0; y < rows; y++ {
+	for y := range rows {
 		row := y * stride
 		for x, v := range values {
 			buf[row+x] = v
@@ -188,7 +188,7 @@ func makeLoopFilterCols(stride int, rows int, values []byte) []byte {
 func assertRows(t *testing.T, name string, buf []byte, stride int, want []byte, width int) {
 	t.Helper()
 	for y, w := range want {
-		for x := 0; x < width; x++ {
+		for x := range width {
 			if got := buf[y*stride+x]; got != w {
 				t.Fatalf("%s[%d,%d] = %d, want %d", name, x, y, got, w)
 			}
@@ -198,7 +198,7 @@ func assertRows(t *testing.T, name string, buf []byte, stride int, want []byte, 
 
 func assertCols(t *testing.T, name string, buf []byte, stride int, rows int, want []byte) {
 	t.Helper()
-	for y := 0; y < rows; y++ {
+	for y := range rows {
 		row := y * stride
 		for x, w := range want {
 			if got := buf[row+x]; got != w {

@@ -23,7 +23,7 @@ func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, ds
 func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	var output [16]int16
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		a1 := int(input[i+0]) + int(input[i+8])
 		b1 := int(input[i+0]) - int(input[i+8])
 
@@ -41,7 +41,7 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 		output[i+8] = int16(b1 - c1)
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		base := i * 4
 		a1 := int(output[base+0]) + int(output[base+2])
 		b1 := int(output[base+0]) - int(output[base+2])
@@ -60,7 +60,7 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 		output[base+2] = int16((b1 - c1 + 4) >> 3)
 	}
 
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		predRow := y * predStride
 		dstRow := y * dstStride
 		outRow := y * 4
@@ -75,7 +75,7 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 // the DC coefficient is non-zero.
 func dcOnlyIDCT4x4AddScalar(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	a1 := int((inputDC + 4) >> 3)
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		predRow := y * predStride
 		dstRow := y * dstStride
 		dst[dstRow+0] = ClipPixel(a1 + int(pred[predRow+0]))

@@ -181,7 +181,7 @@ func TestWriteCoefficientInterFrameEmitsInterIntraModeProbabilityUpdates(t *test
 func TestAdaptInterFrameMVProbabilities(t *testing.T) {
 	cfg := DefaultInterFrameStateConfig(20)
 	var counts [2][tables.MVPCount][2]int
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		if err := countMotionVectorBranches(&counts, MotionVector{Col: 16}); err != nil {
 			t.Fatalf("countMotionVectorBranches returned error: %v", err)
 		}
@@ -246,7 +246,7 @@ func libvpxMotionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, ne
 
 func TestMotionVectorEventBranchCountsIncludeImplicitLongBit3(t *testing.T) {
 	var events motionVectorEventCounts
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		if err := countMotionVectorEvents(&events, MotionVector{Col: 16}); err != nil {
 			t.Fatalf("countMotionVectorEvents returned error: %v", err)
 		}
@@ -257,7 +257,7 @@ func TestMotionVectorEventBranchCountsIncludeImplicitLongBit3(t *testing.T) {
 	}
 
 	var syntaxCounts [2][tables.MVPCount][2]int
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		if err := countMotionVectorBranches(&syntaxCounts, MotionVector{Col: 16}); err != nil {
 			t.Fatalf("countMotionVectorBranches returned error: %v", err)
 		}
@@ -1124,7 +1124,7 @@ func TestWriteCoefficientInterFrameClampsNewMVBestPredictor(t *testing.T) {
 func fillEncoderSplitSubset(mode *InterFrameMacroblockMode, subset int, mv MotionVector) {
 	fillCount := int(tables.MBSplitFillCount[mode.Partition])
 	fillStart := subset * fillCount
-	for i := 0; i < fillCount; i++ {
+	for i := range fillCount {
 		block := int(tables.MBSplitFillOffset[mode.Partition][fillStart+i])
 		bMode := common.New4x4
 		if block&3 != 0 && tables.MBSplits[mode.Partition][block-1] == uint8(subset) {

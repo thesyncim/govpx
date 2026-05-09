@@ -64,7 +64,7 @@ func TestApplyLoopFilterSkipsInnerEdgesForSkippedMacroblock(t *testing.T) {
 	fb := newLoopFilterFrame(t, 16, 16)
 	for y := 0; y < fb.Img.CodedHeight; y++ {
 		row := y * fb.Img.YStride
-		for x := 0; x < 4; x++ {
+		for x := range 4 {
 			fb.Img.Y[row+x] = 100
 		}
 		for x := 4; x < fb.Img.CodedWidth; x++ {
@@ -145,7 +145,7 @@ func TestApplyLoopFilterPartialMatchesFullOnLumaWindow(t *testing.T) {
 	fillLoopFilterMacroblockColumns(&full.Img, 100, 110, 80, 90)
 	fillLoopFilterMacroblockColumns(&partial.Img, 100, 110, 80, 90)
 	// Tweak per-row content so each MB row has a distinct horizontal edge.
-	for r := 0; r < rows; r++ {
+	for r := range rows {
 		base := r * 16
 		for y := base; y < base+16; y++ {
 			row := y * full.Img.YStride
@@ -251,7 +251,7 @@ func newLoopFilterFrame(t testing.TB, width int, height int) *common.FrameBuffer
 func fillLoopFilterMacroblockColumns(img *common.Image, leftY byte, rightY byte, leftUV byte, rightUV byte) {
 	for y := 0; y < img.CodedHeight; y++ {
 		row := y * img.YStride
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			img.Y[row+x] = leftY
 		}
 		for x := 16; x < img.CodedWidth; x++ {
@@ -260,10 +260,10 @@ func fillLoopFilterMacroblockColumns(img *common.Image, leftY byte, rightY byte,
 	}
 	uvWidth := (img.CodedWidth + 1) >> 1
 	uvHeight := (img.CodedHeight + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		uRow := y * img.UStride
 		vRow := y * img.VStride
-		for x := 0; x < 8; x++ {
+		for x := range 8 {
 			img.U[uRow+x] = leftUV
 			img.V[vRow+x] = leftUV
 		}

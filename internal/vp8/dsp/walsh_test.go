@@ -47,7 +47,7 @@ func TestDCOnlyInverseWalsh4x4MatchesFullForDCOnly(t *testing.T) {
 		InverseWalsh4x4(&input, full)
 		DCOnlyInverseWalsh4x4(dc, dcOnly)
 
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			if full[i*16] != dcOnly[i*16] {
 				t.Fatalf("dc=%d coeff[%d] full=%d dcOnly=%d", dc, i*16, full[i*16], dcOnly[i*16])
 			}

@@ -148,7 +148,6 @@ func TestOracleLoopFilterHeaderMatchRate(t *testing.T) {
 
 	reports := make([]FixtureLFReport, 0, len(fixtures))
 	for _, f := range fixtures {
-		f := f
 		t.Run(f.name, func(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, f.opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "lf-"+f.name, f.opts, targetKbps, sources, f.extraArgs)
@@ -228,10 +227,7 @@ func loopFilterFrameRowsFromTrace(t *testing.T, trace []byte) []loopFilterFrameR
 }
 
 func scoreLoopFilterFrames(name string, govpxRows []loopFilterFrameRow, libvpxRows []loopFilterFrameRow) FixtureLFReport {
-	total := len(govpxRows)
-	if len(libvpxRows) < total {
-		total = len(libvpxRows)
-	}
+	total := min(len(libvpxRows), len(govpxRows))
 	report := FixtureLFReport{Name: name, FrameTotal: total}
 	if total == 0 {
 		return report

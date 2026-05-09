@@ -62,7 +62,7 @@ func r12cBPredDebug(mbRow int, mbCol int) bool {
 	return r12cBPredDebugCfg.enabled && mbRow == r12cBPredDebugCfg.mbRow && mbCol == r12cBPredDebugCfg.mbCol
 }
 
-func r12cBPredEmitTrace(_ interface{}, mbRow int, mbCol int, block int, mode vp8common.BPredictionMode, rate int, dist int, cost int, pred []byte) {
+func r12cBPredEmitTrace(_ any, mbRow int, mbCol int, block int, mode vp8common.BPredictionMode, rate int, dist int, cost int, pred []byte) {
 	r12cBPredDebugCfg.mu.Lock()
 	defer r12cBPredDebugCfg.mu.Unlock()
 	out := r12cBPredDebugCfg.outFile
@@ -226,7 +226,7 @@ func r12cPickerEmitState2(frameIdx, mbRow, mbCol int, baseline []int, mult []int
 
 // r12cTrackMutation logs each mutation of interRDThreshMult so we can
 // pinpoint when mode index 2 (NEAREST1) is touched.
-func r12cTrackMutation(e interface{}, modeIndex int, kind string) bool {
+func r12cTrackMutation(e any, modeIndex int, kind string) bool {
 	if r12cPickerAllOutFile == nil {
 		return false
 	}
@@ -248,7 +248,7 @@ func r12cTrackMutation(e interface{}, modeIndex int, kind string) bool {
 // r12cTrackContextFn is set by the picker to expose current frame/mb
 // context. It's a function pointer so the encoder package's frameCount
 // is available without reaching across packages.
-var r12cTrackContextFn = func(e interface{}) (int, int, int) {
+var r12cTrackContextFn = func(e any) (int, int, int) {
 	return r12cTrackFrame, r12cTrackMBRow, r12cTrackMBCol
 }
 

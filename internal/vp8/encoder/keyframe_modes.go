@@ -32,7 +32,7 @@ func WriteKeyFrameMacroblockMode(w *BoolWriter, above *KeyFrameMacroblockMode, l
 		return false
 	}
 	if mode.YMode == common.BPred {
-		for block := 0; block < 16; block++ {
+		for block := range 16 {
 			a := keyFrameAboveBlockMode(mode, above, block)
 			l := keyFrameLeftBlockMode(mode, left, block)
 			probs := tables.KeyFrameBModeProbs[int(a)][int(l)][:]
@@ -65,8 +65,8 @@ func WriteKeyFrameModeGridWithSegmentation(w *BoolWriter, rows int, cols int, mo
 
 	writeSegmentID := segmentation.Enabled && segmentation.UpdateMap
 	segmentProbs := segmentationTreeProbs(segmentation)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			var above *KeyFrameMacroblockMode
 			var left *KeyFrameMacroblockMode

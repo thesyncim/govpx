@@ -67,7 +67,7 @@ func parseModeHeaderInto(br *boolcoder.Decoder, keyFrame bool, probs *ModeProbs)
 
 	if br.ReadBit() != 0 {
 		h.YModeUpdated = true
-		for i := 0; i < tables.YModeProbCount; i++ {
+		for i := range tables.YModeProbCount {
 			value := uint8(br.ReadLiteral(8))
 			if probs != nil {
 				probs.YMode[i] = value
@@ -77,7 +77,7 @@ func parseModeHeaderInto(br *boolcoder.Decoder, keyFrame bool, probs *ModeProbs)
 
 	if br.ReadBit() != 0 {
 		h.UVModeUpdated = true
-		for i := 0; i < tables.UVModeProbCount; i++ {
+		for i := range tables.UVModeProbCount {
 			value := uint8(br.ReadLiteral(8))
 			if probs != nil {
 				probs.UVMode[i] = value
@@ -85,8 +85,8 @@ func parseModeHeaderInto(br *boolcoder.Decoder, keyFrame bool, probs *ModeProbs)
 		}
 	}
 
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			if br.ReadBool(tables.MVUpdateProbs[component][i]) == 0 {
 				continue
 			}
@@ -125,8 +125,8 @@ func DecodeKeyFrameModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentat
 	if _, err := validateModeGrid(rows, cols, modes); err != nil {
 		return err
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			var above *MacroblockMode
 			var left *MacroblockMode
@@ -146,8 +146,8 @@ func DecodeInterModeGrid(br *boolcoder.Decoder, rows int, cols int, segmentation
 	if _, err := validateModeGrid(rows, cols, modes); err != nil {
 		return err
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			var above *MacroblockMode
 			var left *MacroblockMode
@@ -178,8 +178,8 @@ func DecodeInterModeGridWithErrorConcealment(br *boolcoder.Decoder, rows int, co
 	if br.Err() != nil {
 		firstCorrupt = 0
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			if index >= firstCorrupt {
 				continue
@@ -295,7 +295,7 @@ func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, 
 
 	if out.Mode == common.BPred {
 		out.Is4x4 = true
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			a := keyFrameAboveBlockMode(out, above, i)
 			l := keyFrameLeftBlockMode(out, left, i)
 			out.BModes[i] = common.BPredictionMode(ReadBMode(br, tables.KeyFrameBModeProbs[int(a)][int(l)][:]))
@@ -313,7 +313,7 @@ func decodeInterIntraMacroblockMode(br *boolcoder.Decoder, probs *ModeProbs, out
 
 	if out.Mode == common.BPred {
 		out.Is4x4 = true
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			out.BModes[i] = common.BPredictionMode(ReadBMode(br, probs.BMode[:]))
 		}
 	}
@@ -402,7 +402,7 @@ func decodeSplitMotionVectors(br *boolcoder.Decoder, probs *ModeProbs, left *Mac
 
 		fillCount := int(tables.MBSplitFillCount[partition])
 		fillStart := subset * fillCount
-		for i := 0; i < fillCount; i++ {
+		for i := range fillCount {
 			out.BlockMV[tables.MBSplitFillOffset[partition][fillStart+i]] = blockMV
 		}
 	}

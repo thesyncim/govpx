@@ -55,7 +55,6 @@ func TestForwardWalsh4x4SIMDMatchesScalar(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			var simd, scalar [16]int16
 			forwardWalsh4x4SIMD(tc.in[:], 4, &simd)
@@ -69,7 +68,7 @@ func TestForwardWalsh4x4SIMDMatchesScalar(t *testing.T) {
 	// Random fuzz across realistic residual ranges and various strides.
 	r := rand.New(rand.NewSource(0xFEEDFACE))
 	for _, stride := range []int{4, 8, 16} {
-		for iter := 0; iter < 1000; iter++ {
+		for iter := range 1000 {
 			buf := make([]int16, stride*4)
 			for i := range buf {
 				buf[i] = int16(r.Intn(512) - 256)

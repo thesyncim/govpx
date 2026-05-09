@@ -51,10 +51,10 @@ func BenchmarkBilinearFirstPass16Generic(b *testing.B) {
 }
 
 func bilinearFirstPassGeneric(src []byte, srcStride int, dst *[17 * 16]uint16, width int, height int, filter [2]int16) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+1])*int(filter[1])
 			dst[dstRow+x] = uint16((v + tables.FilterWeight/2) >> tables.FilterShift)
 		}
@@ -119,10 +119,10 @@ func BenchmarkSubpelVariance16x16Dispatch(b *testing.B) {
 // comparison even after varFilterBlock2DBilinearSecondPass starts
 // dispatching to the 16-wide specialisation.
 func bilinearSecondPassGeneric(src *[17 * 16]uint16, dst []byte, srcStride int, pixelStep int, height int, width int, filter [2]int16) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+pixelStep])*int(filter[1])
 			dst[dstRow+x] = byte((v + tables.FilterWeight/2) >> tables.FilterShift)
 		}
@@ -140,7 +140,7 @@ func TestBilinearSecondPass16ParityVsGeneric(t *testing.T) {
 	specDst := make([]byte, 16*16)
 	genDst := make([]byte, 16*16)
 
-	for f := 0; f < 8; f++ {
+	for f := range 8 {
 		filter := tables.BilinearFilters[f]
 		for height := 1; height <= 16; height++ {
 			for i := range specDst {
@@ -178,10 +178,10 @@ func BenchmarkVarianceBlock16x16Generic(b *testing.B) {
 func varianceBlockScalarReference(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
 	sum := 0
 	sse := 0
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		srcRow := src[y*srcStride:]
 		refRow := ref[y*refStride:]
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			diff := int(srcRow[x]) - int(refRow[x])
 			sum += diff
 			sse += diff * diff

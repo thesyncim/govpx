@@ -80,7 +80,7 @@ func BenchmarkWriteTreeToken(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		w.Init(buf)
-		for n := 0; n < 512; n++ {
+		for range 512 {
 			_ = WriteTreeToken(&w, tables.KeyFrameYModeTree[:], tables.KeyFrameYModeProbs[:], token)
 		}
 		w.Finish()

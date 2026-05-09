@@ -42,12 +42,9 @@ func TestFirstPassStatsPopulatesLibvpxFields(t *testing.T) {
 		// Background gradient: ramps from 16..200 across the row, which
 		// puts most pixels above the 64-code knee in the libvpx
 		// weight_table so the simple_weight average lands near 1.0.
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				v := 32 + ((x + y) * 200 / (width + height))
-				if v > 235 {
-					v = 235
-				}
+		for y := range height {
+			for x := range width {
+				v := min(32+((x+y)*200/(width+height)), 235)
 				frames[i].Y[y*frames[i].YStride+x] = byte(v)
 			}
 		}
@@ -55,8 +52,8 @@ func TestFirstPassStatsPopulatesLibvpxFields(t *testing.T) {
 		// the diamond search picks a non-zero MV after frame 0.
 		sx := 16 - i
 		sy := 16
-		for dy := 0; dy < 16; dy++ {
-			for dx := 0; dx < 16; dx++ {
+		for dy := range 16 {
+			for dx := range 16 {
 				ix := sx + dx
 				iy := sy + dy
 				if ix < 0 || ix >= width || iy < 0 || iy >= height {
@@ -153,15 +150,15 @@ func TestFirstPassStaticThresholdFeedsEncodeBreakout(t *testing.T) {
 	}
 	frame := func(shift int) Image {
 		img := testImage(width, height)
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+		for y := range height {
+			for x := range width {
 				img.Y[y*img.YStride+x] = byte(48 + ((x*5 + y*3) & 127))
 			}
 		}
 		sx := 22 + shift
 		sy := 18
-		for dy := 0; dy < 16; dy++ {
-			for dx := 0; dx < 16; dx++ {
+		for dy := range 16 {
+			for dx := range 16 {
 				x := sx + dx
 				y := sy + dy
 				if x >= 0 && x < width && y >= 0 && y < height {
@@ -309,12 +306,9 @@ func TestFirstPassStatsRegression32x32(t *testing.T) {
 	// best MV, which keeps the regression assertions stable.
 	frame := func(shift int) Image {
 		img := testImage(width, height)
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				v := 32 + (y+shift)*3 + (x+shift)*2
-				if v < 0 {
-					v = 0
-				}
+		for y := range height {
+			for x := range width {
+				v := max(32+(y+shift)*3+(x+shift)*2, 0)
 				if v > 235 {
 					v = 235
 				}

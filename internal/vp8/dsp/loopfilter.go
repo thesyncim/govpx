@@ -21,7 +21,7 @@ func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[3*stride+15]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		p1 := (*byte)(unsafe.Add(base, i))
 		p0 := (*byte)(unsafe.Add(base, i+stride))
 		q0 := (*byte)(unsafe.Add(base, i+2*stride))
@@ -35,7 +35,7 @@ func loopFilterSimpleVerticalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[15*stride+3]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		row := unsafe.Add(base, i*stride)
 		p1 := (*byte)(unsafe.Add(row, 0))
 		p0 := (*byte)(unsafe.Add(row, 1))
@@ -71,7 +71,7 @@ func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 	_ = s[7*stride+n-1]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p3 := (*byte)(unsafe.Add(base, i))
 		p2 := (*byte)(unsafe.Add(base, i+stride))
 		p1 := (*byte)(unsafe.Add(base, i+2*stride))
@@ -94,7 +94,7 @@ func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte,
 	_ = s[(n-1)*stride+7]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		row := unsafe.Add(base, i*stride)
 		p3 := (*byte)(unsafe.Add(row, 0))
 		p2 := (*byte)(unsafe.Add(row, 1))
@@ -118,7 +118,7 @@ func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit b
 	_ = s[7*stride+n-1]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p3 := (*byte)(unsafe.Add(base, i))
 		p2 := (*byte)(unsafe.Add(base, i+stride))
 		p1 := (*byte)(unsafe.Add(base, i+2*stride))
@@ -141,7 +141,7 @@ func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 	_ = s[(n-1)*stride+7]
 	base := unsafe.Pointer(&s[0])
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		row := unsafe.Add(base, i*stride)
 		p3 := (*byte)(unsafe.Add(row, 0))
 		p2 := (*byte)(unsafe.Add(row, 1))

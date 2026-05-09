@@ -50,11 +50,10 @@ func TestLoopFilterSIMDMatchesScalar(t *testing.T) {
 	const height = 16
 
 	for _, edge := range edges {
-		edge := edge
 		t.Run(edge.name, func(t *testing.T) {
 			for _, count := range counts {
 				for _, p := range paramSet {
-					for trial := 0; trial < 6; trial++ {
+					for trial := range 6 {
 						base := make([]byte, stride*height)
 						for i := range base {
 							base[i] = byte(rng.IntN(256))
@@ -100,7 +99,7 @@ func TestFilterMaskSIMDMatchesScalar(t *testing.T) {
 
 	for _, limit := range limits {
 		for _, blimit := range blimits {
-			for trial := 0; trial < 200; trial++ {
+			for range 200 {
 				p3 := byte(rng.IntN(256))
 				p2 := byte(rng.IntN(256))
 				p1 := byte(rng.IntN(256))
@@ -159,10 +158,9 @@ func TestLoopFilterSimpleSIMDMatchesScalar(t *testing.T) {
 	const height = 16
 
 	for _, edge := range edges {
-		edge := edge
 		t.Run(edge.name, func(t *testing.T) {
 			for _, blimit := range blimits {
-				for trial := 0; trial < 12; trial++ {
+				for trial := range 12 {
 					base := make([]byte, stride*height)
 					for i := range base {
 						base[i] = byte(rng.IntN(256))
@@ -203,7 +201,7 @@ func TestHevMaskSIMDMatchesScalar(t *testing.T) {
 	threshes := []byte{0, 1, 4, 7, 16, 32, 128, 255}
 
 	for _, thresh := range threshes {
-		for trial := 0; trial < 256; trial++ {
+		for range 256 {
 			p1 := byte(rng.IntN(256))
 			p0 := byte(rng.IntN(256))
 			q0 := byte(rng.IntN(256))

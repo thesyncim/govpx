@@ -105,7 +105,7 @@ func TestPredictBestBPredLumaModeRDKeyFrameRateIsModePlusTokens(t *testing.T) {
 	oracleModeRate := 0
 	oracleTokenRate := 0
 	oracleDist := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		mode := modes[block]
 		var blockPred [16]byte
 		if !predictAnalysisBPredBlock(mode, blockPred[:], 4, y, oraclePred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {

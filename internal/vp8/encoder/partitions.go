@@ -24,7 +24,7 @@ func writePartitionedTokenPayload(dst []byte, tokenStart int, tokenPartition com
 
 	var writers [8]BoolWriter
 	var buffers [8][]byte
-	for i := 0; i < partitionCount; i++ {
+	for i := range partitionCount {
 		buffers[i] = make([]byte, len(dst))
 		writers[i].Init(buffers[i])
 	}
@@ -34,7 +34,7 @@ func writePartitionedTokenPayload(dst []byte, tokenStart int, tokenPartition com
 	}
 
 	offset := tokenStart + sizeTableBytes
-	for i := 0; i < partitionCount; i++ {
+	for i := range partitionCount {
 		writers[i].Finish()
 		if err := writers[i].Err(); err != nil {
 			return 0, err

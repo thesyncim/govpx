@@ -87,7 +87,7 @@ func writeLargeMVComponent(t *testing.T, w *testBoolWriter, probs []uint8, compo
 	if component.value < 16 {
 		coded = component.value - 8
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w.writeBool(uint8((coded>>i)&1), probs[mvProbBits+i])
 	}
 	for i := mvLongWidth - 1; i > 3; i-- {

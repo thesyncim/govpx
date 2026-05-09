@@ -127,7 +127,7 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 	if !is4x4 {
 		yDequant = &dequant.Y1DC
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		eob := tokens.EOB[i]
 		if eob == 0 {
 			continue
@@ -158,7 +158,7 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 }
 
 func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidual, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if tokens.EOB[i] == 0 {
 			continue
 		}
@@ -168,7 +168,7 @@ func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidua
 }
 
 func addChromaResidual(tokens *MacroblockTokens, residual *MacroblockResidual, u []byte, uStride int, v []byte, vStride int) {
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if tokens.EOB[16+i] != 0 {
 			addTransformBlock(tokens.EOB[16+i], residual.Block(16+i), u[uvBlockOffset(i, uStride):], uStride)
 		}
@@ -211,7 +211,7 @@ func PredictIntraUV8x8(mode common.MBPredictionMode, dst []byte, stride int, abo
 }
 
 func PredictIntraY4x4(modes *[16]common.BPredictionMode, dst []byte, stride int, above []byte, left []byte, topLeft byte) bool {
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if ok := predictIntraY4x4Block((*modes)[block], dst, stride, above, left, topLeft, block); !ok {
 			return false
 		}
@@ -262,7 +262,7 @@ func ReconstructKeyFrameIntraGrid(img *common.Image, rows int, cols int, modes [
 		return ErrReconstructGridBufferTooSmall
 	}
 
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		if err := reconstructKeyFrameIntraGridRow(img, row, cols, modes, tokens, dequants, scratch); err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func reconstructKeyFrameIntraGridRow(img *common.Image, row int, cols int, modes
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		index := row*cols + col
 		mode := &modes[index]
 		if mode.SegmentID >= common.MaxMBSegments {
@@ -318,7 +318,7 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 	goldenState := newFrameInterRefState(golden, cfg)
 	altState := newFrameInterRefState(alt, cfg)
 
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		if err := reconstructInterFrameGridRow(img, last, golden, alt, &lastState, &goldenState, &altState, row, cols, modes, tokens, dequants, scratch, cfg); err != nil {
 			return err
 		}
@@ -330,7 +330,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		index := row*cols + col
 		mode := &modes[index]
 		if mode.SegmentID >= common.MaxMBSegments {
@@ -389,7 +389,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		return false
 	}
 	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		mv := fullPixelMotionVector(mode.BlockMV[block], cfg)
 		mv = clampMotionVectorToUMVBorder(mv, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
 		blockRow := block >> 2
@@ -409,7 +409,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
 	uvWidth := (codedImageWidth(ref) + 1) >> 1
 	uvHeight := (codedImageHeight(ref) + 1) >> 1
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		mvRow, mvCol := splitChromaMotionVector(mode, block)
 		mvRow, mvCol = fullPixelChromaMotionVector(mvRow, mvCol, cfg)
 		mvRow, mvCol = clampChromaMotionVectorToUMVBorder(mvRow, mvCol, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
@@ -560,7 +560,7 @@ func predictInter4x4(src []byte, srcStride int, xOffset int, yOffset int, dst []
 }
 
 func copyInter4x4(src []byte, srcStride int, dst []byte, dstStride int) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		copy(dst[row*dstStride:row*dstStride+4], src[row*srcStride:row*srcStride+4])
 	}
 }
@@ -687,7 +687,7 @@ func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTok
 	}
 
 	TransformMacroblockTokens(tokens, dequant, true, scratch)
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if ok := predictIntraY4x4Block(mode.BModes[block], y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block); !ok {
 			return false
 		}
@@ -712,10 +712,7 @@ func dequantizeInto(qcoeff *[16]int16, dequant *[16]int16, eob uint8, out *[16]i
 		out[0] += qcoeff[0] * dequant[0]
 		return
 	}
-	limit := int(eob)
-	if limit > 16 {
-		limit = 16
-	}
+	limit := min(int(eob), 16)
 	for i := 0; i < limit; i++ {
 		index := int(tables.DefaultZigZag1D[i])
 		out[index] += qcoeff[index] * dequant[index]
@@ -749,7 +746,7 @@ func extendIntraRightEdgeRows(full []byte, origin int, stride int, width int, he
 	if stride < width+border {
 		return
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		row := startRow + i
 		if row < 0 || row >= height {
 			continue
@@ -934,7 +931,7 @@ func predictIntraY4x4Block(mode common.BPredictionMode, dst []byte, stride int, 
 	if blockCol == 0 {
 		copy(blockLeft[:], left[y:y+4])
 	} else {
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			blockLeft[i] = dst[(y+i)*stride+x-1]
 		}
 	}

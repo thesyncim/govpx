@@ -34,7 +34,7 @@ type LoopFilterFrameConfig struct {
 func InitLoopFilterInfo(lfi *LoopFilterInfo, sharpnessLevel int) {
 	UpdateLoopFilterSharpness(lfi, sharpnessLevel)
 	initLoopFilterLUT(lfi)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		lfi.HEVThresh[i] = byte(i)
 	}
 }
@@ -64,7 +64,7 @@ func UpdateLoopFilterSharpness(lfi *LoopFilterInfo, sharpnessLevel int) {
 }
 
 func InitLoopFilterFrame(lfi *LoopFilterInfo, defaultFilterLevel int, cfg LoopFilterFrameConfig) {
-	for seg := 0; seg < MaxMBSegments; seg++ {
+	for seg := range MaxMBSegments {
 		levelSeg := defaultFilterLevel
 		if cfg.SegmentationEnabled {
 			if cfg.SegmentAbsDelta {
@@ -77,16 +77,16 @@ func InitLoopFilterFrame(lfi *LoopFilterInfo, defaultFilterLevel int, cfg LoopFi
 
 		if !cfg.ModeRefDeltaEnabled {
 			level := byte(clampLoopFilterLevel(levelSeg))
-			for ref := 0; ref < int(MaxRefFrames); ref++ {
-				for mode := 0; mode < MaxModeLFDeltas; mode++ {
+			for ref := range int(MaxRefFrames) {
+				for mode := range MaxModeLFDeltas {
 					lfi.Level[seg][ref][mode] = level
 				}
 			}
 			continue
 		}
 
-		for ref := 0; ref < int(MaxRefFrames); ref++ {
-			for mode := 0; mode < MaxModeLFDeltas; mode++ {
+		for ref := range int(MaxRefFrames) {
+			for mode := range MaxModeLFDeltas {
 				lfi.Level[seg][ref][mode] = 0
 			}
 		}

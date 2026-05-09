@@ -92,7 +92,6 @@ func TestOracleInterDecisionMatchRate(t *testing.T) {
 	reports := make([]fixtureMBReport, 0, len(specs))
 
 	for _, spec := range specs {
-		spec := spec
 		t.Run(spec.Name, func(t *testing.T) {
 			opts := EncoderOptions{
 				Width:             width,

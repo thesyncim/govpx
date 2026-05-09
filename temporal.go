@@ -259,10 +259,7 @@ func (t *temporalState) updateLayerBuffer(accounting *temporalLayerAccounting, e
 	if showFrame {
 		accounting.BufferLevelBits = saturatingAdd(accounting.BufferLevelBits, accounting.FrameBandwidthBits)
 	}
-	accounting.BufferLevelBits = saturatingSub(accounting.BufferLevelBits, encodedBits)
-	if accounting.BufferLevelBits > accounting.MaximumBufferBits {
-		accounting.BufferLevelBits = accounting.MaximumBufferBits
-	}
+	accounting.BufferLevelBits = min(saturatingSub(accounting.BufferLevelBits, encodedBits), accounting.MaximumBufferBits)
 }
 
 func temporalLayerBufferBits(targetKbps int, bufferMs int) int {
@@ -335,7 +332,7 @@ func normalizeTemporalBitrates(cfg TemporalScalabilityConfig, layers int, totalB
 		return TemporalScalabilityConfig{}, false, ErrInvalidBitrate
 	}
 	hasExplicitBitrate := false
-	for i := 0; i < MaxTemporalLayers; i++ {
+	for i := range MaxTemporalLayers {
 		if cfg.LayerTargetBitrateKbps[i] < 0 {
 			return TemporalScalabilityConfig{}, false, ErrInvalidBitrate
 		}
@@ -349,7 +346,7 @@ func normalizeTemporalBitrates(cfg TemporalScalabilityConfig, layers int, totalB
 		}
 		return cfg, true, nil
 	}
-	for i := 0; i < layers; i++ {
+	for i := range layers {
 		if cfg.LayerTargetBitrateKbps[i] <= 0 {
 			return TemporalScalabilityConfig{}, false, ErrInvalidBitrate
 		}

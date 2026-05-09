@@ -223,7 +223,7 @@ func encodeStateHeaderPrefix(tokenPartition common.TokenPartition, baseQ uint8) 
 	w.writeBool(0, 128)
 	w.writeLiteral(uint32(tokenPartition), 2)
 	w.writeLiteral(uint32(baseQ), 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 	payload := w.finish()
@@ -242,7 +242,7 @@ func encodeStateHeaderWithSingleCoefProbabilityUpdate(tokenPartition common.Toke
 	w.writeBool(0, 128)
 	w.writeLiteral(uint32(tokenPartition), 2)
 	w.writeLiteral(uint32(baseQ), 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 	if refreshEntropy {
@@ -252,10 +252,10 @@ func encodeStateHeaderWithSingleCoefProbabilityUpdate(tokenPartition common.Toke
 	}
 
 	first := true
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					if first {
 						w.writeBool(1, tables.CoefUpdateProbs[block][band][ctx][node])
 						w.writeLiteral(uint32(value), 8)
@@ -295,7 +295,7 @@ func encodeInterStateHeaderWithModeProbabilityUpdates() []byte {
 	w.writeBool(0, 128)
 	w.writeLiteral(0, 2)
 	w.writeLiteral(0, 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 
@@ -316,10 +316,10 @@ func encodeInterStateHeaderWithModeProbabilityUpdates() []byte {
 }
 
 func writeNoCoefficientProbabilityUpdates(w *testBoolWriter) {
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					w.writeBool(0, tables.CoefUpdateProbs[block][band][ctx][node])
 				}
 			}
@@ -346,8 +346,8 @@ func writeInterModeProbabilityUpdates(w *testBoolWriter) {
 	w.writeLiteral(60, 8)
 	w.writeLiteral(70, 8)
 
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			w.writeBool(0, tables.MVUpdateProbs[component][i])
 		}
 	}

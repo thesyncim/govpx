@@ -78,7 +78,6 @@ func TestOracleReconstructionAdler32Match(t *testing.T) {
 		{name: "good-quality-cbr-cpu0-splitmv", deadline: DeadlineGoodQuality, cpuUsed: 0, fixture: splitmv, frameLimit: 2},
 	}
 	for _, cfg := range cases {
-		cfg := cfg
 		t.Run(cfg.name, func(t *testing.T) {
 			opts := baseOpts
 			opts.Deadline = cfg.deadline

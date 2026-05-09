@@ -42,7 +42,6 @@ func TestOracleExternalEncoderTestDataValidation(t *testing.T) {
 
 	maxFrames := externalEncoderTestFrameLimit(t)
 	for _, path := range paths {
-		path := path
 		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
 			clip, ok := readExternalEncoderClip(t, path, maxFrames)
 			if !ok {
@@ -98,11 +97,11 @@ func TestReadExternalEncoderY4MClip(t *testing.T) {
 	path := filepath.Join(dir, "tiny.y4m")
 	frameSize := 4*2 + 2*(2*1)
 	data := []byte("YUV4MPEG2 W4 H2 F30:1 Ip A0:0 C420jpeg\nFRAME\n")
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		data = append(data, byte(i))
 	}
 	data = append(data, []byte("FRAME\n")...)
-	for i := 0; i < frameSize; i++ {
+	for i := range frameSize {
 		data = append(data, byte(i+20))
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -279,7 +278,7 @@ func parseY4MHeader(header string) (int, int, int, bool) {
 	height := 0
 	fps := 30
 	chroma := "C420"
-	for _, field := range strings.Fields(header) {
+	for field := range strings.FieldsSeq(header) {
 		switch {
 		case strings.HasPrefix(field, "W"):
 			width, _ = strconv.Atoi(strings.TrimPrefix(field, "W"))

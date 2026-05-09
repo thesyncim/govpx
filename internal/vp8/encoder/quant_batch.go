@@ -25,7 +25,7 @@ func FastQuantizeBlockBatch(coeff []int16, quant *BlockQuant, qcoeff []int16, dq
 }
 
 func fastQuantizeBlockBatchScalar(coeff []int16, quant *BlockQuant, qcoeff []int16, dqcoeff []int16, eobs []uint8, count int) {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		var c, q, dq [16]int16
 		copy(c[:], coeff[i*16:i*16+16])
 		eob := fastQuantizeBlockScalar(&c, quant, &q, &dq)

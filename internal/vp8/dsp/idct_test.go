@@ -16,8 +16,8 @@ func TestDCOnlyIDCT4x4AddMatchesFullIDCTForDCOnly(t *testing.T) {
 		IDCT4x4Add(&input, pred, 8, full, 8)
 		DCOnlyIDCT4x4Add(dc, pred, 8, dcOnly, 8)
 
-		for y := 0; y < 4; y++ {
-			for x := 0; x < 4; x++ {
+		for y := range 4 {
+			for x := range 4 {
 				if full[y*8+x] != dcOnly[y*8+x] {
 					t.Fatalf("dc=%d pixel[%d,%d] full=%d dcOnly=%d", dc, x, y, full[y*8+x], dcOnly[y*8+x])
 				}

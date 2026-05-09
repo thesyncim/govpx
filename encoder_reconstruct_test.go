@@ -415,10 +415,7 @@ func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
 	}
 	thresholds := e.interModeRDThresholdsForReferences(40, refs, len(refs))
 	qValue := vp8common.DCQuant(40, 0)
-	q := int(math.Pow(float64(qValue), 1.25))
-	if q < 8 {
-		q = 8
-	}
+	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
 	want := ((19 << 7) << 1) * q / 100
 	if thresholds[libvpxThrNew2] != want {
 		t.Fatalf("NEW2 threshold from previous-frame error bins = %d, want %d", thresholds[libvpxThrNew2], want)
@@ -427,10 +424,7 @@ func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
 
 func TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts(t *testing.T) {
 	qValue := vp8common.DCQuant(40, 0)
-	q := int(math.Pow(float64(qValue), 1.25))
-	if q < 8 {
-		q = 8
-	}
+	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
 	thresholds := libvpxInterModeRDThresholds(40, 0, DeadlineBestQuality, 0)
 	if got, want := thresholds[libvpxThrNew1], 1000*q/100; got != want {
 		t.Fatalf("high-rdmult NEW1 threshold = %d, want thresh_mult*q/100 = %d", got, want)
@@ -440,10 +434,7 @@ func TestLibvpxInterModeRDThresholdsScaleLikeInitializeRDConsts(t *testing.T) {
 	}
 
 	lowQ := vp8common.DCQuant(4, 0)
-	lowQPow := int(math.Pow(float64(lowQ), 1.25))
-	if lowQPow < 8 {
-		lowQPow = 8
-	}
+	lowQPow := max(int(math.Pow(float64(lowQ), 1.25)), 8)
 	lowThresholds := libvpxInterModeRDThresholds(4, 0, DeadlineBestQuality, 0)
 	if got, want := lowThresholds[libvpxThrNew1], 1000*lowQPow; got != want {
 		t.Fatalf("low-rdmult NEW1 threshold = %d, want thresh_mult*q = %d", got, want)
@@ -864,8 +855,8 @@ func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *test
 	last := testVP8Frame(t, 16, 16, 220, 90, 170)
 	golden := testVP8Frame(t, 16, 16, 40, 90, 170)
 	alt := testVP8Frame(t, 16, 16, 80, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			v := byte(32 + ((row*17 + col*11) & 127))
 			src.Y[row*src.YStride+col] = v
 			golden.Img.Y[row*golden.Img.YStride+col] = v
@@ -893,15 +884,15 @@ func TestSelectInterFrameReferenceMotionVectorChoosesLowestCostReference(t *test
 func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte(17 + ((row*19 + col*11) & 127))
 		}
 	}
 
 	last := testVP8Frame(t, 32, 32, 220, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+2)*last.Img.YStride+col] = src.Y[row*src.YStride+col]
 		}
 	}
@@ -917,21 +908,21 @@ func TestSelectInterFrameReferenceMotionVectorUsesLibvpxHexCandidate(t *testing.
 func TestSelectInterFrameFullPixelMotionVectorRealtimeHexWalksNextCheckpoints(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 13, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((19 + row*73 + col*151 + row*col*37) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 127, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			v := src.Y[(row+16)*src.YStride+col+16]
 			last.Img.Y[(row+18)*last.Img.YStride+col+16] = v ^ 1
 		}
 	}
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -947,15 +938,15 @@ func TestSelectInterFrameFullPixelMotionVectorRealtimeHexWalksNextCheckpoints(t 
 func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((23 + row*71 + col*139 + row*col*41) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 129, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -976,15 +967,15 @@ func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *test
 func TestSelectInterFrameFullPixelMotionVectorDiamondUsesLibvpxSearchSites(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((23 + row*71 + col*139 + row*col*41) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 129, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -1005,15 +996,15 @@ func TestSelectInterFrameFullPixelMotionVectorDiamondUsesLibvpxSearchSites(t *te
 func TestSelectInterFrameFullPixelMotionVectorDiamondKeepsFourSitePath(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((31 + row*67 + col*149 + row*col*43) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 129, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+20)*last.Img.YStride+col+20] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -1042,15 +1033,15 @@ func TestSelectInterFrameFullPixelMotionVectorDiamondKeepsFourSitePath(t *testin
 func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 0, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = 200
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 0, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+18)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -1074,15 +1065,15 @@ func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T)
 func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((41 + row*19 + col*31 + row*col*7) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 129, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -1116,15 +1107,15 @@ func TestSelectInterFrameFullPixelMotionVectorUsesImprovedStartAndBestRefMVCost(
 func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 8, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((73 + row*43 + col*17 + row*col*11) & 255)
 		}
 	}
 
 	analysis := testVP8Frame(t, 64, 64, 211, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			srcPixel := src.Y[(row+16)*src.YStride+col+16]
 			analysis.Img.Y[(row+16)*analysis.Img.YStride+col] = srcPixel
 			analysis.Img.Y[row*analysis.Img.YStride+col+16] = srcPixel ^ 0xff
@@ -1164,15 +1155,15 @@ func TestImprovedInterFrameSearchStartUsesLibvpxSADOrderAndStepRange(t *testing.
 func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 19, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[(row+16)*src.YStride+col+16] = byte((31 + row*29 + col*13 + row*col*5) & 255)
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 151, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+16)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
 		}
 	}
@@ -1240,15 +1231,15 @@ func TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots(t *testing.T) {
 func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte(21 + ((row*23 + col*7) & 127))
 		}
 	}
 
 	last := testVP8Frame(t, 32, 32, 220, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+3)*last.Img.YStride+col] = src.Y[row*src.YStride+col]
 		}
 	}
@@ -1264,15 +1255,15 @@ func TestSelectInterFrameReferenceMotionVectorFindsFullPixelCandidate(t *testing
 func TestSelectInterFrameReferenceMotionVectorFindsExhaustiveCornerCandidate(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 13, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte(31 + ((row*29 + col*5) & 127))
 		}
 	}
 
 	last := testVP8Frame(t, 64, 64, 220, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[(row+4)*last.Img.YStride+col+4] = src.Y[row*src.YStride+col]
 		}
 	}
@@ -1289,8 +1280,8 @@ func TestSelectInterFrameSplitMotionModeFindsQuadrantMotion(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
 	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
-	for row := 0; row < 32; row++ {
-		for col := 0; col < 32; col++ {
+	for row := range 32 {
+		for col := range 32 {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*37 + col*13) & 255)
 		}
 	}
@@ -1327,7 +1318,7 @@ func TestSelectInterFrameSplitMotionModeFindsQuadrantMotion(t *testing.T) {
 
 func TestSelectInterFrameSplitSubsetMotionModeTrialsReusableLabels(t *testing.T) {
 	src, ref := splitMotionSourceAndReference(t)
-	for row := 0; row < 32; row++ {
+	for row := range 32 {
 		copy(src.Y[row*src.YStride:row*src.YStride+32], ref.Img.Y[row*ref.Img.YStride:row*ref.Img.YStride+32])
 	}
 	ref.ExtendBorders()
@@ -1623,7 +1614,7 @@ func TestSelectInterFrameSplitMotionModeFindsAllPartitionShapes(t *testing.T) {
 	t.Run("four-by-four", func(t *testing.T) {
 		src, ref := splitMotionSourceAndReference(t)
 		var want [16]vp8enc.MotionVector
-		for block := 0; block < 16; block++ {
+		for block := range 16 {
 			y := (block >> 2) * 4
 			x := (block & 3) * 4
 			dy := block >> 2
@@ -1827,7 +1818,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 128, 128, 128)
 	pred := testVP8Frame(t, 32, 32, 128, 128, 128)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		pred.Img.Y[15*pred.Img.YStride+16+i] = byte(40 + i*7)
 		pred.Img.Y[(16+i)*pred.Img.YStride+15] = byte(210 - i*5)
 	}
@@ -1837,7 +1828,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 	refs := vp8dec.BuildIntraPredictorRefs(&pred.Img, 1, 1, &genScratch.Refs)
 	yOff := 16*pred.Img.YStride + 16
 	y := pred.Img.Y[yOff:]
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		var blockPred [16]byte
 		if !predictAnalysisBPredBlock(vp8common.BHEPred, blockPred[:], 4, y, pred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
@@ -1870,7 +1861,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 128, 128, 128)
 	e.analysis = testVP8Frame(t, 32, 32, 128, 128, 128)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		e.analysis.Img.Y[15*e.analysis.Img.YStride+16+i] = byte(30 + i*11)
 		e.analysis.Img.Y[(16+i)*e.analysis.Img.YStride+15] = byte(220 - i*9)
 	}
@@ -1880,7 +1871,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 	refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, 1, 1, &genScratch.Refs)
 	yOff := 16*e.analysis.Img.YStride + 16
 	y := e.analysis.Img.Y[yOff:]
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		var blockPred [16]byte
 		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
@@ -1909,8 +1900,8 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 128, 128, 128)
-	for row := 0; row < 4; row++ {
-		for col := 0; col < 4; col++ {
+	for row := range 4 {
+		for col := range 4 {
 			src.Y[row*src.YStride+col] = 200
 		}
 	}
@@ -1935,8 +1926,8 @@ func TestPredictBestBPredLumaModeRDReconstructsChosenBlocks(t *testing.T) {
 func TestPredictBestIntraChromaModeRDUsesTransformTokenCost(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 128, 128, 128)
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			src.U[row*src.UStride+col] = byte(24 + ((row*37 + col*19) & 0xff))
 			src.V[row*src.VStride+col] = byte(224 - ((row*11 + col*43) & 0x7f))
 		}
@@ -2065,7 +2056,7 @@ func TestBPredAnalysisKeyFrameMapsWholeBlockNeighborContexts(t *testing.T) {
 
 func TestMacroblockCoefficientsEmptyTreatsSkippedDCLumaAsEmpty(t *testing.T) {
 	var coeffs vp8enc.MacroblockCoefficients
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		coeffs.SetBlockEOB(block, 0)
 	}
 	coeffs.SetBlockEOB(24, 0)
@@ -2445,8 +2436,8 @@ func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T)
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
 	last := testVP8Frame(t, 16, 16, 0, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[row*last.Img.YStride+col] = byte((row*29 + col*53) & 255)
 		}
 	}
@@ -2478,7 +2469,7 @@ func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
 	fillBenchmarkVP8Image(&e.analysis.Img, 128, 128, 128)
 	// Shape chroma predictor references so the old fast chroma search would
 	// prefer V_PRED over DC_PRED. Libvpx pickinter keeps UV at DC_PRED here.
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		e.analysis.Img.U[7*e.analysis.Img.UStride+8+i] = 40
 		e.analysis.Img.V[7*e.analysis.Img.VStride+8+i] = 40
 		e.analysis.Img.U[(8+i)*e.analysis.Img.UStride+7] = 220
@@ -2495,8 +2486,8 @@ func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
 		}
 	}
 	last := testVP8Frame(t, 32, 32, 0, 90, 170)
-	for row := 0; row < 32; row++ {
-		for col := 0; col < 32; col++ {
+	for row := range 32 {
+		for col := range 32 {
 			last.Img.Y[row*last.Img.YStride+col] = byte((row*29 + col*53 + 17) & 255)
 		}
 	}
@@ -2533,20 +2524,20 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 
 	src := testImage(16, 16)
 	fillImage(src, 127, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte((17 + row*43 + col*71 + row*col*11) & 255)
 		}
 	}
 	last := testVP8Frame(t, 16, 16, 0, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[row*last.Img.YStride+col] = byte((231 - row*17 - col*31) & 255)
 		}
 	}
 	last.ExtendBorders()
 	golden := testVP8Frame(t, 16, 16, 0, 90, 170)
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		copy(golden.Img.Y[row*golden.Img.YStride:], src.Y[row*src.YStride:row*src.YStride+16])
 	}
 	golden.ExtendBorders()
@@ -2575,8 +2566,8 @@ func TestSelectFastInterFrameModeDecisionUsesThresholdState(t *testing.T) {
 	src := testImage(16, 16)
 	fillImage(src, 96, 90, 170)
 	last := testVP8Frame(t, 16, 16, 96, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			y := byte((11 + row*37 + col*19 + row*col*5) & 255)
 			src.Y[row*src.YStride+col] = y
 			last.Img.Y[row*last.Img.YStride+col] = y
@@ -2954,7 +2945,7 @@ func TestSplitMotionModeVectorCostChargesPartitionAndNew4x4Weight(t *testing.T) 
 	best := vp8enc.MotionVector{Col: 8}
 	want := mbSplitPartitionRate(mode.Partition)
 	partitions := int(vp8tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
 		target := mode.BlockMV[block]
 		want += splitSubMotionLabelRate(vp8common.New4x4)
@@ -3021,8 +3012,8 @@ func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 128, 128, 128)
 	ref := testVP8Frame(t, 32, 32, 255, 128, 128)
-	for row := 0; row < 4; row++ {
-		for col := 0; col < 4; col++ {
+	for row := range 4 {
+		for col := range 4 {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte(128 + zeroDiff)
 			ref.Img.Y[row*ref.Img.YStride+col+4] = byte(128 + leftDiff)
 		}
@@ -3036,7 +3027,7 @@ func TestSelectInterFrameSplitSubsetMotionModeRanksLabelsByRD(t *testing.T) {
 	}
 	left := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV, Partition: 3}
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.SplitMV, Partition: 3}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		left.BlockMV[block] = leftMV
 		above.BlockMV[block] = aboveMV
 	}
@@ -3724,7 +3715,7 @@ func TestBuildReconstructingKeyFrameCoefficientsWithSegmentationQuantizesPerSegm
 func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegmentDequants(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
 	fillBenchmarkVP8Image(&e.lastRef.Img, 128, 128, 128)
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		for col := 16; col < 32; col++ {
 			if (row+col)&1 == 0 {
 				e.lastRef.Img.Y[row*e.lastRef.Img.YStride+col] = 32
@@ -3811,7 +3802,7 @@ func TestBuildReconstructingCoefficientsWithSegmentationRejectsInvalidSegmentID(
 func copyBPredBlockToSource(block []byte, blockStride int, dst Image, mbRow int, mbCol int, blockIndex int) {
 	baseY := mbRow*16 + (blockIndex>>2)*4
 	baseX := mbCol*16 + (blockIndex&3)*4
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		copy(dst.Y[(baseY+row)*dst.YStride+baseX:], block[row*blockStride:row*blockStride+4])
 	}
 }
@@ -3854,7 +3845,7 @@ func macroblockCoeffAbsSum(coeffs *vp8enc.MacroblockCoefficients) int {
 
 func BenchmarkMacroblockCoefficientsEmpty(b *testing.B) {
 	var coeffs vp8enc.MacroblockCoefficients
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		coeffs.SetBlockEOB(block, 0)
 	}
 	coeffs.SetBlockEOB(24, 0)
@@ -4022,8 +4013,8 @@ func splitMotionSourceAndReference(tb testing.TB) (Image, vp8common.FrameBuffer)
 	src := testImage(32, 32)
 	fillImage(src, 13, 90, 170)
 	ref := testVP8Frame(tb, 32, 32, 0, 90, 170)
-	for row := 0; row < 32; row++ {
-		for col := 0; col < 32; col++ {
+	for row := range 32 {
+		for col := range 32 {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*17 + col*col*31 + row*col*7 + row*13 + col*29) & 255)
 		}
 	}
@@ -4031,8 +4022,8 @@ func splitMotionSourceAndReference(tb testing.TB) (Image, vp8common.FrameBuffer)
 }
 
 func copyShiftedBlockFromReference(dst Image, ref *vp8common.Image, y int, x int, width int, height int, dy int, dx int) {
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			dst.Y[(y+row)*dst.YStride+x+col] = ref.Y[(y+row+dy)*ref.YStride+x+col+dx]
 		}
 	}
@@ -4198,15 +4189,15 @@ func TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual(t *testi
 	// Vary luma so the partitioned MV search has a unique optimum, and vary
 	// chroma so the derived 8x8 chroma MVs leave non-trivial UV residual
 	// (rd_inter4x4_uv only contributes when vp8_mbuverror is non-zero).
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*11 + col*col*23 + row*col*5 + 7) & 255)
 		}
 	}
 	uvWidth := (w + 1) >> 1
 	uvHeight := (h + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			ref.Img.U[row*ref.Img.UStride+col] = byte((row*19 ^ col*13) & 255)
 			ref.Img.V[row*ref.Img.VStride+col] = byte((row*7 + col*29 + 41) & 255)
 		}
@@ -4220,8 +4211,8 @@ func TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual(t *testi
 	// Drop the source by a per-4x4-block DC offset so the forward DCT
 	// concentrates energy at the DC coefficient that survives the inter
 	// zbin and leaves a populated EOB on each block.
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			block := (row>>2)*4 + (col >> 2)
 			delta := 60
 			if block&1 == 0 {
@@ -4238,8 +4229,8 @@ func TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual(t *testi
 	}
 	// Match chroma so the test only depends on encoder-derived UV MVs and
 	// the sixtap/bilinear residual from chroma sub-pel filtering.
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			src.U[row*src.UStride+col] = ref.Img.U[row*ref.Img.UStride+col]
 			src.V[row*src.VStride+col] = ref.Img.V[row*ref.Img.VStride+col]
 		}
@@ -4280,14 +4271,14 @@ func TestSelectInterFrameSplitMotionDecisionRDAccountsForChromaResidual(t *testi
 	// quantises to non-zero coefficients. Without this storage the SPLITMV
 	// packet writer would have to re-quantise to recover the EOBs.
 	nonZeroLumaEOBs := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if decision.LumaEOB(block) > 0 {
 			nonZeroLumaEOBs++
 		}
 	}
 	if nonZeroLumaEOBs == 0 {
 		var snap [16]int
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			snap[i] = decision.LumaEOB(i)
 		}
 		t.Fatalf("expected at least one populated luma EOB, got %v", snap)
@@ -4320,8 +4311,8 @@ func TestSelectInterFrameSplitMotionLabelLevelTrials(t *testing.T) {
 	src := testImage(w, h)
 	fillImage(src, 0, 128, 128)
 	ref := testVP8Frame(t, w, h, 0, 128, 128)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*13 + col*col*29 + row*col*5 + 11) & 255)
 		}
 	}
@@ -4391,8 +4382,8 @@ func TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch(t *testing.T) {
 	src := testImage(w, h)
 	fillImage(src, 0, 128, 128)
 	ref := testVP8Frame(t, w, h, 0, 128, 128)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*13 + col*col*29 + row*col*5 + 11) & 255)
 		}
 	}
@@ -4433,7 +4424,7 @@ func TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch(t *testing.T) {
 		Mode:      vp8common.SplitMV,
 		Partition: 0,
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		left.BModes[block] = vp8common.Left4x4
 		if block < 8 {
 			left.BlockMV[block] = vp8enc.MotionVector{Row: 8, Col: 0}
@@ -4456,7 +4447,7 @@ func TestSelectInterFrameSplitMotionTHRNEWGatingSkipsSearch(t *testing.T) {
 		// 1 differ, so the gated picker should return a valid SPLITMV.
 		t.Fatalf("gated picker returned ok=false (synthetic left-MB SplitMV did not break label symmetry)")
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if gated.BModes[block] == vp8common.New4x4 {
 			t.Fatalf("block %d BMode = New4x4 with gate fired (mvthresh=%d), want non-NEW (LEFT/ABOVE/ZERO)", block, huge)
 		}
@@ -4482,15 +4473,15 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 	src := testImage(w, h)
 	fillImage(src, 0, 128, 128)
 	ref := testVP8Frame(t, w, h, 0, 128, 128)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*11 + col*col*23 + row*col*5 + 7) & 255)
 		}
 	}
 	uvWidth := (w + 1) >> 1
 	uvHeight := (h + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			ref.Img.U[row*ref.Img.UStride+col] = byte((row*19 ^ col*13) & 255)
 			ref.Img.V[row*ref.Img.VStride+col] = byte((row*7 + col*29 + 41) & 255)
 		}
@@ -4500,8 +4491,8 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 	// rate populated.
 	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
 	copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 0, 0)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			block := (row>>2)*4 + (col >> 2)
 			delta := 60
 			if block&1 == 0 {
@@ -4516,8 +4507,8 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 			src.Y[row*src.YStride+col] = byte(pixel)
 		}
 	}
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			src.U[row*src.UStride+col] = ref.Img.U[row*ref.Img.UStride+col]
 			src.V[row*src.VStride+col] = ref.Img.V[row*ref.Img.VStride+col]
 		}
@@ -4601,8 +4592,8 @@ func TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock(t *testing.
 	src := testImage(w, h)
 	fillImage(src, 128, 90, 170)
 	last := testVP8Frame(t, w, h, 64, 96, 160)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			last.Img.Y[row*last.Img.YStride+col] = byte((row*53 + col*97 + 7) & 255)
 		}
 	}
@@ -4687,8 +4678,8 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	// arbitrary mix; the remaining cells stamp a positive col MV.
 	modes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
 	bias := make([]bool, len(modes))
-	for r := 0; r < mbRows; r++ {
-		for c := 0; c < mbCols; c++ {
+	for r := range mbRows {
+		for c := range mbCols {
 			modes[r*mbCols+c] = vp8enc.InterFrameMacroblockMode{
 				RefFrame: vp8common.LastFrame,
 				Mode:     vp8common.NewMV,
@@ -4774,20 +4765,20 @@ func TestSelectRDInterFrameModeDecisionUsesTempTokenContext(t *testing.T) {
 
 	src := testImage(16, 16)
 	fillImage(src, 96, 96, 96)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte((19 + row*41 + col*23 + row*col*7) & 255)
 		}
 	}
 	last := testVP8Frame(t, 16, 16, 96, 96, 96)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			last.Img.Y[row*last.Img.YStride+col] = byte((211 - row*13 - col*29) & 255)
 		}
 	}
 	last.ExtendBorders()
 	golden := testVP8Frame(t, 16, 16, 96, 96, 96)
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		copy(golden.Img.Y[row*golden.Img.YStride:], src.Y[row*src.YStride:row*src.YStride+16])
 	}
 	golden.ExtendBorders()
@@ -4860,8 +4851,8 @@ func TestRecodeLoopResetsTokenContext(t *testing.T) {
 	}
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			src.Y[row*src.YStride+col] = byte((33 + row*51 + col*61 + row*col*9) & 255)
 		}
 	}
@@ -4915,23 +4906,23 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 	src := testImage(w, h)
 	fillImage(src, 0, 128, 128)
 	ref := testVP8Frame(t, w, h, 0, 128, 128)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*row*11 + col*col*23 + row*col*5 + 7) & 255)
 		}
 	}
 	uvWidth := (w + 1) >> 1
 	uvHeight := (h + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			ref.Img.U[row*ref.Img.UStride+col] = byte((row*19 ^ col*13) & 255)
 			ref.Img.V[row*ref.Img.VStride+col] = byte((row*7 + col*29 + 41) & 255)
 		}
 	}
 	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 16, 8, 0, 1)
 	copyShiftedBlockFromReference(src, &ref.Img, 8, 0, 16, 8, 0, 0)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			block := (row>>2)*4 + (col >> 2)
 			delta := 60
 			if block&1 == 0 {
@@ -4946,8 +4937,8 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 			src.Y[row*src.YStride+col] = byte(pixel)
 		}
 	}
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			src.U[row*src.UStride+col] = ref.Img.U[row*ref.Img.UStride+col]
 			src.V[row*src.VStride+col] = ref.Img.V[row*ref.Img.VStride+col]
 		}
@@ -5175,7 +5166,6 @@ func BenchmarkBuildPredictedMacroblockCoefficientsRD(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		b.Run(tc.name, func(b *testing.B) {
 			var coeffs vp8enc.MacroblockCoefficients
 			b.ReportAllocs()

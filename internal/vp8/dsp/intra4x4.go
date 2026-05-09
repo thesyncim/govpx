@@ -118,7 +118,7 @@ func intra4x4VEPredictScalar(dst []byte, dstStride int, above []byte, topLeft by
 		avg3(above[1], above[2], above[3]),
 		avg3(above[2], above[3], above[4]),
 	}
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		copy(dst[y*dstStride:y*dstStride+4], row[:])
 	}
 }

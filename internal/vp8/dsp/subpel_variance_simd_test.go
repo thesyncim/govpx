@@ -17,8 +17,8 @@ import (
 func referenceVarianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
 	sum := 0
 	sse := 0
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			diff := int(src[y*srcStride+x]) - int(ref[y*refStride+x])
 			sum += diff
 			sse += diff * diff
@@ -32,8 +32,8 @@ func referenceFirstPass16(src []byte, srcStride int, dst *[17 * 16]uint16, heigh
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < height; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range height {
+		for x := range 16 {
 			v := int(src[y*srcStride+x])*f0 + int(src[y*srcStride+x+1])*f1
 			dst[y*16+x] = uint16((v + round) >> shift)
 		}
@@ -45,8 +45,8 @@ func referenceSecondPass16(src *[17 * 16]uint16, dst []byte, height int, filter 
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < height; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range height {
+		for x := range 16 {
 			v := int(src[y*16+x])*f0 + int(src[(y+1)*16+x])*f1
 			dst[y*16+x] = byte((v + round) >> shift)
 		}
@@ -73,7 +73,7 @@ func TestSubpelVarianceBilinearSIMDMatchesScalar(t *testing.T) {
 
 	// Variance block parity. Random 32x32 byte buffer, varying offsets
 	// and strides, 100 iterations.
-	for iter := 0; iter < 100; iter++ {
+	for iter := range 100 {
 		src := make([]byte, 64*64)
 		ref := make([]byte, 64*64)
 		for i := range src {
@@ -94,10 +94,10 @@ func TestSubpelVarianceBilinearSIMDMatchesScalar(t *testing.T) {
 	}
 
 	// First-pass bilinear parity: varying height, filter, stride.
-	for f := 0; f < 8; f++ {
+	for f := range 8 {
 		filter := tables.BilinearFilters[f]
 		for height := 1; height <= 17; height++ {
-			for trial := 0; trial < 3; trial++ {
+			for trial := range 3 {
 				const stride = 32
 				src := make([]byte, stride*(height+2))
 				for i := range src {
@@ -117,10 +117,10 @@ func TestSubpelVarianceBilinearSIMDMatchesScalar(t *testing.T) {
 	}
 
 	// Second-pass bilinear parity: varying height, filter.
-	for f := 0; f < 8; f++ {
+	for f := range 8 {
 		filter := tables.BilinearFilters[f]
 		for height := 1; height <= 16; height++ {
-			for trial := 0; trial < 3; trial++ {
+			for trial := range 3 {
 				var src [17 * 16]uint16
 				// Second-pass inputs are first-pass outputs, range [0, 255].
 				for i := range src {
@@ -148,8 +148,8 @@ func TestSubpelVarianceBilinearSIMDMatchesScalar(t *testing.T) {
 func referenceVarianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, w, h int) (int, int) {
 	sum := 0
 	sse := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			diff := int(src[y*srcStride+x]) - int(ref[y*refStride+x])
 			sum += diff
 			sse += diff * diff
@@ -163,8 +163,8 @@ func referenceFirstPassSized(src []byte, srcStride int, dst *[17 * 16]uint16, w,
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			v := int(src[y*srcStride+x])*f0 + int(src[y*srcStride+x+1])*f1
 			dst[y*w+x] = uint16((v + round) >> shift)
 		}
@@ -176,8 +176,8 @@ func referenceSecondPassSized(src *[17 * 16]uint16, dst []byte, w, h int, filter
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			v := int(src[y*w+x])*f0 + int(src[(y+1)*w+x])*f1
 			dst[y*w+x] = byte((v + round) >> shift)
 		}
@@ -198,7 +198,7 @@ func TestVarianceBlockSizedSIMDMatchesScalar(t *testing.T) {
 	}
 	for _, sz := range sizes {
 		w, h := sz[0], sz[1]
-		for iter := 0; iter < 50; iter++ {
+		for iter := range 50 {
 			src := make([]byte, 64*64)
 			ref := make([]byte, 64*64)
 			for i := range src {
@@ -228,10 +228,10 @@ func TestSubpelVarianceBilinearSizedSIMDMatchesScalar(t *testing.T) {
 
 	for _, w := range []int{8, 4} {
 		// First-pass parity.
-		for f := 0; f < 8; f++ {
+		for f := range 8 {
 			filter := tables.BilinearFilters[f]
 			for height := 1; height <= 17; height++ {
-				for trial := 0; trial < 3; trial++ {
+				for trial := range 3 {
 					stride := w + 16
 					src := make([]byte, stride*(height+2))
 					for i := range src {
@@ -256,10 +256,10 @@ func TestSubpelVarianceBilinearSizedSIMDMatchesScalar(t *testing.T) {
 		}
 
 		// Second-pass parity.
-		for f := 0; f < 8; f++ {
+		for f := range 8 {
 			filter := tables.BilinearFilters[f]
 			for height := 1; height <= 16; height++ {
-				for trial := 0; trial < 3; trial++ {
+				for trial := range 3 {
 					var src [17 * 16]uint16
 					for i := range src {
 						src[i] = uint16(rng.Intn(256))
@@ -315,8 +315,8 @@ func TestSubpelVarianceSizedFullPipelineMatchesScalar(t *testing.T) {
 		{"4x4", 4, 4, SubpelVariance4x4},
 	}
 	for _, tc := range tests {
-		for xOff := 0; xOff < 8; xOff++ {
-			for yOff := 0; yOff < 8; yOff++ {
+		for xOff := range 8 {
+			for yOff := range 8 {
 				var firstPass [17 * 16]uint16
 				filtered := make([]byte, tc.w*tc.h)
 				referenceFirstPassSized(src, stride, &firstPass, tc.w, tc.h+1, tables.BilinearFilters[xOff])
@@ -353,8 +353,8 @@ func TestSubpelVarianceFullPipelineSIMDMatchesScalar(t *testing.T) {
 		ref[i] = byte(rng.Intn(256))
 	}
 
-	for xOff := 0; xOff < 8; xOff++ {
-		for yOff := 0; yOff < 8; yOff++ {
+	for xOff := range 8 {
+		for yOff := range 8 {
 			// Reference: pure scalar pipeline.
 			var firstPass [17 * 16]uint16
 			var filtered [16 * 16]byte

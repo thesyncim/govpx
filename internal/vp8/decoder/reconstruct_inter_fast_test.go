@@ -25,8 +25,8 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 
 	modes := make([]MacroblockMode, rows*cols)
 	tokens := make([]MacroblockTokens, rows*cols)
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			i := r*cols + c
 			switch (r*cols + c) % 4 {
 			case 0:
@@ -56,11 +56,11 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 			// Reference image computed via the slow per-MB API.
 			imgSlow := blankImage(width, height)
 			var scratchSlow IntraReconstructionScratch
-			for row := 0; row < rows; row++ {
+			for row := range rows {
 				yRow := row * 16 * imgSlow.YStride
 				uRow := row * 8 * imgSlow.UStride
 				vRow := row * 8 * imgSlow.VStride
-				for col := 0; col < cols; col++ {
+				for col := range cols {
 					index := row*cols + col
 					mode := &modes[index]
 					yOff := yRow + col*16

@@ -383,7 +383,6 @@ func TestOracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 	oracle := findChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := TemporalScalabilityConfig{
 				Enabled:                true,
@@ -435,7 +434,6 @@ func TestOracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 	oracle := findChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := TemporalScalabilityConfig{
 				Enabled:                true,
@@ -510,7 +508,7 @@ func TestOracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 	stats := parseTemporalSVCExampleLayerStats(t, string(out), 2)
 	assertGovpxTemporalAccountingMatchesLibvpxExample(t, sources, stats)
 
-	for layer := 0; layer < 2; layer++ {
+	for layer := range 2 {
 		ivfPath := fmt.Sprintf("%s_%d.ivf", outputBase, layer)
 		ivf, err := os.ReadFile(ivfPath)
 		if err != nil {
@@ -540,7 +538,7 @@ func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) 
 	stats := make([]temporalSVCExampleLayerStats, layers)
 	seen := make([]bool, layers)
 	currentLayer := -1
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		var layer int
 		if _, err := fmt.Sscanf(line, "For layer#: %d", &layer); err == nil {
@@ -582,7 +580,7 @@ func parseTemporalSVCExampleLayerStats(t *testing.T, output string, layers int) 
 		stats[currentLayer].DroppedPct = droppedPct
 		seen[currentLayer] = true
 	}
-	for layer := 0; layer < layers; layer++ {
+	for layer := range layers {
 		if !seen[layer] {
 			t.Fatalf("temporal SVC output did not include layer %d stats:\n%s", layer, output)
 		}
@@ -1516,7 +1514,7 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoStaticThresholdSegmentation(t *tes
 	}
 	second := segmentedQuantizationTestImage()
 	for row := 0; row < second.Height; row++ {
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			second.Y[row*second.YStride+col] = 96
 		}
 	}
@@ -1559,7 +1557,6 @@ func TestOracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		path := path
 		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
@@ -1595,7 +1592,6 @@ func TestOracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	assertExternalIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		path := path
 		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
@@ -1634,7 +1630,6 @@ func TestOracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	assertExternalInvalidIVFTestDataMinimum(t, paths)
 
 	for _, path := range paths {
-		path := path
 		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
 			if err := runLibvpxChecksumOracleFileExpectError(t, oracle, path); err == nil {
 				t.Fatalf("libvpx oracle decoded invalid VP8 IVF without error")
@@ -1677,7 +1672,6 @@ func TestOracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 		{name: "static-threshold", width: 64, height: 64, frames: 8, args: []string{"--static-thresh=1000"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ivfPath := generateLibvpxCorpusIVF(t, vpxenc, dir, tc)
 			ivf, err := os.ReadFile(ivfPath)
@@ -2098,19 +2092,19 @@ func writeDeterministicI420(t *testing.T, path string, width int, height int, fr
 	uvWidth := width / 2
 	uvHeight := height / 2
 	buf := make([]byte, 0, frames*(width*height+2*uvWidth*uvHeight))
-	for frame := 0; frame < frames; frame++ {
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
+	for frame := range frames {
+		for y := range height {
+			for x := range width {
 				buf = append(buf, byte((x*5+y*3+frame*17)&0xff))
 			}
 		}
-		for y := 0; y < uvHeight; y++ {
-			for x := 0; x < uvWidth; x++ {
+		for y := range uvHeight {
+			for x := range uvWidth {
 				buf = append(buf, byte((96+x*3+y+frame*7)&0xff))
 			}
 		}
-		for y := 0; y < uvHeight; y++ {
-			for x := 0; x < uvWidth; x++ {
+		for y := range uvHeight {
+			for x := range uvWidth {
 				buf = append(buf, byte((160+x+y*5+frame*11)&0xff))
 			}
 		}

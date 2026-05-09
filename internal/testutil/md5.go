@@ -52,7 +52,7 @@ func MD5Hex(sum [16]byte) string {
 }
 
 func writePlaneHash(h hash.Hash, plane []byte, stride int, width int, height int) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		off := y * stride
 		if off+width > len(plane) {
 			return

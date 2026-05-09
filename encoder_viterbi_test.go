@@ -188,7 +188,7 @@ func TestViterbiFullBlockHandlesAllPositions(t *testing.T) {
 	quant := viterbiTestRegularBlockQuant(80, 50)
 	var coeff [16]int16
 	var qcoeff [16]int16
-	for pos := 0; pos < 16; pos++ {
+	for pos := range 16 {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		// Choose magnitudes that survive the quantizer (close-to-exact
 		// match with dequant=50) so most positions stay non-zero.
@@ -201,7 +201,7 @@ func TestViterbiFullBlockHandlesAllPositions(t *testing.T) {
 	if eob < 0 || eob > 16 {
 		t.Fatalf("full-block eob out of range: %d", eob)
 	}
-	for pos := 0; pos < 16; pos++ {
+	for pos := range 16 {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		// The trellis only decrements magnitudes by one, so signs must
 		// match the original (positive here) or be zero.

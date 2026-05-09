@@ -35,7 +35,7 @@ func TestDiagR12_D_AutoSpeedTrajectory(t *testing.T) {
 	}
 	defer enc.Close()
 	pkt := make([]byte, W*H*6)
-	for i := 0; i < F; i++ {
+	for i := range F {
 		img := diagMakeFrame(W, H, i)
 		speedBefore := enc.autoSpeed
 		preAvgPick, preAvgEnc := enc.avgPickModeTime, enc.avgEncodeTime
@@ -63,7 +63,7 @@ func TestDiagR12_D_DumpFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	for i := 0; i < F; i++ {
+	for i := range F {
 		img := diagMakeFrame(W, H, i)
 		if _, err := f.Write(img.Y); err != nil {
 			t.Fatal(err)
@@ -86,13 +86,13 @@ func diagMakeFrame(width, height, idx int) Image {
 		U: make([]byte, uvW*uvH), V: make([]byte, uvW*uvH),
 		YStride: width, UStride: uvW, VStride: uvW,
 	}
-	for r := 0; r < height; r++ {
-		for c := 0; c < width; c++ {
+	for r := range height {
+		for c := range width {
 			img.Y[r*img.YStride+c] = byte(32 + ((r*3 + c*5 + idx*7) & 191))
 		}
 	}
-	for r := 0; r < uvH; r++ {
-		for c := 0; c < uvW; c++ {
+	for r := range uvH {
+		for c := range uvW {
 			img.U[r*img.UStride+c] = byte(96 + ((r*2 + c + idx*3) & 63))
 			img.V[r*img.VStride+c] = byte(144 + ((r + c*2 + idx*5) & 63))
 		}

@@ -92,7 +92,7 @@ func encodeLoopFilterHeaderPartialDeltaUpdate() []byte {
 	w.writeBool(1, 128)
 	w.writeBool(1, 128)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if i == 0 {
 			w.writeBool(1, 128)
 			w.writeLiteral(5, 6)
@@ -101,7 +101,7 @@ func encodeLoopFilterHeaderPartialDeltaUpdate() []byte {
 			w.writeBool(0, 128)
 		}
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if i == 1 {
 			w.writeBool(1, 128)
 			w.writeLiteral(7, 6)

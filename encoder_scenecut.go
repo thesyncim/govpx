@@ -50,8 +50,8 @@ func (e *VP8Encoder) onePassSceneCutStats(src vp8enc.SourceImage, flags EncodeFl
 		return sceneCutFrameStats{}, false
 	}
 	hasReference := false
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			best, ok := e.bestSceneCutReferenceSSE(src, flags, row, col)
 			if !ok {
 				return sceneCutFrameStats{}, false
@@ -102,9 +102,9 @@ func macroblockMeanLumaSSE(src vp8enc.SourceImage, mbRow int, mbCol int) int {
 	baseX := mbCol * 16
 	sum := 0
 	sse := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			v := int(src.Y[srcY*src.YStride+srcX])
 			sum += v

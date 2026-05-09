@@ -12,8 +12,8 @@ func TestBilinearPredict4x4Horizontal(t *testing.T) {
 
 	BilinearPredict4x4(src, 8, 4, 0, dst, 4)
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			a := int(src[y*8+x])
 			b := int(src[y*8+x+1])
 			want := byte((a + b + 1) >> 1)
@@ -30,8 +30,8 @@ func TestBilinearPredict4x4Vertical(t *testing.T) {
 
 	BilinearPredict4x4(src, 8, 0, 4, dst, 4)
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			a := int(src[y*8+x])
 			b := int(src[(y+1)*8+x])
 			want := byte((a + b + 1) >> 1)
@@ -60,8 +60,8 @@ func TestSixTapPredict16x16ZeroOffsetsCopiesCentralBlock(t *testing.T) {
 
 	SixTapPredict16x16(src, stride, 0, 0, dst, 16)
 
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			want := src[(y+2)*stride+x+2]
 			if got := dst[y*16+x]; got != want {
 				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, want)
@@ -78,8 +78,8 @@ func TestSixTapPredictHorizontalHalfPixel(t *testing.T) {
 
 	SixTapPredict4x4(src, stride, 4, 0, dst, 4)
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			row := (y + 2) * stride
 			v := int(src[row+x+0])*int(filter[0]) +
 				int(src[row+x+1])*int(filter[1]) +
@@ -104,8 +104,8 @@ func TestSixTapPredictVerticalHalfPixel(t *testing.T) {
 
 	SixTapPredict4x4(src, stride, 0, 4, dst, 4)
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			col := x + 2
 			v := int(src[(y+0)*stride+col])*int(filter[0]) +
 				int(src[(y+1)*stride+col])*int(filter[1]) +
@@ -207,8 +207,8 @@ func BenchmarkSixTapPredict4x4(b *testing.B) {
 
 func makeGradient(width int, height int) []byte {
 	buf := make([]byte, width*height)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			buf[y*width+x] = byte((x + y*7) & 255)
 		}
 	}
@@ -217,8 +217,8 @@ func makeGradient(width int, height int) []byte {
 
 func makeSixTapSource(stride int, rows int) []byte {
 	buf := make([]byte, stride*rows)
-	for y := 0; y < rows; y++ {
-		for x := 0; x < stride; x++ {
+	for y := range rows {
+		for x := range stride {
 			buf[y*stride+x] = byte((x*11 + y*17 + x*y*3) & 255)
 		}
 	}

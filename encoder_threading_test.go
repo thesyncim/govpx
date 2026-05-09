@@ -142,7 +142,7 @@ func TestEncoderThreadsProducesIdenticalBitstream(t *testing.T) {
 		}
 		packets := make([][]byte, 0, frames)
 		buf := make([]byte, max(8192, width*height*4))
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			res, err := e.EncodeInto(buf, makeFrame(i), uint64(i), 1, 0)
 			if err != nil {
 				t.Fatalf("EncodeInto Threads=%d frame %d: %v", threads, i, err)
@@ -157,7 +157,6 @@ func TestEncoderThreadsProducesIdenticalBitstream(t *testing.T) {
 
 	baseline := encode(t, 1)
 	for _, threads := range zeroCostThreadCounts {
-		threads := threads
 		t.Run("threads_"+itoaSmall(threads), func(t *testing.T) {
 			got := encode(t, threads)
 			if len(got) != len(baseline) {
@@ -229,7 +228,7 @@ func TestEncoderThreadsProducesDeterministicAtFixedN(t *testing.T) {
 		}
 		packets := make([][]byte, 0, frames)
 		buf := make([]byte, max(8192, width*height*4))
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			res, err := e.EncodeInto(buf, makeFrame(i), uint64(i), 1, 0)
 			if err != nil {
 				t.Fatalf("EncodeInto Threads=%d frame %d: %v", threads, i, err)
@@ -243,7 +242,6 @@ func TestEncoderThreadsProducesDeterministicAtFixedN(t *testing.T) {
 	}
 
 	for _, threads := range threadCounts {
-		threads := threads
 		t.Run("threads_"+itoaSmall(threads), func(t *testing.T) {
 			runA := encode(t, threads)
 			runB := encode(t, threads)
@@ -291,7 +289,6 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 	}
 
 	for _, threads := range threadCounts {
-		threads := threads
 		b.Run("threads_"+itoaSmall(threads), func(b *testing.B) {
 			e, err := NewVP8Encoder(EncoderOptions{
 				Width:               width,

@@ -71,7 +71,7 @@ func TestDecodeBlockCoeffsZeroThenNegativeOne(t *testing.T) {
 func TestDecodeBlockCoeffsLastCoeffToken(t *testing.T) {
 	probs := uniformCoefficientProbs(128)
 	events := make([]coefEvent, 0, 16)
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		events = append(events, coefEvent{token: tables.ZeroToken})
 	}
 	events = append(events, coefEvent{token: tables.OneToken, value: 1})
@@ -189,7 +189,7 @@ func TestDecodeMacroblockTokensY2Coefficient(t *testing.T) {
 	if above.Y2 != 1 || left.Y2 != 1 {
 		t.Fatalf("Y2 contexts = %d/%d, want 1/1", above.Y2, left.Y2)
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if out.EOB[i] != 1 {
 			t.Fatalf("Y1 EOB[%d] = %d, want skip-DC EOB 1", i, out.EOB[i])
 		}
@@ -380,7 +380,7 @@ func TestDecodeTokenGridCyclesPartitionsByRow(t *testing.T) {
 			if total != rows {
 				t.Fatalf("total = %d, want %d", total, rows)
 			}
-			for row := 0; row < rows; row++ {
+			for row := range rows {
 				if tokens[row].QCoeff[24][0] != 1 || tokens[row].EOB[24] != 1 {
 					t.Fatalf("row %d Y2 coeff/eob = %d/%d, want 1/1", row, tokens[row].QCoeff[24][0], tokens[row].EOB[24])
 				}
@@ -564,7 +564,7 @@ func writeMacroblockTokenEvents(w *testBoolWriter, probs *tables.CoefficientProb
 		yBlockType = 0
 		skipDC = 1
 	}
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		writeCoeffEvents(w, probs, yBlockType, 0, skipDC, nil)
 	}
 	for i := 16; i < 24; i++ {
@@ -574,11 +574,11 @@ func writeMacroblockTokenEvents(w *testBoolWriter, probs *tables.CoefficientProb
 
 func encodeTokenRows(probs *tables.CoefficientProbs, partitions int, rows int, cols int, nonzeroBlocks []int) [][]byte {
 	var writers [8]testBoolWriter
-	for i := 0; i < partitions; i++ {
+	for i := range partitions {
 		writers[i].init()
 	}
 	partition := 0
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		rowPartition := partition
 		if partitions > 1 {
 			partition++
@@ -586,14 +586,14 @@ func encodeTokenRows(probs *tables.CoefficientProbs, partitions int, rows int, c
 				partition = 0
 			}
 		}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			writeMacroblockTokenEvents(&writers[rowPartition], probs, false, nonzeroBlocks[index])
 		}
 	}
 
 	payloads := make([][]byte, partitions)
-	for i := 0; i < partitions; i++ {
+	for i := range partitions {
 		payloads[i] = writers[i].finish()
 	}
 	return payloads

@@ -131,7 +131,7 @@ func diffR12CCol7BPredBModes(t *testing.T, govpxTrace []byte, libvpxTrace []byte
 		fmt.Fprintln(&sb)
 		if g.Mode == "B_PRED" && l.Mode == "B_PRED" {
 			diffCount := 0
-			for blk := 0; blk < 16; blk++ {
+			for blk := range 16 {
 				gB := ""
 				lB := ""
 				if blk < len(g.BModes) {
@@ -533,7 +533,7 @@ func findFirstDivergentMBQCoeff(t *testing.T, govpxTrace []byte, libvpxTrace []b
 		d.refDiff = g.RefFrame != l.RefFrame
 		d.mvDiff = g.MVRow != l.MVRow || g.MVCol != l.MVCol
 		d.skipDiff = g.Skip != l.Skip
-		for i := 0; i < 25; i++ {
+		for i := range 25 {
 			if g.EOB[i] != l.EOB[i] {
 				d.eobDiff = true
 				break
@@ -541,9 +541,9 @@ func findFirstDivergentMBQCoeff(t *testing.T, govpxTrace []byte, libvpxTrace []b
 		}
 		d.firstDiffBlock = -1
 		d.firstDiffPos = -1
-		for b := 0; b < 25; b++ {
+		for b := range 25 {
 			differ := false
-			for p := 0; p < 16; p++ {
+			for p := range 16 {
 				if g.QCoeff[b][p] != l.QCoeff[b][p] {
 					if d.firstDiffBlock < 0 {
 						d.firstDiffBlock = b
@@ -588,9 +588,9 @@ func findFirstDivergentMBQCoeff(t *testing.T, govpxTrace []byte, libvpxTrace []b
 		if l, lok := lib[first.key]; lok {
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "  per-block qcoeff for first divergent MB(%d,%d):\n", first.key.MBRow, first.key.MBCol)
-			for b := 0; b < 25; b++ {
+			for b := range 25 {
 				anyDiff := false
-				for p := 0; p < 16; p++ {
+				for p := range 16 {
 					if g.QCoeff[b][p] != l.QCoeff[b][p] {
 						anyDiff = true
 						break
@@ -602,7 +602,7 @@ func findFirstDivergentMBQCoeff(t *testing.T, govpxTrace []byte, libvpxTrace []b
 					continue
 				}
 				fmt.Fprintf(&sb, "    blk=%2d eob=%d/%d", b, gEOB, lEOB)
-				for p := 0; p < 16; p++ {
+				for p := range 16 {
 					if g.QCoeff[b][p] != l.QCoeff[b][p] {
 						fmt.Fprintf(&sb, " [%d]=%d/%d", p, g.QCoeff[b][p], l.QCoeff[b][p])
 					}

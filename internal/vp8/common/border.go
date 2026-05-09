@@ -48,27 +48,27 @@ func extendPlane(plane []byte, stride int, width int, height int, left int, righ
 		return
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := plane[(top+y)*stride:]
 		first := row[left]
 		last := row[left+width-1]
-		for x := 0; x < left; x++ {
+		for x := range left {
 			row[x] = first
 		}
-		for x := 0; x < right; x++ {
+		for x := range right {
 			row[left+width+x] = last
 		}
 	}
 
 	rowWidth := left + width + right
 	firstRow := plane[top*stride : top*stride+rowWidth]
-	for y := 0; y < top; y++ {
+	for y := range top {
 		copy(plane[y*stride:y*stride+rowWidth], firstRow)
 	}
 
 	lastRowStart := (top + height - 1) * stride
 	lastRow := plane[lastRowStart : lastRowStart+rowWidth]
-	for y := 0; y < bottom; y++ {
+	for y := range bottom {
 		dstStart := (top + height + y) * stride
 		copy(plane[dstStart:dstStart+rowWidth], lastRow)
 	}

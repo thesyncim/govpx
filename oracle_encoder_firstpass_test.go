@@ -65,12 +65,9 @@ func firstPassOracleFrames(count int, fn func(int) Image) []Image {
 
 func firstPassOracleRampFrame(width int, height int, shift int) Image {
 	img := testImage(width, height)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			v := 32 + (y+shift)*3 + (x+shift)*2
-			if v < 0 {
-				v = 0
-			}
+	for y := range height {
+		for x := range width {
+			v := max(32+(y+shift)*3+(x+shift)*2, 0)
 			if v > 235 {
 				v = 235
 			}
@@ -88,12 +85,9 @@ func firstPassOracleRampFrame(width int, height int, shift int) Image {
 
 func firstPassOracleY4MFrame(width int, height int, shift int) Image {
 	img := testImage(width, height)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			v := 64 + (y+shift)*3 + (x+shift)*2
-			if v < 0 {
-				v = 0
-			}
+	for y := range height {
+		for x := range width {
+			v := max(64+(y+shift)*3+(x+shift)*2, 0)
 			if v > 235 {
 				v = 235
 			}
@@ -102,8 +96,8 @@ func firstPassOracleY4MFrame(width int, height int, shift int) Image {
 	}
 	px := 4 + shift
 	py := 4 + shift
-	for dy := 0; dy < 8; dy++ {
-		for dx := 0; dx < 8; dx++ {
+	for dy := range 8 {
+		for dx := range 8 {
 			x := px + dx
 			y := py + dy
 			if x >= 0 && x < width && y >= 0 && y < height {

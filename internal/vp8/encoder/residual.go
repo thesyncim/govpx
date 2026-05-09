@@ -51,8 +51,8 @@ func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, delt
 		return err
 	}
 
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			segmentID := uint8(0)
 			if preserveSegmentID {
@@ -87,12 +87,12 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		x := mbCol*16 + (block&3)*4
 		y := mbRow*16 + (block>>2)*4
 		fillResidual4x4Slice(src.Y, src.YStride, src.Width, src.Height, x, y, residuals[block*16:block*16+16])
 	}
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		x := mbCol*8 + (block&1)*4
 		y := mbRow*8 + (block>>1)*4
 		fillResidual4x4Slice(src.U, src.UStride, uvWidth, uvHeight, x, y, residuals[(16+block)*16:(16+block)*16+16])
@@ -104,7 +104,7 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 
 	// Lift 16 Y DCs into the Y2 input, then zero the Y AC slot 0
 	// (matches libvpx's build_dcblock + the y_no_dc tokenize start).
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		y2Input[block] = dct[block*16]
 		dct[block*16] = 0
 	}
@@ -123,15 +123,15 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 	// loop variable bound to 25 lets the Go compiler hoist the
 	// SetBlockEOB bounds checks (eob slice and EOB array share the
 	// same length).
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		coeffs.SetBlockEOB(i, int(eobs[i]))
 	}
 }
 
 func fillResidual4x4(plane []byte, stride int, width int, height int, x int, y int, out *[16]int16) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		sampleY := clampCoord(y+row, height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			sampleX := clampCoord(x+col, width)
 			out[row*4+col] = int16(int(plane[sampleY*stride+sampleX]) - 128)
 		}
@@ -143,9 +143,9 @@ func fillResidual4x4(plane []byte, stride int, width int, height int, x int, y i
 // by the whole-MB residual builder so all 24 4x4 blocks land in one
 // contiguous buffer ready for ForwardDCT4x4Batch.
 func fillResidual4x4Slice(plane []byte, stride int, width int, height int, x int, y int, out []int16) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		sampleY := clampCoord(y+row, height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			sampleX := clampCoord(x+col, width)
 			out[row*4+col] = int16(int(plane[sampleY*stride+sampleX]) - 128)
 		}

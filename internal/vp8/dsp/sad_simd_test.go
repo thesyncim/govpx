@@ -35,10 +35,9 @@ func TestSADSIMDMatchesScalar(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
-			for srcOff := 0; srcOff < 8; srcOff++ {
-				for refOff := 0; refOff < 8; refOff++ {
+			for srcOff := range 8 {
+				for refOff := range 8 {
 					srcSlice := plane[srcOff*planeStride+srcOff:]
 					refSlice := ref[refOff*planeStride+refOff:]
 					got := c.fn(srcSlice, planeStride, refSlice, planeStride)
@@ -97,8 +96,8 @@ func TestSAD16x16LimitSIMDEarlyExit(t *testing.T) {
 
 func scalarSADLimit(src []byte, srcStride int, ref []byte, refStride int, w, h, limit int) int {
 	sad := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			d := int(src[y*srcStride+x]) - int(ref[y*refStride+x])
 			if d < 0 {
 				d = -d

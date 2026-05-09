@@ -25,7 +25,7 @@ func sourceImageMatchesReference(src vp8enc.SourceImage, ref *vp8common.Image) b
 }
 
 func planeMatches(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
-	for row := 0; row < height; row++ {
+	for row := range height {
 		aRow := a[row*aStride : row*aStride+width]
 		bRow := b[row*bStride : row*bStride+width]
 		if !bytes.Equal(aRow, bRow) {

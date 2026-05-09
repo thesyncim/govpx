@@ -60,10 +60,10 @@ func TestIndependentCoefContextSavingsHandComputed(t *testing.T) {
 	// so newp_summed=128 != oldp. That ensures aggregate savings>0 and
 	// the independent path emits an update for all three k contexts.
 	var base tables.CoefficientProbs
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					base[block][band][ctx][node] = 128
 				}
 			}
@@ -79,7 +79,7 @@ func TestIndependentCoefContextSavingsHandComputed(t *testing.T) {
 	}
 
 	const wantNew uint8 = 128 // (100*256 + 100) / 200 = 128.
-	for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+	for ctx := range tables.PrevCoefContexts {
 		if got := frameProbs[0][0][ctx][0]; got != wantNew {
 			t.Fatalf("frameProbs[0][0][%d][0] = %d, want %d (libvpx (100*256+100)/200)", ctx, got, wantNew)
 		}
@@ -117,10 +117,10 @@ func TestIndependentCoefContextDivergesFromDefault(t *testing.T) {
 	counts[2][3][0][2] = [2]int{200, 0}
 
 	var base tables.CoefficientProbs
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					base[block][band][ctx][node] = 128
 				}
 			}
@@ -174,10 +174,10 @@ func TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates(t *testing.T
 	counts[2][3][0][2] = [2]int{200, 0}
 
 	var base tables.CoefficientProbs
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					base[block][band][ctx][node] = 128
 				}
 			}
@@ -212,10 +212,10 @@ func TestIndependentCoefContextKeyFrameForcesEqualization(t *testing.T) {
 	var counts coefficientBranchCounts // all zeros: total==0 → newp=128
 
 	var base tables.CoefficientProbs
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					base[block][band][ctx][node] = 128
 				}
 			}
@@ -265,7 +265,7 @@ func TestKeyFrameIndependentCoefUpdatesUseDefaultCounts(t *testing.T) {
 			zeroUpdates.UpdateCount, contentUpdates.UpdateCount)
 	}
 
-	for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+	for ctx := range tables.PrevCoefContexts {
 		if got, want := zeroProbs[0][1][ctx][0], uint8(248); got != want {
 			t.Fatalf("default-count prob[0][1][%d][0] = %d, want %d", ctx, got, want)
 		}
@@ -309,10 +309,10 @@ func TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce(t *testing.T) {
 	counts[blk][bnd][k][n] = [2]int{1, 0}
 
 	var base tables.CoefficientProbs
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					base[block][band][ctx][node] = 128
 				}
 			}

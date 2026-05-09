@@ -157,7 +157,7 @@ func testMVComponentCost(component int, probs []uint8) int {
 	}
 
 	cost := testMVBoolCost(probs[mvProbIsShort], 1)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cost += testMVBoolCost(probs[mvProbBits+i], (x>>i)&1)
 	}
 	for i := mvLongWidth - 1; i > 3; i-- {

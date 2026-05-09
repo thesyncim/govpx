@@ -203,7 +203,7 @@ func encodeKeyFrameMacroblockMode(t *testing.T, yMode common.MBPredictionMode, u
 func encodeKeyFrameModeGrid(t *testing.T, count int, yMode common.MBPredictionMode, uvMode common.MBPredictionMode) []byte {
 	var w testBoolWriter
 	w.init()
-	for i := 0; i < count; i++ {
+	for range count {
 		writeKeyFrameMacroblockMode(t, &w, yMode, uvMode, common.BDCPred)
 	}
 	return w.finish()
@@ -222,7 +222,7 @@ func encodeKeyFrameMacroblockWithFeatures(t *testing.T) []byte {
 func writeKeyFrameMacroblockMode(t *testing.T, w *testBoolWriter, yMode common.MBPredictionMode, uvMode common.MBPredictionMode, bMode common.BPredictionMode) {
 	writeTreeToken(t, w, tables.KeyFrameYModeTree[:], tables.KeyFrameYModeProbs[:], int(yMode))
 	if yMode == common.BPred {
-		for i := 0; i < 16; i++ {
+		for range 16 {
 			writeTreeToken(t, w, tables.BModeTree[:], tables.KeyFrameBModeProbs[common.BDCPred][common.BDCPred][:], int(bMode))
 		}
 	}
@@ -237,13 +237,13 @@ func writeTreeToken(t *testing.T, w *testBoolWriter, tree []int16, probs []uint8
 	if !ok {
 		t.Fatalf("token %d not found in tree", token)
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		w.writeBool(bits[i], probs[nodes[i]>>1])
 	}
 }
 
 func findTreeTokenPath(tree []int16, node int16, token int, nodes *[16]int16, bits *[16]uint8, depth int) (int, bool) {
-	for bit := int16(0); bit < 2; bit++ {
+	for bit := range int16(2) {
 		next := tree[node+bit]
 		nodes[depth] = node
 		bits[depth] = uint8(bit)

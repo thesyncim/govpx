@@ -45,7 +45,7 @@ func TestLookaheadPushFillsConfiguredCapacity(t *testing.T) {
 	if got, want := len(e.lookahead), depth+1; got != want {
 		t.Fatalf("lookahead capacity = %d, want %d (depth+1 per libvpx max_sz)", got, want)
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		img := testImage(16, 16)
 		fillImage(img, byte(40+i), byte(90+i), byte(150+i))
 		if err := e.pushLookahead(sourceFromTestImage(img), uint64(i), 1, 0); err != nil {
@@ -114,7 +114,7 @@ func TestLookaheadForwardPeekAtBoundaries(t *testing.T) {
 	if got := e.peekLookahead(0, true); got != nil {
 		t.Fatalf("peek forward 0 on empty queue = %v, want nil", got)
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		img := testImage(16, 16)
 		fillImage(img, byte(20+i*10), byte(80+i*5), byte(160+i*5))
 		if err := e.pushLookahead(sourceFromTestImage(img), uint64(100+i), 1, 0); err != nil {
@@ -145,7 +145,7 @@ func TestLookaheadBackwardPeekReturnsLastPopped(t *testing.T) {
 	depth := 3
 	e := newLookaheadTestEncoder(t, depth)
 	// Push depth frames so pop succeeds.
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		img := testImage(16, 16)
 		fillImage(img, byte(10+i*5), 80, 160)
 		if err := e.pushLookahead(sourceFromTestImage(img), uint64(200+i), 1, 0); err != nil {
@@ -216,15 +216,15 @@ func TestLookaheadActiveMapPartialCopyOnPush(t *testing.T) {
 
 	dst := &dstBuf.Img
 	// Active MB (row 0, col 0): luma must equal the source pixel.
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			if got := dst.Y[y*dst.YStride+x]; got != 123 {
 				t.Fatalf("active MB Y[%d,%d] = %d, want 123 (source pixel)", y, x, got)
 			}
 		}
 	}
 	// Inactive MB (row 0, col 1): luma must keep the sentinel.
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		for x := 16; x < 32; x++ {
 			if got := dst.Y[y*dst.YStride+x]; got != sentinel {
 				t.Fatalf("inactive MB Y[%d,%d] = %d, want sentinel %d", y, x, got, sentinel)
@@ -265,7 +265,7 @@ func TestLookaheadActiveMapPartialCopyMultipleRuns(t *testing.T) {
 	copySourceToFrameBufferActive(dstBuf, sourceFromTestImage(src), mask, mbRows, mbCols)
 	dst := &dstBuf.Img
 	check := func(xStart int, xEnd int, want byte, label string) {
-		for y := 0; y < 16; y++ {
+		for y := range 16 {
 			for x := xStart; x < xEnd; x++ {
 				if got := dst.Y[y*dst.YStride+x]; got != want {
 					t.Fatalf("%s Y[%d,%d] = %d, want %d", label, y, x, got, want)
@@ -327,7 +327,7 @@ func TestLookaheadActiveMapBypassedWhenFlagsOrMultiBuffer(t *testing.T) {
 		t.Fatalf("pushLookahead multi-buffer: %v", err)
 	}
 	dst := &e.lookahead[0].frame.Img
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		for x := 16; x < 32; x++ {
 			if got := dst.Y[y*dst.YStride+x]; got != 77 {
 				t.Fatalf("multi-buffer push Y[%d,%d] = %d, want full copy 77", y, x, got)
@@ -342,7 +342,7 @@ func TestLookaheadDepthMatchesQueueSize(t *testing.T) {
 	if got := e.lookaheadDepth(); got != 0 {
 		t.Fatalf("initial depth = %d, want 0", got)
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		if err := e.pushLookahead(sourceFromTestImage(testImage(16, 16)), uint64(i), 1, 0); err != nil {
 			t.Fatalf("pushLookahead(%d): %v", i, err)
 		}
@@ -350,7 +350,7 @@ func TestLookaheadDepthMatchesQueueSize(t *testing.T) {
 			t.Fatalf("depth after push %d = %d, want %d", i, got, i+1)
 		}
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		if _, ok := e.popLookahead(true); !ok {
 			t.Fatalf("drain pop %d failed", i)
 		}
@@ -366,12 +366,12 @@ func TestLookaheadFutureEntryDelegatesToForwardPeek(t *testing.T) {
 	// matching entry, out-of-range returns nil).
 	depth := 3
 	e := newLookaheadTestEncoder(t, depth)
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		if err := e.pushLookahead(sourceFromTestImage(testImage(16, 16)), uint64(500+i), 1, 0); err != nil {
 			t.Fatalf("pushLookahead(%d): %v", i, err)
 		}
 	}
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		got := e.lookaheadFutureEntry(i)
 		if got == nil {
 			t.Fatalf("lookaheadFutureEntry(%d) returned nil", i)

@@ -2329,10 +2329,7 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 // special cases instead, so the layer guard is enforced by the call site.
 func (e *VP8Encoder) applyRdRefFrameProbHeuristics(refreshAltRef bool) {
 	if refreshAltRef {
-		probIntra := int(e.refProbIntra) + 40
-		if probIntra > 255 {
-			probIntra = 255
-		}
+		probIntra := min(int(e.refProbIntra)+40, 255)
 		e.refProbIntra = uint8(probIntra)
 		e.refProbLast = 200
 		e.refProbGolden = 1
@@ -2342,10 +2339,7 @@ func (e *VP8Encoder) applyRdRefFrameProbHeuristics(refreshAltRef bool) {
 		e.refProbLast = 192
 		e.refProbGolden = 220
 	} else if e.sourceAltRefActive {
-		probGolden := int(e.refProbGolden) - 20
-		if probGolden < 10 {
-			probGolden = 10
-		}
+		probGolden := max(int(e.refProbGolden)-20, 10)
 		e.refProbGolden = uint8(probGolden)
 	}
 	if !e.sourceAltRefActive {
@@ -3578,10 +3572,7 @@ func (e *VP8Encoder) encoderLoopFilter(frameType vp8common.FrameType) (uint8, ui
 	if frameType == vp8common.InterFrame {
 		level = int(e.loopFilterLevel)
 	}
-	level = libvpxClampLoopFilterLevel(e.rc.currentQuantizer, level)
-	if level > 63 {
-		level = 63
-	}
+	level = min(libvpxClampLoopFilterLevel(e.rc.currentQuantizer, level), 63)
 	sharpness := e.opts.Sharpness
 	if frameType == vp8common.KeyFrame {
 		sharpness = 0
@@ -3800,14 +3791,8 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		// score within the bias delta of best_err (e.g. the 128x128 panning
 		// CBR cpu8 fixture frame 1: govpx picked level 11, libvpx 5).
 		bias := loopFilterFullPickerBias(bestErr, filtMid, filterStep, e.twoPass.sectionIntraRating)
-		filtHigh := filtMid + filterStep
-		if filtHigh > maxLevel {
-			filtHigh = maxLevel
-		}
-		filtLow := filtMid - filterStep
-		if filtLow < minLevel {
-			filtLow = minLevel
-		}
+		filtHigh := min(filtMid+filterStep, maxLevel)
+		filtLow := max(filtMid-filterStep, minLevel)
 
 		if filtDirection <= 0 && filtLow != filtMid {
 			filtErr, err := score(filtLow)
@@ -3867,10 +3852,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 // `section_intra_rating = section_intra_error / section_coded_error` (or
 // 0 in one-pass).
 func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionIntraRating int) int {
-	shift := 15 - (filtMid / 8)
-	if shift < 0 {
-		shift = 0
-	}
+	shift := max(15-(filtMid/8), 0)
 	bias := (bestErr >> uint(shift)) * filterStep
 	if sectionIntraRating < 20 {
 		bias = bias * sectionIntraRating / 20
@@ -3922,20 +3904,14 @@ func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, start
 	} else {
 		startY = 0
 	}
-	endY := (startRow + rowCount) * 16
-	if endY > src.CodedHeight {
-		endY = src.CodedHeight
-	}
+	endY := min((startRow+rowCount)*16, src.CodedHeight)
 	if endY > dst.CodedHeight {
 		endY = dst.CodedHeight
 	}
 	if endY <= startY {
 		return
 	}
-	width := src.CodedWidth
-	if dst.CodedWidth < width {
-		width = dst.CodedWidth
-	}
+	width := min(dst.CodedWidth, src.CodedWidth)
 	if src.YStride == dst.YStride && width == src.YStride {
 		// Fast path: contiguous copy when strides and full coded width match.
 		copy(dst.Y[startY*dst.YStride:endY*dst.YStride], src.Y[startY*src.YStride:endY*src.YStride])
@@ -3965,7 +3941,7 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 	total := 0
 	for mbRow := startRow; mbRow < startRow+rowCount && mbRow < rows; mbRow++ {
 		baseY := mbRow * 16
-		for mbCol := 0; mbCol < cols; mbCol++ {
+		for mbCol := range cols {
 			baseX := mbCol * 16
 			if baseY+16 <= src.Height && baseX+16 <= src.Width && baseY+16 <= img.CodedHeight && baseX+16 <= img.CodedWidth {
 				total += dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[baseY*img.YStride+baseX:], img.YStride)
@@ -3979,10 +3955,10 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 
 func loopFilterLumaBlockSSE(src vp8enc.SourceImage, img *vp8common.Image, baseY int, baseX int) int {
 	sse := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		imgY := clampEncodeCoord(baseY+row, img.CodedHeight)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			imgX := clampEncodeCoord(baseX+col, img.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[imgY*img.YStride+imgX])
@@ -4278,16 +4254,13 @@ func convertMacroblockCoefficients(src *vp8enc.MacroblockCoefficients, is4x4 boo
 		eob := src.EOB[24]
 		dst.EOB[24] = eob
 		copyQCoeffForEOB(&src.QCoeff[24], eob, &dst.QCoeff[24])
-		for i := 0; i < 16; i++ {
-			eob := src.EOB[i]
-			if eob < 1 {
-				eob = 1
-			}
+		for i := range 16 {
+			eob := max(src.EOB[i], 1)
 			dst.EOB[i] = eob
 			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])
 		}
 	} else {
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			eob := src.EOB[i]
 			dst.EOB[i] = eob
 			copyQCoeffForEOB(&src.QCoeff[i], eob, &dst.QCoeff[i])

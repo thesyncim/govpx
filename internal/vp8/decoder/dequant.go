@@ -16,7 +16,7 @@ func InitSegmentDequants(quant QuantHeader, segmentation *SegmentationHeader, ta
 	}, tables)
 
 	baseQ := int(quant.BaseQIndex)
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		qIndex := baseQ
 		if segmentation != nil && segmentation.Enabled {
 			altQ := int(segmentation.FeatureData[common.MBLvlAltQ][segment])

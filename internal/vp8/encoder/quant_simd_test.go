@@ -40,7 +40,6 @@ func TestFastQuantizeBlockSIMDMatchesScalar(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			quant := mkQuant(tc.dq)
 
@@ -66,7 +65,7 @@ func TestFastQuantizeBlockSIMDMatchesScalar(t *testing.T) {
 
 	// Random fuzz across plausible coefficient and dequant ranges.
 	r := rand.New(rand.NewSource(0xC0FFEE))
-	for iter := 0; iter < 4000; iter++ {
+	for iter := range 4000 {
 		var coeff [16]int16
 		for i := range coeff {
 			coeff[i] = int16(r.Intn(4096) - 2048)

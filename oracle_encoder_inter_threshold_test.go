@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"slices"
 	"sort"
 	"testing"
 
@@ -122,10 +123,7 @@ func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 
 			govpxLines := splitNonEmptyLines(govpxProjected)
 			libvpxLines := splitNonEmptyLines(libvpxProjected)
-			totalRows := len(govpxLines)
-			if len(libvpxLines) > totalRows {
-				totalRows = len(libvpxLines)
-			}
+			totalRows := max(len(libvpxLines), len(govpxLines))
 
 			fieldHist := map[string]int{}
 			perFrameHist := map[int64]int{}
@@ -181,7 +179,7 @@ func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 			for fi := range perFrameHist {
 				frames = append(frames, fi)
 			}
-			sort.Slice(frames, func(i, j int) bool { return frames[i] < frames[j] })
+			slices.Sort(frames)
 			for _, fi := range frames {
 				t.Logf("  frame=%d count=%d", fi, perFrameHist[fi])
 			}
@@ -226,14 +224,8 @@ func TestOracleInterCandidateThresholdEvolution(t *testing.T) {
 
 func dumpThresholdContext(t *testing.T, side string, lines [][]byte, rowIndex int) {
 	t.Helper()
-	from := rowIndex - 1
-	if from < 0 {
-		from = 0
-	}
-	to := rowIndex + 2
-	if to > len(lines) {
-		to = len(lines)
-	}
+	from := max(rowIndex-1, 0)
+	to := min(rowIndex+2, len(lines))
 	for i := from; i < to; i++ {
 		t.Logf("%s row=%d %s", side, i, lines[i])
 	}

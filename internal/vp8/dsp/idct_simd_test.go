@@ -20,7 +20,6 @@ func TestIDCT4x4AddSIMDMatchesScalar(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			pred := make([]byte, 8*8)
 			for i := range pred {
@@ -32,8 +31,8 @@ func TestIDCT4x4AddSIMDMatchesScalar(t *testing.T) {
 			inScl := tc.in
 			idct4x4AddSIMD(&inSim, pred, 8, dstSim, 8)
 			idct4x4AddScalar(&inScl, pred, 8, dstScl, 8)
-			for y := 0; y < 4; y++ {
-				for x := 0; x < 4; x++ {
+			for y := range 4 {
+				for x := range 4 {
 					if dstSim[y*8+x] != dstScl[y*8+x] {
 						t.Fatalf("[%d,%d]: simd=%d scalar=%d (in=%v)", x, y, dstSim[y*8+x], dstScl[y*8+x], tc.in)
 					}
@@ -44,7 +43,7 @@ func TestIDCT4x4AddSIMDMatchesScalar(t *testing.T) {
 
 	// Random fuzz across realistic post-dequant coefficient ranges.
 	r := rand.New(rand.NewSource(0xBEEFCAFE))
-	for iter := 0; iter < 2000; iter++ {
+	for iter := range 2000 {
 		var in [16]int16
 		// VP8 dequantized coefficients are roughly bounded by 16x quant range,
 		// so |val| <= ~6000 covers nearly all real cases. We test smaller for
@@ -66,8 +65,8 @@ func TestIDCT4x4AddSIMDMatchesScalar(t *testing.T) {
 		inScl := in
 		idct4x4AddSIMD(&inSim, pred, predStride, dstSim, dstStride)
 		idct4x4AddScalar(&inScl, pred, predStride, dstScl, dstStride)
-		for y := 0; y < 4; y++ {
-			for x := 0; x < 4; x++ {
+		for y := range 4 {
+			for x := range 4 {
 				if dstSim[y*dstStride+x] != dstScl[y*dstStride+x] {
 					t.Fatalf("iter=%d [%d,%d]: simd=%d scalar=%d in=%v", iter, x, y, dstSim[y*dstStride+x], dstScl[y*dstStride+x], in)
 				}
@@ -86,8 +85,8 @@ func TestDCOnlyIDCT4x4AddSIMDMatchesScalar(t *testing.T) {
 		dstScl := make([]byte, 8*8)
 		dcOnlyIDCT4x4AddSIMD(dc, pred, 8, dstSim, 8)
 		dcOnlyIDCT4x4AddScalar(dc, pred, 8, dstScl, 8)
-		for y := 0; y < 4; y++ {
-			for x := 0; x < 4; x++ {
+		for y := range 4 {
+			for x := range 4 {
 				if dstSim[y*8+x] != dstScl[y*8+x] {
 					t.Fatalf("dc=%d [%d,%d]: simd=%d scalar=%d", dc, x, y, dstSim[y*8+x], dstScl[y*8+x])
 				}

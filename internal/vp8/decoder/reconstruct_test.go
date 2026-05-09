@@ -53,13 +53,13 @@ func TestBuildIntraPredictorRefsInteriorSamples(t *testing.T) {
 	if !refs.UpAvailable || !refs.LeftAvailable {
 		t.Fatalf("availability = %v/%v, want true/true", refs.UpAvailable, refs.LeftAvailable)
 	}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		want := img.Y[15*img.YStride+16+i]
 		if got := refs.YAbove[i]; got != want {
 			t.Fatalf("YAbove[%d] = %d, want %d", i, got, want)
 		}
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		want := img.Y[(16+i)*img.YStride+15]
 		if got := refs.YLeft[i]; got != want {
 			t.Fatalf("YLeft[%d] = %d, want %d", i, got, want)
@@ -68,7 +68,7 @@ func TestBuildIntraPredictorRefsInteriorSamples(t *testing.T) {
 	if got, want := refs.YTopLeft, img.Y[15*img.YStride+15]; got != want {
 		t.Fatalf("YTopLeft = %d, want %d", got, want)
 	}
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if got, want := refs.UAbove[i], img.U[7*img.UStride+8+i]; got != want {
 			t.Fatalf("UAbove[%d] = %d, want %d", i, got, want)
 		}
@@ -113,7 +113,7 @@ func TestBuildIntraPredictorRefsUsesExtendedRightEdge(t *testing.T) {
 
 	extendIntraRightEdgeForRow(img, 0)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if got := img.YFull[img.YOrigin+14*img.YStride+32+i]; got != 44 {
 			t.Fatalf("extended row 14 right[%d] = %d, want 44", i, got)
 		}
@@ -151,7 +151,7 @@ func TestTransformMacroblockTokensY2DCOnly(t *testing.T) {
 
 	TransformMacroblockTokens(&tokens, &dequant, false, &residual)
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if got := residual.Block(i)[0]; got != 8 {
 			t.Fatalf("Y block %d DC = %d, want 8", i, got)
 		}
@@ -289,7 +289,7 @@ func BenchmarkTransformMacroblockTokensSparse(b *testing.B) {
 
 func BenchmarkTransformMacroblockTokensDCOnly(b *testing.B) {
 	var tokens MacroblockTokens
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		tokens.QCoeff[i][0] = 1
 		tokens.EOB[i] = 1
 	}
@@ -340,8 +340,8 @@ func TestAddMacroblockResidualYDCOnly(t *testing.T) {
 
 	AddMacroblockResidual(&tokens, &residual, y, 16, u, 8, v, 8)
 
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			want := byte(100)
 			if row >= 4 && row < 8 && col >= 4 && col < 8 {
 				want = 102
@@ -377,8 +377,8 @@ func TestAddMacroblockResidualFullIDCTAndChroma(t *testing.T) {
 	AddMacroblockResidual(&tokens, &residual, y, 16, u, 8, v, 8)
 
 	assertPlaneEqual(t, "Y", y, wantY)
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			wantU := byte(90)
 			if row < 4 && col < 4 {
 				wantU = 93
@@ -423,7 +423,7 @@ func TestAddMacroblockResidualSkipsZeroEOBOffsets(t *testing.T) {
 func TestPredictIntraY16x16Modes(t *testing.T) {
 	above := make([]byte, 16)
 	left := make([]byte, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		above[i] = byte(i + 1)
 		left[i] = byte(101 + i)
 	}
@@ -446,8 +446,8 @@ func TestPredictIntraY16x16Modes(t *testing.T) {
 		if ok := PredictIntraY16x16(tc.mode, dst, 16, above, left, 100, true, true); !ok {
 			t.Fatalf("%s returned false", tc.name)
 		}
-		for row := 0; row < 16; row++ {
-			for col := 0; col < 16; col++ {
+		for row := range 16 {
+			for col := range 16 {
 				want := tc.want(row, col)
 				if got := dst[row*16+col]; got != want {
 					t.Fatalf("%s Y[%d,%d] = %d, want %d", tc.name, row, col, got, want)
@@ -471,8 +471,8 @@ func TestPredictIntraUV8x8Modes(t *testing.T) {
 	if ok := PredictIntraUV8x8(common.TMPred, dst, 8, above, left, 100, true, true); !ok {
 		t.Fatalf("tm returned false")
 	}
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			want := dsp.ClipPixel(int(left[row]) + int(above[col]) - 100)
 			if got := dst[row*8+col]; got != want {
 				t.Fatalf("tm UV[%d,%d] = %d, want %d", row, col, got, want)
@@ -510,8 +510,8 @@ func TestPredictIntraY4x4TMPredPropagatesNeighbors(t *testing.T) {
 		t.Fatalf("PredictIntraY4x4 returned false")
 	}
 
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			want := byte(int(left[row]) + int(above[col]) - 40)
 			if got := dst[row*16+col]; got != want {
 				t.Fatalf("Y4x4[%d,%d] = %d, want %d", row, col, got, want)
@@ -570,8 +570,8 @@ func TestReconstructWholeBlockIntraMacroblockPredictsAndAddsResidual(t *testing.
 	}
 
 	assertPlaneValue(t, "Y", y, 101)
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			want := byte(90)
 			if row < 4 && col < 4 {
 				want = 102
@@ -767,8 +767,8 @@ func TestReconstructKeyFrameIntraGridUsesReconstructedLeft(t *testing.T) {
 		t.Fatalf("ReconstructKeyFrameIntraGrid returned error: %v", err)
 	}
 
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 32; col++ {
+	for row := range 16 {
+		for col := range 32 {
 			if got := img.Y[row*img.YStride+col]; got != 129 {
 				t.Fatalf("Y[%d,%d] = %d, want 129", row, col, got)
 			}
@@ -863,15 +863,15 @@ func TestReconstructInterFrameGridCopiesLastZeroMV(t *testing.T) {
 	if err := ReconstructInterFrameGrid(&img, &last, &golden, &alt, 1, 1, modes, tokens, &dequants, &scratch); err != nil {
 		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
 	}
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
+	for row := range 16 {
+		for col := range 16 {
 			if got, want := img.Y[row*img.YStride+col], last.Y[row*last.YStride+col]; got != want {
 				t.Fatalf("Y[%d,%d] = %d, want last %d", row, col, got, want)
 			}
 		}
 	}
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			if got, want := img.U[row*img.UStride+col], last.U[row*last.UStride+col]; got != want {
 				t.Fatalf("U[%d,%d] = %d, want last %d", row, col, got, want)
 			}
@@ -1263,7 +1263,7 @@ func TestReconstructInterFrameGridAllocatesZero(t *testing.T) {
 
 func testMacroblockDequant() common.MacroblockDequant {
 	var dequant common.MacroblockDequant
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		dequant.Y1[i] = int16(5 + i)
 		dequant.Y1DC[i] = int16(6 + i)
 		dequant.Y2[i] = int16(4 + i)
@@ -1283,7 +1283,7 @@ func testMacroblockDequants() [common.MaxMBSegments]common.MacroblockDequant {
 
 func wholeBlockResidualTokens() MacroblockTokens {
 	var tokens MacroblockTokens
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		tokens.EOB[i] = 1
 	}
 	tokens.QCoeff[24][0] = 16
@@ -1359,13 +1359,13 @@ func testImage(width int, height int) common.Image {
 		U:       make([]byte, uvWidth*uvHeight),
 		V:       make([]byte, uvWidth*uvHeight),
 	}
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			img.Y[row*img.YStride+col] = byte((row*7 + col*3 + 1) & 0xff)
 		}
 	}
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte((row*5 + col*9 + 2) & 0xff)
 			img.V[row*img.VStride+col] = byte((row*11 + col*13 + 3) & 0xff)
 		}
@@ -1379,7 +1379,7 @@ func fillImage(dst *common.Image, src common.Image) {
 	}
 	uvWidth := (dst.Width + 1) >> 1
 	uvHeight := (dst.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
+	for row := range uvHeight {
 		copy(dst.U[row*dst.UStride:row*dst.UStride+uvWidth], src.U[row*src.UStride:row*src.UStride+uvWidth])
 		copy(dst.V[row*dst.VStride:row*dst.VStride+uvWidth], src.V[row*src.VStride:row*src.VStride+uvWidth])
 	}
@@ -1440,8 +1440,8 @@ func assertPlaneEqual(t *testing.T, name string, got []byte, want []byte) {
 
 func assertCopiedBlock(t *testing.T, name string, got []byte, gotStride int, want []byte, wantStride int, wantRow int, wantCol int, width int, height int) {
 	t.Helper()
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			gotValue := got[row*gotStride+col]
 			wantValue := want[(wantRow+row)*wantStride+wantCol+col]
 			if gotValue != wantValue {

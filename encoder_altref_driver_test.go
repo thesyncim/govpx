@@ -57,7 +57,7 @@ func encodeAutoAltRefSequence(t *testing.T, e *VP8Encoder, frameCount int) []aut
 	// search has something non-trivial to chew on, otherwise the inter
 	// frames collapse into ZEROMV-LAST and the hidden ARF reduces to a
 	// degenerate mode.
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		img := movingBarTestImage(width, height, i)
 		result, err := e.EncodeInto(dst, img, uint64(i)*1000, 1000, 0)
 		if err != nil {
@@ -110,8 +110,8 @@ func movingBarTestImage(width int, height int, frame int) Image {
 	img := testImage(width, height)
 	fillImage(img, 96, 128, 128)
 	barCol := (frame * 2) % width
-	for row := 0; row < height; row++ {
-		for col := 0; col < 4; col++ {
+	for row := range height {
+		for col := range 4 {
 			x := (barCol + col) % width
 			img.Y[row*img.YStride+x] = 220
 		}
@@ -164,7 +164,7 @@ func TestAutoAltRefDriverDeferredShowFrameMatchesSource(t *testing.T) {
 	const width = 32
 	const height = 32
 	sources := make(map[uint64]Image, frameCount)
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		sources[uint64(i)*1000] = movingBarTestImage(width, height, i)
 	}
 	packets := encodeAutoAltRefSequence(t, e, frameCount)
@@ -412,10 +412,7 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 	if hidden.KeyFrame || hidden.SizeBytes == 0 {
 		t.Fatalf("hidden ARF result = key:%t size:%d, want non-key packet", hidden.KeyFrame, hidden.SizeBytes)
 	}
-	wantBitsLeft := afterKeyBitsLeft - int64(encodedSizeBits(hidden.SizeBytes))
-	if wantBitsLeft < 0 {
-		wantBitsLeft = 0
-	}
+	wantBitsLeft := max(afterKeyBitsLeft-int64(encodedSizeBits(hidden.SizeBytes)), 0)
 	if e.frameCount != 1 || e.twoPass.frameIndex != 1 || e.twoPass.bitsLeft != wantBitsLeft {
 		t.Fatalf("after hidden ARF = frameCount:%d twoPass:%d bitsLeft:%d, want 1/1/%d",
 			e.frameCount, e.twoPass.frameIndex, e.twoPass.bitsLeft, wantBitsLeft)

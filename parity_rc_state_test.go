@@ -76,7 +76,7 @@ func TestOracle128x128InterQDriftScoreboard(t *testing.T) {
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "qdrift-128", opts, targetKbps, sources, []string{"--end-usage=cbr"})
 
 	samples := make([]qdriftFrameSample, 0, frames)
-	for fi := 0; fi < frames; fi++ {
+	for fi := range frames {
 		gv := scanFrameRowQ(t, govpxTrace, fi)
 		lv := scanFrameRowQ(t, libvpxTrace, fi)
 		if gv == nil || lv == nil {

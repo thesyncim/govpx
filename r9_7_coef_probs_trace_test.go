@@ -46,10 +46,7 @@ func TestR9_7_CoefProbsAdlerSpeed8(t *testing.T) {
 
 	govpxFrames := r97ExtractFrameRows(t, govpxTrace)
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
-	max := len(govpxFrames)
-	if len(libvpxFrames) < max {
-		max = len(libvpxFrames)
-	}
+	max := min(len(libvpxFrames), len(govpxFrames))
 	fmt.Println("idx | coef_g       | coef_l       | match | y_match | uv_match | piG | piL | sizeG | sizeL")
 	mismatches := 0
 	for i := 0; i < max; i++ {
@@ -124,10 +121,7 @@ func TestR9_7_CoefProbsAdlerGoodCpu5(t *testing.T) {
 
 	govpxFrames := r97ExtractFrameRows(t, govpxTrace)
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
-	max := len(govpxFrames)
-	if len(libvpxFrames) < max {
-		max = len(libvpxFrames)
-	}
+	max := min(len(libvpxFrames), len(govpxFrames))
 	mismatches := 0
 	for i := 0; i < max; i++ {
 		gC := uint32Field(govpxFrames[i]["coef_probs_adler"])
@@ -189,10 +183,7 @@ func TestR9_7_CoefProbsLongCpu5(t *testing.T) {
 
 	govpxFrames := r97ExtractFrameRows(t, govpxTrace)
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
-	max := len(govpxFrames)
-	if len(libvpxFrames) < max {
-		max = len(libvpxFrames)
-	}
+	max := min(len(libvpxFrames), len(govpxFrames))
 	firstCoefDiverge := -1
 	firstYDiverge := -1
 	for i := 0; i < max; i++ {
@@ -246,10 +237,10 @@ func TestR9_7_DumpKeyFrameCoefProbsNoER(t *testing.T) {
 	if _, err := enc.EncodeInto(pkt, src, 0, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	for block := 0; block < 4; block++ {
-		for band := 0; band < 8; band++ {
-			for ctx := 0; ctx < 3; ctx++ {
-				for node := 0; node < 11; node++ {
+	for block := range 4 {
+		for band := range 8 {
+			for ctx := range 3 {
+				for node := range 11 {
 					p := enc.coefProbs[block][band][ctx][node]
 					fmt.Printf("%d %d %d %d %d\n", block, band, ctx, node, p)
 				}
@@ -294,10 +285,10 @@ func TestR9_7_DumpKeyFrameCoefProbsERGovpx(t *testing.T) {
 	}
 	var nonZero int
 	fmt.Println("# block band ctx node prob")
-	for block := 0; block < 4; block++ {
-		for band := 0; band < 8; band++ {
-			for ctx := 0; ctx < 3; ctx++ {
-				for node := 0; node < 11; node++ {
+	for block := range 4 {
+		for band := range 8 {
+			for ctx := range 3 {
+				for node := range 11 {
 					p := enc.coefProbs[block][band][ctx][node]
 					if p != 0 {
 						nonZero++
@@ -349,10 +340,7 @@ func TestR9_7_CoefProbsAdlerErrorResilient(t *testing.T) {
 
 	govpxFrames := r97ExtractFrameRows(t, govpxTrace)
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
-	max := len(govpxFrames)
-	if len(libvpxFrames) < max {
-		max = len(libvpxFrames)
-	}
+	max := min(len(libvpxFrames), len(govpxFrames))
 	firstCoefDiverge := -1
 	firstYDiverge := -1
 	for i := 0; i < max; i++ {
@@ -422,10 +410,7 @@ func TestR9_7_CoefProbsAdlerSpeed3(t *testing.T) {
 
 	govpxFrames := r97ExtractFrameRows(t, govpxTrace)
 	libvpxFrames := r97ExtractFrameRows(t, libvpxTrace)
-	max := len(govpxFrames)
-	if len(libvpxFrames) < max {
-		max = len(libvpxFrames)
-	}
+	max := min(len(libvpxFrames), len(govpxFrames))
 	mismatches := 0
 	for i := 0; i < max; i++ {
 		g := govpxFrames[i]

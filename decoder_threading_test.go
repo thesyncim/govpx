@@ -20,9 +20,7 @@ func TestDecoderThreadingPipelinedMatchesSerial(t *testing.T) {
 	cases = append(cases, smokeCase{name: "govpx", ivfHex: govpxSmokeIVFHex, checksums: govpxSmokeChecksums[:]})
 
 	for _, threads := range []int{2, 4, 8} {
-		threads := threads
 		for _, tc := range cases {
-			tc := tc
 			name := tc.name + "/threads=" + itoa(threads)
 			t.Run(name, func(t *testing.T) {
 				frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
@@ -88,7 +86,6 @@ func TestDecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
 	cases := libvpxAuthoredSmokeCases()
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
 
@@ -161,15 +158,15 @@ func captureDecodedPlanes(img Image) capturedFramePlanes {
 	uvHeight := (img.Height + 1) >> 1
 
 	y := make([]byte, yWidth*yHeight)
-	for row := 0; row < yHeight; row++ {
+	for row := range yHeight {
 		copy(y[row*yWidth:(row+1)*yWidth], img.Y[row*img.YStride:row*img.YStride+yWidth])
 	}
 	u := make([]byte, uvWidth*uvHeight)
-	for row := 0; row < uvHeight; row++ {
+	for row := range uvHeight {
 		copy(u[row*uvWidth:(row+1)*uvWidth], img.U[row*img.UStride:row*img.UStride+uvWidth])
 	}
 	v := make([]byte, uvWidth*uvHeight)
-	for row := 0; row < uvHeight; row++ {
+	for row := range uvHeight {
 		copy(v[row*uvWidth:(row+1)*uvWidth], img.V[row*img.VStride:row*img.VStride+uvWidth])
 	}
 	return capturedFramePlanes{width: yWidth, height: yHeight, y: y, u: u, v: v}
@@ -192,7 +189,6 @@ func TestDecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
 	for _, path := range paths {
-		path := path
 		t.Run(safeIVFTestName(root, path), func(t *testing.T) {
 			ivf, err := os.ReadFile(path)
 			if err != nil {
@@ -267,7 +263,6 @@ func BenchmarkDecoderThreading(b *testing.B) {
 		"vp80-05-sharpness-1443.ivf",    // 1920x96
 	}
 	for _, name := range candidates {
-		name := name
 		path := filepath.Join(root, name)
 		if _, err := os.Stat(path); err != nil {
 			continue
@@ -283,7 +278,6 @@ func BenchmarkDecoderThreading(b *testing.B) {
 			continue
 		}
 		for _, threads := range []int{0, 1, 2, 4, 8} {
-			threads := threads
 			b.Run(name+"/threads="+itoa(threads), func(b *testing.B) {
 				d, err := NewVP8Decoder(DecoderOptions{Threads: threads})
 				if err != nil {

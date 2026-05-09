@@ -101,7 +101,7 @@ func TestInitRegularBlockQuantLibvpxFixedQ64(t *testing.T) {
 	wantShift := int16(8192)
 	wantBoost := [16]int16{0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3}
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if quant.Dequant[i] != 10 {
 			t.Fatalf("Dequant[%d] = %d, want 10", i, quant.Dequant[i])
 		}

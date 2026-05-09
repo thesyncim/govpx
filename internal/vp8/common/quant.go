@@ -91,7 +91,7 @@ func ACUVQuant(qIndex int, delta int) int {
 }
 
 func BuildFrameDequantTables(d QuantDeltas, out *FrameDequantTables) {
-	for q := 0; q < QIndexRange; q++ {
+	for q := range QIndexRange {
 		out.Y1[q][0] = int16(DCQuant(q, d.Y1DC))
 		out.Y1[q][1] = int16(ACYQuant(q))
 		out.Y2[q][0] = int16(DC2Quant(q, d.Y2DC))

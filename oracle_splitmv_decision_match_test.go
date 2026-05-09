@@ -102,7 +102,6 @@ func TestOracleSplitMVDecisionMatchRate(t *testing.T) {
 	reports := make([]fixtureReport, 0, len(specs))
 
 	for _, spec := range specs {
-		spec := spec
 		t.Run(spec.Name, func(t *testing.T) {
 			opts := EncoderOptions{
 				Width:             width,
@@ -414,8 +413,8 @@ func formatSplitMVMatchTable(r struct {
 //   - bot-right 8x8 quadrant pans by (-2*idx, -1*idx)
 func encoderValidationSplitMVQuadrantFrame(width int, height int, index int) Image {
 	img := testImage(width, height)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			// Within each MB (16x16) figure out which 8x8 quadrant we are in.
 			mbX := x & 0xF
 			mbY := y & 0xF
@@ -444,8 +443,8 @@ func encoderValidationSplitMVQuadrantFrame(width int, height int, index int) Ima
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
+	for y := range uvHeight {
+		for x := range uvWidth {
 			// Chroma lives at half resolution: each 8x8 chroma block covers
 			// the same 8x8 luma quadrant region used above. Pan with the
 			// matching quadrant offset (halved because chroma is 4:2:0).

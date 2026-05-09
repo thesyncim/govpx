@@ -93,10 +93,7 @@ func TestOracleEncoderTraceInterCandidateScoreboard(t *testing.T) {
 
 			govpxLines := splitNonEmptyLines(govpxProjected)
 			libvpxLines := splitNonEmptyLines(libvpxProjected)
-			totalRows := len(govpxLines)
-			if len(libvpxLines) > totalRows {
-				totalRows = len(libvpxLines)
-			}
+			totalRows := max(len(libvpxLines), len(govpxLines))
 
 			uniqueRows := map[int]struct{}{}
 			fieldHist := map[string]int{}
@@ -166,10 +163,7 @@ func TestOracleEncoderTraceInterCandidateScoreboard(t *testing.T) {
 			t.Errorf("baseline %s missing fixture %q (rerun with GOVPX_UPDATE_BASELINES=1)", baselinePath, fx.name)
 			continue
 		}
-		slack := want.DivergentRows / 10
-		if slack < 8 {
-			slack = 8
-		}
+		slack := max(want.DivergentRows/10, 8)
 		limit := want.DivergentRows + slack
 		if got.DivergentRows > limit {
 			t.Errorf("%s: divergent_rows=%d exceeds baseline %d + slack %d (=%d); rerun with GOVPX_UPDATE_BASELINES=1 if intended",

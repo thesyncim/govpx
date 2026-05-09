@@ -718,7 +718,7 @@ func (d *VP8Decoder) decodeTokenGrid(errorConcealment bool) error {
 	if _, err := vp8dec.DecodeTokenGrid(readers, d.mbRows, d.mbCols, &d.frameCoefProbs, d.modes, d.tokenAbove, d.tokens); err != nil {
 		return ErrInvalidData
 	}
-	for i := 0; i < len(readers); i++ {
+	for i := range readers {
 		if readers[i].Err() != nil {
 			return ErrInvalidData
 		}
@@ -856,7 +856,7 @@ func copyVP8ImageToPublic(dst *Image, src *vp8common.Image) {
 }
 
 func copyPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
-	for row := 0; row < height; row++ {
+	for row := range height {
 		copy(dst[row*dstStride:row*dstStride+width], src[row*srcStride:row*srcStride+width])
 	}
 }

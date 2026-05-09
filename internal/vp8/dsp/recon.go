@@ -19,7 +19,7 @@ func Copy16x16(src []byte, srcStride int, dst []byte, dstStride int) {
 }
 
 func AddResidual4x4(dst []byte, dstStride int, residual *[16]int16) {
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		row := y * dstStride
 		coeff := y * 4
 		dst[row+0] = ClipPixelAdd(dst[row+0], int(residual[coeff+0]))
@@ -30,7 +30,7 @@ func AddResidual4x4(dst []byte, dstStride int, residual *[16]int16) {
 }
 
 func copyBlock(src []byte, srcStride int, dst []byte, dstStride int, width int, height int) {
-	for y := 0; y < height; y++ {
+	for y := range height {
 		copy(dst[y*dstStride:y*dstStride+width], src[y*srcStride:y*srcStride+width])
 	}
 }

@@ -231,9 +231,9 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 	var dequant vp8common.MacroblockDequant
 	vp8common.BuildFrameDequantTables(quantDeltas, &dequantTables)
 	vp8common.InitMacroblockDequant(&dequantTables, qIndex, &dequant)
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		bestRefMV := vp8enc.MotionVector{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			intraErrorForMB, ok := e.reconstructFirstPassIntraMacroblock(src, row, col, qIndex, &quants[0], &dequant)
 			if !ok {
 				intraErrorForMB = macroblockMeanLumaSSE(src, row, col)
@@ -467,7 +467,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 	var yAbove [4]uint8
 	var yLeft [4]uint8
 	predictionSSE := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		blockOffset := analysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(vp8common.BDCPred, y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			return 0, false
@@ -772,10 +772,7 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	// in finishFrame, so per-frame pass-2 targets ballooned over the
 	// course of a short stream. Mirror libvpx's defaults so callers that
 	// leave the knobs at zero match libvpx's bookkeeping.
-	t.minPct = minPct
-	if t.minPct < 0 {
-		t.minPct = 0
-	}
+	t.minPct = max(minPct, 0)
 	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
 	t.maxPct = maxPct
 	if t.maxPct <= 0 {
@@ -980,10 +977,7 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 	}
 	var kfGroupErr, kfModErr float64
 	var sectionIntra, sectionCoded float64
-	end := frame + uint64(framesToKey)
-	if end > uint64(len(t.stats)) {
-		end = uint64(len(t.stats))
-	}
+	end := min(frame+uint64(framesToKey), uint64(len(t.stats)))
 	for i := frame; i < end; i++ {
 		kfGroupErr += t.modifiedError(t.stats[i])
 		// Accumulate raw intra/coded error totals so we can compute
@@ -1069,10 +1063,7 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 	if !t.kfGroupValid || t.errorLeft <= 0 {
 		return int64(float64(t.bitsLeft) * kfModErr / t.errorLeft)
 	}
-	framesToKey := t.framesToKeyRemaining
-	if framesToKey < 1 {
-		framesToKey = 1
-	}
+	framesToKey := max(t.framesToKeyRemaining, 1)
 	// Compute kf_boost via the libvpx prediction-quality walk over
 	// frames [frame+1 .. frame+framesToKey-1]. Mirrors lines
 	// 2722-2756 of find_next_key_frame.
@@ -1090,10 +1081,7 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 		}
 	}
 	// Min KF boost.
-	kfBoost = (kfBoost * 100) >> 4
-	if kfBoost < 250 {
-		kfBoost = 250
-	}
+	kfBoost = max((kfBoost*100)>>4, 250)
 	// allocation_chunks. The "almost static" branch uses *10
 	// instead of *100.
 	var allocationChunks int64
@@ -1198,10 +1186,7 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 		// back to oxcf.worst_allowed_q.
 		return
 	}
-	framesLeft := int64(len(t.stats)) - int64(t.frameIndex)
-	if framesLeft < 1 {
-		framesLeft = 1
-	}
+	framesLeft := max(int64(len(t.stats))-int64(t.frameIndex), 1)
 	var sectionTargetBandwidth int64
 	if t.bitsLeft > 0 {
 		sectionTargetBandwidth = t.bitsLeft / framesLeft
@@ -1248,10 +1233,7 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// [0, vp8MaxQIndex] range as the bound here so the ported function
 	// can evaluate the full ladder. The encoder will subsequently
 	// clamp the regulator output to the user min/max anyway.
-	tmpQ := libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex)
-	if tmpQ < 0 {
-		tmpQ = 0
-	}
+	tmpQ := max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), 0, errPerMB, 1.0, estCorrection, sectionMQF, 0, vp8MaxQIndex), 0)
 	if tmpQ > vp8MaxQIndex {
 		tmpQ = vp8MaxQIndex
 	}
@@ -1297,7 +1279,7 @@ func computeKFBoost(stats []FirstPassFrameStats, frame uint64, framesToKey int, 
 	decayAccumulator := 1.0
 	boostScore := 0.0
 	oldBoostScore := 0.0
-	for i := 0; i < framesToKey; i++ {
+	for i := range framesToKey {
 		idx := int(frame) + 1 + i
 		if idx >= len(stats) {
 			break
@@ -1376,10 +1358,7 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 			t.kfGroupBitsRemaining = t.bitsLeft
 		}
 	}
-	gfInterval := remaining
-	if gfInterval > t.framesToKeyRemaining {
-		gfInterval = t.framesToKeyRemaining
-	}
+	gfInterval := min(remaining, t.framesToKeyRemaining)
 	if gfInterval <= 0 {
 		t.gfGroupValid = false
 		return
@@ -1396,10 +1375,7 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// frame's modErr when at a KF boundary.
 	var gfGroupErr float64
 	var gfSectionIntra, gfSectionCoded float64
-	end := frame + uint64(gfInterval)
-	if end > uint64(len(t.stats)) {
-		end = uint64(len(t.stats))
-	}
+	end := min(frame+uint64(gfInterval), uint64(len(t.stats)))
 	for i := frame; i < end; i++ {
 		gfGroupErr += t.modifiedError(t.stats[i])
 		// Accumulate raw intra/coded for libvpx's section_max_qfactor
@@ -1460,10 +1436,7 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	// before any inter frame has been encoded — for short clips with
 	// a single KF that means Q=0 and GFQ_ADJUSTMENT=80.
 	gfuBoost := computeGFUBoost(t.stats, frame, gfInterval, keyFrameAtBoundary, t.gfIntraErrMin)
-	q := t.lastInterQ
-	if q < 0 {
-		q = 0
-	}
+	q := max(t.lastInterQ, 0)
 	if q >= len(libvpxGFBoostQAdjustment) {
 		q = len(libvpxGFBoostQAdjustment) - 1
 	}
@@ -1486,10 +1459,7 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	if allocationChunks <= 0 {
 		allocationChunks = 1
 	}
-	gfBits := boost * gfGroupBits / allocationChunks
-	if gfBits < 0 {
-		gfBits = 0
-	}
+	gfBits := max(boost*gfGroupBits/allocationChunks, 0)
 	// libvpx alt branch (lines 2017-2046): if mod_frame_err < group
 	// avg, use a smaller alt_gf_bits computed from the frame's own
 	// error scaled by interval; if mod_frame_err >= group avg, ensure
@@ -1555,10 +1525,7 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	altExtraTotal := int64(0)
 	altExtraPer := int64(0)
 	if gfInterval >= 3 && gfuBoost >= 150 {
-		pctExtra := (gfuBoost - 100) / 50
-		if pctExtra > 20 {
-			pctExtra = 20
-		}
+		pctExtra := min((gfuBoost-100)/50, 20)
 		if pctExtra > 0 {
 			altExtraTotal = gfGroupBits * int64(pctExtra) / 100
 			gfGroupBits -= altExtraTotal
@@ -1701,10 +1668,7 @@ func (t *twoPassState) assignStdFrameBits(frame uint64, modErr float64, maxBits 
 		return int64(t.minFrameBandwidth)
 	}
 	errFraction := modErr / t.gfGroupErrorLeft
-	target := int64(float64(t.gfGroupBits) * errFraction)
-	if target < 0 {
-		target = 0
-	}
+	target := max(int64(float64(t.gfGroupBits)*errFraction), 0)
 	if maxBits > 0 && target > maxBits {
 		target = maxBits
 	}
@@ -1756,10 +1720,7 @@ func (t *twoPassState) maxPctOrDefault() int {
 func (t *twoPassState) pass2VBRSectionLimits(frame uint64, defaultTargetBits int) (int64, int64) {
 	// libvpx defaults: rc_2pass_vbr_minsection_pct=0,
 	// rc_2pass_vbr_maxsection_pct=400.
-	minPct := t.minPct
-	if minPct < 0 {
-		minPct = 0
-	}
+	minPct := max(t.minPct, 0)
 	maxPct := t.maxPct
 	if maxPct <= 0 {
 		maxPct = 400
@@ -1824,10 +1785,7 @@ func (t *twoPassState) pass2DetectARFPending(currentFrame uint64, framesToKey in
 	// `i <= frames_to_key - MIN_GF_INTERVAL` ARF guard can be
 	// satisfied by the walk; otherwise a strongly-predicted clip near
 	// the end of stats would always fail the post-loop check.
-	maxLookahead := framesToKey
-	if maxLookahead > maxGFInterval {
-		maxLookahead = maxGFInterval
-	}
+	maxLookahead := min(framesToKey, maxGFInterval)
 	if cap := framesToKey - libvpxMinGFInterval; cap > 0 && maxLookahead > cap {
 		maxLookahead = cap
 	}
@@ -2105,7 +2063,7 @@ func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, s
 	} else {
 		targetNormBitsPerMB = 512 * (sectionTargetBandwidth / numMBs)
 	}
-	for Q := 0; Q < len(libvpxBitsPerMB[1]); Q++ {
+	for Q := range len(libvpxBitsPerMB[1]) {
 		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
 		bitsPerMBAtQ := int(0.5 + errCorrection*speedCorrection*estMaxQCorrection*float64(libvpxBitsPerMB[1][Q]))
 		if bitsPerMBAtQ <= targetNormBitsPerMB {
@@ -2391,10 +2349,7 @@ func libvpxFrameMaxBitsCBR(avPerFrameBandwidth int, vbrMaxSection int, bufferLev
 		if (maxBits >> 2) < minMaxBits {
 			minMaxBits = maxBits >> 2
 		}
-		maxBits = int(float64(maxBits) * float64(bufferLevel) / float64(optimalBufferLevel))
-		if maxBits < minMaxBits {
-			maxBits = minMaxBits
-		}
+		maxBits = max(int(float64(maxBits)*float64(bufferLevel)/float64(optimalBufferLevel)), minMaxBits)
 	}
 	if maxBits < 0 {
 		return 0
@@ -2431,10 +2386,7 @@ func libvpxGFGroupBits(kfGroupBits int64, gfGroupErr float64, kfGroupErrorLeft f
 	if kfGroupBits <= 0 || kfGroupErrorLeft <= 0 {
 		return 0
 	}
-	gfGroupBits := int64(float64(kfGroupBits) * (gfGroupErr / kfGroupErrorLeft))
-	if gfGroupBits < 0 {
-		gfGroupBits = 0
-	}
+	gfGroupBits := max(int64(float64(kfGroupBits)*(gfGroupErr/kfGroupErrorLeft)), 0)
 	if gfGroupBits > kfGroupBits {
 		gfGroupBits = kfGroupBits
 	}
@@ -2501,10 +2453,7 @@ func libvpxGFBitsAllocation(isARF bool, gfuBoost int, gfqAdjustment int, gfGroup
 	if allocationChunks <= 0 {
 		return 0
 	}
-	gfBits := int(float64(boost) * (float64(gfGroupBits) / float64(allocationChunks)))
-	if gfBits < 0 {
-		gfBits = 0
-	}
+	gfBits := max(int(float64(boost)*(float64(gfGroupBits)/float64(allocationChunks))), 0)
 	return gfBits
 }
 
@@ -2519,10 +2468,7 @@ func (t *twoPassState) kfGroupModifiedError(frame uint64, framesToKey int) float
 	if !t.enabled() || framesToKey <= 0 || frame >= uint64(len(t.stats)) {
 		return 0
 	}
-	end := frame + uint64(framesToKey)
-	if end > uint64(len(t.stats)) {
-		end = uint64(len(t.stats))
-	}
+	end := min(frame+uint64(framesToKey), uint64(len(t.stats)))
 	var sum float64
 	for i := frame; i < end; i++ {
 		sum += t.modifiedError(t.stats[i])
@@ -2664,7 +2610,7 @@ func libvpxDetectTransitionToStill(frameInterval int, stillInterval int, loopDec
 		// still_interval frames have been examined.
 		return false
 	}
-	for j := 0; j < limit; j++ {
+	for j := range limit {
 		if nextDecayRates[j] < 0.999 {
 			return false
 		}

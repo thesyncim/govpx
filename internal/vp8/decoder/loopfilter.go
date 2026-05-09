@@ -119,7 +119,7 @@ func applyNormalLoopFilterPartialLuma(img *common.Image, rows int, cols int, mod
 	_ = rows
 	for row := startRow; row < startRow+rowCount; row++ {
 		yRow := row * 16 * img.YStride
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if !validLoopFilterMode(mode) {
@@ -140,7 +140,7 @@ func applySimpleLoopFilterPartialLuma(img *common.Image, rows int, cols int, mod
 	_ = rows
 	for row := startRow; row < startRow+rowCount; row++ {
 		yRow := row * 16 * img.YStride
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if !validLoopFilterMode(mode) {
@@ -213,7 +213,7 @@ func applySimpleLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 }
 
 func applyNormalLoopFilterGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		if err := applyNormalLoopFilterRow(img, row, cols, modes, frameType, lfi); err != nil {
 			return err
 		}
@@ -225,7 +225,7 @@ func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []Macr
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		index := row*cols + col
 		mode := &modes[index]
 		if !validLoopFilterMode(mode) {
@@ -245,7 +245,7 @@ func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []Macr
 }
 
 func applySimpleLoopFilterGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo) error {
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		if err := applySimpleLoopFilterRow(img, row, cols, modes, lfi); err != nil {
 			return err
 		}
@@ -255,7 +255,7 @@ func applySimpleLoopFilterGrid(img *common.Image, rows int, cols int, modes []Ma
 
 func applySimpleLoopFilterRow(img *common.Image, row int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo) error {
 	yRow := row * 16 * img.YStride
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		index := row*cols + col
 		mode := &modes[index]
 		if !validLoopFilterMode(mode) {
@@ -280,7 +280,7 @@ func loopFilterFrameConfig(header LoopFilterHeader, segmentation SegmentationHea
 		RefDeltas:           header.RefDeltas,
 		ModeDeltas:          header.ModeDeltas,
 	}
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		cfg.SegmentLF[segment] = segmentation.FeatureData[common.MBLvlAltLF][segment]
 	}
 	return cfg

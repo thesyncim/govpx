@@ -19,7 +19,7 @@ func TestInitSegmentDequantsWithoutSegmentation(t *testing.T) {
 	wantY2AC := int16(common.AC2Quant(20, 3))
 	wantUVDC := int16(common.DCUVQuant(20, 4))
 	wantUVAC := int16(common.ACUVQuant(20, 5))
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		if dequants[segment].Y1[0] != wantY1DC || dequants[segment].Y1[1] != wantY1AC {
 			t.Fatalf("segment %d Y1 dequant = %d/%d, want %d/%d", segment, dequants[segment].Y1[0], dequants[segment].Y1[1], wantY1DC, wantY1AC)
 		}
@@ -42,7 +42,7 @@ func TestInitSegmentDequantsWithDeltaSegmentation(t *testing.T) {
 	InitSegmentDequants(quant, &segmentation, &tables, &dequants)
 
 	want := [common.MaxMBSegments]int{20, 25, 0, 127}
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		if got := dequants[segment].Y1[0]; got != int16(common.DCQuant(want[segment], 0)) {
 			t.Fatalf("segment %d Y1 DC = %d, want q=%d", segment, got, want[segment])
 		}
@@ -58,7 +58,7 @@ func TestInitSegmentDequantsWithAbsSegmentation(t *testing.T) {
 
 	InitSegmentDequants(quant, &segmentation, &tables, &dequants)
 
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		q := int(segmentation.FeatureData[common.MBLvlAltQ][segment])
 		if got := dequants[segment].Y1[0]; got != int16(common.DCQuant(q, 0)) {
 			t.Fatalf("segment %d Y1 DC = %d, want q=%d", segment, got, q)

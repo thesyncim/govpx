@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -108,12 +109,7 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 		t.Fatalf("subprocess overhead = %d, want >= 0", report.Reference.SubprocessOverheadNS)
 	}
 	hasFlag := func(want string) bool {
-		for _, f := range report.Reference.ParityFlags {
-			if f == want {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(report.Reference.ParityFlags, want)
 	}
 	for _, want := range []string{"--end-usage=cbr", "--passes=1", "--lag-in-frames=0"} {
 		if !hasFlag(want) {
@@ -485,26 +481,26 @@ func TestFakeVpxencHelper(t *testing.T) {
 	fps := 30
 	bitrate := 1200
 	for _, arg := range os.Args {
-		if strings.HasPrefix(arg, "--output=") {
-			output = strings.TrimPrefix(arg, "--output=")
+		if after, ok := strings.CutPrefix(arg, "--output="); ok {
+			output = after
 		}
-		if strings.HasPrefix(arg, "--limit=") {
-			n, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+		if after, ok := strings.CutPrefix(arg, "--limit="); ok {
+			n, err := strconv.Atoi(after)
 			if err == nil && n > 0 {
 				limit = n
 			}
 		}
-		if strings.HasPrefix(arg, "--width=") {
-			width = atoiPositive(strings.TrimPrefix(arg, "--width="), width)
+		if after, ok := strings.CutPrefix(arg, "--width="); ok {
+			width = atoiPositive(after, width)
 		}
-		if strings.HasPrefix(arg, "--height=") {
-			height = atoiPositive(strings.TrimPrefix(arg, "--height="), height)
+		if after, ok := strings.CutPrefix(arg, "--height="); ok {
+			height = atoiPositive(after, height)
 		}
-		if strings.HasPrefix(arg, "--fps=") {
-			fps = atoiPositive(strings.TrimSuffix(strings.TrimPrefix(arg, "--fps="), "/1"), fps)
+		if after, ok := strings.CutPrefix(arg, "--fps="); ok {
+			fps = atoiPositive(strings.TrimSuffix(after, "/1"), fps)
 		}
-		if strings.HasPrefix(arg, "--target-bitrate=") {
-			bitrate = atoiPositive(strings.TrimPrefix(arg, "--target-bitrate="), bitrate)
+		if after, ok := strings.CutPrefix(arg, "--target-bitrate="); ok {
+			bitrate = atoiPositive(after, bitrate)
 		}
 	}
 	if output == "" {
@@ -625,7 +621,7 @@ func writeFakeIVF(path string, width int, height int, fps int, bitrate int, fram
 	}
 	packets := make([][]byte, 0, frames)
 	packet := make([]byte, max(4096, width*height*6))
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		result, err := enc.EncodeInto(packet, makeBenchmarkFrame(width, height, i), uint64(i), 1, 0)
 		if err != nil {
 			return err

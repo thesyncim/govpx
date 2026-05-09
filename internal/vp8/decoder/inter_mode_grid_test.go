@@ -82,8 +82,8 @@ func encodeInterModeGrid(t *testing.T, rows int, cols int, header ModeHeader, mo
 	var w testBoolWriter
 	w.init()
 	modes := make([]MacroblockMode, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			var above *MacroblockMode
 			var left *MacroblockMode

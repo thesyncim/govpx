@@ -325,10 +325,7 @@ func summarizeCandidateRateScoreboard(t *testing.T, govpxTrace, libvpxTrace []by
 		}
 	}
 
-	totalCandidates := len(govpxRows)
-	if len(libvpxRows) > totalCandidates {
-		totalCandidates = len(libvpxRows)
-	}
+	totalCandidates := max(len(libvpxRows), len(govpxRows))
 
 	mean := 0.0
 	if matched > 0 {

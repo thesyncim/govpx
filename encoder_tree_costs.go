@@ -82,7 +82,7 @@ func buildTreeTokenPath(tree []int16, token int) treeTokenPath {
 // token-id ranges (e.g. SubMVRefTree, whose tokens are 10..13).
 func buildTreeTokenPaths(tree []int16, slots int) []treeTokenPath {
 	out := make([]treeTokenPath, slots)
-	for i := 0; i < slots; i++ {
+	for i := range slots {
 		out[i] = buildTreeTokenPath(tree, i)
 	}
 	return out
@@ -158,7 +158,7 @@ func treeTokenCostFromPath(path *treeTokenPath, probs []uint8) int {
 	probsLen := len(probs)
 	length := int(path.length)
 	cost := 0
-	for i := 0; i < length; i++ {
+	for i := range length {
 		step := path.steps[i]
 		probIdx := int(step.probIndex)
 		if probIdx >= probsLen {
@@ -183,7 +183,7 @@ func coefTokenCostFromPath(path *treeTokenPath, probs *[vp8tables.EntropyNodes]u
 	length := int(path.length)
 	cost := 0
 	probArr := probs
-	for i := 0; i < length; i++ {
+	for i := range length {
 		step := path.steps[i]
 		prob := probArr[step.probIndex]
 		if step.bit == 0 {

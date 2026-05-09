@@ -34,8 +34,8 @@ func writeSegmentationHeader(w *BoolWriter, cfg SegmentationConfig) error {
 
 	if cfg.UpdateData {
 		writeBoolBit(w, cfg.AbsDelta)
-		for feature := 0; feature < int(common.MBLvlMax); feature++ {
-			for segment := 0; segment < common.MaxMBSegments; segment++ {
+		for feature := range int(common.MBLvlMax) {
+			for segment := range common.MaxMBSegments {
 				if !cfg.FeatureEnabled[feature][segment] {
 					w.WriteBit(0)
 					continue
@@ -73,8 +73,8 @@ func validSegmentationConfig(cfg SegmentationConfig) bool {
 	if !cfg.Enabled || !cfg.UpdateData {
 		return true
 	}
-	for feature := 0; feature < int(common.MBLvlMax); feature++ {
-		for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for feature := range int(common.MBLvlMax) {
+		for segment := range common.MaxMBSegments {
 			if !cfg.FeatureEnabled[feature][segment] {
 				continue
 			}

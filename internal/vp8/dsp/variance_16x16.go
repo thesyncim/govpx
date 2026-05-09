@@ -37,11 +37,11 @@ func varFilterBlock2DBilinearSecondPass16Scalar(src *[17 * 16]uint16, dst []byte
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
 	const stride = 16
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRowA := (*[16]uint16)(src[y*stride : y*stride+16])
 		srcRowB := (*[16]uint16)(src[(y+1)*stride : (y+1)*stride+16])
 		dstRow := (*[16]byte)(dst[y*stride : y*stride+16])
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			v := int(srcRowA[x])*f0 + int(srcRowB[x])*f1
 			dstRow[x] = byte((v + round) >> shift)
 		}

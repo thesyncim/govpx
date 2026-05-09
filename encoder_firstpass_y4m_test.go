@@ -68,12 +68,9 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 			UStride: width / 2,
 			VStride: width / 2,
 		}
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				v := 64 + (y+shift)*3 + (x+shift)*2
-				if v < 0 {
-					v = 0
-				}
+		for y := range height {
+			for x := range width {
+				v := max(64+(y+shift)*3+(x+shift)*2, 0)
 				if v > 235 {
 					v = 235
 				}
@@ -84,8 +81,8 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 		// (1,1) per frame.
 		px := 4 + shift
 		py := 4 + shift
-		for dy := 0; dy < 8; dy++ {
-			for dx := 0; dx < 8; dx++ {
+		for dy := range 8 {
+			for dx := range 8 {
 				ix := px + dx
 				iy := py + dy
 				if ix < 0 || ix >= width || iy < 0 || iy >= height {
@@ -125,7 +122,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 	if !finalized[count].IsTotal {
 		t.Fatalf("FinalizeFirstPassStats: last entry IsTotal=false, want true")
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if finalized[i].IsTotal {
 			t.Errorf("frame %d entry unexpectedly marked IsTotal", i)
 		}
@@ -239,7 +236,7 @@ func TestFirstPassY4MCorpusSectionAccumulators(t *testing.T) {
 	// Cross-check: the per-field running aggregate must equal the
 	// terminal packet exactly (libvpx accumulate_stats invariant).
 	var manual FirstPassFrameStats
-	for i := 0; i < count; i++ {
+	for i := range count {
 		accumulateFirstPassStats(&manual, finalized[i])
 	}
 	if !closeTo(manual.IntraError, total.IntraError) ||

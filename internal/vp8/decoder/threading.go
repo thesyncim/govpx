@@ -134,7 +134,7 @@ func ReconstructAndLoopFilterPipelined(
 
 	go func() {
 		defer wg.Done()
-		for row := 0; row < rows; row++ {
+		for row := range rows {
 			var err error
 			if keyFrame {
 				err = reconstructKeyFrameIntraGridRow(img, row, cols, modes, tokens, dequants, scratch)
@@ -159,7 +159,7 @@ func ReconstructAndLoopFilterPipelined(
 			waitReconAtLeast(state, rows)
 			return
 		}
-		for row := 0; row < rows; row++ {
+		for row := range rows {
 			// LF row R must wait for recon row R+1 to finish: recon row
 			// R+1's rightmost MB reads the extended right-border at row
 			// 16R+15 (and 8R+7 for chroma), which LF row R's rightmost-MB
@@ -168,10 +168,7 @@ func ReconstructAndLoopFilterPipelined(
 			// consumed the border, LF row R is free to run in parallel
 			// with recon row R+2. The last row (R == rows-1) needs no
 			// successor, so it just needs reconAt == rows.
-			needed := row + 2
-			if needed > rows {
-				needed = rows
-			}
+			needed := min(row+2, rows)
 			if !waitReconAtLeast(state, needed) {
 				lfErr = ErrThreadingPipelineFailure
 				return

@@ -164,7 +164,7 @@ func (r *postProcessRand) seedGlibc(seed int32) {
 	}
 	r.glibcF = 3
 	r.glibcR = 0
-	for i := 0; i < 10*len(r.glibcState); i++ {
+	for range 10 * len(r.glibcState) {
 		r.nextGlibc()
 	}
 }
@@ -259,10 +259,7 @@ func ApplyPostProcessWithOptions(src *common.Image, dst *common.FrameBuffer, row
 		return ErrPostProcessBufferTooSmall
 	}
 
-	q := int(filterLevel) * 10 / 6
-	if q > 63 {
-		q = 63
-	}
+	q := min(int(filterLevel)*10/6, 63)
 
 	yLimits := scratch[:cols*16]
 	uvLimits := scratch[cols*16 : cols*24]
@@ -311,8 +308,8 @@ func runPostProcessFilters(src *common.Image, dst *common.Image, rows int, cols 
 }
 
 func multiframeQualityEnhance(src *common.Image, dst *common.Image, rows int, cols int, modes []MacroblockMode, keyFrame bool, qcurr int, qprev int) {
-	for mbRow := 0; mbRow < rows; mbRow++ {
-		for mbCol := 0; mbCol < cols; mbCol++ {
+	for mbRow := range rows {
+		for mbCol := range cols {
 			index := mbRow*cols + mbCol
 			var mfqeMap [4]int
 			totmap := 0
@@ -341,8 +338,8 @@ func multiframeQualityEnhance(src *common.Image, dst *common.Image, rows int, co
 					dst.Y[ydOff:], dst.U[udOff:], dst.V[vdOff:], dst.YStride, dst.UStride)
 				continue
 			}
-			for i := 0; i < 2; i++ {
-				for j := 0; j < 2; j++ {
+			for i := range 2 {
+				for j := range 2 {
 					ySub := yOff + 8*(i*src.YStride+j)
 					uSub := uOff + 4*(i*src.UStride+j)
 					vSub := vOff + 4*(i*src.VStride+j)
@@ -376,7 +373,7 @@ func qualifyInterMFQEMacroblock(mode *MacroblockMode, out *[4]int) int {
 			{8, 9, 12, 13},
 			{10, 11, 14, 15},
 		}
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			out[i] = 1
 			for j := 0; j < 4 && out[i] != 0; j++ {
 				mv := mode.BlockMV[ndx[i][j]]
@@ -454,10 +451,10 @@ func applyMFQEIfactor(y []byte, yStride int, yd []byte, ydStride int, u []byte, 
 func filterByWeight(src []byte, srcStride int, dst []byte, dstStride int, blockSize int, srcWeight int) {
 	dstWeight := (1 << 4) - srcWeight
 	roundingBit := 1 << 3
-	for row := 0; row < blockSize; row++ {
+	for row := range blockSize {
 		srcRow := src[row*srcStride:]
 		dstRow := dst[row*dstStride:]
-		for col := 0; col < blockSize; col++ {
+		for col := range blockSize {
 			dstRow[col] = byte((int(srcRow[col])*srcWeight + int(dstRow[col])*dstWeight + roundingBit) >> 4)
 		}
 	}
@@ -466,9 +463,9 @@ func filterByWeight(src []byte, srcStride int, dst []byte, dstStride int, blockS
 func varianceAgainstZero(src []byte, stride int, width int, height int) int {
 	sum := 0
 	sse := 0
-	for row := 0; row < height; row++ {
+	for row := range height {
 		srcRow := src[row*stride:]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			v := int(srcRow[col])
 			sum += v
 			sse += v * v
@@ -501,7 +498,7 @@ func intSqrt(x int) int {
 }
 
 func copyBlock(src []byte, srcStride int, dst []byte, dstStride int, width int, height int) {
-	for row := 0; row < height; row++ {
+	for row := range height {
 		copy(dst[row*dstStride:row*dstStride+width], src[row*srcStride:row*srcStride+width])
 	}
 }
@@ -564,8 +561,8 @@ func deblockPostProcess(src *common.Image, dst *common.Image, rows int, cols int
 	}
 
 	uvWidth := (dst.Width + 1) >> 1
-	for mbRow := 0; mbRow < rows; mbRow++ {
-		for mbCol := 0; mbCol < cols; mbCol++ {
+	for mbRow := range rows {
+		for mbCol := range cols {
 			limit := byte(ppl)
 			if modes[mbRow*cols+mbCol].MBSkipCoeff {
 				limit = byte(ppl >> 1)
@@ -620,7 +617,7 @@ func setupPostProcessNoise(sigma float64, noise []int8, rand *postProcessRand) i
 		if a == 0 {
 			continue
 		}
-		for j := 0; j < a; j++ {
+		for j := range a {
 			if next+j >= len(charDist) {
 				goto setNoise
 			}
@@ -646,10 +643,10 @@ func gaussian(sigma float64, mu float64, x float64) float64 {
 
 func planeAddNoise(start []byte, noise []int8, blackClamp int, whiteClamp int, width int, height int, pitch int, rand *postProcessRand) {
 	bothClamp := blackClamp + whiteClamp
-	for row := 0; row < height; row++ {
+	for row := range height {
 		rowStart := row * pitch
 		refStart := rand.next() & 0xff
-		for col := 0; col < width; col++ {
+		for col := range width {
 			v := int(start[rowStart+col])
 			v = clampPostProcessByte(v - blackClamp)
 			v = clampPostProcessByte(v + bothClamp)
@@ -670,11 +667,11 @@ func clampPostProcessByte(v int) int {
 }
 
 func postProcDownAndAcrossMBRow(src []byte, srcStart int, dst []byte, dstStart int, srcPitch int, dstPitch int, cols int, flimits []byte, size int) {
-	for row := 0; row < size; row++ {
+	for row := range size {
 		srcRow := srcStart + row*srcPitch
 		dstRow := dstStart + row*dstPitch
 
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			v := src[srcRow+col]
 			limit := int(flimits[col])
 			if byteDiff(v, src[srcRow+col-2*srcPitch]) < limit &&
@@ -695,7 +692,7 @@ func postProcDownAndAcrossMBRow(src []byte, srcStart int, dst []byte, dstStart i
 		dst[dstRow+cols+1] = dst[dstRow+cols-1]
 
 		var delayed [4]byte
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			v := dst[dstRow+col]
 			limit := int(flimits[col])
 			if byteDiff(v, dst[dstRow+col-2]) < limit &&
@@ -718,7 +715,7 @@ func postProcDownAndAcrossMBRow(src []byte, srcStart int, dst []byte, dstStart i
 }
 
 func mbPostProcAcrossIP(plane []byte, start int, pitch int, rows int, cols int, flimit int) {
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		rowStart := start + row*pitch
 		sumsq := 16
 		sum := 0
@@ -727,7 +724,7 @@ func mbPostProcAcrossIP(plane []byte, start int, pitch int, rows int, cols int, 
 		for i := -8; i < 0; i++ {
 			plane[rowStart+i] = plane[rowStart]
 		}
-		for i := 0; i < 17; i++ {
+		for i := range 17 {
 			plane[rowStart+i+cols] = plane[rowStart+cols-1]
 		}
 		for i := -8; i <= 6; i++ {
@@ -751,7 +748,7 @@ func mbPostProcAcrossIP(plane []byte, start int, pitch int, rows int, cols int, 
 }
 
 func mbPostProcDown(plane []byte, start int, pitch int, rows int, cols int, flimit int) {
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		s := start + col
 		sumsq := 0
 		sum := 0
@@ -760,7 +757,7 @@ func mbPostProcDown(plane []byte, start int, pitch int, rows int, cols int, flim
 		for i := -8; i < 0; i++ {
 			plane[s+i*pitch] = plane[s]
 		}
-		for i := 0; i < 17; i++ {
+		for i := range 17 {
 			plane[s+(i+rows)*pitch] = plane[s+(rows-1)*pitch]
 		}
 		for i := -8; i <= 6; i++ {

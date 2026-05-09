@@ -503,15 +503,15 @@ func perFrameTotalEOB(t *testing.T, trace []byte) map[int]int {
 // so the diagnostic exercises the same content the 720p bench uses.
 func makeBenchmarkLikeFrame(width, height, index int) Image {
 	img := testImage(width, height)
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
 		}
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
 			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
 		}

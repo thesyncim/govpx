@@ -74,8 +74,8 @@ func TestExtendBorders(t *testing.T) {
 	}
 	uvWidth := (fb.Img.CodedWidth + 1) >> 1
 	uvHeight := (fb.Img.CodedHeight + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
+	for y := range uvHeight {
+		for x := range uvWidth {
 			fb.Img.U[y*fb.Img.UStride+x] = byte(40 + 10*y + x)
 			fb.Img.V[y*fb.Img.VStride+x] = byte(70 + 10*y + x)
 		}
@@ -207,8 +207,8 @@ func fillBenchmarkFrameBuffer(fb *FrameBuffer) {
 	}
 	uvWidth := (fb.Img.Width + 1) >> 1
 	uvHeight := (fb.Img.Height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
+	for y := range uvHeight {
+		for x := range uvWidth {
 			fb.Img.U[y*fb.Img.UStride+x] = byte(85 + x + y)
 			fb.Img.V[y*fb.Img.VStride+x] = byte(170 + x + y)
 		}

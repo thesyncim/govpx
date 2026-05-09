@@ -13,7 +13,6 @@ import (
 func TestForwardDCT4x4BatchMatchesPerBlock(t *testing.T) {
 	r := rand.New(rand.NewSource(0xBADC0DE))
 	for _, count := range []int{1, 2, 8, 16, 24, 25} {
-		count := count
 		t.Run("", func(t *testing.T) {
 			input := make([]int16, count*16)
 			for i := range input {
@@ -22,7 +21,7 @@ func TestForwardDCT4x4BatchMatchesPerBlock(t *testing.T) {
 			outBatch := make([]int16, count*16)
 			outPer := make([]int16, count*16)
 			ForwardDCT4x4Batch(input, outBatch, count)
-			for i := 0; i < count; i++ {
+			for i := range count {
 				var out [16]int16
 				ForwardDCT4x4(input[i*16:i*16+16], 4, &out)
 				copy(outPer[i*16:i*16+16], out[:])
@@ -58,13 +57,13 @@ func TestForwardDCT4x4BatchSentinels(t *testing.T) {
 	const blocks = 25
 	input := make([]int16, blocks*16)
 	for bi, tc := range cases {
-		for i := 0; i < blocks; i++ {
+		for i := range blocks {
 			copy(input[i*16:i*16+16], tc.in[:])
 		}
 		outBatch := make([]int16, blocks*16)
 		outPer := make([]int16, blocks*16)
 		ForwardDCT4x4Batch(input, outBatch, blocks)
-		for i := 0; i < blocks; i++ {
+		for i := range blocks {
 			var out [16]int16
 			ForwardDCT4x4(input[i*16:i*16+16], 4, &out)
 			copy(outPer[i*16:i*16+16], out[:])
@@ -103,7 +102,7 @@ func BenchmarkForwardDCT4x4PerBlock25(b *testing.B) {
 	output := make([]int16, 25*16)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		for j := 0; j < 25; j++ {
+		for j := range 25 {
 			var out [16]int16
 			ForwardDCT4x4(input[j*16:j*16+16], 4, &out)
 			copy(output[j*16:j*16+16], out[:])

@@ -60,7 +60,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		blockType = 3
 	}
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		a := i & 3
 		l := (i & 0x0c) >> 2
 		ctx := int(above.Y1[a] + left.Y1[l])
@@ -111,18 +111,18 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 		return 0, ErrTokenGridBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = EntropyContextPlanes{}
 	}
 
 	total := 0
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		rowPartition := row & (partitions - 1)
 		rowStart := row * cols
 		rowModes := modes[rowStart : rowStart+cols]
 		rowTokens := tokens[rowStart : rowStart+cols]
 		left := EntropyContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			mode := &rowModes[col]
 			token := &rowTokens[col]
 			if mode.MBSkipCoeff {
@@ -156,20 +156,20 @@ func DecodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder, rows int, 
 		return 0, 0, ErrTokenGridBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = EntropyContextPlanes{}
 	}
 
 	total := 0
 	firstCorrupt := required
 	frameCorruptResidual := false
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		rowPartition := row & (partitions - 1)
 		rowStart := row * cols
 		rowModes := modes[rowStart : rowStart+cols]
 		rowTokens := tokens[rowStart : rowStart+cols]
 		left := EntropyContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := rowStart + col
 			mode := &rowModes[col]
 			token := &rowTokens[col]

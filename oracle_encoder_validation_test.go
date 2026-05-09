@@ -153,7 +153,6 @@ func TestOracleEncoderCorpusValidation(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			sources := encoderValidationFrames(tc)
 			got := encodeGopvxValidationCorpus(t, tc, sources)
@@ -276,8 +275,8 @@ func encoderValidationPanningFrame(width int, height int, index int) Image {
 	img := testImage(width, height)
 	xoff := index * 2
 	yoff := index
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			srcX := x + xoff
 			srcY := y + yoff
 			img.Y[y*img.YStride+x] = byte(32 + ((srcY*7 + srcX*11 + (srcX/8)*(srcY/8)*13) & 191))
@@ -285,8 +284,8 @@ func encoderValidationPanningFrame(width int, height int, index int) Image {
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
+	for y := range uvHeight {
+		for x := range uvWidth {
 			srcX := x + xoff/2
 			srcY := y + yoff/2
 			img.U[y*img.UStride+x] = byte(96 + ((srcX*5 + srcY*3) & 63))
@@ -300,8 +299,8 @@ func encoderValidationSegmentedFrame(width int, height int, index int) Image {
 	img := testImage(width, height)
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			mbX := x >> 4
 			mbY := y >> 4
 			if (mbX+mbY)&1 == 0 {
@@ -311,8 +310,8 @@ func encoderValidationSegmentedFrame(width int, height int, index int) Image {
 			}
 		}
 	}
-	for y := 0; y < uvHeight; y++ {
-		for x := 0; x < uvWidth; x++ {
+	for y := range uvHeight {
+		for x := range uvWidth {
 			img.U[y*img.UStride+x] = byte(96 + ((x*3 + y + index*5) & 63))
 			img.V[y*img.VStride+x] = byte(144 + ((x + y*3 + index*7) & 63))
 		}
@@ -424,7 +423,7 @@ func writeEncoderValidationI420(t *testing.T, path string, frames []Image) {
 }
 
 func writeEncoderValidationPlane(file *os.File, plane []byte, stride int, width int, height int) error {
-	for row := 0; row < height; row++ {
+	for row := range height {
 		if _, err := file.Write(plane[row*stride : row*stride+width]); err != nil {
 			return err
 		}
@@ -750,10 +749,10 @@ func encoderValidationImagePSNR(src Image, dst Image) float64 {
 func encoderValidationPlaneSSE(a []byte, aStride int, b []byte, bStride int, width int, height int) (int64, int) {
 	var sse int64
 	count := width * height
-	for row := 0; row < height; row++ {
+	for row := range height {
 		aRow := a[row*aStride:]
 		bRow := b[row*bStride:]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			d := int(aRow[col]) - int(bRow[col])
 			sse += int64(d * d)
 		}
@@ -784,10 +783,10 @@ func encoderValidationPlaneSSIM(a []byte, aStride int, b []byte, bStride int, wi
 	sumAA := 0.0
 	sumBB := 0.0
 	sumAB := 0.0
-	for row := 0; row < height; row++ {
+	for row := range height {
 		aRow := a[row*aStride:]
 		bRow := b[row*bStride:]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			x := float64(aRow[col])
 			y := float64(bRow[col])
 			sumA += x

@@ -19,7 +19,7 @@ func TestDequantizeBlock(t *testing.T) {
 
 	DequantizeBlock(&qcoeff, &dequant, &dqcoeff)
 
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		want := qcoeff[i] * dequant[i]
 		if dqcoeff[i] != want {
 			t.Fatalf("dqcoeff[%d] = %d, want %d", i, dqcoeff[i], want)
@@ -49,7 +49,7 @@ func TestDequantIDCT4x4AddMatchesManualAndZerosInput(t *testing.T) {
 	}
 
 	var manual [16]int16
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		manual[i] = original[i] * dequant[i]
 	}
 	IDCT4x4Add(&manual, want, 8, want, 8)

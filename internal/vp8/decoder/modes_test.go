@@ -117,8 +117,8 @@ func encodeInterModeHeaderUpdates() []byte {
 	w.writeLiteral(60, 8)
 	w.writeLiteral(70, 8)
 
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			update := uint8(0)
 			value := uint32(0)
 			if component == 0 && i == 0 {

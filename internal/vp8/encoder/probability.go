@@ -20,10 +20,10 @@ func WriteCoefficientProbabilityUpdates(w *BoolWriter, updates *CoefficientProba
 	if w == nil {
 		return ErrInvalidPacketConfig
 	}
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					update := updates != nil && updates.Update[block][band][ctx][node]
 					if update {
 						prob := updates.Probs[block][band][ctx][node]
@@ -85,12 +85,12 @@ func buildKeyFrameCoefficientBranchCounts(rows int, cols int, modes []KeyFrameMa
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
@@ -164,10 +164,10 @@ func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *
 		return 0
 	}
 	savings := 0
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					ct := (*counts)[block][band][ctx][node]
 					total := ct[0] + ct[1]
 					if total == 0 {
@@ -194,19 +194,19 @@ func coefficientEntropySavingsFromCountsIndependent(base *tables.CoefficientProb
 		return 0
 	}
 	savings := 0
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
 			var summed [tables.EntropyNodes][2]int
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					summed[node][0] += (*counts)[block][band][ctx][node][0]
 					summed[node][1] += (*counts)[block][band][ctx][node][1]
 				}
 			}
-			for node := 0; node < tables.EntropyNodes; node++ {
+			for node := range tables.EntropyNodes {
 				newProb := coefficientProbabilityFromBranchCount(summed[node])
 				nodeSavings := 0
-				for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
+				for ctx := range tables.PrevCoefContexts {
 					oldProb := (*base)[block][band][ctx][node]
 					if keyFrame && newProb == oldProb {
 						continue
@@ -254,12 +254,12 @@ func buildInterCoefficientBranchCounts(rows int, cols int, modes []InterFrameMac
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
@@ -291,10 +291,10 @@ func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, coun
 	}
 	frameProbs := *base
 	updates := CoefficientProbabilityUpdates{Probs: *base}
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					ct := (*counts)[block][band][ctx][node]
 					total := ct[0] + ct[1]
 					if total == 0 {
@@ -344,16 +344,16 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 	}
 	frameProbs := *base
 	updates := CoefficientProbabilityUpdates{Probs: *base}
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
 			// Step 1: sum branch counts across PrevCoefContexts. This mirrors
 			// sum_probs_over_prev_coef_context (bitstream.c:655) followed by
 			// vp8_tree_probs_from_distribution acting on the summed token
 			// distribution. Branch counts are linear in token counts so
 			// summing branch counts directly produces the same result.
 			var summed [tables.EntropyNodes][2]int
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					summed[node][0] += (*counts)[block][band][ctx][node][0]
 					summed[node][1] += (*counts)[block][band][ctx][node][1]
 				}
@@ -361,7 +361,7 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 			// Step 2: compute the shared new probability per entropy node
 			// from the summed distribution.
 			var sharedNew [tables.EntropyNodes]uint8
-			for node := 0; node < tables.EntropyNodes; node++ {
+			for node := range tables.EntropyNodes {
 				sharedNew[node] = coefficientProbabilityFromBranchCount(summed[node])
 			}
 			// Step 3: aggregate per-node savings across the k contexts. On
@@ -369,8 +369,8 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 			// newp == oldp[k] (bitstream.c:720-723) so the savings only
 			// reflect the contexts that would actually change.
 			var nodeSavings [tables.EntropyNodes]int
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					oldProb := frameProbs[block][band][ctx][node]
 					newProb := sharedNew[node]
 					if keyFrame && newProb == oldProb {
@@ -385,8 +385,8 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 			// (bitstream.c:909-928). The per-node `s` is the aggregate
 			// savings shared across all k; on key frames, an additional
 			// per-k force fires when newp != oldp[k] regardless of `s`.
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					newProb := sharedNew[node]
 					oldProb := frameProbs[block][band][ctx][node]
 					update := nodeSavings[node] > 0
@@ -413,9 +413,9 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 
 func defaultKeyFrameIndependentCoefficientBranchCountsForUpdate() coefficientBranchCounts {
 	var counts coefficientBranchCounts
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for node := range tables.EntropyNodes {
 				counts[block][band][0][node] = defaultKeyFrameIndependentCoefficientBranchCounts[block][band][node]
 			}
 		}
@@ -484,7 +484,7 @@ func countCoefficientMacroblockBranches(is4x4 bool, above *TokenContextPlanes, l
 		blockType = 3
 	}
 
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		eob := coeffs.BlockEOB(block, skipDC)
 		a := block & 3
 		l := (block & 0x0c) >> 2

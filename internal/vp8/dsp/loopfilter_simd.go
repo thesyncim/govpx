@@ -31,7 +31,7 @@ func loopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh byte
 	q2r := s[6*stride : 6*stride+width]
 	q3r := s[7*stride : 7*stride+width]
 
-	for i := 0; i < width; i++ {
+	for i := range width {
 		mask := filterMaskFlag(limit, blimit, row3[i], row2[i], row1[i], row0[i], q0r[i], q1r[i], q2r[i], q3r[i])
 		if mask == 0 {
 			continue
@@ -49,7 +49,7 @@ func loopFilterVerticalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, 
 	rows := count * 8
 	_ = s[(rows-1)*stride+7]
 
-	for y := 0; y < rows; y++ {
+	for y := range rows {
 		row := s[y*stride : y*stride+8]
 		mask := filterMaskFlag(limit, blimit, row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
 		if mask == 0 {
@@ -77,7 +77,7 @@ func mbLoopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh by
 	q2r := s[6*stride : 6*stride+width]
 	q3r := s[7*stride : 7*stride+width]
 
-	for i := 0; i < width; i++ {
+	for i := range width {
 		mask := filterMaskFlag(limit, blimit, row3[i], row2[i], row1[i], row0[i], q0r[i], q1r[i], q2r[i], q3r[i])
 		if mask == 0 {
 			continue
@@ -97,7 +97,7 @@ func mbLoopFilterVerticalEdgeGo(s []byte, stride int, blimit, limit, thresh byte
 	rows := count * 8
 	_ = s[(rows-1)*stride+7]
 
-	for y := 0; y < rows; y++ {
+	for y := range rows {
 		row := s[y*stride : y*stride+8]
 		mask := filterMaskFlag(limit, blimit, row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
 		if mask == 0 {

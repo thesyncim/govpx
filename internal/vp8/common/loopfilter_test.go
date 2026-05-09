@@ -31,7 +31,7 @@ func TestInitLoopFilterInfoLUTs(t *testing.T) {
 	if lfi.HEVThreshLUT[InterFrame][19] != 1 || lfi.HEVThreshLUT[InterFrame][20] != 2 || lfi.HEVThreshLUT[InterFrame][40] != 3 {
 		t.Fatalf("interframe hev LUT mismatch")
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if lfi.HEVThresh[i] != byte(i) {
 			t.Fatalf("HEVThresh[%d] = %d", i, lfi.HEVThresh[i])
 		}
@@ -49,9 +49,9 @@ func TestInitLoopFilterFrameWithoutDeltas(t *testing.T) {
 	var lfi LoopFilterInfo
 	InitLoopFilterFrame(&lfi, 20, LoopFilterFrameConfig{})
 
-	for seg := 0; seg < MaxMBSegments; seg++ {
-		for ref := 0; ref < int(MaxRefFrames); ref++ {
-			for mode := 0; mode < MaxModeLFDeltas; mode++ {
+	for seg := range MaxMBSegments {
+		for ref := range int(MaxRefFrames) {
+			for mode := range MaxModeLFDeltas {
 				if got := lfi.Level[seg][ref][mode]; got != 20 {
 					t.Fatalf("Level[%d][%d][%d] = %d, want 20", seg, ref, mode, got)
 				}

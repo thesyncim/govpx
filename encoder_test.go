@@ -234,7 +234,7 @@ func TestEncodeIntoCapsKeyFrameTargetBitsWithMaxIntraBitrate(t *testing.T) {
 func TestEncodeIntoUsesLibvpxLaterForcedKeyFrameTargetBits(t *testing.T) {
 	e := newTestEncoder(t)
 	dst := make([]byte, 4096)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if _, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, i), uint64(i), 1, 0); err != nil {
 			t.Fatalf("EncodeInto %d returned error: %v", i, err)
 		}
@@ -905,7 +905,7 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 
 	second := segmentedQuantizationTestImage()
 	for row := 0; row < second.Height; row++ {
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			second.Y[row*second.YStride+col] = 96
 		}
 	}
@@ -1271,7 +1271,7 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		t.Fatalf("key NextFrame returned no frame")
 	}
 
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		src := publicImageFromVP8(&e.lastRef.Img)
 		inter, err := e.EncodeInto(packet, src, uint64(frame+1), 1, 0)
 		if err != nil {
@@ -1330,7 +1330,7 @@ func TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames(t *testing.T) {
 	// Drive a few inter frames so the cyclic refresh index advances away
 	// from zero. A 5x4 frame has 20 MBs and refreshCount = 20/20 = 1, so
 	// each inter frame advances the index by exactly 1.
-	for frame := 0; frame < 3; frame++ {
+	for frame := range 3 {
 		s := publicImageFromVP8(&e.lastRef.Img)
 		if _, err := e.EncodeInto(packet, s, uint64(frame+1), 1, 0); err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
@@ -1518,10 +1518,7 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	if err != nil {
 		t.Fatalf("invisible key EncodeInto returned error: %v", err)
 	}
-	wantKeyBuffer := e.rc.bufferInitialBits - encodedSizeBits(key.SizeBytes)
-	if wantKeyBuffer < 0 {
-		wantKeyBuffer = 0
-	}
+	wantKeyBuffer := max(e.rc.bufferInitialBits-encodedSizeBits(key.SizeBytes), 0)
 	if key.BufferLevelBits != wantKeyBuffer || e.rc.bufferLevelBits != wantKeyBuffer {
 		t.Fatalf("invisible key buffer = result:%d rc:%d, want %d", key.BufferLevelBits, e.rc.bufferLevelBits, wantKeyBuffer)
 	}
@@ -1531,10 +1528,7 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	if err != nil {
 		t.Fatalf("invisible inter EncodeInto returned error: %v", err)
 	}
-	wantInterBuffer := beforeInterBuffer - encodedSizeBits(inter.SizeBytes)
-	if wantInterBuffer < 0 {
-		wantInterBuffer = 0
-	}
+	wantInterBuffer := max(beforeInterBuffer-encodedSizeBits(inter.SizeBytes), 0)
 	if inter.BufferLevelBits != wantInterBuffer || e.rc.bufferLevelBits != wantInterBuffer {
 		t.Fatalf("invisible inter buffer = result:%d rc:%d, want %d", inter.BufferLevelBits, e.rc.bufferLevelBits, wantInterBuffer)
 	}
@@ -2174,7 +2168,7 @@ func TestRecodeForcedKeyFrameRetriesAtAdjustedQ(t *testing.T) {
 func TestResetRestoresRateControlQuantizerAverages(t *testing.T) {
 	e := newTestEncoder(t)
 	dst := make([]byte, 4096)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, i), uint64(i), 1, 0); err != nil {
 			t.Fatalf("EncodeInto %d returned error: %v", i, err)
 		}
@@ -2584,13 +2578,13 @@ func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 20, 128, 128)
 	ref := testVP8Frame(t, 64, 64, 20, 128, 128)
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 64; col++ {
+	for row := range 16 {
+		for col := range 64 {
 			ref.Img.Y[row*ref.Img.YStride+col] = 100
 		}
 	}
 	for row := 32; row < 48; row++ {
-		for col := 0; col < 64; col++ {
+		for col := range 64 {
 			ref.Img.Y[row*ref.Img.YStride+col] = 23
 		}
 	}
@@ -2610,8 +2604,8 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 
 	src := testImage(width, height)
 	fillImage(src, 96, 128, 128)
-	for r := 0; r < height; r++ {
-		for c := 0; c < width; c++ {
+	for r := range height {
+		for c := range width {
 			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
 		}
 	}
@@ -2633,7 +2627,7 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 	if len(e.reconstructModes) < required {
 		e.reconstructModes = make([]vp8dec.MacroblockMode, required)
 	}
-	for i := 0; i < required; i++ {
+	for i := range required {
 		e.reconstructModes[i] = vp8dec.MacroblockMode{
 			Mode:     vp8common.DCPred,
 			UVMode:   vp8common.DCPred,
@@ -2669,8 +2663,8 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	required := rows * cols
 
 	src := testImage(width, height)
-	for r := 0; r < height; r++ {
-		for c := 0; c < width; c++ {
+	for r := range height {
+		for c := range width {
 			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
 			src.U[(r/2)*src.UStride+(c/2)] = 128
 			src.V[(r/2)*src.VStride+(c/2)] = 128
@@ -2693,7 +2687,7 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 		if len(e.reconstructModes) < required {
 			e.reconstructModes = make([]vp8dec.MacroblockMode, required)
 		}
-		for i := 0; i < required; i++ {
+		for i := range required {
 			e.reconstructModes[i] = vp8dec.MacroblockMode{
 				Mode:     vp8common.DCPred,
 				UVMode:   vp8common.DCPred,
@@ -2853,8 +2847,8 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 	required := rows * cols
 
 	src := testImage(width, height)
-	for r := 0; r < height; r++ {
-		for c := 0; c < width; c++ {
+	for r := range height {
+		for c := range width {
 			src.Y[r*src.YStride+c] = byte(40 + (r*7+c*11)%160)
 		}
 	}
@@ -2873,7 +2867,7 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 	if len(e.reconstructModes) < required {
 		e.reconstructModes = make([]vp8dec.MacroblockMode, required)
 	}
-	for i := 0; i < required; i++ {
+	for i := range required {
 		e.reconstructModes[i] = vp8dec.MacroblockMode{
 			Mode:     vp8common.DCPred,
 			UVMode:   vp8common.DCPred,
@@ -3826,10 +3820,10 @@ func TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient(t *te
 		keyFrameCoeffs: make([]vp8enc.MacroblockCoefficients, 1),
 		tokenAbove:     make([]vp8enc.TokenContextPlanes, 1),
 	}
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					e.coefProbs[block][band][ctx][node] = 1
 				}
 			}
@@ -3856,7 +3850,7 @@ func TestEncodeIntoTemporalBaseLayerIsDecodableWithoutEnhancementFrames(t *testi
 	dst := make([]byte, 8192)
 	basePackets := make([][]byte, 0, 3)
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		src := rateControlTestFrame(16, 16, i)
 		result, err := e.EncodeInto(dst, src, uint64(i), 1, 0)
 		if err != nil {
@@ -4564,7 +4558,6 @@ func TestEncodeIntoMultiSizeInterFrameAllocatesZero(t *testing.T) {
 		{"320x240", 320, 240},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			e := newSizedTestEncoder(t, tc.w, tc.h)
 			defer e.Close()
@@ -4579,7 +4572,7 @@ func TestEncodeIntoMultiSizeInterFrameAllocatesZero(t *testing.T) {
 			}
 			// Warm any one-shot lazy state so AllocsPerRun's first iteration
 			// does not double-count construction allocations.
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				if _, err := e.EncodeInto(dst, src, uint64(i+1), 1, 0); err != nil {
 					t.Fatalf("warmup EncodeInto returned error: %v", err)
 				}
@@ -4784,7 +4777,7 @@ func encodeRateControlTestClip(t testing.TB, targetKbps int) rateControlClipResu
 	outputBytes := 0
 	quantSum := 0
 	encodedFrames := 0
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		result, err := e.EncodeInto(dst, rateControlTestFrame(width, height, i), uint64(i), 1, 0)
 		if err != nil {
 			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
@@ -4811,15 +4804,15 @@ func encodeRateControlTestClip(t testing.TB, targetKbps int) rateControlClipResu
 
 func rateControlTestFrame(width int, height int, index int) Image {
 	img := testImage(width, height)
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
 		}
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
 			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
 		}
@@ -4912,8 +4905,8 @@ func shiftImageRightOne(src Image) Image {
 }
 
 func copyShifted8x8FromImage(dst Image, src Image, y int, x int, dy int, dx int) {
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			dst.Y[(y+row)*dst.YStride+x+col] = src.Y[(y+row+dy)*src.YStride+x+col+dx]
 		}
 	}
@@ -4961,10 +4954,10 @@ func assertImagesEqual(t *testing.T, name string, want Image, got Image) {
 
 func assertPlaneEqual(t *testing.T, name string, want []byte, wantStride int, got []byte, gotStride int, width int, height int) {
 	t.Helper()
-	for row := 0; row < height; row++ {
+	for row := range height {
 		wantRow := want[row*wantStride : row*wantStride+width]
 		gotRow := got[row*gotStride : row*gotStride+width]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			if gotRow[col] != wantRow[col] {
 				t.Fatalf("%s[%d,%d] = %d, want %d", name, row, col, gotRow[col], wantRow[col])
 			}
@@ -4998,8 +4991,8 @@ func assertPlaneBlockEqual(t *testing.T, name string, want []byte, wantStride in
 	t.Helper()
 	width := min(blockWidth, planeWidth-startCol)
 	height := min(blockHeight, planeHeight-startRow)
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			wantValue := want[(startRow+row)*wantStride+startCol+col]
 			gotValue := got[(startRow+row)*gotStride+startCol+col]
 			if gotValue != wantValue {
@@ -5022,8 +5015,8 @@ func macroblockEqual(a Image, b Image, mbRow int, mbCol int) bool {
 func planeBlockEqual(a []byte, aStride int, b []byte, bStride int, planeWidth int, planeHeight int, startRow int, startCol int, blockWidth int, blockHeight int) bool {
 	width := min(blockWidth, planeWidth-startCol)
 	height := min(blockHeight, planeHeight-startRow)
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			if a[(startRow+row)*aStride+startCol+col] != b[(startRow+row)*bStride+startCol+col] {
 				return false
 			}
@@ -5166,15 +5159,15 @@ func TestComputeSkin8x8BlockNeedsTwoSubBlocksToTrigger(t *testing.T) {
 	// this MB is not skin.
 	src := testImage(16, 16)
 	fillImage(src, 128, 128, 128)
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			src.Y[row*src.YStride+col] = 120
 		}
 	}
 	uvW := (src.Width + 1) >> 1
 	uvH := (src.Height + 1) >> 1
-	for row := 0; row < 4; row++ {
-		for col := 0; col < 4; col++ {
+	for row := range 4 {
+		for col := range 4 {
 			src.U[row*src.UStride+col] = 117
 			src.V[row*src.VStride+col] = 150
 		}
@@ -5183,12 +5176,12 @@ func TestComputeSkin8x8BlockNeedsTwoSubBlocksToTrigger(t *testing.T) {
 		t.Fatalf("single skin sub-block should not flag MB as skin under SKIN_8X8")
 	}
 	// Promote a second sub-block to skin colour: now MB qualifies.
-	for row := 0; row < 8; row++ {
+	for row := range 8 {
 		for col := 8; col < 16; col++ {
 			src.Y[row*src.YStride+col] = 120
 		}
 	}
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		for col := 4; col < 8; col++ {
 			src.U[row*src.UStride+col] = 117
 			src.V[row*src.VStride+col] = 150
@@ -5209,8 +5202,8 @@ func TestComputeSkinMapUsesSkin8x8ForSmallFramesAndSkin16x16ForLarge(t *testing.
 		// Y=120, U=117, V=150 is a known skin tuple.
 		fillImage(src, 120, 117, 150)
 		// Flip the top-left 8x8 Y sub-block of MB(0,0) to non-skin.
-		for row := 0; row < 8; row++ {
-			for col := 0; col < 8; col++ {
+		for row := range 8 {
+			for col := range 8 {
 				src.Y[row*src.YStride+col] = 30
 			}
 		}
@@ -5474,8 +5467,8 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	// Checkerboard active map: ~half MBs inactive across the frame, including
 	// boundary positions, so token-context resets at MB edges are exercised.
 	activeMap := make([]byte, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			if (row+col)%2 == 0 {
 				activeMap[row*cols+col] = 0
 			} else {
@@ -5526,8 +5519,8 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	if len(decoded) != 2 {
 		t.Fatalf("decoded frame count = %d, want 2", len(decoded))
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			if activeMap[index] == 0 {
 				m := modes[index]
@@ -5550,8 +5543,8 @@ func TestSetActiveMapOracleVectorPreservesEveryInactiveMB(t *testing.T) {
 	if len(decoded2) != 2 {
 		t.Fatalf("second decoded frame count = %d, want 2", len(decoded2))
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			if modes2[index].RefFrame != modes[index].RefFrame || modes2[index].Mode != modes[index].Mode || modes2[index].MBSkipCoeff != modes[index].MBSkipCoeff || modes2[index].SegmentID != modes[index].SegmentID {
 				t.Fatalf("MB(%d,%d) modes diverged across runs: first=%+v second=%+v", row, col, modes[index], modes2[index])
@@ -6153,7 +6146,7 @@ func TestSignBiasEvolutionMatchesLibvpxAcrossGFAndARF(t *testing.T) {
 	// activated (libvpx's "GOLDEN refresh while ALTREF active" branch). The
 	// auto-ARF driver's hidden ARF and matching deferred show frame are
 	// scheduled naturally by the lookahead during the early frames.
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		img := movingBarTestImage(width, height, i)
 		var flags EncodeFlags
 		forced := false

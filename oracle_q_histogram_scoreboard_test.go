@@ -95,7 +95,6 @@ func TestOracleEncoderQHistogramScoreboard(t *testing.T) {
 	reports := make([]fixtureQReport, 0, len(specs))
 
 	for _, spec := range specs {
-		spec := spec
 		t.Run(spec.Name, func(t *testing.T) {
 			width, height := spec.Width, spec.Height
 			rcMode := RateControlCBR
@@ -215,10 +214,7 @@ func computeQHistogramFromTrace(t *testing.T, trace []byte) (hist [128]int, qMin
 		if !ok {
 			continue
 		}
-		q := int(qf)
-		if q < 0 {
-			q = 0
-		}
+		q := max(int(qf), 0)
 		if q > 127 {
 			q = 127
 		}
@@ -249,7 +245,7 @@ func computeQHistogramFromTrace(t *testing.T, trace []byte) (hist [128]int, qMin
 
 func histL1(a, b [128]int) int {
 	sum := 0
-	for i := 0; i < 128; i++ {
+	for i := range 128 {
 		d := a[i] - b[i]
 		if d < 0 {
 			d = -d

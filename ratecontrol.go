@@ -421,10 +421,7 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 	}
 	thisFrameTarget := targetBits
 	if rc.kfOverspendBits > 0 {
-		adjustment := rc.kfBitrateAdjustment
-		if adjustment > rc.kfOverspendBits {
-			adjustment = rc.kfOverspendBits
-		}
+		adjustment := min(rc.kfBitrateAdjustment, rc.kfOverspendBits)
 		if adjustment > perFrameBandwidth-minFrameTarget {
 			adjustment = perFrameBandwidth - minFrameTarget
 		}
@@ -432,16 +429,10 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 			adjustment = 0
 		}
 		rc.kfOverspendBits -= adjustment
-		thisFrameTarget = targetBits - adjustment
-		if thisFrameTarget < minFrameTarget {
-			thisFrameTarget = minFrameTarget
-		}
+		thisFrameTarget = max(targetBits-adjustment, minFrameTarget)
 	}
 	if rc.gfOverspendBits > 0 && thisFrameTarget > minFrameTarget {
-		adjustment := rc.nonGFBitrateAdjustment
-		if adjustment > rc.gfOverspendBits {
-			adjustment = rc.gfOverspendBits
-		}
+		adjustment := min(rc.nonGFBitrateAdjustment, rc.gfOverspendBits)
 		if adjustment > thisFrameTarget-minFrameTarget {
 			adjustment = thisFrameTarget - minFrameTarget
 		}
@@ -455,17 +446,11 @@ func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) 
 	// frames inside long GF intervals.
 	if rc.lastBoost > 150 && rc.framesTillGFUpdateDue > 0 &&
 		rc.currentGFInterval >= (libvpxMinGFInterval<<1) {
-		adjustment := (rc.lastBoost - 100) >> 5
-		if adjustment > 10 {
-			adjustment = 10
-		}
+		adjustment := min((rc.lastBoost-100)>>5, 10)
 		if adjustment < 1 {
 			adjustment = 1
 		}
-		adjustment = (thisFrameTarget * adjustment) / 100
-		if adjustment > thisFrameTarget-minFrameTarget {
-			adjustment = thisFrameTarget - minFrameTarget
-		}
+		adjustment = min((thisFrameTarget*adjustment)/100, thisFrameTarget-minFrameTarget)
 		if adjustment < 0 {
 			adjustment = 0
 		}
@@ -526,10 +511,7 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 	)
 	boost := initialBoost
 	if ctx.temporalLayerCount <= 1 {
-		boost = max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing))
-		if boost > maxKeyBoost {
-			boost = maxKeyBoost
-		}
+		boost = min(max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing)), maxKeyBoost)
 	}
 	boost = boost * libvpxKeyFrameBoostQAdjustment[q] / 100
 	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(rc.framesSinceKeyframe) < halfFrameRate {
@@ -723,10 +705,7 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 	// user-configured [minQuantizer, maxQuantizer] envelope to honor
 	// CLI / public-API bounds.
 	if rc.pass2ActiveWorstQValid {
-		override := rc.pass2ActiveWorstQOverride
-		if override > rc.maxQuantizer {
-			override = rc.maxQuantizer
-		}
+		override := min(rc.pass2ActiveWorstQOverride, rc.maxQuantizer)
 		if override < rc.minQuantizer {
 			override = rc.minQuantizer
 		}
@@ -1011,7 +990,7 @@ func (rc *rateControlState) estimateKeyFrameFrequency() int {
 	}
 	totalWeight := 0
 	avg := 0
-	for i := 0; i < keyFrameContextSize; i++ {
+	for i := range keyFrameContextSize {
 		if i < keyFrameContextSize-1 {
 			rc.priorKeyFrameDistance[i] = rc.priorKeyFrameDistance[i+1]
 		} else {
@@ -1604,10 +1583,7 @@ func (rc *rateControlState) minimumFrameBandwidthBits() int {
 	if target <= 0 {
 		return 0
 	}
-	minTarget := target / 8
-	if minTarget < 1 {
-		minTarget = 1
-	}
+	minTarget := max(target/8, 1)
 	return minTarget
 }
 
@@ -1682,10 +1658,7 @@ func (rc *rateControlState) frameSizeBoundsBits(keyFrame bool, goldenFrame bool,
 	if targetBits <= 0 {
 		return 0, 0
 	}
-	target := int64(targetBits)
-	if target > libvpxIntMax {
-		target = libvpxIntMax
-	}
+	target := min(int64(targetBits), libvpxIntMax)
 
 	var undershootLimit int64
 	var overshootLimit int64
@@ -2512,10 +2485,7 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 		gfFrameUsage = 100
 	}
 
-	intraIdx := in.ThisFramePercentIntra
-	if intraIdx < 0 {
-		intraIdx = 0
-	}
+	intraIdx := max(in.ThisFramePercentIntra, 0)
 	if intraIdx >= 15 {
 		intraIdx = 14
 	}

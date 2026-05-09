@@ -146,7 +146,6 @@ func TestOracleCBRDropFrameScoreboard(t *testing.T) {
 	current := baselineFile{Fixtures: make(map[string]fixtureSummary, len(fixtures))}
 
 	for _, fx := range fixtures {
-		fx := fx
 		t.Run(fx.Name, func(t *testing.T) {
 			sources := make([]Image, fx.Frames)
 			for i := range sources {

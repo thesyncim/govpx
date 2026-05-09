@@ -68,10 +68,7 @@ func libvpxFrameQuantDeltas(qIndex int, screenContentMode int) vp8common.QuantDe
 		deltas.Y2DC = 4 - qIndex
 	}
 	if screenContentMode != 0 && qIndex > 40 {
-		uvDelta := -(15 * qIndex / 100)
-		if uvDelta < -15 {
-			uvDelta = -15
-		}
+		uvDelta := max(-(15 * qIndex / 100), -15)
 		deltas.UVDC = uvDelta
 		deltas.UVAC = uvDelta
 	}
@@ -172,9 +169,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		var leftTok vp8enc.TokenContextPlanes
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			segmentID, ok := keyFrameAnalysisSegmentID(&modes[index], segmentation, preserveSegmentID)
 			if !ok {
@@ -283,16 +280,16 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
 	var lastRefForActiveMap *interAnalysisReference
 	if activeMapEnabled {
-		for ri := 0; ri < refCount; ri++ {
+		for ri := range refCount {
 			if refs[ri].Frame == vp8common.LastFrame {
 				lastRefForActiveMap = &refs[ri]
 				break
 			}
 		}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		var leftTok vp8enc.TokenContextPlanes
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			if activeMapEnabled && lastRefForActiveMap != nil && e.activeMap[index] == 0 {
 				if !e.encodeInactiveInterMacroblock(row, col, index, lastRefForActiveMap.Img, modes, coeffs, &aboveTok[col], &leftTok) {
@@ -522,8 +519,8 @@ func encoderSegmentationToDecoder(segmentation vp8enc.SegmentationConfig) vp8dec
 	out.UpdateData = segmentation.UpdateData
 	out.AbsDelta = segmentation.AbsDelta
 	out.TreeProbs = segmentation.TreeProbs
-	for feature := 0; feature < int(vp8common.MBLvlMax); feature++ {
-		for segment := 0; segment < vp8common.MaxMBSegments; segment++ {
+	for feature := range int(vp8common.MBLvlMax) {
+		for segment := range vp8common.MaxMBSegments {
 			if segmentation.FeatureEnabled[feature][segment] {
 				out.FeatureData[feature][segment] = segmentation.FeatureData[feature][segment]
 			}
@@ -568,10 +565,7 @@ func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference
 		return vp8common.LastFrame
 	}
 	closest := vp8common.IntraFrame
-	limit := refCount
-	if limit > len(refs) {
-		limit = len(refs)
-	}
+	limit := min(refCount, len(refs))
 	for i := 0; i < limit; i++ {
 		refFrame := refs[i].Frame
 		if refFrame < vp8common.LastFrame || refFrame >= vp8common.MaxRefFrames {
@@ -588,10 +582,7 @@ func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference
 }
 
 func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int, frame vp8common.MVReferenceFrame) bool {
-	limit := refCount
-	if limit > len(refs) {
-		limit = len(refs)
-	}
+	limit := min(refCount, len(refs))
 	for i := 0; i < limit; i++ {
 		if refs[i].Frame == frame {
 			return true
@@ -601,10 +592,7 @@ func interAnalysisReferencesInclude(refs []interAnalysisReference, refCount int,
 }
 
 func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount int) int {
-	limit := refCount
-	if limit > len(refs) {
-		limit = len(refs)
-	}
+	limit := min(refCount, len(refs))
 	count := 0
 	for i := 0; i < limit; i++ {
 		if refs[i].Img != nil && refs[i].Frame >= vp8common.LastFrame && refs[i].Frame < vp8common.MaxRefFrames {
@@ -1201,14 +1189,8 @@ func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadlin
 
 func libvpxInterModeRDThresholdsForContext(qIndex int, zbinOverQuant int, deadline Deadline, speed int, context libvpxInterModeThresholdContext) [libvpxInterModeCount]int {
 	multipliers := libvpxInterModeThresholdMultipliersForContext(deadline, speed, context)
-	qValue := vp8common.DCQuant(qIndex, 0)
-	if qValue > 160 {
-		qValue = 160
-	}
-	q := int(math.Pow(float64(qValue), 1.25))
-	if q < 8 {
-		q = 8
-	}
+	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
+	q := max(int(math.Pow(float64(qValue), 1.25)), 8)
 	_, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 	var thresholds [libvpxInterModeCount]int
 	for i, mult := range multipliers {
@@ -1307,10 +1289,7 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 	if errorBins == nil || totalMBs <= 0 || speed <= 6 {
 		return 2000
 	}
-	min := 2000
-	if staticThreshold > min {
-		min = staticThreshold
-	}
+	min := max(staticThreshold, 2000)
 	min >>= 7
 	if min < 0 {
 		min = 0
@@ -1322,10 +1301,7 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 	for i := 0; i < min; i++ {
 		totalSkip += int(errorBins[i])
 	}
-	remaining := totalMBs - totalSkip
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(totalMBs-totalSkip, 0)
 	sum := 0
 	i := min
 	for ; i < len(errorBins); i++ {
@@ -1335,10 +1311,7 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 		}
 	}
 	i--
-	thresh := i << 7
-	if thresh < 2000 {
-		thresh = 2000
-	}
+	thresh := max(i<<7, 2000)
 	return thresh
 }
 
@@ -1617,7 +1590,7 @@ func (e *VP8Encoder) inactiveInterFrameModeDecision(refs []interAnalysisReferenc
 	if index < 0 || index >= len(e.activeMap) || e.activeMap[index] != 0 {
 		return interFrameModeDecision{}, false
 	}
-	for ri := 0; ri < refCount; ri++ {
+	for ri := range refCount {
 		if refs[ri].Frame != vp8common.LastFrame {
 			continue
 		}
@@ -2607,7 +2580,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	if debugBlk {
 		r12cBPredEmitConsts(mbRow, mbCol, qIndex, zbinOverQuant, rdMult, rdDiv)
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		bestMode := vp8common.BModeCount
 		bestRate := 0
 		bestDist := 0
@@ -2757,7 +2730,7 @@ func selectInterFrameSplitMotionModeWithSegmentCutoff(src vp8enc.SourceImage, re
 	// segment-cutoff still fires as designed because subsequent shapes
 	// must beat the prior shape's pure-label sum.
 	segmentYRD := 0
-	for subset := 0; subset < labelCount; subset++ {
+	for subset := range labelCount {
 		searchCenter := splitMotionSubsetSearchCenter(partition, subset, &mode, bestRefMV, compressorSpeed, seeds)
 		stepParam := splitMotionSubsetSearchStepParam(partition, subset, compressorSpeed, seeds)
 		fullSearchFallback := splitMotionSubsetFullSearchFallback(compressorSpeed)
@@ -2949,7 +2922,7 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 	nextLeft := ev.yLeft
 	rate := labelRate
 	distortion := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
 			continue
 		}
@@ -2995,14 +2968,14 @@ func predictSplitMotionBlock4x4(ref *vp8common.Image, mbRow int, mbCol int, bloc
 		return predictSplitMotionSubpixelBlock4x4(ref, refBaseY, refBaseX, xOffset, yOffset, out)
 	}
 	if refBaseY >= 0 && refBaseX >= 0 && refBaseY+4 <= ref.CodedHeight && refBaseX+4 <= ref.CodedWidth {
-		for row := 0; row < 4; row++ {
+		for row := range 4 {
 			copy(out[row*4:row*4+4], ref.Y[(refBaseY+row)*ref.YStride+refBaseX:])
 		}
 		return true
 	}
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			out[row*4+col] = ref.Y[refY*ref.YStride+refX]
 		}
@@ -3030,9 +3003,9 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 func fillSplitMotionResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred *[16]byte, out *[16]int16) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*4+col]))
 		}
@@ -3324,7 +3297,7 @@ func fillInterFrameSplitSubsetWithMode(mode *vp8enc.InterFrameMacroblockMode, su
 	if mode == nil || mode.Partition >= vp8tables.NumMBSplits {
 		return
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
 			continue
 		}
@@ -3427,7 +3400,7 @@ func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMa
 	if candidates == nil || count >= len(candidates) {
 		return count
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if candidates[i].Ref.Frame == ref.Frame && candidates[i].Ref.Img == ref.Img && candidates[i].MV == mv {
 			return count
 		}
@@ -3583,7 +3556,7 @@ func pickFastBPredLumaModeKF(src vp8enc.SourceImage, qIndex int, mbRow int, mbCo
 	var modes [16]vp8common.BPredictionMode
 	totalRate := 0
 	totalDist := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		bestMode := vp8common.BDCPred
 		bestRate := 0
 		bestDist := 0
@@ -3745,7 +3718,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	var dcts [16 * 16]int16
 	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 16)
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		copy(dct[:], dcts[block*16:block*16+16])
 		y2Input[block] = dct[0]
 		dct[0] = 0
@@ -3829,7 +3802,7 @@ func wholeBlockChromaTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, 
 	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
 	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
 	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 8)
-	for slot := 0; slot < 8; slot++ {
+	for slot := range 8 {
 		block := 16 + slot
 		var dct [16]int16
 		var qcoeff [16]int16
@@ -3906,7 +3879,7 @@ func predictBestBPredLumaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuan
 	}
 	totalRate := 0
 	totalDist := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		bestMode := vp8common.BDCPred
 		bestEOB := 0
 		var bestRecon [16]byte
@@ -4433,10 +4406,7 @@ func libvpxRDConstants(qIndex int) (int, int) {
 }
 
 func libvpxRDConstantsWithZbin(qIndex int, zbinOverQuant int) (int, int) {
-	qValue := vp8common.DCQuant(qIndex, 0)
-	if qValue > 160 {
-		qValue = 160
-	}
+	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
 	rdMult := int(2.80 * float64(qValue*qValue))
 	if zbinOverQuant > 0 {
 		oqFactor := 1.0 + 0.0015625*float64(zbinOverQuant)
@@ -5058,8 +5028,8 @@ func diamondNstepInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImag
 	bestSite := 0
 	lastSite := 0
 	num00 := 0
-	for step := 0; step < totalSteps; step++ {
-		for j := 0; j < 8; j++ {
+	for range totalSteps {
+		for range 8 {
 			site := sites[startIndex+i]
 			row := (int(best.Row) >> 3) + int(site.Row)
 			col := (int(best.Col) >> 3) + int(site.Col)
@@ -5230,7 +5200,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		return cost
 	}
 
-	for halfiters := 0; halfiters < 3; halfiters++ {
+	for range 3 {
 		leftCost := cand(tr, tc-2)
 		rightCost := cand(tr, tc+2)
 		upCost := cand(tr-2, tc)
@@ -5258,7 +5228,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		tc = bc
 	}
 
-	for quarteriters := 0; quarteriters < 3; quarteriters++ {
+	for range 3 {
 		leftCost := cand(tr, tc-1)
 		rightCost := cand(tr, tc+1)
 		upCost := cand(tr-1, tc)
@@ -5478,8 +5448,8 @@ func diamondSearchSitesInterFrameFullPixelMotionVector(src vp8enc.SourceImage, r
 	bestSite := 0
 	lastSite := 0
 	num00 := 0
-	for step := 0; step < totalSteps; step++ {
-		for j := 0; j < sitesPerStep; j++ {
+	for range totalSteps {
+		for range sitesPerStep {
 			siteIndex := startIndex + i
 			if siteIndex >= len(sites) {
 				break
@@ -5520,7 +5490,7 @@ func refineInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8commo
 	}
 	best := start
 	bestWalkCost := interMotionSearchCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
-	for i := 0; i < searchRange; i++ {
+	for range searchRange {
 		bestSite := -1
 		br := int(best.Row) >> 3
 		bc := int(best.Col) >> 3
@@ -5665,7 +5635,7 @@ func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 
 	br = int(best.Row) >> 3
 	bc = int(best.Col) >> 3
-	for j := 0; j < 8; j++ {
+	for range 8 {
 		bestSite = -1
 		for i, step := range neighbors {
 			row := br + int(step.Row)
@@ -5793,22 +5763,10 @@ func interFrameSubpelSearchBoundsFor(bestRefMV vp8enc.MotionVector, mbRow int, m
 
 	rrQuarter := int(bestRefMV.Row) >> 1
 	rcQuarter := int(bestRefMV.Col) >> 1
-	rowMin := rowMinIPel * 4
-	if rrQuarter-subpelMVQuarterPelLongLimit > rowMin {
-		rowMin = rrQuarter - subpelMVQuarterPelLongLimit
-	}
-	rowMax := rowMaxIPel * 4
-	if rrQuarter+subpelMVQuarterPelLongLimit < rowMax {
-		rowMax = rrQuarter + subpelMVQuarterPelLongLimit
-	}
-	colMin := colMinIPel * 4
-	if rcQuarter-subpelMVQuarterPelLongLimit > colMin {
-		colMin = rcQuarter - subpelMVQuarterPelLongLimit
-	}
-	colMax := colMaxIPel * 4
-	if rcQuarter+subpelMVQuarterPelLongLimit < colMax {
-		colMax = rcQuarter + subpelMVQuarterPelLongLimit
-	}
+	rowMin := max(rrQuarter-subpelMVQuarterPelLongLimit, rowMinIPel*4)
+	rowMax := min(rrQuarter+subpelMVQuarterPelLongLimit, rowMaxIPel*4)
+	colMin := max(rcQuarter-subpelMVQuarterPelLongLimit, colMinIPel*4)
+	colMax := min(rcQuarter+subpelMVQuarterPelLongLimit, colMaxIPel*4)
 	return interFrameSubpelSearchBounds{rowMin: rowMin, rowMax: rowMax, colMin: colMin, colMax: colMax}
 }
 
@@ -5846,7 +5804,7 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 		return cost
 	}
 
-	for halfiters := 0; halfiters < 3; halfiters++ {
+	for range 3 {
 		leftCost := cand(tr, tc-2)
 		rightCost := cand(tr, tc+2)
 		upCost := cand(tr-2, tc)
@@ -5874,7 +5832,7 @@ func iterativeInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8com
 		tc = bc
 	}
 
-	for quarteriters := 0; quarteriters < 3; quarteriters++ {
+	for range 3 {
 		leftCost := cand(tr, tc-1)
 		rightCost := cand(tr, tc+1)
 		upCost := cand(tr-1, tc)
@@ -6175,7 +6133,7 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 	}
 	cost := mbSplitPartitionRate(mode.Partition)
 	partitions := int(vp8tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := analysisSplitLeftMV(mode, left, block)
 		aboveMV := analysisSplitAboveMV(mode, above, block)
@@ -6306,10 +6264,10 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 	}
 
 	sse := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
@@ -6348,10 +6306,10 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 
 	sum := 0
 	sse := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
@@ -6398,12 +6356,12 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	refH := ref.CodedHeight
 	refW := ref.CodedWidth
 	sad := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, srcH)
 		refY := clampEncodeCoord(refBaseY+row, refH)
 		srcRow := srcY * srcStride
 		refRow := refY * refStride
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, srcW)
 			refX := clampEncodeCoord(refBaseX+col, refW)
 			diff := int(srcY0[srcRow+srcX]) - int(refY0[refRow+refX])
@@ -6455,10 +6413,10 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	}
 
 	sad := 0
-	for row := 0; row < height; row++ {
+	for row := range height {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := 0; col < width; col++ {
+		for col := range width {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
@@ -6605,10 +6563,10 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	}
 
 	sse := 0
-	for row := 0; row < 8; row++ {
+	for row := range 8 {
 		srcY := clampEncodeCoord(baseY+row, uvHeight)
 		refY := clampEncodeCoord(baseY+row, refUVHeight)
-		for col := 0; col < 8; col++ {
+		for col := range 8 {
 			srcX := clampEncodeCoord(baseX+col, uvWidth)
 			refX := clampEncodeCoord(baseX+col, refUVWidth)
 			uDiff := int(src.U[srcY*src.UStride+srcX]) - int(ref.U[refY*ref.UStride+refX])
@@ -6633,10 +6591,10 @@ func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 
 	sum := 0
 	sse := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(baseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
@@ -6702,7 +6660,7 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
 	vp8enc.ForwardDCT4x4Batch(yResiduals[:], yDcts[:], 16)
 
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		dct := (*[16]int16)(yDcts[block*16 : block*16+16])
 		if is4x4 {
 			// Capture the chosen-mode FDCT DC of every Y block so the
@@ -6795,10 +6753,7 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 		var staleY2Q [16]int16
 		var staleY2DQ [16]int16
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
-		staleEOB := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ)
-		if staleEOB < 0 {
-			staleEOB = 0
-		}
+		staleEOB := max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0)
 		if staleEOB > 16 {
 			staleEOB = 16
 		}
@@ -6817,7 +6772,7 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
 
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
@@ -6862,12 +6817,12 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
 	if baseY >= 0 && baseX >= 0 && baseY+16 <= height && baseX+16 <= width {
 		// Fast path: no clamping. Iterate block-row-major.
-		for by := 0; by < 4; by++ {
-			for bx := 0; bx < 4; bx++ {
+		for by := range 4 {
+			for bx := range 4 {
 				blockOff := (by*4 + bx) * 16
 				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
 				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-				for r := 0; r < 4; r++ {
+				for r := range 4 {
 					so := srcOff + r*srcStride
 					po := predOff + r*predStride
 					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
@@ -6879,7 +6834,7 @@ func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height 
 		}
 		return
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		x := baseX + (block&3)*4
 		y := baseY + (block>>2)*4
 		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
@@ -6892,12 +6847,12 @@ func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height 
 // gatherer.
 func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
 	if baseY >= 0 && baseX >= 0 && baseY+8 <= height && baseX+8 <= width {
-		for by := 0; by < 2; by++ {
-			for bx := 0; bx < 2; bx++ {
+		for by := range 2 {
+			for bx := range 2 {
 				blockOff := (by*2 + bx) * 16
 				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
 				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-				for r := 0; r < 4; r++ {
+				for r := range 4 {
 					so := srcOff + r*srcStride
 					po := predOff + r*predStride
 					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
@@ -6909,7 +6864,7 @@ func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height
 		}
 		return
 	}
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		x := baseX + (block&1)*4
 		y := baseY + (block>>1)*4
 		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
@@ -6920,7 +6875,7 @@ func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bo
 	if coeffs.EOB[24] != 0 {
 		return false
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		if (is4x4 && coeffs.EOB[i] != 0) || (!is4x4 && coeffs.EOB[i] > 1) {
 			return false
 		}
@@ -6942,10 +6897,7 @@ func staticInterRDEncodeBreakout(src vp8enc.SourceImage, pred *vp8common.Image, 
 		return false
 	}
 	yAC := int(quant.Y1.Dequant[1])
-	threshold := (yAC * yAC) >> 4
-	if threshold < encodeBreakout {
-		threshold = encodeBreakout
-	}
+	threshold := max((yAC*yAC)>>4, encodeBreakout)
 	lumaVar, lumaSSE := macroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
 	if lumaSSE >= threshold {
 		return false
@@ -6963,10 +6915,7 @@ func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image,
 		return false
 	}
 	yAC := int(quant.Y1.Dequant[1])
-	threshold := (yAC * yAC) >> 4
-	if threshold < encodeBreakout {
-		threshold = encodeBreakout
-	}
+	threshold := max((yAC*yAC)>>4, encodeBreakout)
 	if lumaSSE >= threshold {
 		return false
 	}
@@ -7007,9 +6956,9 @@ func macroblockChromaBufferSSE(src vp8enc.SourceImage, mbRow int, mbCol int, pre
 	}
 
 	sse := 0
-	for row := 0; row < 8; row++ {
+	for row := range 8 {
 		srcY := clampEncodeCoord(baseY+row, uvHeight)
-		for col := 0; col < 8; col++ {
+		for col := range 8 {
 			srcX := clampEncodeCoord(baseX+col, uvWidth)
 			uDiff := int(src.U[srcY*src.UStride+srcX]) - int(predU[row*predUStride+col])
 			vDiff := int(src.V[srcY*src.VStride+srcX]) - int(predV[row*predVStride+col])
@@ -7108,7 +7057,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex in
 	}
 	eob := -1
 	zeroRun := 0
-	for pos := 0; pos < 16; pos++ {
+	for pos := range 16 {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		z := int(coeff[rc])
 		if z == 0 {
@@ -7197,7 +7146,7 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 	if quant == nil || qcoeff == nil || dqcoeff == nil {
 		return
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		dqcoeff[i] = qcoeff[i] * quant.Dequant[i]
 	}
 }
@@ -7565,7 +7514,7 @@ func macroblockCoefficientTokenRateWithContext(probs *vp8tables.CoefficientProbs
 		blockType = 3
 	}
 
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		eob := coeffs.BlockEOB(block, skipDC)
 		a := block & 3
 		l := (block & 0x0c) >> 2
@@ -7635,10 +7584,10 @@ func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMb
 	}
 
 	sad := 0
-	for row := 0; row < 16; row++ {
+	for row := range 16 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
 		refY := clampEncodeCoord(refBaseY+row, img.CodedHeight)
-		for col := 0; col < 16; col++ {
+		for col := range 16 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, img.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[refY*img.YStride+refX])
@@ -7698,7 +7647,7 @@ func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, strid
 	if blockCol == 0 {
 		copy(blockLeft[:], left[y:y+4])
 	} else {
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			blockLeft[i] = macroblock[(y+i)*macroblockStride+x-1]
 		}
 	}
@@ -7720,7 +7669,7 @@ func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, strid
 func copyBPredBlock(src []byte, srcStride int, dst []byte, dstStride int, block int) {
 	y := (block >> 2) * 4
 	x := (block & 3) * 4
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		copy(dst[(y+row)*dstStride+x:], src[row*srcStride:row*srcStride+4])
 	}
 }
@@ -7729,9 +7678,9 @@ func bPredBlockSSE(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
 	sse := 0
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*predStride+col])
 			sse += diff * diff
@@ -7743,9 +7692,9 @@ func bPredBlockSSE(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred
 func fillBPredResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, predStride int, out *[16]int16) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*predStride+col]))
 		}
@@ -7754,7 +7703,7 @@ func fillBPredResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block in
 
 func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
 	err := 0
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		diff := int(coeff[i]) - int(dqcoeff[i])
 		err += diff * diff
 	}
@@ -7792,7 +7741,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		y2Left = leftTok.Y2
 	}
 	var staleY2Input [16]int16
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		blockOffset := analysisYBlockOffset(block, img.YStride)
 		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			return false
@@ -7838,10 +7787,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		var staleY2DQ [16]int16
 		intra := mode.RefFrame == vp8common.IntraFrame
 		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
-		staleEOB := quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ)
-		if staleEOB < 0 {
-			staleEOB = 0
-		}
+		staleEOB := max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0)
 		if staleEOB > 16 {
 			staleEOB = 16
 		}
@@ -7876,7 +7822,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
 	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		copy(dct[:], uvDcts[block*16:block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
 		ctx := int(uvAbove[a] + uvLeft[l])
@@ -7944,9 +7890,9 @@ func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode 
 }
 
 func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out *[16]int16) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		sampleY := clampEncodeCoord(y+row, height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			sampleX := clampEncodeCoord(x+col, width)
 			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
 		}
@@ -7959,9 +7905,9 @@ func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, 
 // before dispatching ForwardDCT4x4Batch (the libvpx v1.16.0
 // vp8_transform_mb / vp8_transform_intra_mby pattern).
 func fillPredictedResidual4x4Slice(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out []int16) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		sampleY := clampEncodeCoord(y+row, height)
-		for col := 0; col < 4; col++ {
+		for col := range 4 {
 			sampleX := clampEncodeCoord(x+col, width)
 			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
 		}

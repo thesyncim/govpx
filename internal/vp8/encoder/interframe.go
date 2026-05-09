@@ -313,8 +313,8 @@ func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg In
 	}
 	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
 	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			if writeSegmentID && !writeMacroblockSegmentID(w, &segmentProbs, 0) {
 				if w.Err() != nil {
 					return w.Err()
@@ -356,8 +356,8 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	uvModeProbs := interFrameUVModeProbs(cfg)
 	mvProbs := interFrameMVProbs(cfg)
 	signBias := interFrameSignBias(cfg)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if writeSegmentID && !writeMacroblockSegmentID(w, &segmentProbs, mode.SegmentID) {
@@ -434,7 +434,7 @@ func WriteInterIntraMacroblockMode(w *BoolWriter, mode *InterFrameMacroblockMode
 		return false
 	}
 	if mode.Mode == common.BPred {
-		for block := 0; block < 16; block++ {
+		for block := range 16 {
 			if !WriteTreeToken(w, tables.BModeTree[:], tables.DefaultBModeProbs[:], bModeTokens[int(mode.BModes[block])]) {
 				return false
 			}
@@ -478,7 +478,7 @@ func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mo
 		return ErrInvalidPacketConfig
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
@@ -622,8 +622,8 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 	var uvModeCounts [tables.UVModeProbCount][2]int
 	var mvEvents motionVectorEventCounts
 	signBias := interFrameSignBias(*cfg)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if mode.MBSkipCoeff {
@@ -751,8 +751,8 @@ func adaptInterFrameMVProbabilitiesWithBase(counts *[2][tables.MVPCount][2]int, 
 	cfg.MVUpdate = [2][tables.MVPCount]bool{}
 	cfg.MVUpdateCount = 0
 	frameProbs := base
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			ct := (*counts)[component][i]
 			if ct[0]+ct[1] == 0 {
 				continue
@@ -872,8 +872,8 @@ func interFrameMVProbs(cfg InterFrameStateConfig) [2][tables.MVPCount]uint8 {
 	if probs == ([2][tables.MVPCount]uint8{}) {
 		probs = tables.DefaultMVContext
 	}
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			if cfg.MVUpdate[component][i] {
 				probs[component][i] = cfg.MVProbs[component][i]
 			}
@@ -995,7 +995,7 @@ func countLargeMVComponentBranches(counts *[tables.MVPCount][2]int, component in
 	if component < 16 {
 		coded = component - 8
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		counts[mvProbBits+i][(coded>>i)&1]++
 	}
 	for i := mvLongWidth - 1; i > 3; i-- {
@@ -1233,7 +1233,7 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
 	fillCount := int(tables.MBSplitFillCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		mv := mode.BlockMV[block]
 		if mv.Row&1 != 0 || mv.Col&1 != 0 {
@@ -1243,7 +1243,7 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 			return false
 		}
 		fillStart := subset * fillCount
-		for i := 0; i < fillCount; i++ {
+		for i := range fillCount {
 			if mode.BlockMV[tables.MBSplitFillOffset[mode.Partition][fillStart+i]] != mv {
 				return false
 			}
@@ -1257,7 +1257,7 @@ func validSplitMVModeWithContext(mode *InterFrameMacroblockMode, left *InterFram
 		return false
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
@@ -1359,7 +1359,7 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 		return ErrInvalidPacketConfig
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
@@ -1384,7 +1384,7 @@ func countSplitMotionVectorEvents(events *motionVectorEventCounts, mode *InterFr
 		return ErrInvalidPacketConfig
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition])
-	for subset := 0; subset < partitions; subset++ {
+	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
@@ -1458,12 +1458,12 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
@@ -1496,13 +1496,13 @@ func WriteInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partition
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		w := &writers[row&(partitions-1)]
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
 			if modes[index].MBSkipCoeff {
@@ -1598,8 +1598,8 @@ func writeInterModeHeader(w *BoolWriter, cfg InterFrameStateConfig) error {
 	} else {
 		w.WriteBit(0)
 	}
-	for component := 0; component < 2; component++ {
-		for i := 0; i < tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range tables.MVPCount {
 			if cfg.MVUpdate[component][i] {
 				encoded, ok := encodeMotionVectorProbabilityUpdate(cfg.MVProbs[component][i])
 				if !ok {

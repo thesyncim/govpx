@@ -40,19 +40,19 @@ func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, 
 
 	if upAvailable && leftAvailable {
 		sum := 0
-		for i := 0; i < size; i++ {
+		for i := range size {
 			sum += int(above[i]) + int(left[i])
 		}
 		dc = (sum + size) / (2 * size)
 	} else if upAvailable {
 		sum := 0
-		for i := 0; i < size; i++ {
+		for i := range size {
 			sum += int(above[i])
 		}
 		dc = (sum + (size >> 1)) / size
 	} else if leftAvailable {
 		sum := 0
-		for i := 0; i < size; i++ {
+		for i := range size {
 			sum += int(left[i])
 		}
 		dc = (sum + (size >> 1)) / size
@@ -65,7 +65,7 @@ func intraVerticalPredictScalar(dst []byte, dstStride int, above []byte, size in
 	_ = above[size-1]
 	_ = dst[(size-1)*dstStride+size-1]
 
-	for y := 0; y < size; y++ {
+	for y := range size {
 		copy(dst[y*dstStride:y*dstStride+size], above[:size])
 	}
 }
@@ -74,10 +74,10 @@ func intraHorizontalPredictScalar(dst []byte, dstStride int, left []byte, size i
 	_ = left[size-1]
 	_ = dst[(size-1)*dstStride+size-1]
 
-	for y := 0; y < size; y++ {
+	for y := range size {
 		row := y * dstStride
 		v := left[y]
-		for x := 0; x < size; x++ {
+		for x := range size {
 			dst[row+x] = v
 		}
 	}
@@ -89,10 +89,10 @@ func intraTMPredictScalar(dst []byte, dstStride int, above []byte, left []byte, 
 	_ = dst[(size-1)*dstStride+size-1]
 
 	base := int(topLeft)
-	for y := 0; y < size; y++ {
+	for y := range size {
 		row := y * dstStride
 		leftDelta := int(left[y]) - base
-		for x := 0; x < size; x++ {
+		for x := range size {
 			dst[row+x] = ClipPixel(leftDelta + int(above[x]))
 		}
 	}
@@ -101,9 +101,9 @@ func intraTMPredictScalar(dst []byte, dstStride int, above []byte, left []byte, 
 func fillBlock(dst []byte, dstStride int, size int, v byte) {
 	_ = dst[(size-1)*dstStride+size-1]
 
-	for y := 0; y < size; y++ {
+	for y := range size {
 		row := y * dstStride
-		for x := 0; x < size; x++ {
+		for x := range size {
 			dst[row+x] = v
 		}
 	}

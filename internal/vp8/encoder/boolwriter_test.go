@@ -52,7 +52,7 @@ func TestBoolWriterRoundTripsWithBoolDecoder(t *testing.T) {
 func TestBoolWriterReportsSmallBuffer(t *testing.T) {
 	var w BoolWriter
 	w.Init(make([]byte, 1))
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		w.WriteLiteral(0xff, 8)
 	}
 	w.Finish()
@@ -81,7 +81,7 @@ func TestBoolWriterWriteBitMatchesWriteBool128(t *testing.T) {
 		boolWriter.WriteBool(uint8((0xa5>>uint(i))&1), 128)
 	}
 	bitWriter.Finish()
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		boolWriter.WriteBool(0, 128)
 	}
 
@@ -98,7 +98,7 @@ func TestBoolWriterAllocatesZero(t *testing.T) {
 	buf := make([]byte, 64)
 	allocs := testing.AllocsPerRun(1000, func() {
 		w.Init(buf)
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			w.WriteBool(uint8(i&1), uint8(17+i*13))
 		}
 		w.WriteLiteral(0x5a, 8)
@@ -116,7 +116,7 @@ func BenchmarkBoolWriterWriteBool(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		w.Init(buf)
-		for bit := 0; bit < 1024; bit++ {
+		for bit := range 1024 {
 			w.WriteBool(uint8(bit&1), uint8(1+(bit&254)))
 		}
 		w.Finish()
@@ -129,7 +129,7 @@ func BenchmarkBoolWriterWriteLiteral(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		w.Init(buf)
-		for n := 0; n < 128; n++ {
+		for n := range 128 {
 			w.WriteLiteral(uint32(n), 8)
 		}
 		w.Finish()

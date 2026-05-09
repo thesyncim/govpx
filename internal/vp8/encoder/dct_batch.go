@@ -26,7 +26,7 @@ func ForwardDCT4x4Batch(input []int16, output []int16, count int) {
 // batched 4x4 DCTs at block-stride 4. It exists so the SIMD ports
 // can be cross-checked block-for-block.
 func forwardDCT4x4BatchScalar(input []int16, output []int16, count int) {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		var out [16]int16
 		forwardDCT4x4Scalar(input[i*16:i*16+16], 4, &out)
 		copy(output[i*16:i*16+16], out[:])

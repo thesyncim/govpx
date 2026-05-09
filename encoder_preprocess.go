@@ -223,7 +223,7 @@ func copySourceToFrameBufferActive(dst *vp8common.FrameBuffer, src vp8enc.Source
 		copySourceToFrameBuffer(dst, src)
 		return
 	}
-	for row := 0; row < mbRows; row++ {
+	for row := range mbRows {
 		col := 0
 		for col < mbCols {
 			// Skip leading inactive cells.
@@ -256,14 +256,8 @@ func copyActiveChromaRect(dst []byte, dstStride int, src []byte, srcStride int, 
 }
 
 func copyActivePlaneRect(dst []byte, dstStride int, src []byte, srcStride int, width int, height int, y0 int, x0 int, h int, w int) {
-	yEnd := y0 + h
-	if yEnd > height {
-		yEnd = height
-	}
-	xEnd := x0 + w
-	if xEnd > width {
-		xEnd = width
-	}
+	yEnd := min(y0+h, height)
+	xEnd := min(x0+w, width)
 	for y := y0; y < yEnd; y++ {
 		copy(dst[y*dstStride+x0:y*dstStride+xEnd], src[y*srcStride+x0:y*srcStride+xEnd])
 	}
@@ -347,10 +341,7 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 // (acc + count/2)/count, separate luma/chroma blocks, and the 384-element
 // per-MB scratch layout) follows libvpx exactly.
 func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, flags EncodeFlags) bool {
-	maxFrames := e.opts.ARNRMaxFrames
-	if maxFrames > maxARNRFrames {
-		maxFrames = maxARNRFrames
-	}
+	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 {
 		return false
 	}
@@ -456,7 +447,7 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 	}
 	centerIdx = len(refs)
 	refs = append(refs, arnrViewFromSource(center))
-	for i := 0; i < forward; i++ {
+	for i := range forward {
 		entry := e.lookaheadFutureEntry(i)
 		if entry == nil {
 			continue
@@ -488,9 +479,9 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 	// the next per-frame search.
 	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
 
-	for mbRow := 0; mbRow < mbRows; mbRow++ {
+	for mbRow := range mbRows {
 		mbY := mbRow << 4
-		for mbCol := 0; mbCol < mbCols; mbCol++ {
+		for mbCol := range mbCols {
 			mbX := mbCol << 4
 			processARNRMacroblock(&dst, refs, centerIdx, mbRow, mbCol, mbRows, mbCols, mbX, mbY, strength, doChroma, accumulator[:], count[:], mvHistory)
 		}
@@ -634,7 +625,7 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 // SourceImage has only the visible area and clamping replicates that
 // effect when the search picks an MB that straddles the edge.
 func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, srcW, srcH, size int) {
-	for j := 0; j < size; j++ {
+	for j := range size {
 		yy := srcY + j
 		if yy < 0 {
 			yy = 0
@@ -642,7 +633,7 @@ func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, s
 			yy = srcH - 1
 		}
 		row := src[yy*srcStride:]
-		for i := 0; i < size; i++ {
+		for i := range size {
 			xx := srcX + i
 			if xx < 0 {
 				xx = 0
@@ -657,13 +648,13 @@ func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, s
 // writeARNRBlock writes the (size x size) accumulated/count pair back into
 // the destination plane, clipping to the visible area.
 func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, accumulator []uint32, count []uint32) {
-	for j := 0; j < size; j++ {
+	for j := range size {
 		yy := dstY + j
 		if yy < 0 || yy >= dstH {
 			continue
 		}
 		row := dst[yy*dstStride:]
-		for i := 0; i < size; i++ {
+		for i := range size {
 			xx := dstX + i
 			if xx < 0 || xx >= dstW {
 				continue
@@ -673,10 +664,7 @@ func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, acc
 			if c == 0 {
 				continue
 			}
-			pval := (accumulator[k] + c/2) / c
-			if pval > 255 {
-				pval = 255
-			}
+			pval := min((accumulator[k]+c/2)/c, 255)
 			row[xx] = byte(pval)
 		}
 	}
@@ -784,7 +772,7 @@ func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbRow int,
 	}
 
 	// 4-neighbor diamond refinement (libvpx's cal_neighbors loop).
-	for j := 0; j < arnrDiaRange; j++ {
+	for range arnrDiaRange {
 		bestSite = -1
 		for i, step := range neighbors {
 			row := br + step[0]
@@ -875,7 +863,7 @@ func arnrSubpelRefine(src []byte, srcStride int, ref arnrFrameView, mbRow, mbCol
 	steps := [3]int{4, 2, 1} // 1/2-, 1/4-, 1/8-pel deltas in 1/8-pel units
 	for _, step := range steps {
 		iters := 4
-		for it := 0; it < iters; it++ {
+		for range iters {
 			startRow := bestRow
 			startCol := bestCol
 			// Test the 4 axis-aligned neighbors.
@@ -1062,7 +1050,7 @@ func padPlaneVisibleToCoded(plane []byte, stride int, width int, height int, cod
 	if width <= 0 || height <= 0 {
 		return
 	}
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := plane[y*stride:]
 		last := row[width-1]
 		for x := width; x < codedWidth; x++ {

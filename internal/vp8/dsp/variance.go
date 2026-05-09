@@ -119,10 +119,10 @@ func varianceBlock(src []byte, srcStride int, ref []byte, refStride int, width i
 func varianceBlockGeneric(src []byte, srcStride int, ref []byte, refStride int, width int, height int) (int, int) {
 	sum := 0
 	sse := 0
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := src[y*srcStride:]
 		refRow := ref[y*refStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			diff := int(srcRow[x]) - int(refRow[x])
 			sum += diff
 			sse += diff * diff
@@ -153,10 +153,10 @@ func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]
 		varFilterBlock2DBilinearFirstPass4(src, srcStride, dst, height, filter)
 		return
 	}
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+1])*int(filter[1])
 			dst[dstRow+x] = uint16((v + tables.FilterWeight/2) >> tables.FilterShift)
 		}
@@ -177,10 +177,10 @@ func varFilterBlock2DBilinearSecondPass(src *[17 * 16]uint16, dst []byte, srcStr
 			return
 		}
 	}
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+pixelStep])*int(filter[1])
 			dst[dstRow+x] = byte((v + tables.FilterWeight/2) >> tables.FilterShift)
 		}

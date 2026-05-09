@@ -28,8 +28,8 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	}
 	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
 	segmentProbs := segmentationTreeProbs(cfg.Segmentation)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for range rows {
+		for range cols {
 			if writeSegmentID && !writeMacroblockSegmentID(&first, &segmentProbs, 0) {
 				if first.Err() != nil {
 					return 0, first.Err()
@@ -58,8 +58,8 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 	if partitionCount == 1 {
 		tokens := BoolWriter{}
 		tokens.Init(dst[tokenStart:])
-		for row := 0; row < rows; row++ {
-			for col := 0; col < cols; col++ {
+		for range rows {
+			for range cols {
 				if err := WriteZeroMacroblockTokens(&tokens, &tables.DefaultCoefProbs, false); err != nil {
 					return 0, err
 				}

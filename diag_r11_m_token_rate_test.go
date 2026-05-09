@@ -156,7 +156,7 @@ func TestDiagR11MTokenRate(t *testing.T) {
 		}
 		// Per (blockType, coefBand) nonzero count.
 		t.Logf("  per-block-type nonzero counts (blockType: gov, lib):")
-		for bt := 0; bt < 4; bt++ {
+		for bt := range 4 {
 			t.Logf("    bt=%d gov_nz=%d lib_nz=%d", bt, gov.BlockTypeNZ[bt], lib.BlockTypeNZ[bt])
 		}
 	}
@@ -228,13 +228,13 @@ func r11MBenchmarkFrame(width, height, index int) Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
 		}
 	}
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
 			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
 		}

@@ -56,7 +56,7 @@ func TestIntra4x4SIMDParity(t *testing.T) {
 		return "?"
 	}
 
-	for iter := 0; iter < 256; iter++ {
+	for iter := range 256 {
 		var above [8]byte
 		var left [4]byte
 		for i := range above {
@@ -103,8 +103,8 @@ func TestIntra4x4SIMDParity(t *testing.T) {
 					t.Fatalf("Intra4x4Predict %s returned false", modeName(mode))
 				}
 
-				for y := 0; y < 4; y++ {
-					for x := 0; x < 4; x++ {
+				for y := range 4 {
+					for x := range 4 {
 						o := y*stride + x
 						if got[o] != ref[o] {
 							t.Fatalf("mode=%s stride=%d iter=%d above=%v left=%v topLeft=%d [%d,%d]: got=%d want=%d",

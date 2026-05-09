@@ -22,7 +22,6 @@ func TestLibvpxEncodedSmokeIVFMatchesLibvpxChecksums(t *testing.T) {
 
 func TestLibvpxAuthoredSmokeDecodeIntoMatchesLibvpxChecksums(t *testing.T) {
 	for _, tc := range libvpxAuthoredSmokeCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			assertSmokeIVFDecodeIntoMatchesLibvpxChecksums(t, tc.ivfHex, tc.checksums)
 		})
@@ -51,7 +50,6 @@ func TestLibvpxEncodedSmokeDecodeHotPathAllocs(t *testing.T) {
 
 func TestLibvpxAuthoredSmokeDecodeIntoHotPathAllocs(t *testing.T) {
 	for _, tc := range libvpxAuthoredSmokeCases() {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			frames := mustDecodeSmokeIVFFrames(t, tc.ivfHex, len(tc.checksums))
 			d, err := NewVP8Decoder(DecoderOptions{})

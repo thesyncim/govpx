@@ -60,7 +60,6 @@ func TestInverseWalsh4x4SIMDMatchesScalar(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			simd := make([]int16, 16*16)
 			scalar := make([]int16, 16*16)
@@ -70,7 +69,7 @@ func TestInverseWalsh4x4SIMDMatchesScalar(t *testing.T) {
 			}
 			InverseWalsh4x4(&tc.in, simd)
 			inverseWalsh4x4Scalar(&tc.in, scalar)
-			for i := 0; i < 16*16; i++ {
+			for i := range 16 * 16 {
 				if simd[i] != scalar[i] {
 					t.Fatalf("idx=%d simd=%d scalar=%d (in=%v)", i, simd[i], scalar[i], tc.in)
 				}
@@ -85,7 +84,7 @@ func TestInverseWalsh4x4SIMDMatchesScalar(t *testing.T) {
 	// coefficient range (post-quant + dq) without int16 overflow after the
 	// 2-pass butterfly amplifies by up to 16x.
 	r := rand.New(rand.NewSource(0xCAFEBABE))
-	for iter := 0; iter < 4000; iter++ {
+	for iter := range 4000 {
 		var in [16]int16
 		for i := range in {
 			in[i] = int16(r.Intn(2049) - 1024)
@@ -98,7 +97,7 @@ func TestInverseWalsh4x4SIMDMatchesScalar(t *testing.T) {
 		}
 		InverseWalsh4x4(&in, simd)
 		inverseWalsh4x4Scalar(&in, scalar)
-		for i := 0; i < 16*16; i++ {
+		for i := range 16 * 16 {
 			if simd[i] != scalar[i] {
 				t.Fatalf("iter=%d idx=%d simd=%d scalar=%d (in=%v)", iter, i, simd[i], scalar[i], in)
 			}

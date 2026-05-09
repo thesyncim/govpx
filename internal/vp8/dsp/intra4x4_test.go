@@ -88,8 +88,8 @@ func TestIntra4x4PredictModes(t *testing.T) {
 			t.Fatalf("%s returned false", tc.name)
 		}
 
-		for y := 0; y < 4; y++ {
-			for x := 0; x < 4; x++ {
+		for y := range 4 {
+			for x := range 4 {
 				want := tc.want[y*4+x]
 				if got := dst[y*8+x]; got != want {
 					t.Fatalf("%s dst[%d,%d] = %d, want %d", tc.name, x, y, got, want)

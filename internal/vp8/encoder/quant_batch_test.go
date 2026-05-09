@@ -14,7 +14,6 @@ import (
 func TestFastQuantizeBlockBatchMatchesPerBlock(t *testing.T) {
 	r := rand.New(rand.NewSource(0xBEEF1234))
 	for _, count := range []int{1, 2, 8, 16, 24} {
-		count := count
 		t.Run("", func(t *testing.T) {
 			var dequant [16]int16
 			for i := range dequant {
@@ -31,11 +30,11 @@ func TestFastQuantizeBlockBatchMatchesPerBlock(t *testing.T) {
 			batchE := make([]uint8, count)
 			FastQuantizeBlockBatch(coeff, &quant, batchQ, batchDQ, batchE, count)
 
-			for i := 0; i < count; i++ {
+			for i := range count {
 				var c, qb, dqb [16]int16
 				copy(c[:], coeff[i*16:i*16+16])
 				wantE := FastQuantizeBlock(&c, &quant, &qb, &dqb)
-				for j := 0; j < 16; j++ {
+				for j := range 16 {
 					if batchQ[i*16+j] != qb[j] {
 						t.Fatalf("count=%d block=%d lane=%d qcoeff: batch=%d per=%d", count, i, j, batchQ[i*16+j], qb[j])
 					}
@@ -72,7 +71,6 @@ func TestFastQuantizeBlockBatchSentinels(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			const blocks = 16
 			var dequant [16]int16
@@ -82,18 +80,18 @@ func TestFastQuantizeBlockBatchSentinels(t *testing.T) {
 			var quant BlockQuant
 			InitFastBlockQuant(&dequant, &quant)
 			coeff := make([]int16, blocks*16)
-			for i := 0; i < blocks; i++ {
+			for i := range blocks {
 				copy(coeff[i*16:i*16+16], tc.coeff[:])
 			}
 			batchQ := make([]int16, blocks*16)
 			batchDQ := make([]int16, blocks*16)
 			batchE := make([]uint8, blocks)
 			FastQuantizeBlockBatch(coeff, &quant, batchQ, batchDQ, batchE, blocks)
-			for i := 0; i < blocks; i++ {
+			for i := range blocks {
 				var c, qb, dqb [16]int16
 				copy(c[:], coeff[i*16:i*16+16])
 				wantE := FastQuantizeBlock(&c, &quant, &qb, &dqb)
-				for j := 0; j < 16; j++ {
+				for j := range 16 {
 					if batchQ[i*16+j] != qb[j] {
 						t.Fatalf("%s block=%d lane=%d qcoeff: batch=%d per=%d", tc.name, i, j, batchQ[i*16+j], qb[j])
 					}
@@ -151,7 +149,7 @@ func BenchmarkFastQuantizeBlockPerBlock25(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		for j := 0; j < blocks; j++ {
+		for j := range blocks {
 			var c, q, dq [16]int16
 			copy(c[:], coeff[j*16:j*16+16])
 			_ = FastQuantizeBlock(&c, &quant, &q, &dq)

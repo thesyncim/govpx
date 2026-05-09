@@ -73,15 +73,15 @@ func bilinearPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []
 	for y := 0; y < height+1; y++ {
 		srcRow := y * srcStride
 		tmpRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			tmp[tmpRow+x] = uint16((int(src[srcRow+x])*int(hFilter[0]) + int(src[srcRow+x+1])*int(hFilter[1]) + tables.FilterWeight/2) >> tables.FilterShift)
 		}
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		tmpRow := y * width
 		dstRow := y * dstStride
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := (int(tmp[tmpRow+x])*int(vFilter[0]) + int(tmp[tmpRow+width+x])*int(vFilter[1]) + tables.FilterWeight/2) >> tables.FilterShift
 			dst[dstRow+x] = uint8(v)
 		}
@@ -96,7 +96,7 @@ func sixTapPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []by
 	for y := 0; y < height+5; y++ {
 		srcRow := y * srcStride
 		tmpRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x+0])*int(hFilter[0]) +
 				int(src[srcRow+x+1])*int(hFilter[1]) +
 				int(src[srcRow+x+2])*int(hFilter[2]) +
@@ -108,10 +108,10 @@ func sixTapPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []by
 		}
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		dstRow := y * dstStride
 		tmpRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := tmp[tmpRow+x]*int(vFilter[0]) +
 				tmp[tmpRow+width+x]*int(vFilter[1]) +
 				tmp[tmpRow+2*width+x]*int(vFilter[2]) +

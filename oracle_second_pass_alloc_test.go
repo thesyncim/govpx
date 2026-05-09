@@ -127,7 +127,6 @@ func TestOracleSecondPassAllocationCompare(t *testing.T) {
 
 	reports := make([]FixtureSecondPassReport, 0, len(fixtures))
 	for _, f := range fixtures {
-		f := f
 		t.Run(f.name, func(t *testing.T) {
 			dir := t.TempDir()
 			yuvPath := filepath.Join(dir, f.name+".yuv")
@@ -303,10 +302,7 @@ func secondPassRateRowsFromTrace(t *testing.T, trace []byte) []secondPassRateRow
 }
 
 func scoreSecondPassAlloc(name string, govpxRows []secondPassRateRow, libvpxRows []secondPassRateRow) (FixtureSecondPassReport, []secondPassFrameDiff) {
-	total := len(govpxRows)
-	if len(libvpxRows) < total {
-		total = len(libvpxRows)
-	}
+	total := min(len(libvpxRows), len(govpxRows))
 	report := FixtureSecondPassReport{Name: name, FrameTotal: total}
 	if total == 0 {
 		return report, nil

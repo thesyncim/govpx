@@ -158,7 +158,6 @@ func TestOracleTemporalSVCParity(t *testing.T) {
 	current := baselineFile{Fixtures: make(map[string]map[string]any, len(fixtures))}
 
 	for _, fx := range fixtures {
-		fx := fx
 		t.Run(fx.Name, func(t *testing.T) {
 			sources := make([]Image, fx.Frames)
 			for i := range sources {
@@ -404,7 +403,7 @@ type temporalSVCFrameRow struct {
 func captureGovpxTemporalSVCTrace(t *testing.T, fx temporalSVCFixtureSpec, sources []Image) govpxTemporalSVCTrace {
 	t.Helper()
 	cumulative := [MaxTemporalLayers]int{}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cumulative[i] = fx.Bitrates[i]
 	}
 	opts := EncoderOptions{
@@ -536,7 +535,7 @@ func parseLibvpxTemporalSVCSummary(t *testing.T, output string, layers int) libv
 	stats := make([]libvpxTemporalLayerStat, layers)
 	seen := make([]bool, layers)
 	currentLayer := -1
-	for _, raw := range strings.Split(output, "\n") {
+	for raw := range strings.SplitSeq(output, "\n") {
 		line := strings.TrimSpace(raw)
 		var lid int
 		if _, err := fmt.Sscanf(line, "For layer#: %d", &lid); err == nil {
@@ -596,7 +595,7 @@ func parseLibvpxTemporalSVCSummary(t *testing.T, output string, layers int) libv
 			seen[currentLayer] = true
 		}
 	}
-	for layer := 0; layer < layers; layer++ {
+	for layer := range layers {
 		if !seen[layer] {
 			t.Fatalf("temporal SVC output missing layer %d stats:\n%s", layer, output)
 		}
@@ -627,7 +626,7 @@ func buildExpectedTemporalPattern(p temporalPattern, frameCount int) []expectedT
 	// each reference (last, golden, altref) was last updated by, just
 	// like temporalState.refLayer[].
 	var refLayer [temporalReferenceCount]int
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		patternIdx := i % p.Periodicity
 		flagIdx := i % p.FlagPeriodicity
 		layerID := p.LayerID[patternIdx]

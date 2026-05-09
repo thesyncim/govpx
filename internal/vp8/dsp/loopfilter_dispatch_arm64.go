@@ -87,7 +87,7 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 // inactive downstream because we only scatter back the first 8 lanes.
 func gatherH8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 	dst := tmp[:]
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		base := r * 16
 		w := binary.LittleEndian.Uint64(s[r*stride : r*stride+8])
 		binary.LittleEndian.PutUint64(dst[base:base+8], w)
@@ -100,7 +100,7 @@ func gatherH8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 // first 8 lanes (the chroma 8-wide window).
 func scatterH8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
 	src := tmp[:]
-	for r := 0; r < nrows; r++ {
+	for r := range nrows {
 		w := binary.LittleEndian.Uint64(src[(first+r)*16 : (first+r)*16+8])
 		binary.LittleEndian.PutUint64(s[(first+r)*stride:(first+r)*stride+8], w)
 	}
@@ -116,7 +116,7 @@ func gatherV8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 	for i := range dst {
 		dst[i] = 0
 	}
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		row := s[i*stride : i*stride+8]
 		w := binary.LittleEndian.Uint64(row)
 		dst[0*16+i] = byte(w)
@@ -135,9 +135,9 @@ func gatherV8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 // the first 8 lanes of each tmp row (the active chroma rows).
 func scatterV8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
 	src := tmp[:]
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		row := s[i*stride : i*stride+8]
-		for r := 0; r < nrows; r++ {
+		for r := range nrows {
 			row[first+r] = src[(first+r)*16+i]
 		}
 	}

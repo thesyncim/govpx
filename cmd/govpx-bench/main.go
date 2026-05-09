@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/pprof"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -935,13 +935,13 @@ func makeBenchmarkFrame(width int, height int, index int) govpx.Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
 		}
 	}
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
 			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
 		}
@@ -1029,10 +1029,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		encodeNS = wallNS
 		timingSource = "wall"
 	}
-	overheadNS := wallNS - encodeNS
-	if overheadNS < 0 {
-		overheadNS = 0
-	}
+	overheadNS := max(wallNS-encodeNS, 0)
 	outputBitrate := float64(outputBytes*8*cfg.FPS) / float64(cfg.Frames*1000)
 	bitrateError := (outputBitrate - float64(cfg.BitrateKbps)) * 100 / float64(cfg.BitrateKbps)
 	keyframeBytes := 0
@@ -1224,10 +1221,7 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 		decodeNS = wallNS
 		timingSource = "wall"
 	}
-	overheadNS := wallNS - decodeNS
-	if overheadNS < 0 {
-		overheadNS = 0
-	}
+	overheadNS := max(wallNS-decodeNS, 0)
 	wallFPS := 0.0
 	if wallPerFrame > 0 {
 		wallFPS = 1e9 / float64(wallPerFrame)
@@ -1430,7 +1424,7 @@ func writeI420Frame(dst *os.File, frame govpx.Image) error {
 }
 
 func writePlane(dst *os.File, plane []byte, stride int, width int, height int) error {
-	for row := 0; row < height; row++ {
+	for row := range height {
 		if _, err := dst.Write(plane[row*stride : row*stride+width]); err != nil {
 			return err
 		}
@@ -1501,10 +1495,10 @@ func planeSSIM(a []byte, aStride int, b []byte, bStride int, width int, height i
 	sumAA := 0.0
 	sumBB := 0.0
 	sumAB := 0.0
-	for row := 0; row < height; row++ {
+	for row := range height {
 		aRow := a[row*aStride:]
 		bRow := b[row*bStride:]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			x := float64(aRow[col])
 			y := float64(bRow[col])
 			sumA += x
@@ -1534,10 +1528,10 @@ func planeSSIM(a []byte, aStride int, b []byte, bStride int, width int, height i
 
 func planeSSE(a []byte, aStride int, b []byte, bStride int, width int, height int) (uint64, int) {
 	var sse uint64
-	for row := 0; row < height; row++ {
+	for row := range height {
 		aRow := a[row*aStride:]
 		bRow := b[row*bStride:]
-		for col := 0; col < width; col++ {
+		for col := range width {
 			diff := int(aRow[col]) - int(bRow[col])
 			sse += uint64(diff * diff)
 		}
@@ -1550,7 +1544,7 @@ func percentileLatency(latencies []int64, percentile int) int64 {
 		return 0
 	}
 	sorted := append([]int64(nil), latencies...)
-	sort.Slice(sorted, func(i int, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	index := (len(sorted)*percentile + 99) / 100
 	if index <= 0 {
 		index = 1

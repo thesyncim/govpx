@@ -143,7 +143,7 @@ func motionVectorComponentCost(component int, probs []uint8) int {
 		}
 	} else {
 		cost += mvBoolCost(probs[mvProbIsShort], 1)
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			cost += mvBoolCost(probs[mvProbBits+i], (x>>i)&1)
 		}
 		for i := mvLongWidth - 1; i > 3; i-- {
@@ -266,7 +266,7 @@ func writeLargeMVComponent(w *BoolWriter, probs []uint8, component int, negative
 	if component < 16 {
 		coded = component - 8
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w.WriteBool(uint8((coded>>i)&1), probs[mvProbBits+i])
 	}
 	for i := mvLongWidth - 1; i > 3; i-- {

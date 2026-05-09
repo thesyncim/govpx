@@ -30,8 +30,8 @@ func parseSegmentationHeader(br *boolcoder.Decoder) SegmentationHeader {
 
 	if h.UpdateData {
 		h.AbsDelta = br.ReadBit() != 0
-		for feature := 0; feature < int(common.MBLvlMax); feature++ {
-			for segment := 0; segment < common.MaxMBSegments; segment++ {
+		for feature := range int(common.MBLvlMax) {
+			for segment := range common.MaxMBSegments {
 				if br.ReadBit() != 0 {
 					value := int8(br.ReadLiteral(int(mbFeatureDataBits[feature])))
 					if br.ReadBit() != 0 {

@@ -143,10 +143,10 @@ func writeLoopFilterDelta(w *BoolWriter, delta int8) {
 }
 
 func WriteNoCoefficientProbabilityUpdates(w *BoolWriter) {
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					w.WriteBool(0, tables.CoefUpdateProbs[block][band][ctx][node])
 				}
 			}

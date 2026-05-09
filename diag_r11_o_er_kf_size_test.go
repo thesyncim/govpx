@@ -74,10 +74,10 @@ func TestR11_O_ERKeyFrameSizeBreakdown(t *testing.T) {
 	libOnly := 0
 	bothDifferent := 0
 	bothSame := 0
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					gU := govpxUpdateMap[block][band][ctx][node]
 					lU := libvpxUpdateMap[block][band][ctx][node]
 					if gU && !lU {
@@ -103,12 +103,12 @@ func TestR11_O_ERKeyFrameSizeBreakdown(t *testing.T) {
 	// Per (block,band) incidence for libvpx — useful for spotting whether
 	// libvpx skips entire (i,j) ranges where govpx emits.
 	t.Logf("libvpx update density per (block,band) — counts of u=1 across k*t (max 33):")
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
 			gC := 0
 			lC := 0
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					if govpxUpdateMap[block][band][ctx][node] {
 						gC++
 					}
@@ -264,10 +264,10 @@ func countGovpxKeyFrameERCoefUpdates(t *testing.T, width, height, fps, targetKbp
 	// Compare enc.coefProbs to default. Updates emitted = number of (i,j,k,t)
 	// that changed.
 	count := 0
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					if enc.coefProbs[block][band][ctx][node] != vp8tables.DefaultCoefProbs[block][band][ctx][node] {
 						count++
 					}
@@ -310,10 +310,10 @@ func dumpGovpxKeyFrameERCoefDetails(t *testing.T, width, height, fps, targetKbps
 	if _, err := enc.EncodeInto(pkt, src, 0, 1, 0); err != nil {
 		t.Fatalf("EncodeInto: %v", err)
 	}
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					probs[block][band][ctx][node] = enc.coefProbs[block][band][ctx][node]
 					if enc.coefProbs[block][band][ctx][node] != vp8tables.DefaultCoefProbs[block][band][ctx][node] {
 						updated[block][band][ctx][node] = true
@@ -341,10 +341,10 @@ func decodeKeyFrameCoefUpdateDetails(t *testing.T, frame []byte) (
 		t.Fatalf("ParseStateHeaderWithReaderAndProbs: %v", err)
 	}
 	count = state.Probability.UpdateCount
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					newProbs[block][band][ctx][node] = probs[block][band][ctx][node]
 					if probs[block][band][ctx][node] != vp8tables.DefaultCoefProbs[block][band][ctx][node] {
 						updates[block][band][ctx][node] = true
@@ -376,8 +376,8 @@ func advanceKFHeaderToCoefUpdates(br *kfBoolReader) {
 		if updData == 1 {
 			_ = br.readBit() // abs delta
 			// 2 features * 4 segments
-			for i := 0; i < 2; i++ {
-				for j := 0; j < 4; j++ {
+			for i := range 2 {
+				for range 4 {
 					if br.readBit() == 1 {
 						bits := 7
 						if i == 1 {
@@ -390,7 +390,7 @@ func advanceKFHeaderToCoefUpdates(br *kfBoolReader) {
 			}
 		}
 		if updMap == 1 {
-			for i := 0; i < 3; i++ {
+			for range 3 {
 				if br.readBit() == 1 {
 					_ = br.readLiteral(8)
 				}
@@ -402,13 +402,13 @@ func advanceKFHeaderToCoefUpdates(br *kfBoolReader) {
 	_ = br.readLiteral(3)
 	if br.readBit() == 1 {
 		if br.readBit() == 1 {
-			for i := 0; i < 4; i++ {
+			for range 4 {
 				if br.readBit() == 1 {
 					_ = br.readLiteral(6)
 					_ = br.readBit()
 				}
 			}
-			for i := 0; i < 4; i++ {
+			for range 4 {
 				if br.readBit() == 1 {
 					_ = br.readLiteral(6)
 					_ = br.readBit()
@@ -418,7 +418,7 @@ func advanceKFHeaderToCoefUpdates(br *kfBoolReader) {
 	}
 	_ = br.readLiteral(2) // multi token partition
 	_ = br.readLiteral(7) // base q
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if br.readBit() == 1 {
 			_ = br.readLiteral(4)
 			_ = br.readBit()
@@ -478,7 +478,7 @@ func (br *kfBoolReader) readBit() int {
 
 func (br *kfBoolReader) readLiteral(bits int) uint32 {
 	var v uint32
-	for i := 0; i < bits; i++ {
+	for range bits {
 		v = (v << 1) | uint32(br.readBit())
 	}
 	return v

@@ -112,7 +112,7 @@ func TestOracleChromaSubpelScoreboard(t *testing.T) {
 		fmt.Fprintf(&tbl, "[%s] per-frame Adler32/size/Q diff\n", cfg.name)
 		fmt.Fprintln(&tbl, "| frame | type | y_match | u_match | v_match | q_govpx | q_libvpx | size_govpx | size_libvpx | size_delta_pct |")
 		fmt.Fprintln(&tbl, "|---|---|---|---|---|---|---|---|---|---|")
-		for i := 0; i < frames; i++ {
+		for i := range frames {
 			g := gFrames[i]
 			l := lFrames[i]
 			ftype, _ := g["frame_type"].(string)

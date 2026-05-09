@@ -316,8 +316,8 @@ func fillPostProcessPattern(img *common.Image) {
 	}
 	uvWidth := (img.CodedWidth + 1) >> 1
 	uvHeight := (img.CodedHeight + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = byte(96 + ((row*5 + col*3) & 15))
 			img.V[row*img.VStride+col] = byte(144 + ((row*3 + col*5) & 15))
 		}
@@ -332,8 +332,8 @@ func fillPostProcessConstant(img *common.Image, y byte, u byte, v byte) {
 	}
 	uvWidth := (img.CodedWidth + 1) >> 1
 	uvHeight := (img.CodedHeight + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			img.U[row*img.UStride+col] = u
 			img.V[row*img.VStride+col] = v
 		}

@@ -67,7 +67,7 @@ func encodeInterIntraMacroblockMode(t *testing.T, probs *ModeProbs, yMode common
 	w.init()
 	writeTreeToken(t, &w, tables.YModeTree[:], probs.YMode[:], int(yMode))
 	if yMode == common.BPred {
-		for i := 0; i < 16; i++ {
+		for range 16 {
 			writeTreeToken(t, &w, tables.BModeTree[:], probs.BMode[:], int(bMode))
 		}
 	}

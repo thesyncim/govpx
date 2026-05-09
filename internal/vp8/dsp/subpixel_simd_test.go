@@ -42,8 +42,8 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 			dstSIMD := make([]byte, tc.w*tc.h)
 			dstRef := make([]byte, tc.w*tc.h)
 
-			for xoff := 0; xoff < 8; xoff++ {
-				for yoff := 0; yoff < 8; yoff++ {
+			for xoff := range 8 {
+				for yoff := range 8 {
 					for i := range dstSIMD {
 						dstSIMD[i] = 0
 						dstRef[i] = 0

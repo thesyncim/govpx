@@ -700,7 +700,7 @@ func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common
 	w.writeBool(0, 128)
 	w.writeLiteral(uint32(tokenPartition), 2)
 	w.writeLiteral(0, 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 
@@ -725,8 +725,8 @@ func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common
 	w.writeLiteral(128, 8)
 	w.writeBool(0, 128)
 	w.writeBool(0, 128)
-	for component := 0; component < 2; component++ {
-		for i := 0; i < vp8tables.MVPCount; i++ {
+	for component := range 2 {
+		for i := range vp8tables.MVPCount {
 			w.writeBool(0, vp8tables.MVUpdateProbs[component][i])
 		}
 	}
@@ -754,7 +754,7 @@ func vp8FirstPartitionWithSingleCoefProbabilityUpdate(refreshEntropy bool, value
 	w.writeBool(0, 128)
 	w.writeLiteral(0, 2)
 	w.writeLiteral(0, 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 	if refreshEntropy {
@@ -764,10 +764,10 @@ func vp8FirstPartitionWithSingleCoefProbabilityUpdate(refreshEntropy bool, value
 	}
 
 	first := true
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					if first {
 						w.writeBool(1, vp8tables.CoefUpdateProbs[block][band][ctx][node])
 						w.writeLiteral(uint32(value), 8)
@@ -797,7 +797,7 @@ func vp8FirstPartitionWithLoopFilterLevel(level uint8) []byte {
 	w.writeBool(0, 128)
 	w.writeLiteral(0, 2)
 	w.writeLiteral(0, 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 	w.writeBool(0, 128)
@@ -817,7 +817,7 @@ func vp8FirstPartitionWithMacroblockSkip(probSkipFalse uint8) []byte {
 	w.writeBool(0, 128)
 	w.writeLiteral(0, 2)
 	w.writeLiteral(0, 7)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		w.writeBool(0, 128)
 	}
 	w.writeBool(0, 128)
@@ -830,10 +830,10 @@ func vp8FirstPartitionWithMacroblockSkip(probSkipFalse uint8) []byte {
 }
 
 func writeNoCoefficientProbabilityUpdates(w *vp8TestBoolWriter) {
-	for block := 0; block < vp8tables.BlockTypes; block++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < vp8tables.EntropyNodes; node++ {
+	for block := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for ctx := range vp8tables.PrevCoefContexts {
+				for node := range vp8tables.EntropyNodes {
 					w.writeBool(0, vp8tables.CoefUpdateProbs[block][band][ctx][node])
 				}
 			}
@@ -862,7 +862,7 @@ func (w *vp8TestBoolWriter) writeLiteral(value uint32, bits int) {
 }
 
 func (w *vp8TestBoolWriter) finish() []byte {
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		w.writeBool(0, 128)
 	}
 	return w.buf
@@ -979,8 +979,8 @@ func publicImageEqualVP8(got Image, want *vp8common.Image) bool {
 }
 
 func planeEqual(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			if a[row*aStride+col] != b[row*bStride+col] {
 				return false
 			}
@@ -1154,8 +1154,8 @@ func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
 			t.Fatalf("Y[%d,%d] = %d, want %d", check.row, check.col, got, check.want)
 		}
 	}
-	for row := 0; row < 8; row++ {
-		for col := 0; col < 8; col++ {
+	for row := range 8 {
+		for col := range 8 {
 			if got := d.current.Img.U[row*d.current.Img.UStride+col]; got != 128 {
 				t.Fatalf("U[%d,%d] = %d, want 128", row, col, got)
 			}

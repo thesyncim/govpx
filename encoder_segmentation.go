@@ -63,8 +63,8 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 	if !cfg.Enabled {
 		return header
 	}
-	for feature := 0; feature < int(vp8common.MBLvlMax); feature++ {
-		for segment := 0; segment < vp8common.MaxMBSegments; segment++ {
+	for feature := range int(vp8common.MBLvlMax) {
+		for segment := range vp8common.MaxMBSegments {
 			if cfg.FeatureEnabled[feature][segment] {
 				header.FeatureData[feature][segment] = cfg.FeatureData[feature][segment]
 			}
@@ -195,8 +195,8 @@ func nonZeroSegmentTreeProb(prob int) uint8 {
 }
 
 func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) {
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			modes[index].SegmentID = 0
 		}
@@ -216,8 +216,8 @@ func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refres
 	if start < 0 {
 		start += count
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			modes[index].SegmentID = 0
 		}
@@ -283,7 +283,7 @@ func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, mode
 
 func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMode, refreshMap []int8) {
 	count := min(len(modes), len(refreshMap))
-	for index := 0; index < count; index++ {
+	for index := range count {
 		mode := modes[index]
 		if mode.SegmentID != 0 {
 			refreshMap[index] = -1
@@ -303,7 +303,7 @@ func (e *VP8Encoder) classifyStaticSegmentationBlocks(src vp8enc.SourceImage, ro
 		return
 	}
 	computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if e.skinMap[i] != 0 {
 			refreshMap[i] = 1
 		}
@@ -321,7 +321,7 @@ func (e *VP8Encoder) updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblo
 
 func updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode, counters []uint8) {
 	count := min(len(modes), len(counters))
-	for index := 0; index < count; index++ {
+	for index := range count {
 		mode := modes[index]
 		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
 			if counters[index] < 255 {
@@ -340,7 +340,7 @@ func updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode, counters
 // num_frames have passed.
 func updateConsecutiveZeroLastWithDotSuppress(modes []vp8enc.InterFrameMacroblockMode, counters []uint8, dotChecked []bool) {
 	count := min(len(modes), len(counters))
-	for index := 0; index < count; index++ {
+	for index := range count {
 		mode := modes[index]
 		if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
 			if counters[index] < 255 {
@@ -453,8 +453,8 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
 	useSkin8x8 := src.Width*src.Height <= skinDetectionMaxSmallFrame
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			index := row*cols + col
 			consecutive := 0
 			if len(consecZeroLast) > index {
@@ -492,7 +492,7 @@ func computeSkin8x8Block(src vp8enc.SourceImage, uvWidth int, uvHeight int, mbRo
 		motion = 0
 	}
 	numSkin := 0
-	for sb := 0; sb < 4; sb++ {
+	for sb := range 4 {
 		yRow := mbRow*16 + (sb>>1)*8 + 3
 		yCol := mbCol*16 + (sb&1)*8 + 3
 		uvRow := mbRow*8 + (sb>>1)*4 + 1
@@ -564,7 +564,7 @@ func skinPixel(y int, cb int, cr int, motion int) bool {
 	if cb > 150 && cr < 110 {
 		return false
 	}
-	for i := 0; i < len(skinMean); i++ {
+	for i := range len(skinMean) {
 		diff := evaluateSkinColorDifference(cb, cr, i)
 		threshold := skinThreshold[i+1]
 		if diff < threshold {

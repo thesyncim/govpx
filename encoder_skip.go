@@ -116,7 +116,7 @@ func interFrameModeSkipFalseProbability(rows int, cols int, modes []vp8enc.Inter
 		return fallback
 	}
 	var counts [2]int
-	for i := 0; i < required; i++ {
+	for i := range required {
 		if modes[i].MBSkipCoeff {
 			counts[1]++
 		} else {

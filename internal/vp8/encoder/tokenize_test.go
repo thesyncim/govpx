@@ -383,11 +383,11 @@ func BenchmarkWriteCoefficientTokenGrid(b *testing.B) {
 func setAllMacroblockEOBs(coeffs *MacroblockCoefficients, is4x4 bool) {
 	if !is4x4 {
 		coeffs.SetBlockEOB(24, BlockCoeffEOB(&coeffs.QCoeff[24], 0))
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			coeffs.SetBlockEOB(i, BlockCoeffEOB(&coeffs.QCoeff[i], 1))
 		}
 	} else {
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			coeffs.SetBlockEOB(i, BlockCoeffEOB(&coeffs.QCoeff[i], 0))
 		}
 	}

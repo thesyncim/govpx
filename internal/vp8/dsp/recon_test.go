@@ -10,8 +10,8 @@ func TestCopyBlocks(t *testing.T) {
 	}
 
 	Copy16x16(src, 32, dst, 32)
-	for y := 0; y < 16; y++ {
-		for x := 0; x < 16; x++ {
+	for y := range 16 {
+		for x := range 16 {
 			if dst[y*32+x] != src[y*32+x] {
 				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, dst[y*32+x], src[y*32+x])
 			}

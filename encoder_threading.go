@@ -33,10 +33,7 @@ func (e *VP8Encoder) effectiveThreadCount() int {
 	if threads <= 0 {
 		threads = 1
 	}
-	cores := runtime.NumCPU()
-	if cores < 1 {
-		cores = 1
-	}
+	cores := max(runtime.NumCPU(), 1)
 	if threads > cores {
 		threads = cores
 	}

@@ -45,11 +45,11 @@ func BenchmarkInterMBBuilderSixTap16x16(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for row := 0; row < rows; row++ {
+		for row := range rows {
 			yRow := row * 16 * dst.YStride
 			uRow := row * 8 * dst.UStride
 			vRow := row * 8 * dst.VStride
-			for col := 0; col < cols; col++ {
+			for col := range cols {
 				yOff := yRow + col*16
 				uOff := uRow + col*8
 				vOff := vRow + col*8
@@ -89,11 +89,11 @@ func BenchmarkInterMBBuilderBilinear16x16(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for row := 0; row < rows; row++ {
+		for row := range rows {
 			yRow := row * 16 * dst.YStride
 			uRow := row * 8 * dst.UStride
 			vRow := row * 8 * dst.VStride
-			for col := 0; col < cols; col++ {
+			for col := range cols {
 				yOff := yRow + col*16
 				uOff := uRow + col*8
 				vOff := vRow + col*8
@@ -131,11 +131,11 @@ func BenchmarkInterMBBuilderZeroMV(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for row := 0; row < rows; row++ {
+		for row := range rows {
 			yRow := row * 16 * dst.YStride
 			uRow := row * 8 * dst.UStride
 			vRow := row * 8 * dst.VStride
-			for col := 0; col < cols; col++ {
+			for col := range cols {
 				yOff := yRow + col*16
 				uOff := uRow + col*8
 				vOff := vRow + col*8
@@ -165,8 +165,8 @@ func BenchmarkInterMBBuilderFrame720p(b *testing.B) {
 
 	modes := make([]MacroblockMode, rows*cols)
 	tokens := make([]MacroblockTokens, rows*cols)
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			i := r*cols + c
 			if (r+c)%4 == 0 {
 				modes[i] = MacroblockMode{

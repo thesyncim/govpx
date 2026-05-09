@@ -28,12 +28,12 @@ func TestWriteKeyFrameMacroblockModeRoundTrips(t *testing.T) {
 func TestWriteKeyFrameBPredMacroblockModeRoundTripsWithContexts(t *testing.T) {
 	above := KeyFrameMacroblockMode{YMode: common.BPred}
 	left := KeyFrameMacroblockMode{YMode: common.BPred}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		above.BModes[i] = common.BPredictionMode(i % 10)
 		left.BModes[i] = common.BPredictionMode((i + 3) % 10)
 	}
 	mode := KeyFrameMacroblockMode{YMode: common.BPred, UVMode: common.VPred}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		mode.BModes[i] = common.BPredictionMode((i + 5) % 10)
 	}
 	payload := encodeKeyFrameMacroblockMode(t, &above, &left, &mode)

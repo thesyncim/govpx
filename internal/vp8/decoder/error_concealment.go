@@ -51,8 +51,8 @@ func EstimateMissingMotionVectors(modes []MacroblockMode, prevModes []Macroblock
 	}
 
 	overlaps := make([]errorConcealmentMacroblockOverlap, required)
-	for mbRow := 0; mbRow < rows; mbRow++ {
-		for mbCol := 0; mbCol < cols; mbCol++ {
+	for mbRow := range rows {
+		for mbCol := range cols {
 			index := mbRow*cols + mbCol
 			prev := &prevModes[index]
 			if prev.RefFrame == common.LastFrame {
@@ -76,8 +76,8 @@ func EstimateMissingMotionVectors(modes []MacroblockMode, prevModes []Macroblock
 }
 
 func calcPrevMacroblockOverlaps(overlaps []errorConcealmentMacroblockOverlap, prev *MacroblockMode, mbRow int, mbCol int, rows int, cols int) {
-	for subRow := 0; subRow < 4; subRow++ {
-		for subCol := 0; subCol < 4; subCol++ {
+	for subRow := range 4 {
+		for subCol := range 4 {
 			calculateErrorConcealmentOverlaps(overlaps, rows, cols, prev.BlockMV[subRow*4+subCol], 4*mbRow+subRow, 4*mbCol+subCol)
 		}
 	}
@@ -187,7 +187,7 @@ func estimateMacroblockMotionVectors(overlap *errorConcealmentMacroblockOverlap,
 	nonZero := 0
 	rowSum := 0
 	colSum := 0
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		mv := estimateBlockMotionVector(&overlap.blocks[block])
 		mode.BlockMV[block] = mv
 		if !mv.IsZero() {

@@ -15,7 +15,7 @@ func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
 func forwardDCT4x4Scalar(input []int16, stride int, output *[16]int16) {
 	var tmp [16]int
 
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		ip := row * stride
 		op := row * 4
 		a1 := (int(input[ip+0]) + int(input[ip+3])) * 8
@@ -29,7 +29,7 @@ func forwardDCT4x4Scalar(input []int16, stride int, output *[16]int16) {
 		tmp[op+3] = (d1*2217 - c1*5352 + 7500) >> 12
 	}
 
-	for col := 0; col < 4; col++ {
+	for col := range 4 {
 		a1 := tmp[col+0] + tmp[col+12]
 		b1 := tmp[col+4] + tmp[col+8]
 		c1 := tmp[col+4] - tmp[col+8]
@@ -66,7 +66,7 @@ func ForwardWalsh4x4(input []int16, stride int, output *[16]int16) {
 func forwardWalsh4x4Scalar(input []int16, stride int, output *[16]int16) {
 	var tmp [16]int
 
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		ip := row * stride
 		op := row * 4
 		a1 := (int(input[ip+0]) + int(input[ip+2])) * 4
@@ -80,7 +80,7 @@ func forwardWalsh4x4Scalar(input []int16, stride int, output *[16]int16) {
 		tmp[op+3] = a1 - d1
 	}
 
-	for col := 0; col < 4; col++ {
+	for col := range 4 {
 		a1 := tmp[col+0] + tmp[col+8]
 		d1 := tmp[col+4] + tmp[col+12]
 		c1 := tmp[col+4] - tmp[col+12]

@@ -121,12 +121,12 @@ func mbRowJSONWithQCoeff(frameIndex, mbRow, mbCol int, mode, ref string, mvRow, 
 func qcoeffMatrixJSON(blockIndex int, coeffIndex int, value int) string {
 	var b strings.Builder
 	b.WriteByte('[')
-	for block := 0; block < 25; block++ {
+	for block := range 25 {
 		if block > 0 {
 			b.WriteByte(',')
 		}
 		b.WriteByte('[')
-		for coeff := 0; coeff < 16; coeff++ {
+		for coeff := range 16 {
 			if coeff > 0 {
 				b.WriteByte(',')
 			}

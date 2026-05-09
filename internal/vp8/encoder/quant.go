@@ -45,7 +45,7 @@ type MacroblockQuant struct {
 // performed by libvpx v1.16.0 vp8/encoder/vp8_quantize.c vp8cx_init_quantizer
 // for a single block (the fast path used by vp8_fast_quantize_b_c).
 func InitFastBlockQuant(dequant *[16]int16, out *BlockQuant) {
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		d := int(dequant[i])
 		out.QuantFast[i] = int16((1 << 16) / d)
 		out.Round[i] = int16((quantRoundFactor * d) >> 7)
@@ -71,7 +71,7 @@ func InitRegularBlockQuant(qIndex int, dequant *[16]int16, out *BlockQuant) {
 	if q < 48 {
 		zbinFactor = 84
 	}
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		d := int(dequant[i])
 		out.Zbin[i] = int16((zbinFactor*d + 64) >> 7)
 		out.ZbinBoost[i] = int16((d * quantZbinBoost[i]) >> 7)
@@ -104,7 +104,7 @@ func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segm
 	var tables common.FrameDequantTables
 	var dequant common.MacroblockDequant
 	common.BuildFrameDequantTables(deltas, &tables)
-	for segment := 0; segment < common.MaxMBSegments; segment++ {
+	for segment := range common.MaxMBSegments {
 		qIndex := baseQIndex
 		if segmentation.Enabled && segmentation.FeatureEnabled[common.MBLvlAltQ][segment] {
 			altQ := int(segmentation.FeatureData[common.MBLvlAltQ][segment])
@@ -135,7 +135,7 @@ func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, d
 // count for any input that occurs in the encoder's coefficient range.
 func fastQuantizeBlockScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := -1
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		rc := int(tables.DefaultZigZag1D[i])
 		z := int(coeff[rc])
 		if z == 0 {

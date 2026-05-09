@@ -20,10 +20,10 @@ func parseCoefficientProbabilityHeader(br *boolcoder.Decoder) CoefficientProbabi
 
 func parseCoefficientProbabilityHeaderInto(br *boolcoder.Decoder, probs *tables.CoefficientProbs) CoefficientProbabilityHeader {
 	h := CoefficientProbabilityHeader{IndependentPartitions: true}
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					if br.ReadBool(tables.CoefUpdateProbs[block][band][ctx][node]) != 0 {
 						value := uint8(br.ReadLiteral(8))
 						if probs != nil {

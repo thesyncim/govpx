@@ -149,7 +149,7 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 		blockType = 3
 	}
 
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		eob := coeffs.BlockEOB(block, skipDC)
 		a := block & 3
 		l := (block & 0x0c) >> 2
@@ -213,11 +213,8 @@ func writeCoefficientMacroblockTokensCached(w *BoolWriter, probs *tables.Coeffic
 		blockType = 3
 	}
 
-	for block := 0; block < 16; block++ {
-		eob := int(coeffs.EOB[block])
-		if eob < skipDC {
-			eob = skipDC
-		}
+	for block := range 16 {
+		eob := max(int(coeffs.EOB[block]), skipDC)
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(above.Y1[a] + left.Y1[l])
@@ -267,12 +264,12 @@ func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFra
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
@@ -301,13 +298,13 @@ func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int
 		return ErrModeBufferTooSmall
 	}
 
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for row := 0; row < rows; row++ {
+	for row := range rows {
 		w := &writers[row&(partitions-1)]
 		left := TokenContextPlanes{}
-		for col := 0; col < cols; col++ {
+		for col := range cols {
 			index := row*cols + col
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
@@ -488,7 +485,7 @@ func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *T
 		left.Y2 = hasCoeffs
 		skipDC = 1
 	}
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		eob := coeffs.BlockEOB(block, skipDC)
 		hasCoeffs := uint8(0)
 		if eob > skipDC {

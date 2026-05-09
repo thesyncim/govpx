@@ -5,8 +5,8 @@ import "testing"
 func TestSADBlocks(t *testing.T) {
 	src := make([]byte, 32*32)
 	ref := make([]byte, 32*32)
-	for y := 0; y < 32; y++ {
-		for x := 0; x < 32; x++ {
+	for y := range 32 {
+		for x := range 32 {
 			src[y*32+x] = byte(x + y)
 			ref[y*32+x] = byte(x*2 + y)
 		}
@@ -130,8 +130,8 @@ func BenchmarkSAD4x4(b *testing.B) {
 
 func scalarSAD(src []byte, srcStride int, ref []byte, refStride int, width int, height int) int {
 	sad := 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			diff := int(src[y*srcStride+x]) - int(ref[y*refStride+x])
 			if diff < 0 {
 				diff = -diff
@@ -168,10 +168,10 @@ func benchSAD16x16Source() ([]byte, []byte) {
 
 func sadScalarReference16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	sad := 0
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		s := src[y*srcStride:]
 		r := ref[y*refStride:]
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			d := int(s[x]) - int(r[x])
 			if d < 0 {
 				d = -d

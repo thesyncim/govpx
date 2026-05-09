@@ -41,8 +41,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 	// position-encoded MV. This lets us tell which neighbor was selected just
 	// by the returned MV.
 	modes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
-	for r := 0; r < mbRows; r++ {
-		for c := 0; c < mbCols; c++ {
+	for r := range mbRows {
+		for c := range mbCols {
 			modes[r*mbCols+c] = vp8enc.InterFrameMacroblockMode{
 				RefFrame: vp8common.LastFrame,
 				Mode:     vp8common.NewMV,
@@ -154,8 +154,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 	width, height := mbCols*16, mbRows*16
 	src := testImage(width, height)
 	fillImage(src, 64, 90, 170)
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			src.Y[row*src.YStride+col] = byte((row*5 + col*9 + 13) & 0xff)
 		}
 	}
@@ -163,13 +163,13 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 	last := testVP8Frame(t, width, height, 0, 90, 170)
 	// Copy src into lastRef so the lf-current SAD for every interior
 	// macroblock evaluates to zero, sorting the lf-current slot to rank 0.
-	for row := 0; row < height; row++ {
+	for row := range height {
 		copy(last.Img.Y[row*last.Img.YStride:row*last.Img.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
 	}
 
 	prevModes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
-	for r := 0; r < mbRows; r++ {
-		for c := 0; c < mbCols; c++ {
+	for r := range mbRows {
+		for c := range mbCols {
 			// All previous-frame neighbors are GoldenFrame except the
 			// lf-current slot at the test position, which we set per case.
 			prevModes[r*mbCols+c] = vp8enc.InterFrameMacroblockMode{
@@ -182,8 +182,8 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 
 	search := interAnalysisSearchConfig{improvedMVPrediction: true}
 
-	for r := 0; r < mbRows; r++ {
-		for c := 0; c < mbCols; c++ {
+	for r := range mbRows {
+		for c := range mbCols {
 			row, col := r, c
 			t.Run(fmt.Sprintf("row%d_col%d", row, col), func(t *testing.T) {
 				modes := make([]vp8enc.InterFrameMacroblockMode, len(prevModes))

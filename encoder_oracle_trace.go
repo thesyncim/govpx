@@ -482,10 +482,10 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 func (e *VP8Encoder) oracleTraceProbabilityDigests() (uint32, uint32, uint32, uint32) {
 	var coefBuf [4 * 8 * 3 * 11]byte
 	off := 0
-	for block := 0; block < 4; block++ {
-		for band := 0; band < 8; band++ {
-			for ctx := 0; ctx < 3; ctx++ {
-				for node := 0; node < 11; node++ {
+	for block := range 4 {
+		for band := range 8 {
+			for ctx := range 3 {
+				for node := range 11 {
 					coefBuf[off] = e.coefProbs[block][band][ctx][node]
 					off++
 				}
@@ -496,7 +496,7 @@ func (e *VP8Encoder) oracleTraceProbabilityDigests() (uint32, uint32, uint32, ui
 	yModeHash := adler32.Checksum(e.modeProbs.YMode[:])
 	uvModeHash := adler32.Checksum(e.modeProbs.UVMode[:])
 	var mvBuf [2 * 19]byte
-	for i := 0; i < 19; i++ {
+	for i := range 19 {
 		mvBuf[i] = e.modeProbs.MV[0][i]
 		mvBuf[19+i] = e.modeProbs.MV[1][i]
 	}
@@ -839,7 +839,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		}
 	}
 	sum := 0
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		row.EOB[i] = coeffs.EOB[i]
 		row.QCoeff[i] = coeffs.QCoeff[i]
 	}
@@ -864,7 +864,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		row.EOB[24] = coeffs.OracleStaleY2EOB
 		row.QCoeff[24] = coeffs.OracleStaleY2QCoeff
 	}
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
@@ -903,7 +903,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 		}
 	}
 	sum := 0
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		row.EOB[i] = coeffs.EOB[i]
 		row.QCoeff[i] = coeffs.QCoeff[i]
 	}
@@ -916,7 +916,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 		row.EOB[24] = coeffs.OracleStaleY2EOB
 		row.QCoeff[24] = coeffs.OracleStaleY2QCoeff
 	}
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
@@ -957,7 +957,7 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 	// Path 1: bump from libvpx Y1DC quantize on the original dct[0] of each
 	// Y block. coeffs.OracleY1DCEOB1[block] was populated at quantize time
 	// from the same dct[0] that fed the Y2 forward Walsh.
-	for js := 0; js < 16; js++ {
+	for js := range 16 {
 		if eob[js] == 0 && coeffs.OracleY1DCEOB1[js] != 0 {
 			eob[js] = 1
 		}
@@ -966,7 +966,7 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 	// the Y2 block. This is the residual case where the post-Walsh DC is
 	// non-zero even though Y1DC quantize produced zero.
 	var y2DQ [16]int16
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		y2DQ[i] = int16(int(coeffs.QCoeff[24][i]) * int(y2Dequant[i]))
 	}
 	var dcSlots [16 * 16]int16
@@ -975,7 +975,7 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 	} else {
 		dsp.DCOnlyInverseWalsh4x4(y2DQ[0], dcSlots[:])
 	}
-	for js := 0; js < 16; js++ {
+	for js := range 16 {
 		if eob[js] == 0 && dcSlots[js*16] != 0 {
 			eob[js] = 1
 		}
@@ -1145,7 +1145,7 @@ func oracleTraceHexEncodePlane(plane []byte, width int, height int, stride int) 
 		return ""
 	}
 	out := make([]byte, 0, 2*width*height)
-	for row := 0; row < height; row++ {
+	for row := range height {
 		start := row * stride
 		end := start + width
 		if end > len(plane) {
@@ -1161,7 +1161,7 @@ func oracleTraceHexEncodePlane(plane []byte, width int, height int, stride int) 
 // emitOracleTraceRow marshals a row to JSON, appends a newline, and writes a
 // single payload to the configured writer. Marshal errors are silently
 // ignored to avoid disturbing the encode path; the trace is a debugging aid.
-func emitOracleTraceRow(w io.Writer, row interface{}) {
+func emitOracleTraceRow(w io.Writer, row any) {
 	if w == nil {
 		return
 	}
@@ -1194,7 +1194,7 @@ func planeAdler32(plane []byte, width int, height int, stride int) uint32 {
 		return 0
 	}
 	h := adler32.New()
-	for row := 0; row < height; row++ {
+	for row := range height {
 		start := row * stride
 		end := start + width
 		if end > len(plane) {

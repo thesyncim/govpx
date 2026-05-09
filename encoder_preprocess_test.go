@@ -79,13 +79,13 @@ func solidPlane(width int, height int, val byte) []byte {
 // pixel offset (offX, offY).
 func movingSquarePlane(width int, height int, offX int, offY int) []byte {
 	p := make([]byte, width*height)
-	for y := 0; y < 32; y++ {
+	for y := range 32 {
 		ty := y + offY
 		if ty < 0 || ty >= height {
 			continue
 		}
 		row := ty * width
-		for x := 0; x < 32; x++ {
+		for x := range 32 {
 			tx := x + offX
 			if tx < 0 || tx >= width {
 				continue
@@ -101,8 +101,8 @@ func TestARNRZeroStrengthIsIdentityOnIdenticalFrames(t *testing.T) {
 	plane := solidPlane(w, h, 64)
 	// Add a checkerboard pattern so the test would fail if the filter
 	// shifted any pixel value.
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			if (x^y)&1 == 0 {
 				plane[y*w+x] = 100
 			} else {
@@ -120,8 +120,8 @@ func TestARNRZeroStrengthIsIdentityOnIdenticalFrames(t *testing.T) {
 		t.Fatalf("applyARNRFilter returned false; expected filtering to run")
 	}
 	got := e.arnrScratch.Img.Y
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			want := plane[y*w+x]
 			if got[y*e.arnrScratch.Img.YStride+x] != want {
 				t.Fatalf("strength=0 identity failed at (%d,%d): got %d want %d", x, y, got[y*e.arnrScratch.Img.YStride+x], want)
@@ -145,13 +145,13 @@ func TestARNRChangesPixelsOnSyntheticMotionClip(t *testing.T) {
 	// modifies pixels.
 	makeFrame := func(offX int, lumaBias int) []byte {
 		p := solidPlane(w, h, 80)
-		for y := 0; y < 32; y++ {
+		for y := range 32 {
 			ty := y + 16
 			if ty < 0 || ty >= h {
 				continue
 			}
 			row := ty * w
-			for x := 0; x < 32; x++ {
+			for x := range 32 {
 				tx := x + offX
 				if tx < 0 || tx >= w {
 					continue
@@ -178,8 +178,8 @@ func TestARNRChangesPixelsOnSyntheticMotionClip(t *testing.T) {
 	got := e.arnrScratch.Img.Y
 	stride := e.arnrScratch.Img.YStride
 	changed := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			if got[y*stride+x] != center[y*w+x] {
 				changed++
 			}
@@ -204,8 +204,8 @@ func TestARNRSubpelDeterministicAdler32(t *testing.T) {
 	back := make([]byte, w*h)
 	center := make([]byte, w*h)
 	fwd := make([]byte, w*h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			base := byte((x + y) & 0xff)
 			back[y*w+x] = base
 			center[y*w+x] = base + 5
@@ -222,7 +222,7 @@ func TestARNRSubpelDeterministicAdler32(t *testing.T) {
 	dst := e.arnrScratch.Img.Y
 	stride := e.arnrScratch.Img.YStride
 	visible := make([]byte, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		copy(visible[y*w:(y+1)*w], dst[y*stride:y*stride+w])
 	}
 	got := adler32.Checksum(visible)
@@ -265,12 +265,9 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 	}
 	clean := func(offX int) []byte {
 		p := make([]byte, w*h)
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
-				sx := x - offX
-				if sx < 0 {
-					sx = 0
-				}
+		for y := range h {
+			for x := range w {
+				sx := max(x-offX, 0)
 				if sx >= w {
 					sx = w - 1
 				}
@@ -293,10 +290,7 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 		for i := range p {
 			d := ((i*1103515245 + seed*12345) >> 8) & 7
 			d -= 3
-			v := int(p[i]) + d
-			if v < 0 {
-				v = 0
-			}
+			v := max(int(p[i])+d, 0)
 			if v > 255 {
 				v = 255
 			}
@@ -326,8 +320,8 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 	// equals `center` and SSE is the noise's MSE * w*h.
 	sseFiltered := 0
 	sseCenter := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			truth := int(centerClean[y*w+x])
 			f := int(got[y*stride+x])
 			c := int(center[y*w+x])
@@ -346,8 +340,8 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 	// returned (0,0) and skipped both references because SAD on
 	// stripe-misaligned content sits above THRESH_HIGH=20000).
 	differingPixels := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			if int(got[y*stride+x]) != int(center[y*w+x]) {
 				differingPixels++
 			}
@@ -366,7 +360,7 @@ func TestARNRHexSearchTracksLargeMotion(t *testing.T) {
 // fracRow=4 produces a much closer match.
 func halfPelShiftedPlane(truth []byte, w, h int, shiftX, shiftY int, halfX, halfY bool) []byte {
 	out := make([]byte, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		yA := y + shiftY
 		yB := yA
 		if halfY {
@@ -384,7 +378,7 @@ func halfPelShiftedPlane(truth []byte, w, h int, shiftX, shiftY int, halfX, half
 		if yB >= h {
 			yB = h - 1
 		}
-		for x := 0; x < w; x++ {
+		for x := range w {
 			xA := x + shiftX
 			xB := xA
 			if halfX {
@@ -424,12 +418,9 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 	// frequency so the half-pel-shifted reference materially differs
 	// from any integer-aligned position.
 	truth := make([]byte, w*h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			v := 96 + ((x*37 + y*53) & 0x3f) - ((x * y) & 0x1f)
-			if v < 16 {
-				v = 16
-			}
+	for y := range h {
+		for x := range w {
+			v := max(96+((x*37+y*53)&0x3f)-((x*y)&0x1f), 16)
 			if v > 239 {
 				v = 239
 			}
@@ -454,7 +445,7 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 	subpelOut := e.arnrScratch.Img.Y
 	stride := e.arnrScratch.Img.YStride
 	subpelVisible := make([]byte, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		copy(subpelVisible[y*w:(y+1)*w], subpelOut[y*stride:y*stride+w])
 	}
 
@@ -467,7 +458,7 @@ func TestARNRSubpelRefinementImprovesNoisyMatch(t *testing.T) {
 	// Compute SSE vs the noiseless ground truth.
 	sse := func(plane []byte) int64 {
 		var s int64
-		for i := 0; i < w*h; i++ {
+		for i := range w * h {
 			d := int64(plane[i]) - int64(truth[i])
 			s += d * d
 		}
@@ -520,8 +511,8 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 	mvHistory := make([]arnrMV, len(refs)*mbRows*mbCols)
 	var accumulator [384]uint32
 	var count [384]uint32
-	for mbRow := 0; mbRow < mbRows; mbRow++ {
-		for mbCol := 0; mbCol < mbCols; mbCol++ {
+	for mbRow := range mbRows {
+		for mbCol := range mbCols {
 			mbX := mbCol << 4
 			mbY := mbRow << 4
 			for i := range accumulator {
@@ -564,7 +555,7 @@ func arnrIntegerOnlyReference(t *testing.T, w, h int, back, center, fwd []byte, 
 	}
 
 	out := make([]byte, w*h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		copy(out[y*w:(y+1)*w], dst.y[y*dst.yStride:y*dst.yStride+w])
 	}
 	return out

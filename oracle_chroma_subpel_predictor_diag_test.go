@@ -164,7 +164,7 @@ func diffLastRefWindow(t *testing.T, govpxTrace []byte, libvpxTrace []byte) {
 		shown := 0
 		for r := 0; r < g.Height && shown < 8; r++ {
 			anyDiff := false
-			for c := 0; c < w; c++ {
+			for c := range w {
 				if gb[r*w+c] != lb[r*w+c] {
 					anyDiff = true
 					break
@@ -174,7 +174,7 @@ func diffLastRefWindow(t *testing.T, govpxTrace []byte, libvpxTrace []byte) {
 				continue
 			}
 			fmt.Fprintf(&sb, "  row %2d (relY=%d):", r, r-g.BorderTop)
-			for c := 0; c < w; c++ {
+			for c := range w {
 				gv := gb[r*w+c]
 				lv := lb[r*w+c]
 				if gv == lv {
@@ -416,7 +416,7 @@ func runPredictorDiff(t *testing.T, rowType string, govpxTrace []byte, libvpxTra
 		// Per-row, per-col diff. Print only rows that have any divergence.
 		for r := 0; r < g.Height; r++ {
 			rowDiff := false
-			for c := 0; c < w; c++ {
+			for c := range w {
 				if gb[r*w+c] != lb[r*w+c] {
 					rowDiff = true
 					break
@@ -426,7 +426,7 @@ func runPredictorDiff(t *testing.T, rowType string, govpxTrace []byte, libvpxTra
 				continue
 			}
 			fmt.Fprintf(&diagBuilder, "  row %2d:", r)
-			for c := 0; c < w; c++ {
+			for c := range w {
 				gv := gb[r*w+c]
 				lv := lb[r*w+c]
 				if gv == lv {

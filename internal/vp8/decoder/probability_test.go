@@ -49,10 +49,10 @@ func encodeSingleCoefProbabilityUpdate(value uint8) []byte {
 	var w testBoolWriter
 	w.init()
 	first := true
-	for block := 0; block < tables.BlockTypes; block++ {
-		for band := 0; band < tables.CoefBands; band++ {
-			for ctx := 0; ctx < tables.PrevCoefContexts; ctx++ {
-				for node := 0; node < tables.EntropyNodes; node++ {
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for node := range tables.EntropyNodes {
 					if first {
 						w.writeBool(1, tables.CoefUpdateProbs[block][band][ctx][node])
 						w.writeLiteral(uint32(value), 8)
@@ -88,7 +88,7 @@ func (w *testBoolWriter) writeLiteral(value uint32, bits int) {
 }
 
 func (w *testBoolWriter) finish() []byte {
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		w.writeBool(0, 128)
 	}
 	return w.buf

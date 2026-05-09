@@ -62,7 +62,7 @@ func findTreeToken(tree []int16, node int16, token int, value uint32, depth int)
 	if depth >= 32 || int(node)+1 >= len(tree) {
 		return 0, 0, false
 	}
-	for bit := int16(0); bit < 2; bit++ {
+	for bit := range int16(2) {
 		next := tree[int(node)+int(bit)]
 		nextValue := (value << 1) | uint32(bit)
 		if next <= 0 {

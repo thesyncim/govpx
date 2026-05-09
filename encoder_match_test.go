@@ -51,8 +51,8 @@ func fillMatchingVisiblePlanes(src Image, ref *vp8common.Image) {
 	}
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			u := byte(40 + row*7 + col*3)
 			v := byte(170 - row*4 + col*2)
 			src.U[row*src.UStride+col] = u

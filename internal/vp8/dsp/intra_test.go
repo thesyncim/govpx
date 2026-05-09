@@ -8,7 +8,7 @@ import (
 func TestIntraDCPredict16x16Availability(t *testing.T) {
 	above := make([]byte, 16)
 	left := make([]byte, 16)
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		above[i] = byte(i + 1)
 		left[i] = byte(101 + i)
 	}
@@ -38,8 +38,8 @@ func TestIntraVerticalPredict8x8(t *testing.T) {
 
 	IntraVerticalPredict8x8(dst, 8, above)
 
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
+	for y := range 8 {
+		for x := range 8 {
 			if got := dst[y*8+x]; got != above[x] {
 				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, above[x])
 			}
@@ -53,8 +53,8 @@ func TestIntraHorizontalPredict8x8(t *testing.T) {
 
 	IntraHorizontalPredict8x8(dst, 8, left)
 
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
+	for y := range 8 {
+		for x := range 8 {
 			if got := dst[y*8+x]; got != left[y] {
 				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, left[y])
 			}
@@ -70,8 +70,8 @@ func TestIntraTMPredict8x8(t *testing.T) {
 
 	IntraTMPredict8x8(dst, 8, above, left, topLeft)
 
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
+	for y := range 8 {
+		for x := range 8 {
 			want := ClipPixel(int(left[y]) + int(above[x]) - topLeft)
 			if got := dst[y*8+x]; got != want {
 				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, want)
@@ -177,7 +177,7 @@ func BenchmarkIntraTMPredict8x8(b *testing.B) {
 // combinations. Ensures byte-for-byte parity with libvpx semantics.
 func TestIntraPredictSIMDParity(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
-	for iter := 0; iter < 64; iter++ {
+	for range 64 {
 		var above16 [16]byte
 		var left16 [16]byte
 		for i := range above16 {
@@ -250,8 +250,8 @@ func TestIntraPredictSIMDParity(t *testing.T) {
 
 func assertBlocksEqual(t *testing.T, name string, want, got []byte, stride, size int) {
 	t.Helper()
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
+	for y := range size {
+		for x := range size {
 			off := y*stride + x
 			if got[off] != want[off] {
 				t.Fatalf("%s [%d,%d]: got %d want %d", name, x, y, got[off], want[off])
@@ -262,8 +262,8 @@ func assertBlocksEqual(t *testing.T, name string, want, got []byte, stride, size
 
 func assertBlockFilled(t *testing.T, name string, dst []byte, stride int, size int, want byte) {
 	t.Helper()
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
+	for y := range size {
+		for x := range size {
 			if got := dst[y*stride+x]; got != want {
 				t.Fatalf("%s dst[%d,%d] = %d, want %d", name, x, y, got, want)
 			}

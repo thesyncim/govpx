@@ -60,15 +60,15 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	// Inter frame: shift content slightly so it is not a perfect copy of
 	// the previous reference (avoids the zero-reference shortcut path).
 	interImg := testImage(w, h)
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			interImg.Y[row*interImg.YStride+col] = keyImg.Y[((row+1)%h)*keyImg.YStride+((col+2)%w)]
 		}
 	}
 	uvW := (w + 1) >> 1
 	uvH := (h + 1) >> 1
-	for row := 0; row < uvH; row++ {
-		for col := 0; col < uvW; col++ {
+	for row := range uvH {
+		for col := range uvW {
 			interImg.U[row*interImg.UStride+col] = keyImg.U[((row+1)%uvH)*keyImg.UStride+((col+1)%uvW)]
 			interImg.V[row*interImg.VStride+col] = keyImg.V[((row+1)%uvH)*keyImg.VStride+((col+1)%uvW)]
 		}
@@ -78,13 +78,13 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 	}
 
 	lines := splitNonEmptyLines(buf.Bytes())
-	var frameRows []map[string]interface{}
-	var mbRows []map[string]interface{}
-	var candidateRows []map[string]interface{}
-	var rateRows []map[string]interface{}
-	var recodeRows []map[string]interface{}
+	var frameRows []map[string]any
+	var mbRows []map[string]any
+	var candidateRows []map[string]any
+	var rateRows []map[string]any
+	var recodeRows []map[string]any
 	for i, line := range lines {
-		var row map[string]interface{}
+		var row map[string]any
 		if err := json.Unmarshal(line, &row); err != nil {
 			t.Fatalf("trace line %d not valid JSON: %v\nline=%q", i, err, line)
 		}
@@ -233,7 +233,7 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 				t.Fatalf("mb[%d] missing field %q", i, key)
 			}
 		}
-		eob, ok := row["eob"].([]interface{})
+		eob, ok := row["eob"].([]any)
 		if !ok {
 			t.Fatalf("mb[%d].eob is not an array: %T", i, row["eob"])
 		}
@@ -248,14 +248,14 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 				t.Fatalf("mb[%d] missing uv_mode for key MB", i)
 			}
 		}
-		qcoeff, ok := row["qcoeff"].([]interface{})
+		qcoeff, ok := row["qcoeff"].([]any)
 		if !ok {
 			t.Fatalf("mb[%d].qcoeff is not an array: %T", i, row["qcoeff"])
 		}
 		if len(qcoeff) != 25 {
 			t.Fatalf("mb[%d].qcoeff length = %d, want 25", i, len(qcoeff))
 		}
-		firstBlock, ok := qcoeff[0].([]interface{})
+		firstBlock, ok := qcoeff[0].([]any)
 		if !ok || len(firstBlock) != 16 {
 			t.Fatalf("mb[%d].qcoeff[0] shape = %T/%d, want 16 coefficients", i, qcoeff[0], len(firstBlock))
 		}
@@ -281,7 +281,7 @@ func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	e.emitOracleKeyFrameMBTrace(2, 3, &mode, &coeffs, 0, 0)
 	e.flushOracleMBTraceBuffer()
 
-	var row map[string]interface{}
+	var row map[string]any
 	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &row); err != nil {
 		t.Fatalf("trace row not valid JSON: %v\n%s", err, buf.String())
 	}
@@ -294,7 +294,7 @@ func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	if got := row["ref_frame"]; got != "INTRA_FRAME" {
 		t.Fatalf("ref_frame = %v, want INTRA_FRAME", got)
 	}
-	bModes, ok := row["b_modes"].([]interface{})
+	bModes, ok := row["b_modes"].([]any)
 	if !ok || len(bModes) != 16 {
 		t.Fatalf("b_modes shape = %T/%d, want 16", row["b_modes"], len(bModes))
 	}
@@ -327,7 +327,7 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("trace rows = %d, want 1", len(lines))
 	}
-	var row map[string]interface{}
+	var row map[string]any
 	if err := json.Unmarshal(lines[0], &row); err != nil {
 		t.Fatalf("trace row is not valid JSON: %v", err)
 	}
@@ -346,8 +346,8 @@ func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
 	if got := row["improved_mv_sr"].(float64); got != 2 {
 		t.Fatalf("improved_mv_sr = %v, want 2", got)
 	}
-	qcoeff := row["qcoeff"].([]interface{})
-	block2 := qcoeff[2].([]interface{})
+	qcoeff := row["qcoeff"].([]any)
+	block2 := qcoeff[2].([]any)
 	if got := block2[3].(float64); got != -7 {
 		t.Fatalf("qcoeff[2][3] = %v, want -7", got)
 	}
@@ -377,15 +377,15 @@ func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("trace rows = %d, want 1", len(lines))
 	}
-	var row map[string]interface{}
+	var row map[string]any
 	if err := json.Unmarshal(lines[0], &row); err != nil {
 		t.Fatalf("trace row is not valid JSON: %v", err)
 	}
 	if got := row["partition"].(float64); got != 1 {
 		t.Fatalf("partition = %v, want 1", got)
 	}
-	rows := row["block_mv_rows"].([]interface{})
-	cols := row["block_mv_cols"].([]interface{})
+	rows := row["block_mv_rows"].([]any)
+	cols := row["block_mv_cols"].([]any)
 	if len(rows) != 16 || len(cols) != 16 {
 		t.Fatalf("block MV arrays lengths = %d/%d, want 16/16", len(rows), len(cols))
 	}
@@ -441,11 +441,11 @@ func TestOracleInterCandidateTraceIncludesImprovedMVStart(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("trace rows = %d, want 1", len(lines))
 	}
-	var row map[string]interface{}
+	var row map[string]any
 	if err := json.Unmarshal(lines[0], &row); err != nil {
 		t.Fatalf("trace row is not valid JSON: %v", err)
 	}
-	for key, want := range map[string]interface{}{
+	for key, want := range map[string]any{
 		"type":                    "inter_candidate",
 		"picker":                  "rd",
 		"mode":                    "NEWMV",
@@ -511,7 +511,7 @@ func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 	mbRows := 0
 	sawBPred := false
 	for i, line := range splitNonEmptyLines(buf.Bytes()) {
-		var row map[string]interface{}
+		var row map[string]any
 		if err := json.Unmarshal(line, &row); err != nil {
 			t.Fatalf("trace line %d invalid JSON: %v", i, err)
 		}
@@ -582,15 +582,15 @@ func TestOracleTraceWriterNilProducesNoOverhead(t *testing.T) {
 		keyBytes := append([]byte(nil), keyResult.Data...)
 
 		inter := testImage(w, h)
-		for row := 0; row < h; row++ {
-			for col := 0; col < w; col++ {
+		for row := range h {
+			for col := range w {
 				inter.Y[row*inter.YStride+col] = key.Y[((row+1)%h)*key.YStride+((col+2)%w)]
 			}
 		}
 		uvW := (w + 1) >> 1
 		uvH := (h + 1) >> 1
-		for row := 0; row < uvH; row++ {
-			for col := 0; col < uvW; col++ {
+		for row := range uvH {
+			for col := range uvW {
 				inter.U[row*inter.UStride+col] = key.U[((row+1)%uvH)*key.UStride+((col+1)%uvW)]
 				inter.V[row*inter.VStride+col] = key.V[((row+1)%uvH)*key.VStride+((col+1)%uvW)]
 			}
@@ -635,7 +635,7 @@ func TestOracleTraceWriterNilProducesNoOverhead(t *testing.T) {
 
 func splitNonEmptyLines(b []byte) [][]byte {
 	var out [][]byte
-	for _, line := range bytes.Split(b, []byte("\n")) {
+	for line := range bytes.SplitSeq(b, []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}

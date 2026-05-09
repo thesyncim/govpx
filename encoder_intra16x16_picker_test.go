@@ -27,19 +27,19 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 
 	// Build a column pattern that the V_PRED predictor (above row) will copy.
 	pattern := [16]byte{}
-	for c := 0; c < 16; c++ {
+	for c := range 16 {
 		pattern[c] = byte(40 + c*8)
 	}
 	// Source MB at (mbRow,mbCol) replicates the pattern down each column —
 	// this is exactly what V_PRED reconstructs from its above row.
-	for r := 0; r < 16; r++ {
-		for c := 0; c < 16; c++ {
+	for r := range 16 {
+		for c := range 16 {
 			src.Y[(mbRow*16+r)*src.YStride+(mbCol*16+c)] = pattern[c]
 		}
 	}
 	// Uniform chroma so DC_PRED on a 128 reference is exact.
-	for r := 0; r < 8; r++ {
-		for c := 0; c < 8; c++ {
+	for r := range 8 {
+		for c := range 8 {
 			src.U[(mbRow*8+r)*src.UStride+(mbCol*8+c)] = 128
 			src.V[(mbRow*8+r)*src.VStride+(mbCol*8+c)] = 128
 		}
@@ -50,7 +50,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 	// V_PRED reads it as its above-row predictor. We do not vary the left
 	// column or top-left, so the H_PRED and TM_PRED predictors land far from
 	// the source.
-	for c := 0; c < 16; c++ {
+	for c := range 16 {
 		pred.Img.Y[(mbRow*16-1)*pred.Img.YStride+(mbCol*16+c)] = pattern[c]
 	}
 	pred.ExtendBorders()
@@ -94,7 +94,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 	// transform-domain RD via wholeBlockYTransformRD; the picker's reported
 	// rate/distortion must match a fresh transform pass exactly.
 	freshPred := testVP8Frame(t, width, height, 128, 128, 128)
-	for c := 0; c < 16; c++ {
+	for c := range 16 {
 		freshPred.Img.Y[(mbRow*16-1)*freshPred.Img.YStride+(mbCol*16+c)] = pattern[c]
 	}
 	freshPred.ExtendBorders()
@@ -146,23 +146,23 @@ func TestPredictBestWholeBlockIntraPicksHorizontalGradient(t *testing.T) {
 
 	// Build a row pattern that H_PRED's left-column predictor will copy.
 	pattern := [16]byte{}
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		pattern[r] = byte(50 + r*7)
 	}
-	for r := 0; r < 16; r++ {
-		for c := 0; c < 16; c++ {
+	for r := range 16 {
+		for c := range 16 {
 			src.Y[(mbRow*16+r)*src.YStride+(mbCol*16+c)] = pattern[r]
 		}
 	}
-	for r := 0; r < 8; r++ {
-		for c := 0; c < 8; c++ {
+	for r := range 8 {
+		for c := range 8 {
 			src.U[(mbRow*8+r)*src.UStride+(mbCol*8+c)] = 128
 			src.V[(mbRow*8+r)*src.VStride+(mbCol*8+c)] = 128
 		}
 	}
 
 	pred := testVP8Frame(t, width, height, 128, 128, 128)
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		pred.Img.Y[(mbRow*16+r)*pred.Img.YStride+(mbCol*16-1)] = pattern[r]
 	}
 	pred.ExtendBorders()

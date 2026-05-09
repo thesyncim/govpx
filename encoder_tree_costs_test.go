@@ -67,7 +67,6 @@ func TestTreeTokenCostMatchesSlowReference(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			for _, tok := range c.tokens {
 				got := treeTokenCost(c.tree, c.probs, tok)
@@ -91,7 +90,6 @@ func TestCoefTokenCostFromPathMatchesSlowReference(t *testing.T) {
 		vp8tables.DefaultCoefProbs[3][7][2],
 	}
 	for seedIdx, probs := range probSeeds {
-		probs := probs
 		for token := 0; token <= vp8tables.DCTEOBToken; token++ {
 			fast := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
 			slow := treeTokenCostSlow(vp8tables.CoefTree[:], probs[:], token)
