@@ -11,8 +11,63 @@ func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return sadBlockScalar(src, srcStride, ref, refStride, 16, 16)
 }
 
+// SAD16x16PtrFast is the pointer-form fallback used when callers have
+// already validated bounds. See sad_dispatch_arm64.go for the contract.
+func SAD16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	return sadBlockScalarPtr(src, srcStride, ref, refStride, 16, 16)
+}
+
+// SAD16x16LimitPtrFast is the limited pointer-form fallback. See
+// sad_dispatch_arm64.go for the contract.
+func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, limit int) int {
+	return sadBlockLimitScalarPtr(src, srcStride, ref, refStride, 16, 16, limit)
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	return sadBlockLimitScalar(src, srcStride, ref, refStride, 16, 16, limit)
+}
+
+func sadBlockScalarPtr(src *byte, srcStride int, ref *byte, refStride int, width, height int) int {
+	srcBase := unsafe.Pointer(src)
+	refBase := unsafe.Pointer(ref)
+	sad := 0
+	for y := 0; y < height; y++ {
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
+		for x := 0; x < width; x++ {
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+	}
+	return sad
+}
+
+func sadBlockLimitScalarPtr(src *byte, srcStride int, ref *byte, refStride int, width, height, limit int) int {
+	srcBase := unsafe.Pointer(src)
+	refBase := unsafe.Pointer(ref)
+	sad := 0
+	for y := 0; y < height; y++ {
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
+		for x := 0; x < width; x++ {
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+		if sad > limit {
+			return sad
+		}
+	}
+	return sad
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {

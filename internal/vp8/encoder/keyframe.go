@@ -71,14 +71,24 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
-		var err error
-		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			modeGrid := make([]KeyFrameMacroblockMode, rows*cols)
-			for i := range modeGrid {
-				modeGrid[i] = mode
-			}
-			return WriteZeroTokenGridPartitioned(writers, partitions, rows, cols, modeGrid, &tables.DefaultCoefProbs)
-		})
+		var (
+			writers    [8]BoolWriter
+			partitions int
+			scratch    *PartitionScratch
+			err        error
+		)
+		scratch, partitions, err = preparePartitionWriters(nil, &writers, dst, tokenStart, cfg.TokenPartition)
+		if err != nil {
+			return 0, err
+		}
+		modeGrid := make([]KeyFrameMacroblockMode, rows*cols)
+		for i := range modeGrid {
+			modeGrid[i] = mode
+		}
+		if err := WriteZeroTokenGridPartitioned(&writers, partitions, rows, cols, modeGrid, &tables.DefaultCoefProbs); err != nil {
+			return 0, err
+		}
+		n, err = finalizePartitionedTokenPayload(scratch, &writers, dst, tokenStart, partitions)
 		if err != nil {
 			return 0, err
 		}
@@ -143,10 +153,20 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
-		var err error
-		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return WriteZeroTokenGridPartitioned(writers, partitions, rows, cols, modes, &tables.DefaultCoefProbs)
-		})
+		var (
+			writers    [8]BoolWriter
+			partitions int
+			scratch    *PartitionScratch
+			err        error
+		)
+		scratch, partitions, err = preparePartitionWriters(nil, &writers, dst, tokenStart, cfg.TokenPartition)
+		if err != nil {
+			return 0, err
+		}
+		if err := WriteZeroTokenGridPartitioned(&writers, partitions, rows, cols, modes, &tables.DefaultCoefProbs); err != nil {
+			return 0, err
+		}
+		n, err = finalizePartitionedTokenPayload(scratch, &writers, dst, tokenStart, partitions)
 		if err != nil {
 			return 0, err
 		}
@@ -167,6 +187,15 @@ func WriteCoefficientKeyFrame(dst []byte, width int, height int, cfg KeyFrameSta
 }
 
 func WriteCoefficientKeyFrameWithProbabilityBase(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, tables.CoefficientProbs, error) {
+	return WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst, width, height, cfg, modes, coeffs, above, base, nil)
+}
+
+// WriteCoefficientKeyFrameWithProbabilityBaseScratch is the
+// allocation-pooled variant. Callers that drive the encoder hot path pass
+// a long-lived *PartitionScratch so the multi-token-partition path reuses
+// the same per-partition byte buffers across encodes; passing nil falls
+// back to allocating per call (the historical behaviour).
+func WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, scratch *PartitionScratch) (int, tables.CoefficientProbs, error) {
 	if len(dst) < KeyFrameUncompressedHdrSize {
 		return 0, tables.CoefficientProbs{}, ErrBufferTooSmall
 	}
@@ -230,10 +259,19 @@ func WriteCoefficientKeyFrameWithProbabilityBase(dst []byte, width int, height i
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
-		var err error
-		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return WriteCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
-		})
+		var (
+			writers    [8]BoolWriter
+			partitions int
+			resolved   *PartitionScratch
+		)
+		resolved, partitions, err = preparePartitionWriters(scratch, &writers, dst, tokenStart, cfg.TokenPartition)
+		if err != nil {
+			return 0, tables.CoefficientProbs{}, err
+		}
+		if err := WriteCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
+			return 0, tables.CoefficientProbs{}, err
+		}
+		n, err = finalizePartitionedTokenPayload(resolved, &writers, dst, tokenStart, partitions)
 		if err != nil {
 			return 0, tables.CoefficientProbs{}, err
 		}

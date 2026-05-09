@@ -180,10 +180,17 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
-		var err error
-		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return nil
-		})
+		var (
+			writers    [8]BoolWriter
+			partitions int
+			scratch    *PartitionScratch
+			err        error
+		)
+		scratch, partitions, err = preparePartitionWriters(nil, &writers, dst, tokenStart, cfg.TokenPartition)
+		if err != nil {
+			return 0, err
+		}
+		n, err = finalizePartitionedTokenPayload(scratch, &writers, dst, tokenStart, partitions)
 		if err != nil {
 			return 0, err
 		}
@@ -218,6 +225,15 @@ func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFram
 }
 
 func WriteCoefficientInterFrameWithProbabilityBase(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8) (int, tables.CoefficientProbs, [tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
+	return WriteCoefficientInterFrameWithProbabilityBaseScratch(dst, width, height, cfg, modes, coeffs, above, coefBase, yModeBase, uvModeBase, mvBase, nil)
+}
+
+// WriteCoefficientInterFrameWithProbabilityBaseScratch is the
+// allocation-pooled variant. Callers in the encoder hot path pass a
+// long-lived *PartitionScratch so the multi-token-partition path reuses
+// its per-partition byte buffers across encodes; passing nil falls back to
+// allocating per call (preserves the legacy public API behaviour).
+func WriteCoefficientInterFrameWithProbabilityBaseScratch(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8, partScratch *PartitionScratch) (int, tables.CoefficientProbs, [tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
 	if len(dst) < FrameTagSize {
 		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, ErrBufferTooSmall
 	}
@@ -285,10 +301,19 @@ func WriteCoefficientInterFrameWithProbabilityBase(dst []byte, width int, height
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
-		var err error
-		n, err = writePartitionedTokenPayload(dst, tokenStart, cfg.TokenPartition, func(partitions int, writers *[8]BoolWriter) error {
-			return WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs)
-		})
+		var (
+			writers    [8]BoolWriter
+			partitions int
+			resolved   *PartitionScratch
+		)
+		resolved, partitions, err = preparePartitionWriters(partScratch, &writers, dst, tokenStart, cfg.TokenPartition)
+		if err != nil {
+			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, err
+		}
+		if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
+			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, err
+		}
+		n, err = finalizePartitionedTokenPayload(resolved, &writers, dst, tokenStart, partitions)
 		if err != nil {
 			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, err
 		}

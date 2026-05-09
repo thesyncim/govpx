@@ -495,6 +495,15 @@ type VP8Encoder struct {
 	// downstream of the build.
 	reconstructAboveTok []vp8enc.TokenContextPlanes
 
+	// partScratch holds reusable per-token-partition byte buffers for the
+	// multi-token-partition packet writer (TokenPartitions in {1,2,3} maps
+	// to 2/4/8 partitions). Single-partition mode (TokenPartitions=0, the
+	// default) does not consult this; the field stays zero-valued. The
+	// buffers grow to len(dst) lazily on the first multi-partition frame
+	// and are reused thereafter so steady-state encodes hit zero
+	// allocations even with --token-parts=N>1.
+	partScratch vp8enc.PartitionScratch
+
 	interRDThreshMult       [libvpxInterModeCount]int
 	interRDThreshTouched    [libvpxInterModeCount]bool
 	interModeCheckFreq      [libvpxInterModeCount]int
@@ -622,6 +631,16 @@ type VP8Encoder struct {
 	// every committed frame, mirroring libvpx's cpi->total_byte_count for
 	// the rate-row oracle trace. Updated only when the trace is enabled.
 	oracleTraceTotalByteCount int64
+
+	// rowWorkers is the row-parallel encoder worker pool. Allocated
+	// only when EncoderOptions.Threads >= 2 so the canonical
+	// Threads=1 path stays zero-cost (no goroutine spawn, no
+	// atomic ops, no channel allocation, no per-row scratch
+	// allocation). Mirrors libvpx vp8/encoder/ethreading.c's
+	// cpi->mb_row_ei + cpi->encoding_thread_count layout. nil at
+	// Threads=1 so picker / reconstruct hot paths can branch on a
+	// single nil-check before any threading code path executes.
+	rowWorkers *rowWorkerPool
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
@@ -821,6 +840,16 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.opts.TemporalScalability = e.temporal.config
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	// Allocate the row-parallel worker pool only when Threads >= 2.
+	// Threads=1 stays byte-identical and zero-cost: no pool, no
+	// goroutines, no atomic ops, no per-row scratch allocation.
+	// Mirrors libvpx vp8cx_create_encoder_threads early return when
+	// cpi->oxcf.multi_threaded < 2.
+	if eff := e.effectiveThreadCount(); eff >= 2 {
+		mbRows := encoderMacroblockRows(e.opts.Height)
+		mbCols := encoderMacroblockCols(e.opts.Width)
+		e.rowWorkers = newRowWorkerPool(eff, mbRows, mbCols)
+	}
 	return e, nil
 }
 
@@ -1588,7 +1617,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefreshEntropyProbs: true,
 		IndependentContexts: e.opts.ErrorResilientPartitions,
 	}
-	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -1943,7 +1972,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.Segmentation = segmentation
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
-	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBase(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV)
+	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV, &e.partScratch)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -3510,6 +3539,10 @@ func (e *VP8Encoder) Close() error {
 		return ErrClosed
 	}
 	e.Reset()
+	if e.rowWorkers != nil {
+		e.rowWorkers.shutdownPool()
+		e.rowWorkers = nil
+	}
 	e.closed = true
 	return nil
 }
@@ -4009,14 +4042,48 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 		startRow, rowCount = loopFilterPartialFrameWindow(rows)
 	}
 	total := 0
+	srcY := src.Y
+	imgY := img.Y
+	srcStride := src.YStride
+	imgStride := img.YStride
+	srcW := src.Width
+	srcH := src.Height
+	imgW := img.CodedWidth
+	imgH := img.CodedHeight
+	// Pre-compute the column gating for the hot row (every MB in a fully
+	// in-bounds row is covered by the SSE16x16PtrFast SIMD-bypass path).
+	// 1280x720 / 1920x1080 / aligned-width frames pass this check for
+	// every column, so the inner loop collapses to a tight call sequence.
+	colsAllAligned := cols > 0 && cols*16 <= srcW && cols*16 <= imgW
 	for mbRow := startRow; mbRow < startRow+rowCount && mbRow < rows; mbRow++ {
 		baseY := mbRow * 16
-		for mbCol := range cols {
-			baseX := mbCol * 16
-			if baseY+16 <= src.Height && baseX+16 <= src.Width && baseY+16 <= img.CodedHeight && baseX+16 <= img.CodedWidth {
-				total += dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[baseY*img.YStride+baseX:], img.YStride)
+		// Hoist the per-row Y bounds + base offset out of the column loop;
+		// once baseY clears the row check, every MB on the row uses the
+		// same vertical clearance.
+		if baseY+16 <= srcH && baseY+16 <= imgH {
+			srcRowOff := baseY * srcStride
+			imgRowOff := baseY * imgStride
+			if colsAllAligned {
+				// Hot path: every MB on the row is fully in-bounds for
+				// both src and img — no per-column bounds check needed.
+				for mbCol := range cols {
+					baseX := mbCol * 16
+					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+				}
 				continue
 			}
+			for mbCol := range cols {
+				baseX := mbCol * 16
+				if baseX+16 <= srcW && baseX+16 <= imgW {
+					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+					continue
+				}
+				total += loopFilterLumaBlockSSE(src, img, baseY, baseX)
+			}
+			continue
+		}
+		for mbCol := range cols {
+			baseX := mbCol * 16
 			total += loopFilterLumaBlockSSE(src, img, baseY, baseX)
 		}
 	}
