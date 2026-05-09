@@ -557,13 +557,8 @@ func renderFlatGap(m map[string]any) (headline, table string) {
 	}
 	table = strings.TrimRight(out.String(), "\n")
 
-	type fxWorst struct {
-		val     float64
-		fixture string
-		col     string
-	}
-	pp := fxWorst{val: worstPP.val, col: worstPP.col}
-	rw := fxWorst{val: worstRaw.val, col: worstRaw.col}
+	pp := gapWorst{val: worstPP.val, col: worstPP.col}
+	rw := gapWorst{val: worstRaw.val, col: worstRaw.col}
 	headline = gapHeadline(sawPP, pp, sawRaw, rw)
 	return headline, table
 }

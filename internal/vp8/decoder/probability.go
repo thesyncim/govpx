@@ -14,6 +14,7 @@ type CoefficientProbabilityHeader struct {
 	IndependentPartitions bool
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of probe-only coef-update header parsing
 func parseCoefficientProbabilityHeader(br *boolcoder.Decoder) CoefficientProbabilityHeader {
 	return parseCoefficientProbabilityHeaderInto(br, nil)
 }

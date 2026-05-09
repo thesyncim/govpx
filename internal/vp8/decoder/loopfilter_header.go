@@ -27,6 +27,7 @@ type LoopFilterHeader struct {
 	ModeDeltas [common.MaxModeLFDeltas]int8
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of fresh-state loop-filter header parsing
 func parseLoopFilterHeader(br *boolcoder.Decoder) LoopFilterHeader {
 	return parseLoopFilterHeaderWithPrevious(br, LoopFilterHeader{})
 }

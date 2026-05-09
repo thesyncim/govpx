@@ -3612,6 +3612,12 @@ func pickFastBPredLumaModeKF(src vp8enc.SourceImage, qIndex int, mbRow int, mbCo
 	return modes, totalRate, rd, true
 }
 
+// predictBestInterIntraModeCost is the parity helper that returns the
+// inter-frame intra-mode RD pick without the picker context-state caches;
+// retained for future ports that drive the intra branch of the inter mode
+// decision without instantiating the full inter mode loop.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of inter-intra mode picker
 func (e *VP8Encoder) predictBestInterIntraModeCost(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch) (vp8enc.InterFrameMacroblockMode, int, bool) {
 	fastQuant := e.libvpxUseFastQuantForPick()
 	zbinOverQuant := e.rc.currentZbinOverQuant
@@ -4471,10 +4477,20 @@ var libvpxSADPerBit4LUT = [vp8common.QIndexRange]int{
 	18, 18, 19, 19, 19, 20, 20, 20,
 }
 
+// interMotionRDScore is the parity helper that produces an RD score from a
+// (mv, ref) pair without going through the residual cost estimator;
+// retained for future ports of the lightweight motion-only RD scoring
+// path used in libvpx's pick-inter-mode shortcut branches.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of motion-only RD scorer
 func interMotionRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	return rdModeScore(qIndex, interMotionVectorCost(mv, mvProbs), macroblockLumaSSE(src, ref, mbRow, mbCol, mv))
 }
 
+// estimateInterResidualRDScore is the parity wrapper that auto-derives the
+// reference-frame rate from the encoder's current ref-prob state.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of residual RD wrappers
 func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8) (int, bool) {
 	refRate := 1 << 30
 	if e != nil && mode != nil {
@@ -4483,6 +4499,10 @@ func (e *VP8Encoder) estimateInterResidualRDScore(src vp8enc.SourceImage, ref *v
 	return e.estimateInterResidualRDScoreWithReferenceRate(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, refRate)
 }
 
+// estimateInterResidualRDScoreWithReferenceRate is the parity wrapper that
+// drops the rdLoopSkip flag from the accounting return.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of residual RD wrappers
 func (e *VP8Encoder) estimateInterResidualRDScoreWithReferenceRate(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (int, bool) {
 	score, _, ok := e.estimateInterResidualRDScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, refRate)
 	return score, ok
@@ -4581,6 +4601,10 @@ func (e *VP8Encoder) estimateFastInterModeScore(src vp8enc.SourceImage, ref *vp8
 	return score, ok
 }
 
+// estimateFastInterModeScoreWithReferenceRate is the parity wrapper that
+// drops the breakout/skip return values from the andSkip variant.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of fast picker wrappers
 func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int) (int, bool) {
 	score, _, _, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
 	return score, ok
@@ -4674,6 +4698,11 @@ func interModeHasSmallMotion(mode *vp8enc.InterFrameMacroblockMode) bool {
 	return row < 8 && col < 8
 }
 
+// selectInterFrameMotionVector is the parity wrapper that uses the default
+// search config and zero (mbRows, mbCols) bounds; retained for future
+// ports of the unbounded MV search call sites.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of unbounded MV search wrappers
 func selectInterFrameMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
 	return selectInterFrameMotionVectorWithSearch(src, ref, mbRow, mbCol, 0, 0, bestRefMV, qIndex, defaultInterAnalysisSearchConfig(), mvProbs)
 }
@@ -4714,6 +4743,7 @@ func selectRDInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *
 // the candidate's MV-cost against bestRefMV instead of (0,0). Standalone
 // callers keep the exhaustive sweep for existing coverage; encoder mode
 // decision uses libvpx's NSTEP/hex speed-feature paths.
+//lint:ignore U1000 libvpx parity helper, retained for future ports of unbounded full-pixel MV search wrappers
 func selectInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
 	return selectInterFrameFullPixelMotionVectorWithSearch(src, ref, mbRow, mbCol, 0, 0, bestRefMV, qIndex, defaultInterAnalysisSearchConfig())
 }
@@ -4968,6 +4998,7 @@ func insertionSortInts(values []int) {
 	}
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of split-block MV search wrappers
 func selectInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
 	return selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(src, ref, mbRow, mbCol, block, width, height, bestRefMV, bestRefMV, qIndex)
 }
@@ -5433,6 +5464,7 @@ func steppedDiamondInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *
 	return best, bestCost
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of nstep diamond-search wrappers
 func diamondNstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, searchParam int, mvProbs *[2][vp8tables.MVPCount]uint8) interFrameNstepSearchResult {
 	return diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, interFrameNstepSites[:], 8, searchParam, mvProbs)
 }
@@ -5937,6 +5969,7 @@ func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Imag
 	return splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + interMotionSplitBlockSearchVectorCost(mv, bestRefMV, qIndex)
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of qIndex-derived SAD-limited search wrappers
 func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, bestRefMV vp8enc.MotionVector, qIndex int) int {
 	return interMotionSearchCostLimitedSADPerBit(src, ref, mbRow, mbCol, mv, limit, bestRefMV, libvpxSADPerBit16(qIndex))
 }
@@ -5945,6 +5978,8 @@ func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, 
 // hot caller can hoist the LUT lookup out of its inner loop. Behaviour
 // matches interMotionSearchCostLimited; macroblockSADLimited's own hot
 // path covers the full-pel-in-bounds case.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of SAD-limited generic search
 func interMotionSearchCostLimitedSADPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, bestRefMV vp8enc.MotionVector, sadPerBit int) int {
 	mvCost := vp8enc.MotionVectorSADCost(mv, bestRefMV, sadPerBit)
 	sadLimit := limit - mvCost
@@ -6279,6 +6314,7 @@ func analysisSplitAboveMV(cur *vp8enc.InterFrameMacroblockMode, above *vp8enc.In
 	return cur.BlockMV[block-4]
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of MV bit-cost wrappers
 func interMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	if mvProbs == nil {
 		return maxInt() / 4

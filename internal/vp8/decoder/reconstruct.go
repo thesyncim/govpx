@@ -22,6 +22,11 @@ var (
 	ErrUnsupportedInterReconstructionMode = errors.New("govpx: unsupported VP8 inter reconstruction mode")
 )
 
+// interPredictorPlan packages the per-plane offsets the inter-predictor
+// dispatch needs to hand to the subpel kernels; retained for future ports
+// of decoder paths that pre-stage planes ahead of the per-MB call.
+//
+//lint:ignore U1000 libvpx parity helper, retained for future ports of pre-staged inter predictor plan
 type interPredictorPlan struct {
 	YPlane []byte
 	UPlane []byte
@@ -449,6 +454,7 @@ func isWholeMacroblockInterMode(mode common.MBPredictionMode) bool {
 	}
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of pre-staged inter predictor plan
 func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVector, cfg InterPredictionConfig) (interPredictorPlan, bool) {
 	if ref == nil {
 		return interPredictorPlan{}, false
@@ -523,6 +529,7 @@ func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight in
 	return origin + row*stride + col, true
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of 16x16 inter predictor entry
 func predictInter16x16(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
 	if xOffset|yOffset == 0 {
 		dsp.Copy16x16(src, srcStride, dst, dstStride)
@@ -535,6 +542,7 @@ func predictInter16x16(src []byte, srcStride int, xOffset int, yOffset int, dst 
 	dsp.SixTapPredict16x16(src, srcStride, xOffset, yOffset, dst, dstStride)
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of 8x8 inter predictor entry
 func predictInter8x8(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
 	if xOffset|yOffset == 0 {
 		dsp.Copy8x8(src, srcStride, dst, dstStride)
@@ -649,6 +657,7 @@ func clampChromaUMVComponent(v int, lowEdge int, highEdge int) int {
 	return v
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of chroma MV component derivation
 func chromaMotionVectorComponent(v int16) int {
 	mv := int(v)
 	if mv < 0 {
@@ -659,6 +668,7 @@ func chromaMotionVectorComponent(v int16) int {
 	return mv / 2
 }
 
+//lint:ignore U1000 libvpx parity helper, retained for future ports of mode-keyed ref-image dispatch
 func referenceImageForMode(refFrame common.MVReferenceFrame, last *common.Image, golden *common.Image, alt *common.Image) *common.Image {
 	switch refFrame {
 	case common.LastFrame:

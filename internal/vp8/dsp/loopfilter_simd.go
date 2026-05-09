@@ -18,6 +18,7 @@ package dsp
 // vertical-edge dispatch loads four bytes per row across count*8 rows
 // into the lane slots, applies the same kernel, then scatters back.
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func loopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	width := count * 8
 	_ = s[7*stride+width-1]
@@ -45,6 +46,7 @@ func loopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh byte
 	}
 }
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func loopFilterVerticalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	rows := count * 8
 	_ = s[(rows-1)*stride+7]
@@ -64,6 +66,7 @@ func loopFilterVerticalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, 
 	}
 }
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func mbLoopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	width := count * 8
 	_ = s[7*stride+width-1]
@@ -93,6 +96,7 @@ func mbLoopFilterHorizontalEdgeGo(s []byte, stride int, blimit, limit, thresh by
 	}
 }
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func mbLoopFilterVerticalEdgeGo(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	rows := count * 8
 	_ = s[(rows-1)*stride+7]
@@ -156,6 +160,7 @@ func absDiffFast(a, b byte) byte {
 	return b - a
 }
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func loopFilterPixels(mask, hev byte, op1, op0, oq0, oq1 byte) (byte, byte, byte, byte) {
 	ps1 := int8(op1 ^ 0x80)
 	ps0 := int8(op0 ^ 0x80)
@@ -185,6 +190,7 @@ func loopFilterPixels(mask, hev byte, op1, op0, oq0, oq1 byte) (byte, byte, byte
 	return np1, np0, nq0, nq1
 }
 
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func mbLoopFilterPixels(mask, hev byte, op2, op1, op0, oq0, oq1, oq2 byte) (byte, byte, byte, byte, byte, byte) {
 	ps2 := int8(op2 ^ 0x80)
 	ps1 := int8(op1 ^ 0x80)
@@ -224,6 +230,8 @@ func mbLoopFilterPixels(mask, hev byte, op2, op1, op0, oq0, oq1, oq2 byte) (byte
 }
 
 //go:inline
+//
+//lint:ignore U1000 libvpx parity helper, scalar fallback retained for non-arm64/amd64 builds
 func scClamp(v int) int8 {
 	if v < -128 {
 		return -128
