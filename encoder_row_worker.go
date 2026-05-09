@@ -35,6 +35,14 @@ type rowEncoderState struct {
 	// distributed.
 	rowIndex int
 
+	// enc is a shallow, worker-private encoder view. Slices and frame
+	// buffers still point at the frame-level storage, but adaptive picker
+	// scalars, threshold tables, error bins, and scratch are private to
+	// the worker. This mirrors libvpx setup_mbby_copy: workers share the
+	// immutable frame inputs and write disjoint MB slots, but do not contend
+	// on picker state.
+	enc VP8Encoder
+
 	// leftTok is the persistent left token-context scratch for the
 	// row's MB column traversal. libvpx zeroes this at the start of
 	// every row and updates it as each MB commits its tokens (see
@@ -45,16 +53,57 @@ type rowEncoderState struct {
 	// across the row's MB columns. Mirrors libvpx MACROBLOCK *x's
 	// per-thread workspace from setup_mbby_copy.
 	scratch vp8dec.IntraReconstructionScratch
+
+	// dotArtifactChecked is a worker-private shadow of the per-MB
+	// dot-artifact reset map. It is OR-merged into the encoder after all
+	// rows finish so the hot picker does not share a write-heavy bool slice.
+	dotArtifactChecked []bool
+
+	totalRate int
 }
 
 // reset re-initializes the per-row worker state for a fresh frame
 // dispatch. Called by the row pool before handing the worker its
 // next row index.
-func (rs *rowEncoderState) reset(_ *VP8Encoder) {
+func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	if rs == nil {
 		return
 	}
 	rs.leftTok = vp8enc.TokenContextPlanes{}
+	rs.totalRate = 0
+	if e == nil {
+		return
+	}
+	rs.enc = *e
+	rs.enc.rowWorkers = nil
+	rs.enc.reconstructScratch = rs.scratch
+	rs.enc.oracleTraceMBBuffer = nil
+	rs.enc.oracleTraceInterCandidateBuffer = nil
+	if cap(rs.dotArtifactChecked) < required {
+		rs.dotArtifactChecked = make([]bool, required)
+	} else {
+		rs.dotArtifactChecked = rs.dotArtifactChecked[:required]
+		clear(rs.dotArtifactChecked)
+	}
+	rs.enc.dotArtifactChecked = rs.dotArtifactChecked
+}
+
+func (rs *rowEncoderState) finish() {
+	if rs == nil {
+		return
+	}
+	rs.scratch = rs.enc.reconstructScratch
+}
+
+const encoderCacheLineSize = 64
+
+type paddedAtomicInt64 struct {
+	value atomic.Int64
+	_     [encoderCacheLineSize - 8]byte
+}
+
+func (p *paddedAtomicInt64) Load() int64 {
+	return p.value.Load()
 }
 
 // rowWorkerPool is the encoder-owned pool of pre-allocated row
@@ -81,16 +130,36 @@ type rowWorkerPool struct {
 
 	// rowProgress[r] is the atomic wave-front counter for row r.
 	// Sized to encoderMacroblockRows(height) at pool construction.
-	rowProgress []atomic.Int64
+	rowProgress []paddedAtomicInt64
 
 	// syncRange mirrors libvpx's cpi->mt_sync_range.
 	syncRange int
 
-	// shutdown closes when the encoder is being reset or finalized.
+	// start has one lane per worker. The channels are allocated once
+	// with the pool; each frame publishes immutable frame arguments on
+	// the pool and then releases the active workers through these lanes.
+	start []chan struct{}
+
+	// done returns the worker index after that worker has finished its
+	// frame slice. Buffered to worker count so fast workers never block
+	// on the dispatcher while slower rows are still running.
+	done chan int
+
+	// Frame-local dispatch state read by persistent worker goroutines.
+	// The dispatcher writes these fields before sending on start and
+	// rewrites them only after receiving done from every active worker.
+	encoder      *VP8Encoder
+	args         threadedInterRowsArgs
+	workerCount  int
+	required     int
+	abort        atomic.Int32
+	workerErrors []error
+
+	// shutdown closes when the encoder is finalized.
 	shutdown chan struct{}
 
-	// wg tracks any spawned worker goroutines so Reset / GC can
-	// wait for them to drain.
+	// wg tracks persistent worker goroutines so Close can wait for them
+	// to drain.
 	wg sync.WaitGroup
 }
 
@@ -103,12 +172,54 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		return nil
 	}
 	pool := &rowWorkerPool{
-		workers:     make([]rowEncoderState, threads),
-		rowProgress: make([]atomic.Int64, mbRows),
-		syncRange:   8,
-		shutdown:    make(chan struct{}),
+		workers:      make([]rowEncoderState, threads),
+		rowProgress:  make([]paddedAtomicInt64, mbRows),
+		syncRange:    8,
+		start:        make([]chan struct{}, threads),
+		done:         make(chan int, threads),
+		workerErrors: make([]error, threads),
+		shutdown:     make(chan struct{}),
+	}
+	for i := range pool.workers {
+		start := make(chan struct{})
+		pool.start[i] = start
+		pool.wg.Add(1)
+		go pool.workerLoop(i, start)
 	}
 	return pool
+}
+
+func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
+	defer p.wg.Done()
+	for {
+		select {
+		case <-start:
+			p.runThreadedInterFrameWorker(workerIndex)
+			p.done <- workerIndex
+		case <-p.shutdown:
+			return
+		}
+	}
+}
+
+func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
+	worker := &p.workers[workerIndex]
+	worker.reset(p.encoder, p.required)
+	defer worker.finish()
+	var err error
+	for row := workerIndex; row < p.args.rows; row += p.workerCount {
+		if p.abort.Load() != 0 {
+			break
+		}
+		rate, rowErr := worker.encodeThreadedInterFrameRow(p, &p.args, row, &p.abort)
+		if rowErr != nil {
+			err = rowErr
+			p.abort.Store(1)
+			break
+		}
+		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+	}
+	p.workerErrors[workerIndex] = err
 }
 
 // reset re-initializes the per-row progress counters for a fresh
@@ -119,12 +230,12 @@ func (p *rowWorkerPool) reset(mbRows int) {
 		return
 	}
 	if cap(p.rowProgress) < mbRows {
-		p.rowProgress = make([]atomic.Int64, mbRows)
+		p.rowProgress = make([]paddedAtomicInt64, mbRows)
 	} else {
 		p.rowProgress = p.rowProgress[:mbRows]
 	}
 	for i := range p.rowProgress {
-		p.rowProgress[i].Store(-1)
+		p.rowProgress[i].value.Store(-1)
 	}
 }
 
@@ -136,23 +247,34 @@ func (p *rowWorkerPool) publishRowColumn(r int, col int) {
 	if p == nil || r < 0 || r >= len(p.rowProgress) {
 		return
 	}
-	p.rowProgress[r].Store(int64(col))
+	p.rowProgress[r].value.Store(int64(col))
 }
 
 // waitForAboveColumn spin-waits until row r-1 has published a column
 // index of at least `col`. Mirrors vp8_atomic_spin_wait in
 // vp8/encoder/ethreading.c. Returns immediately when r == 0.
 func (p *rowWorkerPool) waitForAboveColumn(r int, col int) {
+	_ = p.waitForAboveColumnAbort(r, col, nil)
+}
+
+func (p *rowWorkerPool) waitForAboveColumnAbort(r int, col int, abort *atomic.Int32) bool {
 	if p == nil || r <= 0 || r >= len(p.rowProgress) {
-		return
+		return true
 	}
 	target := int64(col)
-	above := &p.rowProgress[r-1]
-	for {
+	above := &p.rowProgress[r-1].value
+	const spinBudget = 256
+	for i := 0; ; i++ {
 		if above.Load() >= target {
-			return
+			return true
 		}
-		runtime.Gosched()
+		if abort != nil && abort.Load() != 0 {
+			return false
+		}
+		if i >= spinBudget {
+			runtime.Gosched()
+			i = 0
+		}
 	}
 }
 

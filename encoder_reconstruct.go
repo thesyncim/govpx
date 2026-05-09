@@ -248,6 +248,86 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
 }
 
+//go:noinline
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsMaybeThreaded(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) (int, error) {
+	return e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
+}
+
+//go:noinline
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) (int, error) {
+	if !e.useThreadedInterFrameRows(rows, cols) {
+		return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, segmentation, preserveSegmentID, modes, coeffs, rows, cols, flags)
+	}
+	return e.buildReconstructingInterFrameCoefficientsWithSegmentationThreaded(src, qIndex, segmentation, preserveSegmentID, modes, coeffs, rows, cols, flags)
+}
+
+func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationThreaded(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) (int, error) {
+	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
+		return 0, ErrInvalidConfig
+	}
+	e.resetOracleMBTraceBuffer()
+	required := rows * cols
+	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
+		return 0, ErrInvalidConfig
+	}
+
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, segmentation, &quants); err != nil {
+		return 0, ErrInvalidConfig
+	}
+	decSegmentation := encoderSegmentationToDecoder(segmentation)
+	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
+
+	var refs [3]interAnalysisReference
+	refCount := e.interAnalysisReferences(flags, &refs)
+	if refCount == 0 {
+		return 0, ErrInvalidConfig
+	}
+	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
+	e.emitOracleLastRefWindow(&e.lastRef.Img)
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	aboveTok := e.acquireReconstructAboveTok(cols)
+	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
+	var lastRefForActiveMap *interAnalysisReference
+	if activeMapEnabled {
+		for ri := range refCount {
+			if refs[ri].Frame == vp8common.LastFrame {
+				lastRefForActiveMap = &refs[ri]
+				break
+			}
+		}
+	}
+
+	args := threadedInterRowsArgs{
+		src:                    src,
+		qIndex:                 qIndex,
+		segmentation:           segmentation,
+		preserveSegmentID:      preserveSegmentID,
+		modes:                  modes,
+		coeffs:                 coeffs,
+		rows:                   rows,
+		cols:                   cols,
+		refs:                   refs,
+		refCount:               refCount,
+		quants:                 quants,
+		aboveTok:               aboveTok,
+		activeMapEnabled:       activeMapEnabled,
+		sourceAltRefZeroMVOnly: sourceAltRefZeroMVOnly,
+	}
+	if lastRefForActiveMap != nil {
+		args.activeMapLastAvailable = true
+		args.activeMapLastRef = *lastRefForActiveMap
+	}
+	threadedRate, err := e.buildReconstructingInterFrameCoefficientsThreaded(args)
+	if err != nil {
+		return 0, err
+	}
+	e.analysis.ExtendBorders()
+	return threadedRate, nil
+}
+
 // buildReconstructingInterFrameCoefficientsWithSegmentation drives the
 // per-MB inter-frame RD picker, residual reconstruction, and token-context
 // commit in libvpx's encode_mb_row order (vp8/encoder/encodeframe.c). The

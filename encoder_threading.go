@@ -5,9 +5,7 @@ import "runtime"
 // maxEncoderThreads bounds EncoderOptions.Threads. libvpx's
 // VP8E_SET_NUMBER_OF_THREADS (vp8/encoder/onyx_if.c) clamps against
 // processor_core_count and the macroblock-column / mt_sync_range budget;
-// govpx applies a hard ceiling here to bound per-frame scratch
-// allocations sized by Threads when the row-threaded macroblock pipeline
-// (mirroring vp8/encoder/ethreading.c thread_encoding_proc) lands.
+// govpx applies a hard ceiling here to bound persistent row-worker state.
 //
 // 64 is comfortably above today's largest commodity NUMA node and well
 // above the libvpx --threads=N ceiling (which the upstream vpxenc CLI
@@ -15,16 +13,13 @@ import "runtime"
 const maxEncoderThreads = 64
 
 // effectiveThreadCount returns the runtime worker-goroutine count for
-// per-frame parallel work, derived from EncoderOptions.Threads. Mirrors
-// libvpx vp8cx_create_encoder_threads (vp8/encoder/ethreading.c) which
-// clamps multi_threaded against cm->processor_core_count. govpx caps
+// row-parallel inter-frame work, derived from EncoderOptions.Threads.
+// Mirrors libvpx vp8cx_create_encoder_threads (vp8/encoder/ethreading.c),
+// which clamps multi_threaded against cm->processor_core_count. govpx caps
 // against runtime.NumCPU() so a misconfigured Threads value does not
-// oversubscribe the host. The encoder's existing serial macroblock loop
-// is currently invoked for any returned value (Threads=1 today is the
-// canonical reference path); callers must not interpret a return value
-// >1 as guaranteed parallelism, and the per-MB output remains
-// byte-identical regardless of this number until the row-threaded
-// pipeline lands.
+// oversubscribe the host. A value >1 permits row threading; individual
+// frames may still fall back to the serial loop when they are too small or
+// when oracle tracing requires byte-stable serial instrumentation.
 func (e *VP8Encoder) effectiveThreadCount() int {
 	if e == nil {
 		return 1

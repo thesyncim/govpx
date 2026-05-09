@@ -59,40 +59,25 @@ type EncoderOptions struct {
 	TimebaseNum int
 	TimebaseDen int
 
-	// Threads selects the worker-goroutine count for the per-frame
-	// macroblock pipeline. Mirrors libvpx's VP8E_SET_TOKEN_PARTITIONS / the
-	// `--threads` vpxenc flag and the `cpi->oxcf.multi_threaded` knob in
-	// vp8/encoder/onyx_if.c.
+	// Threads selects the worker-goroutine count for the inter-frame
+	// row-threaded macroblock pipeline. Mirrors libvpx's `--threads`
+	// vpxenc flag and the `cpi->oxcf.multi_threaded` knob in
+	// vp8/encoder/onyx_if.c / ethreading.c.
 	//
 	// Semantics:
 	//   - 0 (default in zero-initialized opts) is treated as 1: a single
 	//     goroutine drives the macroblock loop, byte-identical to the
 	//     historical govpx encoder.
-	//   - 1 is the pinned single-threaded reference path. All 16 oracle
-	//     scoreboards and parity tests run with this default; the
-	//     committed bitstream and reconstructed pixels are the canonical
-	//     output the parity baselines lock against.
-	//   - Values >1 are accepted by the configuration validator and
-	//     reserved for the libvpx-style row-threaded macroblock pipeline
-	//     (see internal/coracle/build/libvpx-v1.16.0/vp8/encoder/ethreading.c
-	//     thread_encoding_proc and vp8cx_create_encoder_threads). The
-	//     current encoder collapses any Threads >= 1 onto the same serial
-	//     loop because the per-MB adaptive RD-threshold state
-	//     (interRDThreshMult, interMBsTestedSoFar, interModeErrorBins,
-	//     consecZeroLastMVBias, dotArtifactChecked, mbsZeroLastDotSuppress)
-	//     is read and mutated in raster order during mode decision; libvpx
-	//     copies that state per worker (setup_mbby_copy in
-	//     vp8/encoder/ethreading.c) and accepts that the threaded encoder
-	//     produces a different bitstream than the single-threaded one.
-	//     govpx's parity scoreboards pin against the single-threaded
-	//     output, so a future row-threaded path must either land behind
-	//     the same flag (and refresh baselines) or stage the adaptive RD
-	//     state into per-row shadows that the post-row merge replays in
-	//     deterministic order. The validator accepts the value today so
-	//     callers can plumb the option through and so cmd/govpx-bench /
-	//     scripts can sweep it as soon as the parallel implementation
-	//     lands; until then the bench-reported ns/frame is independent of
-	//     this field.
+	//   - 1 is the pinned single-threaded reference path. No row pool is
+	//     allocated, no worker goroutine is spawned, and the reconstruction
+	//     hot path does not execute atomics or channel operations introduced
+	//     for threading.
+	//   - Values >1 allocate a persistent row-worker pool and enable the
+	//     libvpx-style wave-front inter-frame encode when the frame is large
+	//     enough and oracle tracing is disabled. Per-worker encoder shadows
+	//     hold adaptive RD and scratch state; fixed thread counts are
+	//     deterministic but may produce a different bitstream than Threads=1,
+	//     matching libvpx's threaded behavior.
 	//   - A negative value is rejected with ErrInvalidConfig.
 	Threads int
 
@@ -1947,9 +1932,17 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}()
 	if segmentation.Enabled {
 		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
-		projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		if e.rowWorkers != nil {
+			projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		} else {
+			projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		}
 	} else {
-		projectedRate, err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		if e.rowWorkers != nil {
+			projectedRate, err = e.buildReconstructingInterFrameCoefficientsMaybeThreaded(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		} else {
+			projectedRate, err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
+		}
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
