@@ -804,7 +804,7 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 	e.probSkipFalse = 91
 	rows := encoderMacroblockRows(32)
 	cols := encoderMacroblockCols(32)
-	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true, false)
+	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true, false, true)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt returned error: %v", err)
 	}

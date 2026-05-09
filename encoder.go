@@ -1645,7 +1645,8 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
 	for attempt := 0; ; attempt++ {
 		e.oracleTraceRecodeLoopCount++
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef)
+		needProjectedSize := allowRecode || e.oracleTraceEnabled()
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, needProjectedSize)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -1837,7 +1838,7 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 	return false
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, needProjectedSize bool) (interFrameEncodeAttempt, error) {
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -1975,7 +1976,12 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	projectedBits, coefSavings, refFrameSavings := e.projectedFrameSizeBitsFromRateWithSavings(false, required, projectedRate, cfg.RefreshGolden, cfg.RefreshAltRef)
+	projectedBits := encodedSizeBits(n)
+	coefSavings := 0
+	refFrameSavings := 0
+	if needProjectedSize {
+		projectedBits, coefSavings, refFrameSavings = e.projectedFrameSizeBitsFromRateWithSavings(false, required, projectedRate, cfg.RefreshGolden, cfg.RefreshAltRef)
+	}
 	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
