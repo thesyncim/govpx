@@ -36,8 +36,12 @@ TEXT ·transformBlockErrorSSE2(SB), NOSPLIT, $0-24
 	PSUBW	X1, X0
 	PSUBW	X3, X2
 
-	PMADDWD	X0, X0
-	PMADDWD	X2, X2
+	// PMADDWD X0, X0 — Go's amd64 assembler does not register the
+	// non-VEX SSE2 form (only VPMADDWD). Encode the SSE2 byte sequence
+	// directly: 66 0F F5 /r with ModR/M selecting (xmm0, xmm0) = 0xC0
+	// and (xmm2, xmm2) = 0xD2.
+	BYTE $0x66; BYTE $0x0f; BYTE $0xf5; BYTE $0xc0  // PMADDWD X0, X0
+	BYTE $0x66; BYTE $0x0f; BYTE $0xf5; BYTE $0xd2  // PMADDWD X2, X2
 
 	PADDD	X2, X0
 
