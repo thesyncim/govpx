@@ -813,8 +813,8 @@ func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
 		{Col: -128},
 		{Col: 128},
 		{Row: -128, Col: -128},
-		{Row: -128, Col: 128},
 		{Row: 128, Col: -128},
+		{Row: -128, Col: 128},
 		{Row: 128, Col: 128},
 	}
 	for i, want := range wantFirst {
