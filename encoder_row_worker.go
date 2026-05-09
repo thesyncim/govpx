@@ -219,11 +219,15 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 }
 
 func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
+	workerCount := p.workerCount
+	if workerCount <= 0 {
+		return
+	}
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required)
 	defer worker.finish()
 	var err error
-	for row := workerIndex; row < p.args.rows; row += p.workerCount {
+	for row := workerIndex; row < p.args.rows; row += workerCount {
 		if p.abort.Load() != 0 {
 			break
 		}
