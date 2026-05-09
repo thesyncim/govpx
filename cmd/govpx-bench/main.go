@@ -72,6 +72,11 @@ type benchReport struct {
 	Options           benchConfigSummary `json:"options"`
 }
 
+type measuredEncodePacket struct {
+	data        []byte
+	sourceIndex int
+}
+
 // comparisonReport summarizes how govpx compared against the libvpx
 // reference encoder on the same input. It is populated only when a
 // libvpx vpxenc binary is configured (via `-libvpx-vpxenc` or the
@@ -573,21 +578,30 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		}
 	}
 	enc.Reset()
-	var memBefore runtime.MemStats
-	var memAfter runtime.MemStats
-	runtime.ReadMemStats(&memBefore)
+	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
+	encodeMallocs := uint64(0)
 	for i, frame := range frames {
+		var memBefore runtime.MemStats
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
 		start := time.Now()
 		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
 		elapsed := time.Since(start)
+		runtime.ReadMemStats(&memAfter)
 		if err != nil {
 			return benchReport{}, err
 		}
+		encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
 		latencies = append(latencies, elapsed.Nanoseconds())
 		if result.Dropped {
 			droppedFrames++
 			continue
 		}
+		packetCopy := append([]byte(nil), result.Data...)
+		measuredPackets = append(measuredPackets, measuredEncodePacket{
+			data:        packetCopy,
+			sourceIndex: i,
+		})
 		encodedFrames++
 		outputBytes += result.SizeBytes
 		quantSum += result.Quantizer
@@ -607,12 +621,11 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 			interCount++
 		}
 	}
-	runtime.ReadMemStats(&memAfter)
 	psnr := 0.0
 	ssim := 0.0
 	qualityFrames := 0
 	if !cfg.SkipQuality {
-		psnr, ssim, qualityFrames, err = benchmarkQualityMetrics(cfg, deadline, frames)
+		psnr, ssim, qualityFrames, err = measuredEncodeQualityMetrics(measuredPackets, frames)
 		if err != nil {
 			return benchReport{}, err
 		}
@@ -651,7 +664,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		NSPerFrame:        nsPerFrame,
 		EncodeFPS:         1e9 / float64(nsPerFrame),
 		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(nsPerFrame),
-		AllocsPerFrame:    float64(memAfter.Mallocs-memBefore.Mallocs) / float64(cfg.Frames),
+		AllocsPerFrame:    float64(encodeMallocs) / float64(cfg.Frames),
 		PSNR:              psnr,
 		SSIM:              ssim,
 		QualityFrames:     qualityFrames,
@@ -901,34 +914,26 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 	})
 }
 
-func benchmarkQualityMetrics(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image) (float64, float64, int, error) {
-	enc, err := newBenchmarkEncoder(cfg, deadline)
-	if err != nil {
-		return 0, 0, 0, err
-	}
+func measuredEncodeQualityMetrics(packets []measuredEncodePacket, frames []govpx.Image) (float64, float64, int, error) {
 	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	packet := make([]byte, max(4096, cfg.Width*cfg.Height*6))
 	psnrSum := 0.0
 	ssimSum := 0.0
 	qualityFrames := 0
-	for i, frame := range frames {
-		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
-		if err != nil {
-			return 0, 0, qualityFrames, err
-		}
-		if result.Dropped {
+	for packetIndex, packet := range packets {
+		if packet.sourceIndex < 0 || packet.sourceIndex >= len(frames) {
 			continue
 		}
-		if err := dec.Decode(result.Data); err != nil {
-			return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, err)
+		if err := dec.Decode(packet.data); err != nil {
+			return averageReferenceQuality(psnrSum, ssimSum, qualityFrames, fmt.Errorf("decode measured frame %d: %w", packetIndex, err))
 		}
 		decoded, ok := dec.NextFrame()
 		if !ok {
 			continue
 		}
+		frame := frames[packet.sourceIndex]
 		psnrSum += imagePSNR(frame, decoded)
 		ssimSum += imageSSIM(frame, decoded)
 		qualityFrames++

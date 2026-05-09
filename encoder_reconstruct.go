@@ -202,7 +202,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if modes[index].YMode == vp8common.BPred {
-				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &coeffs[index], &e.reconstructScratch) {
+				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), e.oracleTraceEnabled(), &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
@@ -214,7 +214,23 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src
 				return 0, ErrInvalidConfig
 			}
 			is4x4 := modes[index].YMode == vp8common.BPred
-			buildPredictedMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, 0, is4x4, true, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &coeffs[index])
+			buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+				coefProbs:     &vp8tables.DefaultCoefProbs,
+				src:           src,
+				mbRow:         row,
+				mbCol:         col,
+				pred:          &e.analysis.Img,
+				aboveTok:      &aboveTok[col],
+				leftTok:       &leftTok,
+				quant:         &quants[segmentID],
+				qIndex:        segmentQIndex,
+				is4x4:         is4x4,
+				intra:         true,
+				fastQuant:     e.libvpxUseFastQuant(),
+				optimize:      e.libvpxOptimizeCoefficients(),
+				collectOracle: e.oracleTraceEnabled(),
+				coeffs:        &coeffs[index],
+			})
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 				return 0, ErrInvalidConfig
@@ -377,7 +393,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
-					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), e.oracleTraceEnabled(), &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -404,7 +420,25 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
-				buildPredictedMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(&modes[index]), is4x4, modes[index].RefFrame == vp8common.IntraFrame, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), &coeffs[index])
+				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+					coefProbs:     &e.coefProbs,
+					src:           src,
+					mbRow:         row,
+					mbCol:         col,
+					pred:          &e.analysis.Img,
+					aboveTok:      &aboveTok[col],
+					leftTok:       &leftTok,
+					quant:         quant,
+					qIndex:        segmentQIndex,
+					zbinOverQuant: e.rc.currentZbinOverQuant,
+					zbinModeBoost: interZbinModeBoost(&modes[index]),
+					is4x4:         is4x4,
+					intra:         modes[index].RefFrame == vp8common.IntraFrame,
+					fastQuant:     e.libvpxUseFastQuant(),
+					optimize:      e.libvpxOptimizeCoefficients(),
+					collectOracle: e.oracleTraceEnabled(),
+					coeffs:        &coeffs[index],
+				})
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
 			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
@@ -6929,8 +6963,30 @@ type predictedMacroblockRDStats struct {
 	tteob        int
 }
 
-func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) {
-	_ = buildPredictedMacroblockCoefficientsInternal(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs, false)
+type predictedMacroblockCoefficientArgs struct {
+	coefProbs     *vp8tables.CoefficientProbs
+	src           vp8enc.SourceImage
+	mbRow         int
+	mbCol         int
+	pred          *vp8common.Image
+	aboveTok      *vp8enc.TokenContextPlanes
+	leftTok       *vp8enc.TokenContextPlanes
+	quant         *vp8enc.MacroblockQuant
+	qIndex        int
+	zbinOverQuant int
+	zbinModeBoost int
+	is4x4         bool
+	intra         bool
+	fastQuant     bool
+	optimize      bool
+	collectOracle bool
+	collectStats  bool
+	coeffs        *vp8enc.MacroblockCoefficients
+}
+
+func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArgs) {
+	args.collectStats = false
+	_ = buildPredictedMacroblockCoefficientsInternal(&args)
 }
 
 // buildPredictedMacroblockCoefficientsRD fuses per-MB residual gather,
@@ -6946,11 +7002,50 @@ func buildPredictedMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs,
 // returned predictedMacroblockRDStats) is byte-identical to the
 // original per-block reference path.
 func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) predictedMacroblockRDStats {
-	return buildPredictedMacroblockCoefficientsInternal(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, zbinModeBoost, is4x4, intra, fastQuant, optimize, coeffs, true)
+	return buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:     coefProbs,
+		src:           src,
+		mbRow:         mbRow,
+		mbCol:         mbCol,
+		pred:          pred,
+		aboveTok:      aboveTok,
+		leftTok:       leftTok,
+		quant:         quant,
+		qIndex:        qIndex,
+		zbinOverQuant: zbinOverQuant,
+		zbinModeBoost: zbinModeBoost,
+		is4x4:         is4x4,
+		intra:         intra,
+		fastQuant:     fastQuant,
+		optimize:      optimize,
+		collectStats:  true,
+		coeffs:        coeffs,
+	})
 }
 
-func buildPredictedMacroblockCoefficientsInternal(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients, collectStats bool) predictedMacroblockRDStats {
+func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoefficientArgs) predictedMacroblockRDStats {
 	var stats predictedMacroblockRDStats
+	if args == nil {
+		return stats
+	}
+	coefProbs := args.coefProbs
+	src := args.src
+	mbRow := args.mbRow
+	mbCol := args.mbCol
+	pred := args.pred
+	aboveTok := args.aboveTok
+	leftTok := args.leftTok
+	quant := args.quant
+	qIndex := args.qIndex
+	zbinOverQuant := args.zbinOverQuant
+	zbinModeBoost := args.zbinModeBoost
+	is4x4 := args.is4x4
+	intra := args.intra
+	fastQuant := args.fastQuant
+	optimize := args.optimize
+	collectOracle := args.collectOracle
+	coeffs := args.coeffs
+	collectStats := args.collectStats
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
 		return stats
 	}
@@ -7018,7 +7113,9 @@ func buildPredictedMacroblockCoefficientsInternal(coefProbs *vp8tables.Coefficie
 			// lives in the Y2 second-order block); the libvpx Y1quant[Q]
 			// the encode path actually exercises has the proper DC at
 			// slot 0, which govpx mirrors in quant.Y1.
-			coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+			if collectOracle {
+				coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+			}
 			dct[0] = 0
 			a := block & 3
 			l := (block & 0x0c) >> 2
@@ -7088,14 +7185,16 @@ func buildPredictedMacroblockCoefficientsInternal(coefProbs *vp8tables.Coefficie
 		// and diverges by 1 EOB scan position when they don't. Closing
 		// the residual to 100% would require tracking the actual last-
 		// tested 16x16 inter mode predictor through the picker.
-		var staleY2Coeff [16]int16
-		var staleY2Q [16]int16
-		var staleY2DQ [16]int16
-		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
-		staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
-		coeffs.OracleStaleY2EOB = uint8(staleEOB)
-		coeffs.OracleStaleY2QCoeff = staleY2Q
-		coeffs.OracleStaleY2Set = true
+		if collectOracle {
+			var staleY2Coeff [16]int16
+			var staleY2Q [16]int16
+			var staleY2DQ [16]int16
+			vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
+			staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
+			coeffs.OracleStaleY2EOB = uint8(staleEOB)
+			coeffs.OracleStaleY2QCoeff = staleY2Q
+			coeffs.OracleStaleY2Set = true
+		}
 	}
 
 	// Whole-MB UV residual gather + batched FDCT (8 blocks: U0..U3, V0..V3).
@@ -8063,7 +8162,7 @@ func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
 	return dsp.TransformBlockError(coeff, dqcoeff)
 }
 
-func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
+func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, fastQuant bool, optimize bool, collectOracle bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
 	if img == nil || mode == nil || quant == nil || coeffs == nil || scratch == nil || !mode.Is4x4 || mode.Mode != vp8common.BPred {
 		return false
 	}
@@ -8134,7 +8233,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	coeffs.SetBlockEOB(24, 0)
 	// Mirror libvpx's stale Y2 second-order snapshot for B_PRED. See
 	// OracleStaleY2EOB for the rationale.
-	{
+	if collectOracle {
 		var staleY2Coeff [16]int16
 		var staleY2Q [16]int16
 		var staleY2DQ [16]int16

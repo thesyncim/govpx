@@ -370,6 +370,51 @@ Acceptance:
 7. Lane G after single-thread work unless the product requirement is
    multi-core throughput now.
 
+## Eight-scout correction, 2026-05-09
+
+The latest scout pass changes the working theory:
+
+- Quality and output bitrate are mandatory gates. Encode-only numbers are
+  profiling data only.
+- `cmd/govpx-bench` must score PSNR/SSIM from the same govpx packets used for
+  timing and byte counts. Re-encoding for quality can hide wall-clock autospeed
+  drift.
+- Current 720p realtime `cpu-used=8` parity runs use the fast partial LF
+  picker, not full-frame LF search. Do not chase the old "full LF search at
+  720p" hypothesis without proving it from `lf_trial` rows.
+- The strongest extra-call candidate is coefficient/probability accounting:
+  accepted coefficients are scanned for entropy savings, scanned again for
+  probability updates, then walked again for token writing.
+- Output-invisible oracle sidecars (`OracleY1DCEOB1`, stale Y2 snapshots) must
+  be gated behind oracle tracing. They are useful diagnostics, not production
+  work.
+- Mode-decision pruning is viable only when side effects are preserved:
+  threshold mutation, static-breakout behavior, and oracle candidate traces
+  make broad RD lower-bound skips risky.
+- Runtime profiles show stack pressure and benchmark fixture allocation noise.
+  Do not treat `BenchmarkEncodeIntoThreadingMatrix` allocs as steady-state
+  encoder heap allocations unless the fixture is prebuilt.
+- Large positional helper signatures should be replaced by named parameter
+  structs or smaller helpers before adding more booleans.
+
+Latest quality-safe local result after the harness/oracle-sidecar cleanup:
+
+```text
+1280x720, 120 frames, 2500 kbps, realtime, threads=1
+govpx: 13.925 ms/frame
+libvpx: 5.307 ms/frame
+slowdown: 2.62x
+bytes ratio: 0.9991
+PSNR delta: +0.441 dB
+SSIM delta: +0.0226
+allocs/frame: 0
+```
+
+This is progress, not closure. The next agents should prioritize a
+byte-identical coefficient branch-count cache that feeds entropy savings and
+probability updates from one accepted-frame count pass, then benchmark whether
+token writing still dominates.
+
 ## Gates before claiming progress
 
 Fast local gates:
@@ -393,7 +438,16 @@ GOCACHE=/Users/thesyncim/GolandProjects/govpx/.gocache \
 GOTOOLCHAIN=go1.26.1 \
 go run ./cmd/govpx-bench \
   -width 1280 -height 720 -frames 120 -fps 30 -bitrate 2500 \
-  -mode realtime -threads 1 -format json
+  -mode realtime -threads 1 -format json |
+jq -e '
+  .comparison_vs_reference.bitrate_ratio_vs_reference >= 0.99 and
+  .comparison_vs_reference.bitrate_ratio_vs_reference <= 1.01 and
+  .comparison_vs_reference.psnr_delta_db >= 0 and
+  .comparison_vs_reference.ssim_delta >= 0 and
+  .dropped_frames == 0 and
+  .quality_frames == 120 and
+  .reference.quality_frames == 120
+'
 ```
 
 Claim a win only when:

@@ -434,19 +434,18 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 	}
 	predictionSSE := macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{})
 	var coeffs vp8enc.MacroblockCoefficients
-	buildPredictedMacroblockCoefficients(
-		&vp8tables.DefaultCoefProbs,
-		src, mbRow, mbCol,
-		&e.firstPassNewRef.Img,
-		nil, nil,
-		quant, qIndex,
-		0, 0,
-		false,
-		true,
-		true,
-		false,
-		&coeffs,
-	)
+	buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+		coefProbs: &vp8tables.DefaultCoefProbs,
+		src:       src,
+		mbRow:     mbRow,
+		mbCol:     mbCol,
+		pred:      &e.firstPassNewRef.Img,
+		quant:     quant,
+		qIndex:    qIndex,
+		intra:     true,
+		fastQuant: true,
+		coeffs:    &coeffs,
+	})
 	var tokens vp8dec.MacroblockTokens
 	convertMacroblockCoefficients(&coeffs, false, &tokens)
 	return predictionSSE, reconstructAnalysisMacroblock(&e.firstPassNewRef.Img, mbRow, mbCol, &mode, &tokens, dequant, &e.reconstructScratch)
@@ -512,19 +511,17 @@ func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage,
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
-	buildPredictedMacroblockCoefficients(
-		&vp8tables.DefaultCoefProbs,
-		src, mbRow, mbCol,
-		&e.firstPassNewRef.Img,
-		nil, nil,
-		quant, qIndex,
-		0, 0,
-		false,
-		false,
-		true,
-		false,
-		&coeffs,
-	)
+	buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+		coefProbs: &vp8tables.DefaultCoefProbs,
+		src:       src,
+		mbRow:     mbRow,
+		mbCol:     mbCol,
+		pred:      &e.firstPassNewRef.Img,
+		quant:     quant,
+		qIndex:    qIndex,
+		fastQuant: true,
+		coeffs:    &coeffs,
+	})
 	var tokens vp8dec.MacroblockTokens
 	convertMacroblockCoefficients(&coeffs, false, &tokens)
 	decMode.MBSkipCoeff = macroblockCoefficientsEmpty(&coeffs, false)

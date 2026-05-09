@@ -188,6 +188,50 @@ func TestRunBenchmarkSkipQualityIncludesLibvpxReference(t *testing.T) {
 	}
 }
 
+func TestMeasuredEncodeQualityMetricsUsesMeasuredPackets(t *testing.T) {
+	cfg := benchConfig{
+		Width:       32,
+		Height:      32,
+		Frames:      2,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+	}
+	deadline, _, err := benchmarkDeadline(cfg.Mode)
+	if err != nil {
+		t.Fatalf("benchmarkDeadline returned error: %v", err)
+	}
+	frames := []govpx.Image{
+		makeBenchmarkFrame(cfg.Width, cfg.Height, 0),
+		makeBenchmarkFrame(cfg.Width, cfg.Height, 1),
+	}
+	enc, err := newBenchmarkEncoder(cfg, deadline)
+	if err != nil {
+		t.Fatalf("newBenchmarkEncoder returned error: %v", err)
+	}
+	packet := make([]byte, cfg.Width*cfg.Height*6)
+	result, err := enc.EncodeInto(packet, frames[0], 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	measured := measuredEncodePacket{data: append([]byte(nil), result.Data...), sourceIndex: 0}
+	psnrMatched, _, matchedFrames, err := measuredEncodeQualityMetrics([]measuredEncodePacket{measured}, frames)
+	if err != nil {
+		t.Fatalf("measuredEncodeQualityMetrics matched returned error: %v", err)
+	}
+	measured.sourceIndex = 1
+	psnrWrongSource, _, wrongFrames, err := measuredEncodeQualityMetrics([]measuredEncodePacket{measured}, frames)
+	if err != nil {
+		t.Fatalf("measuredEncodeQualityMetrics wrong-source returned error: %v", err)
+	}
+	if matchedFrames != 1 || wrongFrames != 1 {
+		t.Fatalf("quality frames matched/wrong = %d/%d, want 1/1", matchedFrames, wrongFrames)
+	}
+	if psnrMatched <= psnrWrongSource {
+		t.Fatalf("measured packet quality used wrong source: matched PSNR=%f wrong-source PSNR=%f", psnrMatched, psnrWrongSource)
+	}
+}
+
 func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 	for _, flagName := range []string{"-encode-only", "-skip-quality"} {
 		t.Run(flagName, func(t *testing.T) {
