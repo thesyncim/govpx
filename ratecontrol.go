@@ -345,10 +345,6 @@ func (rc *rateControlState) beginFrame(keyFrame bool) {
 	rc.beginFrameWithTargetAndContext(keyFrame, rc.bitsPerFrame, rateControlFrameContext{})
 }
 
-func (rc *rateControlState) beginFrameWithTarget(keyFrame bool, baseTargetBits int) {
-	rc.beginFrameWithTargetAndContext(keyFrame, baseTargetBits, rateControlFrameContext{})
-}
-
 type rateControlFrameContext struct {
 	firstFrame         bool
 	forcedKeyFrame     bool
@@ -1611,10 +1607,6 @@ func (rc *rateControlState) adjustQuantizerWithContext(actualBits int, targetBit
 	}
 }
 
-func (rc *rateControlState) adjustCQQuantizer(actualBits int, targetBits int) {
-	rc.adjustCQQuantizerWithContext(actualBits, targetBits, false, false)
-}
-
 func (rc *rateControlState) adjustCQQuantizerWithContext(actualBits int, targetBits int, keyFrame bool, goldenFrame bool) {
 	if targetBits <= 0 {
 		return
@@ -1780,18 +1772,6 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 		return 1
 	}
 	return int(target)
-}
-
-func (rc *rateControlState) overshootLimitBits(targetBits int) int {
-	return saturatingAdd(targetBits, percentOf(targetBits, rc.overshootPct))
-}
-
-func (rc *rateControlState) undershootLimitBits(targetBits int) int {
-	allowed := percentOf(targetBits, rc.undershootPct)
-	if allowed >= targetBits {
-		return 0
-	}
-	return targetBits - allowed
 }
 
 func encodedSizeBits(sizeBytes int) int {
@@ -2238,14 +2218,12 @@ func libvpxTargetBitsPerMB(targetBitsPerFrame int, macroblocks int) int {
 	return (targetBitsPerFrame << libvpxBPerMBNormBits) / macroblocks
 }
 
-func libvpxZbinOverQuantForTarget(keyFrame bool, goldenFrame bool, bitsAtQ int, targetBitsPerMB int) int {
-	return libvpxZbinOverQuantForTargetAltRef(keyFrame, goldenFrame, false, bitsAtQ, targetBitsPerMB)
-}
-
-// libvpxZbinOverQuantForTargetAltRef extends libvpxZbinOverQuantForTarget
-// with an ARF-refresh flag. The 0.99-walk-toward-0.999 scaling loop is
-// unchanged; only the `zbin_oq_high` cap differs (see
-// libvpxZbinOverQuantHighAltRef).
+// libvpxZbinOverQuantForTargetAltRef walks libvpx's iterative
+// `vp8/encoder/onyx_if.c` zbin-over-quant adjustment loop
+// (`while(zbin_oq < zbin_oq_max && bits_at_q > target_bits_per_mb)`) with
+// an ARF-refresh flag. The 0.99-walk-toward-0.999 scaling loop is the
+// same regardless of frame kind; only the `zbin_oq_high` cap differs
+// (see libvpxZbinOverQuantHighAltRef).
 func libvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefFrame bool, bitsAtQ int, targetBitsPerMB int) int {
 	zbinOQMax := libvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, altRefFrame)
 	if zbinOQMax <= 0 || bitsAtQ <= 0 {
@@ -2269,10 +2247,6 @@ func libvpxZbinOverQuantForTargetAltRef(keyFrame bool, goldenFrame bool, altRefF
 		}
 	}
 	return zbinOverQuant
-}
-
-func libvpxZbinOverQuantHigh(keyFrame bool, goldenFrame bool) int {
-	return libvpxZbinOverQuantHighAltRef(keyFrame, goldenFrame, false)
 }
 
 // libvpxZbinOverQuantHighAltRef ports the libvpx
@@ -2503,16 +2477,6 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 		FramesTillUpdate: framesTillUpdate,
 		GFFrameUsage:     gfFrameUsage,
 	}
-}
-
-// applyGFParams stores the calc_gf_params result onto the rate-control
-// state, mirroring the assignment of cpi->last_boost,
-// cpi->frames_till_gf_update_due, and cpi->current_gf_interval that
-// follows calc_gf_params in libvpx.
-func (rc *rateControlState) applyGFParams(out gfParamsOutput) {
-	rc.lastBoost = out.Boost
-	rc.framesTillGFUpdateDue = out.FramesTillUpdate
-	rc.currentGFInterval = out.FramesTillUpdate
 }
 
 // libvpxGoldenFrameTargetBits ports the libvpx GF target-sizing formula
