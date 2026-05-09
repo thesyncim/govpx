@@ -431,9 +431,9 @@ func captureLibvpxIVFFrameBytes(t *testing.T, vpxenc string, opts EncoderOptions
 		fmt.Sprintf("--timebase=1/%d", opts.FPS),
 		fmt.Sprintf("--fps=%d/1", opts.FPS),
 		fmt.Sprintf("--limit=%d", len(sources)),
-		fmt.Sprintf("--threads=1"),
-		fmt.Sprintf("--passes=1"),
-		fmt.Sprintf("--lag-in-frames=0"),
+		"--threads=1",
+		"--passes=1",
+		"--lag-in-frames=0",
 		fmt.Sprintf("--output=%s", ivfPath),
 	}
 	args = append(args, extraArgs...)

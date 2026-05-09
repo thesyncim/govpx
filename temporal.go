@@ -601,7 +601,5 @@ func temporalLayeringPattern(mode TemporalLayeringMode) (temporalPattern, bool) 
 }
 
 func setTemporalLayerIDs(p *temporalPattern, ids ...int) {
-	for i, id := range ids {
-		p.LayerID[i] = id
-	}
+	copy(p.LayerID[:], ids)
 }
