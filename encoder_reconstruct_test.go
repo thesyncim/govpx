@@ -2158,6 +2158,26 @@ func TestLibvpxSADPerBitLUTsMatchInitializeMEConsts(t *testing.T) {
 	}
 }
 
+func TestLibvpxFullPelMVSADCost16MatchesMotionVectorSADCost(t *testing.T) {
+	tests := []struct {
+		mv  vp8enc.MotionVector
+		ref vp8enc.MotionVector
+		q   int
+	}{
+		{mv: vp8enc.MotionVector{}, ref: vp8enc.MotionVector{}, q: 0},
+		{mv: vp8enc.MotionVector{Row: 8, Col: -64}, ref: vp8enc.MotionVector{}, q: 30},
+		{mv: vp8enc.MotionVector{Row: -96, Col: 72}, ref: vp8enc.MotionVector{Row: 16, Col: -8}, q: 56},
+		{mv: vp8enc.MotionVector{Row: 4096, Col: -4096}, ref: vp8enc.MotionVector{}, q: 126},
+	}
+	for _, tt := range tests {
+		got := libvpxFullPelMVSADCost16FromDeltas(int(tt.mv.Row)>>3, int(tt.mv.Col)>>3, int(tt.ref.Row)>>3, int(tt.ref.Col)>>3, tt.q)
+		want := vp8enc.MotionVectorSADCost(tt.mv, tt.ref, libvpxSADPerBit16(tt.q))
+		if got != want {
+			t.Fatalf("mv=%+v ref=%+v q=%d full-pel SAD cost = %d, want %d", tt.mv, tt.ref, tt.q, got, want)
+		}
+	}
+}
+
 func TestInterMotionModeVectorCostOnlyChargesNewMVDelta(t *testing.T) {
 	above := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 16}}
 	newMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Col: 24}}

@@ -4506,6 +4506,46 @@ var libvpxSADPerBit4LUT = [vp8common.QIndexRange]int{
 	18, 18, 19, 19, 19, 20, 20, 20,
 }
 
+var libvpxFullPelMVSADComponentCost16 = buildLibvpxFullPelMVSADComponentCost16()
+
+func buildLibvpxFullPelMVSADComponentCost16() [vp8common.QIndexRange][256]int {
+	var out [vp8common.QIndexRange][256]int
+	for q := range out {
+		sadPerBit := libvpxSADPerBit16LUT[q]
+		for i := range out[q] {
+			cost := 300
+			if i > 0 {
+				cost = int(256 * (2 * (math.Log2(float64(8*i)) + 0.6)))
+			}
+			out[q][i] = cost * sadPerBit
+		}
+	}
+	return out
+}
+
+func libvpxFullPelMVSADCost16FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, qIndex int) int {
+	rowDelta := mvRow8 - refRow8
+	if rowDelta > 255 {
+		rowDelta = 255
+	} else if rowDelta < -255 {
+		rowDelta = -255
+	}
+	if rowDelta < 0 {
+		rowDelta = -rowDelta
+	}
+	colDelta := mvCol8 - refCol8
+	if colDelta > 255 {
+		colDelta = 255
+	} else if colDelta < -255 {
+		colDelta = -255
+	}
+	if colDelta < 0 {
+		colDelta = -colDelta
+	}
+	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(qIndex)]
+	return (costs[rowDelta] + costs[colDelta] + 128) >> 8
+}
+
 func interMotionRDScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	return rdModeScore(qIndex, interMotionVectorCost(mv, mvProbs), macroblockLumaSSE(src, ref, mbRow, mbCol, mv))
 }
@@ -5333,8 +5373,6 @@ func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8comm
 func exhaustiveInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
 	centerRow := int(bestRefMV.Row) & ^7
 	centerCol := int(bestRefMV.Col) & ^7
-	// R14-B: hoist sadPerBit out of the exhaustive raster scan.
-	sadPerBit := libvpxSADPerBit16(qIndex)
 	// R15-B: hoist src/ref slice-header + bounds limits out of the inner
 	// SAD call, and the bestRefMV-shifted-to-fullpel anchors (the
 	// MotionVectorSADCost LUT index is invariant in bestRefMV).
@@ -5348,7 +5386,7 @@ func exhaustiveInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8c
 			if row == bestMVRow && col == bestMVCol {
 				continue
 			}
-			cost := ctx.fullPelCostLimited(row, col, bestWalkCost, refRow8, refCol8, sadPerBit)
+			cost := ctx.fullPelCostLimited(row, col, bestWalkCost, refRow8, refCol8, qIndex)
 			if cost < bestWalkCost {
 				bestMVRow = row
 				bestMVCol = col
@@ -5498,10 +5536,6 @@ func diamondSearchSitesInterFrameFullPixelMotionVector(src vp8enc.SourceImage, r
 	bestSite := 0
 	lastSite := 0
 	num00 := 0
-	// R14-B: hoist sadPerBit out of the inner cost loop. The diamond walk
-	// scores up to len(sites)*totalSteps (~80) candidate MVs against the
-	// same qIndex, so the LUT lookup at each call is wasted work.
-	sadPerBit := libvpxSADPerBit16(qIndex)
 	// R15-B: hoist src/ref slice-header + bounds limits out of the inner
 	// SAD-cost kernel into a per-search context, plus the bestRefMV
 	// full-pel anchor that the SAD cost LUT indexes against.
@@ -5520,7 +5554,7 @@ func diamondSearchSitesInterFrameFullPixelMotionVector(src vp8enc.SourceImage, r
 			if bounds.containsFullPelStrict(row, col) {
 				mvRow := row * interFrameMVFullPixelStep
 				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, sadPerBit)
+				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
 				if cost < bestWalkCost {
 					bestWalkCost = cost
 					bestSite = i
@@ -5551,8 +5585,6 @@ func refineInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8commo
 	}
 	best := start
 	bestWalkCost := interMotionSearchCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
-	// R14-B: hoist sadPerBit out of the inner refinement loop.
-	sadPerBit := libvpxSADPerBit16(qIndex)
 	// R15-B: hoist src/ref slice-header + bounds limits and the
 	// bestRefMV full-pel anchor out of the inner SAD-cost kernel.
 	ctx := newFullPelSearchCtx(src, ref, mbRow, mbCol)
@@ -5570,7 +5602,7 @@ func refineInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8commo
 			}
 			mvRow := row * interFrameMVFullPixelStep
 			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, sadPerBit)
+			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
 			if cost < bestWalkCost {
 				bestWalkCost = cost
 				bestSite = j
@@ -5669,8 +5701,6 @@ func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 	br := int(best.Row) >> 3
 	bc := int(best.Col) >> 3
 	bestSite := -1
-	// R14-B: hoist sadPerBit out of the hex search.
-	sadPerBit := libvpxSADPerBit16(qIndex)
 	// R15-B: hoist src/ref slice-header + bounds limits and bestRefMV
 	// full-pel anchor out of the inner SAD-cost kernel into a per-search
 	// context (re-used across the hex outer ring, the next-checkpoint
@@ -5688,7 +5718,7 @@ func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 		}
 		mvRow := row * interFrameMVFullPixelStep
 		mvCol := col * interFrameMVFullPixelStep
-		cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, sadPerBit)
+		cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
 		if cost < bestCost {
 			bestMVRow = mvRow
 			bestMVCol = mvCol
@@ -5710,7 +5740,7 @@ func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 				}
 				mvRow := row * interFrameMVFullPixelStep
 				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, sadPerBit)
+				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
 				if cost < bestCost {
 					bestMVRow = mvRow
 					bestMVCol = mvCol
@@ -5744,7 +5774,7 @@ func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 			}
 			mvRow := row * interFrameMVFullPixelStep
 			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, sadPerBit)
+			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
 			if cost < bestCost {
 				bestMVRow = mvRow
 				bestMVCol = mvCol
@@ -6181,14 +6211,11 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 //
 // Caller passes mvRow/mvCol pre-shifted to 1/8-pel (i.e. the candidate
 // row/col multiplied by 8 = interFrameMVFullPixelStep). refRow8/refCol8
-// are bestRefMV.Row>>3 and bestRefMV.Col>>3 respectively, hoisted by the
-// caller so the SAD-cost LUT lookup uses pre-aligned operands and the
-// MotionVectorSADCostFromDeltas call inlines under the cost budget.
-//
-// Callers pre-bind sadPerBit (libvpxSADPerBit16(qIndex)) so the cost LUT
-// lookup stays out of the inner loop.
-func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, sadPerBit int) int {
-	mvCost := vp8enc.MotionVectorSADCostFromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, sadPerBit)
+// are bestRefMV.Row>>3 and bestRefMV.Col>>3 respectively. The MV SAD
+// component table is pre-scaled by qIndex so the diamond loop avoids
+// repeating libvpx's per-candidate component-sum multiply.
+func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, qIndex int) int {
+	mvCost := libvpxFullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
 	sadLimit := limit - mvCost
 	if sadLimit < 0 {
 		return limit + 1
