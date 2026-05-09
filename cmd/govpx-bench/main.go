@@ -26,18 +26,19 @@ import (
 const quantizerHistogramBins = 128
 
 type benchConfig struct {
-	Width        int
-	Height       int
-	Frames       int
-	FPS          int
-	BitrateKbps  int
-	Mode         string
-	Decode       bool
-	SkipQuality  bool
-	Threads      int
-	LibvpxVpxenc string
-	LibvpxOracle string
-	LibvpxArgs   []string
+	Width                int
+	Height               int
+	Frames               int
+	FPS                  int
+	BitrateKbps          int
+	Mode                 string
+	Decode               bool
+	SkipQuality          bool
+	Threads              int
+	AutoSpeedCalibration bool
+	LibvpxVpxenc         string
+	LibvpxOracle         string
+	LibvpxArgs           []string
 }
 
 type benchReport struct {
@@ -164,7 +165,15 @@ type latencyReport struct {
 }
 
 type benchConfigSummary struct {
-	Deadline string `json:"deadline"`
+	Deadline             string `json:"deadline"`
+	AutoSpeedCalibration bool   `json:"autospeed_calibration,omitempty"`
+}
+
+func benchSummary(cfg benchConfig, deadline string) benchConfigSummary {
+	return benchConfigSummary{
+		Deadline:             deadline,
+		AutoSpeedCalibration: cfg.AutoSpeedCalibration,
+	}
 }
 
 func main() {
@@ -267,6 +276,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
+	fs.BoolVar(&cfg.AutoSpeedCalibration, "autospeed-calibration", false, "use synthetic autospeed timing for deterministic libvpx-output parity diagnostics")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
@@ -662,7 +672,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		EncodedFrames: encodedFrames,
 		DroppedFrames: droppedFrames,
 		QuantizerHist: quantizerHistogramMap(&quantHist),
-		Options:       benchConfigSummary{Deadline: deadlineName},
+		Options:       benchSummary(cfg, deadlineName),
 	}
 	if cfg.LibvpxVpxenc != "" {
 		reference, err := runLibvpxBenchmark(cfg, frames, deadlineName)
@@ -771,7 +781,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 			P95: percentileLatency(latencies, 95),
 			P99: percentileLatency(latencies, 99),
 		},
-		Options: benchConfigSummary{Deadline: deadlineName},
+		Options: benchSummary(cfg, deadlineName),
 	}
 	if cfg.LibvpxOracle != "" {
 		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))
@@ -883,17 +893,11 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 		BufferInitialSizeMs: p.BufferInitialSizeMs,
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
 		Threads:             p.Threads,
-		// Bench compares against stock (un-instrumented) libvpx. With
-		// calibration on, govpx's vp8_auto_select_speed is fed a
-		// deterministic synthetic per-MB duration (instead of wall-clock)
-		// so the Speed trajectory tracks the bucket at which govpx output
-		// matches stock libvpx output across all resolutions. R12-D's
-		// wall-clock-scaling calibration parked govpx at Speed=4 only at
-		// 720p; at 1080p it landed at Speed=6/7 driving a 1.04x
-		// interframe-byte / -0.31 dB PSNR divergence (R13 fix). The oracle
-		// scoreboards exercise the patched (slow) libvpx and intentionally
-		// leave this off.
-		AutoSpeedGoOverheadCalibration: true,
+		// Default bench runs use the production wall-clock autospeed path.
+		// The opt-in calibration mode is for deterministic output-parity
+		// diagnostics where govpx should stay in the libvpx-equivalent
+		// Speed=4 bucket across machines and resolutions.
+		AutoSpeedGoOverheadCalibration: cfg.AutoSpeedCalibration,
 	})
 }
 

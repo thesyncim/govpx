@@ -3,7 +3,6 @@ package govpx
 import (
 	"errors"
 	"io"
-	"os"
 	_ "unsafe" // for go:linkname
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -3791,17 +3790,6 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
-	// Diagnostic: when GOVPX_LF_DEBUG=1, also score the unfiltered (level=0)
-	// partial-frame Y SSE against the source so the per-trial-level diff
-	// harness can pin whether the gap is in the LF math or in the
-	// pre-filter reconstruction itself. This scores the partial-frame
-	// window only and the result is otherwise unused.
-	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
-		preErr, perr := e.loopFilterTrialLumaSSE(src, frameType, 0, sharpness, rows, cols, required, true, segmentation)
-		if perr == nil {
-			e.emitOracleLFTrial("pre", 0, preErr)
-		}
-	}
 	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
 	if err != nil {
 		return 0, err
@@ -3867,16 +3855,6 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		ssSet[level] = true
 		e.emitOracleLFTrial("full", level, trialErr)
 		return trialErr, nil
-	}
-
-	// Diagnostic: when GOVPX_LF_DEBUG=1, also score level 0 to expose the
-	// pre-filter SSE so the per-trial divergence harness can localize whether
-	// the gap is in the unfiltered reconstruction (matches at 0 -> LF math
-	// diverges) or in the source itself (mismatched at 0 -> upstream recon
-	// gap). This level-0 score is otherwise unused because the picker never
-	// considers a level below min_filter_level.
-	if os.Getenv("GOVPX_LF_DEBUG") == "1" {
-		_, _ = score(0)
 	}
 
 	bestErr, err := score(filtMid)

@@ -406,6 +406,15 @@ Claim a win only when:
 
 ## Notes for future agents
 
+- Current 2026-05-09 follow-up: `cmd/govpx-bench` now exposes
+  `-autospeed-calibration` for the old deterministic parity timing model.
+  Leaving calibration off measures production wall-clock autospeed and moves
+  the 30-frame 720p encode-only ratio from about 3.76x to about 2.32x on the
+  M4 Max test host, but it does **not** satisfy the win gate: full-quality
+  720p output drifted to about 1.25x libvpx bytes and -0.37 dB PSNR. Treat
+  autospeed calibration as a measurement/control knob, not a closed perf fix.
+  The parity-preserving hot path remains full loop-filter selection plus
+  coefficient packing under Speed=4.
 - Do not resurrect the old `docs/beat_libvpx_plan.md` assumption that there is
   "no SIMD anywhere"; that was true for an older checkout and is false now.
 - Be skeptical of whole-bench pprof profiles because they include govpx

@@ -67,11 +67,6 @@ func TestDiagR11JPreLFReconScoreboard008(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(width, height, i)
 	}
 
-	// Enable LF picker per-trial-level emission on the govpx side so
-	// the lf_trial subtest can see the same trace rows the libvpx
-	// oracle emits unconditionally.
-	t.Setenv("GOVPX_LF_DEBUG", "1")
-
 	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 	libvpxTrace := captureLibvpxR11JTrace(t, vpxencOracle, "r11j-128x128", opts, targetKbps, sources)
 

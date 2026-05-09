@@ -195,11 +195,14 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			cfg := benchConfig{}
 			opts := defaultBenchCLIOptions()
 			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-auto-libvpx=false"}); err != nil {
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-autospeed-calibration", "-auto-libvpx=false"}); err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
 			if !cfg.SkipQuality {
 				t.Fatalf("SkipQuality = false, want true for %s", flagName)
+			}
+			if !cfg.AutoSpeedCalibration {
+				t.Fatalf("AutoSpeedCalibration = false, want true")
 			}
 			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 {
 				t.Fatalf("parsed dimensions = %dx%d frames=%d, want 32x24 frames=7", cfg.Width, cfg.Height, cfg.Frames)

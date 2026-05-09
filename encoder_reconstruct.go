@@ -1143,9 +1143,6 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	if r12cTrackMutation(e, modeIndex, "lowerForImprovement") {
-		// Track mutation site externally.
-	}
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
 		e.interRDThreshMult[modeIndex] -= 2
 	} else {
@@ -1158,7 +1155,6 @@ func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	r12cTrackMutation(e, modeIndex, "raise")
 	e.interRDThreshMult[modeIndex] += 4
 	if e.interRDThreshMult[modeIndex] > libvpxMaxThreshMult {
 		e.interRDThreshMult[modeIndex] = libvpxMaxThreshMult
@@ -1170,7 +1166,6 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	r12cTrackMutation(e, modeIndex, "lowerBestRD")
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
@@ -1184,7 +1179,6 @@ func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	r12cTrackMutation(e, modeIndex, "lowerBestFast")
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
@@ -2222,45 +2216,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	modeOrder := libvpxFastInterModeOrder
 	refOrder := libvpxFastRefFrameOrder
 
-	pickerDebug := r12cPickerDebug(int(e.frameCount), mbRow, mbCol)
-	if pickerDebug {
-		r12cSetTrackContext(int(e.frameCount), mbRow, mbCol)
-	}
-	if pickerDebug {
-		baseline := e.interModeRDThresholdsBaseline(qIndex, refs, refCount)
-		baseSlice := make([]int, len(baseline))
-		multSlice := make([]int, len(e.interRDThreshMult))
-		touchedSlice := make([]bool, len(e.interRDThreshTouched))
-		threshSlice := make([]int, len(thresholds))
-		for i := range baseline {
-			baseSlice[i] = baseline[i]
-			threshSlice[i] = thresholds[i]
-		}
-		for i := range e.interRDThreshMult {
-			multSlice[i] = e.interRDThreshMult[i]
-			touchedSlice[i] = e.interRDThreshTouched[i]
-		}
-		rdMultV, rdDivV := libvpxRDConstantsWithZbin(qIndex, e.rc.currentZbinOverQuant)
-		r12cPickerEmitState2(int(e.frameCount), mbRow, mbCol, baseSlice, multSlice, touchedSlice, threshSlice, qIndex, rdMultV, rdDivV, e.interMBsTestedSoFar)
-	}
 	for modeIndex, mbMode := range modeOrder {
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
-			if pickerDebug {
-				r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
-					oracleTraceModeName(mbMode), "disabled", threshold, bestScore, 0, 0, 0)
-			}
 			continue
 		}
-		if pickerDebug {
-			r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
-				oracleTraceModeName(mbMode), "enter", threshold, bestScore, 0, 0, 0)
-		}
 		if bestSet && bestScore <= threshold {
-			if pickerDebug {
-				r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
-					oracleTraceModeName(mbMode), "rd_threshes", threshold, bestScore, 0, 0, 0)
-			}
 			continue
 		}
 
@@ -2634,10 +2595,6 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	var modes [16]vp8common.BPredictionMode
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
-	debugBlk := r12cBPredDebug(mbRow, mbCol)
-	if debugBlk {
-		r12cBPredEmitConsts(mbRow, mbCol, qIndex, zbinOverQuant, rdMult, rdDiv)
-	}
 	for block := range 16 {
 		bestMode := vp8common.BModeCount
 		bestRate := 0
@@ -2652,9 +2609,6 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			modeRate := libvpxInterFastBpredModeCost(bMode)
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
 			modeCost := libvpxRDCost(rdMult, rdDiv, modeRate, modeDist)
-			if debugBlk {
-				r12cBPredEmitTrace(e, mbRow, mbCol, block, bMode, modeRate, modeDist, modeCost, blockPred[:])
-			}
 			if modeCost < bestCost {
 				bestMode = bMode
 				bestRate = modeRate
