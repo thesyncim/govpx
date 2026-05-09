@@ -106,6 +106,21 @@ func (p *paddedAtomicInt64) Load() int64 {
 	return p.value.Load()
 }
 
+func encoderThreadSyncRange(mbCols int) int {
+	switch {
+	case mbCols <= 0:
+		return 1
+	case mbCols < 40:
+		return 1
+	case mbCols <= 80:
+		return 4
+	case mbCols <= 160:
+		return 8
+	default:
+		return 16
+	}
+}
+
 // rowWorkerPool is the encoder-owned pool of pre-allocated row
 // workers and the atomic wave-front coordination state. It is
 // constructed once at NewVP8Encoder (only when Threads >= 2) and
@@ -119,8 +134,9 @@ func (p *paddedAtomicInt64) Load() int64 {
 //   - rowProgress[r] is an atomic int storing the highest MB column
 //     index that row r has finished. The row r+1 worker spin-waits
 //     against rowProgress[r] before processing MB(r+1, c+nsync).
-//   - syncRange (libvpx's mt_sync_range; default 8) is the number of
-//     MB columns a row may run ahead of the row below it.
+//   - syncRange mirrors libvpx's width-dependent mt_sync_range: narrower
+//     pictures synchronize more often to keep wave-front depth available,
+//     wider pictures synchronize less often to reduce atomic traffic.
 type rowWorkerPool struct {
 	// workers is sized by the EncoderOptions.Threads value (clamped
 	// against runtime.NumCPU). Each worker has its own
@@ -174,7 +190,7 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 	pool := &rowWorkerPool{
 		workers:      make([]rowEncoderState, threads),
 		rowProgress:  make([]paddedAtomicInt64, mbRows),
-		syncRange:    8,
+		syncRange:    encoderThreadSyncRange(mbCols),
 		start:        make([]chan struct{}, threads),
 		done:         make(chan int, threads),
 		workerErrors: make([]error, threads),

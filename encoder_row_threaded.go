@@ -43,6 +43,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 	}
 	required := args.rows * args.cols
 	workerCount := min(len(pool.workers), args.rows)
+	if maxWavefrontWorkers := args.cols / pool.syncRange; maxWavefrontWorkers > 0 {
+		workerCount = min(workerCount, maxWavefrontWorkers)
+	}
 	if workerCount < 2 {
 		return 0, ErrInvalidConfig
 	}
