@@ -1,6 +1,7 @@
 package decoder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -194,6 +195,79 @@ func TestApplyLoopFilterPartialMatchesFullOnLumaWindow(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestApplyLoopFilterFullLumaPlusChromaOnlyMatchesFull(t *testing.T) {
+	const cols, rows = 4, 4
+	full := newLoopFilterFrame(t, cols*16, rows*16)
+	split := newLoopFilterFrame(t, cols*16, rows*16)
+	fillLoopFilterMacroblockColumns(&full.Img, 100, 116, 70, 96)
+	for y := range full.Img.CodedHeight {
+		yRow := y * full.Img.YStride
+		for x := range full.Img.CodedWidth {
+			full.Img.Y[yRow+x] = byte(40 + (x*3+y*5)%160)
+		}
+	}
+	uvWidth := (full.Img.CodedWidth + 1) >> 1
+	uvHeight := (full.Img.CodedHeight + 1) >> 1
+	for y := range uvHeight {
+		uRow := y * full.Img.UStride
+		vRow := y * full.Img.VStride
+		for x := range uvWidth {
+			full.Img.U[uRow+x] = byte(60 + (x*7+y*11)%120)
+			full.Img.V[vRow+x] = byte(55 + (x*13+y*3)%130)
+		}
+	}
+	copy(split.Img.Y, full.Img.Y)
+	copy(split.Img.U, full.Img.U)
+	copy(split.Img.V, full.Img.V)
+
+	modes := make([]MacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{
+			Mode:        common.DCPred,
+			UVMode:      common.DCPred,
+			RefFrame:    common.LastFrame,
+			SegmentID:   uint8(i % common.MaxMBSegments),
+			MBSkipCoeff: i%5 == 0,
+		}
+	}
+	header := LoopFilterHeader{
+		Type:           NormalLoopFilter,
+		Level:          28,
+		SharpnessLevel: 2,
+		DeltaEnabled:   true,
+		RefDeltas:      [common.MaxRefLFDeltas]int8{0, -2, 2, 4},
+		ModeDeltas:     [common.MaxModeLFDeltas]int8{-1, 0, 1, 2},
+	}
+	segmentation := SegmentationHeader{
+		Enabled:  true,
+		AbsDelta: false,
+		FeatureData: [common.MBLvlMax][common.MaxMBSegments]int8{
+			common.MBLvlAltLF: {0, -4, 3, 6},
+		},
+	}
+
+	var fullLFI, splitLFI common.LoopFilterInfo
+	if err := ApplyLoopFilter(&full.Img, rows, cols, modes, common.InterFrame, header, segmentation, &fullLFI); err != nil {
+		t.Fatalf("ApplyLoopFilter returned error: %v", err)
+	}
+	if err := ApplyLoopFilterFullLuma(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI); err != nil {
+		t.Fatalf("ApplyLoopFilterFullLuma returned error: %v", err)
+	}
+	if err := ApplyLoopFilterChromaOnly(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI); err != nil {
+		t.Fatalf("ApplyLoopFilterChromaOnly returned error: %v", err)
+	}
+
+	if !bytes.Equal(split.Img.Y, full.Img.Y) {
+		t.Fatalf("split loop-filter Y plane differs from full loop-filter")
+	}
+	if !bytes.Equal(split.Img.U, full.Img.U) {
+		t.Fatalf("split loop-filter U plane differs from full loop-filter")
+	}
+	if !bytes.Equal(split.Img.V, full.Img.V) {
+		t.Fatalf("split loop-filter V plane differs from full loop-filter")
 	}
 }
 

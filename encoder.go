@@ -553,14 +553,16 @@ type VP8Encoder struct {
 	altRefAliasesLast    bool
 	goldenRefAliasesAlt  bool
 
-	loopFilterPick     vp8common.FrameBuffer
-	reconstructModes   []vp8dec.MacroblockMode
-	reconstructTokens  []vp8dec.MacroblockTokens
-	dequantTables      vp8common.FrameDequantTables
-	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
-	reconstructScratch vp8dec.IntraReconstructionScratch
-	loopInfo           vp8common.LoopFilterInfo
-	loopFilterLevel    uint8
+	loopFilterPick      vp8common.FrameBuffer
+	loopFilterPickReady bool
+	loopFilterPickLevel uint8
+	reconstructModes    []vp8dec.MacroblockMode
+	reconstructTokens   []vp8dec.MacroblockTokens
+	dequantTables       vp8common.FrameDequantTables
+	dequants            [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch  vp8dec.IntraReconstructionScratch
+	loopInfo            vp8common.LoopFilterInfo
+	loopFilterLevel     uint8
 	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
 	// vp8/encoder/bitstream.c pack_lf_deltas: the encoder signals the
 	// mode/ref loop-filter deltas with `update=1` on the very first packed
@@ -3773,6 +3775,8 @@ func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
 }
 
 func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
+	e.loopFilterPickReady = false
+	e.loopFilterPickLevel = 0
 	if len(e.reconstructModes) < required {
 		return 0, ErrInvalidConfig
 	}
@@ -3858,6 +3862,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	}
 	ssErr := [vp8common.MaxLoopFilter + 1]int{}
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
+	residentLevel := -1
 	score := func(level int) (int, error) {
 		if ssSet[level] {
 			return ssErr[level], nil
@@ -3868,6 +3873,9 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		}
 		ssErr[level] = trialErr
 		ssSet[level] = true
+		if level != 0 {
+			residentLevel = level
+		}
 		e.emitOracleLFTrial("full", level, trialErr)
 		return trialErr, nil
 	}
@@ -3925,6 +3933,12 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 				filtDirection = 1
 			}
 			filtMid = filtBest
+		}
+	}
+	if filtBest > 0 {
+		e.loopFilterPickReady = residentLevel == filtBest
+		if e.loopFilterPickReady {
+			e.loopFilterPickLevel = uint8(filtBest)
 		}
 	}
 	return uint8(filtBest), nil
@@ -4171,6 +4185,7 @@ func libvpxInitialLoopFilterLevel(qIndex int) int {
 
 func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, segmentation vp8enc.SegmentationConfig, rows int, cols int, required int) error {
 	if header.Level == 0 {
+		e.loopFilterPickReady = false
 		return nil
 	}
 	if len(e.reconstructModes) < required {
@@ -4179,6 +4194,19 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 	// libvpx vp8_loop_filter_frame_init reads the ALT_LF feature data
 	// when cm->segmentation.enabled is set, so the reconstruction-side
 	// LF must see the same per-segment deltas the bitstream signals.
+	if e.loopFilterPickReady && e.loopFilterPickLevel == header.Level {
+		copyFrameImageLuma(&e.analysis.Img, &e.loopFilterPick.Img)
+		if header.Type == vp8dec.NormalLoopFilter {
+			if err := vp8dec.ApplyLoopFilterChromaOnly(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
+				e.loopFilterPickReady = false
+				return ErrInvalidConfig
+			}
+		}
+		e.loopFilterPickReady = false
+		e.analysis.ExtendBorders()
+		return nil
+	}
+	e.loopFilterPickReady = false
 	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 		return ErrInvalidConfig
 	}

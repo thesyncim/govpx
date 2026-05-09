@@ -72,6 +72,29 @@ func ApplyLoopFilterFullLuma(img *common.Image, rows int, cols int, modes []Macr
 	return applyNormalLoopFilterPartialLuma(img, rows, cols, modes, frameType, lfi, 0, rows)
 }
 
+func ApplyLoopFilterChromaOnly(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
+	if header.Level == 0 || header.Type == SimpleLoopFilter {
+		return nil
+	}
+	if rows < 0 || cols < 0 {
+		return ErrLoopFilterBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrLoopFilterBufferTooSmall
+	}
+	required := rows * cols
+	if img == nil || lfi == nil || len(modes) < required || frameType < common.KeyFrame || frameType > common.InterFrame {
+		return ErrLoopFilterBufferTooSmall
+	}
+	if !imageHasMacroblockGrid(img, rows, cols) {
+		return ErrLoopFilterBufferTooSmall
+	}
+
+	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
+	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+	return applyNormalLoopFilterChromaOnlyGrid(img, rows, cols, modes, frameType, lfi)
+}
+
 // ApplyLoopFilterPartial mirrors libvpx's vp8_loop_filter_partial_frame: it
 // filters only the luma plane for MB rows in [startRow, startRow+rowCount) and
 // is intended for use by the encoder's fast loop-filter level picker. Unlike
@@ -221,6 +244,15 @@ func applyNormalLoopFilterGrid(img *common.Image, rows int, cols int, modes []Ma
 	return nil
 }
 
+func applyNormalLoopFilterChromaOnlyGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
+	for row := range rows {
+		if err := applyNormalLoopFilterChromaOnlyRow(img, row, cols, modes, frameType, lfi); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
@@ -240,6 +272,27 @@ func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []Macr
 		uOff := uRow + col*8
 		vOff := vRow + col*8
 		applyNormalLoopFilterMB(img, row, col, yOff, uOff, vOff, mode, frameType, level, lfi)
+	}
+	return nil
+}
+
+func applyNormalLoopFilterChromaOnlyRow(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
+	uRow := row * 8 * img.UStride
+	vRow := row * 8 * img.VStride
+	for col := range cols {
+		index := row*cols + col
+		mode := &modes[index]
+		if !validLoopFilterMode(mode) {
+			return ErrLoopFilterBufferTooSmall
+		}
+		level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
+		if level == 0 {
+			continue
+		}
+
+		uOff := uRow + col*8
+		vOff := vRow + col*8
+		applyNormalLoopFilterChromaOnlyMB(img, row, col, uOff, vOff, mode, frameType, level, lfi)
 	}
 	return nil
 }
@@ -323,6 +376,32 @@ func applyNormalLoopFilterMB(img *common.Image, row int, col int, yOff int, uOff
 		dsp.LoopFilterHorizontalEdge(img.Y[yOff:], img.YStride, blim, lim, hev, 2)
 		dsp.LoopFilterHorizontalEdge(img.Y[yOff+4*img.YStride:], img.YStride, blim, lim, hev, 2)
 		dsp.LoopFilterHorizontalEdge(img.Y[yOff+8*img.YStride:], img.YStride, blim, lim, hev, 2)
+		dsp.LoopFilterHorizontalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
+		dsp.LoopFilterHorizontalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+	}
+}
+
+func applyNormalLoopFilterChromaOnlyMB(img *common.Image, row int, col int, uOff int, vOff int, mode *MacroblockMode, frameType common.FrameType, level byte, lfi *common.LoopFilterInfo) {
+	skipLF := loopFilterSkipsInnerEdges(mode)
+	hev := lfi.HEVThresh[lfi.HEVThreshLUT[frameType][level]]
+	mblim := lfi.MBLimit[level]
+	blim := lfi.BLimit[level]
+	lim := lfi.Limit[level]
+
+	if col > 0 {
+		dsp.MBLoopFilterVerticalEdge(img.U[uOff-4:], img.UStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterVerticalEdge(img.V[vOff-4:], img.VStride, mblim, lim, hev, 1)
+	}
+	if !skipLF {
+		dsp.LoopFilterVerticalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
+		dsp.LoopFilterVerticalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+	}
+
+	if row > 0 {
+		dsp.MBLoopFilterHorizontalEdge(img.U[uOff-4*img.UStride:], img.UStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterHorizontalEdge(img.V[vOff-4*img.VStride:], img.VStride, mblim, lim, hev, 1)
+	}
+	if !skipLF {
 		dsp.LoopFilterHorizontalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
 		dsp.LoopFilterHorizontalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
 	}
