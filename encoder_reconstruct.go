@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"math"
+	"unsafe"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -6097,8 +6098,10 @@ type fullPelSearchCtx struct {
 	baseY      int
 	baseX      int
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX : ]
+	srcRowPtrP *byte  // = unsafe.SliceData(srcRowPtr) — hot SAD bypass
 	srcYStride int
 	refY       []byte
+	refYP      *byte // = unsafe.SliceData(ref.Y)
 	refYStride int
 	refRowH    uint // = uint(ref.CodedHeight - 16)
 	refRowW    uint // = uint(ref.CodedWidth - 16)
@@ -6107,6 +6110,7 @@ type fullPelSearchCtx struct {
 func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) fullPelSearchCtx {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
+	srcRowPtr := src.Y[baseY*src.YStride+baseX:]
 	return fullPelSearchCtx{
 		src:        src,
 		ref:        ref,
@@ -6114,9 +6118,11 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 		mbCol:      mbCol,
 		baseY:      baseY,
 		baseX:      baseX,
-		srcRowPtr:  src.Y[baseY*src.YStride+baseX:],
+		srcRowPtr:  srcRowPtr,
+		srcRowPtrP: unsafe.SliceData(srcRowPtr),
 		srcYStride: src.YStride,
 		refY:       ref.Y,
+		refYP:      unsafe.SliceData(ref.Y),
 		refYStride: ref.YStride,
 		refRowH:    uint(ref.CodedHeight - 16),
 		refRowW:    uint(ref.CodedWidth - 16),
@@ -6144,7 +6150,8 @@ func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, r
 	refBaseY := c.baseY + (mvRow >> 3)
 	refBaseX := c.baseX + (mvCol >> 3)
 	if uint(refBaseY) <= c.refRowH && uint(refBaseX) <= c.refRowW {
-		return dsp.SAD16x16Limit(c.srcRowPtr, c.srcYStride, c.refY[refBaseY*c.refYStride+refBaseX:], c.refYStride, sadLimit) + mvCost
+		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY*c.refYStride+refBaseX))
+		return dsp.SAD16x16LimitPtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride, sadLimit) + mvCost
 	}
 	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, sadLimit) + mvCost
 }
