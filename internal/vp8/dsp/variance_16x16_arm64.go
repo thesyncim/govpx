@@ -2,6 +2,8 @@
 
 package dsp
 
+import "unsafe"
+
 // ARMv8 NEON port of the libvpx v1.16.0
 // vpx_dsp/arm/subpel_variance_neon.c second-pass bilinear filter
 // specialised to width=16.
@@ -22,8 +24,8 @@ package dsp
 func varFilterBlock2DBilinearSecondPass16NEON(src *[17 * 16]uint16, dst *byte, height int, f0 uint64, f1 uint64)
 
 func varFilterBlock2DBilinearSecondPass16(src *[17 * 16]uint16, dst []byte, height int, filter [2]int16) {
-	if height <= 0 {
-		return
-	}
-	varFilterBlock2DBilinearSecondPass16NEON(src, &dst[0], height, uint64(uint16(filter[0])), uint64(uint16(filter[1])))
+	// unsafe.SliceData skips the runtime.panicBounds + stack frame the
+	// compiler emits for &dst[0]; the height<=0 guard is dead-code for
+	// the only caller (subpelVariance with positive heights).
+	varFilterBlock2DBilinearSecondPass16NEON(src, unsafe.SliceData(dst), height, uint64(uint16(filter[0])), uint64(uint16(filter[1])))
 }

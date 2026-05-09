@@ -2,6 +2,8 @@
 
 package dsp
 
+import "unsafe"
+
 // amd64 SSE2 dispatch for VP8 4x4 B_PRED intra-prediction kernels.
 // Mirrors libvpx v1.16.0 vp8/common/reconintra4x4.c semantics with
 // byte-identical output to the scalar reference. SSE2 is part of the
@@ -44,42 +46,47 @@ func intra4x4HDPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLe
 //go:noescape
 func intra4x4HUPredictSSE2(dst *byte, stride int, left *byte)
 
+// Each wrapper hands the kernel slice base pointers via unsafe.SliceData
+// so the dispatch stays free of the runtime.panicBounds + stack frame
+// the compiler emits for &slice[0]. Callers (Intra4x4Predict and friends
+// in intra4x4.go) always pass slices of the proper size.
+
 func intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
-	intra4x4DCPredictSSE2(&dst[0], dstStride, &above[0], &left[0])
+	intra4x4DCPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left))
 }
 
 func intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4TMPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4TMPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
-	intra4x4VEPredictSSE2(&dst[0], dstStride, &above[0], topLeft)
+	intra4x4VEPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), topLeft)
 }
 
 func intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
-	intra4x4HEPredictSSE2(&dst[0], dstStride, &left[0], topLeft)
+	intra4x4HEPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
-	intra4x4LDPredictSSE2(&dst[0], dstStride, &above[0])
+	intra4x4LDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4RDPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4RDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4VRPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4VRPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
-	intra4x4VLPredictSSE2(&dst[0], dstStride, &above[0])
+	intra4x4VLPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4HDPredictSSE2(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4HDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
-	intra4x4HUPredictSSE2(&dst[0], dstStride, &left[0])
+	intra4x4HUPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }

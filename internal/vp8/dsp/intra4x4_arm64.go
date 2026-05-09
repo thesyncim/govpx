@@ -2,6 +2,8 @@
 
 package dsp
 
+import "unsafe"
+
 // arm64 NEON dispatch for VP8 4x4 B_PRED intra-prediction kernels.
 // Mirrors libvpx v1.16.0 vp8/common/reconintra4x4.c semantics with
 // byte-identical output to the scalar reference.
@@ -41,42 +43,47 @@ func intra4x4HDPredictNEON(dst *byte, stride int, above *byte, left *byte, topLe
 //go:noescape
 func intra4x4HUPredictNEON(dst *byte, stride int, left *byte)
 
+// Each wrapper hands the kernel slice base pointers via unsafe.SliceData
+// so the dispatch stays free of the runtime.panicBounds + stack frame
+// the compiler emits for &slice[0]. Callers (Intra4x4Predict and friends
+// in intra4x4.go) always pass slices of the proper size.
+
 func intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
-	intra4x4DCPredictNEON(&dst[0], dstStride, &above[0], &left[0])
+	intra4x4DCPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left))
 }
 
 func intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4TMPredictNEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4TMPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
-	intra4x4VEPredictNEON(&dst[0], dstStride, &above[0], topLeft)
+	intra4x4VEPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), topLeft)
 }
 
 func intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
-	intra4x4HEPredictNEON(&dst[0], dstStride, &left[0], topLeft)
+	intra4x4HEPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
-	intra4x4LDPredictNEON(&dst[0], dstStride, &above[0])
+	intra4x4LDPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4RDPredictNEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4RDPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4VRPredictNEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4VRPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
-	intra4x4VLPredictNEON(&dst[0], dstStride, &above[0])
+	intra4x4VLPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	intra4x4HDPredictNEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intra4x4HDPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
-	intra4x4HUPredictNEON(&dst[0], dstStride, &left[0])
+	intra4x4HUPredictNEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }

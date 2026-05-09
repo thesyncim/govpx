@@ -2,7 +2,11 @@
 
 package dsp
 
-import "github.com/thesyncim/govpx/internal/vp8/tables"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
 
 // ARMv8 NEON port of the libvpx v1.16.0 vp8/common/filter.c bilinear
 // (two-tap) subpel predictor. Routes BilinearPredict16x16 and
@@ -30,7 +34,7 @@ func bilinearPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset i
 	var tmp [17 * 16]byte
 	hFilter := &tables.BilinearFilters[xoffset]
 	vFilter := &tables.BilinearFilters[yoffset]
-	bilinearPredict16x16NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	bilinearPredict16x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -45,6 +49,6 @@ func bilinearPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	var tmp [9 * 8]byte
 	hFilter := &tables.BilinearFilters[xoffset]
 	vFilter := &tables.BilinearFilters[yoffset]
-	bilinearPredict8x8NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	bilinearPredict8x8NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }

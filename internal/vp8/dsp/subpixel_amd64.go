@@ -3,6 +3,8 @@
 package dsp
 
 import (
+	"unsafe"
+
 	"github.com/thesyncim/govpx/internal/cpu"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -51,11 +53,13 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	var tmp [21 * 16]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
+	dstPtr := unsafe.SliceData(dst)
+	srcPtr := unsafe.SliceData(src)
 	if cpu.HasAVX2 {
-		sixTapPredict16x16AVX2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+		sixTapPredict16x16AVX2(dstPtr, dstStride, srcPtr, srcStride, hFilter, vFilter, &tmp)
 		return true
 	}
-	sixTapPredict16x16SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict16x16SSE2(dstPtr, dstStride, srcPtr, srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -70,7 +74,7 @@ func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [13 * 8]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict8x8SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x8SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -85,7 +89,7 @@ func sixTapPredict8x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [9 * 8]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict8x4SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x4SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -100,6 +104,6 @@ func sixTapPredict4x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [9 * 4]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict4x4SSE2(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict4x4SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }

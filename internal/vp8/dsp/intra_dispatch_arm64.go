@@ -2,9 +2,17 @@
 
 package dsp
 
+import "unsafe"
+
 // arm64 NEON dispatch for VP8 intra-prediction primitives. Mirrors the
 // libvpx v1.16.0 vp8/common/arm/neon/vp8_intrapred_neon.c per-mode
 // kernels and vp8/common/reconintra.c availability semantics.
+//
+// Each wrapper does explicit bounds-checks (e.g. _ = above[15]) before
+// calling into the NEON kernel; once those have proven the slice is
+// long enough we fetch the base via unsafe.SliceData to skip the
+// secondary bounds-check + stack frame the compiler would otherwise
+// emit for &slice[0].
 
 func intraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
 	_ = dst[15*dstStride+15]
@@ -13,18 +21,18 @@ func intraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, u
 	case upAvailable && leftAvailable:
 		_ = above[15]
 		_ = left[15]
-		sum := int(intraSum16NEON(&above[0])) + int(intraSum16NEON(&left[0]))
+		sum := int(intraSum16NEON(unsafe.SliceData(above))) + int(intraSum16NEON(unsafe.SliceData(left)))
 		dc = byte((sum + 16) / 32)
 	case upAvailable:
 		_ = above[15]
-		sum := int(intraSum16NEON(&above[0]))
+		sum := int(intraSum16NEON(unsafe.SliceData(above)))
 		dc = byte((sum + 8) / 16)
 	case leftAvailable:
 		_ = left[15]
-		sum := int(intraSum16NEON(&left[0]))
+		sum := int(intraSum16NEON(unsafe.SliceData(left)))
 		dc = byte((sum + 8) / 16)
 	}
-	intraFill16x16NEON(&dst[0], dstStride, dc)
+	intraFill16x16NEON(unsafe.SliceData(dst), dstStride, dc)
 }
 
 func intraDCPredict8x8(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
@@ -34,18 +42,18 @@ func intraDCPredict8x8(dst []byte, dstStride int, above []byte, left []byte, upA
 	case upAvailable && leftAvailable:
 		_ = above[7]
 		_ = left[7]
-		sum := int(intraSum8NEON(&above[0])) + int(intraSum8NEON(&left[0]))
+		sum := int(intraSum8NEON(unsafe.SliceData(above))) + int(intraSum8NEON(unsafe.SliceData(left)))
 		dc = byte((sum + 8) / 16)
 	case upAvailable:
 		_ = above[7]
-		sum := int(intraSum8NEON(&above[0]))
+		sum := int(intraSum8NEON(unsafe.SliceData(above)))
 		dc = byte((sum + 4) / 8)
 	case leftAvailable:
 		_ = left[7]
-		sum := int(intraSum8NEON(&left[0]))
+		sum := int(intraSum8NEON(unsafe.SliceData(left)))
 		dc = byte((sum + 4) / 8)
 	}
-	intraFill8x8NEON(&dst[0], dstStride, dc)
+	intraFill8x8NEON(unsafe.SliceData(dst), dstStride, dc)
 }
 
 func intraVerticalPredict16x16(dst []byte, dstStride int, above []byte) {
@@ -64,25 +72,25 @@ func intraVerticalPredict8x8(dst []byte, dstStride int, above []byte) {
 func intraHorizontalPredict16x16(dst []byte, dstStride int, left []byte) {
 	_ = left[15]
 	_ = dst[15*dstStride+15]
-	intraHPredict16x16NEON(&dst[0], dstStride, &left[0])
+	intraHPredict16x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }
 
 func intraHorizontalPredict8x8(dst []byte, dstStride int, left []byte) {
 	_ = left[7]
 	_ = dst[7*dstStride+7]
-	intraHPredict8x8NEON(&dst[0], dstStride, &left[0])
+	intraHPredict8x8NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }
 
 func intraTMPredict16x16(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
 	_ = above[15]
 	_ = left[15]
 	_ = dst[15*dstStride+15]
-	intraTMPredict16x16NEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intraTMPredict16x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
 	_ = above[7]
 	_ = left[7]
 	_ = dst[7*dstStride+7]
-	intraTMPredict8x8NEON(&dst[0], dstStride, &above[0], &left[0], topLeft)
+	intraTMPredict8x8NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }

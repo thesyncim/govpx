@@ -2,7 +2,11 @@
 
 package dsp
 
-import "github.com/thesyncim/govpx/internal/vp8/tables"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
 
 // ARMv8 NEON port of the libvpx v1.16.0
 // vp8/common/arm/neon/sixtappredict_neon.c 16x16, 8x8, 8x4, and 4x4
@@ -36,7 +40,7 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	var tmp [21 * 16]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict16x16NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict16x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -51,7 +55,7 @@ func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [13 * 8]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict8x8NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x8NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -66,7 +70,7 @@ func sixTapPredict8x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [9 * 8]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict8x4NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x4NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 
@@ -81,6 +85,6 @@ func sixTapPredict4x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	var tmp [9 * 4]byte
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
-	sixTapPredict4x4NEON(&dst[0], dstStride, &src[0], srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict4x4NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
