@@ -4562,8 +4562,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, r
 	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	refCost := boolBitCost(e.refProbIntra, 1) + refRate
 	otherCost := e.interMacroblockSkipRate(false)
-	predictionDist := macroblockImageSSE(src, &e.analysis.Img, mbRow, mbCol)
-	if staticInterRDEncodeBreakout(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold) {
+	if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(src, &e.analysis.Img, mbRow, mbCol, quant, e.opts.StaticThreshold); breakout {
 		rd := rdModeScoreWithZbin(qIndex, zbinOverQuant, 500, predictionDist)
 		return interResidualRDAccounting{
 			rd:          rd,
@@ -7208,21 +7207,27 @@ func clearMacroblockCoefficients(coeffs *vp8enc.MacroblockCoefficients) {
 }
 
 func staticInterRDEncodeBreakout(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, encodeBreakout int) bool {
+	breakout, _ := staticInterRDEncodeBreakoutDistortion(src, pred, mbRow, mbCol, quant, encodeBreakout)
+	return breakout
+}
+
+func staticInterRDEncodeBreakoutDistortion(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *vp8enc.MacroblockQuant, encodeBreakout int) (bool, int) {
 	if encodeBreakout <= 0 || pred == nil || quant == nil {
-		return false
+		return false, 0
 	}
 	yAC := int(quant.Y1.Dequant[1])
 	threshold := max((yAC*yAC)>>4, encodeBreakout)
 	lumaVar, lumaSSE := macroblockLumaVarianceSSE(src, pred, mbRow, mbCol)
 	if lumaSSE >= threshold {
-		return false
+		return false, 0
 	}
 	y2DC := int(quant.Y2.Dequant[0])
 	dcError := lumaSSE - lumaVar
 	if dcError >= (y2DC*y2DC)>>4 && (lumaSSE/2 <= lumaVar || dcError >= 64) {
-		return false
+		return false, 0
 	}
-	return macroblockChromaSSE(src, pred, mbRow, mbCol)*2 < threshold
+	chromaSSE := macroblockChromaSSE(src, pred, mbRow, mbCol)
+	return chromaSSE*2 < threshold, lumaSSE + chromaSSE
 }
 
 func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, quant *vp8enc.MacroblockQuant, encodeBreakout int, lumaSSE int) bool {
