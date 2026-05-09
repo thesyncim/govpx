@@ -282,7 +282,7 @@ func BenchmarkDecoderThreading(b *testing.B) {
 			b.Logf("collect frames %s: %v", name, err)
 			continue
 		}
-		for _, threads := range []int{0, 2, 4} {
+		for _, threads := range []int{0, 1, 2, 4, 8} {
 			threads := threads
 			b.Run(name+"/threads="+itoa(threads), func(b *testing.B) {
 				d, err := NewVP8Decoder(DecoderOptions{Threads: threads})
