@@ -504,6 +504,19 @@ type VP8Encoder struct {
 	interModeSpeedErrorBins [1024]uint32
 	interRDFrameActive      bool
 
+	// Per-MB snapshots of the picker mutator state, used by the cyclic-
+	// refresh segment-fallback path so the segmentID=0 fallback picker
+	// call does not see the segmentID-guess call's mutations. Stored on
+	// the encoder (not on the stack) so the fallback path stays
+	// zero-alloc; libvpx runs the picker once per MB regardless of
+	// segment, so this snapshot/restore mirrors that single-call
+	// invariant. See encoder_reconstruct.go encodeInterFrameAttempt's
+	// per-MB loop.
+	interRDThreshMultSnapshot      [libvpxInterModeCount]int
+	interRDThreshTouchedSnapshot   [libvpxInterModeCount]bool
+	interModeTestHitCountsSnapshot [libvpxInterModeCount]int
+	interMBsTestedSoFarSnapshot    int
+
 	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
 	// pickers. Within a frame the only input that changes per-MB is qIndex
 	// (via cyclic-refresh segmentation), so the baseline output of

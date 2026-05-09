@@ -98,6 +98,109 @@ func TestDiagR11JPreLFReconScoreboard008(t *testing.T) {
 	t.Run("frame1_mb_decisions", func(t *testing.T) {
 		diffMBDecisionsAllRows(t, govpxTrace, libvpxTrace, 1)
 	})
+
+	t.Run("frame1_col7_bpred_bmodes", func(t *testing.T) {
+		diffR12CCol7BPredBModes(t, govpxTrace, libvpxTrace, 1)
+	})
+}
+
+// diffR12CCol7BPredBModes dumps the per-sub-block intra mode picks for the
+// 4 col-7 right-edge B_PRED MBs (mb=(2..5,7)) on the 128x128 frame 1 inter
+// frame and reports per-block mismatches. This is the R12-C focused diag
+// for closing the col-7 B_PRED Y reconstruction gap.
+func diffR12CCol7BPredBModes(t *testing.T, govpxTrace []byte, libvpxTrace []byte, frameIdx uint64) {
+	t.Helper()
+	gov := parseR12CMBRowsWithBModes(t, govpxTrace, frameIdx)
+	lib := parseR12CMBRowsWithBModes(t, libvpxTrace, frameIdx)
+
+	col := 7
+	rows := []int{2, 3, 4, 5}
+	for _, row := range rows {
+		k := r11jMBKey{MBRow: row, MBCol: col}
+		g, gok := gov[k]
+		l, lok := lib[k]
+		if !gok || !lok {
+			t.Logf("mb=(%d,%d): missing trace (govpx=%v libvpx=%v)", row, col, gok, lok)
+			continue
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "mb=(%d,%d) govpx[mode=%s ref=%s mv=(%d,%d)] libvpx[mode=%s ref=%s mv=(%d,%d)]",
+			row, col,
+			g.Mode, g.RefFrame, g.MVRow, g.MVCol,
+			l.Mode, l.RefFrame, l.MVRow, l.MVCol)
+		fmt.Fprintln(&sb)
+		if g.Mode == "B_PRED" && l.Mode == "B_PRED" {
+			diffCount := 0
+			for blk := 0; blk < 16; blk++ {
+				gB := ""
+				lB := ""
+				if blk < len(g.BModes) {
+					gB = g.BModes[blk]
+				}
+				if blk < len(l.BModes) {
+					lB = l.BModes[blk]
+				}
+				marker := ""
+				if gB != lB {
+					marker = "  *"
+					diffCount++
+				}
+				fmt.Fprintf(&sb, "  blk=%2d govpx=%-10s libvpx=%-10s%s\n", blk, gB, lB, marker)
+			}
+			fmt.Fprintf(&sb, "  total b_mode mismatches: %d/16\n", diffCount)
+		}
+		t.Log(sb.String())
+	}
+}
+
+type r12cMBRow struct {
+	Mode     string
+	RefFrame string
+	MVRow    int
+	MVCol    int
+	BModes   []string
+}
+
+func parseR12CMBRowsWithBModes(t *testing.T, trace []byte, frameIdx uint64) map[r11jMBKey]r12cMBRow {
+	t.Helper()
+	out := make(map[r11jMBKey]r12cMBRow)
+	scan := bufio.NewScanner(bytes.NewReader(trace))
+	scan.Buffer(make([]byte, 0, 4*1024*1024), 64*1024*1024)
+	for scan.Scan() {
+		var row map[string]any
+		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
+			continue
+		}
+		typ, _ := row["type"].(string)
+		if typ != "mb" {
+			continue
+		}
+		fi, _ := row["frame_index"].(float64)
+		if uint64(fi) != frameIdx {
+			continue
+		}
+		mr, _ := row["mb_row"].(float64)
+		mc, _ := row["mb_col"].(float64)
+		mode, _ := row["mode"].(string)
+		ref, _ := row["ref_frame"].(string)
+		mvR, _ := row["mv_row"].(float64)
+		mvC, _ := row["mv_col"].(float64)
+		var bModes []string
+		if bms, ok := row["b_modes"].([]any); ok {
+			bModes = make([]string, len(bms))
+			for i, v := range bms {
+				bModes[i], _ = v.(string)
+			}
+		}
+		out[r11jMBKey{MBRow: int(mr), MBCol: int(mc)}] = r12cMBRow{
+			Mode:     mode,
+			RefFrame: ref,
+			MVRow:    int(mvR),
+			MVCol:    int(mvC),
+			BModes:   bModes,
+		}
+	}
+	return out
 }
 
 // dumpR11JLFTrialDiff prints a side-by-side LF fast-picker per-trial

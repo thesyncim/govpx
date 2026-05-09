@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r9-5-r12d-speed
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v5
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -496,8 +496,15 @@ void govpx_oracle_capture_mb(struct VP8_COMP *cpi, int mb_row, int mb_col) {
         }
     }
     row->b_modes_valid = 0;
-    if (cm->frame_type == KEY_FRAME &&
-        xd->mode_info_context->mbmi.mode == B_PRED) {
+    if (xd->mode_info_context->mbmi.mode == B_PRED) {
+        /* Both keyframes (rd_pick_intra4x4mby_modes / pick_intra4x4mby_modes
+         * for KF) and inter frames (rd_pick_intra4x4mby_modes called via
+         * intra fallback inside vp8_pick_inter_mode's B_PRED case, plus
+         * rd_pick_inter_mode's B_PRED branch) populate
+         * mode_info_context->bmi[i].as_mode after the picker commits. R11-J
+         * needs the inter-side dump too because the 128x128 col-7 col-edge
+         * BPred divergence shows up on frame 1 (an inter frame) and the
+         * earlier KEY_FRAME-only gate masked it. */
         row->b_modes_valid = 1;
         for (i = 0; i < 16; ++i) {
             row->b_modes[i] = xd->mode_info_context->bmi[i].as_mode;
@@ -826,6 +833,19 @@ void govpx_oracle_emit_frame(struct VP8_COMP *cpi, size_t frame_size) {
                     for (j = 0; j < 16; ++j) {
                         fprintf(out, "%s%d", j == 0 ? "" : ",",
                                 r->block_mv_col[j]);
+                    }
+                    fprintf(out, "]");
+                }
+                if (r->b_modes_valid) {
+                    /* R12-C: emit per-sub-block intra mode picks for
+                     * inter-frame B_PRED MBs so the diag harness can compare
+                     * govpx's pickFastBPredLumaModeKF / fast picker against
+                     * libvpx's pick_intra4x4mby_modes / rd_pick_intra4x4mby
+                     * at the col-7 right-edge MBs on 128x128 frame 1. */
+                    fprintf(out, ",\"b_modes\":[");
+                    for (j = 0; j < 16; ++j) {
+                        fprintf(out, "%s\"%s\"", j == 0 ? "" : ",",
+                                govpx_oracle_bmode_name(r->b_modes[j]));
                     }
                     fprintf(out, "]");
                 }
@@ -1275,6 +1295,153 @@ void govpx_oracle_emit_last_ref_window(struct VP8_COMP *cpi) {
         ref->v_buffer - uv_border * ref->uv_stride - uv_border,
         uv_window_w, uv_window_h, ref->uv_stride);
     fprintf(out, "\"}\n");
+    fflush(out);
+}
+
+/* R12-C: emit a per-iteration iteration_outcome row inside the libvpx
+ * fast inter picker mode_index loop. Each row captures (mb_row, mb_col,
+ * mode_index, this_mode, this_ref_frame, mode_mv, gate, this_rd,
+ * best_rd_at_gate, rd_threshes_at_gate) where `gate` is one of
+ * "rd_threshes", "ref_skip", "mode_check_freq", "alt_ref_skip",
+ * "splitmv_unsupported", "umv_bounds", "near_zero_skip", "tested".
+ * This pins down exactly which gate libvpx uses to skip a given
+ * mode_index. NEAREST is mode_indexes 2, 5, 7. NEAR is mode_indexes
+ * 3, 8, 9. */
+void govpx_oracle_emit_iteration_outcome(struct VP8_COMP *cpi, int mb_row,
+                                         int mb_col, int mode_index,
+                                         int this_mode, int this_ref_frame,
+                                         int mv_row, int mv_col,
+                                         const char *gate, int this_rd,
+                                         int best_rd_at_gate,
+                                         int rd_threshes_at_gate) {
+    FILE *out;
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    (void)cpi;
+    out = govpx_oracle_state.out;
+    fprintf(out,
+            "{\"type\":\"iteration_outcome\","
+            "\"frame_index\":%llu,"
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"mode_index\":%d,"
+            "\"mode\":\"%s\","
+            "\"ref_frame\":%d,"
+            "\"mv\":[%d,%d],"
+            "\"gate\":\"%s\","
+            "\"this_rd\":%d,"
+            "\"best_rd_at_gate\":%d,"
+            "\"rd_threshes_at_gate\":%d}\n",
+            govpx_oracle_state.frame_index,
+            mb_row, mb_col,
+            mode_index,
+            govpx_oracle_mode_name(this_mode),
+            this_ref_frame,
+            mv_row, mv_col,
+            gate != NULL ? gate : "",
+            this_rd,
+            best_rd_at_gate,
+            rd_threshes_at_gate);
+    fflush(out);
+}
+
+/* R12-C: emit a single picker_entry row capturing the libvpx fast inter
+ * picker state at MB entry, immediately after vp8_find_near_mvs_bias has
+ * populated mode_mv_sb / cnt[] but before the per-mode rd_threshes loop
+ * begins. This pins down the NEARESTMV-skip cascade by surfacing exactly
+ * which gate libvpx uses to skip NEARESTMV at MBs where govpx tests it
+ * with non-zero MV. The row carries:
+ *   - mode_mv[NEAREST/NEAR/NEW/ZERO/SPLIT].as_mv for the picker-active
+ *     sign_bias slice (i.e. mode_mv_sb[sign_bias]),
+ *   - cnt[CNT_INTRA..CNT_SPLITMV] (the mdcounts array filled by
+ *     vp8_find_near_mvs_bias),
+ *   - rd_threshes[NEARESTMV] / rd_thresh_mult[NEARESTMV] /
+ *     mode_check_freq[NEARESTMV] / mode_test_hit_counts[NEARESTMV],
+ *   - mbs_tested_so_far,
+ *   - best_rd at picker entry (always INT_MAX on the first iteration),
+ *   - sign_bias and ref_frame_map[1] (the LAST_FRAME ref slot).
+ * NEARESTMV is mode_index 2 in libvpx's vp8_mode_order so we sample that
+ * slot specifically; when the same MB's libvpx loop later short-circuits
+ * the NEARESTMV iteration, the captured state at this hook explains why.
+ * Mirrored on the govpx side via emitOraclePickerEntryTrace so the
+ * comparator can diff the (mode_mv, cnt, rd_threshes, ...) tuple. */
+void govpx_oracle_emit_picker_entry(struct VP8_COMP *cpi, int mb_row,
+                                    int mb_col, int sign_bias,
+                                    int ref_frame_last,
+                                    int_mv mode_mv_sb[2][MB_MODE_COUNT],
+                                    const int cnt[4], int best_rd) {
+    FILE *out;
+    MACROBLOCK *x;
+    int_mv *mode_mv;
+
+    govpx_oracle_init();
+    if (!govpx_oracle_state.enabled || govpx_oracle_state.out == NULL) {
+        return;
+    }
+    if (cpi == NULL) {
+        return;
+    }
+    x = &cpi->mb;
+    out = govpx_oracle_state.out;
+    mode_mv = mode_mv_sb[sign_bias];
+    fprintf(out,
+            "{\"type\":\"picker_entry\","
+            "\"frame_index\":%llu,"
+            "\"mb_row\":%d,\"mb_col\":%d,"
+            "\"sign_bias\":%d,"
+            "\"ref_frame_last\":%d,"
+            "\"mode_mv\":{"
+            "\"nearest\":[%d,%d],"
+            "\"near\":[%d,%d],"
+            "\"zero\":[%d,%d],"
+            "\"new\":[%d,%d]"
+            "},"
+            "\"cnt\":{"
+            "\"intra\":%d,\"nearest\":%d,\"near\":%d,\"splitmv\":%d"
+            "},"
+            "\"rd_threshes_nearest\":%d,"
+            "\"rd_thresh_mult_nearest\":%d,"
+            "\"rd_baseline_thresh_nearest\":%d,"
+            "\"sf_thresh_mult_nearest\":%d,"
+            "\"rdmult\":%d,"
+            "\"rddiv\":%d,"
+            "\"speed\":%d,"
+            "\"base_qindex\":%d,"
+            "\"y1dc_delta_q\":%d,"
+            "\"zbin_over_quant\":%d,"
+            "\"errorperbit\":%d,"
+            "\"mode_check_freq_nearest\":%d,"
+            "\"mode_test_hit_counts_nearest\":%d,"
+            "\"mbs_tested_so_far\":%d,"
+            "\"best_rd\":%d}\n",
+            govpx_oracle_state.frame_index,
+            mb_row, mb_col,
+            sign_bias,
+            ref_frame_last,
+            mode_mv[NEARESTMV].as_mv.row, mode_mv[NEARESTMV].as_mv.col,
+            mode_mv[NEARMV].as_mv.row, mode_mv[NEARMV].as_mv.col,
+            mode_mv[ZEROMV].as_mv.row, mode_mv[ZEROMV].as_mv.col,
+            mode_mv[NEWMV].as_mv.row, mode_mv[NEWMV].as_mv.col,
+            cnt != NULL ? cnt[0] : 0,
+            cnt != NULL ? cnt[1] : 0,
+            cnt != NULL ? cnt[2] : 0,
+            cnt != NULL ? cnt[3] : 0,
+            x->rd_threshes[2],
+            x->rd_thresh_mult[2],
+            cpi->rd_baseline_thresh[2],
+            cpi->sf.thresh_mult[2],
+            cpi->RDMULT,
+            cpi->RDDIV,
+            cpi->Speed,
+            cpi->common.base_qindex,
+            cpi->common.y1dc_delta_q,
+            x->zbin_over_quant,
+            x->errorperbit,
+            cpi->mode_check_freq[2],
+            x->mode_test_hit_counts[2],
+            x->mbs_tested_so_far,
+            best_rd);
     fflush(out);
 }
 
@@ -1853,7 +2020,17 @@ extern_decl = ('extern void govpx_oracle_capture_inter_candidate(\n'
                '    int best_yrd_before, long long best_sse_before,\n'
                '    int score, int yrd, int rate, int rate_y, int rate_uv,\n'
                '    int distortion, int distortion_uv, long long sse,\n'
-               '    int became_best, int loop_break);\n')
+               '    int became_best, int loop_break);\n'
+               'extern void govpx_oracle_emit_picker_entry(\n'
+               '    struct VP8_COMP *cpi, int mb_row, int mb_col,\n'
+               '    int sign_bias, int ref_frame_last,\n'
+               '    int_mv mode_mv_sb[2][MB_MODE_COUNT],\n'
+               '    const int cnt[4], int best_rd);\n'
+               'extern void govpx_oracle_emit_iteration_outcome(\n'
+               '    struct VP8_COMP *cpi, int mb_row, int mb_col,\n'
+               '    int mode_index, int this_mode, int this_ref_frame,\n'
+               '    int mv_row, int mv_col, const char *gate, int this_rd,\n'
+               '    int best_rd_at_gate, int rd_threshes_at_gate);\n')
 if extern_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: pickinter extern anchor missing\n')
     sys.exit(2)
@@ -1870,7 +2047,14 @@ loop_replacement = ('    int frame_cost;\n'
                     '    int govpx_best_rd_before = best_rd;\n'
                     '    unsigned int govpx_best_sse_before = best_rd_sse;\n'
                     '\n'
-                    '    if (best_rd <= x->rd_threshes[mode_index]) continue;\n')
+                    '    if (best_rd <= x->rd_threshes[mode_index]) {\n'
+                    '      govpx_oracle_emit_iteration_outcome(\n'
+                    '          cpi, mb_row, mb_col, mode_index,\n'
+                    '          vp8_mode_order[mode_index], this_ref_frame,\n'
+                    '          0, 0, "rd_threshes", INT_MAX,\n'
+                    '          best_rd, x->rd_threshes[mode_index]);\n'
+                    '      continue;\n'
+                    '    }\n')
 if loop_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: pickinter loop anchor missing\n')
     sys.exit(2)
@@ -1896,6 +2080,125 @@ if emit_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: pickinter emit anchor missing\n')
     sys.exit(2)
 text = text.replace(emit_anchor, emit_replacement, 1)
+# R12-C: instrument the remaining continue paths inside the mode_index loop
+# so we can pin down exactly which gate skips a given mode.
+ref_skip_anchor = '    if (this_ref_frame < 0) continue;\n'
+ref_skip_replacement = ('    if (this_ref_frame < 0) {\n'
+                        '      govpx_oracle_emit_iteration_outcome(\n'
+                        '          cpi, mb_row, mb_col, mode_index,\n'
+                        '          vp8_mode_order[mode_index], this_ref_frame,\n'
+                        '          0, 0, "ref_skip", INT_MAX,\n'
+                        '          best_rd, x->rd_threshes[mode_index]);\n'
+                        '      continue;\n'
+                        '    }\n')
+if ref_skip_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter ref_skip anchor missing\n')
+    sys.exit(2)
+text = text.replace(ref_skip_anchor, ref_skip_replacement, 1)
+freq_skip_anchor = ('        x->rd_threshes[mode_index] =\n'
+                    '            (cpi->rd_baseline_thresh[mode_index] >> 7) *\n'
+                    '            x->rd_thresh_mult[mode_index];\n'
+                    '        continue;\n'
+                    '      }\n'
+                    '    }\n')
+freq_skip_replacement = ('        x->rd_threshes[mode_index] =\n'
+                         '            (cpi->rd_baseline_thresh[mode_index] >> 7) *\n'
+                         '            x->rd_thresh_mult[mode_index];\n'
+                         '        govpx_oracle_emit_iteration_outcome(\n'
+                         '            cpi, mb_row, mb_col, mode_index,\n'
+                         '            vp8_mode_order[mode_index], this_ref_frame,\n'
+                         '            0, 0, "mode_check_freq", INT_MAX,\n'
+                         '            best_rd, x->rd_threshes[mode_index]);\n'
+                         '        continue;\n'
+                         '      }\n'
+                         '    }\n')
+if freq_skip_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter freq_skip anchor missing\n')
+    sys.exit(2)
+text = text.replace(freq_skip_anchor, freq_skip_replacement, 1)
+alt_skip_anchor = ('    if (cpi->is_src_frame_alt_ref && (cpi->oxcf.arnr_max_frames == 0)) {\n'
+                   '      if (this_mode != ZEROMV ||\n'
+                   '          x->e_mbd.mode_info_context->mbmi.ref_frame != ALTREF_FRAME) {\n'
+                   '        continue;\n'
+                   '      }\n'
+                   '    }\n')
+alt_skip_replacement = ('    if (cpi->is_src_frame_alt_ref && (cpi->oxcf.arnr_max_frames == 0)) {\n'
+                        '      if (this_mode != ZEROMV ||\n'
+                        '          x->e_mbd.mode_info_context->mbmi.ref_frame != ALTREF_FRAME) {\n'
+                        '        govpx_oracle_emit_iteration_outcome(\n'
+                        '            cpi, mb_row, mb_col, mode_index,\n'
+                        '            this_mode, this_ref_frame,\n'
+                        '            0, 0, "alt_ref_skip", INT_MAX,\n'
+                        '            best_rd, x->rd_threshes[mode_index]);\n'
+                        '        continue;\n'
+                        '      }\n'
+                        '    }\n')
+if alt_skip_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter alt_skip anchor missing\n')
+    sys.exit(2)
+text = text.replace(alt_skip_anchor, alt_skip_replacement, 1)
+near_zero_anchor = ('      case NEARESTMV:\n'
+                    '      case NEARMV:\n'
+                    '        if (mode_mv[this_mode].as_int == 0) continue;\n')
+near_zero_replacement = ('      case NEARESTMV:\n'
+                         '      case NEARMV:\n'
+                         '        if (mode_mv[this_mode].as_int == 0) {\n'
+                         '          govpx_oracle_emit_iteration_outcome(\n'
+                         '              cpi, mb_row, mb_col, mode_index,\n'
+                         '              this_mode, this_ref_frame,\n'
+                         '              mode_mv[this_mode].as_mv.row,\n'
+                         '              mode_mv[this_mode].as_mv.col,\n'
+                         '              "near_zero_skip", INT_MAX,\n'
+                         '              best_rd, x->rd_threshes[mode_index]);\n'
+                         '          continue;\n'
+                         '        }\n')
+if near_zero_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter near_zero anchor missing\n')
+    sys.exit(2)
+text = text.replace(near_zero_anchor, near_zero_replacement, 1)
+umv_anchor = ('        if (((mode_mv[this_mode].as_mv.row >> 3) < x->mv_row_min) ||\n'
+              '            ((mode_mv[this_mode].as_mv.row >> 3) > x->mv_row_max) ||\n'
+              '            ((mode_mv[this_mode].as_mv.col >> 3) < x->mv_col_min) ||\n'
+              '            ((mode_mv[this_mode].as_mv.col >> 3) > x->mv_col_max)) {\n'
+              '          continue;\n'
+              '        }\n')
+umv_replacement = ('        if (((mode_mv[this_mode].as_mv.row >> 3) < x->mv_row_min) ||\n'
+                   '            ((mode_mv[this_mode].as_mv.row >> 3) > x->mv_row_max) ||\n'
+                   '            ((mode_mv[this_mode].as_mv.col >> 3) < x->mv_col_min) ||\n'
+                   '            ((mode_mv[this_mode].as_mv.col >> 3) > x->mv_col_max)) {\n'
+                   '          govpx_oracle_emit_iteration_outcome(\n'
+                   '              cpi, mb_row, mb_col, mode_index,\n'
+                   '              this_mode, this_ref_frame,\n'
+                   '              mode_mv[this_mode].as_mv.row,\n'
+                   '              mode_mv[this_mode].as_mv.col,\n'
+                   '              "umv_bounds", INT_MAX,\n'
+                   '              best_rd, x->rd_threshes[mode_index]);\n'
+                   '          continue;\n'
+                   '        }\n')
+if umv_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter umv anchor missing\n')
+    sys.exit(2)
+text = text.replace(umv_anchor, umv_replacement, 1)
+# R12-C: emit per-MB picker_entry row right after vp8_find_near_mvs_bias
+# fills mode_mv_sb / mdcounts and before the per-mode rd_threshes loop.
+# The anchor is the unique `*returnintra = INT_MAX;` line that sits between
+# the find_near_mvs_bias call and the mode_index loop. ref_frame_map[1]
+# gives the ref slot used to seed mode_mv_sb (LAST_FRAME normally).
+picker_entry_sentinel = '/* govpx oracle: per-MB picker_entry record. */'
+picker_entry_anchor = ('  *returnintra = INT_MAX;\n'
+                      '  x->skip = 0;\n')
+picker_entry_replacement = ('  *returnintra = INT_MAX;\n'
+                            '  x->skip = 0;\n'
+                            '\n'
+                            '  ' + picker_entry_sentinel + '\n'
+                            '  govpx_oracle_emit_picker_entry(\n'
+                            '      cpi, mb_row, mb_col, sign_bias,\n'
+                            '      ref_frame_map[1] > 0 ? ref_frame_map[1] : 0,\n'
+                            '      mode_mv_sb, mdcounts, best_rd);\n')
+if picker_entry_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: pickinter picker_entry anchor missing\n')
+    sys.exit(2)
+text = text.replace(picker_entry_anchor, picker_entry_replacement, 1)
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_PICKINTER_PY

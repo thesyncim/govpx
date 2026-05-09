@@ -317,6 +317,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				aboveLeft = &modes[index-cols-1]
 			}
 			e.beginInterRDModeDecisionMacroblock()
+			// Snapshot the picker mutator state ONLY when segmentID != 0
+			// so the cyclic-refresh segment-fallback path can restore it
+			// to mirror libvpx's single-picker-call-per-MB invariant. The
+			// snapshots live on the encoder struct (not on the stack) so
+			// this stays zero-alloc when the segmentID == 0 hot path
+			// applies. See R12-C ZEROMV/NEARESTMV swap fix
+			// (build_vpxenc_oracle.sh oracle_trace.c picker_entry hook).
+			if segmentID != 0 {
+				e.interRDThreshMultSnapshot = e.interRDThreshMult
+				e.interRDThreshTouchedSnapshot = e.interRDThreshTouched
+				e.interModeTestHitCountsSnapshot = e.interModeTestHitCounts
+				e.interMBsTestedSoFarSnapshot = e.interMBsTestedSoFar
+			}
 			decision, ok := e.selectInterFrameModeDecision(
 				src, refs[:], refCount,
 				row, col, rows, cols,
@@ -330,6 +343,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				return 0, ErrInvalidConfig
 			}
 			if segmentID != 0 && !decision.cyclicRefreshEligible() {
+				// Restore the snapshotted state so the segmentID=0
+				// fallback picker call doesn't see the first call's
+				// rd_thresh_mult mutations. libvpx runs the picker exactly
+				// once per MB, so without this restore the first call's
+				// lowerBestInterFastThreshold pollutes mult[bestModeIndex]
+				// and shifts the second call's threshold below libvpx's,
+				// causing the cascade in selectFastInterFrameModeDecision
+				// (e.g. the 720p noise NEARESTMV<->ZEROMV swap at MB(0,3)
+				// onward in R12-C).
+				e.interRDThreshMult = e.interRDThreshMultSnapshot
+				e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
+				e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
+				e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
 				segmentID = 0
 				decision, ok = e.selectInterFrameModeDecision(
 					src, refs[:], refCount,
@@ -1104,6 +1130,9 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
+	if r12cTrackMutation(e, modeIndex, "lowerForImprovement") {
+		// Track mutation site externally.
+	}
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
 		e.interRDThreshMult[modeIndex] -= 2
 	} else {
@@ -1116,6 +1145,7 @@ func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
+	r12cTrackMutation(e, modeIndex, "raise")
 	e.interRDThreshMult[modeIndex] += 4
 	if e.interRDThreshMult[modeIndex] > libvpxMaxThreshMult {
 		e.interRDThreshMult[modeIndex] = libvpxMaxThreshMult
@@ -1127,6 +1157,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
+	r12cTrackMutation(e, modeIndex, "lowerBestRD")
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
@@ -1140,6 +1171,7 @@ func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
+	r12cTrackMutation(e, modeIndex, "lowerBestFast")
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
@@ -2194,12 +2226,45 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	// branches to one indexed read.
 	rdActive := e.interRDFrameActive
 
+	pickerDebug := r12cPickerDebug(int(e.frameCount), mbRow, mbCol)
+	if pickerDebug {
+		r12cSetTrackContext(int(e.frameCount), mbRow, mbCol)
+	}
+	if pickerDebug {
+		baseline := e.interModeRDThresholdsBaseline(qIndex, refs, refCount)
+		baseSlice := make([]int, len(baseline))
+		multSlice := make([]int, len(e.interRDThreshMult))
+		touchedSlice := make([]bool, len(e.interRDThreshTouched))
+		threshSlice := make([]int, len(thresholds))
+		for i := range baseline {
+			baseSlice[i] = baseline[i]
+			threshSlice[i] = thresholds[i]
+		}
+		for i := range e.interRDThreshMult {
+			multSlice[i] = e.interRDThreshMult[i]
+			touchedSlice[i] = e.interRDThreshTouched[i]
+		}
+		rdMultV, rdDivV := libvpxRDConstantsWithZbin(qIndex, e.rc.currentZbinOverQuant)
+		r12cPickerEmitState2(int(e.frameCount), mbRow, mbCol, baseSlice, multSlice, touchedSlice, threshSlice, qIndex, rdMultV, rdDivV, e.interMBsTestedSoFar)
+	}
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
+			if pickerDebug {
+				r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
+					oracleTraceModeName(mbMode), "disabled", threshold, bestScore, 0, 0, 0)
+			}
 			continue
 		}
+		if pickerDebug {
+			r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
+				oracleTraceModeName(mbMode), "enter", threshold, bestScore, 0, 0, 0)
+		}
 		if bestSet && bestScore <= threshold {
+			if pickerDebug {
+				r12cPickerEmitIteration(int(e.frameCount), mbRow, mbCol, modeIndex,
+					oracleTraceModeName(mbMode), "rd_threshes", threshold, bestScore, 0, 0, 0)
+			}
 			continue
 		}
 
@@ -2538,6 +2603,10 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	var modes [16]vp8common.BPredictionMode
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
+	debugBlk := r12cBPredDebug(mbRow, mbCol)
+	if debugBlk {
+		r12cBPredEmitConsts(mbRow, mbCol, qIndex, zbinOverQuant, rdMult, rdDiv)
+	}
 	for block := 0; block < 16; block++ {
 		bestMode := vp8common.BModeCount
 		bestRate := 0
@@ -2552,6 +2621,9 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			modeRate := libvpxInterFastBpredModeCost(bMode)
 			modeDist := bPredBlockSSE(src, mbRow, mbCol, block, blockPred[:], 4)
 			modeCost := libvpxRDCost(rdMult, rdDiv, modeRate, modeDist)
+			if debugBlk {
+				r12cBPredEmitTrace(e, mbRow, mbCol, block, bMode, modeRate, modeDist, modeCost, blockPred[:])
+			}
 			if modeCost < bestCost {
 				bestMode = bMode
 				bestRate = modeRate
@@ -3993,28 +4065,22 @@ func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8commo
 //	vp8_cost_tokens(rd_costs->inter_bmode_costs, x->fc.bmode_prob, vp8_bmode_tree);
 //	vp8_cost_tokens(rd_costs->inter_bmode_costs, x->fc.sub_mv_ref_prob, vp8_sub_mv_ref_tree);
 //
-// The first call writes per-token costs for B_DC_PRED..B_HU_PRED (10 leaves,
-// slots 0..9). The second call reuses the same array and overwrites slots
-// 0..3 with sub_mv_ref token costs (LEFT4X4..NEW4X4, 4 leaves).
+// vp8_cost_tokens writes C[-leaf] for each negative leaf in the tree. The
+// vp8_bmode_tree leaves are -B_DC_PRED..-B_HU_PRED (slots 0..9). The
+// vp8_sub_mv_ref_tree leaves are -LEFT4X4..-NEW4X4 (slots 10..13). The
+// second call therefore writes slots 10..13 ONLY — slots 0..3 retain the
+// bmode-token costs from the first init. (Before R12-C this function was
+// returning sub_mv_ref token costs for slots 0..3, which is what an
+// off-by-tree-walk reading of vp8_cost_tokens would suggest but the actual
+// tree-walk only touches the negated-leaf slots.)
 //
 // pick_intra4x4block iterates `mode = B_DC_PRED..B_HE_PRED` (slots 0..3) and
-// reads `mode_costs[mode]`, which therefore returns the sub_mv_ref token
-// cost for the same enum slot, NOT the bmode-token cost. The RD picker
-// (rd_pick_intra4x4block) iterates the full set `B_DC_PRED..B_HU_PRED` and
-// also exposes the same overwritten slots, but mirroring the overwrite into
-// govpx's RD picker shifts mode/SPLITMV decisions in good-cpu3-vbr — so the
-// libvpx-stale init is honored only on the inter fast-picker hot path here
-// (selectFastInterFrameModeDecision), where it lines up the corner-MB
-// B_PRED-vs-NEWMV tiebreak with libvpx for the rt-cpu0/4/8 128x128 fixtures.
+// reads `mode_costs[mode]`, which therefore returns the bmode-token cost
+// for that intra4x4 mode under the current frame's bmode_prob. Using the
+// default bmode_prob at decode time matches libvpx's frame-1 state because
+// fc.bmode_prob is reset to vp8_bmode_prob on every frame in
+// vp8_default_coef_probs / start_encoded_frame.
 func libvpxInterFastBpredModeCost(mode vp8common.BPredictionMode) int {
-	if mode >= vp8common.BDCPred && mode <= vp8common.BHEPred {
-		// Slots 0..3 hold sub_mv_ref token costs for LEFT4X4..NEW4X4
-		// after libvpx's two-step init. Map by enum slot:
-		//   B_DC_PRED(0) <-> Left4x4 token, B_TM_PRED(1) <-> Above4x4,
-		//   B_VE_PRED(2) <-> Zero4x4,       B_HE_PRED(3) <-> New4x4.
-		token := int(vp8common.Left4x4) + int(mode)
-		return treeTokenCost(vp8tables.SubMVRefTree[:], libvpxDefaultSubMVRefProbs[:], token)
-	}
 	return treeTokenCost(vp8tables.BModeTree[:], vp8tables.DefaultBModeProbs[:], int(mode))
 }
 
