@@ -77,6 +77,7 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	rs.enc = *e
 	rs.enc.rowWorkers = nil
 	rs.enc.threadedRowsActive = true
+	rs.enc.threadedDotArtifactBudget = e.threadedDotArtifactBudget
 	rs.enc.reconstructScratch = rs.scratch
 	rs.enc.oracleTraceMBBuffer = nil
 	rs.enc.oracleTraceInterCandidateBuffer = nil
@@ -161,6 +162,11 @@ type rowWorkerPool struct {
 	// frame slice. Buffered to worker count so fast workers never block
 	// on the dispatcher while slower rows are still running.
 	done chan int
+
+	// dotArtifactBudget is the frame-global suppression cap shared across
+	// worker-private encoder views. It keeps the libvpx ZEROMV-LAST bias
+	// budget global instead of letting each worker spend its own copy.
+	dotArtifactBudget atomic.Int32
 
 	// Frame-local dispatch state read by persistent worker goroutines.
 	// The dispatcher writes these fields before sending on start and
@@ -288,6 +294,7 @@ func (p *rowWorkerPool) reset(mbRows int) {
 	if p == nil {
 		return
 	}
+	p.dotArtifactBudget.Store(0)
 	if cap(p.rowProgress) < mbRows {
 		p.rowProgress = make([]paddedAtomicInt64, mbRows)
 	} else {

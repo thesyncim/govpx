@@ -3,6 +3,7 @@ package govpx
 import (
 	"errors"
 	"io"
+	"sync/atomic"
 	_ "unsafe" // for go:linkname
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -642,6 +643,12 @@ type VP8Encoder struct {
 	// Threads=1 so picker / reconstruct hot paths can branch on a
 	// single nil-check before any threading code path executes.
 	rowWorkers *rowWorkerPool
+
+	// threadedDotArtifactBudget points at the row-worker pool's shared
+	// per-frame dot-artifact suppression counter while threaded rows are
+	// active. Nil on the serial path so the hot single-thread encoder does
+	// not pay for atomic coordination.
+	threadedDotArtifactBudget *atomic.Int32
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8

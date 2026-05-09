@@ -664,15 +664,27 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 	}
 }
 
-func TestInterFastBestThresholdUsesPickInterDecay(t *testing.T) {
-	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
-	e.resetInterRDThresholdMultipliers()
-	e.beginInterRDModeDecisionFrame()
-	defer e.endInterRDModeDecisionFrame()
-
+func TestInterFastBestThresholdUsesPickInterImprovementDecay(t *testing.T) {
 	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineRealtime, 8)
-	e.lowerBestInterFastThreshold(libvpxThrNew1)
-	afterBest := e.interModeRDThresholds(40)
+
+	improve := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	improve.resetInterRDThresholdMultipliers()
+	improve.beginInterRDModeDecisionFrame()
+	defer improve.endInterRDModeDecisionFrame()
+
+	improve.lowerFastInterThresholdForImprovement(libvpxThrNew1)
+	afterImprovement := improve.interModeRDThresholds(40)
+	if got, want := afterImprovement[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*126; got != want {
+		t.Fatalf("fast improvement NEW1 threshold = %d, want %d", got, want)
+	}
+
+	best := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	best.resetInterRDThresholdMultipliers()
+	best.beginInterRDModeDecisionFrame()
+	defer best.endInterRDModeDecisionFrame()
+
+	best.lowerBestInterFastThreshold(libvpxThrNew1)
+	afterBest := best.interModeRDThresholds(40)
 	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*112; got != want {
 		t.Fatalf("fast best NEW1 threshold = %d, want %d", got, want)
 	}

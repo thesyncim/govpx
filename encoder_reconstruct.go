@@ -1300,6 +1300,18 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 	e.interRDThreshTouched[modeIndex] = true
 }
 
+func (e *VP8Encoder) lowerFastInterThresholdForImprovement(modeIndex int) {
+	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+		return
+	}
+	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
+		e.interRDThreshMult[modeIndex] -= 2
+	} else {
+		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
+	}
+	e.interRDThreshTouched[modeIndex] = true
+}
+
 func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
@@ -7276,6 +7288,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 			stats.tteob += eob
 		}
 	} else {
+		coeffs.QCoeff[24] = [16]int16{}
 		coeffs.SetBlockEOB(24, 0)
 		if collectStats {
 			stats.distortionY >>= 2

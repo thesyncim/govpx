@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"sync/atomic"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -683,19 +685,40 @@ func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *
 	if index < len(e.dotArtifactChecked) {
 		e.dotArtifactChecked[index] = true
 	}
-	if dotArtifactCornerCandidateY(src, lastRef, mbRow, mbCol) ||
-		dotArtifactCornerCandidateUV(src.U, src.UStride, lastRef.U, lastRef.UStride, mbRow, mbCol) ||
-		dotArtifactCornerCandidateUV(src.V, src.VStride, lastRef.V, lastRef.VStride, mbRow, mbCol) {
-		e.mbsZeroLastDotSuppress++
-		return true
+	if !dotArtifactCornerCandidateY(src, lastRef, mbRow, mbCol) &&
+		!dotArtifactCornerCandidateUV(src.U, src.UStride, lastRef.U, lastRef.UStride, mbRow, mbCol) &&
+		!dotArtifactCornerCandidateUV(src.V, src.VStride, lastRef.V, lastRef.VStride, mbRow, mbCol) {
+		return false
 	}
-	return false
+	if e.threadedRowsActive && e.threadedDotArtifactBudget != nil {
+		if !reserveDotArtifactSuppressSlot(e.threadedDotArtifactBudget, cap) {
+			return false
+		}
+	}
+	e.mbsZeroLastDotSuppress++
+	return true
 }
 
 // checkDotArtifactCandidateY is retained for back-compat and forwards to the
 // full Y+UV check.
 func (e *VP8Encoder) checkDotArtifactCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
 	return e.checkDotArtifactCandidate(src, lastRef, mbRow, mbCol, mbRows, mbCols)
+}
+
+func reserveDotArtifactSuppressSlot(budget *atomic.Int32, cap int) bool {
+	if budget == nil || cap <= 0 {
+		return false
+	}
+	limit := int32(cap)
+	for {
+		used := budget.Load()
+		if used >= limit {
+			return false
+		}
+		if budget.CompareAndSwap(used, used+1) {
+			return true
+		}
+	}
 }
 
 func dotArtifactCornerCandidateY(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int) bool {

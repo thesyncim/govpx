@@ -453,17 +453,17 @@ func TestRowWorkerPoolMergeAggregatesAdaptivePickerState(t *testing.T) {
 	if got := e.interModeErrorBins[9]; got != 17 {
 		t.Fatalf("merged error bin 9 = %d, want 17", got)
 	}
-	if got := e.interModeTestHitCounts[modeIndex]; got != 127 {
-		t.Fatalf("mode hit count = %d, want summed 127", got)
+	if got := e.interModeTestHitCounts[modeIndex]; got != 0 {
+		t.Fatalf("mode hit count = %d, want unmerged 0", got)
 	}
-	if got := e.interMBsTestedSoFar; got != 248 {
-		t.Fatalf("interMBsTestedSoFar = %d, want summed 248", got)
+	if got := e.interMBsTestedSoFar; got != 0 {
+		t.Fatalf("interMBsTestedSoFar = %d, want unmerged 0", got)
 	}
 	if got := e.mbsZeroLastDotSuppress; got != 51 {
 		t.Fatalf("mbsZeroLastDotSuppress = %d, want summed 51", got)
 	}
-	if got := e.interRDThreshMult[modeIndex]; got != 259 {
-		t.Fatalf("rd thresh mult = %d, want weighted 259", got)
+	if got := e.interRDThreshMult[modeIndex]; got != 77 {
+		t.Fatalf("rd thresh mult = %d, want threaded min 77", got)
 	}
 	if !e.interRDThreshTouched[modeIndex] {
 		t.Fatalf("rd thresh touched = %v, want true", e.interRDThreshTouched[modeIndex])

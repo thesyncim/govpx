@@ -201,7 +201,12 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 	lastCol := args.cols - 1
 	for col := range args.cols {
 		if col%pool.syncRange == 0 {
-			target := col + pool.syncRange
+			publishCol := col - 1
+			if publishCol < -1 {
+				publishCol = -1
+			}
+			pool.publishRowColumn(row, publishCol)
+			target := col + pool.syncRange - 1
 			if target > lastCol {
 				target = lastCol
 			}
@@ -214,9 +219,6 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 			return 0, err
 		}
 		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
-		if col != lastCol && col%pool.syncRange == 0 {
-			pool.publishRowColumn(row, col)
-		}
 	}
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	pool.publishRowColumn(row, lastCol)
@@ -296,7 +298,12 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	lastCol := args.cols - 1
 	for col := range args.cols {
 		if col%pool.syncRange == 0 {
-			target := col + pool.syncRange
+			publishCol := col - 1
+			if publishCol < -1 {
+				publishCol = -1
+			}
+			pool.publishRowColumn(row, publishCol)
+			target := col + pool.syncRange - 1
 			if target > lastCol {
 				target = lastCol
 			}
@@ -309,9 +316,6 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 			return 0, err
 		}
 		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
-		if col != lastCol && col%pool.syncRange == 0 {
-			pool.publishRowColumn(row, col)
-		}
 	}
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	pool.publishRowColumn(row, lastCol)
@@ -458,11 +462,7 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 		return
 	}
 	var mergedBins [1024]uint32
-	var mergedHits [libvpxInterModeCount]int
-	var mergedMult [libvpxInterModeCount]int64
-	var mergedMultWeight [libvpxInterModeCount]int64
 	var mergedTouched [libvpxInterModeCount]bool
-	mergedMBsTested := 0
 	mergedDotSuppress := 0
 	for workerIndex := range workerCount {
 		worker := &p.workers[workerIndex]
@@ -470,28 +470,30 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 		for i := range mergedBins {
 			mergedBins[i] += workerEnc.interModeErrorBins[i]
 		}
-		weight := workerEnc.interMBsTestedSoFar
-		if weight < 1 {
-			weight = 1
-		}
-		mergedMBsTested += workerEnc.interMBsTestedSoFar
 		mergedDotSuppress += workerEnc.mbsZeroLastDotSuppress
-		for i := range mergedHits {
-			mergedHits[i] += workerEnc.interModeTestHitCounts[i]
+		for i := range mergedTouched {
 			if workerEnc.interRDThreshTouched[i] {
 				mergedTouched[i] = true
 			}
-			mergedMult[i] += int64(workerEnc.interRDThreshMult[i]) * int64(weight)
-			mergedMultWeight[i] += int64(weight)
 		}
 	}
 	e.interModeErrorBins = mergedBins
-	e.interModeTestHitCounts = mergedHits
-	e.interMBsTestedSoFar = mergedMBsTested
 	e.mbsZeroLastDotSuppress = mergedDotSuppress
 	for i := range e.interRDThreshMult {
-		if mergedMultWeight[i] > 0 {
-			e.interRDThreshMult[i] = int((mergedMult[i] + mergedMultWeight[i]/2) / mergedMultWeight[i])
+		minMult := 0
+		haveMin := false
+		for workerIndex := range workerCount {
+			workerEnc := &p.workers[workerIndex].enc
+			if !workerEnc.interRDThreshTouched[i] {
+				continue
+			}
+			if !haveMin || workerEnc.interRDThreshMult[i] < minMult {
+				minMult = workerEnc.interRDThreshMult[i]
+				haveMin = true
+			}
+		}
+		if haveMin {
+			e.interRDThreshMult[i] = minMult
 		}
 	}
 	e.interRDThreshTouched = mergedTouched
