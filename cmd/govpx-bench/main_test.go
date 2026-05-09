@@ -258,6 +258,19 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 	}
 }
 
+func TestRegisterBenchFlagsAutospeedCalibrationCanBeDisabled(t *testing.T) {
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	cfg := benchConfig{AutoSpeedCalibration: true}
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(fs, &cfg, &opts)
+	if err := fs.Parse([]string{"-autospeed-calibration=false"}); err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if cfg.AutoSpeedCalibration {
+		t.Fatalf("AutoSpeedCalibration = true, want false when explicitly disabled")
+	}
+}
+
 func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
 	report := benchReport{
 		OutputBitrateKbps: 1200,

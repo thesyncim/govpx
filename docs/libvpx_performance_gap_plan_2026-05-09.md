@@ -460,15 +460,15 @@ Claim a win only when:
 
 ## Notes for future agents
 
-- Current 2026-05-09 follow-up: `cmd/govpx-bench` now exposes
-  `-autospeed-calibration` for the old deterministic parity timing model.
-  Leaving calibration off measures production wall-clock autospeed and moves
-  the 30-frame 720p encode-only ratio from about 3.76x to about 2.32x on the
-  M4 Max test host, but it does **not** satisfy the win gate: full-quality
-  720p output drifted to about 1.25x libvpx bytes and -0.37 dB PSNR. Treat
-  autospeed calibration as a measurement/control knob, not a closed perf fix.
-  The parity-preserving hot path remains full loop-filter selection plus
-  coefficient packing under Speed=4.
+- Current 2026-05-09 follow-up: `cmd/govpx-bench` now defaults
+  `-autospeed-calibration=true` for libvpx comparisons. This keeps govpx on a
+  libvpx-equivalent speed-feature trajectory while still timing real Go
+  encoder work, so bitrate/quality gates are not dominated by Go wall-clock
+  overhead feeding autospeed. Pass `-autospeed-calibration=false` only when
+  explicitly investigating production wall-clock autospeed behavior; local
+  720p full-quality wall-clock runs drifted outside the 1% bitrate gate.
+  Treat any wall-clock autospeed speed win as incomplete until bitrate and
+  PSNR/SSIM pass.
 - A temporary LF-only experiment (`loopFilterUsesFastSearch` returning true at
   realtime Speed=4) is also not a global fix. It moved 320p encode-only to
   about 1.75x with bytes within 0.2%, but 720p stayed around 3.25x and bytes

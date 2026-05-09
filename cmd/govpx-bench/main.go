@@ -182,7 +182,7 @@ func benchSummary(cfg benchConfig, deadline string) benchConfigSummary {
 }
 
 func main() {
-	cfg := benchConfig{}
+	cfg := benchConfig{AutoSpeedCalibration: true}
 	opts := defaultBenchCLIOptions()
 	registerBenchFlags(flag.CommandLine, &cfg, &opts)
 	flag.Parse()
@@ -281,7 +281,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
-	fs.BoolVar(&cfg.AutoSpeedCalibration, "autospeed-calibration", false, "use synthetic autospeed timing for deterministic libvpx-output parity diagnostics")
+	fs.BoolVar(&cfg.AutoSpeedCalibration, "autospeed-calibration", cfg.AutoSpeedCalibration, "use synthetic autospeed timing for deterministic libvpx-output parity diagnostics; pass -autospeed-calibration=false for wall-clock autospeed")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
