@@ -124,6 +124,40 @@ func MotionVectorSADCost(mv MotionVector, ref MotionVector, sadPerBit int) int {
 	return (cost*sadPerBit + 128) >> 8
 }
 
+// MotionVectorSADCostFromDeltas is the picker-hot-path variant of
+// MotionVectorSADCost that takes the already-shifted-to-full-pel MV
+// components as ints. Picker call sites have these values pre-extracted
+// (`int(mv.Row) >> 3`, `int(bestRefMV.Row) >> 3`); calling through this
+// entry skips the four int16/int conversions in the public wrapper, which
+// also shrinks the inline cost enough for the function to inline cleanly
+// inside the diamond/n-step inner loop.
+//
+// Behaviour is byte-identical to MotionVectorSADCost — both arithmetic
+// expressions use the libvpx mv_sad_cost shape (full-pel-shifted diff,
+// clamped, looked-up via the precomputed log2-cost table).
+func MotionVectorSADCostFromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, sadPerBit int) int {
+	rowDelta := mvRow8 - refRow8
+	if rowDelta > mvFullPixelMax {
+		rowDelta = mvFullPixelMax
+	} else if rowDelta < -mvFullPixelMax {
+		rowDelta = -mvFullPixelMax
+	}
+	if rowDelta < 0 {
+		rowDelta = -rowDelta
+	}
+	colDelta := mvCol8 - refCol8
+	if colDelta > mvFullPixelMax {
+		colDelta = mvFullPixelMax
+	} else if colDelta < -mvFullPixelMax {
+		colDelta = -mvFullPixelMax
+	}
+	if colDelta < 0 {
+		colDelta = -colDelta
+	}
+	cost := motionVectorSADCosts[rowDelta] + motionVectorSADCosts[colDelta]
+	return (cost*sadPerBit + 128) >> 8
+}
+
 func motionVectorComponentCost(component int, probs []uint8) int {
 	if len(probs) < tables.MVPCount {
 		return 1 << 30
