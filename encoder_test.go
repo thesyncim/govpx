@@ -2523,7 +2523,7 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 	}
 }
 
-func TestEncoderLoopFilterHeaderUsesSimpleFilterForThreadedRealtime(t *testing.T) {
+func TestEncoderLoopFilterHeaderKeepsNormalFilterForThreadedRealtimeSpeedFour(t *testing.T) {
 	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
 	if got := serial.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.NormalLoopFilter {
 		t.Fatalf("serial realtime speed=4 loop filter type = %d, want normal", got)
@@ -2533,8 +2533,8 @@ func TestEncoderLoopFilterHeaderUsesSimpleFilterForThreadedRealtime(t *testing.T
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
 		rowWorkers: &rowWorkerPool{},
 	}
-	if got := threaded.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.SimpleLoopFilter {
-		t.Fatalf("threaded realtime speed=4 loop filter type = %d, want simple", got)
+	if got := threaded.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.NormalLoopFilter {
+		t.Fatalf("threaded realtime speed=4 loop filter type = %d, want normal", got)
 	}
 }
 

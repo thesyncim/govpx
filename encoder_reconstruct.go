@@ -149,6 +149,52 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficients(src vp8enc.SourceIm
 }
 
 func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentation(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) (int, error) {
+	if e.useThreadedKeyFrameRows(rows, cols) {
+		return e.buildReconstructingKeyFrameCoefficientsWithSegmentationThreaded(src, qIndex, segmentation, preserveSegmentID, modes, coeffs, rows, cols)
+	}
+	return e.buildReconstructingKeyFrameCoefficientsWithSegmentationSerial(src, qIndex, segmentation, preserveSegmentID, modes, coeffs, rows, cols)
+}
+
+func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationThreaded(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) (int, error) {
+	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
+		return 0, ErrInvalidConfig
+	}
+	e.resetOracleMBTraceBuffer()
+	required := rows * cols
+	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
+		return 0, ErrInvalidConfig
+	}
+
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
+	if err := vp8enc.InitSegmentMacroblockQuants(qIndex, quantDeltas, segmentation, &quants); err != nil {
+		return 0, ErrInvalidConfig
+	}
+	decSegmentation := encoderSegmentationToDecoder(segmentation)
+	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
+
+	aboveTok := e.acquireReconstructAboveTok(cols)
+	args := threadedKeyRowsArgs{
+		src:               src,
+		qIndex:            qIndex,
+		segmentation:      segmentation,
+		preserveSegmentID: preserveSegmentID,
+		modes:             modes,
+		coeffs:            coeffs,
+		rows:              rows,
+		cols:              cols,
+		quants:            quants,
+		aboveTok:          aboveTok,
+	}
+	threadedRate, err := e.buildReconstructingKeyFrameCoefficientsThreaded(args)
+	if err != nil {
+		return 0, err
+	}
+	e.analysis.ExtendBorders()
+	return threadedRate, nil
+}
+
+func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSerial(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.KeyFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int) (int, error) {
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}

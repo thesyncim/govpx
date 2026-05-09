@@ -166,6 +166,8 @@ type rowWorkerPool struct {
 	// The dispatcher writes these fields before sending on start and
 	// rewrites them only after receiving done from every active worker.
 	encoder      *VP8Encoder
+	job          rowWorkerJob
+	keyArgs      threadedKeyRowsArgs
 	args         threadedInterRowsArgs
 	workerCount  int
 	required     int
@@ -211,13 +213,25 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	for {
 		select {
 		case <-start:
-			p.runThreadedInterFrameWorker(workerIndex)
+			switch p.job {
+			case rowWorkerJobKeyFrame:
+				p.runThreadedKeyFrameWorker(workerIndex)
+			default:
+				p.runThreadedInterFrameWorker(workerIndex)
+			}
 			p.done <- workerIndex
 		case <-p.shutdown:
 			return
 		}
 	}
 }
+
+type rowWorkerJob uint8
+
+const (
+	rowWorkerJobInterFrame rowWorkerJob = iota
+	rowWorkerJobKeyFrame
+)
 
 func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	workerCount := p.workerCount
@@ -233,6 +247,30 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 			break
 		}
 		rate, rowErr := worker.encodeThreadedInterFrameRow(p, &p.args, row, &p.abort)
+		if rowErr != nil {
+			err = rowErr
+			p.abort.Store(1)
+			break
+		}
+		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+	}
+	p.workerErrors[workerIndex] = err
+}
+
+func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
+	workerCount := p.workerCount
+	if workerCount <= 0 {
+		return
+	}
+	worker := &p.workers[workerIndex]
+	worker.reset(p.encoder, p.required)
+	defer worker.finish()
+	var err error
+	for row := workerIndex; row < p.keyArgs.rows; row += workerCount {
+		if p.abort.Load() != 0 {
+			break
+		}
+		rate, rowErr := worker.encodeThreadedKeyFrameRow(p, &p.keyArgs, row, &p.abort)
 		if rowErr != nil {
 			err = rowErr
 			p.abort.Store(1)

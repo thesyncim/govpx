@@ -863,6 +863,7 @@ type encoderParity struct {
 	UndershootPct       int
 	OvershootPct        int
 	Threads             int
+	TokenPartitions     int
 	CpuUsed             int
 }
 
@@ -875,6 +876,10 @@ func parityFor(cfg benchConfig) encoderParity {
 	if threads < 0 {
 		threads = 1
 	}
+	tokenPartitions := 0
+	for partitions := 1; partitions < threads && tokenPartitions < 3; partitions <<= 1 {
+		tokenPartitions++
+	}
 	return encoderParity{
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
@@ -885,6 +890,7 @@ func parityFor(cfg benchConfig) encoderParity {
 		UndershootPct:       100,
 		OvershootPct:        15,
 		Threads:             threads,
+		TokenPartitions:     tokenPartitions,
 		CpuUsed:             8,
 	}
 }
@@ -908,6 +914,7 @@ func benchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.Enc
 		UndershootPct:       p.UndershootPct,
 		OvershootPct:        p.OvershootPct,
 		Threads:             p.Threads,
+		TokenPartitions:     p.TokenPartitions,
 		// Default bench runs use calibrated autospeed so govpx stays in
 		// the libvpx-equivalent Speed=4 bucket across machines and
 		// resolutions. Passing -autospeed-calibration=false opts into
@@ -1163,6 +1170,7 @@ func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []
 		fmt.Sprintf("--undershoot-pct=%d", p.UndershootPct),
 		fmt.Sprintf("--overshoot-pct=%d", p.OvershootPct),
 		fmt.Sprintf("--threads=%d", p.Threads),
+		fmt.Sprintf("--token-parts=%d", p.TokenPartitions),
 		"--noise-sensitivity=0",
 		deadlineFlag,
 		fmt.Sprintf("--cpu-used=%d", p.CpuUsed),

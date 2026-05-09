@@ -3752,7 +3752,7 @@ func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 		return false
 	}
 	speed := e.libvpxCPUUsed()
-	return speed >= 14 || (e.rowWorkers != nil && speed >= 4)
+	return speed >= 14
 }
 
 // computeLFDeltaUpdateBit mirrors libvpx vp8/encoder/bitstream.c pack_lf_deltas:
