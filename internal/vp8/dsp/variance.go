@@ -132,6 +132,16 @@ func varianceBlockGeneric(src []byte, srcStride int, ref []byte, refStride int, 
 }
 
 func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int, width int, height int) (int, int) {
+	if xOffset == 0 && yOffset == 0 {
+		// Bilinear with filter[0]={128,0} reduces to the identity, so the
+		// staging passes (and the [17*16]+[16*16] zero-init buffers in this
+		// frame) collapse to a direct variance read. The picker / sub-pel
+		// diamond hammers the integer-pel centre point so this branch shaves
+		// the bilinear flat-time off the hot path while preserving the exact
+		// (sse - sum*sum/N, sse) contract.
+		sum, sse := varianceBlock(src, srcStride, ref, refStride, width, height)
+		return sse - sum*sum/(width*height), sse
+	}
 	var firstPass [17 * 16]uint16
 	var filtered [16 * 16]byte
 
