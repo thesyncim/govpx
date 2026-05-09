@@ -2309,13 +2309,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	bestSSE := maxInt()
 	bestModeIndex := -1
 	best := interFrameModeDecision{}
-	var newMVCandidates [3]struct {
-		searched bool
-		ok       bool
-		mv       vp8enc.MotionVector
-		start    interFrameSearchStart
-	}
-	var nearCache nearMVCandidateCache
+	var loopCtx fastInterModeLoopContext
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = libvpxInterReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
@@ -2406,7 +2400,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		bestScoreBefore := bestScore
 		bestSSEBefore := bestSSE
-		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
+		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &loopCtx)
 		if !ok {
 			continue
 		}
@@ -2578,17 +2572,31 @@ type nearMVCandidateCache [3]struct {
 	near     vp8enc.MotionVector
 }
 
-func (e *VP8Encoder) fastInterModeForLoopEntry(
-	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, mbMode vp8common.MBPredictionMode,
-	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
-	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
-	newMVCandidates *[3]struct {
+type fastInterModeLoopContext struct {
+	newMVCandidates [3]struct {
 		searched bool
 		ok       bool
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
-	},
-	nearCache *nearMVCandidateCache,
+	}
+	nearCache nearMVCandidateCache
+	search    interAnalysisSearchConfig
+	searchSet bool
+}
+
+func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSearchConfig {
+	if !ctx.searchSet {
+		ctx.search = e.interAnalysisSearchConfig()
+		ctx.searchSet = true
+	}
+	return ctx.search
+}
+
+func (e *VP8Encoder) fastInterModeForLoopEntry(
+	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, mbMode vp8common.MBPredictionMode,
+	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
+	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
+	ctx *fastInterModeLoopContext,
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
 	case vp8common.ZeroMV:
@@ -2600,8 +2608,8 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		// per-mode rd_threshes loop. Mirror that here: nearCache is
 		// populated lazily per refIndex so back-to-back NearestMV / NearMV
 		// candidates against the same reference share the neighbor walk.
-		if nearCache != nil && refIndex >= 0 && refIndex < len(nearCache) {
-			cached := &nearCache[refIndex]
+		if ctx != nil && refIndex >= 0 && refIndex < len(ctx.nearCache) {
+			cached := &ctx.nearCache[refIndex]
 			if !cached.computed {
 				cached.nearest, cached.near = e.interAnalysisReferenceMotionPredictors(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 				cached.computed = true
@@ -2620,14 +2628,14 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 		}
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
 	case vp8common.NewMV:
-		if refIndex < 0 || refIndex >= len(newMVCandidates) {
+		if ctx == nil || refIndex < 0 || refIndex >= len(ctx.newMVCandidates) {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
-		candidate := &newMVCandidates[refIndex]
+		candidate := &ctx.newMVCandidates[refIndex]
 		if !candidate.searched {
 			signBias := e.interFrameSignBias()
 			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
-			search := e.interAnalysisSearchConfig()
+			search := ctx.searchConfig(e)
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
 			candidate.searched = true

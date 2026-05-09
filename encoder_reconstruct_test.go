@@ -2417,14 +2417,9 @@ func TestFastInterModeForLoopEntryRejectsZeroNewMVOnFlatMatch(t *testing.T) {
 	fillImage(src, 72, 90, 170)
 	last := testVP8Frame(t, 16, 16, 72, 90, 170)
 	ref := interAnalysisReference{Frame: vp8common.LastFrame, Img: &last.Img}
-	var newMVCandidates [3]struct {
-		searched bool
-		ok       bool
-		mv       vp8enc.MotionVector
-		start    interFrameSearchStart
-	}
+	var loopCtx fastInterModeLoopContext
 
-	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &newMVCandidates, nil)
+	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &loopCtx)
 	if ok {
 		t.Fatalf("fast NEWMV loop entry accepted mode %+v, want zero MV rejected", mode)
 	}
