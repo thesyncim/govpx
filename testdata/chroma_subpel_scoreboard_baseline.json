@@ -5,14 +5,14 @@
       "width": 128,
       "height": 128,
       "frames": 4,
-      "y_adler_mismatch_inter_frames": 3,
-      "u_adler_mismatch_inter_frames": 3,
-      "v_adler_mismatch_inter_frames": 3,
+      "y_adler_mismatch_inter_frames": 0,
+      "u_adler_mismatch_inter_frames": 0,
+      "v_adler_mismatch_inter_frames": 0,
       "keyframe_y_u_v_adler_match": true,
       "keyframe_q_match": true,
       "inter_q_match_all_frames": true,
-      "max_inter_size_delta_pct_abs": 1.1127237542331883,
-      "mean_inter_size_delta_pct_abs": 0.5397010412796033
+      "max_inter_size_delta_pct_abs": 0.27624309392265195,
+      "mean_inter_size_delta_pct_abs": 0.09208103130755065
     },
     {
       "name": "160x96-realtime-cbr-cpu8",
@@ -34,13 +34,13 @@
       "height": 96,
       "frames": 4,
       "y_adler_mismatch_inter_frames": 0,
-      "u_adler_mismatch_inter_frames": 3,
-      "v_adler_mismatch_inter_frames": 3,
+      "u_adler_mismatch_inter_frames": 0,
+      "v_adler_mismatch_inter_frames": 0,
       "keyframe_y_u_v_adler_match": true,
       "keyframe_q_match": true,
       "inter_q_match_all_frames": true,
-      "max_inter_size_delta_pct_abs": 0.11494252873563218,
-      "mean_inter_size_delta_pct_abs": 0.0696552937622708
+      "max_inter_size_delta_pct_abs": 0,
+      "mean_inter_size_delta_pct_abs": 0
     }
   ]
 }
