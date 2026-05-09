@@ -2198,6 +2198,14 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	// fast-path predicate can collapse from the public helper's three guard
 	// branches to one indexed read.
 	rdActive := e.interRDFrameActive
+	// Hoist the package-level mode-order tables to function-local copies.
+	// The package globals force a fresh `MOVD $...(SB)` (ADRP+ADD on arm64)
+	// on every iteration of the per-mode loop because the compiler cannot
+	// prove the SB-relative address is loop-invariant; copying to a local
+	// array lets the loop reuse a single base pointer and frees up an
+	// extra register for the other indexed reads.
+	modeOrder := libvpxFastInterModeOrder
+	refOrder := libvpxFastRefFrameOrder
 
 	pickerDebug := r12cPickerDebug(int(e.frameCount), mbRow, mbCol)
 	if pickerDebug {
@@ -2220,7 +2228,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		rdMultV, rdDivV := libvpxRDConstantsWithZbin(qIndex, e.rc.currentZbinOverQuant)
 		r12cPickerEmitState2(int(e.frameCount), mbRow, mbCol, baseSlice, multSlice, touchedSlice, threshSlice, qIndex, rdMultV, rdDivV, e.interMBsTestedSoFar)
 	}
-	for modeIndex, mbMode := range libvpxFastInterModeOrder {
+	for modeIndex, mbMode := range modeOrder {
 		threshold := thresholds[modeIndex]
 		if threshold == libvpxInterModeThresholdDisabled {
 			if pickerDebug {
@@ -2241,7 +2249,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 
-		refSlot := libvpxFastRefFrameOrder[modeIndex]
+		refSlot := refOrder[modeIndex]
 		if refSlot == 0 {
 			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
 				continue
@@ -2258,32 +2266,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			mode.SegmentID = segmentID
 			becameBest := !bestSet || score < bestScore
 			if traceEnabled {
-				e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
-					Picker:          "fast",
-					MBRow:           mbRow,
-					MBCol:           mbCol,
-					ModeIndex:       modeIndex,
-					Mode:            mode.Mode,
-					RefSlot:         0,
-					RefFrame:        vp8common.IntraFrame,
-					Threshold:       threshold,
-					BestScoreBefore: bestScoreBefore,
-					BestYRDBefore:   oracleTraceInterCandidateUnknown,
-					BestSSEBefore:   bestSSEBefore,
-					Outcome:         "tested",
-					BecameBest:      becameBest,
-					Score:           score,
-					YRD:             oracleTraceInterCandidateUnknown,
-					Rate:            rate,
-					RateY:           oracleTraceInterCandidateUnknown,
-					RateUV:          oracleTraceInterCandidateUnknown,
-					Distortion:      distortion,
-					DistortionUV:    oracleTraceInterCandidateUnknown,
-					SSE:             sse,
-					Skip:            mode.MBSkipCoeff,
-					ModeTrace:       mode,
-					HasModeTrace:    true,
-				})
+				e.emitFastPickerIntraCandidateTrace(mbRow, mbCol, modeIndex, threshold, bestScoreBefore, bestSSEBefore, becameBest, score, rate, distortion, sse, &mode)
 			}
 			if becameBest {
 				e.lowerInterRDThresholdForImprovement(modeIndex)
@@ -2338,33 +2321,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		becameBest := breakoutSkip || !bestSet || score < bestScore
 		if traceEnabled {
-			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
-				Picker:          "fast",
-				MBRow:           mbRow,
-				MBCol:           mbCol,
-				ModeIndex:       modeIndex,
-				Mode:            mode.Mode,
-				RefSlot:         refSlot,
-				RefFrame:        ref.Frame,
-				Threshold:       threshold,
-				BestScoreBefore: bestScoreBefore,
-				BestYRDBefore:   oracleTraceInterCandidateUnknown,
-				BestSSEBefore:   bestSSEBefore,
-				Outcome:         "tested",
-				BecameBest:      becameBest,
-				LoopBreak:       breakoutSkip,
-				Score:           score,
-				YRD:             oracleTraceInterCandidateUnknown,
-				Rate:            rate,
-				RateY:           oracleTraceInterCandidateUnknown,
-				RateUV:          oracleTraceInterCandidateUnknown,
-				Distortion:      distortion,
-				DistortionUV:    oracleTraceInterCandidateUnknown,
-				SSE:             sse,
-				Skip:            breakoutSkip,
-				ModeTrace:       mode,
-				HasModeTrace:    true,
-			})
+			e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScoreBefore, bestSSEBefore, becameBest, breakoutSkip, score, rate, distortion, sse, &mode)
 		}
 		if becameBest {
 			e.lowerInterRDThresholdForImprovement(modeIndex)
@@ -2393,6 +2350,78 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
 	}
 	return best, true
+}
+
+// emitFastPickerIntraCandidateTrace and emitFastPickerInterCandidateTrace are
+// the trace plumbing for the fast picker hot loop. Splitting them off keeps
+// the picker's stack frame small (the oracleTraceInterCandidateSummary
+// literal is otherwise materialised twice in selectFastInterFrameModeDecision
+// and reserves stack space whether or not OracleTraceWriter is set), and
+// the marker keeps the compiler from re-inlining the literal back into the
+// caller. The trace path runs on the order of a few times per minute under
+// the diagnostics harness, so a dedicated frame and an extra call there
+// costs nothing while the clean hot-path stack frame trims morestack
+// growth on the regular bench (~8% morestack/gopreempt time on 720p RT).
+//
+//go:noinline
+func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, modeIndex int, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
+	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+		Picker:          "fast",
+		MBRow:           mbRow,
+		MBCol:           mbCol,
+		ModeIndex:       modeIndex,
+		Mode:            mode.Mode,
+		RefSlot:         0,
+		RefFrame:        vp8common.IntraFrame,
+		Threshold:       threshold,
+		BestScoreBefore: bestScoreBefore,
+		BestYRDBefore:   oracleTraceInterCandidateUnknown,
+		BestSSEBefore:   bestSSEBefore,
+		Outcome:         "tested",
+		BecameBest:      becameBest,
+		Score:           score,
+		YRD:             oracleTraceInterCandidateUnknown,
+		Rate:            rate,
+		RateY:           oracleTraceInterCandidateUnknown,
+		RateUV:          oracleTraceInterCandidateUnknown,
+		Distortion:      distortion,
+		DistortionUV:    oracleTraceInterCandidateUnknown,
+		SSE:             sse,
+		Skip:            mode.MBSkipCoeff,
+		ModeTrace:       *mode,
+		HasModeTrace:    true,
+	})
+}
+
+//go:noinline
+func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, modeIndex int, refSlot int, refFrame vp8common.MVReferenceFrame, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, breakoutSkip bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
+	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
+		Picker:          "fast",
+		MBRow:           mbRow,
+		MBCol:           mbCol,
+		ModeIndex:       modeIndex,
+		Mode:            mode.Mode,
+		RefSlot:         refSlot,
+		RefFrame:        refFrame,
+		Threshold:       threshold,
+		BestScoreBefore: bestScoreBefore,
+		BestYRDBefore:   oracleTraceInterCandidateUnknown,
+		BestSSEBefore:   bestSSEBefore,
+		Outcome:         "tested",
+		BecameBest:      becameBest,
+		LoopBreak:       breakoutSkip,
+		Score:           score,
+		YRD:             oracleTraceInterCandidateUnknown,
+		Rate:            rate,
+		RateY:           oracleTraceInterCandidateUnknown,
+		RateUV:          oracleTraceInterCandidateUnknown,
+		Distortion:      distortion,
+		DistortionUV:    oracleTraceInterCandidateUnknown,
+		SSE:             sse,
+		Skip:            breakoutSkip,
+		ModeTrace:       *mode,
+		HasModeTrace:    true,
+	})
 }
 
 func libvpxFastInterReferenceAt(refs []interAnalysisReference, refCount int, refSlot int) (interAnalysisReference, int, bool) {
@@ -6325,15 +6354,34 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	baseX := mbCol * 16
 	mvCol := int(mv.Col)
 	mvRow := int(mv.Row)
-	mvY := mvRow >> 3
-	mvX := mvCol >> 3
-	refBaseY := baseY + mvY
-	refBaseX := baseX + mvX
+	refBaseY := baseY + (mvRow >> 3)
+	refBaseX := baseX + (mvCol >> 3)
+	// Picker hot path: full-pel MV, source and reference 16x16 windows
+	// fully in-bounds. The cast-through-uint encoding folds (>=0 && <= cap-16)
+	// into one compare per axis — the diamond/exhaustive search drives this
+	// branch on the overwhelming majority of the 100-1000 calls per MB.
+	// Splitting the rare slow-path tail (subpel + edge-clamp) into a
+	// dedicated noinline helper drops macroblockSADLimited's compile cost
+	// from 530 to 252 so the compiler can chase the fast-path bounds
+	// checks aggressively even though the wrapper itself stays out of
+	// the inliner budget.
+	if (mvCol|mvRow)&7 == 0 &&
+		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
+		uint(refBaseY) <= uint(ref.CodedHeight-16) && uint(refBaseX) <= uint(ref.CodedWidth-16) {
+		return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[refBaseY*ref.YStride+refBaseX:], ref.YStride, limit)
+	}
+	return macroblockSADLimitedSlow(src, ref, baseY, baseX, refBaseY, refBaseX, mvCol, mvRow, limit)
+}
+
+// macroblockSADLimitedSlow handles the rare paths (subpel, partial out of
+// bounds, edge-clamp). Splitting it off keeps macroblockSADLimited small
+// enough for the compiler to chase the fast-path bounds checks more
+// aggressively (and the picker only hits this body on frame-edge MBs).
+//
+//go:noinline
+func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, mvCol int, mvRow int, limit int) int {
 	xOffset := mvCol & 7
 	yOffset := mvRow & 7
-	// Hoist the source-window in-bounds predicate: both subpel and aligned
-	// fast paths require the source MB to fit inside the frame, so compute
-	// it once and reuse.
 	srcInBounds := baseY >= 0 && baseX >= 0 &&
 		baseY+16 <= src.Height && baseX+16 <= src.Width
 	if xOffset|yOffset != 0 && srcInBounds {
