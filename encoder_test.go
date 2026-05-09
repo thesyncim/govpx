@@ -183,6 +183,41 @@ func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	}
 }
 
+func TestSetRealtimeTargetFPSChangeResetsAutospeedTiming(t *testing.T) {
+	e := newTestEncoder(t)
+	e.autoSpeed = 12
+	e.avgPickModeTime = 9000
+	e.avgEncodeTime = 18000
+	e.autoSpeedFrameStartNS = 12345
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{FPS: 60}); err != nil {
+		t.Fatalf("SetRealtimeTarget returned error: %v", err)
+	}
+
+	if e.autoSpeed != 0 || e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
+		t.Fatalf("autospeed state = speed:%d pick:%d encode:%d start:%d, want reset", e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if got := e.libvpxCPUUsed(); got != 4 {
+		t.Fatalf("cold-start libvpxCPUUsed = %d, want 4", got)
+	}
+}
+
+func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
+	e := newTestEncoder(t)
+	e.autoSpeed = 8
+	e.avgPickModeTime = 7000
+	e.avgEncodeTime = 14000
+	e.autoSpeedFrameStartNS = 12345
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{FPS: e.opts.FPS}); err != nil {
+		t.Fatalf("SetRealtimeTarget returned error: %v", err)
+	}
+
+	if e.autoSpeed != 8 || e.avgPickModeTime != 7000 || e.avgEncodeTime != 14000 || e.autoSpeedFrameStartNS != 12345 {
+		t.Fatalf("autospeed state changed on same-FPS target: speed:%d pick:%d encode:%d start:%d", e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+}
+
 func TestEncodeIntoUsesLibvpxInitialKeyFrameTargetBits(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)

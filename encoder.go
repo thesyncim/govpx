@@ -2933,10 +2933,14 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.Height = target.Height
 	}
 	if target.FPS > 0 {
+		fpsChanged := target.FPS != e.opts.FPS
 		e.opts.FPS = target.FPS
 		e.opts.TimebaseNum = 1
 		e.opts.TimebaseDen = target.FPS
 		e.timing = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
+		if fpsChanged {
+			e.resetAutoSpeedTiming()
+		}
 	}
 	nextMinQuantizer := e.opts.MinQuantizer
 	nextMaxQuantizer := e.opts.MaxQuantizer
@@ -3257,6 +3261,16 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	}
 }
 
+func (e *VP8Encoder) resetAutoSpeedTiming() {
+	if e == nil {
+		return
+	}
+	e.autoSpeed = 0
+	e.avgPickModeTime = 0
+	e.avgEncodeTime = 0
+	e.autoSpeedFrameStartNS = 0
+}
+
 func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -3539,10 +3553,7 @@ func (e *VP8Encoder) Reset() {
 	// measured pass starts, producing a non-deterministic per-frame size
 	// distribution and an inflated avg_interframe_bytes ratio vs libvpx
 	// (which always starts cold under vpxenc).
-	e.autoSpeed = 0
-	e.avgPickModeTime = 0
-	e.avgEncodeTime = 0
-	e.autoSpeedFrameStartNS = 0
+	e.resetAutoSpeedTiming()
 	e.current.Reset()
 	e.analysis.Reset()
 	e.lastRef.Reset()

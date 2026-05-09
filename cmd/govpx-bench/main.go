@@ -906,10 +906,10 @@ func newBenchmarkEncoder(cfg benchConfig, deadline govpx.Deadline) (*govpx.VP8En
 		BufferInitialSizeMs: p.BufferInitialSizeMs,
 		BufferOptimalSizeMs: p.BufferOptimalSizeMs,
 		Threads:             p.Threads,
-		// Default bench runs use the production wall-clock autospeed path.
-		// The opt-in calibration mode is for deterministic output-parity
-		// diagnostics where govpx should stay in the libvpx-equivalent
-		// Speed=4 bucket across machines and resolutions.
+		// Default bench runs use calibrated autospeed so govpx stays in
+		// the libvpx-equivalent Speed=4 bucket across machines and
+		// resolutions. Passing -autospeed-calibration=false opts into
+		// production wall-clock autospeed.
 		AutoSpeedGoOverheadCalibration: cfg.AutoSpeedCalibration,
 	})
 }
