@@ -2454,7 +2454,14 @@ func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T)
 	}
 }
 
-func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
+// TestSelectFastInterFrameModeDecisionPicksLibvpxIntraMBUVMode verifies the
+// fast picker mirrors libvpx pickinter.c pick_intra_mbuv_mode (called at the
+// vp8_pick_inter_mode tail when the chosen mode is <= B_PRED). With the chroma
+// references shaped so that V_PRED minimizes SSE against the source UV
+// pixels, the decision must pick V_PRED for UV - matching libvpx and closing
+// the chroma reconstruction byte-identity gap on right-edge B_PRED MBs at
+// 128x128 (R14-E). Before R14-E the picker hardcoded UVMode=DC_PRED.
+func TestSelectFastInterFrameModeDecisionPicksLibvpxIntraMBUVMode(t *testing.T) {
 	e := &VP8Encoder{
 		opts:          EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
 		refProbIntra:  63,
@@ -2467,8 +2474,11 @@ func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
 		t.Fatalf("analysis resize returned error: %v", err)
 	}
 	fillBenchmarkVP8Image(&e.analysis.Img, 128, 128, 128)
-	// Shape chroma predictor references so the old fast chroma search would
-	// prefer V_PRED over DC_PRED. Libvpx pickinter keeps UV at DC_PRED here.
+	// Shape chroma predictor references so V_PRED (using above row) yields
+	// zero SSE against the source: above row at row 7 cols 8..15 = 40, source
+	// UV at MB(1,1) all = 40. The left column (cols 7, rows 8..15 = 220) and
+	// DC_PRED average (~130) both differ widely from the source so V_PRED is
+	// the SSE minimizer. libvpx pick_intra_mbuv_mode picks V_PRED here.
 	for i := range 8 {
 		e.analysis.Img.U[7*e.analysis.Img.UStride+8+i] = 40
 		e.analysis.Img.V[7*e.analysis.Img.VStride+8+i] = 40
@@ -2502,8 +2512,8 @@ func TestSelectFastInterFrameModeDecisionKeepsLibvpxDCPredUVMode(t *testing.T) {
 	if !decision.useIntra {
 		t.Fatalf("decision = %+v, want intra mode to exercise fast pickinter UV policy", decision)
 	}
-	if decision.intraMode.UVMode != vp8common.DCPred {
-		t.Fatalf("fast intra UV mode = %v, want libvpx pickinter DC_PRED", decision.intraMode.UVMode)
+	if decision.intraMode.UVMode != vp8common.VPred {
+		t.Fatalf("fast intra UV mode = %v, want libvpx pickinter V_PRED (above-row-shaped chroma)", decision.intraMode.UVMode)
 	}
 }
 

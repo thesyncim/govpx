@@ -2162,6 +2162,140 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 // between vp8_find_near_mvs_bias's mode_mv_sb fill and the case-NEAREST
 // `continue` gate, e.g., a missed memcpy/clamp interaction) or rejects
 // via a path that's not in the standard upstream source.
+
+// pickFastIntraMBUVMode mirrors libvpx pickinter.c pick_intra_mbuv_mode:
+// for the chosen intra mode (B_PRED or any of DC/V/H/TM) the fast picker
+// commits the UV plane prediction by selecting whichever of {DC,V,H,TM}_PRED
+// minimizes the source-vs-predictor SSE summed across both U and V planes.
+// libvpx invokes this exactly once per MB after the inter picker selects
+// the winning mode (`if (best_mbmode.mode <= B_PRED) pick_intra_mbuv_mode(x)`
+// in vp8_pick_inter_mode). Without this commit the fast picker would force
+// UVMode=DC_PRED for every intra MB, which silently mismatches libvpx for
+// inter-frame B_PRED MBs whose UV pixels carry a strong directional or
+// TM-shaped pattern (R14-E: the right-edge col-7 BPred MBs on the 128x128
+// panning fixture).
+//
+// The arithmetic mirrors libvpx exactly:
+//   - DC_PRED expected value uses the libvpx (sum + (1 << (shift-1))) >> shift
+//     formula (shift = 2 + up_available + left_available).
+//   - TM_PRED predictor = clamp(left[i] + above[j] - topleft, 0, 255).
+//   - Per-pixel U+V diffs are summed into a single pred_error[mode] tally
+//     (libvpx's behavior: U and V share the same pred_error counter).
+func pickFastIntraMBUVMode(src vp8enc.SourceImage, mbRow int, mbCol int, refs vp8dec.IntraPredictorRefs) vp8common.MBPredictionMode {
+	uAbove := refs.UAbove
+	vAbove := refs.VAbove
+	uLeft := refs.ULeft
+	vLeft := refs.VLeft
+	uTopLeft := int(refs.UTopLeft)
+	vTopLeft := int(refs.VTopLeft)
+	upAvailable := refs.UpAvailable
+	leftAvailable := refs.LeftAvailable
+
+	// Compute libvpx's "expected_dc" for each plane.
+	expectedUDC := 128
+	expectedVDC := 128
+	if upAvailable || leftAvailable {
+		shift := uint(2)
+		uAvg := 0
+		vAvg := 0
+		if upAvailable {
+			for i := 0; i < 8; i++ {
+				uAvg += int(uAbove[i])
+				vAvg += int(vAbove[i])
+			}
+			shift++
+		}
+		if leftAvailable {
+			for i := 0; i < 8; i++ {
+				uAvg += int(uLeft[i])
+				vAvg += int(vLeft[i])
+			}
+			shift++
+		}
+		expectedUDC = (uAvg + (1 << (shift - 1))) >> shift
+		expectedVDC = (vAvg + (1 << (shift - 1))) >> shift
+	}
+
+	// Source UV strides match libvpx's mb->block[16].src_stride. govpx
+	// keeps U/V in the SourceImage with separate strides; the libvpx
+	// "i==3" stride hop is implicit because we walk row-by-row through
+	// src.U / src.V using their published stride.
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	srcURow := mbRow * 8
+	srcUCol := mbCol * 8
+
+	var dcErr, vErr, hErr, tmErr int
+	for i := 0; i < 8; i++ {
+		yIdx := clampEncodeCoord(srcURow+i, uvHeight)
+		uRowOff := yIdx * src.UStride
+		vRowOff := yIdx * src.VStride
+		uLeftI := int(uLeft[i])
+		vLeftI := int(vLeft[i])
+		for j := 0; j < 8; j++ {
+			xIdx := clampEncodeCoord(srcUCol+j, uvWidth)
+			uP := int(src.U[uRowOff+xIdx])
+			vP := int(src.V[vRowOff+xIdx])
+			uAboveJ := int(uAbove[j])
+			vAboveJ := int(vAbove[j])
+
+			// DC_PRED.
+			d := uP - expectedUDC
+			dcErr += d * d
+			d = vP - expectedVDC
+			dcErr += d * d
+
+			// V_PRED.
+			d = uP - uAboveJ
+			vErr += d * d
+			d = vP - vAboveJ
+			vErr += d * d
+
+			// H_PRED.
+			d = uP - uLeftI
+			hErr += d * d
+			d = vP - vLeftI
+			hErr += d * d
+
+			// TM_PRED with clamp [0..255].
+			predU := uLeftI + uAboveJ - uTopLeft
+			if predU < 0 {
+				predU = 0
+			} else if predU > 255 {
+				predU = 255
+			}
+			predV := vLeftI + vAboveJ - vTopLeft
+			if predV < 0 {
+				predV = 0
+			} else if predV > 255 {
+				predV = 255
+			}
+			d = uP - predU
+			tmErr += d * d
+			d = vP - predV
+			tmErr += d * d
+		}
+	}
+
+	// libvpx's tie-break: iterate DC_PRED..TM_PRED and keep the first
+	// strictly-smaller error (`if (best_error > pred_error[i])`). DC_PRED
+	// wins ties.
+	best := vp8common.DCPred
+	bestErr := dcErr
+	if vErr < bestErr {
+		bestErr = vErr
+		best = vp8common.VPred
+	}
+	if hErr < bestErr {
+		bestErr = hErr
+		best = vp8common.HPred
+	}
+	if tmErr < bestErr {
+		best = vp8common.TMPred
+	}
+	return best
+}
+
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
@@ -2391,6 +2525,19 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	e.recordFastInterModeErrorBin(bestDistortion)
 	if !best.useIntra {
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
+	} else {
+		// Mirror libvpx pickinter.c vp8_pick_inter_mode tail:
+		//   if (best_mbmode.mode <= B_PRED) pick_intra_mbuv_mode(x);
+		// The fast picker leaves UVMode=DC_PRED while iterating intra
+		// candidates (cf. estimateFastIntraModeScore /
+		// estimateFastBPredIntraModeScore) and commits the actual
+		// chroma plane choice once after the winning mode is known.
+		// Closes the residual chroma U/V mismatch on right-edge B_PRED
+		// MBs at 128x128 frame 1 (R14-E) where libvpx selects
+		// V_PRED / H_PRED / TM_PRED for chroma against govpx's hard-
+		// coded DC_PRED.
+		refs := vp8dec.BuildIntraPredictorRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
+		best.intraMode.UVMode = pickFastIntraMBUVMode(src, mbRow, mbCol, refs)
 	}
 	return best, true
 }
