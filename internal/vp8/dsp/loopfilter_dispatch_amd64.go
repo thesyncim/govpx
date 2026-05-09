@@ -45,7 +45,9 @@ func mbLoopFilterEdgeH16(src *byte, pitch int, blimit, limit, thresh byte) {
 
 func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		loopFilterEdgeH16(&s[0], stride, blimit, limit, thresh)
+		// len check already guarantees s is non-empty, so SliceData
+		// folds away the &s[0] bounds-check + stack frame.
+		loopFilterEdgeH16(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -78,7 +80,7 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		mbLoopFilterEdgeH16(&s[0], stride, blimit, limit, thresh)
+		mbLoopFilterEdgeH16(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -114,7 +116,7 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 // large enough; otherwise falls back to the libvpx-style scalar.
 func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
 	if len(s) >= 3*stride+16 {
-		loopFilterSimpleEdgeH16SSE2(&s[0], stride, blimit)
+		loopFilterSimpleEdgeH16SSE2(unsafe.SliceData(s), stride, blimit)
 		return
 	}
 	loopFilterSimpleHorizontalEdgeScalar(s, stride, blimit)

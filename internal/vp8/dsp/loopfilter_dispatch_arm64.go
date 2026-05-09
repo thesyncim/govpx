@@ -20,7 +20,9 @@ import (
 
 func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		loopFilterEdgeH16NEON(&s[0], stride, blimit, limit, thresh)
+		// len check already guarantees s is non-empty, so SliceData
+		// folds away the &s[0] bounds-check + stack frame.
+		loopFilterEdgeH16NEON(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -38,7 +40,7 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 		// Kernel follows libvpx: caller passes a pointer at the q0
 		// column (the byte at offset +4 from the leftmost p3); the
 		// kernel reads 8 bytes/row at src-4 across 16 rows.
-		loopFilterEdgeV16NEON(&s[4], stride, blimit, limit, thresh)
+		loopFilterEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 4)), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -53,7 +55,7 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 7*stride+16 {
-		mbLoopFilterEdgeH16NEON(&s[0], stride, blimit, limit, thresh)
+		mbLoopFilterEdgeH16NEON(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -68,7 +70,7 @@ func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thr
 
 func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 15*stride+8 {
-		mbLoopFilterEdgeV16NEON(&s[4], stride, blimit, limit, thresh)
+		mbLoopFilterEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 4)), stride, blimit, limit, thresh)
 		return
 	}
 	if count == 1 && len(s) >= 7*stride+8 {
@@ -148,7 +150,7 @@ func scatterV8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 // large enough; otherwise falls back to the libvpx-style scalar.
 func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
 	if len(s) >= 3*stride+16 {
-		loopFilterSimpleEdgeH16NEON(&s[0], stride, blimit)
+		loopFilterSimpleEdgeH16NEON(unsafe.SliceData(s), stride, blimit)
 		return
 	}
 	loopFilterSimpleHorizontalEdgeScalar(s, stride, blimit)
@@ -160,7 +162,7 @@ func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
 // per row at &s[2]-1 = &s[1].
 func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
 	if len(s) >= 15*stride+4 {
-		loopFilterSimpleEdgeV16NEON(&s[2], stride, blimit)
+		loopFilterSimpleEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 2)), stride, blimit)
 		return
 	}
 	loopFilterSimpleVerticalEdgeScalar(s, stride, blimit)

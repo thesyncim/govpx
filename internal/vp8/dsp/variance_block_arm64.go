@@ -2,6 +2,8 @@
 
 package dsp
 
+import "unsafe"
+
 // ARMv8 NEON port of the libvpx v1.16.0 vpx_dsp/arm/variance_neon.c
 // 16x16 variance block. Computes (sum, sse) where:
 //
@@ -19,7 +21,10 @@ func varianceBlock16x16NEON(src *byte, srcStride int, ref *byte, refStride int, 
 func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
 	var sum int32
 	var sse uint32
-	varianceBlock16x16NEON(&src[0], srcStride, &ref[0], refStride, &sum, &sse)
+	// unsafe.SliceData skips the runtime.panicBounds + stack frame the
+	// compiler emits for &src[0] / &ref[0]. Hot motion-search callers
+	// pass non-empty slices shaped to cover the 16x16 read window.
+	varianceBlock16x16NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride, &sum, &sse)
 	return int(sum), int(sse)
 }
 

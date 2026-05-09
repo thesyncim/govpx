@@ -2,7 +2,11 @@
 
 package dsp
 
-import "github.com/thesyncim/govpx/internal/cpu"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // SSE2 port of the libvpx v1.16.0 vpx_dsp/x86/variance_sse2.c 16x16
 // variance block. Computes (sum, sse) where:
@@ -22,10 +26,12 @@ func varianceBlock16x16SSE2(src *byte, srcStride int, ref *byte, refStride int, 
 func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
 	var sum int32
 	var sse uint32
+	srcPtr := unsafe.SliceData(src)
+	refPtr := unsafe.SliceData(ref)
 	if cpu.HasAVX2 {
-		varianceBlock16xNAVX2(&src[0], srcStride, &ref[0], refStride, 16, &sum, &sse)
+		varianceBlock16xNAVX2(srcPtr, srcStride, refPtr, refStride, 16, &sum, &sse)
 	} else {
-		varianceBlock16x16SSE2(&src[0], srcStride, &ref[0], refStride, &sum, &sse)
+		varianceBlock16x16SSE2(srcPtr, srcStride, refPtr, refStride, &sum, &sse)
 	}
 	return int(sum), int(sse)
 }

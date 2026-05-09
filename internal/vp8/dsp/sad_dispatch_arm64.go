@@ -2,10 +2,19 @@
 
 package dsp
 
+import "unsafe"
+
 // libvpx v1.16.0 vpx_dsp/arm/sad_neon.c-style dispatch wrappers.
+//
+// The wrappers pull the slice base pointers via unsafe.SliceData so the
+// dispatch stays inlineable and free of the runtime.panicBounds + stack
+// frame the compiler emits for &src[0] / &ref[0]. Callers in the motion
+// search hot path (encoder_reconstruct.go) always pass non-empty slices
+// shaped to cover the read window, matching the implicit contract of
+// the underlying NEON kernels.
 
 func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock16x16NEON(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock16x16NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 // SAD16x16PtrFast is the SIMD-bypass entry point for the inter motion
@@ -31,33 +40,38 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
-	return int(sadBlock16x16LimitNEON(&src[0], srcStride, &ref[0], refStride, sadLimitClamp32(limit)))
+	// The NEON kernel takes a 32-bit signed limit; the wrapper hands it a
+	// fast clamp so the dispatch stays inlineable. The hot motion-search
+	// caller passes positive ints in the [0, 0x7fffffff] range, where
+	// uint(limit) <= 0x7fffffff matches the int32 fast path (negative
+	// ints become huge unsigned and bail to the cold slow path).
+	return int(sadBlock16x16LimitNEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride, sadLimitClamp32(limit)))
 }
 
 // sadLimitClamp32 narrows the caller-supplied limit to the NEON kernel's
 // int32 range. Split out so the SAD dispatch entry stays inlineable.
 func sadLimitClamp32(limit int) int32 {
-	if limit > 0x7fffffff {
-		return 0x7fffffff
+	if uint(limit) <= 0x7fffffff {
+		return int32(limit)
 	}
 	if limit < 0 {
 		return 0
 	}
-	return int32(limit)
+	return 0x7fffffff
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock16x8NEON(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock16x8NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock8x16NEON(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock8x16NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock8x8(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock8x8NEON(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock8x8NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock4x4(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock4x4NEON(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock4x4NEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }

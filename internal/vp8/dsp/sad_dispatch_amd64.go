@@ -7,14 +7,27 @@ package dsp
 // call without runtime detection. AVX2 entry points are gated by
 // internal/cpu.HasAVX2 — when present, the 16-wide and 8-wide SADs route
 // through the YMM kernels in sad_avx2_amd64.s for ~2x throughput.
+//
+// The wrappers pull the slice base pointers via unsafe.SliceData so the
+// dispatch stays inlineable and free of the runtime.panicBounds + stack
+// frame the compiler emits for &src[0] / &ref[0]. Callers in the motion
+// search hot path (encoder_reconstruct.go) always pass non-empty slices
+// shaped to cover the read window, matching the implicit contract of
+// the underlying SSE2/AVX2 kernels.
 
-import "github.com/thesyncim/govpx/internal/cpu"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	srcPtr := unsafe.SliceData(src)
+	refPtr := unsafe.SliceData(ref)
 	if cpu.HasAVX2 {
-		return int(sadBlock16x16AVX2(&src[0], srcStride, &ref[0], refStride))
+		return int(sadBlock16x16AVX2(srcPtr, srcStride, refPtr, refStride))
 	}
-	return int(sadBlock16x16SSE2(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock16x16SSE2(srcPtr, srcStride, refPtr, refStride))
 }
 
 // SAD16x16PtrFast is the SIMD-bypass entry point for the inter motion
@@ -40,20 +53,28 @@ func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, li
 	// where it exceeds the limit; mirroring that exactly under AVX2's
 	// natural 2-row granularity would lose byte parity with the SSE2
 	// path, so we keep this on SSE2.
-	if limit > 0x7fffffff {
-		limit = 0x7fffffff
+	return int(sadBlock16x16LimitSSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride, sadLimitClamp32(limit)))
+}
+
+// sadLimitClamp32 narrows the caller-supplied limit to the SSE2 kernel's
+// int32 range. Split out so the SAD dispatch entry stays inlineable.
+func sadLimitClamp32(limit int) int32 {
+	if uint(limit) <= 0x7fffffff {
+		return int32(limit)
 	}
 	if limit < 0 {
-		limit = 0
+		return 0
 	}
-	return int(sadBlock16x16LimitSSE2(&src[0], srcStride, &ref[0], refStride, int32(limit)))
+	return 0x7fffffff
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	srcPtr := unsafe.SliceData(src)
+	refPtr := unsafe.SliceData(ref)
 	if cpu.HasAVX2 {
-		return int(sadBlock16x8AVX2(&src[0], srcStride, &ref[0], refStride))
+		return int(sadBlock16x8AVX2(srcPtr, srcStride, refPtr, refStride))
 	}
-	return int(sadBlock16x8SSE2(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock16x8SSE2(srcPtr, srcStride, refPtr, refStride))
 }
 
 func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
@@ -61,14 +82,14 @@ func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	// into a YMM costs more memory ops (8x MOVQ + PUNPCKLQDQ +
 	// VINSERTI128) than the SSE2 schedule's two-row PSADBW form. The
 	// AVX2 entry point exists for parity testing but is not routed.
-	return int(sadBlock8x16SSE2(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock8x16SSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock8x8(src []byte, srcStride int, ref []byte, refStride int) int {
 	// See sadBlock8x16 — 8-wide stays on SSE2.
-	return int(sadBlock8x8SSE2(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock8x8SSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock4x4(src []byte, srcStride int, ref []byte, refStride int) int {
-	return int(sadBlock4x4SSE2(&src[0], srcStride, &ref[0], refStride))
+	return int(sadBlock4x4SSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }

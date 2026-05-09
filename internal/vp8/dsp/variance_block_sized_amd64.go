@@ -2,7 +2,11 @@
 
 package dsp
 
-import "github.com/thesyncim/govpx/internal/cpu"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // SSE2 ports of the libvpx v1.16.0 vpx_dsp/x86/variance_sse2.c
 // variance kernels for the smaller (non-16x16) block sizes used by
@@ -43,6 +47,8 @@ func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int)
 func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, width, height int) (int, int) {
 	var sum int32
 	var sse uint32
+	srcPtr := unsafe.SliceData(src)
+	refPtr := unsafe.SliceData(ref)
 	switch width {
 	case 16:
 		// AVX2 path covers 16xN with even N; the picker only ever
@@ -50,18 +56,18 @@ func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, wi
 		// resolved at startup so this is a single branch on a global
 		// flag in the hot path.
 		if cpu.HasAVX2 && height >= 2 && height&1 == 0 {
-			varianceBlock16xNAVX2(&src[0], srcStride, &ref[0], refStride, height, &sum, &sse)
+			varianceBlock16xNAVX2(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
 		} else {
-			varianceBlock16xNSSE2(&src[0], srcStride, &ref[0], refStride, height, &sum, &sse)
+			varianceBlock16xNSSE2(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
 		}
 	case 8:
 		if cpu.HasAVX2 && height == 16 {
-			varianceBlock8x16AVX2(&src[0], srcStride, &ref[0], refStride, &sum, &sse)
+			varianceBlock8x16AVX2(srcPtr, srcStride, refPtr, refStride, &sum, &sse)
 		} else {
-			varianceBlock8xNSSE2(&src[0], srcStride, &ref[0], refStride, height, &sum, &sse)
+			varianceBlock8xNSSE2(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
 		}
 	case 4:
-		varianceBlock4xNSSE2(&src[0], srcStride, &ref[0], refStride, height, &sum, &sse)
+		varianceBlock4xNSSE2(srcPtr, srcStride, refPtr, refStride, height, &sum, &sse)
 	default:
 		return varianceBlockGeneric(src, srcStride, ref, refStride, width, height)
 	}
