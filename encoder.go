@@ -631,6 +631,16 @@ type VP8Encoder struct {
 	// every committed frame, mirroring libvpx's cpi->total_byte_count for
 	// the rate-row oracle trace. Updated only when the trace is enabled.
 	oracleTraceTotalByteCount int64
+
+	// rowWorkers is the row-parallel encoder worker pool. Allocated
+	// only when EncoderOptions.Threads >= 2 so the canonical
+	// Threads=1 path stays zero-cost (no goroutine spawn, no
+	// atomic ops, no channel allocation, no per-row scratch
+	// allocation). Mirrors libvpx vp8/encoder/ethreading.c's
+	// cpi->mb_row_ei + cpi->encoding_thread_count layout. nil at
+	// Threads=1 so picker / reconstruct hot paths can branch on a
+	// single nil-check before any threading code path executes.
+	rowWorkers *rowWorkerPool
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
@@ -830,6 +840,16 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.opts.TemporalScalability = e.temporal.config
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	// Allocate the row-parallel worker pool only when Threads >= 2.
+	// Threads=1 stays byte-identical and zero-cost: no pool, no
+	// goroutines, no atomic ops, no per-row scratch allocation.
+	// Mirrors libvpx vp8cx_create_encoder_threads early return when
+	// cpi->oxcf.multi_threaded < 2.
+	if eff := e.effectiveThreadCount(); eff >= 2 {
+		mbRows := encoderMacroblockRows(e.opts.Height)
+		mbCols := encoderMacroblockCols(e.opts.Width)
+		e.rowWorkers = newRowWorkerPool(eff, mbRows, mbCols)
+	}
 	return e, nil
 }
 
@@ -3519,6 +3539,10 @@ func (e *VP8Encoder) Close() error {
 		return ErrClosed
 	}
 	e.Reset()
+	if e.rowWorkers != nil {
+		e.rowWorkers.shutdownPool()
+		e.rowWorkers = nil
+	}
 	e.closed = true
 	return nil
 }
