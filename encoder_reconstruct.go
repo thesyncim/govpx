@@ -6685,7 +6685,7 @@ func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 		// R15-C: fused (sum, sse) read collapses Variance16x16 + SSE16x16
 		// into one SIMD pass (variance = sse - sum*sum/256).
 		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[baseY*ref.YStride+baseX], ref.YStride)
-		return sse - ((sum*sum)>>8), sse
+		return sse - ((sum * sum) >> 8), sse
 	}
 
 	sum := 0
@@ -7798,12 +7798,7 @@ func fillBPredResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block in
 }
 
 func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
-	err := 0
-	for i := range 16 {
-		diff := int(coeff[i]) - int(dqcoeff[i])
-		err += diff * diff
-	}
-	return err
+	return dsp.TransformBlockError(coeff, dqcoeff)
 }
 
 func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
