@@ -554,8 +554,10 @@ type VP8Encoder struct {
 	goldenRefAliasesAlt  bool
 
 	loopFilterPick      vp8common.FrameBuffer
+	loopFilterBest      vp8common.FrameBuffer
 	loopFilterPickReady bool
 	loopFilterPickLevel uint8
+	loopFilterPickBest  bool
 	reconstructModes    []vp8dec.MacroblockMode
 	reconstructTokens   []vp8dec.MacroblockTokens
 	dequantTables       vp8common.FrameDequantTables
@@ -3559,6 +3561,11 @@ func (e *VP8Encoder) Reset() {
 	e.lastRef.Reset()
 	e.goldenRef.Reset()
 	e.altRef.Reset()
+	e.loopFilterPick.Reset()
+	e.loopFilterBest.Reset()
+	e.loopFilterPickReady = false
+	e.loopFilterPickLevel = 0
+	e.loopFilterPickBest = false
 }
 
 func (e *VP8Encoder) Close() error {
@@ -3697,6 +3704,9 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	if err := e.loopFilterPick.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	if err := e.loopFilterBest.Resize(width, height, 32, 32); err != nil {
+		return ErrInvalidConfig
+	}
 	return nil
 }
 
@@ -3788,6 +3798,7 @@ func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
 func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
 	e.loopFilterPickReady = false
 	e.loopFilterPickLevel = 0
+	e.loopFilterPickBest = false
 	if len(e.reconstructModes) < required {
 		return 0, ErrInvalidConfig
 	}
@@ -3874,6 +3885,16 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	ssErr := [vp8common.MaxLoopFilter + 1]int{}
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
 	residentLevel := -1
+	bestLumaLevel := -1
+	preserveBestBeforeTrial := func(nextLevel int, bestLevel int) {
+		if bestLevel <= 0 || nextLevel == bestLevel || ssSet[nextLevel] {
+			return
+		}
+		if residentLevel == bestLevel && bestLumaLevel != bestLevel {
+			copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPick.Img)
+			bestLumaLevel = bestLevel
+		}
+	}
 	score := func(level int) (int, error) {
 		if ssSet[level] {
 			return ssErr[level], nil
@@ -3913,6 +3934,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		filtLow := max(filtMid-filterStep, minLevel)
 
 		if filtDirection <= 0 && filtLow != filtMid {
+			preserveBestBeforeTrial(filtLow, filtBest)
 			filtErr, err := score(filtLow)
 			if err != nil {
 				return 0, err
@@ -3925,6 +3947,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 			}
 		}
 		if filtDirection >= 0 && filtHigh != filtMid {
+			preserveBestBeforeTrial(filtHigh, filtBest)
 			filtErr, err := score(filtHigh)
 			if err != nil {
 				return 0, err
@@ -3947,9 +3970,15 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		}
 	}
 	if filtBest > 0 {
-		e.loopFilterPickReady = residentLevel == filtBest
-		if e.loopFilterPickReady {
+		switch {
+		case residentLevel == filtBest:
+			e.loopFilterPickReady = true
 			e.loopFilterPickLevel = uint8(filtBest)
+			e.loopFilterPickBest = false
+		case bestLumaLevel == filtBest:
+			e.loopFilterPickReady = true
+			e.loopFilterPickLevel = uint8(filtBest)
+			e.loopFilterPickBest = true
 		}
 	}
 	return uint8(filtBest), nil
@@ -4197,6 +4226,7 @@ func libvpxInitialLoopFilterLevel(qIndex int) int {
 func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, segmentation vp8enc.SegmentationConfig, rows int, cols int, required int) error {
 	if header.Level == 0 {
 		e.loopFilterPickReady = false
+		e.loopFilterPickBest = false
 		return nil
 	}
 	if len(e.reconstructModes) < required {
@@ -4206,18 +4236,25 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 	// when cm->segmentation.enabled is set, so the reconstruction-side
 	// LF must see the same per-segment deltas the bitstream signals.
 	if e.loopFilterPickReady && e.loopFilterPickLevel == header.Level {
-		copyFrameImageLuma(&e.analysis.Img, &e.loopFilterPick.Img)
+		reuse := &e.loopFilterPick.Img
+		if e.loopFilterPickBest {
+			reuse = &e.loopFilterBest.Img
+		}
+		copyFrameImageLuma(&e.analysis.Img, reuse)
 		if header.Type == vp8dec.NormalLoopFilter {
 			if err := vp8dec.ApplyLoopFilterChromaOnly(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 				e.loopFilterPickReady = false
+				e.loopFilterPickBest = false
 				return ErrInvalidConfig
 			}
 		}
 		e.loopFilterPickReady = false
+		e.loopFilterPickBest = false
 		e.analysis.ExtendBorders()
 		return nil
 	}
 	e.loopFilterPickReady = false
+	e.loopFilterPickBest = false
 	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 		return ErrInvalidConfig
 	}
