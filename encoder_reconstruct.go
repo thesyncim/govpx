@@ -485,19 +485,22 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !ok {
 				return 0, ErrInvalidConfig
 			}
-			if segmentID != 0 {
+			if segmentID != 0 && !decision.cyclicRefreshEligible() {
 				if haveFallbackSnapshot {
 					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				}
 				// Restore the snapshotted state so the segmentID=0
 				// segment-guess picker call doesn't leak its mutable state
-				// into the next MB. libvpx runs the picker once per MB, so
-				// we keep the chosen segment and only roll back the
-				// threshold / hit-count side effects here.
+				// into the next MB. libvpx runs the picker once per MB,
+				// then clears the segment on non-eligible MBs rather than
+				// re-picking.
 				e.interRDThreshMult = e.interRDThreshMultSnapshot
 				e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
 				e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
 				e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
+				segmentID = 0
+				decision.interMode.SegmentID = 0
+				decision.intraMode.SegmentID = 0
 			}
 			totalRate = libvpxAddProjectedMacroblockRate(totalRate, decision.projectedRate)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
