@@ -3713,9 +3713,6 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 	if e.encoderUsesSimpleLoopFilter() {
 		header.Type = vp8dec.SimpleLoopFilter
 	}
-	if level == 0 {
-		return header
-	}
 	header.DeltaEnabled = true
 	header.DeltaUpdate = true
 	header.RefDeltas = [vp8common.MaxRefLFDeltas]int8{2, 0, -2, -2}
@@ -3787,9 +3784,6 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	if len(e.reconstructModes) < required {
 		return 0, ErrInvalidConfig
 	}
-	if seedLevel == 0 {
-		return 0, nil
-	}
 	minLevel := e.libvpxMinLoopFilterLevelForFrame(frameType, refreshGolden, refreshAltRef)
 	if e.loopFilterUsesFastSearchForFrame(frameType) {
 		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation, minLevel)
@@ -3817,22 +3811,16 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 }
 
 func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig, minLevel int) (uint8, error) {
-	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
+	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
 	vp8common.InitLoopFilterInfo(&e.loopInfo, int(sharpness))
-	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation, true)
-	if err != nil {
-		return 0, err
-	}
+	bestErr := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
 	e.emitOracleLFTrial("seed", level, bestErr)
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
-		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation, true)
-		if err != nil {
-			return 0, err
-		}
+		filtErr := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
 		e.emitOracleLFTrial("down", filtLevel, filtErr)
 		if filtErr < bestErr {
 			bestErr = filtErr
@@ -3847,10 +3835,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
-			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation, true)
-			if err != nil {
-				return 0, err
-			}
+			filtErr := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
 			e.emitOracleLFTrial("up", filtLevel, filtErr)
 			if filtErr < bestErr {
 				bestErr = filtErr - (filtErr >> 10)
@@ -3865,7 +3850,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 }
 
 func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig, minLevel int) (uint8, error) {
-	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
+	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	filterStep := 4
 	if filtMid >= 16 {
@@ -3885,27 +3870,21 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 			bestLumaLevel = bestLevel
 		}
 	}
-	score := func(level int) (int, error) {
+	score := func(level int) int {
 		if ssSet[level] {
-			return ssErr[level], nil
+			return ssErr[level]
 		}
-		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false, segmentation, true)
-		if err != nil {
-			return 0, err
-		}
+		trialErr := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false, segmentation)
 		ssErr[level] = trialErr
 		ssSet[level] = true
 		if level != 0 {
 			residentLevel = level
 		}
 		e.emitOracleLFTrial("full", level, trialErr)
-		return trialErr, nil
+		return trialErr
 	}
 
-	bestErr, err := score(filtMid)
-	if err != nil {
-		return 0, err
-	}
+	bestErr := score(filtMid)
 	filtBest := filtMid
 	filtDirection := 0
 	for filterStep > 0 {
@@ -3925,10 +3904,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 
 		if filtDirection <= 0 && filtLow != filtMid {
 			preserveBestBeforeTrial(filtLow, filtBest)
-			filtErr, err := score(filtLow)
-			if err != nil {
-				return 0, err
-			}
+			filtErr := score(filtLow)
 			if filtErr-bias < bestErr {
 				if filtErr < bestErr {
 					bestErr = filtErr
@@ -3938,10 +3914,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		}
 		if filtDirection >= 0 && filtHigh != filtMid {
 			preserveBestBeforeTrial(filtHigh, filtBest)
-			filtErr, err := score(filtHigh)
-			if err != nil {
-				return 0, err
-			}
+			filtErr := score(filtHigh)
 			if filtErr < bestErr-bias {
 				bestErr = filtErr
 				filtBest = filtHigh
@@ -4003,47 +3976,25 @@ func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionI
 	return bias
 }
 
-// loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy
-// of the analysis image (full frame or partial-frame window depending on
-// `partial`) and returns the Y SSE between the source and the filtered
-// buffer. Level 0 skips the copy and scores the analysis image directly
-// because no filtering can mutate the trial buffer. The supplied segmentation
-// must mirror the segmentation that
-// actually fires at reconstruction time so the per-segment LF deltas
-// (e.g. cyclic refresh's MB_LVL_ALT_LF[1] = lf_adjustment) modulate the
-// per-MB filter level the same way libvpx's vp8cx_set_alt_lf_level +
-// vp8_loop_filter_frame_init does inside vp8cx_pick_filter_level.
-func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig, preparedInfo bool) (int, error) {
-	if level == 0 {
-		return loopFilterLumaSSE(src, &e.analysis.Img, rows, cols, partial), nil
-	}
+// loopFilterTrialLumaSSE applies the candidate loop-filter level to a copy of
+// the analysis image and returns the Y SSE between the source and filtered
+// buffer. Even level 0 goes through the trial filter path: libvpx's picker
+// compiles out the y-only/partial early return, so mode/ref deltas and
+// segmentation can still produce nonzero per-MB levels during scoring.
+// The caller prepares e.loopInfo for sharpness once, matching libvpx's
+// picker, while each trial reinitializes the per-level frame tables.
+func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig) int {
 	if partial {
 		startRow, rowCount := loopFilterPartialFrameWindow(rows)
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
 		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-		var err error
-		if preparedInfo {
-			err = vp8dec.ApplyLoopFilterPartialPrepared(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount)
-		} else {
-			err = vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount)
-		}
-		if err != nil {
-			return 0, ErrInvalidConfig
-		}
-		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true), nil
+		vp8dec.ApplyLoopFilterPartialPreparedUnchecked(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount)
+		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true)
 	}
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-	var err error
-	if preparedInfo {
-		vp8dec.ApplyLoopFilterFullLumaPreparedUnchecked(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
-	} else {
-		err = vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
-	}
-	if err != nil {
-		return 0, ErrInvalidConfig
-	}
-	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, false), nil
+	vp8dec.ApplyLoopFilterFullLumaPreparedUnchecked(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
+	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, false)
 }
 
 // copyLoopFilterPartialLuma refreshes the luma plane window the partial-frame
@@ -4234,6 +4185,13 @@ func (e *VP8Encoder) libvpxMinLoopFilterLevelForFrame(frameType vp8common.FrameT
 func libvpxMaxLoopFilterLevel(qIndex int) int {
 	_ = qIndex
 	return 63
+}
+
+func (e *VP8Encoder) libvpxMaxLoopFilterLevelForFrame() int {
+	if e != nil && e.twoPass.sectionIntraRating > 8 {
+		return vp8common.MaxLoopFilter * 3 / 4
+	}
+	return libvpxMaxLoopFilterLevel(0)
 }
 
 func libvpxInitialLoopFilterLevel(qIndex int) int {

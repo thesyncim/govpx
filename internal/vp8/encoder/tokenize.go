@@ -17,9 +17,10 @@ type TokenContextPlanes struct {
 
 type MacroblockCoefficients struct {
 	QCoeff [25][16]int16
-	EOB    [25]uint8
 
-	eobMask uint32
+	// EOB is the authoritative per-block end-of-block count, matching
+	// libvpx's xd->eobs side channel. Token writers do not rescan QCoeff.
+	EOB [25]uint8
 
 	// OracleY1DCEOB1 tracks, per Y block 0..15, whether libvpx's
 	// vp8_quantize_mb would have produced *d->eob = 1 against the original
@@ -57,11 +58,6 @@ type MacroblockCoefficients struct {
 	OracleStaleY2Set    bool
 }
 
-const (
-	cached4x4EOBMask        = (uint32(1) << 24) - 1
-	cachedWholeBlockEOBMask = (uint32(1) << 25) - 1
-)
-
 func WriteBlockTokens(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16) error {
 	if w == nil || probs == nil || qcoeff == nil || blockType < 0 || blockType >= tables.BlockTypes || ctx < 0 || ctx >= tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
 		return ErrInvalidPacketConfig
@@ -74,74 +70,10 @@ func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientPr
 	if w == nil || probs == nil || above == nil || left == nil || coeffs == nil {
 		return ErrInvalidPacketConfig
 	}
-	if coeffs.eobCacheComplete(is4x4) {
-		return writeCoefficientMacroblockTokensCached(w, probs, is4x4, above, left, coeffs)
-	}
-
-	blockType := 0
-	skipDC := 0
-	if !is4x4 {
-		eob := coeffs.BlockEOB(24, 0)
-		ctx := int(above.Y2 + left.Y2)
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := writeBlockTokensEOB(w, probs, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > 0 {
-			hasCoeffs = 1
-		}
-		above.Y2 = hasCoeffs
-		left.Y2 = hasCoeffs
-
-		blockType = 0
-		skipDC = 1
-	} else {
-		blockType = 3
-	}
-
-	for block := range 16 {
-		eob := coeffs.BlockEOB(block, skipDC)
-		a := block & 3
-		l := (block & 0x0c) >> 2
-		ctx := int(above.Y1[a] + left.Y1[l])
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > skipDC {
-			hasCoeffs = 1
-		}
-		above.Y1[a] = hasCoeffs
-		left.Y1[l] = hasCoeffs
-	}
-
-	for block := 16; block < 24; block++ {
-		eob := coeffs.BlockEOB(block, 0)
-		a, l := tokenUVContextIndex(block)
-		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := writeBlockTokensEOB(w, probs, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > 0 {
-			hasCoeffs = 1
-		}
-		setTokenUVContext(above, a, hasCoeffs)
-		setTokenUVContext(left, l, hasCoeffs)
-	}
-	return nil
+	return writeCoefficientMacroblockTokensWithEOBs(w, probs, is4x4, above, left, coeffs)
 }
 
-func writeCoefficientMacroblockTokensCached(w *BoolWriter, probs *tables.CoefficientProbs, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
+func writeCoefficientMacroblockTokensWithEOBs(w *BoolWriter, probs *tables.CoefficientProbs, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
 	blockType := 0
 	skipDC := 0
 	if !is4x4 {
@@ -240,7 +172,7 @@ func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFra
 			if !validKeyFrameMacroblockMode(mode) {
 				return ErrInvalidPacketConfig
 			}
-			if err := WriteCoefficientMacroblockTokens(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -275,7 +207,7 @@ func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int
 			if !validKeyFrameMacroblockMode(mode) {
 				return ErrInvalidPacketConfig
 			}
-			if err := WriteCoefficientMacroblockTokens(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -304,29 +236,17 @@ func (coeffs *MacroblockCoefficients) SetBlockEOB(block int, eob int) {
 		eob = 16
 	}
 	coeffs.EOB[block] = uint8(eob)
-	coeffs.eobMask |= 1 << uint(block)
 }
 
 func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
-	if coeffs == nil || block < 0 || block >= len(coeffs.QCoeff) {
+	if coeffs == nil || block < 0 || block >= len(coeffs.EOB) {
 		return skipDC
 	}
-	if coeffs.eobMask&(1<<uint(block)) != 0 {
-		eob := int(coeffs.EOB[block])
-		if eob < skipDC {
-			return skipDC
-		}
-		return eob
+	eob := int(coeffs.EOB[block])
+	if eob < skipDC {
+		return skipDC
 	}
-	return BlockCoeffEOB(&coeffs.QCoeff[block], skipDC)
-}
-
-func (coeffs *MacroblockCoefficients) eobCacheComplete(is4x4 bool) bool {
-	mask := cachedWholeBlockEOBMask
-	if is4x4 {
-		mask = cached4x4EOBMask
-	}
-	return coeffs.eobMask&mask == mask
+	return eob
 }
 
 func coeffToken(coeff int) (int, int, bool) {

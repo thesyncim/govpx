@@ -52,6 +52,7 @@ func TestCoefficientTokenCountPathMatchesBranchCountPath(t *testing.T) {
 		coeffs[i].QCoeff[1][3] = int16(-3 - i%3)
 		coeffs[i].QCoeff[16][0] = int16(1 + i%4)
 		coeffs[i].QCoeff[20][2] = int16(-1 - i%6)
+		setAllMacroblockEOBs(&coeffs[i], keyModes[i].YMode == common.BPred)
 	}
 
 	base := tables.DefaultCoefProbs
@@ -349,6 +350,35 @@ func TestIndependentCoefContextKeyFrameForcesEqualization(t *testing.T) {
 	}
 }
 
+func TestIndependentCoefContextKeyFrameWritesMatchingContextWhenAggregateSaves(t *testing.T) {
+	const blk, bnd, node = 1, 2, 3
+	var counts coefficientBranchCounts
+	counts[blk][bnd][0][node] = [2]int{1000, 0}
+
+	var base tables.CoefficientProbs
+	for block := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				for n := range tables.EntropyNodes {
+					base[block][band][ctx][n] = 128
+				}
+			}
+		}
+	}
+	base[blk][bnd][2][node] = 255
+
+	_, updates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &counts, true)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
+	}
+	if !updates.Update[blk][bnd][2][node] {
+		t.Fatalf("key-frame independent path skipped matching ctx despite positive aggregate savings")
+	}
+	if got := updates.Probs[blk][bnd][2][node]; got != 255 {
+		t.Fatalf("updated matching ctx prob = %d, want 255", got)
+	}
+}
+
 func TestKeyFrameIndependentCoefUpdatesUseDefaultCounts(t *testing.T) {
 	modes := []KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
 	zeroCoeffs := []MacroblockCoefficients{{}}
@@ -356,6 +386,7 @@ func TestKeyFrameIndependentCoefUpdatesUseDefaultCounts(t *testing.T) {
 	contentCoeffs[0].QCoeff[24][0] = 1
 	contentCoeffs[0].QCoeff[0][1] = 2
 	contentCoeffs[0].QCoeff[16][0] = -3
+	setAllMacroblockEOBs(&contentCoeffs[0], false)
 
 	zeroProbs, zeroUpdates, err := BuildKeyFrameCoefficientProbabilityUpdatesIndependent(1, 1, modes, zeroCoeffs, make([]TokenContextPlanes, 1), &tables.DefaultCoefProbs)
 	if err != nil {

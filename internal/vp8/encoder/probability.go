@@ -66,8 +66,7 @@ func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyF
 // default_coef_counts, so the emitted updates are intentionally independent of
 // the current frame's coefficient content.
 func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	var observed coefficientTokenCounts
-	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &observed); err != nil {
+	if err := validateKeyFrameCoefficientGrid(rows, cols, modes, coeffs, above, base); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
 	var counts coefficientBranchCounts
@@ -106,6 +105,28 @@ func buildKeyFrameCoefficientBranchCounts(rows int, cols int, modes []KeyFrameMa
 	return nil
 }
 
+func validateKeyFrameCoefficientGrid(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if base == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
+	}
+	for col := range cols {
+		above[col] = TokenContextPlanes{}
+	}
+	for index := 0; index < required; index++ {
+		if !validKeyFrameMacroblockMode(&modes[index]) {
+			return ErrInvalidPacketConfig
+		}
+	}
+	return nil
+}
+
 func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
 	var counts coefficientTokenCounts
 	if err := buildInterCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
@@ -131,8 +152,7 @@ func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacro
 // as BuildKeyFrameCoefficientProbabilityUpdatesIndependent so recode
 // accounting matches the probabilities this package writes.
 func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
-	var observed coefficientTokenCounts
-	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &observed); err != nil {
+	if err := validateKeyFrameCoefficientGrid(rows, cols, modes, coeffs, above, base); err != nil {
 		return 0, err
 	}
 	var counts coefficientBranchCounts
@@ -369,18 +389,15 @@ func coefficientProbabilityUpdatesFromCountsIndependent(base *tables.Coefficient
 			for node := range tables.EntropyNodes {
 				sharedNew[node] = coefficientProbabilityFromBranchCount(summed[node])
 			}
-			// Step 3: aggregate per-node savings across the k contexts. On
-			// key frames libvpx skips the per-k contribution where
-			// newp == oldp[k] (bitstream.c:720-723) so the savings only
-			// reflect the contexts that would actually change.
+			// Step 3: aggregate per-node savings across the k contexts.
+			// This mirrors vp8_update_coef_probs, which recomputes the
+			// write-time VPX_ERROR_RESILIENT_PARTITIONS savings from every
+			// k context before deciding whether to emit u=1.
 			var nodeSavings [tables.EntropyNodes]int
 			for ctx := range tables.PrevCoefContexts {
 				for node := range tables.EntropyNodes {
 					oldProb := frameProbs[block][band][ctx][node]
 					newProb := sharedNew[node]
-					if keyFrame && newProb == oldProb {
-						continue
-					}
 					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
 					nodeSavings[node] += coefficientProbabilityUpdateSavings(summed[node], oldProb, newProb, updateProb)
 				}

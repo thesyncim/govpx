@@ -203,9 +203,6 @@ func coefficientProbabilityUpdatesFromTokenCountsIndependent(base *tables.Coeffi
 				for node := range tables.EntropyNodes {
 					oldProb := frameProbs[block][band][ctx][node]
 					newProb := sharedNew[node]
-					if keyFrame && newProb == oldProb {
-						continue
-					}
 					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
 					nodeSavings[node] += coefficientProbabilityUpdateSavings(summed[node], oldProb, newProb, updateProb)
 				}

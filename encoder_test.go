@@ -2512,8 +2512,8 @@ func TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities(t *tes
 	}
 
 	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime}}
-	if header := e.encoderLoopFilterHeader(0, 3); header.DeltaEnabled || header.DeltaUpdate {
-		t.Fatalf("zero-level delta flags = enabled:%t update:%t, want disabled", header.DeltaEnabled, header.DeltaUpdate)
+	if header := e.encoderLoopFilterHeader(0, 3); !header.DeltaEnabled || !header.DeltaUpdate {
+		t.Fatalf("zero-level delta flags = enabled:%t update:%t, want enabled update", header.DeltaEnabled, header.DeltaUpdate)
 	}
 }
 
@@ -2595,6 +2595,17 @@ func TestEncodeIntoRealtimeHighSpeedWritesSimpleLoopFilter(t *testing.T) {
 	interState := packetState(t, inter.Data)
 	if interState.LoopFilter.Type != vp8dec.SimpleLoopFilter {
 		t.Fatalf("inter loop filter type = %d, want simple", interState.LoopFilter.Type)
+	}
+}
+
+func TestLibvpxMaxLoopFilterLevelCapsHighIntraSections(t *testing.T) {
+	e := &VP8Encoder{}
+	if got := e.libvpxMaxLoopFilterLevelForFrame(); got != vp8common.MaxLoopFilter {
+		t.Fatalf("default max loop filter = %d, want %d", got, vp8common.MaxLoopFilter)
+	}
+	e.twoPass.sectionIntraRating = 9
+	if got, want := e.libvpxMaxLoopFilterLevelForFrame(), vp8common.MaxLoopFilter*3/4; got != want {
+		t.Fatalf("high-intra max loop filter = %d, want %d", got, want)
 	}
 }
 
@@ -2686,7 +2697,7 @@ func TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow(t *testing.T) {
 	}
 }
 
-func TestLoopFilterTrialLumaSSELevelZeroScoresAnalysisWithoutScratchCopy(t *testing.T) {
+func TestLoopFilterTrialLumaSSELevelZeroUsesLibvpxTrialFilter(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16
 	cols := (width + 15) / 16
@@ -2710,20 +2721,27 @@ func TestLoopFilterTrialLumaSSELevelZeroScoresAnalysisWithoutScratchCopy(t *test
 	for i := range e.loopFilterPick.Img.Y {
 		e.loopFilterPick.Img.Y[i] = 201
 	}
-	scratchBefore := append([]byte(nil), e.loopFilterPick.Img.Y...)
+	for i := range required {
+		e.reconstructModes[i] = vp8dec.MacroblockMode{
+			RefFrame: vp8common.IntraFrame,
+			Mode:     vp8common.DCPred,
+			UVMode:   vp8common.DCPred,
+		}
+	}
+	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
 
 	srcImg := sourceImageFromPublic(src)
 	for _, partial := range []bool{false, true} {
-		want := loopFilterLumaSSE(srcImg, &e.analysis.Img, rows, cols, partial)
-		got, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 0, 0, rows, cols, required, partial, vp8enc.SegmentationConfig{}, false)
-		if err != nil {
-			t.Fatalf("level zero trial partial=%t returned error: %v", partial, err)
+		for i := range e.loopFilterPick.Img.Y {
+			e.loopFilterPick.Img.Y[i] = 201
 		}
-		if got != want {
-			t.Fatalf("level zero trial partial=%t SSE = %d, want direct analysis SSE %d", partial, got, want)
+		scratchBefore := append([]byte(nil), e.loopFilterPick.Img.Y...)
+		got := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 0, 0, rows, cols, required, partial, vp8enc.SegmentationConfig{})
+		if got <= 0 {
+			t.Fatalf("level zero trial partial=%t SSE = %d, want scored trial", partial, got)
 		}
-		if !bytes.Equal(e.loopFilterPick.Img.Y, scratchBefore) {
-			t.Fatalf("level zero trial partial=%t modified loop-filter scratch buffer", partial)
+		if bytes.Equal(e.loopFilterPick.Img.Y, scratchBefore) {
+			t.Fatalf("level zero trial partial=%t left loop-filter scratch buffer untouched", partial)
 		}
 	}
 }
@@ -2769,15 +2787,10 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 	}
 
 	srcImg := sourceImageFromPublic(src)
+	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
 	for _, level := range []int{8, 24, 48} {
-		partialErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true, vp8enc.SegmentationConfig{}, false)
-		if err != nil {
-			t.Fatalf("partial trial level=%d returned error: %v", level, err)
-		}
-		fullErr, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false, vp8enc.SegmentationConfig{}, false)
-		if err != nil {
-			t.Fatalf("full trial level=%d returned error: %v", level, err)
-		}
+		partialErr := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true, vp8enc.SegmentationConfig{})
+		fullErr := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
 		// The full path computes SSE over the whole frame; recompute the
 		// partial-window SSE on the buffer left behind by the full filter so
 		// we can compare against the partial path.
@@ -2846,10 +2859,9 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	maxLevel := libvpxMaxLoopFilterLevel(eRef.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(24, minLevel, maxLevel)
 	bestLevel := level
+	vp8common.InitLoopFilterInfo(&eRef.loopInfo, 0)
 	score := func(lvl int) int {
-		if _, err := eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false, vp8enc.SegmentationConfig{}, false); err != nil {
-			t.Fatalf("reference trial returned error: %v", err)
-		}
+		eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
 		return loopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
 	}
 	bestErr := score(level)
@@ -3008,21 +3020,18 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 		}
 	}
 	srcImg := sourceImageFromPublic(src)
+	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
 
 	b.Run("partial", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true, vp8enc.SegmentationConfig{}, false); err != nil {
-				b.Fatalf("partial trial returned error: %v", err)
-			}
+			e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true, vp8enc.SegmentationConfig{})
 		}
 	})
 	b.Run("full", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if _, err := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false, vp8enc.SegmentationConfig{}, false); err != nil {
-				b.Fatalf("full trial returned error: %v", err)
-			}
+			e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
 		}
 	})
 }

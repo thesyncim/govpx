@@ -1503,12 +1503,7 @@ func WriteInterCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []I
 			if !validInterCoefficientTokenMode(&modes[index]) {
 				return ErrInvalidPacketConfig
 			}
-			mbCoeffs := &coeffs[index]
-			if mbCoeffs.eobCacheComplete(is4x4) {
-				if err := writeCoefficientMacroblockTokensCached(w, probs, is4x4, &above[col], &left, mbCoeffs); err != nil {
-					return err
-				}
-			} else if err := WriteCoefficientMacroblockTokens(w, probs, is4x4, &above[col], &left, mbCoeffs); err != nil {
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, is4x4, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}
@@ -1547,12 +1542,7 @@ func WriteInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partition
 			if !validInterCoefficientTokenMode(&modes[index]) {
 				return ErrInvalidPacketConfig
 			}
-			mbCoeffs := &coeffs[index]
-			if mbCoeffs.eobCacheComplete(is4x4) {
-				if err := writeCoefficientMacroblockTokensCached(w, probs, is4x4, &above[col], &left, mbCoeffs); err != nil {
-					return err
-				}
-			} else if err := WriteCoefficientMacroblockTokens(w, probs, is4x4, &above[col], &left, mbCoeffs); err != nil {
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, is4x4, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
 		}

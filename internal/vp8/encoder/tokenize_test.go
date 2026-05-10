@@ -1,7 +1,6 @@
 package encoder
 
 import (
-	"bytes"
 	"errors"
 	"testing"
 
@@ -82,6 +81,7 @@ func TestWriteCoefficientMacroblockTokensRoundTripsWholeBlock(t *testing.T) {
 	coeffs.QCoeff[24][0] = 1
 	coeffs.QCoeff[0][1] = 2
 	coeffs.QCoeff[16][0] = -3
+	setAllMacroblockEOBs(&coeffs, false)
 
 	payload := macroblockTokenPayload(t, false, &coeffs)
 	var br boolcoder.Decoder
@@ -101,6 +101,7 @@ func TestWriteCoefficientMacroblockTokensRoundTripsBPred(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 4
 	coeffs.QCoeff[23][15] = -5
+	setAllMacroblockEOBs(&coeffs, true)
 
 	payload := macroblockTokenPayload(t, true, &coeffs)
 	var br boolcoder.Decoder
@@ -129,6 +130,10 @@ func TestWriteCoefficientTokenGridRoundTrips(t *testing.T) {
 	coeffs[1].QCoeff[0][0] = -3
 	coeffs[2].QCoeff[16][0] = 4
 	coeffs[3].QCoeff[23][15] = -5
+	setAllMacroblockEOBs(&coeffs[0], false)
+	setAllMacroblockEOBs(&coeffs[1], true)
+	setAllMacroblockEOBs(&coeffs[2], false)
+	setAllMacroblockEOBs(&coeffs[3], false)
 
 	payload := coefficientTokenGridPayload(t, 2, 2, modes, coeffs[:])
 	var br boolcoder.Decoder
@@ -185,7 +190,7 @@ func TestBlockCoeffEOB(t *testing.T) {
 	}
 }
 
-func TestMacroblockCoefficientsBlockEOBUsesCache(t *testing.T) {
+func TestMacroblockCoefficientsBlockEOBTrustsStoredEOB(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][tables.DefaultZigZag1D[15]] = 7
 	coeffs.SetBlockEOB(0, 2)
@@ -193,8 +198,8 @@ func TestMacroblockCoefficientsBlockEOBUsesCache(t *testing.T) {
 	if got := coeffs.BlockEOB(0, 0); got != 2 {
 		t.Fatalf("cached EOB = %d, want 2", got)
 	}
-	if got := coeffs.BlockEOB(1, 1); got != 1 {
-		t.Fatalf("uncached skip-DC EOB = %d, want fallback 1", got)
+	if got := coeffs.BlockEOB(1, 0); got != 0 {
+		t.Fatalf("zero-value EOB = %d, want stored zero despite stale qcoeff", got)
 	}
 	coeffs.SetBlockEOB(1, 0)
 	if got := coeffs.BlockEOB(1, 1); got != 1 {
@@ -202,45 +207,31 @@ func TestMacroblockCoefficientsBlockEOBUsesCache(t *testing.T) {
 	}
 }
 
-func TestWriteCoefficientMacroblockTokensCachedMatchesFallback(t *testing.T) {
-	tests := []struct {
-		name  string
-		is4x4 bool
-		init  func(*MacroblockCoefficients)
-	}{
-		{
-			name: "whole",
-			init: func(coeffs *MacroblockCoefficients) {
-				coeffs.QCoeff[24][0] = 1
-				coeffs.QCoeff[0][1] = 2
-				coeffs.QCoeff[16][0] = -3
-			},
-		},
-		{
-			name:  "bpred",
-			is4x4: true,
-			init: func(coeffs *MacroblockCoefficients) {
-				coeffs.QCoeff[0][0] = 4
-				coeffs.QCoeff[23][15] = -5
-			},
-		},
+func TestWriteCoefficientMacroblockTokensTrustsStoredEOB(t *testing.T) {
+	var coeffs MacroblockCoefficients
+	coeffs.QCoeff[24][0] = 9
+	coeffs.QCoeff[0][1] = -7
+	coeffs.QCoeff[16][0] = 5
+	coeffs.SetBlockEOB(24, 0)
+	for block := range 16 {
+		coeffs.SetBlockEOB(block, 1)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var fallback MacroblockCoefficients
-			tt.init(&fallback)
-			cached := fallback
-			setAllMacroblockEOBs(&cached, tt.is4x4)
-			if !cached.eobCacheComplete(tt.is4x4) {
-				t.Fatalf("cached EOB mask = %#x, want complete", cached.eobMask)
-			}
+	for block := 16; block < 24; block++ {
+		coeffs.SetBlockEOB(block, 0)
+	}
 
-			want := macroblockTokenPayload(t, tt.is4x4, &fallback)
-			got := macroblockTokenPayload(t, tt.is4x4, &cached)
-			if !bytes.Equal(got, want) {
-				t.Fatalf("cached payload = %x, want fallback %x", got, want)
-			}
-		})
+	payload := macroblockTokenPayload(t, false, &coeffs)
+	var br boolcoder.Decoder
+	if err := br.Init(payload); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	var above, left vp8dec.EntropyContextPlanes
+	var got vp8dec.MacroblockTokens
+	_ = vp8dec.DecodeMacroblockTokens(&br, &tables.DefaultCoefProbs, false, &above, &left, &got)
+
+	if got.QCoeff[24][0] != 0 || got.QCoeff[0][1] != 0 || got.QCoeff[16][0] != 0 {
+		t.Fatalf("decoded stale coefficients = Y2:%v Y1:%v UV:%v, want stored EOB to suppress qcoeff scan",
+			got.QCoeff[24], got.QCoeff[0], got.QCoeff[16])
 	}
 }
 
@@ -301,6 +292,7 @@ func TestCoefficientTokenWritersAllocateZero(t *testing.T) {
 	var coeffs MacroblockCoefficients
 	coeffs.QCoeff[0][0] = 1
 	coeffs.QCoeff[24][0] = -2
+	setAllMacroblockEOBs(&coeffs, false)
 	buf := make([]byte, 4096)
 	var w BoolWriter
 	var above, left TokenContextPlanes

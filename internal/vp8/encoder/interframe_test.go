@@ -627,6 +627,7 @@ func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
 	}
 	coeffs := make([]MacroblockCoefficients, 2)
 	coeffs[0].QCoeff[24][0] = 1
+	setAllMacroblockEOBs(&coeffs[0], false)
 	packet := make([]byte, 512)
 	above := make([]TokenContextPlanes, 2)
 	n, err := WriteCoefficientInterFrame(packet, 32, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
@@ -706,6 +707,11 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 				coeffs[3].QCoeff[16][0] = 3
 				coeffs[4].QCoeff[0][5] = -7
 				coeffs[5].QCoeff[20][0] = 2
+				setAllMacroblockEOBs(&coeffs[0], false)
+				setAllMacroblockEOBs(&coeffs[1], false)
+				setAllMacroblockEOBs(&coeffs[3], false)
+				setAllMacroblockEOBs(&coeffs[4], false)
+				setAllMacroblockEOBs(&coeffs[5], false)
 			},
 		},
 		{
@@ -732,6 +738,9 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 				coeffs[1].QCoeff[1][1] = 1
 				coeffs[3].QCoeff[24][3] = -18
 				coeffs[3].QCoeff[23][8] = 67
+				setAllMacroblockEOBs(&coeffs[0], true)
+				setAllMacroblockEOBs(&coeffs[1], false)
+				setAllMacroblockEOBs(&coeffs[3], false)
 			},
 		},
 	}
@@ -833,6 +842,7 @@ func TestWriteCoefficientInterFrameDecodesTokenPartitions(t *testing.T) {
 	for i := range modes {
 		modes[i] = InterFrameMacroblockMode{Mode: common.ZeroMV, MBSkipCoeff: false}
 		coeffs[i].QCoeff[24][0] = 1
+		setAllMacroblockEOBs(&coeffs[i], false)
 	}
 	tests := []struct {
 		name      string
@@ -921,6 +931,7 @@ func TestWriteCoefficientInterFrameDecodesIntraMacroblock(t *testing.T) {
 	modes := []InterFrameMacroblockMode{{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.HPred}}
 	coeffs := make([]MacroblockCoefficients, 1)
 	coeffs[0].QCoeff[24][0] = 1
+	setAllMacroblockEOBs(&coeffs[0], false)
 	packet := make([]byte, 512)
 	above := make([]TokenContextPlanes, 1)
 	n, err := WriteCoefficientInterFrame(packet, 16, 16, DefaultInterFrameStateConfig(20), modes, coeffs, above)
@@ -1378,6 +1389,7 @@ func TestWriteCoefficientInterFrameAllocatesZero(t *testing.T) {
 	modes := []InterFrameMacroblockMode{{Mode: common.ZeroMV, MBSkipCoeff: false}}
 	coeffs := make([]MacroblockCoefficients, 1)
 	coeffs[0].QCoeff[24][0] = 1
+	setAllMacroblockEOBs(&coeffs[0], false)
 	above := make([]TokenContextPlanes, 1)
 	cfg := DefaultInterFrameStateConfig(20)
 	allocs := testing.AllocsPerRun(1000, func() {

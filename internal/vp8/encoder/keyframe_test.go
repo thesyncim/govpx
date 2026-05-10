@@ -69,6 +69,7 @@ func TestWriteCoefficientKeyFrameDecodesWithPublicDecoder(t *testing.T) {
 	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
 	coeffs := []vp8enc.MacroblockCoefficients{{}}
 	coeffs[0].QCoeff[24][0] = 16
+	setAllMacroblockEOBs(&coeffs[0], false)
 	above := make([]vp8enc.TokenContextPlanes, 1)
 
 	n, err := vp8enc.WriteCoefficientKeyFrame(packet, 16, 16, vp8enc.KeyFrameStateConfig{BaseQIndex: 20}, modes, coeffs, above)
@@ -158,6 +159,7 @@ func TestWriteCoefficientKeyFrameDecodesTokenPartitions(t *testing.T) {
 	for i := range modes {
 		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
 		coeffs[i].QCoeff[24][0] = 1
+		setAllMacroblockEOBs(&coeffs[i], false)
 	}
 
 	tests := []struct {
@@ -355,6 +357,7 @@ func BenchmarkWriteCoefficientKeyFrame(b *testing.B) {
 	modes := []vp8enc.KeyFrameMacroblockMode{{YMode: common.DCPred, UVMode: common.DCPred}}
 	coeffs := []vp8enc.MacroblockCoefficients{{}}
 	coeffs[0].QCoeff[24][0] = 1
+	setAllMacroblockEOBs(&coeffs[0], false)
 	above := make([]vp8enc.TokenContextPlanes, 1)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

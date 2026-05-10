@@ -35,6 +35,8 @@ func TestWriteCoefficientInterFrameScratchDecodesWithPublicDecoder(t *testing.T)
 	coeffs[0].QCoeff[24][0] = 8
 	coeffs[0].QCoeff[0][1] = -3
 	coeffs[1].QCoeff[16][0] = 2
+	setAllMacroblockEOBs(&coeffs[0], false)
+	setAllMacroblockEOBs(&coeffs[1], false)
 	above := make([]vp8enc.TokenContextPlanes, cols)
 	inter := make([]byte, 8192)
 	var scratch vp8enc.PartitionScratch
