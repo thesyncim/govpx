@@ -896,12 +896,9 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
 	e.currentSourcePTS = pts
 	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
-	// at the top of encode_mb_row for realtime+positive-cpu_used, evolving
-	// cpi->Speed based on cumulative timing. Govpx currently mirrors the
-	// frame-level trajectory here; moving this to rows also requires porting
-	// libvpx's row timing accumulation or it over-accelerates the picker.
+	// once at the top of vp8_encode_frame for realtime+positive-cpu_used,
+	// evolving cpi->Speed from the prior frame's encode timer.
 	e.libvpxAutoSelectSpeed()
-	e.autoSpeedFrameStartNS = nowMonotonicNS()
 	temporalFrame := e.temporal.nextFrame(e.timing)
 	flags |= temporalFrame.Flags
 	if err := validateEncodeFlags(flags); err != nil {
@@ -1182,9 +1179,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
+	e.beginAutoSpeedTiming()
 	if !keyFrame {
 		attempt, err := e.encodeInterFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, temporalReferenceControl, goldenCBRRefresh, boostedReferenceFrame, staticSegmentationAllowed, sourceIsAltRef)
 		if err != nil {
+			e.cancelAutoSpeedTiming()
 			return EncodeResult{}, err
 		}
 		// libvpx vp8/encoder/onyx_if.c:3970-3982 runs
@@ -1369,6 +1368,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rc.framesTillGFUpdateDue = e.libvpxKeyFrameSetupGFInterval(rows, cols)
 	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 	if err != nil {
+		e.cancelAutoSpeedTiming()
 		return EncodeResult{}, err
 	}
 	finalQuantizer := e.rc.currentQuantizer
@@ -3212,6 +3212,21 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 		}
 		e.avgPickModeTime = 0
 		e.avgEncodeTime = 0
+	}
+}
+
+func (e *VP8Encoder) beginAutoSpeedTiming() {
+	if e == nil || e.opts.Deadline != DeadlineRealtime {
+		return
+	}
+	if e.autoSpeedFrameStartNS == 0 {
+		e.autoSpeedFrameStartNS = nowMonotonicNS()
+	}
+}
+
+func (e *VP8Encoder) cancelAutoSpeedTiming() {
+	if e != nil {
+		e.autoSpeedFrameStartNS = 0
 	}
 }
 
