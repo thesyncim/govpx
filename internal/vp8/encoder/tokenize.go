@@ -199,9 +199,6 @@ func writeCoefficientMacroblockTokensCached(w *BoolWriter, probs *tables.Coeffic
 		}
 		if eob == 0 {
 			w.WriteBool(0, (*probs)[1][0][ctx][0])
-			if err := w.Err(); err != nil {
-				return err
-			}
 		} else {
 			if err := writeBlockTokensEOB(w, probs, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
 				return err
@@ -230,9 +227,6 @@ func writeCoefficientMacroblockTokensCached(w *BoolWriter, probs *tables.Coeffic
 		}
 		if eob <= skipDC {
 			w.WriteBool(0, (*probs)[blockType][skipDC][ctx][0])
-			if err := w.Err(); err != nil {
-				return err
-			}
 		} else {
 			if err := writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
 				return err
@@ -255,9 +249,6 @@ func writeCoefficientMacroblockTokensCached(w *BoolWriter, probs *tables.Coeffic
 		}
 		if eob == 0 {
 			w.WriteBool(0, (*probs)[2][0][ctx][0])
-			if err := w.Err(); err != nil {
-				return err
-			}
 		} else {
 			if err := writeBlockTokensEOB(w, probs, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
 				return err
