@@ -88,10 +88,10 @@ Update from 2026-05-10, call-count pass:
   exactly `1.00` per inter attempt.
 - Post-fix 720p bench samples after porting libvpx's cyclic-refresh picker
   mutation lifetime and frame/base-Q RD-cost scaling:
-  - Pinned Speed 4 (`-cpu-used=-4`, 30 frames): govpx `11.94 ms/frame`,
-    libvpx `5.03 ms/frame`, `2.37x` slower; output byte ratio `1.00x`.
+  - Pinned Speed 4 (`-cpu-used=-4`, 30 frames): govpx `11.79 ms/frame`,
+    libvpx `4.98 ms/frame`, `2.37x` slower; output byte ratio `1.00x`.
   - Default realtime auto-speed (`-cpu-used=8`, 30 frames): govpx
-    `11.44 ms/frame`, libvpx `5.04 ms/frame`, `2.27x` slower; output byte
+    `11.83 ms/frame`, libvpx `5.00 ms/frame`, `2.36x` slower; output byte
     ratio `1.00x`.
   - Pinned Speed 8 (`-cpu-used=-8`, 30 frames): govpx `9.49 ms/frame`,
     libvpx `3.05 ms/frame`, `3.11x` slower; output byte ratio `1.02x`.
@@ -668,6 +668,41 @@ Claim a win only when:
   segment Q and testing modes libvpx skipped. The local fix pins inter-mode
   thresholds to frame base Q during the picker while residual scoring still
   uses the segment quantizer.
+- 2026-05-10 exact `-coverpkg=./... -covermode=count` call-count census on
+  the 1280x720 realtime CBR `cmd/govpx-bench` fixture (`30` frames,
+  `29` inter frames, `2500` kbps, `threads=1`) shows the remaining gap is not
+  a 3x mode-picker call-count explosion. The inter MB picker entry is exactly
+  `104400` in pinned Speed 4, Speed 8, and Speed 15; the fixed 20-mode loop is
+  exactly `2088000` iterations in all three. The expensive difference is which
+  candidates survive plus the fixed accepted-frame coefficient/token/LF floors:
+
+  | surface | Speed 4 (`CpuUsed=-4`) | Speed 8 (`CpuUsed=-8`) | Speed 15 (`CpuUsed=-15`) |
+  | --- | ---: | ---: | ---: |
+  | fast picker entries | `104400` | `104400` | `104400` |
+  | fast mode-loop iterations | `2088000` | `2088000` | `2088000` |
+  | fast intra score calls | `106471` | `104400` | `104400` |
+  | fast B_PRED score calls | `373` | `0` | `0` |
+  | fast inter score calls | `231388` | `292340` | `221541` |
+  | full-pel motion searches | `10497` | `13647` | `773` |
+  | whole-MB subpel searches | `20994` | `13647` | `773` |
+  | predicted coeff builds | `105080` | `105080` | `105080` |
+  | `quantizeEncodedBlock` calls | `1751360` | `1751360` | `1751360` |
+  | `FastQuantizeBlock` calls | `1915284` | `1914040` | `1914040` |
+  | accepted inter recon calls | `104400` | `104392` | `104299` |
+  | accepted inter residual adds | `104400` | `104392` | `104299` |
+  | coefficient branch-count MBs | `102851` | `100157` | `104933` |
+  | coefficient branch-count blocks | `2565435` | `2498085` | `2617485` |
+  | coefficient token branch walks | `3829779` | `3920771` | `4209063` |
+  | inter packet writes | `29` | `29` | `29` |
+  | inter token-grid writes | `29` | `29` | `29` |
+  | inter token MB writes | `99251` | `96557` | `101333` |
+  | LF trial SSE calls | `160` | `86` | `113` |
+
+  Default positive realtime `CpuUsed=8` must still be measured with
+  non-instrumented `govpx-bench`, because coverage overhead feeds back into
+  libvpx's wall-clock-driven `vp8_auto_select_speed`. The clean current
+  non-instrumented bench stays byte/quality exact with libvpx (`output byte
+  ratio=0.9999869`, PSNR/SSIM deltas `0`) and is about `2.36x` slower.
 - Rejected experiments:
   - Realtime positive `cpu-used` floor at requested `cpu-used=8`: improves
     240-frame speed to about 1.92x slower, but bitrate becomes 1.11x libvpx.
@@ -679,6 +714,23 @@ Claim a win only when:
   - Passing `InterFrameStateConfig` by pointer in `WriteInterReferenceFrame`:
     plausible from line profile, but measured neutral-to-negative because
     auto-speed timing/output shifted.
+  - Removing the Go-only full loop-filter best-luma reuse to mirror libvpx's
+    final full-filter flow was slower on arm64. Focused
+    `BenchmarkEncodeIntoThreadingMatrix/threads_1` moved from about
+    `12.49 ms` to `12.74 ms` (`/private/tmp/govpx-lf-current.bench` vs
+    `/private/tmp/govpx-lf-noreuse.bench`). Keep the reuse unless a later
+    parity gate proves it changes output.
+  - Replacing the vertical-strip LF score SSE path with libvpx-shaped
+    row-major `16x16` scoring was directionally neutral and statistically
+    inconclusive (`12.49 ms` to `12.43 ms`, p=0.72). Do not change it without
+    an isolated LF-score benchmark that proves the cache-locality tradeoff.
+  - Bypassing checked `countCoefficientTokenBranches` calls inside
+    `countBlockCoefficientBranches` looked plausible because the census shows
+    about 3.4M token-branch updates per fixture, but 50x end-to-end benching
+    was neutral-to-negative. The real source-backed fix is libvpx-style
+    tokenization: produce token records and branch counts during accepted MB
+    reconstruction, then have the packet writer emit the prepared token stream
+    after probability updates.
 - Oracle `cpi_speed` traces from instrumented `vpxenc-oracle` ramp to Speed 16
   quickly, but those traces are timing-contaminated. Treat them as proof that
   speed-feature decisions are timing-sensitive, not as permission to force
