@@ -130,6 +130,48 @@ Update from 2026-05-10, call-count pass:
   work instead of rebuilding it after pick, reduce token/probability duplicate
   passes, and keep loop-filter picking on libvpx's trial semantics while
   avoiding repeated copy/filter/SSE work.
+- Follow-up count census from a temporary `go test -covermode=count` harness
+  on the 720p bench-noise fixture (`30` frames, `2500` kbps, `threads=1`)
+  confirms the same shape after the direct variance-cache experiment. The
+  harness was removed after collecting these numbers; do not commit it.
+  Coverage is only valid for pinned speed configs because it perturbs
+  timer-driven autospeed selection.
+
+  | count surface | Speed 4 (`CpuUsed=-4`) | Speed 8 (`CpuUsed=-8`) | readout |
+  | --- | ---: | ---: | --- |
+  | fast picker entries | `104400` | `104400` | exactly one per inter MB |
+  | fast mode-loop iterations | `2088000` | `2088000` | fixed 20-mode loop per MB |
+  | inter-score calls | `231388` | `292340` | threshold gates differ, but not 3x volume |
+  | cached variance probes | `231388` | `292340` | direct index once per inter score |
+  | cache hits | `4548` | `8066` | low hit rate; old linear scan was mostly overhead |
+  | cached variance fills | `226840` | `284274` | nearly all probes recompute deterministic variance |
+  | final inter reconstruct calls | `104400` | `104392` | one accepted inter MB is rebuilt after pick |
+  | final inter residual adds | `104400` | `104392` | accepted reconstruction floor remains |
+  | `FastQuantizeBlock` calls | `1915284` | `1914040` | coefficient floor barely changes with speed |
+  | coefficient macroblock branch counts | `102851` | `100157` | final probability pass over most coded MBs |
+  | coefficient block branch counts | `2565435` | `2498085` | millions of token-probability count steps |
+  | coefficient token branch counts | `3829779` | `3920771` | token tree work is a major speed-insensitive floor |
+  | inter coefficient packet writes | `29` | `29` | one packet pass per inter frame |
+  | LF picker mode | full picker `30` frames | fast picker `30` frames | matches speed-feature split |
+  | LF trial SSE calls | `160` | `86` | full LF search still material at Speed 4 |
+
+  Conclusion: pinned Speed 4 is already exact by libvpx candidate-row count,
+  and both pinned speeds have the expected one-picker-entry-per-MB shape. The
+  real gap is the per-evaluation and accepted-pipeline floor: coefficient
+  reconstruction/quantization, token/probability walking, and LF trial work.
+  For default `CpuUsed=8`, use non-instrumented `govpx-bench` and oracle traces
+  rather than coverage counters because autospeed is timing feedback.
+- Direct-mapped variance-cache follow-up: replacing the fast picker's old
+  12-entry linear probe with a 16-entry direct index is a Go-overhead-only
+  change. Cache misses still recompute the same deterministic variance/SSE, so
+  collisions change only time, not candidate values. Focused benchstat against
+  the `156a3c4` safe point on Apple M4 Max:
+  `BenchmarkEncodeIntoThreadingMatrix/threads_1` `12.62ms -> 12.02ms`,
+  `-4.73% (p=0.001, n=6+8)`, with `B/op` and `allocs/op` unchanged. Current
+  non-instrumented 720p bench checks remain bitrate/quality-safe:
+  default realtime `11.89ms` vs libvpx `4.86ms`, output byte ratio `1.00x`,
+  PSNR/SSIM deltas `+0.00/+0.00000`; pinned Speed 4 output byte ratio `1.00x`;
+  pinned Speed 8 output byte ratio `1.02x`.
 - Rejected experiment: changing loop-filter SSE scoring from govpx's vertical
   16-wide strip scan back to libvpx's row-major 16x16 block order regressed M4
   arm64 microbenchmarks (`partial` roughly `72-74 us` to `74-77 us`, `full`

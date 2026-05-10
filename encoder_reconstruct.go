@@ -2653,13 +2653,17 @@ type fastInterModeLoopContext struct {
 	signBias  [vp8common.MaxRefFrames]bool
 	search    interAnalysisSearchConfig
 	searchSet bool
-	variance  [12]struct {
-		set      bool
-		ref      *vp8common.Image
-		mv       vp8enc.MotionVector
-		variance int
-		sse      int
-	}
+	variance  [fastInterVarianceCacheSize]fastInterVarianceCacheEntry
+}
+
+const fastInterVarianceCacheSize = 16
+
+type fastInterVarianceCacheEntry struct {
+	set      bool
+	ref      *vp8common.Image
+	mv       vp8enc.MotionVector
+	variance int
+	sse      int
 }
 
 func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSearchConfig {
@@ -4878,27 +4882,19 @@ func macroblockLumaMotionVarianceSSECached(src vp8enc.SourceImage, ref *vp8commo
 	if ctx == nil {
 		return macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
 	}
-	for i := range ctx.variance {
-		entry := &ctx.variance[i]
-		if entry.set && entry.ref == ref && entry.mv == mv {
-			return entry.variance, entry.sse
-		}
+	entry := &ctx.variance[fastInterVarianceCacheIndex(ref, mv)]
+	if entry.set && entry.ref == ref && entry.mv == mv {
+		return entry.variance, entry.sse
 	}
 	variance, sse := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
-	for i := range ctx.variance {
-		entry := &ctx.variance[i]
-		if !entry.set {
-			*entry = struct {
-				set      bool
-				ref      *vp8common.Image
-				mv       vp8enc.MotionVector
-				variance int
-				sse      int
-			}{set: true, ref: ref, mv: mv, variance: variance, sse: sse}
-			break
-		}
-	}
+	*entry = fastInterVarianceCacheEntry{set: true, ref: ref, mv: mv, variance: variance, sse: sse}
 	return variance, sse
+}
+
+func fastInterVarianceCacheIndex(ref *vp8common.Image, mv vp8enc.MotionVector) int {
+	h := uintptr(unsafe.Pointer(ref)) >> 4
+	h ^= uintptr(uint16(mv.Row))*17 + uintptr(uint16(mv.Col))*31
+	return int(h & (fastInterVarianceCacheSize - 1))
 }
 
 func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
