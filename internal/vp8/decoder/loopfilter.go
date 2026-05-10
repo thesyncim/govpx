@@ -39,6 +39,23 @@ func ApplyLoopFilter(img *common.Image, rows int, cols int, modes []MacroblockMo
 	return applyNormalLoopFilterGrid(img, rows, cols, modes, frameType, lfi)
 }
 
+// ApplyLoopFilterUnchecked is the decoder hot-path variant. The caller must
+// already have validated the image grid and produced trusted macroblock modes.
+func ApplyLoopFilterUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) {
+	if header.Level == 0 {
+		return
+	}
+
+	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
+	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+
+	if header.Type == SimpleLoopFilter {
+		applySimpleLoopFilterGridUnchecked(img, rows, cols, modes, lfi)
+		return
+	}
+	applyNormalLoopFilterGridUnchecked(img, rows, cols, modes, frameType, lfi)
+}
+
 // ApplyLoopFilterFullLuma walks every MB in the frame but applies the
 // loop filter to the luma plane only. It exists so the encoder's full
 // pick-loop-filter-level search can score levels using luma SSE
@@ -381,6 +398,12 @@ func applyNormalLoopFilterGrid(img *common.Image, rows int, cols int, modes []Ma
 	return nil
 }
 
+func applyNormalLoopFilterGridUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) {
+	for row := range rows {
+		applyNormalLoopFilterRowUnchecked(img, row, cols, modes, frameType, lfi)
+	}
+}
+
 func applyNormalLoopFilterChromaOnlyGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
 	for row := range rows {
 		if err := applyNormalLoopFilterChromaOnlyRow(img, row, cols, modes, frameType, lfi); err != nil {
@@ -388,6 +411,12 @@ func applyNormalLoopFilterChromaOnlyGrid(img *common.Image, rows int, cols int, 
 		}
 	}
 	return nil
+}
+
+func applySimpleLoopFilterGridUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo) {
+	for row := range rows {
+		applySimpleLoopFilterRowUnchecked(img, row, cols, modes, lfi)
+	}
 }
 
 func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
@@ -411,6 +440,24 @@ func applyNormalLoopFilterRow(img *common.Image, row int, cols int, modes []Macr
 		applyNormalLoopFilterMB(img, row, col, yOff, uOff, vOff, mode, frameType, level, lfi)
 	}
 	return nil
+}
+
+func applyNormalLoopFilterRowUnchecked(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) {
+	yRow := row * 16 * img.YStride
+	uRow := row * 8 * img.UStride
+	vRow := row * 8 * img.VStride
+	for col := range cols {
+		mode := &modes[row*cols+col]
+		level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
+		if level == 0 {
+			continue
+		}
+
+		yOff := yRow + col*16
+		uOff := uRow + col*8
+		vOff := vRow + col*8
+		applyNormalLoopFilterMB(img, row, col, yOff, uOff, vOff, mode, frameType, level, lfi)
+	}
 }
 
 func applyNormalLoopFilterChromaOnlyRow(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
@@ -460,6 +507,20 @@ func applySimpleLoopFilterRow(img *common.Image, row int, cols int, modes []Macr
 		applySimpleLoopFilterMB(img, row, col, yOff, mode, level, lfi)
 	}
 	return nil
+}
+
+func applySimpleLoopFilterRowUnchecked(img *common.Image, row int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo) {
+	yRow := row * 16 * img.YStride
+	for col := range cols {
+		mode := &modes[row*cols+col]
+		level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
+		if level == 0 {
+			continue
+		}
+
+		yOff := yRow + col*16
+		applySimpleLoopFilterMB(img, row, col, yOff, mode, level, lfi)
+	}
 }
 
 func loopFilterFrameConfig(header LoopFilterHeader, segmentation SegmentationHeader) common.LoopFilterFrameConfig {

@@ -43,20 +43,22 @@ func (d *Decoder) Init(src []byte) error {
 }
 
 func (d *Decoder) ReadBool(prob uint8) uint8 {
-	if d.count < 0 {
+	rng0 := d.rng
+	split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+	count := d.count
+	if count < 0 {
 		d.fill()
+		count = d.count
 	}
 
-	split := uint32(1 + (((d.rng - 1) * uint32(prob)) >> 8))
 	bigsplit := uint64(split) << (valueSize - 8)
 
 	value := d.value
-	count := d.count
 	rng := split
 	bit := uint8(0)
 
 	if value >= bigsplit {
-		rng = d.rng - split
+		rng = rng0 - split
 		value -= bigsplit
 		bit = 1
 	}
@@ -73,7 +75,35 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 }
 
 func (d *Decoder) ReadBit() uint8 {
-	return d.ReadBool(128)
+	rng0 := d.rng
+	split := (rng0 + 1) >> 1
+	count := d.count
+	if count < 0 {
+		d.fill()
+		count = d.count
+	}
+
+	bigsplit := uint64(split) << (valueSize - 8)
+
+	value := d.value
+	rng := split
+	bit := uint8(0)
+
+	if value >= bigsplit {
+		rng = rng0 - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := tables.BoolNorm[byte(rng)]
+	rng <<= shift
+	value <<= shift
+	count -= int(shift)
+
+	d.value = value
+	d.count = count
+	d.rng = rng
+	return bit
 }
 
 func (d *Decoder) ReadLiteral(bits int) uint32 {
@@ -82,6 +112,180 @@ func (d *Decoder) ReadLiteral(bits int) uint32 {
 		v |= uint32(d.ReadBit()) << uint(bit)
 	}
 	return v
+}
+
+// ReadVP8BlockCoeffs decodes one VP8 coefficient block while keeping the
+// entropy reader registers local for the block's full token walk.
+func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType int, ctx int, n int, out *[16]int16) int {
+	value := d.value
+	count := d.count
+	rng := d.rng
+	pos := d.pos
+	buf := d.buf
+
+	fill := func() {
+		shift := valueSize - 8 - (count + 8)
+		bytesLeft := len(buf) - pos
+		bitsLeft := bytesLeft * 8
+		x := shift + 8 - bitsLeft
+		loopEnd := 0
+
+		if x >= 0 {
+			count += lotsOfBits
+			loopEnd = x
+		}
+
+		if x < 0 || bitsLeft != 0 {
+			for shift >= loopEnd {
+				count += 8
+				value |= uint64(buf[pos]) << uint(shift)
+				pos++
+				shift -= 8
+			}
+		}
+	}
+	readBool := func(prob uint8) uint8 {
+		rng0 := rng
+		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		if count < 0 {
+			fill()
+		}
+
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		bit := uint8(0)
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			bit = 1
+		}
+
+		shift := tables.BoolNorm[byte(nextRange)]
+		rng = nextRange << shift
+		value <<= shift
+		count -= int(shift)
+		return bit
+	}
+	readBit := func() uint8 {
+		rng0 := rng
+		split := (rng0 + 1) >> 1
+		if count < 0 {
+			fill()
+		}
+
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		bit := uint8(0)
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			bit = 1
+		}
+
+		shift := tables.BoolNorm[byte(nextRange)]
+		rng = nextRange << shift
+		value <<= shift
+		count -= int(shift)
+		return bit
+	}
+	readSignedCoeff := func(coeff int) int16 {
+		v := int16(coeff)
+		mask := -int16(readBit())
+		return (v ^ mask) - mask
+	}
+	readTokenCategory := func(cat int) int {
+		v := 0
+		switch cat {
+		case 0:
+			for _, prob := range tables.Cat3Prob {
+				v += v + int(readBool(prob))
+			}
+		case 1:
+			for _, prob := range tables.Cat4Prob {
+				v += v + int(readBool(prob))
+			}
+		case 2:
+			for _, prob := range tables.Cat5Prob {
+				v += v + int(readBool(prob))
+			}
+		default:
+			for _, prob := range tables.Cat6Prob {
+				v += v + int(readBool(prob))
+			}
+		}
+		return v + 3 + (8 << cat)
+	}
+
+	p := (*probs)[blockType][n][ctx]
+	if readBool(p[0]) == 0 {
+		d.value = value
+		d.count = count
+		d.rng = rng
+		d.pos = pos
+		return 0
+	}
+
+	for {
+		n++
+		if readBool(p[1]) == 0 {
+			if n == 16 {
+				d.value = value
+				d.count = count
+				d.rng = rng
+				d.pos = pos
+				return 16
+			}
+			p = (*probs)[blockType][tables.CoefBandsTable[n]][0]
+		} else {
+			v := 0
+			tokenClass := uint8(2)
+			if readBool(p[2]) == 0 {
+				tokenClass = 1
+				v = 1
+			} else {
+				if readBool(p[3]) == 0 {
+					if readBool(p[4]) == 0 {
+						v = 2
+					} else {
+						v = 3 + int(readBool(p[5]))
+					}
+				} else {
+					if readBool(p[6]) == 0 {
+						if readBool(p[7]) == 0 {
+							v = 5 + int(readBool(159))
+						} else {
+							v = 7 + 2*int(readBool(165))
+							v += int(readBool(145))
+						}
+					} else {
+						bit1 := int(readBool(p[8]))
+						bit0 := int(readBool(p[9+bit1]))
+						cat := 2*bit1 + bit0
+						v = readTokenCategory(cat)
+					}
+				}
+			}
+
+			j := tables.DefaultZigZag1D[n-1]
+			out[j] = readSignedCoeff(v)
+			if n == 16 {
+				d.value = value
+				d.count = count
+				d.rng = rng
+				d.pos = pos
+				return 16
+			}
+			p = (*probs)[blockType][tables.CoefBandsTable[n]][tokenClass]
+			if readBool(p[0]) == 0 {
+				d.value = value
+				d.count = count
+				d.rng = rng
+				d.pos = pos
+				return n
+			}
+			continue
+		}
+	}
 }
 
 func (d *Decoder) Err() error {

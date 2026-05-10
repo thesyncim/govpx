@@ -120,7 +120,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
-	info, err := PeekVP8StreamInfo(packet)
+	frame, info, err := peekVP8FrameHeader(packet)
 	if err != nil {
 		if d.shouldConcealMissingFrameTag(packet) {
 			info := missingFrameConcealmentInfo()
@@ -147,7 +147,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.validateStreamInfo(info); err != nil {
 		return err
 	}
-	if err := d.decodeFramePacket(packet, info); err != nil {
+	if err := d.decodeFramePacket(packet, frame, info); err != nil {
 		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
@@ -197,7 +197,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if dst == nil {
 		return FrameInfo{}, ErrInvalidConfig
 	}
-	info, err := PeekVP8StreamInfo(packet)
+	frame, info, err := peekVP8FrameHeader(packet)
 	if err != nil {
 		if d.shouldConcealMissingFrameTag(packet) {
 			info := missingFrameConcealmentInfo()
@@ -231,7 +231,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if !dst.validForEncode(outputWidth, outputHeight) {
 		return FrameInfo{}, ErrInvalidConfig
 	}
-	if err := d.decodeFramePacket(packet, info); err != nil {
+	if err := d.decodeFramePacket(packet, frame, info); err != nil {
 		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.frameReady = false
@@ -307,7 +307,7 @@ func (d *VP8Decoder) Close() error {
 	return nil
 }
 
-func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
+func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, info StreamInfo) error {
 	errorConcealment := d.opts.effectiveErrorConcealment() && d.canConceal(info)
 	if errorConcealment {
 		d.ecActive = true
@@ -315,7 +315,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, info StreamInfo) error {
 	d.frameCorrupt = false
 	d.modesCorrupt = 0
 	d.residualCorrupt = -1
-	if err := d.parseState(packet, errorConcealment); err != nil {
+	if err := d.parseState(packet, frame, errorConcealment); err != nil {
 		return err
 	}
 	if err := d.ensureFrameBuffers(info); err != nil {
@@ -487,8 +487,7 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
 		return FrameInfo{}, err
 	}
-	copyFrameImage(&d.lastRef.Img, &d.current.Img)
-	d.lastRef.ExtendBorders()
+	copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
 	d.saveErrorConcealmentModes()
 	return d.finishConcealedFrame(info, pts), nil
 }
@@ -569,7 +568,7 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	return nil
 }
 
-func (d *VP8Decoder) parseState(packet []byte, errorConcealment bool) error {
+func (d *VP8Decoder) parseState(packet []byte, frameHeader vp8dec.FrameHeader, errorConcealment bool) error {
 	frameProbs := d.coefProbs
 	frameModeProbs := d.modeProbs
 	var frame vp8dec.FrameHeader
@@ -578,9 +577,9 @@ func (d *VP8Decoder) parseState(packet []byte, errorConcealment bool) error {
 	var err error
 	var stateCorrupted bool
 	if errorConcealment {
-		frame, state, modeReader, stateCorrupted, err = vp8dec.ParseStateHeaderWithErrorConcealment(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
+		frame, state, modeReader, stateCorrupted, err = vp8dec.ParseStateHeaderFromFrameWithErrorConcealment(packet, frameHeader, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
 	} else {
-		frame, state, modeReader, err = vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
+		frame, state, modeReader, err = vp8dec.ParseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frameHeader, d.previousQuant, d.previousLoopFilter, &frameProbs, &frameModeProbs)
 	}
 	if err != nil {
 		return ErrInvalidData
@@ -785,9 +784,7 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		}
 	}
 	if !skipLoopFilter {
-		if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
-			return ErrInvalidData
-		}
+		vp8dec.ApplyLoopFilterUnchecked(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo)
 	}
 	d.current.ExtendBorders()
 	return nil
@@ -796,32 +793,31 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 func (d *VP8Decoder) refreshReferences() {
 	switch d.state.Refresh.CopyBufferToAltRef {
 	case 1:
-		copyFrameImage(&d.altRef.Img, &d.lastRef.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.lastRef.Img)
 	case 2:
-		copyFrameImage(&d.altRef.Img, &d.goldenRef.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.goldenRef.Img)
 	}
 	switch d.state.Refresh.CopyBufferToGolden {
 	case 1:
-		copyFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
 	case 2:
-		copyFrameImage(&d.goldenRef.Img, &d.altRef.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.altRef.Img)
 	}
 	if d.state.Refresh.RefreshLast {
-		copyFrameImage(&d.lastRef.Img, &d.current.Img)
-		d.lastRef.ExtendBorders()
+		copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshGolden {
-		copyFrameImage(&d.goldenRef.Img, &d.current.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshAltRef {
-		copyFrameImage(&d.altRef.Img, &d.current.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.current.Img)
 	}
+}
+
+func copyExtendedFrameImage(dst *vp8common.Image, src *vp8common.Image) {
+	copy(dst.YFull, src.YFull)
+	copy(dst.UFull, src.UFull)
+	copy(dst.VFull, src.VFull)
 }
 
 func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {

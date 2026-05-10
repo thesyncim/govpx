@@ -276,8 +276,13 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 			dsp.Copy8x8(uSrc, state.uStride, u, uStride)
 			dsp.Copy8x8(vSrc, state.vStride, v, vStride)
 		} else {
-			dsp.SixTapPredict8x8(uSrc, state.uStride, uvXOffset, uvYOffset, u, uStride)
-			dsp.SixTapPredict8x8(vSrc, state.vStride, uvXOffset, uvYOffset, v, vStride)
+			dsp.SixTapPredict8x8Pair(
+				uSrc, state.uStride,
+				vSrc, state.vStride,
+				uvXOffset, uvYOffset,
+				u, uStride,
+				v, vStride,
+			)
 		}
 	}
 

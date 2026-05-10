@@ -29,6 +29,18 @@ func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 	if err != nil {
 		return StreamInfo{}, ErrInvalidData
 	}
+	return streamInfoFromFrameHeader(header), nil
+}
+
+func peekVP8FrameHeader(packet []byte) (vp8dec.FrameHeader, StreamInfo, error) {
+	header, err := vp8dec.ParseFrameHeader(packet)
+	if err != nil {
+		return vp8dec.FrameHeader{}, StreamInfo{}, ErrInvalidData
+	}
+	return header, streamInfoFromFrameHeader(header), nil
+}
+
+func streamInfoFromFrameHeader(header vp8dec.FrameHeader) StreamInfo {
 	return StreamInfo{
 		Width:              header.Width,
 		Height:             header.Height,
@@ -36,5 +48,5 @@ func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 		KeyFrame:           header.KeyFrame(),
 		ShowFrame:          header.ShowFrame,
 		FirstPartitionSize: header.FirstPartitionSize,
-	}, nil
+	}
 }
