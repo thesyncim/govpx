@@ -911,6 +911,9 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if speed >= 15 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
 	}
+	if !e.threadedRowsActive && speed <= 4 {
+		cfg.fractionalSearch = interAnalysisFractionalSearchStep
+	}
 	return cfg
 }
 
