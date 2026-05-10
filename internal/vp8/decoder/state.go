@@ -39,11 +39,27 @@ func ParseStateHeaderWithReaderAndProbs(packet []byte, previousQuant QuantHeader
 }
 
 func ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
-	return parseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, previousLoopFilter, probs, modeProbs, false)
+	frame, err := ParseFrameHeader(packet)
+	if err != nil {
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
+	}
+	return parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs, false)
+}
+
+func ParseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet []byte, frame FrameHeader, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
+	return parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs, false)
 }
 
 func ParseStateHeaderWithErrorConcealment(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, bool, error) {
-	frame, state, br, err := parseStateHeaderWithReaderAndProbsAndLoopFilter(packet, previousQuant, previousLoopFilter, probs, modeProbs, true)
+	frame, err := ParseFrameHeader(packet)
+	if err != nil {
+		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, false, err
+	}
+	return ParseStateHeaderFromFrameWithErrorConcealment(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs)
+}
+
+func ParseStateHeaderFromFrameWithErrorConcealment(packet []byte, frame FrameHeader, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, bool, error) {
+	frame, state, br, err := parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs, true)
 	if err != nil {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, false, err
 	}
@@ -59,11 +75,7 @@ func ParseStateHeaderWithErrorConcealment(packet []byte, previousQuant QuantHead
 	return frame, state, br, corrupted, nil
 }
 
-func parseStateHeaderWithReaderAndProbsAndLoopFilter(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs, errorConcealment bool) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
-	frame, err := ParseFrameHeader(packet)
-	if err != nil {
-		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, err
-	}
+func parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet []byte, frame FrameHeader, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs, errorConcealment bool) (FrameHeader, StateHeader, boolcoder.Decoder, error) {
 	if len(packet) < frame.HeaderSize {
 		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, ErrInvalidFrameHeader
 	}
