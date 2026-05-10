@@ -262,7 +262,13 @@ func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows
 		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), nil, modes)
 	}
 	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
-	e.classifyStaticSegmentationBlocks(src, rows, cols, e.cyclicRefreshAttemptMap[:count])
+	// libvpx computes skin_map independently and only consumes it in the
+	// inter picker as a ZEROMV-LAST bias reset. It does not feed skin
+	// classification back into cyclic_refresh_map eligibility, so keep the
+	// refresh walk driven solely by the cyclic map state here.
+	if e != nil && e.opts.StaticThreshold > 0 && e.opts.ScreenContentMode == 0 && len(e.skinMap) >= count {
+		computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
+	}
 	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.cyclicRefreshAttemptMap[:count], modes)
 }
 
@@ -295,19 +301,6 @@ func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMod
 			}
 		} else {
 			refreshMap[index] = 1
-		}
-	}
-}
-
-func (e *VP8Encoder) classifyStaticSegmentationBlocks(src vp8enc.SourceImage, rows int, cols int, refreshMap []int8) {
-	count := rows * cols
-	if e == nil || e.opts.StaticThreshold <= 0 || e.opts.ScreenContentMode != 0 || count <= 0 || len(refreshMap) < count || len(e.skinMap) < count {
-		return
-	}
-	computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
-	for i := range count {
-		if e.skinMap[i] != 0 {
-			refreshMap[i] = 1
 		}
 	}
 }

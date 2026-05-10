@@ -3894,7 +3894,7 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationPreservesSegme
 	}
 }
 
-func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSegmentForNonLastZero(t *testing.T) {
+func TestBuildReconstructingInterFrameCoefficientsWithSegmentationKeepsCyclicSegmentForNonLastZero(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
@@ -3923,8 +3923,8 @@ func TestBuildReconstructingInterFrameCoefficientsWithSegmentationClearsCyclicSe
 	if modes[0].RefFrame != vp8common.GoldenFrame || modes[0].Mode != vp8common.ZeroMV {
 		t.Fatalf("mode = %+v, want GOLDEN/ZEROMV setup", modes[0])
 	}
-	if modes[0].SegmentID != 0 || e.reconstructModes[0].SegmentID != 0 {
-		t.Fatalf("segment IDs = mode:%d reconstruct:%d, want cleared to 0 for non-LAST/ZEROMV", modes[0].SegmentID, e.reconstructModes[0].SegmentID)
+	if modes[0].SegmentID != staticSegmentID || e.reconstructModes[0].SegmentID != staticSegmentID {
+		t.Fatalf("segment IDs = mode:%d reconstruct:%d, want retained cyclic segment for non-LAST/ZEROMV", modes[0].SegmentID, e.reconstructModes[0].SegmentID)
 	}
 }
 

@@ -60,10 +60,12 @@ func TestDiagR12CPickerEntry720pNoise(t *testing.T) {
 		"--threads=1", "--noise-sensitivity=0",
 	}
 	// Encode with govpx (debug picker trace fires inside encode if env is set).
-	_ = captureGovpxEncoderTrace(t, opts, sources)
+	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "diag-r12-c-picker-entry", opts, targetKbps, sources, extra)
 
+	govRows := parseR12CPickerEntryRows(t, govpxTrace)
 	rows := parseR12CPickerEntryRows(t, libvpxTrace)
+	t.Logf("govpx picker_entry rows captured: %d", len(govRows))
 	t.Logf("libvpx picker_entry rows captured: %d", len(rows))
 
 	// Focus on frame=1, the first inter frame, around the R11-N trigger MB
@@ -83,23 +85,37 @@ func TestDiagR12CPickerEntry720pNoise(t *testing.T) {
 
 	var sb strings.Builder
 	for _, k := range keys {
-		row := rows[k]
-		fmt.Fprintf(&sb, "frame=%d mb=(%d,%d) sign_bias=%d ref_last=%d nearest=(%d,%d) near=(%d,%d) zero=(%d,%d) new=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d rd_baseline=%d sf_mult=%d RDMULT=%d RDDIV=%d Speed=%d Q=%d y1dc_delta=%d zbin_oq=%d epb=%d freq=%d hits=%d mbs_tested=%d best_rd=%d\n",
-			k.Frame, k.MBRow, k.MBCol,
-			row.SignBias, row.RefFrameLast,
-			row.ModeMV.Nearest[0], row.ModeMV.Nearest[1],
-			row.ModeMV.Near[0], row.ModeMV.Near[1],
-			row.ModeMV.Zero[0], row.ModeMV.Zero[1],
-			row.ModeMV.New[0], row.ModeMV.New[1],
-			row.Cnt.Intra, row.Cnt.Nearest, row.Cnt.Near, row.Cnt.SplitMV,
-			row.RDThreshesNearest, row.RDThreshMultNearest,
-			row.RDBaselineThreshNearest, row.SFThreshMultNearest,
-			row.RDMult, row.RDDiv, row.Speed, row.BaseQIndex, row.Y1DCDeltaQ,
-			row.ZbinOverQuant, row.ErrorPerBit,
-			row.ModeCheckFreqNearest, row.ModeTestHitCountsNearest,
-			row.MBsTestedSoFar, row.BestRD)
+		g := govRows[k]
+		l := rows[k]
+		fmt.Fprintf(&sb, "frame=%d mb=(%d,%d)\n", k.Frame, k.MBRow, k.MBCol)
+		fmt.Fprintf(&sb, "  gov  sign_bias=%d ref_last=%d nearest=(%d,%d) near=(%d,%d) zero=(%d,%d) new=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d rd_baseline=%d sf_mult=%d RDMULT=%d RDDIV=%d Speed=%d Q=%d y1dc_delta=%d zbin_oq=%d epb=%d freq=%d hits=%d mbs_tested=%d best_rd=%d\n",
+			g.SignBias, g.RefFrameLast,
+			g.ModeMV.Nearest[0], g.ModeMV.Nearest[1],
+			g.ModeMV.Near[0], g.ModeMV.Near[1],
+			g.ModeMV.Zero[0], g.ModeMV.Zero[1],
+			g.ModeMV.New[0], g.ModeMV.New[1],
+			g.Cnt.Intra, g.Cnt.Nearest, g.Cnt.Near, g.Cnt.SplitMV,
+			g.RDThreshesNearest, g.RDThreshMultNearest,
+			g.RDBaselineThreshNearest, g.SFThreshMultNearest,
+			g.RDMult, g.RDDiv, g.Speed, g.BaseQIndex, g.Y1DCDeltaQ,
+			g.ZbinOverQuant, g.ErrorPerBit,
+			g.ModeCheckFreqNearest, g.ModeTestHitCountsNearest,
+			g.MBsTestedSoFar, g.BestRD)
+		fmt.Fprintf(&sb, "  lib  sign_bias=%d ref_last=%d nearest=(%d,%d) near=(%d,%d) zero=(%d,%d) new=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d rd_baseline=%d sf_mult=%d RDMULT=%d RDDIV=%d Speed=%d Q=%d y1dc_delta=%d zbin_oq=%d epb=%d freq=%d hits=%d mbs_tested=%d best_rd=%d\n",
+			l.SignBias, l.RefFrameLast,
+			l.ModeMV.Nearest[0], l.ModeMV.Nearest[1],
+			l.ModeMV.Near[0], l.ModeMV.Near[1],
+			l.ModeMV.Zero[0], l.ModeMV.Zero[1],
+			l.ModeMV.New[0], l.ModeMV.New[1],
+			l.Cnt.Intra, l.Cnt.Nearest, l.Cnt.Near, l.Cnt.SplitMV,
+			l.RDThreshesNearest, l.RDThreshMultNearest,
+			l.RDBaselineThreshNearest, l.SFThreshMultNearest,
+			l.RDMult, l.RDDiv, l.Speed, l.BaseQIndex, l.Y1DCDeltaQ,
+			l.ZbinOverQuant, l.ErrorPerBit,
+			l.ModeCheckFreqNearest, l.ModeTestHitCountsNearest,
+			l.MBsTestedSoFar, l.BestRD)
 	}
-	t.Logf("\n=== R12-C libvpx picker_entry frame=1 MB row 0 ===\n%s", sb.String())
+	t.Logf("\n=== R12-C picker_entry frame=1 MB row 0 (govpx vs libvpx) ===\n%s", sb.String())
 
 	// Also dump frame=1 row 1 cols 0..3 to capture the cascade.
 	keys2 := make([]r12cPickerEntryKey, 0)
@@ -111,20 +127,26 @@ func TestDiagR12CPickerEntry720pNoise(t *testing.T) {
 	sort.Slice(keys2, func(i, j int) bool { return keys2[i].MBCol < keys2[j].MBCol })
 	var sb2 strings.Builder
 	for _, k := range keys2 {
-		row := rows[k]
-		fmt.Fprintf(&sb2, "frame=%d mb=(%d,%d) nearest=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d hits=%d best_rd=%d\n",
-			k.Frame, k.MBRow, k.MBCol,
-			row.ModeMV.Nearest[0], row.ModeMV.Nearest[1],
-			row.Cnt.Intra, row.Cnt.Nearest, row.Cnt.Near, row.Cnt.SplitMV,
-			row.RDThreshesNearest, row.RDThreshMultNearest,
-			row.ModeTestHitCountsNearest, row.BestRD)
+		g := govRows[k]
+		l := rows[k]
+		fmt.Fprintf(&sb2, "frame=%d mb=(%d,%d)\n", k.Frame, k.MBRow, k.MBCol)
+		fmt.Fprintf(&sb2, "  gov nearest=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d hits=%d best_rd=%d\n",
+			g.ModeMV.Nearest[0], g.ModeMV.Nearest[1],
+			g.Cnt.Intra, g.Cnt.Nearest, g.Cnt.Near, g.Cnt.SplitMV,
+			g.RDThreshesNearest, g.RDThreshMultNearest,
+			g.ModeTestHitCountsNearest, g.BestRD)
+		fmt.Fprintf(&sb2, "  lib nearest=(%d,%d) cnt=[I=%d,Nst=%d,Nr=%d,Spl=%d] rd_thr=%d rd_mult=%d hits=%d best_rd=%d\n",
+			l.ModeMV.Nearest[0], l.ModeMV.Nearest[1],
+			l.Cnt.Intra, l.Cnt.Nearest, l.Cnt.Near, l.Cnt.SplitMV,
+			l.RDThreshesNearest, l.RDThreshMultNearest,
+			l.ModeTestHitCountsNearest, l.BestRD)
 	}
-	t.Logf("\n=== R12-C libvpx picker_entry frame=1 MB row 1 (cascade) ===\n%s", sb2.String())
+	t.Logf("\n=== R12-C picker_entry frame=1 MB row 1 (cascade, govpx vs libvpx) ===\n%s", sb2.String())
 
 	// Dump per-MB chosen mode/ref/MV for both encoders at the cascade
 	// trigger MBs so we can correlate which one actually picks NEARESTMV
 	// vs ZEROMV.
-	govMBs := parseR11JMBRows(t, captureGovpxEncoderTrace(t, opts, sources), 1)
+	govMBs := parseR11JMBRows(t, govpxTrace, 1)
 	libMBs := parseR11JMBRows(t, libvpxTrace, 1)
 	var sbDec strings.Builder
 	for _, k := range []r11jMBKey{
@@ -141,7 +163,7 @@ func TestDiagR12CPickerEntry720pNoise(t *testing.T) {
 	t.Logf("\n=== R12-C MB decision diff frame=1 ===\n%s", sbDec.String())
 
 	// Dump frame qIndex from libvpx and govpx traces.
-	govQ := parseFrameQIndex(t, "govpx", captureGovpxEncoderTrace(t, opts, sources))
+	govQ := parseFrameQIndex(t, "govpx", govpxTrace)
 	libQ := parseFrameQIndex(t, "libvpx", libvpxTrace)
 	t.Logf("frame qIndex govpx=%v libvpx=%v", govQ, libQ)
 

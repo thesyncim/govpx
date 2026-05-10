@@ -1173,7 +1173,7 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testin
 	}
 }
 
-func TestCyclicRefreshStaticClassificationMasksSkinBlocks(t *testing.T) {
+func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               160,
 		Height:              64,
@@ -1200,11 +1200,11 @@ func TestCyclicRefreshStaticClassificationMasksSkinBlocks(t *testing.T) {
 	if e.skinMap[0] != 1 {
 		t.Fatalf("skinMap[0] = %d, want libvpx skin classification", e.skinMap[0])
 	}
-	if modes[0].SegmentID != 0 || modes[1].SegmentID != staticSegmentID || modes[2].SegmentID != staticSegmentID {
-		t.Fatalf("segment IDs = %d/%d/%d, want skin block masked and next two refreshed", modes[0].SegmentID, modes[1].SegmentID, modes[2].SegmentID)
+	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID || modes[2].SegmentID != 0 {
+		t.Fatalf("segment IDs = %d/%d/%d, want cyclic refresh cadence unaffected by skin map", modes[0].SegmentID, modes[1].SegmentID, modes[2].SegmentID)
 	}
-	if next != 3 {
-		t.Fatalf("next cyclic refresh index = %d, want 3 after masked skin block", next)
+	if next != 2 {
+		t.Fatalf("next cyclic refresh index = %d, want 2 from cyclic refresh cadence", next)
 	}
 }
 
@@ -6141,6 +6141,19 @@ func TestApplyRdRefFrameProbHeuristicsMirrorsLibvpxAltRefActiveDecay(t *testing.
 	e.applyRdRefFrameProbHeuristics(false)
 	if e.refProbGolden != 255 {
 		t.Fatalf("inactive alt-ref far-from-golden prob_gf = %d, want 255", e.refProbGolden)
+	}
+}
+
+func TestUpdateRefFrameProbsFromKeyFrameMirrorsLibvpx(t *testing.T) {
+	e := &VP8Encoder{
+		refProbIntra:  63,
+		refProbLast:   128,
+		refProbGolden: 128,
+	}
+	e.updateRefFrameProbsFromKeyFrame()
+	if e.refProbIntra != 255 || e.refProbLast != 214 || e.refProbGolden != 255 {
+		t.Fatalf("keyframe ref probs = %d/%d/%d, want libvpx 255/214/255",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
 	}
 }
 

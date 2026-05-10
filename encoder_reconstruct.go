@@ -457,14 +457,17 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				aboveLeft = &modes[index-cols-1]
 			}
 			e.beginInterRDModeDecisionMacroblock()
+			var fallbackSnapshot interMacroblockImageSnapshot
+			haveFallbackSnapshot := false
 			// Snapshot the picker mutator state ONLY when segmentID != 0
 			// so the cyclic-refresh segment-fallback path can restore it
 			// to mirror libvpx's single-picker-call-per-MB invariant. The
-			// snapshots live on the encoder struct (not on the stack) so
-			// this stays zero-alloc when the segmentID == 0 hot path
-			// applies. See R12-C ZEROMV/NEARESTMV swap fix
+			// snapshot only exists on this rare path, so the segmentID == 0
+			// hot path stays untouched. See R12-C ZEROMV/NEARESTMV swap fix
 			// (build_vpxenc_oracle.sh oracle_trace.c picker_entry hook).
 			if segmentID != 0 {
+				snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
+				haveFallbackSnapshot = true
 				e.interRDThreshMultSnapshot = e.interRDThreshMult
 				e.interRDThreshTouchedSnapshot = e.interRDThreshTouched
 				e.interModeTestHitCountsSnapshot = e.interModeTestHitCounts
@@ -482,33 +485,19 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !ok {
 				return 0, ErrInvalidConfig
 			}
-			if segmentID != 0 && !decision.cyclicRefreshEligible() {
+			if segmentID != 0 {
+				if haveFallbackSnapshot {
+					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
+				}
 				// Restore the snapshotted state so the segmentID=0
-				// fallback picker call doesn't see the first call's
-				// rd_thresh_mult mutations. libvpx runs the picker exactly
-				// once per MB, so without this restore the first call's
-				// lowerBestInterFastThreshold pollutes mult[bestModeIndex]
-				// and shifts the second call's threshold below libvpx's,
-				// causing the cascade in selectFastInterFrameModeDecision
-				// (e.g. the 720p noise NEARESTMV<->ZEROMV swap at MB(0,3)
-				// onward in R12-C).
+				// segment-guess picker call doesn't leak its mutable state
+				// into the next MB. libvpx runs the picker once per MB, so
+				// we keep the chosen segment and only roll back the
+				// threshold / hit-count side effects here.
 				e.interRDThreshMult = e.interRDThreshMultSnapshot
 				e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
 				e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
 				e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
-				segmentID = 0
-				decision, ok = e.selectInterFrameModeDecision(
-					src, refs[:], refCount,
-					row, col, rows, cols,
-					qIndex, segmentation, segmentID,
-					above, left, aboveLeft,
-					&aboveTok[col], &leftTok,
-					&quants[segmentID],
-					sourceAltRefZeroMVOnly,
-				)
-				if !ok {
-					return 0, ErrInvalidConfig
-				}
 			}
 			totalRate = libvpxAddProjectedMacroblockRate(totalRate, decision.projectedRate)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
@@ -695,6 +684,36 @@ type interAnalysisReference struct {
 	Img        *vp8common.Image
 	RefRate    int
 	RefRateSet bool
+}
+
+type interMacroblockImageSnapshot struct {
+	y [16 * 16]byte
+	u [8 * 8]byte
+	v [8 * 8]byte
+}
+
+func snapshotInterMacroblockImage(img *vp8common.Image, row int, col int, snap *interMacroblockImageSnapshot) {
+	if img == nil || snap == nil {
+		return
+	}
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	copyMacroblockY(snap.y[:], 16, img.Y[yOff:], img.YStride)
+	copyMacroblock8x8(snap.u[:], 8, img.U[uOff:], img.UStride)
+	copyMacroblock8x8(snap.v[:], 8, img.V[vOff:], img.VStride)
+}
+
+func restoreInterMacroblockImage(img *vp8common.Image, row int, col int, snap *interMacroblockImageSnapshot) {
+	if img == nil || snap == nil {
+		return
+	}
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	copyMacroblockY(img.Y[yOff:], img.YStride, snap.y[:], 16)
+	copyMacroblock8x8(img.U[uOff:], img.UStride, snap.u[:], 8)
+	copyMacroblock8x8(img.V[vOff:], img.VStride, snap.v[:], 8)
 }
 
 type interAnalysisMotionCandidate struct {
@@ -2799,9 +2818,13 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var dqcoeff [16]int16
 		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], 4, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		quantizeDecisionBlock(fastQuant, &dct, quantY1, qIndex, zbinOverQuant, 0, &qcoeff, &dqcoeff)
+		eob := quantizeDecisionBlock(fastQuant, &dct, quantY1, qIndex, zbinOverQuant, 0, &qcoeff, &dqcoeff)
 		var recon [16]byte
-		dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
+		if eob > 1 {
+			dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
+		} else {
+			dsp.DCOnlyIDCT4x4Add(dqcoeff[0], bestPred[:], 4, recon[:], 4)
+		}
 		copyBPredBlock(recon[:], 4, y, yStride, block)
 
 		rate += bestRate
@@ -3757,9 +3780,13 @@ func pickFastBPredLumaModeKF(src vp8enc.SourceImage, qIndex int, mbRow int, mbCo
 		var dqcoeff [16]int16
 		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], 4, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, qIndex, 0, 0, &qcoeff, &dqcoeff)
+		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, qIndex, 0, 0, &qcoeff, &dqcoeff)
 		var recon [16]byte
-		dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
+		if eob > 1 {
+			dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
+		} else {
+			dsp.DCOnlyIDCT4x4Add(dqcoeff[0], bestPred[:], 4, recon[:], 4)
+		}
 		copyBPredBlock(recon[:], 4, y, pred.YStride, block)
 
 		totalRate += bestRate
@@ -4074,7 +4101,11 @@ func predictBestBPredLumaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuan
 			if i == 0 || cost < bestCost {
 				var candidateRecon [16]byte
 				bestMode = candidate
-				dsp.IDCT4x4Add(&dqcoeff, candidatePred[:], 4, candidateRecon[:], 4)
+				if eob > 1 {
+					dsp.IDCT4x4Add(&dqcoeff, candidatePred[:], 4, candidateRecon[:], 4)
+				} else {
+					dsp.DCOnlyIDCT4x4Add(dqcoeff[0], candidatePred[:], 4, candidateRecon[:], 4)
+				}
 				bestRecon = candidateRecon
 				bestEOB = eob
 				bestRate = rate

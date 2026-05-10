@@ -350,7 +350,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	}
 
 	e.beginInterRDModeDecisionMacroblock()
+	var fallbackSnapshot interMacroblockImageSnapshot
+	haveFallbackSnapshot := false
 	if segmentID != 0 {
+		snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
+		haveFallbackSnapshot = true
 		e.interRDThreshMultSnapshot = e.interRDThreshMult
 		e.interRDThreshTouchedSnapshot = e.interRDThreshTouched
 		e.interModeTestHitCountsSnapshot = e.interModeTestHitCounts
@@ -368,24 +372,14 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if !ok {
 		return 0, ErrInvalidConfig
 	}
-	if segmentID != 0 && !decision.cyclicRefreshEligible() {
+	if segmentID != 0 {
+		if haveFallbackSnapshot {
+			restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
+		}
 		e.interRDThreshMult = e.interRDThreshMultSnapshot
 		e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
 		e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
 		e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
-		segmentID = 0
-		decision, ok = e.selectInterFrameModeDecision(
-			args.src, args.refs[:], args.refCount,
-			row, col, args.rows, args.cols,
-			args.qIndex, args.segmentation, segmentID,
-			above, left, aboveLeft,
-			&args.aboveTok[col], &rs.leftTok,
-			&args.quants[segmentID],
-			args.sourceAltRefZeroMVOnly,
-		)
-		if !ok {
-			return 0, ErrInvalidConfig
-		}
 	}
 
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)

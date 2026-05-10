@@ -2163,12 +2163,24 @@ func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.coefProbsGolden = vp8tables.DefaultCoefProbs
 	e.coefProbsAltRef = vp8tables.DefaultCoefProbs
 	e.coefProbsSnapshotsValid = true
+	e.updateRefFrameProbsFromKeyFrame()
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
 	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
 	// next frame's send_update bit reflects whether anything actually
 	// changed. The keyframe is the first packed frame in a clip, so this
 	// is also where lfDeltasSignaledOnce flips to true.
 	e.updateLastSignaledLFDeltas(attempt.LFDeltaEnabled, attempt.RefLFDeltas, attempt.ModeLFDeltas)
+}
+
+// updateRefFrameProbsFromKeyFrame mirrors the key-frame branch of
+// libvpx update_rd_ref_frame_probs.
+func (e *VP8Encoder) updateRefFrameProbsFromKeyFrame() {
+	e.refProbIntra = 255
+	e.refProbLast = 128
+	e.refProbGolden = 128
+	if !e.opts.TemporalScalability.Enabled {
+		e.applyRdRefFrameProbHeuristics(false)
+	}
 }
 
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
