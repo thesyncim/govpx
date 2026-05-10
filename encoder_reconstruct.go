@@ -6128,17 +6128,27 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 // component table is pre-scaled by qIndex so the diamond loop avoids
 // repeating libvpx's per-candidate component-sum multiply.
 func (c *fullPelSearchCtx) fullPelCost(mvRow int, mvCol int, refRow8 int, refCol8 int, qIndex int) int {
-	return c.fullPelSAD(mvRow, mvCol) + libvpxFullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
+	row := mvRow >> 3
+	col := mvCol >> 3
+	return c.fullPelCostFull(row, col, refRow8, refCol8, qIndex)
+}
+
+func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
+	return c.fullPelSADFull(row, col) + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
 }
 
 func (c *fullPelSearchCtx) fullPelSAD(mvRow int, mvCol int) int {
-	refBaseY := c.baseY + (mvRow >> 3)
-	refBaseX := c.baseX + (mvCol >> 3)
+	return c.fullPelSADFull(mvRow>>3, mvCol>>3)
+}
+
+func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
+	refBaseY := c.baseY + row
+	refBaseX := c.baseX + col
 	if uint(refBaseY) <= c.refRowH && uint(refBaseX) <= c.refRowW {
 		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY*c.refYStride+refBaseX))
 		return dsp.SAD16x16PtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride)
 	}
-	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, maxInt())
+	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
 }
 
 func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, qIndex int) int {
