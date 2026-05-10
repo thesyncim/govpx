@@ -51,49 +51,6 @@ func TestReadBoolDeterministic(t *testing.T) {
 	}
 }
 
-func TestReadBoolMaxMatchesReadBool255(t *testing.T) {
-	probs := []uint8{255, 128, 7, 255, 220, 33, 255, 99, 1, 255, 192}
-	for seed := range 16 {
-		src := []byte{
-			byte(0x9d + seed*3),
-			byte(0x01 ^ seed*11),
-			byte(0x2a + seed*5),
-			byte(0xff - seed),
-			byte(0x00 + seed*7),
-			byte(0x80 ^ seed*13),
-			byte(0x42 + seed*17),
-			byte(0x24 ^ seed*19),
-		}
-		var generic, specialized Decoder
-		if err := generic.Init(src); err != nil {
-			t.Fatalf("generic Init seed %d returned error: %v", seed, err)
-		}
-		if err := specialized.Init(src); err != nil {
-			t.Fatalf("specialized Init seed %d returned error: %v", seed, err)
-		}
-
-		for step, prob := range probs {
-			var got uint8
-			if prob == 255 {
-				got = specialized.ReadBoolMax()
-			} else {
-				got = specialized.ReadBool(prob)
-			}
-			want := generic.ReadBool(prob)
-			if got != want ||
-				specialized.value != generic.value ||
-				specialized.count != generic.count ||
-				specialized.rng != generic.rng ||
-				specialized.pos != generic.pos {
-				t.Fatalf("seed %d step %d prob %d: bit/state = %d/%x/%d/%d/%d, want %d/%x/%d/%d/%d",
-					seed, step, prob,
-					got, specialized.value, specialized.count, specialized.rng, specialized.pos,
-					want, generic.value, generic.count, generic.rng, generic.pos)
-			}
-		}
-	}
-}
-
 func TestTruncatedInputReportsStableError(t *testing.T) {
 	var d Decoder
 	if err := d.Init(nil); err != nil {

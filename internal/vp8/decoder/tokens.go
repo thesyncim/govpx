@@ -11,8 +11,6 @@ import (
 
 var ErrTokenGridBufferTooSmall = errors.New("govpx: VP8 token grid buffer too small")
 
-var zeroMacroblockEOB [25]uint8
-
 type EntropyContextPlanes struct {
 	Y1 [4]uint8
 	U  [2]uint8
@@ -259,9 +257,6 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 }
 
 func clearMacroblockTokens(out *MacroblockTokens) {
-	if out.EOB == zeroMacroblockEOB {
-		return
-	}
 	for i, eob := range out.EOB {
 		if eob != 0 {
 			out.QCoeff[i] = [16]int16{}

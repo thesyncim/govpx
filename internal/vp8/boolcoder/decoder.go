@@ -73,40 +73,6 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 	return bit
 }
 
-// ReadBoolMax is equivalent to ReadBool(255) without the generic probability
-// multiply. The bool decoder keeps rng normalized, so the max-probability split
-// simplifies to rng-1.
-func (d *Decoder) ReadBoolMax() uint8 {
-	rng0 := d.rng
-	split := rng0 - 1
-	if d.count < 0 {
-		d.fill()
-	}
-
-	bigsplit := uint64(split) << (valueSize - 8)
-
-	value := d.value
-	count := d.count
-	rng := split
-	bit := uint8(0)
-
-	if value >= bigsplit {
-		rng = 1
-		value -= bigsplit
-		bit = 1
-	}
-
-	shift := tables.BoolNorm[byte(rng)]
-	rng <<= shift
-	value <<= shift
-	count -= int(shift)
-
-	d.value = value
-	d.count = count
-	d.rng = rng
-	return bit
-}
-
 func (d *Decoder) ReadBit() uint8 {
 	rng0 := d.rng
 	split := (rng0 + 1) >> 1
