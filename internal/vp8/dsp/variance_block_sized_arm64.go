@@ -29,6 +29,12 @@ func varianceBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, he
 //go:noescape
 func varianceBlock4xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
 
+//go:noescape
+func sseBlock16xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
+
+//go:noescape
+func sseBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
+
 // varianceBlockSized fans out per-width to the matching NEON kernel.
 // Slice bases go via unsafe.SliceData so the dispatch stays free of
 // runtime.panicBounds and a stack frame for &src[0] / &ref[0]; callers
@@ -62,9 +68,14 @@ func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int)
 	return int(sum), int(sse)
 }
 
-func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
-	var sum int32
+func sse8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
 	var sse uint32
-	varianceBlock16xNNEON(src, srcStride, ref, refStride, height, &sum, &sse)
+	sseBlock8xNNEON(src, srcStride, ref, refStride, 8, &sse)
+	return int(sse)
+}
+
+func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
+	var sse uint32
+	sseBlock16xNNEON(src, srcStride, ref, refStride, height, &sse)
 	return int(sse)
 }

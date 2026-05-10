@@ -87,6 +87,131 @@ func TestLoopFilterSIMDMatchesScalar(t *testing.T) {
 	}
 }
 
+func TestLoopFilterYEdgeGroupsMatchSeparateEdges(t *testing.T) {
+	type groupFn struct {
+		name     string
+		grouped  func([]byte, int, byte, byte, byte)
+		separate func([]byte, int, byte, byte, byte, int)
+		offsets  []int
+	}
+
+	const stride = 32
+	edges := []groupFn{
+		{
+			name:     "LoopFilterHorizontalEdgesY",
+			grouped:  loopFilterHorizontalEdgesYDispatch,
+			separate: loopFilterHorizontalEdgeDispatch,
+			offsets:  []int{0, 4 * stride, 8 * stride},
+		},
+		{
+			name:     "LoopFilterVerticalEdgesY",
+			grouped:  loopFilterVerticalEdgesYDispatch,
+			separate: loopFilterVerticalEdgeDispatch,
+			offsets:  []int{0, 4, 8},
+		},
+	}
+
+	rng := rand.New(rand.NewPCG(0x51525354, 0x61626364))
+	params := []struct {
+		blimit byte
+		limit  byte
+		thresh byte
+	}{
+		{8, 4, 0},
+		{32, 16, 8},
+		{128, 64, 32},
+	}
+
+	for _, edge := range edges {
+		t.Run(edge.name, func(t *testing.T) {
+			for _, p := range params {
+				for range 12 {
+					base := make([]byte, stride*16)
+					for i := range base {
+						base[i] = byte(rng.IntN(256))
+					}
+					grouped := append([]byte(nil), base...)
+					separate := append([]byte(nil), base...)
+
+					edge.grouped(grouped, stride, p.blimit, p.limit, p.thresh)
+					for _, off := range edge.offsets {
+						edge.separate(separate[off:], stride, p.blimit, p.limit, p.thresh, 2)
+					}
+
+					for i := range grouped {
+						if grouped[i] != separate[i] {
+							t.Fatalf("%s byte %d = %d, want %d", edge.name, i, grouped[i], separate[i])
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestLoopFilterUVDispatchMatchesSeparatePlanes(t *testing.T) {
+	type edgeFn struct {
+		name     string
+		combined func([]byte, []byte, int, byte, byte, byte)
+		separate func([]byte, int, byte, byte, byte, int)
+	}
+
+	edges := []edgeFn{
+		{"LoopFilterHorizontalEdgeUV", loopFilterHorizontalEdgeUVDispatch, loopFilterHorizontalEdgeDispatch},
+		{"LoopFilterVerticalEdgeUV", loopFilterVerticalEdgeUVDispatch, loopFilterVerticalEdgeDispatch},
+		{"MBLoopFilterHorizontalEdgeUV", mbLoopFilterHorizontalEdgeUVDispatch, mbLoopFilterHorizontalEdgeDispatch},
+		{"MBLoopFilterVerticalEdgeUV", mbLoopFilterVerticalEdgeUVDispatch, mbLoopFilterVerticalEdgeDispatch},
+	}
+
+	rng := rand.New(rand.NewPCG(0x12345678, 0x87654321))
+	const stride = 32
+	const height = 8
+	params := []struct {
+		blimit byte
+		limit  byte
+		thresh byte
+	}{
+		{8, 4, 0},
+		{32, 16, 8},
+		{128, 64, 32},
+	}
+
+	for _, edge := range edges {
+		t.Run(edge.name, func(t *testing.T) {
+			for _, p := range params {
+				for range 12 {
+					uBase := make([]byte, stride*height)
+					vBase := make([]byte, stride*height)
+					for i := range uBase {
+						uBase[i] = byte(rng.IntN(256))
+						vBase[i] = byte(rng.IntN(256))
+					}
+					uCombined := append([]byte(nil), uBase...)
+					vCombined := append([]byte(nil), vBase...)
+					uSeparate := append([]byte(nil), uBase...)
+					vSeparate := append([]byte(nil), vBase...)
+
+					edge.combined(uCombined, vCombined, stride, p.blimit, p.limit, p.thresh)
+					edge.separate(uSeparate, stride, p.blimit, p.limit, p.thresh, 1)
+					edge.separate(vSeparate, stride, p.blimit, p.limit, p.thresh, 1)
+
+					if len(uCombined) != len(uSeparate) || len(vCombined) != len(vSeparate) {
+						t.Fatalf("unexpected length mismatch")
+					}
+					for i := range uCombined {
+						if uCombined[i] != uSeparate[i] {
+							t.Fatalf("%s U byte %d = %d, want %d", edge.name, i, uCombined[i], uSeparate[i])
+						}
+						if vCombined[i] != vSeparate[i] {
+							t.Fatalf("%s V byte %d = %d, want %d", edge.name, i, vCombined[i], vSeparate[i])
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestFilterMaskSIMDMatchesScalar exercises the libvpx filterMask helper
 // directly across a wide pixel sweep. Verifies that the
 // vector-friendly filterMaskFlag form produces the same per-lane mask

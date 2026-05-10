@@ -60,6 +60,19 @@ func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 	loopFilterHorizontalEdgeScalar(s, stride, blimit, limit, thresh, count)
 }
 
+func loopFilterHorizontalEdgesYDispatch(s []byte, stride int, blimit, limit, thresh byte) {
+	if len(s) >= 15*stride+16 {
+		base := unsafe.Pointer(unsafe.SliceData(s))
+		loopFilterEdgeH16((*byte)(base), stride, blimit, limit, thresh)
+		loopFilterEdgeH16((*byte)(unsafe.Add(base, 4*stride)), stride, blimit, limit, thresh)
+		loopFilterEdgeH16((*byte)(unsafe.Add(base, 8*stride)), stride, blimit, limit, thresh)
+		return
+	}
+	loopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, 2)
+	loopFilterHorizontalEdgeDispatch(s[4*stride:], stride, blimit, limit, thresh, 2)
+	loopFilterHorizontalEdgeDispatch(s[8*stride:], stride, blimit, limit, thresh, 2)
+}
+
 func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
 	if count == 2 && len(s) >= 15*stride+8 {
 		var tmp [8 * 16]byte
@@ -76,6 +89,36 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 		return
 	}
 	loopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
+}
+
+func loopFilterVerticalEdgesYDispatch(s []byte, stride int, blimit, limit, thresh byte) {
+	loopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, 2)
+	loopFilterVerticalEdgeDispatch(s[4:], stride, blimit, limit, thresh, 2)
+	loopFilterVerticalEdgeDispatch(s[8:], stride, blimit, limit, thresh, 2)
+}
+
+func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
+	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherH8x8PairAMD64(&tmp, u, v, stride)
+		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterH8x8PairAMD64(u, v, stride, &tmp, 2, 4)
+		return
+	}
+	loopFilterHorizontalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
+	loopFilterHorizontalEdgeDispatch(v, stride, blimit, limit, thresh, 1)
+}
+
+func loopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
+	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherV8x8PairAMD64(&tmp, u, v, stride)
+		loopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterV8x8PairAMD64(u, v, stride, &tmp, 2, 4)
+		return
+	}
+	loopFilterVerticalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
+	loopFilterVerticalEdgeDispatch(v, stride, blimit, limit, thresh, 1)
 }
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
@@ -109,6 +152,30 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 		return
 	}
 	mbLoopFilterVerticalEdgeScalar(s, stride, blimit, limit, thresh, count)
+}
+
+func mbLoopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
+	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherH8x8PairAMD64(&tmp, u, v, stride)
+		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterH8x8PairAMD64(u, v, stride, &tmp, 1, 6)
+		return
+	}
+	mbLoopFilterHorizontalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
+	mbLoopFilterHorizontalEdgeDispatch(v, stride, blimit, limit, thresh, 1)
+}
+
+func mbLoopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
+	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+		var tmp [8 * 16]byte
+		gatherV8x8PairAMD64(&tmp, u, v, stride)
+		mbLoopFilterEdgeH16((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
+		scatterV8x8PairAMD64(u, v, stride, &tmp, 1, 6)
+		return
+	}
+	mbLoopFilterVerticalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
+	mbLoopFilterVerticalEdgeDispatch(v, stride, blimit, limit, thresh, 1)
 }
 
 // loopFilterSimpleHorizontalEdgeDispatch routes the 16-wide simple-LF
@@ -212,6 +279,28 @@ func scatterH8x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 	}
 }
 
+func gatherH8x8PairAMD64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
+	dst := tmp[:]
+	for r := range 8 {
+		base := r * 16
+		uw := binary.LittleEndian.Uint64(u[r*stride : r*stride+8])
+		vw := binary.LittleEndian.Uint64(v[r*stride : r*stride+8])
+		binary.LittleEndian.PutUint64(dst[base:base+8], uw)
+		binary.LittleEndian.PutUint64(dst[base+8:base+16], vw)
+	}
+}
+
+func scatterH8x8PairAMD64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
+	src := tmp[:]
+	for r := range nrows {
+		base := (first + r) * 16
+		uw := binary.LittleEndian.Uint64(src[base : base+8])
+		vw := binary.LittleEndian.Uint64(src[base+8 : base+16])
+		binary.LittleEndian.PutUint64(u[(first+r)*stride:(first+r)*stride+8], uw)
+		binary.LittleEndian.PutUint64(v[(first+r)*stride:(first+r)*stride+8], vw)
+	}
+}
+
 // gatherV8x8AMD64 reads 8 rows of 8 bytes each from s and packs them
 // into tmp at the count=2 vertical-edge transpose layout, but only
 // fills lanes 0..7. tmp[r*16+i] = s[i*stride+r] for i in 0..7,
@@ -247,6 +336,42 @@ func scatterV8x8AMD64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 		row := s[i*stride : i*stride+8]
 		for r := range nrows {
 			row[first+r] = src[(first+r)*16+i]
+		}
+	}
+}
+
+func gatherV8x8PairAMD64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
+	dst := tmp[:]
+	for i := range 8 {
+		uw := binary.LittleEndian.Uint64(u[i*stride : i*stride+8])
+		vw := binary.LittleEndian.Uint64(v[i*stride : i*stride+8])
+		dst[0*16+i] = byte(uw)
+		dst[1*16+i] = byte(uw >> 8)
+		dst[2*16+i] = byte(uw >> 16)
+		dst[3*16+i] = byte(uw >> 24)
+		dst[4*16+i] = byte(uw >> 32)
+		dst[5*16+i] = byte(uw >> 40)
+		dst[6*16+i] = byte(uw >> 48)
+		dst[7*16+i] = byte(uw >> 56)
+		dst[0*16+8+i] = byte(vw)
+		dst[1*16+8+i] = byte(vw >> 8)
+		dst[2*16+8+i] = byte(vw >> 16)
+		dst[3*16+8+i] = byte(vw >> 24)
+		dst[4*16+8+i] = byte(vw >> 32)
+		dst[5*16+8+i] = byte(vw >> 40)
+		dst[6*16+8+i] = byte(vw >> 48)
+		dst[7*16+8+i] = byte(vw >> 56)
+	}
+}
+
+func scatterV8x8PairAMD64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
+	src := tmp[:]
+	for i := range 8 {
+		urow := u[i*stride : i*stride+8]
+		vrow := v[i*stride : i*stride+8]
+		for r := range nrows {
+			urow[first+r] = src[(first+r)*16+i]
+			vrow[first+r] = src[(first+r)*16+8+i]
 		}
 	}
 }

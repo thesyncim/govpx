@@ -38,3 +38,9 @@ func VarianceBlock16x16PtrFast(src *byte, srcStride int, ref *byte, refStride in
 	varianceBlock16x16NEON(src, srcStride, ref, refStride, &sum, &sse)
 	return int(sum), int(sse)
 }
+
+func sse16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	var sse uint32
+	sseBlock16xNNEON(src, srcStride, ref, refStride, 16, &sse)
+	return int(sse)
+}

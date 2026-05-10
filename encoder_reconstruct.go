@@ -7464,6 +7464,64 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
 	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
 
+	if fastQuant {
+		var uvDQ [8 * 16]int16
+		var uvEOB [8]uint8
+		qUV := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[16][0])), 8*16)
+		vp8enc.FastQuantizeBlockBatch(uvDcts[:], &quant.UV, qUV, uvDQ[:], uvEOB[:], 8)
+		for block := range 4 {
+			dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
+			dqU := (*[16]int16)(uvDQ[block*16 : block*16+16])
+			a, l := macroblockCoefficientUVContextIndex(16 + block)
+			ctx := 0
+			if needTokenContext {
+				ctx = int(uvAbove[a] + uvLeft[l])
+			}
+			eob := int(uvEOB[block])
+			coeffs.SetBlockEOB(16+block, eob)
+			if collectStats {
+				stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
+				stats.distortionUV += transformBlockError(dct, dqU)
+				stats.tteob += eob
+			}
+			if needTokenContext {
+				hasCoeffs := uint8(0)
+				if eob > 0 {
+					hasCoeffs = 1
+				}
+				uvAbove[a] = hasCoeffs
+				uvLeft[l] = hasCoeffs
+			}
+
+			dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
+			dqV := (*[16]int16)(uvDQ[(4+block)*16 : (4+block)*16+16])
+			a, l = macroblockCoefficientUVContextIndex(20 + block)
+			ctx = 0
+			if needTokenContext {
+				ctx = int(uvAbove[a] + uvLeft[l])
+			}
+			eob = int(uvEOB[4+block])
+			coeffs.SetBlockEOB(20+block, eob)
+			if collectStats {
+				stats.rateUV += coefficientBlockTokenRate(coefProbs, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
+				stats.distortionUV += transformBlockError(dctV, dqV)
+				stats.tteob += eob
+			}
+			if needTokenContext {
+				hasCoeffs := uint8(0)
+				if eob > 0 {
+					hasCoeffs = 1
+				}
+				uvAbove[a] = hasCoeffs
+				uvLeft[l] = hasCoeffs
+			}
+		}
+		if collectStats {
+			stats.distortionUV >>= 2
+		}
+		return stats
+	}
+
 	for block := range 4 {
 		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
 		a, l := macroblockCoefficientUVContextIndex(16 + block)
