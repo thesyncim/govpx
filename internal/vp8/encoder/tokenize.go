@@ -70,53 +70,6 @@ func WriteBlockTokens(w *BoolWriter, probs *tables.CoefficientProbs, blockType i
 	return writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, qcoeff, BlockCoeffEOB(qcoeff, skipDC))
 }
 
-func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
-	p := (*probs)[blockType][skipDC][ctx]
-	if eob <= skipDC {
-		w.WriteBool(0, p[0])
-		return w.Err()
-	}
-
-	w.WriteBool(1, p[0])
-	for pos := skipDC; pos < 16; pos++ {
-		rc := int(tables.DefaultZigZag1D[pos])
-		coeff := int(qcoeff[rc])
-		if coeff == 0 {
-			w.WriteBool(0, p[1])
-			if pos == 15 {
-				return w.Err()
-			}
-			p = (*probs)[blockType][tables.CoefBandsTable[pos+1]][0]
-			continue
-		}
-
-		token, mag, ok := coeffToken(coeff)
-		if !ok {
-			return ErrInvalidPacketConfig
-		}
-		writeNonZeroCoeffToken(w, p, token, mag)
-		if coeff < 0 {
-			w.WriteBit(1)
-		} else {
-			w.WriteBit(0)
-		}
-		if w.Err() != nil {
-			return w.Err()
-		}
-
-		if pos == 15 {
-			return nil
-		}
-		p = (*probs)[blockType][tables.CoefBandsTable[pos+1]][tables.PrevTokenClass[token]]
-		if pos+1 == eob {
-			w.WriteBool(0, p[0])
-			return w.Err()
-		}
-		w.WriteBool(1, p[0])
-	}
-	return w.Err()
-}
-
 func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientProbs, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
 	if w == nil || probs == nil || above == nil || left == nil || coeffs == nil {
 		return ErrInvalidPacketConfig
@@ -405,59 +358,6 @@ func coeffToken(coeff int) (int, int, bool) {
 		return tables.DCTValCategory6, coeff, true
 	default:
 		return 0, 0, false
-	}
-}
-
-func writeNonZeroCoeffToken(w *BoolWriter, p [tables.EntropyNodes]uint8, token int, mag int) {
-	w.WriteBool(1, p[1])
-	switch token {
-	case tables.OneToken:
-		w.WriteBool(0, p[2])
-	case tables.TwoToken:
-		w.WriteBool(1, p[2])
-		w.WriteBool(0, p[3])
-		w.WriteBool(0, p[4])
-	case tables.ThreeToken:
-		w.WriteBool(1, p[2])
-		w.WriteBool(0, p[3])
-		w.WriteBool(1, p[4])
-		w.WriteBool(0, p[5])
-	case tables.FourToken:
-		w.WriteBool(1, p[2])
-		w.WriteBool(0, p[3])
-		w.WriteBool(1, p[4])
-		w.WriteBool(1, p[5])
-	case tables.DCTValCategory1:
-		w.WriteBool(1, p[2])
-		w.WriteBool(1, p[3])
-		w.WriteBool(0, p[6])
-		w.WriteBool(0, p[7])
-		writeCoeffExtraBits(w, token, mag)
-	case tables.DCTValCategory2:
-		w.WriteBool(1, p[2])
-		w.WriteBool(1, p[3])
-		w.WriteBool(0, p[6])
-		w.WriteBool(1, p[7])
-		writeCoeffExtraBits(w, token, mag)
-	default:
-		w.WriteBool(1, p[2])
-		w.WriteBool(1, p[3])
-		w.WriteBool(1, p[6])
-		cat := token - tables.DCTValCategory3
-		bit1 := uint8((cat >> 1) & 1)
-		bit0 := uint8(cat & 1)
-		w.WriteBool(bit1, p[8])
-		w.WriteBool(bit0, p[9+int(bit1)])
-		writeCoeffExtraBits(w, token, mag)
-	}
-}
-
-func writeCoeffExtraBits(w *BoolWriter, token int, mag int) {
-	extra := tables.ExtraBitsTable[token]
-	offset := mag - int(extra.BaseVal)
-	for i := 0; i < int(extra.Len); i++ {
-		shift := int(extra.Len) - 1 - i
-		w.WriteBool(uint8((offset>>uint(shift))&1), extra.Prob[i])
 	}
 }
 
