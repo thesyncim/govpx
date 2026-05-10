@@ -24,7 +24,14 @@ func parseCoefficientProbabilityHeaderInto(br *boolcoder.Decoder, probs *tables.
 		for band := range tables.CoefBands {
 			for ctx := range tables.PrevCoefContexts {
 				for node := range tables.EntropyNodes {
-					if br.ReadBool(tables.CoefUpdateProbs[block][band][ctx][node]) != 0 {
+					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
+					update := uint8(0)
+					if updateProb == tables.MaxProb {
+						update = br.ReadBoolMax()
+					} else {
+						update = br.ReadBool(updateProb)
+					}
+					if update != 0 {
 						value := uint8(br.ReadLiteral(8))
 						if probs != nil {
 							(*probs)[block][band][ctx][node] = value
