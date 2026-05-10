@@ -784,9 +784,7 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		}
 	}
 	if !skipLoopFilter {
-		if err := vp8dec.ApplyLoopFilter(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo); err != nil {
-			return ErrInvalidData
-		}
+		vp8dec.ApplyLoopFilterUnchecked(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo)
 	}
 	d.current.ExtendBorders()
 	return nil
