@@ -569,6 +569,9 @@ type VP8Encoder struct {
 	// fill_token_costs source. nil during key-frame and committed-encode paths.
 	rdPickerCoefProbsActive *vp8tables.CoefficientProbs
 	modeProbs               vp8dec.ModeProbs
+	mvCostTables            vp8enc.MotionVectorCostTables
+	mvCostProbs             [2][vp8tables.MVPCount]uint8
+	mvCostTablesValid       bool
 
 	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
 	// frame currently being built. Rows from intermediate recode attempts are
@@ -3529,6 +3532,9 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.mvCostTables = vp8enc.MotionVectorCostTables{}
+	e.mvCostProbs = [2][vp8tables.MVPCount]uint8{}
+	e.mvCostTablesValid = false
 	// libvpx vp8_create_compressor seeds cpi->Speed=0 and avg_pick_mode_time
 	// /avg_encode_time = 0 (zero-initialised under calloc). Mirror that on
 	// Reset() so a sequence re-init does not leak the warmed adaptive Speed

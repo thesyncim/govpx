@@ -1839,10 +1839,22 @@ func TestIterativeInterFrameSubpixelMotionVectorUsesBilinearVariance(t *testing.
 	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
 	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
 
-	mv, cost, ok := iterativeInterFrameSubpixelMotionVector(sourceImageFromPublic(src), &ref.Img, 1, 1, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex, &vp8tables.DefaultMVContext)
+	mvProbs := vp8tables.DefaultMVContext
+	var mvCosts vp8enc.MotionVectorCostTables
+	mvCosts.Build(&mvProbs)
+	search := interFrameSubpixelSearch{
+		src:     sourceImageFromPublic(src),
+		ref:     &ref.Img,
+		mbRow:   1,
+		mbCol:   1,
+		qIndex:  testInterSearchQIndex,
+		mvProbs: &mvProbs,
+		mvCosts: &mvCosts,
+	}
+	mv, cost, ok := search.iterative()
 
 	if !ok {
-		t.Fatalf("iterativeInterFrameSubpixelMotionVector returned ok=false")
+		t.Fatalf("interFrameSubpixelSearch.iterative returned ok=false")
 	}
 	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("mv = %+v, want +2,+2 quarter-pel candidate", mv)

@@ -112,7 +112,7 @@ func TestMotionVectorSADCostMatchesLibvpxTable(t *testing.T) {
 	}
 }
 
-func TestMotionVectorSubpelSearchCostFromQuarterDeltasMatchesWrapper(t *testing.T) {
+func TestMotionVectorSubpelSearchCostMatchesLibvpxMVC(t *testing.T) {
 	probs := tables.DefaultMVContext
 	tests := []struct {
 		mv  MotionVector
@@ -124,10 +124,43 @@ func TestMotionVectorSubpelSearchCostFromQuarterDeltasMatchesWrapper(t *testing.
 		{mv: MotionVector{Row: 4096, Col: -4096}, ref: MotionVector{}},
 	}
 	for _, tt := range tests {
-		got := MotionVectorSubpelSearchCostFromQuarterDeltas(int(tt.mv.Row)>>1, int(tt.mv.Col)>>1, int(tt.ref.Row)>>1, int(tt.ref.Col)>>1, &probs, 34)
-		want := MotionVectorSubpelSearchCost(tt.mv, tt.ref, &probs, 34)
+		row := clampMVSignedComponent((int(tt.mv.Row) >> 1) - (int(tt.ref.Row) >> 1))
+		col := clampMVSignedComponent((int(tt.mv.Col) >> 1) - (int(tt.ref.Col) >> 1))
+		want := (testMVComponentCost(row, probs[0][:]) + testMVComponentCost(col, probs[1][:])) * 34
+		want = (want + 128) >> 8
+		got := MotionVectorSubpelSearchCost(tt.mv, tt.ref, &probs, 34)
 		if got != want {
 			t.Fatalf("mv=%+v ref=%+v subpel cost = %d, want %d", tt.mv, tt.ref, got, want)
+		}
+	}
+}
+
+func TestMotionVectorCostTablesSubpelSearchCostMatchesLibvpxMVC(t *testing.T) {
+	probs := tables.DefaultMVContext
+	probs[0][mvProbIsShort] = 99
+	probs[1][mvProbSign] = 111
+	var costs MotionVectorCostTables
+	costs.Build(&probs)
+
+	tests := []struct {
+		mvRow4  int
+		mvCol4  int
+		refRow4 int
+		refCol4 int
+	}{
+		{0, 0, 0, 0},
+		{3, -1, 1, 2},
+		{-7, 9, -4, 3},
+		{2048, -2048, 0, 0},
+	}
+	for _, tt := range tests {
+		got := costs.SubpelSearchCostFromQuarterDeltas(tt.mvRow4, tt.mvCol4, tt.refRow4, tt.refCol4, 34)
+		row := clampMVSignedComponent(tt.mvRow4 - tt.refRow4)
+		col := clampMVSignedComponent(tt.mvCol4 - tt.refCol4)
+		want := (testMVComponentCost(row, probs[0][:]) + testMVComponentCost(col, probs[1][:])) * 34
+		want = (want + 128) >> 8
+		if got != want {
+			t.Fatalf("mv=(%d,%d) ref=(%d,%d) table subpel cost = %d, want %d", tt.mvRow4, tt.mvCol4, tt.refRow4, tt.refCol4, got, want)
 		}
 	}
 }
@@ -202,6 +235,24 @@ func testMVBoolCost(prob uint8, bit int) int {
 		return tables.ProbCost[prob]
 	}
 	return tables.ProbCost[255-int(prob)]
+}
+
+func BenchmarkMotionVectorCostTablesSubpelSearchCost(b *testing.B) {
+	probs := tables.DefaultMVContext
+	var costs MotionVectorCostTables
+	costs.Build(&probs)
+	rows := [...]int{0, 1, -2, 7, -11, 31, -64, 127}
+	cols := [...]int{0, -1, 3, -9, 18, -45, 80, -126}
+	refRows := [...]int{0, 2, -4, 8}
+	refCols := [...]int{0, -3, 5, -7}
+
+	total := 0
+	for i := 0; i < b.N; i++ {
+		total += costs.SubpelSearchCostFromQuarterDeltas(rows[i&7], cols[i&7], refRows[i&3], refCols[i&3], 34)
+	}
+	if total == 42 {
+		b.Fatal(total)
+	}
 }
 
 func testMVTreeTokenCost(tree []int16, probs []uint8, token TreeToken) int {
