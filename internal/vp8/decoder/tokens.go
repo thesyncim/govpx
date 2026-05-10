@@ -294,10 +294,9 @@ func setUVContext(ctx *EntropyContextPlanes, index int, value uint8) {
 }
 
 func readSignedCoeff(br *boolcoder.Decoder, value int) int16 {
-	if br.ReadBit() != 0 {
-		return int16(-value)
-	}
-	return int16(value)
+	v := int16(value)
+	mask := -int16(br.ReadBit())
+	return (v ^ mask) - mask
 }
 
 func readTokenCategory(br *boolcoder.Decoder, cat int) int {
