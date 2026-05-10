@@ -103,7 +103,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 	if !predictAnalysisMacroblock(&freshPred.Img, mbRow, mbCol, &freshMode, &freshScratch) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
-	gotYRate, gotYDist := wholeBlockYTransformRD(
+	gotYRate, gotYDist, _, _ := wholeBlockYTransformRD(
 		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 20, 0,
 		nil, nil, &quant, &probs, false,
 	)

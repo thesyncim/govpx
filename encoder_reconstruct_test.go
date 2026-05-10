@@ -710,7 +710,7 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 
 	e.lowerBestInterRDThreshold(libvpxThrNew1)
 	afterBest := e.interModeRDThresholds(40)
-	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*111; got != want {
+	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*95; got != want {
 		t.Fatalf("best NEW1 threshold = %d, want %d", got, want)
 	}
 }
@@ -2988,7 +2988,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -2999,7 +2999,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
-	yRate, yDist := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
+	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRD(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRD mode=%v ok=false", uvMode)
@@ -3028,7 +3028,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -3039,7 +3039,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	if !predictAnalysisMacroblock(&e.analysis.Img, 0, 0, &decMode, &e.reconstructScratch) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
-	yRate, yDist := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
+	yRate, yDist, _, _ := wholeBlockYTransformRD(sourceImageFromPublic(src), &e.analysis.Img, 0, 0, 20, 0, nil, nil, &quant, &e.coefProbs, false)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(sourceImageFromPublic(src), 20, 0, false, 0, 0, nil, nil, &quant, &e.analysis.Img, &e.reconstructScratch, &e.coefProbs, e.modeProbs.UVMode[:], false)
 	if !ok {
 		t.Fatalf("predictBestIntraChromaModeRDWithProbs mode=%v ok=false", uvMode)
@@ -3070,7 +3070,7 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore BPred returned ok=false")
 	}
@@ -3258,6 +3258,25 @@ func TestInterReferenceFrameRateUsesLivePrevFrameProbs(t *testing.T) {
 	}
 	if got, want := e.interReferenceFrameRate(vp8common.AltRefFrame), boolBitCost(200, 1)+boolBitCost(90, 1); got != want {
 		t.Fatalf("ALTREF rate = %d, want %d", got, want)
+	}
+}
+
+func TestFirstInterFrameRDProbsResetAfterKeyFrame(t *testing.T) {
+	e := &VP8Encoder{}
+	e.updateRefFrameProbsFromKeyFrame()
+	if !e.refProbUseDefaultOnNextInterRD {
+		t.Fatal("key frame did not arm default ref-prob reset for next inter RD pass")
+	}
+	e.resetRefFrameProbsToDefaultInterRD()
+	e.applyLibvpxRdRefFrameProbRefreshAdjustments(false)
+	if got, want := e.refProbIntra, uint8(63); got != want {
+		t.Fatalf("prob_intra after first-inter reset = %d, want %d", got, want)
+	}
+	if got, want := e.refProbLast, uint8(214); got != want {
+		t.Fatalf("prob_last after first-inter refresh adjustment = %d, want %d", got, want)
+	}
+	if got, want := e.refProbGolden, uint8(255); got != want {
+		t.Fatalf("prob_gf after first-inter refresh adjustment = %d, want %d", got, want)
 	}
 }
 

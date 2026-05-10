@@ -516,6 +516,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), e.oracleTraceEnabled(), &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
+					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
 				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
@@ -559,6 +560,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					collectOracle: e.oracleTraceEnabled(),
 					coeffs:        &coeffs[index],
 				})
+				if is4x4 {
+					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
+				}
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
 			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
@@ -632,6 +636,15 @@ func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8
 		return
 	}
 	vp8enc.UpdateTokenContextPlanesFromCoefficients(above, left, is4x4, coeffs)
+}
+
+func applyOracleStaleY2Snapshot(coeffs *vp8enc.MacroblockCoefficients, snapshot staleY2Snapshot) {
+	if coeffs == nil || !snapshot.set {
+		return
+	}
+	coeffs.OracleStaleY2Set = true
+	coeffs.OracleStaleY2EOB = snapshot.eob
+	coeffs.OracleStaleY2QCoeff = snapshot.qcoeff
 }
 
 func keyFrameAnalysisSegmentID(mode *vp8enc.KeyFrameMacroblockMode, segmentation vp8enc.SegmentationConfig, preserve bool) (uint8, bool) {
@@ -1338,7 +1351,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
+	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
 	} else {
@@ -1672,9 +1685,16 @@ type interFrameModeDecision struct {
 	useIntra      bool
 	intraMode     vp8enc.InterFrameMacroblockMode
 	projectedRate int
+	staleY2       staleY2Snapshot
 	// predictionError is the picker `distortion` scalar returned through
 	// vp8_encode_inter_macroblock and accumulated into mb.prediction_error.
 	predictionError int
+}
+
+type staleY2Snapshot struct {
+	set    bool
+	eob    uint8
+	qcoeff [16]int16
 }
 
 func (d interFrameModeDecision) cyclicRefreshEligible() bool {
@@ -1830,6 +1850,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	best := interFrameModeDecision{
 		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
 	}
+	var lastStaleY2 staleY2Snapshot
 	var newMVCandidates [3]struct {
 		searched bool
 		ok       bool
@@ -1861,7 +1882,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			e.recordInterRDModeTest(modeIndex)
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
-			mode, score, yrd, rate, distortion, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, distortion, candidateStaleY2, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			// libvpx vp8/encoder/rdopt.c B_PRED case (lines 1949-1971):
 			// when rd_pick_intra4x4mby_modes returns tmp_rd >= best_yrd
 			// the case sets `this_rd = INT_MAX, disable_skip = 1` and
@@ -1880,6 +1901,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
+			}
+			if candidateStaleY2.set {
+				lastStaleY2 = candidateStaleY2
 			}
 			mode.SegmentID = segmentID
 			becameBest := !bestSet || score < bestScore
@@ -1919,6 +1943,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				bestDistortion = distortion
 				bestModeIndex = modeIndex
 				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
+				if mode.Mode == vp8common.BPred {
+					best.staleY2 = lastStaleY2
+				}
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -1945,10 +1972,11 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		distortionUV := oracleTraceInterCandidateUnknown
 		mbSkipCoeff := false
 		rdLoopSkip := false
+		var candidateStaleY2 staleY2Snapshot
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
 			bestRefMV := modeMVs.bestForReference(ref.Frame, signBias)
-			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
@@ -1964,10 +1992,14 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				distortionUV = acct.distortionUV
 				mbSkipCoeff = acct.mbSkipCoeff
 				rdLoopSkip = acct.rdLoopSkip
+				candidateStaleY2 = acct.staleY2
 			}
 		}
 		if !ok {
 			continue
+		}
+		if candidateStaleY2.set {
+			lastStaleY2 = candidateStaleY2
 		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
 		if traceEnabled {
@@ -2007,6 +2039,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestDistortion = distortion
 			bestModeIndex = modeIndex
 			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, predictionError: distortion}
+			if mode.Mode == vp8common.SplitMV {
+				best.staleY2 = lastStaleY2
+			}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}
@@ -2027,7 +2062,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-	bestRefMV vp8enc.MotionVector, modeCounts vp8enc.InterModeCounts, qIndex int, segmentID uint8, mvthresh int,
+	bestRefMV vp8enc.MotionVector, modeCounts vp8enc.InterModeCounts, qIndex int, segmentID uint8, mvthresh int, bestYRD int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
@@ -2038,44 +2073,19 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	// vp8_rd_pick_best_mbsegmentation as bsi->mvthresh, which the per-label
 	// loop divides by label_count to gate NEW4X4 motion searches.
 	bestSet := false
-	bestScore := maxInt()
-	bestPartitionYRD := maxInt()
-	bestRate := 0
-	bestDistortion := 0
+	bestSegmentYRD := bestYRD
+	if bestSegmentYRD <= 0 {
+		bestSegmentYRD = maxInt()
+	}
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var splitSeeds splitMotionSearchSeeds
-
-	// libvpx vp8_rd_pick_best_mbsegmentation seeds bsi.segment_rd with
-	// the caller's best_rd cap and tightens it across shapes via the
-	//
-	//	if (this_segment_rd >= bsi->segment_rd) break;
-	//
-	// cutoff in rd_check_segment. govpx tracks the equivalent running
-	// cap here. The cap is initialized to maxInt rather than the prior-
-	// mode bestYRD because govpx's segmentYRD accumulator is a pure
-	// per-label luma RDCOST sum (no mbsplit_tree / cost_mv_ref(SPLITMV)
-	// segmentation overhead), while bestYRD is the prior-best mode's
-	// full Y-RD which already includes mode-tree token contributions.
-	// Seeding from bestYRD would over-prune at MBs where the SPLITMV
-	// branch lands close to (but legitimately below) the prior-mode RD
-	// threshold — the boundary that determines whether SPLITMV wins
-	// the outer mode loop. The inter-shape running-best `min` still
-	// applies and matches rd_check_segment's
-	//
-	//	bsi->segment_rd = this_segment_rd
-	//
-	// commit semantics: once shape A completes, shape B's labels are
-	// bounded by shape A's segment_rd (and so on through subsequent
-	// shapes), so later-evaluated shapes do less work but commit to a
-	// different best-MV when their per-label cumulative would exceed an
-	// earlier shape's total — matching libvpx's actual rd_check_segment
-	// behaviour that ports R3-A localized as the SPLITMV gap source.
-	bestSegmentYRD := maxInt()
 
 	tryPartition := func(partition int) bool {
 		var labelRD splitMotionLabelRDEvaluator
 		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuantForPick(), false)
-		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, e.pickerCoefProbs(), bestSegmentYRD)
+		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, modeCounts)
+		overheadRD := rdModeScoreWithZbin(qIndex, e.rc.currentZbinOverQuant, overheadRate, 0)
+		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, e.pickerCoefProbs(), bestSegmentYRD, overheadRD)
 		if !shape.OK {
 			return false
 		}
@@ -2088,24 +2098,6 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 		}
 		mode := shape.Mode
 		mode.SegmentID = segmentID
-		acct, ok := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeCounts, bestRefMV)
-		if !ok {
-			return false
-		}
-		// libvpx vp8_rd_pick_best_mbsegmentation does not have an
-		// `acct.yrd >= bestYRD` reject filter at the per-shape level —
-		// the rd_check_segment incremental segment_rd cutoff
-		// (segmentYRDCap above) is the sole gate, and the final outer
-		// `tmp_rd < best_mode.yrd` check in vp8_rd_pick_inter_mode is
-		// what decides whether the SPLITMV branch beats prior modes.
-		// govpx's mode-loop bestScore comparison below is the exact
-		// counterpart of that final outer check, so we drop the legacy
-		// per-shape pre-filter that double-counted the cap and could
-		// reject shapes whose acct.yrd just barely exceeded the prior-
-		// mode bestYRD even when their per-shape segmentYRD was
-		// acceptable. Without that double-count the picker preserves
-		// the SPLITMV candidate at boundary MBs where the cutoff would
-		// otherwise drop SPLITMV pick agreement on good-cpu0.
 		if e.interAnalysisCompressorSpeed() != 0 && partition == 2 {
 			splitSeeds = splitMotionSearchSeedsFrom8x8(&mode)
 		}
@@ -2114,52 +2106,36 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 		//	if (this_segment_rd < bsi->segment_rd)
 		//	    bsi->segment_rd = this_segment_rd;
 		//
-		// govpx tightens bestSegmentYRD to the running shape's
-		// segmentYRD so subsequent shapes' per-label loops are bounded
-		// by the smallest completed-shape Y-side label-RD-sum so far.
-		// We use the per-label transform-domain segmentYRD the per-
-		// label loop accumulated rather than acct.yrd because that is
-		// the exact scalar libvpx's bsi.segment_rd compares against
-		// (acct.yrd is a slightly different breakdown that includes
-		// the SPLITMV mode-tree + ref-frame overhead).
 		if shape.SegmentYRD < bestSegmentYRD {
 			bestSegmentYRD = shape.SegmentYRD
-		}
-		score := acct.rd
-		if acct.rdLoopSkip || !bestSet || score < bestScore {
 			bestSet = true
-			bestScore = score
-			bestPartitionYRD = acct.yrd
-			bestRate = acct.rate2
-			bestDistortion = acct.distortion2
 			bestMode = mode
-		}
-		if acct.rdLoopSkip {
-			return true
 		}
 		return false
 	}
 
 	if e.interAnalysisCompressorSpeed() != 0 {
-		for _, partition := range [3]int{2, 1, 0} {
-			if rdLoopSkip := tryPartition(partition); rdLoopSkip {
-				return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
+		tryPartition(2)
+		if bestSet {
+			tryPartition(1)
+			tryPartition(0)
+			if e.interAnalysisNoSkipBlock4x4Search() || bestMode.Partition == 2 {
+				tryPartition(3)
 			}
 		}
-		if e.interAnalysisNoSkipBlock4x4Search() || (bestSet && bestMode.Partition == 2) {
-			if rdLoopSkip := tryPartition(3); rdLoopSkip {
-				return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
-			}
-		}
-		return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, false, bestSet
-	}
-
-	for _, partition := range e.interAnalysisSplitPartitionOrder() {
-		if rdLoopSkip := tryPartition(partition); rdLoopSkip {
-			return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
+	} else {
+		for _, partition := range e.interAnalysisSplitPartitionOrder() {
+			tryPartition(partition)
 		}
 	}
-	return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, false, bestSet
+	if !bestSet {
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
+	}
+	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &bestMode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeCounts, bestRefMV)
+	if !ok {
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
+	}
+	return bestMode, acct.rd, acct.yrd, acct.rate2, acct.distortion2, acct.rdLoopSkip, true
 }
 
 func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
@@ -2178,7 +2154,7 @@ func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSl
 	}
 }
 
-func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
+func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, staleY2Snapshot, bool) {
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -2188,37 +2164,38 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if mbMode == vp8common.BPred {
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 		}
 		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 		}
 		yRate := bRate + e.interIntraYModeRate(vp8common.BPred)
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
 		distortion := bDist + uvDist
-		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, distortion, true
+		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, distortion, staleY2Snapshot{}, true
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 	}
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 	}
-	yRate, yDist := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, pickerProbs, fastQuant)
+	yRate, yDist, y2EOB, y2QCoeff := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, pickerProbs, fastQuant)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 	}
 	modeRate := e.interIntraYModeRate(mbMode)
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
 	distortion := yDist + uvDist
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, distortion, true
+	staleY2 := staleY2Snapshot{set: true, eob: y2EOB, qcoeff: y2QCoeff}
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, distortion, staleY2, true
 }
 
 func (e *VP8Encoder) interModeForRDLoopEntry(
@@ -2911,7 +2888,7 @@ func selectInterFrameSplitMotionModeWithSearchAndThreshold(src vp8enc.SourceImag
 }
 
 func selectInterFrameSplitMotionModeWithSearchThresholdAndLabelRD(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8, mvthresh int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs) (vp8enc.InterFrameMacroblockMode, bool) {
-	res := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, search, compressorSpeed, seeds, mvProbs, mvthresh, labelRD, quant, coefProbs, maxInt())
+	res := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref, refFrame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, search, compressorSpeed, seeds, mvProbs, mvthresh, labelRD, quant, coefProbs, maxInt(), 0)
 	return res.Mode, res.OK
 }
 
@@ -2950,7 +2927,7 @@ type splitMotionShapeResult struct {
 // cap=maxInt(), preserving the legacy independent-per-shape behavior
 // used by their unit tests and by callers that have not yet routed an
 // inter-shape cap.
-func selectInterFrameSplitMotionModeWithSegmentCutoff(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8, mvthresh int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, segmentYRDCap int) splitMotionShapeResult {
+func selectInterFrameSplitMotionModeWithSegmentCutoff(src vp8enc.SourceImage, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame, mbRow int, mbCol int, bestRefMV vp8enc.MotionVector, qIndex int, partition int, left *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, search interAnalysisSearchConfig, compressorSpeed int, seeds *splitMotionSearchSeeds, mvProbs *[2][vp8tables.MVPCount]uint8, mvthresh int, labelRD *splitMotionLabelRDEvaluator, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, segmentYRDCap int, segmentOverheadRD int) splitMotionShapeResult {
 	if ref == nil || refFrame == vp8common.IntraFrame || partition < 0 || partition >= vp8tables.NumMBSplits {
 		return splitMotionShapeResult{}
 	}
@@ -2962,19 +2939,10 @@ func selectInterFrameSplitMotionModeWithSegmentCutoff(src vp8enc.SourceImage, re
 	width, height := splitMotionPartitionBlockSize(partition)
 	labelCount := int(vp8tables.MBSplitCount[mode.Partition])
 	labelMVThresh := splitMotionLabelMVThreshold(mvthresh, labelCount)
-	// libvpx rd_check_segment seeds this_segment_rd with the
-	// segmentation overhead RDCOST(mbsplit_tree + cost_mv_ref(SPLITMV),
-	// 0). govpx skips that seed: the running bestSegmentYRD cap is
-	// updated from each completed shape's segmentYRD which is on the
-	// same pure-per-label-RD-sum scale, so the inter-shape cutoff
-	// remains apples-to-apples between SPLITMV shapes. Omitting the
-	// seed makes segmentYRD strictly smaller than libvpx's
-	// this_segment_rd — slightly looser than libvpx for the inter-shape
-	// cutoff, which avoids over-pruning at shape boundaries where the
-	// per-shape MV picker disagrees with libvpx by a few RD units. The
-	// segment-cutoff still fires as designed because subsequent shapes
-	// must beat the prior shape's pure-label sum.
-	segmentYRD := 0
+	// libvpx rd_check_segment seeds this_segment_rd with
+	// RDCOST(mbsplit_tree + cost_mv_ref(SPLITMV), 0), then adds each label's
+	// RD before comparing against bsi->segment_rd.
+	segmentYRD := segmentOverheadRD
 	for subset := range labelCount {
 		searchCenter := splitMotionSubsetSearchCenter(partition, subset, &mode, bestRefMV, compressorSpeed, seeds)
 		stepParam := splitMotionSubsetSearchStepParam(partition, subset, compressorSpeed, seeds)
@@ -3895,7 +3863,7 @@ func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex in
 		if !predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch) {
 			return 0, 0, 0, 0, 0, 0, false
 		}
-		yRate, yDist := wholeBlockYTransformRD(src, pred, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
+		yRate, yDist, _, _ := wholeBlockYTransformRD(src, pred, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
 		rate := intraYModeRateWithProbs(keyFrame, yMode, interYModeProbs) + yRate
 		cost := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist)
 		if i == 0 || cost < bestYCost {
@@ -3919,9 +3887,9 @@ func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex in
 // vp8_rdcost_mby reads them from `e_mbd.above_context` / `left_context`.
 // Callers pass the coefficient probability base that the matching packet
 // writer will use for token-rate costing.
-func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, qIndex int, zbinOverQuant int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int) {
+func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow int, mbCol int, qIndex int, zbinOverQuant int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (int, int, uint8, [16]int16) {
 	if coefProbs == nil {
-		return 0, 0
+		return 0, 0, 0, [16]int16{}
 	}
 	var dct [16]int16
 	var qcoeff [16]int16
@@ -3975,7 +3943,7 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	rate += coefficientBlockTokenRate(coefProbs, 1, y2Ctx, 0, &y2Q, y2EOB)
 	y2Error := transformBlockError(&y2Coeff, &y2DQ)
 	distortion := ((mbblockError << 2) + y2Error) >> 4
-	return rate, distortion
+	return rate, distortion, uint8(y2EOB), y2Q
 }
 
 func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, fastQuant bool) (vp8common.MBPredictionMode, int, int, bool) {
@@ -4775,6 +4743,7 @@ type interResidualRDAccounting struct {
 	refCost      int
 	rdLoopSkip   bool
 	mbSkipCoeff  bool
+	staleY2      staleY2Snapshot
 }
 
 func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (interResidualRDAccounting, bool) {
@@ -4828,6 +4797,10 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 	rate2 := modeRate + otherCost + stats.rateY + rateUV
 	distortion2 := stats.distortionY + stats.distortionUV
 	mbSkipCoeff := stats.tteob == 0
+	staleY2 := staleY2Snapshot{}
+	if !is4x4 {
+		staleY2 = staleY2Snapshot{set: true, eob: coeffs.EOB[24], qcoeff: coeffs.QCoeff[24]}
+	}
 	if mbSkipCoeff {
 		rate2 -= stats.rateY + stats.rateUV
 		rateUV = 0
@@ -4848,6 +4821,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 		otherCost:    otherCost,
 		refCost:      refCost,
 		mbSkipCoeff:  mbSkipCoeff,
+		staleY2:      staleY2,
 	}, true
 }
 
@@ -7418,9 +7392,8 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	for block := range 16 {
 		dct := (*[16]int16)(yDcts[block*16 : block*16+16])
 		if is4x4 {
-			// Capture the chosen-mode FDCT DC of every Y block so the
-			// oracle trace can mirror libvpx's stale Y2 second-order
-			// snapshot for SPLITMV/B_PRED (see OracleStaleY2EOB).
+			// Capture a local Y2-equivalent snapshot for direct helper
+			// callers. The encoder path overwrites this from picker state.
 			y2Input[block] = dct[0]
 			a := block & 3
 			l := (block & 0x0c) >> 2
@@ -7497,34 +7470,11 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 		if collectStats {
 			stats.distortionY >>= 2
 		}
-		// Compute a Y2 walsh+quantize on the chosen mode's FDCT DCs so
-		// the oracle trace can mirror libvpx's stale block[24] snapshot
-		// without changing any encode-path state. Stored separately
-		// because the bitstream and reconstruction must keep block 24
-		// empty for SPLITMV/B_PRED.
-		//
-		// PIN: 1 SPLITMV MB in TestOracleInterDecisionMatchRate's
-		// good-cpu3-vbr fixture (frame 7 MB(3,2)) emits eob[24]=15 here
-		// while libvpx emits eob[24]=16 (eob_sum 99.11% vs 100%). The
-		// other 5 SPLITMV MBs across that fixture all match. Why this
-		// path can't byte-match libvpx for every SPLITMV MB:
-		// libvpx's `xd->block[24].qcoeff/eobs[24]` at oracle-capture
-		// time (post-`vp8_inverse_transform_mby` skip for SPLITMV)
-		// reflects whatever the LAST 16x16 inter mode (NEAREST / NEAR /
-		// ZERO / NEW from rd_pick_inter_mode's mode_index 0..15) wrote
-		// via macro_block_yrd before the SPLITMV branch was tested.
-		// That mode's predictor used an MV that differs from SPLITMV's
-		// chosen MV in general, and macro_block_yrd's `zbin_mode_boost`
-		// also differed (MV_ZBIN_BOOST=4 for NEW/NEAR/NEAREST,
-		// LF_ZEROMV_ZBIN_BOOST=6 for ZEROMV(LAST), etc.) — so the Y2
-		// Walsh input AND the quantize zbin both diverge. govpx
-		// approximates this by reusing the chosen-SPLITMV per-block
-		// FDCT DCs and the SPLITMV `zbinModeBoost`(=0); the
-		// approximation matches libvpx whenever the SPLITMV per-block
-		// MVs collapse to the same MV the last 16x16 inter mode found,
-		// and diverges by 1 EOB scan position when they don't. Closing
-		// the residual to 100% would require tracking the actual last-
-		// tested 16x16 inter mode predictor through the picker.
+		// Direct helper callers do not carry the RD picker's mutable Y2
+		// block state. Populate a local trace-only snapshot here; the
+		// encoder path overwrites it with the picker-carried snapshot from
+		// the last whole-block mode that ran macro_block_yrd, matching
+		// libvpx's stale xd->block[24]/eobs[24] state for SPLITMV/B_PRED.
 		if collectOracle {
 			var staleY2Coeff [16]int16
 			var staleY2Q [16]int16
@@ -8658,8 +8608,8 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		yCoord := mbRow*16 + (block>>2)*4
 		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		// Capture chosen-mode FDCT DC for the oracle stale-Y2 trace
-		// snapshot (see OracleStaleY2EOB).
+		// Capture a local Y2-equivalent snapshot for direct helper callers.
+		// The encoder path overwrites this from picker state.
 		staleY2Input[block] = dct[0]
 		a := block & 3
 		l := (block & 0x0c) >> 2
@@ -8687,8 +8637,9 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 	}
 	coeffs.QCoeff[24] = [16]int16{}
 	coeffs.SetBlockEOB(24, 0)
-	// Mirror libvpx's stale Y2 second-order snapshot for B_PRED. See
-	// OracleStaleY2EOB for the rationale.
+	// Direct helper callers do not carry the RD picker's mutable Y2 block
+	// state. The encoder path overwrites this with the picker-carried
+	// snapshot from the last whole-block candidate.
 	if collectOracle {
 		var staleY2Coeff [16]int16
 		var staleY2Q [16]int16

@@ -48,10 +48,10 @@ type MacroblockCoefficients struct {
 	// trace captures that stale state, which makes the per-MB eob_sum
 	// scoreboard diverge from govpx (which keeps block 24 zero for
 	// SPLITMV/B_PRED). This field lets the trace emitter mirror libvpx's
-	// stale Y2 contribution by running govpx's chosen-mode predictor
-	// through the Y2 walsh + quantize even when the actual encoder path
-	// skips it. Only consulted by emitOracleMBTrace; never feeds
-	// bitstream emission, reconstruction, or any RD decision.
+	// stale Y2 contribution. The encoder path fills this from the RD picker's
+	// last whole-block candidate that quantized Y2; direct coefficient helpers
+	// may fill a local trace-only fallback. Only consulted by emitOracleMBTrace;
+	// never feeds bitstream emission, reconstruction, or any RD decision.
 	OracleStaleY2EOB    uint8
 	OracleStaleY2QCoeff [16]int16
 	OracleStaleY2Set    bool

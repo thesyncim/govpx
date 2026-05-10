@@ -360,12 +360,13 @@ type VP8Encoder struct {
 	// inter frame from observed mb_ref_frame counts (see
 	// vp8_estimate_entropy_savings); RD scoring needs the previous-frame
 	// values, not the per-frame static 128 default.
-	refProbIntra  uint8
-	refProbLast   uint8
-	refProbGolden uint8
-	// libvpx update_rd_ref_frame_probs (onyx_if.c) heuristically biases the
-	// reference-frame probabilities used by the *current* frame's RD scoring
-	// based on the upcoming refresh policy. It tracks frames_since_golden and
+	refProbIntra                   uint8
+	refProbLast                    uint8
+	refProbGolden                  uint8
+	refProbUseDefaultOnNextInterRD bool
+	// libvpx update_rd_ref_frame_probs (onyx_if.c) adjusts the reference-frame
+	// probabilities used by the *current* frame's RD scoring based on the
+	// upcoming refresh policy. It tracks frames_since_golden and
 	// source_alt_ref_active to drive the bumps; see update_golden_frame_stats
 	// for the lifecycle of those counters.
 	framesSinceGolden  int
@@ -653,12 +654,13 @@ type savedCodingContext struct {
 	// cpi->prob_skip_false; govpx's per-attempt deferred restore covers them
 	// inside one attempt, but the recode-loop snapshot pins the values that
 	// survive a rejected attempt.
-	refProbIntra       uint8
-	refProbLast        uint8
-	refProbGolden      uint8
-	probSkipFalse      uint8
-	lastSkipFalseProbs [3]uint8
-	valid              bool
+	refProbIntra                   uint8
+	refProbLast                    uint8
+	refProbGolden                  uint8
+	refProbUseDefaultOnNextInterRD bool
+	probSkipFalse                  uint8
+	lastSkipFalseProbs             [3]uint8
+	valid                          bool
 }
 
 // saveCodingContext mirrors libvpx vp8_save_coding_context. Called once before
@@ -666,19 +668,20 @@ type savedCodingContext struct {
 // when a recode attempt is rejected.
 func (e *VP8Encoder) saveCodingContext() {
 	e.savedContext = savedCodingContext{
-		framesSinceKey:        e.rc.framesSinceKeyframe,
-		filterLevel:           e.loopFilterLevel,
-		framesTillGFUpdateDue: e.rc.framesTillGFUpdateDue,
-		framesSinceGolden:     e.framesSinceGolden,
-		thisFramePercentIntra: e.rc.thisFramePercentIntra,
-		modeProbs:             e.modeProbs,
-		coefProbs:             e.coefProbs,
-		refProbIntra:          e.refProbIntra,
-		refProbLast:           e.refProbLast,
-		refProbGolden:         e.refProbGolden,
-		probSkipFalse:         e.probSkipFalse,
-		lastSkipFalseProbs:    e.lastSkipFalseProbs,
-		valid:                 true,
+		framesSinceKey:                 e.rc.framesSinceKeyframe,
+		filterLevel:                    e.loopFilterLevel,
+		framesTillGFUpdateDue:          e.rc.framesTillGFUpdateDue,
+		framesSinceGolden:              e.framesSinceGolden,
+		thisFramePercentIntra:          e.rc.thisFramePercentIntra,
+		modeProbs:                      e.modeProbs,
+		coefProbs:                      e.coefProbs,
+		refProbIntra:                   e.refProbIntra,
+		refProbLast:                    e.refProbLast,
+		refProbGolden:                  e.refProbGolden,
+		refProbUseDefaultOnNextInterRD: e.refProbUseDefaultOnNextInterRD,
+		probSkipFalse:                  e.probSkipFalse,
+		lastSkipFalseProbs:             e.lastSkipFalseProbs,
+		valid:                          true,
 	}
 }
 
@@ -699,6 +702,7 @@ func (e *VP8Encoder) restoreCodingContext() {
 	e.refProbIntra = e.savedContext.refProbIntra
 	e.refProbLast = e.savedContext.refProbLast
 	e.refProbGolden = e.savedContext.refProbGolden
+	e.refProbUseDefaultOnNextInterRD = e.savedContext.refProbUseDefaultOnNextInterRD
 	e.probSkipFalse = e.savedContext.probSkipFalse
 	e.lastSkipFalseProbs = e.savedContext.lastSkipFalseProbs
 }
@@ -1910,8 +1914,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	previousRefProbIntra := e.refProbIntra
 	previousRefProbLast := e.refProbLast
 	previousRefProbGolden := e.refProbGolden
+	if e.refProbUseDefaultOnNextInterRD {
+		e.resetRefFrameProbsToDefaultInterRD()
+	}
 	if !e.opts.TemporalScalability.Enabled {
-		e.applyRdRefFrameProbHeuristics(cfg.RefreshAltRef)
+		e.applyLibvpxRdRefFrameProbRefreshAdjustments(cfg.RefreshAltRef)
 	}
 	defer func() {
 		e.refProbIntra = previousRefProbIntra
@@ -2173,8 +2180,9 @@ func (e *VP8Encoder) updateRefFrameProbsFromKeyFrame() {
 	e.refProbIntra = 255
 	e.refProbLast = 128
 	e.refProbGolden = 128
+	e.refProbUseDefaultOnNextInterRD = true
 	if !e.opts.TemporalScalability.Enabled {
-		e.applyRdRefFrameProbHeuristics(false)
+		e.applyLibvpxRdRefFrameProbRefreshAdjustments(false)
 	}
 }
 
@@ -2188,7 +2196,7 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	// changed. We snapshot the accepted attempt's deltas to match.
 	e.updateLastSignaledLFDeltas(attempt.Config.LFDeltaEnabled, attempt.Config.RefLFDeltas, attempt.Config.ModeLFDeltas)
 	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
-	// counters used by applyRdRefFrameProbHeuristics next frame.
+	// counters used by applyLibvpxRdRefFrameProbRefreshAdjustments next frame.
 	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
@@ -2211,8 +2219,12 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 // mode counts after normal single-layer inter frames, and after all
 // multi-layer inter frames. Single-layer GF/ARF refresh frames deliberately
 // keep the previous probabilities and let update_rd_ref_frame_probs apply the
-// refresh heuristics on the next frame.
+// refresh adjustments on the next frame.
 func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAttempt) {
+	if e.refProbUseDefaultOnNextInterRD {
+		e.resetRefFrameProbsToDefaultInterRD()
+	}
+	e.refProbUseDefaultOnNextInterRD = false
 	if !libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef) {
 		return
 	}
@@ -2255,6 +2267,12 @@ func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAtte
 	e.refProbIntra = uint8(newIntra)
 	e.refProbLast = uint8(newLast)
 	e.refProbGolden = uint8(newGarf)
+}
+
+func (e *VP8Encoder) resetRefFrameProbsToDefaultInterRD() {
+	e.refProbIntra = 63
+	e.refProbLast = 128
+	e.refProbGolden = 128
 }
 
 func libvpxShouldConvertRefCountsToProb(temporalLayerCount int, refreshGolden bool, refreshAltRef bool) bool {
@@ -2353,17 +2371,17 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	}
 }
 
-// applyRdRefFrameProbHeuristics ports the heuristic adjustments in libvpx
-// vp8/encoder/onyx_if.c update_rd_ref_frame_probs that bias prob_intra/
-// prob_last/prob_gf for the *current* inter frame's RD scoring. The base
-// probabilities themselves are kept fresh by updateRefFrameProbsFromAttempt
+// applyLibvpxRdRefFrameProbRefreshAdjustments ports the refresh-policy
+// adjustments in libvpx vp8/encoder/onyx_if.c update_rd_ref_frame_probs that
+// bias prob_intra/prob_last/prob_gf for the *current* inter frame's RD scoring.
+// The base probabilities themselves are kept fresh by updateRefFrameProbsFromAttempt
 // (the equivalent of vp8_convert_rfct_to_prob) at packet write time, so this
-// function only stamps the per-frame heuristic adjustments on top.
+// function only stamps the per-frame refresh adjustments on top.
 //
 // In libvpx these bumps are gated by `oxcf.number_of_layers == 1`; govpx's
 // temporal-scalability path runs through interReferenceFrameRatesForFlags
 // special cases instead, so the layer guard is enforced by the call site.
-func (e *VP8Encoder) applyRdRefFrameProbHeuristics(refreshAltRef bool) {
+func (e *VP8Encoder) applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef bool) {
 	if refreshAltRef {
 		probIntra := min(int(e.refProbIntra)+40, 255)
 		e.refProbIntra = uint8(probIntra)

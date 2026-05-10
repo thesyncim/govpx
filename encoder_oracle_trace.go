@@ -856,11 +856,8 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	if is4x4 && coeffs.OracleStaleY2Set {
 		// libvpx's vp8_quantize_mb skips block 24 for SPLITMV/B_PRED,
 		// so xd->block[24].qcoeff/eobs[24] retain stale data from the
-		// last RD-pick mode that quantized Y2. Mirror that contribution
-		// using the chosen mode's Y2-equivalent computation captured by
-		// buildPredictedMacroblockCoefficientsRD; this keeps the
-		// per-MB eob_sum scoreboard aligned with libvpx without
-		// modifying the actual encoder block-24 state.
+		// last RD-pick mode that quantized Y2. Mirror that trace-only
+		// contribution without modifying the actual encoder block-24 state.
 		row.EOB[24] = coeffs.OracleStaleY2EOB
 		row.QCoeff[24] = coeffs.OracleStaleY2QCoeff
 	}
