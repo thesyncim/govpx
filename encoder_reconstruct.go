@@ -5028,20 +5028,21 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src vp8enc.Sou
 	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
 		best = bounds.clampEighth(best)
 	}
-	bestWalkCost := interMotionSearchCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
+	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs)
+	bestWalkCost := searcher.walkCost(best, maxInt())
 	if bestWalkCost == 0 {
-		return best, interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, mvProbs)
+		return best, searcher.cost(best)
 	}
 	if search.fullPixelSearch == interAnalysisFullPixelSearchNstep {
-		return nstepInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds, search, mvProbs)
+		return searcher.nstep(best, bestWalkCost, search)
 	}
 	if search.fullPixelSearch == interAnalysisFullPixelSearchDiamond {
-		return diamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds, search, mvProbs)
+		return searcher.diamond(best, bestWalkCost, search)
 	}
 	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
-		return hexInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, bounds)
+		return searcher.hex(best, bestWalkCost)
 	}
-	return exhaustiveInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestWalkCost, bestRefMV, qIndex, mvProbs)
+	return searcher.exhaustive(best, bestWalkCost)
 }
 
 type interFrameSearchStart struct {
@@ -5585,34 +5586,6 @@ func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8comm
 	return splitBlockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset)
 }
 
-func exhaustiveInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	centerRow := int(bestRefMV.Row) & ^7
-	centerCol := int(bestRefMV.Col) & ^7
-	// R15-B: hoist src/ref slice-header + bounds limits out of the inner
-	// SAD call, and the bestRefMV-shifted-to-fullpel anchors (the
-	// MotionVectorSADCost LUT index is invariant in bestRefMV).
-	ctx := newFullPelSearchCtx(src, ref, mbRow, mbCol)
-	refRow8 := int(bestRefMV.Row) >> 3
-	refCol8 := int(bestRefMV.Col) >> 3
-	bestMVRow := int(best.Row)
-	bestMVCol := int(best.Col)
-	for row := centerRow - interFrameMVSearchRange; row <= centerRow+interFrameMVSearchRange; row += interFrameMVFullPixelStep {
-		for col := centerCol - interFrameMVSearchRange; col <= centerCol+interFrameMVSearchRange; col += interFrameMVFullPixelStep {
-			if row == bestMVRow && col == bestMVCol {
-				continue
-			}
-			cost := ctx.fullPelCostLimited(row, col, bestWalkCost, refRow8, refCol8, qIndex)
-			if cost < bestWalkCost {
-				bestMVRow = row
-				bestMVCol = col
-				bestWalkCost = cost
-			}
-		}
-	}
-	best = vp8enc.MotionVector{Row: int16(bestMVRow), Col: int16(bestMVCol)}
-	return best, interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, mvProbs)
-}
-
 type interFrameFullPixelBounds struct {
 	rowMin int
 	rowMax int
@@ -5712,336 +5685,6 @@ func (b interFrameFullPixelBounds) clampEighth(mv vp8enc.MotionVector) vp8enc.Mo
 		col = b.colMax
 	}
 	return vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
-}
-
-type interFrameNstepSearchResult struct {
-	mv    vp8enc.MotionVector
-	cost  int
-	num00 int
-}
-
-func nstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	return steppedDiamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, search, interFrameNstepSites[:], 8, mvProbs)
-}
-
-func diamondInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	return steppedDiamondInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, search, interFrameDiamondSites[:], 4, mvProbs)
-}
-
-func steppedDiamondInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, search interAnalysisSearchConfig, sites []vp8enc.MotionVector, sitesPerStep int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	stepParam := search.fullPixelSearchParam
-	if stepParam < 0 {
-		stepParam = 0
-	} else if stepParam >= interFrameMaxMVSearchSteps {
-		stepParam = interFrameMaxMVSearchSteps - 1
-	}
-
-	result := diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites, sitesPerStep, stepParam, mvProbs)
-	best := result.mv
-	bestCost := result.cost
-	n := result.num00
-	num00 := 0
-	doRefine := search.fullPixelFinalRefine
-	if n > search.fullPixelFurtherSteps {
-		doRefine = false
-	}
-	for n < search.fullPixelFurtherSteps {
-		n++
-		if num00 > 0 {
-			num00--
-			continue
-		}
-		candidate := diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, sites, sitesPerStep, stepParam+n, mvProbs)
-		num00 = candidate.num00
-		if search.fullPixelFinalRefine && num00 > search.fullPixelFurtherSteps-n {
-			doRefine = false
-		}
-		if candidate.cost < bestCost {
-			best = candidate.mv
-			bestCost = candidate.cost
-		}
-	}
-	if doRefine {
-		best, bestCost = refineInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, bounds, 8, mvProbs)
-	}
-	return best, bestCost
-}
-
-func diamondNstepInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, searchParam int, mvProbs *[2][vp8tables.MVPCount]uint8) interFrameNstepSearchResult {
-	return diamondSearchSitesInterFrameFullPixelMotionVector(src, ref, mbRow, mbCol, center, centerWalkCost, bestRefMV, qIndex, bounds, interFrameNstepSites[:], 8, searchParam, mvProbs)
-}
-
-func diamondSearchSitesInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, sites []vp8enc.MotionVector, sitesPerStep int, searchParam int, mvProbs *[2][vp8tables.MVPCount]uint8) interFrameNstepSearchResult {
-	if sitesPerStep <= 0 || len(sites) < 1+sitesPerStep {
-		return interFrameNstepSearchResult{mv: center, cost: interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, center, bestRefMV, qIndex, mvProbs)}
-	}
-	if searchParam < 0 {
-		searchParam = 0
-	} else if searchParam >= interFrameMaxMVSearchSteps {
-		searchParam = interFrameMaxMVSearchSteps - 1
-	}
-	best := center
-	bestWalkCost := centerWalkCost
-	start := center
-	startIndex := searchParam * sitesPerStep
-	totalSteps := (len(sites) / sitesPerStep) - searchParam
-	i := 1
-	bestSite := 0
-	lastSite := 0
-	num00 := 0
-	// R15-B: hoist src/ref slice-header + bounds limits out of the inner
-	// SAD-cost kernel into a per-search context, plus the bestRefMV
-	// full-pel anchor that the SAD cost LUT indexes against.
-	ctx := newFullPelSearchCtx(src, ref, mbRow, mbCol)
-	refRow8 := int(bestRefMV.Row) >> 3
-	refCol8 := int(bestRefMV.Col) >> 3
-	for range totalSteps {
-		for range sitesPerStep {
-			siteIndex := startIndex + i
-			if siteIndex >= len(sites) {
-				break
-			}
-			site := sites[siteIndex]
-			row := (int(best.Row) >> 3) + int(site.Row)
-			col := (int(best.Col) >> 3) + int(site.Col)
-			if bounds.containsFullPelStrict(row, col) {
-				mvRow := row * interFrameMVFullPixelStep
-				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
-				if cost < bestWalkCost {
-					bestWalkCost = cost
-					bestSite = i
-				}
-			}
-			i++
-		}
-		if bestSite != lastSite {
-			site := sites[startIndex+bestSite]
-			best = vp8enc.MotionVector{
-				Row: int16(int(best.Row) + int(site.Row)*interFrameMVFullPixelStep),
-				Col: int16(int(best.Col) + int(site.Col)*interFrameMVFullPixelStep),
-			}
-			lastSite = bestSite
-		} else if best == start {
-			num00++
-		}
-	}
-	return interFrameNstepSearchResult{mv: best, cost: interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, mvProbs), num00: num00}
-}
-
-func refineInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, start vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, searchRange int, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
-	neighbors := [...]vp8enc.MotionVector{
-		{Row: -1},
-		{Col: -1},
-		{Col: 1},
-		{Row: 1},
-	}
-	best := start
-	bestWalkCost := interMotionSearchCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex)
-	// R15-B: hoist src/ref slice-header + bounds limits and the
-	// bestRefMV full-pel anchor out of the inner SAD-cost kernel.
-	ctx := newFullPelSearchCtx(src, ref, mbRow, mbCol)
-	refRow8 := int(bestRefMV.Row) >> 3
-	refCol8 := int(bestRefMV.Col) >> 3
-	for range searchRange {
-		bestSite := -1
-		br := int(best.Row) >> 3
-		bc := int(best.Col) >> 3
-		for j, step := range neighbors {
-			row := br + int(step.Row)
-			col := bc + int(step.Col)
-			if !bounds.containsFullPelStrict(row, col) {
-				continue
-			}
-			mvRow := row * interFrameMVFullPixelStep
-			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
-			if cost < bestWalkCost {
-				bestWalkCost = cost
-				bestSite = j
-			}
-		}
-		if bestSite < 0 {
-			break
-		}
-		best = vp8enc.MotionVector{
-			Row: int16(int(best.Row) + int(neighbors[bestSite].Row)*interFrameMVFullPixelStep),
-			Col: int16(int(best.Col) + int(neighbors[bestSite].Col)*interFrameMVFullPixelStep),
-		}
-	}
-	return best, interMotionFullPixelSearchReturnCost(src, ref, mbRow, mbCol, best, bestRefMV, qIndex, mvProbs)
-}
-
-// interFrameNstepSites and interFrameDiamondSites are package-level
-// pre-computed search-site arrays. R14-B avoids regenerating them on each
-// search invocation (each call previously zero-initialised and rebuilt
-// 1+8*step / 1+4*step entries).
-var interFrameNstepSites = buildInterFrameNstepSearchSites()
-var interFrameDiamondSites = buildInterFrameDiamondSearchSites()
-
-func buildInterFrameNstepSearchSites() [1 + interFrameMaxMVSearchSteps*8]vp8enc.MotionVector {
-	var sites [1 + interFrameMaxMVSearchSteps*8]vp8enc.MotionVector
-	count := 1
-	for length := 1 << (interFrameMaxMVSearchSteps - 1); length > 0; length /= 2 {
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(length)}
-		count++
-	}
-	return sites
-}
-
-func buildInterFrameDiamondSearchSites() [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector {
-	var sites [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector
-	count := 1
-	for length := 1 << (interFrameMaxMVSearchSteps - 1); length > 0; length /= 2 {
-		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: 0}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(-length)}
-		count++
-		sites[count] = vp8enc.MotionVector{Row: 0, Col: int16(length)}
-		count++
-	}
-	return sites
-}
-
-func interFrameNstepSearchSites() [1 + interFrameMaxMVSearchSteps*8]vp8enc.MotionVector {
-	return interFrameNstepSites
-}
-
-func interFrameDiamondSearchSites() [1 + interFrameMaxMVSearchSteps*4]vp8enc.MotionVector {
-	return interFrameDiamondSites
-}
-
-func hexInterFrameFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds) (vp8enc.MotionVector, int) {
-	hex := [...]vp8enc.MotionVector{
-		{Row: -1, Col: -2},
-		{Row: 1, Col: -2},
-		{Row: 2, Col: 0},
-		{Row: 1, Col: 2},
-		{Row: -1, Col: 2},
-		{Row: -2, Col: 0},
-	}
-	nextCheckpoints := [...][3]vp8enc.MotionVector{
-		{{Row: -2, Col: 0}, {Row: -1, Col: -2}, {Row: 1, Col: -2}},
-		{{Row: -1, Col: -2}, {Row: 1, Col: -2}, {Row: 2, Col: 0}},
-		{{Row: 1, Col: -2}, {Row: 2, Col: 0}, {Row: 1, Col: 2}},
-		{{Row: 2, Col: 0}, {Row: 1, Col: 2}, {Row: -1, Col: 2}},
-		{{Row: 1, Col: 2}, {Row: -1, Col: 2}, {Row: -2, Col: 0}},
-		{{Row: -1, Col: 2}, {Row: -2, Col: 0}, {Row: -1, Col: -2}},
-	}
-	neighbors := [...]vp8enc.MotionVector{
-		{Row: 0, Col: -1},
-		{Row: -1, Col: 0},
-		{Row: 1, Col: 0},
-		{Row: 0, Col: 1},
-	}
-
-	br := int(best.Row) >> 3
-	bc := int(best.Col) >> 3
-	bestSite := -1
-	// R15-B: hoist src/ref slice-header + bounds limits and bestRefMV
-	// full-pel anchor out of the inner SAD-cost kernel into a per-search
-	// context (re-used across the hex outer ring, the next-checkpoint
-	// walk, and the neighbor refinement).
-	ctx := newFullPelSearchCtx(src, ref, mbRow, mbCol)
-	refRow8 := int(bestRefMV.Row) >> 3
-	refCol8 := int(bestRefMV.Col) >> 3
-	bestMVRow := int(best.Row)
-	bestMVCol := int(best.Col)
-	for i, step := range hex {
-		row := br + int(step.Row)
-		col := bc + int(step.Col)
-		if !bounds.containsFullPel(row, col) {
-			continue
-		}
-		mvRow := row * interFrameMVFullPixelStep
-		mvCol := col * interFrameMVFullPixelStep
-		cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-		if cost < bestCost {
-			bestMVRow = mvRow
-			bestMVCol = mvCol
-			bestCost = cost
-			bestSite = i
-		}
-	}
-	if bestSite >= 0 {
-		br = bestMVRow >> 3
-		bc = bestMVCol >> 3
-		k := bestSite
-		for j := 1; j < 127; j++ {
-			bestSite = -1
-			for i, step := range nextCheckpoints[k] {
-				row := br + int(step.Row)
-				col := bc + int(step.Col)
-				if !bounds.containsFullPel(row, col) {
-					continue
-				}
-				mvRow := row * interFrameMVFullPixelStep
-				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-				if cost < bestCost {
-					bestMVRow = mvRow
-					bestMVCol = mvCol
-					bestCost = cost
-					bestSite = i
-				}
-			}
-			if bestSite < 0 {
-				break
-			}
-			br = bestMVRow >> 3
-			bc = bestMVCol >> 3
-			k += 5 + bestSite
-			if k >= 12 {
-				k -= 12
-			} else if k >= 6 {
-				k -= 6
-			}
-		}
-	}
-
-	br = bestMVRow >> 3
-	bc = bestMVCol >> 3
-	for range 8 {
-		bestSite = -1
-		for i, step := range neighbors {
-			row := br + int(step.Row)
-			col := bc + int(step.Col)
-			if !bounds.containsFullPel(row, col) {
-				continue
-			}
-			mvRow := row * interFrameMVFullPixelStep
-			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-			if cost < bestCost {
-				bestMVRow = mvRow
-				bestMVCol = mvCol
-				bestCost = cost
-				bestSite = i
-			}
-		}
-		if bestSite < 0 {
-			break
-		}
-		br = bestMVRow >> 3
-		bc = bestMVCol >> 3
-	}
-	return vp8enc.MotionVector{Row: int16(bestMVRow), Col: int16(bestMVCol)}, bestCost
 }
 
 func refineInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, best vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int, bool) {
@@ -6425,17 +6068,14 @@ func interMotionSearchCostLimitedSADPerBit(src vp8enc.SourceImage, ref *vp8commo
 }
 
 // fullPelSearchCtx hoists the per-MB invariants for the diamond / n-step /
-// refine / hex / exhaustive full-pel search kernels out of the per-site
-// inner loop. The picker walks 80+ candidate sites against the same source
-// macroblock and reference plane, so the source-row pointer, the bounds
-// limits, and the slice-header prologue computed inside the per-site cost
-// kernel are loop-invariant. R15-B converts every diamond / n-step /
-// refine / hex / exhaustive call site to use this context, which retired
-// the previous interMotionSearchCostLimitedFullPel wrapper.
+// refine / hex / exhaustive full-pel search kernels out of the per-site inner
+// loop. The picker walks many candidate sites against the same source
+// macroblock and reference plane, so the source-row pointer, bounds limits,
+// and slice-header prologue are loop-invariant.
 //
 // fullPelCostLimited is the inner kernel: it folds the in-bounds predicate
 // to one `uint(x) <= uint(limit)` compare per axis (src-side bounds are
-// proven loop-invariant by construction — baseY/baseX are derived from a
+// proven loop-invariant by construction: baseY/baseX are derived from a
 // valid mbRow/mbCol — and dropped from the per-site predicate altogether),
 // takes a precomputed source pointer, and short-circuits the slow /
 // out-of-bounds tail to the regular wrapper.

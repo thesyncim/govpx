@@ -897,7 +897,7 @@ func TestInterAnalysisNoSkipBlock4x4SearchMirrorsLibvpxSpeedFeature(t *testing.T
 }
 
 func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
-	sites := interFrameNstepSearchSites()
+	sites := interFrameNstepSites[:]
 	if len(sites) != 65 {
 		t.Fatalf("nstep search sites = %d, want 65", len(sites))
 	}
@@ -923,7 +923,7 @@ func TestInterFrameNstepSearchSitesMirrorLibvpx3StepTable(t *testing.T) {
 }
 
 func TestInterFrameDiamondSearchSitesMirrorLibvpxDSMotionTable(t *testing.T) {
-	sites := interFrameDiamondSearchSites()
+	sites := interFrameDiamondSites[:]
 	if len(sites) != 33 {
 		t.Fatalf("diamond search sites = %d, want 33", len(sites))
 	}
