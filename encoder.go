@@ -480,19 +480,6 @@ type VP8Encoder struct {
 	interModeSpeedErrorBins [1024]uint32
 	interRDFrameActive      bool
 
-	// Per-MB snapshots of the picker mutator state, used by the cyclic-
-	// refresh segment-fallback path so the segmentID=0 fallback picker
-	// call does not see the segmentID-guess call's mutations. Stored on
-	// the encoder (not on the stack) so the fallback path stays
-	// zero-alloc; libvpx runs the picker once per MB regardless of
-	// segment, so this snapshot/restore mirrors that single-call
-	// invariant. See encoder_reconstruct.go encodeInterFrameAttempt's
-	// per-MB loop.
-	interRDThreshMultSnapshot      [libvpxInterModeCount]int
-	interRDThreshTouchedSnapshot   [libvpxInterModeCount]bool
-	interModeTestHitCountsSnapshot [libvpxInterModeCount]int
-	interMBsTestedSoFarSnapshot    int
-
 	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
 	// pickers. Libvpx initializes cpi->rd_baseline_thresh once per frame
 	// from cm->base_qindex before per-MB segment quant selection, so the
@@ -3485,11 +3472,6 @@ func (e *VP8Encoder) Reset() {
 	e.coefProbsAltRef = vp8tables.CoefficientProbs{}
 	e.coefProbsSnapshotsValid = false
 	e.rdPickerCoefProbsActive = nil
-	// Inter-RD state captured by snapshot/restore around the recode loop.
-	e.interRDThreshMultSnapshot = [libvpxInterModeCount]int{}
-	e.interRDThreshTouchedSnapshot = [libvpxInterModeCount]bool{}
-	e.interModeTestHitCountsSnapshot = [libvpxInterModeCount]int{}
-	e.interMBsTestedSoFarSnapshot = 0
 	// resetInterRDThresholdMultipliers() bumped interRDThreshBaselineGen
 	// once during the encoder-level scalars block above; leave it at 1 to
 	// match NewVP8Encoder's cold-start trajectory.

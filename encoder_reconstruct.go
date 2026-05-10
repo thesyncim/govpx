@@ -460,19 +460,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			e.beginInterRDModeDecisionMacroblock()
 			var fallbackSnapshot interMacroblockImageSnapshot
 			haveFallbackSnapshot := false
-			// Snapshot the picker mutator state ONLY when segmentID != 0
-			// so the cyclic-refresh segment-fallback path can restore it
-			// to mirror libvpx's single-picker-call-per-MB invariant. The
-			// snapshot only exists on this rare path, so the segmentID == 0
-			// hot path stays untouched. See R12-C ZEROMV/NEARESTMV swap fix
-			// (build_vpxenc_oracle.sh oracle_trace.c picker_entry hook).
+			// Snapshot only the reconstructed pixels for cyclic-refresh
+			// quantizer fallback. Libvpx still keeps the picker-side
+			// rd_thresh_mult / mode-test mutations from the original
+			// segment-1 picker call, then clears segment_id after the picker
+			// if the chosen mode is not LAST/ZEROMV.
 			if segmentID != 0 {
 				snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				haveFallbackSnapshot = true
-				e.interRDThreshMultSnapshot = e.interRDThreshMult
-				e.interRDThreshTouchedSnapshot = e.interRDThreshTouched
-				e.interModeTestHitCountsSnapshot = e.interModeTestHitCounts
-				e.interMBsTestedSoFarSnapshot = e.interMBsTestedSoFar
 			}
 			decision, ok := e.selectInterFrameModeDecision(
 				src, refs[:], refCount,
@@ -490,15 +485,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if haveFallbackSnapshot {
 					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				}
-				// Restore the snapshotted state so the segmentID=0
-				// segment-guess picker call doesn't leak its mutable state
-				// into the next MB. libvpx runs the picker once per MB,
-				// then clears the segment on non-eligible MBs rather than
-				// re-picking.
-				e.interRDThreshMult = e.interRDThreshMultSnapshot
-				e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
-				e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
-				e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
 				segmentID = 0
 				decision.interMode.SegmentID = 0
 				decision.intraMode.SegmentID = 0
@@ -1728,10 +1714,16 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	}
 	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
 	if !e.interAnalysisUsesRDModeDecision() {
+		// Libvpx encodeframe.c resets x->rdmult/x->rddiv from the
+		// frame-level cpi->RDMULT/RDDIV before vp8cx_mb_init_quantizer()
+		// applies per-segment quant tables. The fast picker therefore uses
+		// base_qindex for RD-cost and motion-search rate scaling, while the
+		// supplied quant still reflects the candidate segment for breakout
+		// and final residual coding.
 		return e.selectFastInterFrameModeDecision(
 			src, refs, refCount,
 			mbRow, mbCol, mbRows, mbCols,
-			segmentQIndex, segmentID,
+			baseQIndex, segmentID,
 			above, left, aboveLeft,
 			quant,
 		)

@@ -361,10 +361,6 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if segmentID != 0 {
 		snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 		haveFallbackSnapshot = true
-		e.interRDThreshMultSnapshot = e.interRDThreshMult
-		e.interRDThreshTouchedSnapshot = e.interRDThreshTouched
-		e.interModeTestHitCountsSnapshot = e.interModeTestHitCounts
-		e.interMBsTestedSoFarSnapshot = e.interMBsTestedSoFar
 	}
 	decision, ok := e.selectInterFrameModeDecision(
 		args.src, args.refs[:], args.refCount,
@@ -382,10 +378,6 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		if haveFallbackSnapshot {
 			restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 		}
-		e.interRDThreshMult = e.interRDThreshMultSnapshot
-		e.interRDThreshTouched = e.interRDThreshTouchedSnapshot
-		e.interModeTestHitCounts = e.interModeTestHitCountsSnapshot
-		e.interMBsTestedSoFar = e.interMBsTestedSoFarSnapshot
 		segmentID = 0
 		decision.interMode.SegmentID = 0
 		decision.intraMode.SegmentID = 0

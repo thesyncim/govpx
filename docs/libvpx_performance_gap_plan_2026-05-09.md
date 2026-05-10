@@ -86,34 +86,50 @@ Update from 2026-05-10, call-count pass:
 - The 720p bench path is not double-encoding frames. With warm-up excluded,
   the measured 30-frame pass is exactly `key=1 inter=29`, and packet writing is
   exactly `1.00` per inter attempt.
-- Pinned Speed 4 (`1280x720`, 30 frames, realtime CBR, 2500 kbps, threads=1):
-  govpx `12.15 ms/frame`, libvpx `4.79 ms/frame`, `2.53x` slower; output bytes
-  ratio `0.96x`. Govpx per inter-frame count: `403.31` NEWMV searches,
-  `16219.07` full-pel SAD calls, `4842.38` subpel variance calls, `6.24`
-  loop-filter trials.
-- Pinned Speed 8 on the same bench: govpx `9.48 ms/frame`, libvpx
-  `2.98 ms/frame`, `3.19x` slower; output bytes ratio `1.04x`. Govpx per
-  inter-frame count: `564.10` NEWMV searches, `7117.59` full-pel SAD calls,
-  `6205.14` subpel variance calls, `2.45` loop-filter trials. Speed 8 cuts
-  full-pel and LF work but increases NEWMV/subpel work and worsens the speed
-  ratio, so the remaining gap is not explained by one slow kernel.
-- Pinned libvpx oracle trace on a 4-frame 720p noise diagnostic shows the
-  first decision-volume mismatch:
-  - Speed 4: govpx ran `4634` NEWMV searches; libvpx emitted `4112` NEWMV
-    candidates (`3921` mode 13 + `191` mode 14), about `+12.7%` in govpx.
-    The extra mode-13 calls line up with the `rd_threshes` gate: govpx skipped
-    `6395`, libvpx skipped `6879`.
-  - Speed 8: govpx ran `363` NEWMV searches; libvpx emitted `266` NEWMV
-    candidates (`191` mode 13 + `75` mode 14), about `+36.5%` in govpx. Again
-    the mismatch concentrates at mode 13 NEWMV: govpx tested `316`, libvpx
-    tested `191`, while libvpx's `rd_threshes` gate skipped more work
-    (`10609` vs govpx `10484`).
-- Next performance lane: diff the dynamic fast-picker `rd_threshes` /
-  `rd_thresh_mult` / `best_rd` trajectory for mode index 13 (NEWMV LAST) under
-  pinned Speed 4 and Speed 8. Do not change SAD/subpel kernels first; the call
-  counts prove the current high-value issue is when govpx chooses to invoke the
-  motion search. After that, return to accepted-mode residual reuse and token
-  writer/probability pass reduction.
+- Post-fix 720p bench samples after porting libvpx's cyclic-refresh picker
+  mutation lifetime and frame/base-Q RD-cost scaling:
+  - Pinned Speed 4 (`-cpu-used=-4`, 30 frames): govpx `11.94 ms/frame`,
+    libvpx `5.03 ms/frame`, `2.37x` slower; output byte ratio `1.00x`.
+  - Default realtime auto-speed (`-cpu-used=8`, 30 frames): govpx
+    `11.44 ms/frame`, libvpx `5.04 ms/frame`, `2.27x` slower; output byte
+    ratio `1.00x`.
+  - Pinned Speed 8 (`-cpu-used=-8`, 30 frames): govpx `9.49 ms/frame`,
+    libvpx `3.05 ms/frame`, `3.11x` slower; output byte ratio `1.02x`.
+  - Quality run on default realtime: PSNR and SSIM are exact within report
+    precision (`27.54` vs `27.54`, `0.91033` vs `0.91033`).
+- Pinned libvpx oracle trace on the 30-frame 720p noise diagnostic gives the
+  current decision-call truth:
+  - Speed 4 is exact: govpx and libvpx both emit `337486` inter-candidate
+    rows, with `missing_gov=0`, `extra_gov=0`, and exact mode/ref/frame
+    histograms. The remaining `2.4x` Speed 4 gap is therefore not from extra
+    picker calls.
+  - Speed 8 still has a small decision-volume mismatch: govpx `396740`,
+    libvpx `388225`, delta `+8515` (`+2.19%`). The excess is mostly
+    `ZEROMV +7233`, `NEARESTMV +2117`, and `GOLDEN_FRAME +9931`; NEWMV is
+    actually lower (`-816`). This can affect quality/bitrate trajectory, but
+    it is too small to explain a `3.17x` wall-clock gap by itself.
+  - Default realtime `cpu-used=8` is also close by count: govpx `328058`,
+    libvpx `324940`, delta `+3118` (`+0.96%`). Relative NEARMV/NEWMV deltas
+    are large because libvpx evaluates very few of those modes at this config,
+    but the absolute excess is only `2021` candidate rows.
+- Govpx-only coverage-count profiles on the same 30-frame fixture show where
+  the matched decisions still spend Go work:
+  - Speed 4: `104400` MB picker entries, `2088000` mode-loop iterations,
+    `231388` inter-score calls, `398138` full-pel SAD calls, `127889`
+    subpel-variance calls, and `2731853` linear variance-cache slot probes for
+    only `226811` actual variance fills.
+  - Speed 8: `292340` inter-score calls, `170111` full-pel SAD calls,
+    `150117` subpel-variance calls, and `3427820` variance-cache slot probes.
+  - Default `cpu-used=8`: `244765` inter-score calls, `397104` full-pel SAD
+    calls, `132334` subpel-variance calls, and `2894373` variance-cache slot
+    probes.
+- Next performance lane: do not add more decision heuristics. Speed 4 call
+  counts are already exact. Chase per-evaluation and duplicate-pipeline costs
+  while preserving libvpx flow: replace the hot linear variance-cache scan
+  with a source-backed mode/ref reuse shape, reuse accepted residual/recon
+  work instead of rebuilding it after pick, reduce token/probability duplicate
+  passes, and keep loop-filter picking on libvpx's trial semantics while
+  avoiding repeated copy/filter/SSE work.
 - Rejected experiment: changing loop-filter SSE scoring from govpx's vertical
   16-wide strip scan back to libvpx's row-major 16x16 block order regressed M4
   arm64 microbenchmarks (`partial` roughly `72-74 us` to `74-77 us`, `full`
