@@ -30,6 +30,85 @@ func TestBuildKeyFrameCoefficientProbabilityUpdates(t *testing.T) {
 	}
 }
 
+func TestCoefficientTokenCountPathMatchesBranchCountPath(t *testing.T) {
+	const rows, cols = 3, 4
+	keyModes := make([]KeyFrameMacroblockMode, rows*cols)
+	interModes := make([]InterFrameMacroblockMode, rows*cols)
+	coeffs := make([]MacroblockCoefficients, rows*cols)
+	for i := range coeffs {
+		keyModes[i] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+		if i%3 == 0 {
+			keyModes[i].YMode = common.BPred
+			for b := range keyModes[i].BModes {
+				keyModes[i].BModes[b] = common.BDCPred
+			}
+		}
+		interModes[i] = InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.ZeroMV, UVMode: common.DCPred}
+		if i%5 == 0 {
+			interModes[i].MBSkipCoeff = true
+		}
+		coeffs[i].QCoeff[24][0] = int16(1 + i%7)
+		coeffs[i].QCoeff[0][1] = int16(2 + i%5)
+		coeffs[i].QCoeff[1][3] = int16(-3 - i%3)
+		coeffs[i].QCoeff[16][0] = int16(1 + i%4)
+		coeffs[i].QCoeff[20][2] = int16(-1 - i%6)
+	}
+
+	base := tables.DefaultCoefProbs
+	var keyBranch coefficientBranchCounts
+	var keyToken coefficientTokenCounts
+	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, keyModes, coeffs, make([]TokenContextPlanes, cols), &base, &keyBranch); err != nil {
+		t.Fatalf("buildKeyFrameCoefficientBranchCounts: %v", err)
+	}
+	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, keyModes, coeffs, make([]TokenContextPlanes, cols), &base, &keyToken); err != nil {
+		t.Fatalf("buildKeyFrameCoefficientTokenCounts: %v", err)
+	}
+	assertCoefficientCountPathsMatch(t, &base, &keyBranch, &keyToken, true)
+
+	var interBranch coefficientBranchCounts
+	var interToken coefficientTokenCounts
+	if err := buildInterCoefficientBranchCounts(rows, cols, interModes, coeffs, make([]TokenContextPlanes, cols), &base, &interBranch); err != nil {
+		t.Fatalf("buildInterCoefficientBranchCounts: %v", err)
+	}
+	if err := buildInterCoefficientTokenCounts(rows, cols, interModes, coeffs, make([]TokenContextPlanes, cols), &base, &interToken); err != nil {
+		t.Fatalf("buildInterCoefficientTokenCounts: %v", err)
+	}
+	assertCoefficientCountPathsMatch(t, &base, &interBranch, &interToken, false)
+}
+
+func assertCoefficientCountPathsMatch(t *testing.T, base *tables.CoefficientProbs, branch *coefficientBranchCounts, token *coefficientTokenCounts, keyFrame bool) {
+	t.Helper()
+	branchProbs, branchUpdates, err := coefficientProbabilityUpdatesFromCounts(base, branch)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
+	}
+	tokenProbs, tokenUpdates, err := coefficientProbabilityUpdatesFromTokenCounts(base, token)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromTokenCounts: %v", err)
+	}
+	if branchProbs != tokenProbs || branchUpdates != tokenUpdates {
+		t.Fatalf("default token-count path diverged from branch-count path: branch updates=%d token updates=%d", branchUpdates.UpdateCount, tokenUpdates.UpdateCount)
+	}
+	if got, want := coefficientEntropySavingsFromTokenCounts(base, token), coefficientEntropySavingsFromCounts(base, branch); got != want {
+		t.Fatalf("default token-count savings = %d, want branch-count savings %d", got, want)
+	}
+
+	branchProbs, branchUpdates, err = coefficientProbabilityUpdatesFromCountsIndependent(base, branch, keyFrame)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
+	}
+	tokenProbs, tokenUpdates, err = coefficientProbabilityUpdatesFromTokenCountsIndependent(base, token, keyFrame)
+	if err != nil {
+		t.Fatalf("coefficientProbabilityUpdatesFromTokenCountsIndependent: %v", err)
+	}
+	if branchProbs != tokenProbs || branchUpdates != tokenUpdates {
+		t.Fatalf("independent token-count path diverged from branch-count path: branch updates=%d token updates=%d", branchUpdates.UpdateCount, tokenUpdates.UpdateCount)
+	}
+	if got, want := coefficientEntropySavingsFromTokenCountsIndependent(base, token, keyFrame), coefficientEntropySavingsFromCountsIndependent(base, branch, keyFrame); got != want {
+		t.Fatalf("independent token-count savings = %d, want branch-count savings %d", got, want)
+	}
+}
+
 // TestIndependentCoefContextSavingsHandComputed pins the independent-context
 // new-probability output to the libvpx integer formula taken from
 // vp8/common/treecoder.c vp8_tree_probs_from_distribution (Pfactor=256,

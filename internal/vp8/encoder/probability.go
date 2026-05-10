@@ -53,11 +53,11 @@ func WriteCoefficientProbabilityUpdates(w *BoolWriter, updates *CoefficientProba
 // path treats key frames identically to inter frames at the savings step, so
 // no extra force-emit is applied here — matching the bitstream libvpx writes.
 func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	var counts coefficientBranchCounts
-	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
-	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+	return coefficientProbabilityUpdatesFromTokenCounts(base, &counts)
 }
 
 // BuildKeyFrameCoefficientProbabilityUpdatesIndependent ports the key-frame
@@ -66,10 +66,11 @@ func BuildKeyFrameCoefficientProbabilityUpdates(rows int, cols int, modes []KeyF
 // default_coef_counts, so the emitted updates are intentionally independent of
 // the current frame's coefficient content.
 func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	var counts coefficientBranchCounts
-	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var observed coefficientTokenCounts
+	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &observed); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
+	var counts coefficientBranchCounts
 	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, true)
 }
@@ -106,22 +107,22 @@ func buildKeyFrameCoefficientBranchCounts(rows int, cols int, modes []KeyFrameMa
 }
 
 func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	var counts coefficientBranchCounts
-	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildInterCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
-	return coefficientProbabilityUpdatesFromCounts(base, &counts)
+	return coefficientProbabilityUpdatesFromTokenCounts(base, &counts)
 }
 
 // KeyFrameCoefficientEntropySavings ports the default_coef_context_savings
 // branch of libvpx's vp8_estimate_entropy_savings for key frames. The result
 // is whole bits, matching libvpx's prob_update_savings units.
 func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
-	var counts coefficientBranchCounts
-	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return 0, err
 	}
-	return coefficientEntropySavingsFromCounts(base, &counts), nil
+	return coefficientEntropySavingsFromTokenCounts(base, &counts), nil
 }
 
 // KeyFrameCoefficientEntropySavingsIndependent ports the
@@ -130,10 +131,11 @@ func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacro
 // as BuildKeyFrameCoefficientProbabilityUpdatesIndependent so recode
 // accounting matches the probabilities this package writes.
 func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
-	var counts coefficientBranchCounts
-	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var observed coefficientTokenCounts
+	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &observed); err != nil {
 		return 0, err
 	}
+	var counts coefficientBranchCounts
 	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientEntropySavingsFromCountsIndependent(base, &counts, true), nil
 }
@@ -142,22 +144,22 @@ func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []Ke
 // of libvpx's vp8_estimate_entropy_savings for inter frames. The result is
 // whole bits, matching libvpx's prob_update_savings units.
 func InterCoefficientEntropySavings(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
-	var counts coefficientBranchCounts
-	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildInterCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return 0, err
 	}
-	return coefficientEntropySavingsFromCounts(base, &counts), nil
+	return coefficientEntropySavingsFromTokenCounts(base, &counts), nil
 }
 
 // InterCoefficientEntropySavingsIndependent ports the
 // VPX_ERROR_RESILIENT_PARTITIONS coefficient-savings branch used by libvpx for
 // inter frames.
 func InterCoefficientEntropySavingsIndependent(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) (int, error) {
-	var counts coefficientBranchCounts
-	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildInterCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return 0, err
 	}
-	return coefficientEntropySavingsFromCountsIndependent(base, &counts, false), nil
+	return coefficientEntropySavingsFromTokenCountsIndependent(base, &counts, false), nil
 }
 
 func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) int {
@@ -236,11 +238,11 @@ func coefficientEntropySavingsFromCountsIndependent(base *tables.CoefficientProb
 // the default path relies on, so a lost partition does not corrupt the
 // downstream coef-prob tables.
 func BuildInterCoefficientProbabilityUpdatesIndependent(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, keyFrame bool) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	var counts coefficientBranchCounts
-	if err := buildInterCoefficientBranchCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
+	var counts coefficientTokenCounts
+	if err := buildInterCoefficientTokenCounts(rows, cols, modes, coeffs, above, base, &counts); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
-	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, keyFrame)
+	return coefficientProbabilityUpdatesFromTokenCountsIndependent(base, &counts, keyFrame)
 }
 
 func buildInterCoefficientBranchCounts(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientBranchCounts) error {
