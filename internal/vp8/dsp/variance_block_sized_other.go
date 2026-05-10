@@ -17,3 +17,8 @@ func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, wi
 func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) (int, int) {
 	return varianceBlockGeneric(unsafe.Slice(src, 8*srcStride), srcStride, unsafe.Slice(ref, 8*refStride), refStride, 8, 8)
 }
+
+func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
+	_, sse := varianceBlockGeneric(unsafe.Slice(src, height*srcStride), srcStride, unsafe.Slice(ref, height*refStride), refStride, 16, height)
+	return sse
+}

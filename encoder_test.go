@@ -1156,11 +1156,11 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testin
 
 	next := assignInterFrameStaticSegmentsWithMap(1, 5, 0, 2, refreshMap, modes)
 
-	if next != 2 {
-		t.Fatalf("next cyclic refresh index = %d, want 2 after libvpx-style scan cadence", next)
+	if next != 4 {
+		t.Fatalf("next cyclic refresh index = %d, want 4 after libvpx-style eligible refresh budget", next)
 	}
-	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != 0 {
-		t.Fatalf("segment IDs = %d/%d, want refreshed MB0 and skipped MB3 under scan cadence", modes[0].SegmentID, modes[3].SegmentID)
+	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
+		t.Fatalf("segment IDs = %d/%d, want refreshed MB0 and MB3 under libvpx eligible budget", modes[0].SegmentID, modes[3].SegmentID)
 	}
 	if modes[1].SegmentID != 0 || modes[2].SegmentID != 0 || modes[4].SegmentID != 0 {
 		t.Fatalf("ineligible segment IDs = %d/%d/%d, want zero", modes[1].SegmentID, modes[2].SegmentID, modes[4].SegmentID)
@@ -2524,8 +2524,8 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 		cpuUsed  int
 		want     vp8dec.LoopFilterType
 	}{
-		{name: "realtime positive cpu-used auto-speed", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.SimpleLoopFilter},
-		{name: "realtime explicit speed thirteen", deadline: DeadlineRealtime, cpuUsed: -13, want: vp8dec.SimpleLoopFilter},
+		{name: "realtime positive cpu-used cold auto-speed", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.NormalLoopFilter},
+		{name: "realtime explicit speed thirteen", deadline: DeadlineRealtime, cpuUsed: -13, want: vp8dec.NormalLoopFilter},
 		{name: "realtime explicit speed fourteen", deadline: DeadlineRealtime, cpuUsed: -14, want: vp8dec.SimpleLoopFilter},
 		{name: "realtime explicit speed fifteen", deadline: DeadlineRealtime, cpuUsed: -15, want: vp8dec.SimpleLoopFilter},
 		{name: "good quality speed fifteen", deadline: DeadlineGoodQuality, cpuUsed: 15, want: vp8dec.NormalLoopFilter},
@@ -2541,10 +2541,10 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 	}
 }
 
-func TestEncoderLoopFilterHeaderUsesSimpleFilterForSerialRealtimeSpeedFourAndKeepsThreadedNormal(t *testing.T) {
+func TestEncoderLoopFilterHeaderUsesNormalFilterForRealtimeSpeedFour(t *testing.T) {
 	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
-	if got := serial.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.SimpleLoopFilter {
-		t.Fatalf("serial realtime speed=4 loop filter type = %d, want simple", got)
+	if got := serial.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.NormalLoopFilter {
+		t.Fatalf("serial realtime speed=4 loop filter type = %d, want normal", got)
 	}
 
 	threaded := &VP8Encoder{
@@ -2634,11 +2634,12 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
 		rowWorkers: &rowWorkerPool{},
 	}
-	if !threaded.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
-		t.Fatalf("threaded realtime speed=4 did not use fast loop-filter search")
+	if threaded.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
+		t.Fatalf("threaded realtime speed=4 used fast loop-filter search")
 	}
-	if threaded.loopFilterUsesFastSearchForFrame(vp8common.KeyFrame) {
-		t.Fatalf("threaded realtime key frame used threaded inter-frame loop-filter fast path")
+	fast := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -5}}
+	if !fast.loopFilterUsesFastSearchForFrame(vp8common.KeyFrame) {
+		t.Fatalf("realtime explicit speed=5 did not use fast loop-filter search")
 	}
 }
 

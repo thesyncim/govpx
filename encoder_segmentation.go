@@ -238,19 +238,15 @@ func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refres
 	for {
 		if refreshMap[i] == 0 {
 			modes[i].SegmentID = staticSegmentID
+			blockCount--
 		} else if refreshMap[i] < 0 {
 			refreshMap[i]++
-		}
-		if blockCount > 0 {
-			blockCount--
-		} else {
-			break
 		}
 		i++
 		if i == count {
 			i = 0
 		}
-		if i == start {
+		if blockCount == 0 || i == start {
 			break
 		}
 	}

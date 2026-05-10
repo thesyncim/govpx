@@ -44,6 +44,17 @@ func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int)
 	return int(sum), int(sse)
 }
 
+func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
+	var sum int32
+	var sse uint32
+	if cpu.HasAVX2 && height >= 2 && height&1 == 0 {
+		varianceBlock16xNAVX2(src, srcStride, ref, refStride, height, &sum, &sse)
+	} else {
+		varianceBlock16xNSSE2(src, srcStride, ref, refStride, height, &sum, &sse)
+	}
+	return int(sse)
+}
+
 func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, width, height int) (int, int) {
 	var sum int32
 	var sse uint32

@@ -3787,11 +3787,7 @@ func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 	if e == nil || e.opts.Deadline != DeadlineRealtime {
 		return false
 	}
-	speed := e.libvpxCPUUsed()
-	if !e.threadedRowsActive && speed >= 4 {
-		return true
-	}
-	return speed >= 14
+	return e.libvpxCPUUsed() >= 14
 }
 
 // computeLFDeltaUpdateBit mirrors libvpx vp8/encoder/bitstream.c pack_lf_deltas:
@@ -3861,13 +3857,7 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearchForFrame(frameType vp8common.FrameType) bool {
-	if e.loopFilterUsesFastSearch() {
-		return true
-	}
-	if e == nil || frameType != vp8common.InterFrame || e.rowWorkers == nil {
-		return false
-	}
-	return e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 4
+	return e.loopFilterUsesFastSearch()
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
@@ -4157,6 +4147,18 @@ func loopFilterLumaSSE(src vp8enc.SourceImage, img *vp8common.Image, rows int, c
 	srcH := src.Height
 	imgW := img.CodedWidth
 	imgH := img.CodedHeight
+	if cols > 0 && rows > 0 && cols*16 <= srcW && cols*16 <= imgW {
+		height := rowCount * 16
+		if startRow >= 0 && height > 0 && (startRow+rowCount)*16 <= srcH && (startRow+rowCount)*16 <= imgH {
+			srcRowOff := startRow * 16 * srcStride
+			imgRowOff := startRow * 16 * imgStride
+			for mbCol := range cols {
+				baseX := mbCol * 16
+				total += dsp.SSE16xNPtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride, height)
+			}
+			return total
+		}
+	}
 	// Pre-compute the column gating for the hot row (every MB in a fully
 	// in-bounds row is covered by the SSE16x16PtrFast SIMD-bypass path).
 	// 1280x720 / 1920x1080 / aligned-width frames pass this check for
