@@ -239,14 +239,14 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			cfg := benchConfig{}
 			opts := defaultBenchCLIOptions()
 			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-auto-libvpx=false"}); err != nil {
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-auto-libvpx=false"}); err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
 			if !cfg.SkipQuality {
 				t.Fatalf("SkipQuality = false, want true for %s", flagName)
 			}
-			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 {
-				t.Fatalf("parsed dimensions = %dx%d frames=%d, want 32x24 frames=7", cfg.Width, cfg.Height, cfg.Frames)
+			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
+				t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
 			}
 			if opts.format != "json" || opts.autoCompare {
 				t.Fatalf("opts = %+v, want format=json autoCompare=false", opts)
@@ -459,7 +459,7 @@ func TestParseVpxencEncodeTimeUnits(t *testing.T) {
 }
 
 func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
-	cfg := benchConfig{Width: 64, Height: 64, Frames: 30, FPS: 30, BitrateKbps: 1200, Mode: "realtime"}
+	cfg := benchConfig{Width: 64, Height: 64, Frames: 30, FPS: 30, BitrateKbps: 1200, Mode: "realtime", CpuUsed: -4}
 	parity := parityFor(cfg)
 	flags := libvpxParityFlags(cfg, parity, "--rt")
 
@@ -498,7 +498,7 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	// the parity defaults match the values the bench encoder uses. The
 	// CLI default for -threads is 1, so the equivalent benchConfig
 	// passed in here mirrors that explicitly.
-	got := parityFor(benchConfig{FPS: 24, Threads: 1})
+	got := parityFor(benchConfig{FPS: 24, Threads: 1, CpuUsed: 8})
 	if got.KeyFrameInterval != 24 {
 		t.Fatalf("KeyFrameInterval = %d, want 24", got.KeyFrameInterval)
 	}
@@ -515,10 +515,10 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	// -threads=0 propagates as 0 to libvpx (its native "auto" sentinel)
 	// and to govpx (where normalizeEncoderOptions folds it onto the
 	// historical single-thread default). The flag is plumbed verbatim.
-	if got := parityFor(benchConfig{FPS: 24, Threads: 0}); got.Threads != 0 {
+	if got := parityFor(benchConfig{FPS: 24, Threads: 0, CpuUsed: 8}); got.Threads != 0 {
 		t.Fatalf("Threads=0 propagates as %d, want 0", got.Threads)
 	}
-	if got := parityFor(benchConfig{FPS: 24, Threads: 4}); got.Threads != 4 {
+	if got := parityFor(benchConfig{FPS: 24, Threads: 4, CpuUsed: 8}); got.Threads != 4 {
 		t.Fatalf("Threads=4 propagates as %d, want 4", got.Threads)
 	}
 
@@ -536,6 +536,7 @@ func TestBenchmarkEncoderOptionsMatchLibvpxParityConfig(t *testing.T) {
 		FPS:         24,
 		BitrateKbps: 900,
 		Threads:     3,
+		CpuUsed:     -8,
 	}
 	parity := parityFor(cfg)
 	opts := benchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)

@@ -75,6 +75,51 @@ go test . -run '^$' -bench 'BenchmarkEncodeIntoThreadingMatrix' \
 
 ## Current evidence
 
+Update from 2026-05-10, call-count pass:
+
+- `cmd/govpx-bench` now has a `-cpu-used` flag so agents can compare exact
+  speed-feature configs instead of only the default realtime `--cpu-used=8`
+  auto-speed path. Negative realtime values pin libvpx Speed (`-cpu-used=-4`
+  means Speed 4, `-cpu-used=-8` means Speed 8), which is the right way to
+  collect call counts without the counter overhead feeding back into
+  `vp8_auto_select_speed`.
+- The 720p bench path is not double-encoding frames. With warm-up excluded,
+  the measured 30-frame pass is exactly `key=1 inter=29`, and packet writing is
+  exactly `1.00` per inter attempt.
+- Pinned Speed 4 (`1280x720`, 30 frames, realtime CBR, 2500 kbps, threads=1):
+  govpx `12.15 ms/frame`, libvpx `4.79 ms/frame`, `2.53x` slower; output bytes
+  ratio `0.96x`. Govpx per inter-frame count: `403.31` NEWMV searches,
+  `16219.07` full-pel SAD calls, `4842.38` subpel variance calls, `6.24`
+  loop-filter trials.
+- Pinned Speed 8 on the same bench: govpx `9.48 ms/frame`, libvpx
+  `2.98 ms/frame`, `3.19x` slower; output bytes ratio `1.04x`. Govpx per
+  inter-frame count: `564.10` NEWMV searches, `7117.59` full-pel SAD calls,
+  `6205.14` subpel variance calls, `2.45` loop-filter trials. Speed 8 cuts
+  full-pel and LF work but increases NEWMV/subpel work and worsens the speed
+  ratio, so the remaining gap is not explained by one slow kernel.
+- Pinned libvpx oracle trace on a 4-frame 720p noise diagnostic shows the
+  first decision-volume mismatch:
+  - Speed 4: govpx ran `4634` NEWMV searches; libvpx emitted `4112` NEWMV
+    candidates (`3921` mode 13 + `191` mode 14), about `+12.7%` in govpx.
+    The extra mode-13 calls line up with the `rd_threshes` gate: govpx skipped
+    `6395`, libvpx skipped `6879`.
+  - Speed 8: govpx ran `363` NEWMV searches; libvpx emitted `266` NEWMV
+    candidates (`191` mode 13 + `75` mode 14), about `+36.5%` in govpx. Again
+    the mismatch concentrates at mode 13 NEWMV: govpx tested `316`, libvpx
+    tested `191`, while libvpx's `rd_threshes` gate skipped more work
+    (`10609` vs govpx `10484`).
+- Next performance lane: diff the dynamic fast-picker `rd_threshes` /
+  `rd_thresh_mult` / `best_rd` trajectory for mode index 13 (NEWMV LAST) under
+  pinned Speed 4 and Speed 8. Do not change SAD/subpel kernels first; the call
+  counts prove the current high-value issue is when govpx chooses to invoke the
+  motion search. After that, return to accepted-mode residual reuse and token
+  writer/probability pass reduction.
+- Rejected experiment: changing loop-filter SSE scoring from govpx's vertical
+  16-wide strip scan back to libvpx's row-major 16x16 block order regressed M4
+  arm64 microbenchmarks (`partial` roughly `72-74 us` to `74-77 us`, `full`
+  roughly `586-599 us` to `603-613 us`). Keep the strip scorer unless a future
+  change proves a net win and preserves LF choice.
+
 Update from 2026-05-10, second pass:
 
 - The libvpx near/best-MV picker state has now been ported into the Go fast

@@ -35,6 +35,7 @@ type benchConfig struct {
 	Decode       bool
 	SkipQuality  bool
 	Threads      int
+	CpuUsed      int
 	LibvpxVpxenc string
 	LibvpxOracle string
 	LibvpxArgs   []string
@@ -278,6 +279,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
+	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and libvpx; negative realtime values pin libvpx Speed")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
@@ -887,7 +889,7 @@ func parityFor(cfg benchConfig) encoderParity {
 		OvershootPct:        15,
 		Threads:             threads,
 		TokenPartitions:     tokenPartitions,
-		CpuUsed:             8,
+		CpuUsed:             cfg.CpuUsed,
 	}
 }
 
