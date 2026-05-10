@@ -487,8 +487,7 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
 		return FrameInfo{}, err
 	}
-	copyFrameImage(&d.lastRef.Img, &d.current.Img)
-	d.lastRef.ExtendBorders()
+	copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
 	d.saveErrorConcealmentModes()
 	return d.finishConcealedFrame(info, pts), nil
 }
@@ -796,32 +795,31 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 func (d *VP8Decoder) refreshReferences() {
 	switch d.state.Refresh.CopyBufferToAltRef {
 	case 1:
-		copyFrameImage(&d.altRef.Img, &d.lastRef.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.lastRef.Img)
 	case 2:
-		copyFrameImage(&d.altRef.Img, &d.goldenRef.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.goldenRef.Img)
 	}
 	switch d.state.Refresh.CopyBufferToGolden {
 	case 1:
-		copyFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.lastRef.Img)
 	case 2:
-		copyFrameImage(&d.goldenRef.Img, &d.altRef.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.altRef.Img)
 	}
 	if d.state.Refresh.RefreshLast {
-		copyFrameImage(&d.lastRef.Img, &d.current.Img)
-		d.lastRef.ExtendBorders()
+		copyExtendedFrameImage(&d.lastRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshGolden {
-		copyFrameImage(&d.goldenRef.Img, &d.current.Img)
-		d.goldenRef.ExtendBorders()
+		copyExtendedFrameImage(&d.goldenRef.Img, &d.current.Img)
 	}
 	if d.state.Refresh.RefreshAltRef {
-		copyFrameImage(&d.altRef.Img, &d.current.Img)
-		d.altRef.ExtendBorders()
+		copyExtendedFrameImage(&d.altRef.Img, &d.current.Img)
 	}
+}
+
+func copyExtendedFrameImage(dst *vp8common.Image, src *vp8common.Image) {
+	copy(dst.YFull, src.YFull)
+	copy(dst.UFull, src.UFull)
+	copy(dst.VFull, src.VFull)
 }
 
 func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
