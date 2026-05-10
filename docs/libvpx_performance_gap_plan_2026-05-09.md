@@ -75,6 +75,42 @@ go test . -run '^$' -bench 'BenchmarkEncodeIntoThreadingMatrix' \
 
 ## Current evidence
 
+Update from 2026-05-10, second pass:
+
+- The libvpx near/best-MV picker state has now been ported into the Go fast
+  and RD picker loops as a shared per-MB state derived from
+  `ref_frame_map[1]`, with sign-bias slots for opposite references. The
+  NEWMV rate/search anchor and SPLITMV RD anchor use that shared best MV.
+- Fast chroma breakout now follows libvpx's `VP8_UVSSE` shape directly:
+  chroma MV rounding, 8x8 UV SSE for whole-pel, and bilinear
+  `SubpelVariance8x8` for subpel, instead of reconstructing a full
+  inter macroblock just to test UV breakout.
+- The suspected missing `error_bins[0] = MBs` autospeed seed was tested and
+  rejected. Applying it in govpx's current lifecycle made the 720p oracle
+  inter-mode distribution regress hard (`L1=13.72pp`, NEWMV `+4.18pp`), while
+  removing it restored `TestOracleInterModeDistributionScoreboard`. Do not
+  reintroduce that seed unless the per-frame speed-feature lifecycle is also
+  reworked to consume it at the same point libvpx does.
+- Current verification after this pass:
+  `GOCACHE=/Users/thesyncim/GolandProjects/govpx/.gocache go test ./... -count=1`
+  and
+  `GOCACHE=/Users/thesyncim/GolandProjects/govpx/.gocache GOVPX_WITH_ORACLE=1 go test . -run TestOracleInterModeDistributionScoreboard -count=1 -timeout 10m`
+  both pass.
+- Current 720p realtime CBR sample:
+  govpx `11.78 ms/frame`, libvpx `5.23 ms/frame`, `2.25x` slower;
+  `output_bytes=811123` vs libvpx `827412` (`0.980x`), PSNR `+0.185 dB`,
+  SSIM `+0.0115`. This matches the prior good bitrate/quality profile; the
+  bitrate gap is not currently the blocker on this fixture.
+- Current govpx-only profile for 720p realtime CBR points away from the
+  near/best-MV decision call flow as the dominant remaining cost:
+  coefficient token/probability writing is about `31%` cumulative,
+  loop-filter pick/apply about `16%`, reconstructing inter coefficients about
+  `24%`, and `selectFastInterFrameModeDecision` about `14%`.
+- Next agents should focus on token writer/probability passes, loop-filter
+  trial reuse, and accepted-candidate coefficient/reconstruction reuse. The
+  mode-decision call flow still matters for parity, but it is no longer the
+  largest measured runtime bucket after the current port.
+
 Update from 2026-05-10:
 
 - The current 720p hard gate after the byte-preserving loop-filter SSE strip
