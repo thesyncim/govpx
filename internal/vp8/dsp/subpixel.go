@@ -66,6 +66,20 @@ func SixTapPredict8x8(src []byte, srcStride int, xoffset int, yoffset int, dst [
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 8)
 }
 
+func SixTapPredict8x8Pair(
+	src0 []byte, src0Stride int,
+	src1 []byte, src1Stride int,
+	xoffset int, yoffset int,
+	dst0 []byte, dst0Stride int,
+	dst1 []byte, dst1Stride int,
+) {
+	if sixTapPredict8x8PairMaybe(src0, src0Stride, src1, src1Stride, xoffset, yoffset, dst0, dst0Stride, dst1, dst1Stride) {
+		return
+	}
+	SixTapPredict8x8(src0, src0Stride, xoffset, yoffset, dst0, dst0Stride)
+	SixTapPredict8x8(src1, src1Stride, xoffset, yoffset, dst1, dst1Stride)
+}
+
 func SixTapPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
 	if sixTapPredict16x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return

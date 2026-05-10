@@ -77,3 +77,37 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 		})
 	}
 }
+
+func TestSixTapPredict8x8PairMatchesSeparateCalls(t *testing.T) {
+	const stride = 40
+	const rows = 13
+	r := rand.New(rand.NewPCG(0x1234, 0x5678))
+	src0 := make([]byte, stride*rows)
+	src1 := make([]byte, stride*rows)
+	for i := range src0 {
+		src0[i] = byte(r.UintN(256))
+		src1[i] = byte(r.UintN(256))
+	}
+
+	for xoff := range 8 {
+		for yoff := range 8 {
+			dst0Pair := make([]byte, 8*8)
+			dst1Pair := make([]byte, 8*8)
+			dst0Single := make([]byte, 8*8)
+			dst1Single := make([]byte, 8*8)
+
+			SixTapPredict8x8Pair(src0, stride, src1, stride, xoff, yoff, dst0Pair, 8, dst1Pair, 8)
+			SixTapPredict8x8(src0, stride, xoff, yoff, dst0Single, 8)
+			SixTapPredict8x8(src1, stride, xoff, yoff, dst1Single, 8)
+
+			for i := range dst0Pair {
+				if dst0Pair[i] != dst0Single[i] {
+					t.Fatalf("plane 0 xoff=%d yoff=%d index=%d pair=%d single=%d", xoff, yoff, i, dst0Pair[i], dst0Single[i])
+				}
+				if dst1Pair[i] != dst1Single[i] {
+					t.Fatalf("plane 1 xoff=%d yoff=%d index=%d pair=%d single=%d", xoff, yoff, i, dst1Pair[i], dst1Single[i])
+				}
+			}
+		}
+	}
+}
