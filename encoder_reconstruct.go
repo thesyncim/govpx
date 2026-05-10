@@ -5984,13 +5984,20 @@ func stepInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 	}
 	bestRow := (int(best.Row) >> 3) * 4
 	bestCol := (int(best.Col) >> 3) * 4
-	bestCost, ok := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, bestRow, bestCol, bestRefMV, qIndex, mvProbs)
+	subCtx, subCtxOK := newSubpelSearchCtx(src, ref, mbRow, mbCol)
+	if !subCtxOK {
+		return vp8enc.MotionVector{}, 0, false
+	}
+	errorPerBit := libvpxErrorPerBit(qIndex)
+	refRow4 := int(bestRefMV.Row) >> 1
+	refCol4 := int(bestRefMV.Col) >> 1
+	bestCost, ok := stepSubpixelMotionSearchCandidateCost(&subCtx, bestRow, bestCol, refRow4, refCol4, errorPerBit, mvProbs)
 	if !ok {
 		return vp8enc.MotionVector{}, 0, false
 	}
-	bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(src, ref, mbRow, mbCol, bestRow, bestCol, 2, bestCost, bestRefMV, qIndex, mvProbs)
+	bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(&subCtx, bestRow, bestCol, 2, bestCost, refRow4, refCol4, errorPerBit, mvProbs)
 	if quarter {
-		bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(src, ref, mbRow, mbCol, bestRow, bestCol, 1, bestCost, bestRefMV, qIndex, mvProbs)
+		bestCost, bestRow, bestCol = stepInterFrameSubpixelDirectionalSearch(&subCtx, bestRow, bestCol, 1, bestCost, refRow4, refCol4, errorPerBit, mvProbs)
 	}
 	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
 	if !interFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
@@ -5999,13 +6006,13 @@ func stepInterFrameSubpixelMotionVector(src vp8enc.SourceImage, ref *vp8common.I
 	return finalMV, bestCost, true
 }
 
-func stepInterFrameSubpixelDirectionalSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, startRow int, startCol int, step int, bestCost int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, int, int) {
+func stepInterFrameSubpixelDirectionalSearch(subCtx *subpelSearchCtx, startRow int, startCol int, step int, bestCost int, refRow4 int, refCol4 int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, int, int) {
 	bestRow := startRow
 	bestCol := startCol
-	leftCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow, startCol-step, bestRefMV, qIndex, mvProbs)
-	rightCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow, startCol+step, bestRefMV, qIndex, mvProbs)
-	upCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow-step, startCol, bestRefMV, qIndex, mvProbs)
-	downCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, startRow+step, startCol, bestRefMV, qIndex, mvProbs)
+	leftCost, _ := stepSubpixelMotionSearchCandidateCost(subCtx, startRow, startCol-step, refRow4, refCol4, errorPerBit, mvProbs)
+	rightCost, _ := stepSubpixelMotionSearchCandidateCost(subCtx, startRow, startCol+step, refRow4, refCol4, errorPerBit, mvProbs)
+	upCost, _ := stepSubpixelMotionSearchCandidateCost(subCtx, startRow-step, startCol, refRow4, refCol4, errorPerBit, mvProbs)
+	downCost, _ := stepSubpixelMotionSearchCandidateCost(subCtx, startRow+step, startCol, refRow4, refCol4, errorPerBit, mvProbs)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, leftCost, startRow, startCol-step)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, rightCost, startRow, startCol+step)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, upCost, startRow-step, startCol)
@@ -6019,9 +6026,21 @@ func stepInterFrameSubpixelDirectionalSearch(src vp8enc.SourceImage, ref *vp8com
 	if leftCost >= rightCost {
 		diagCol = startCol + step
 	}
-	diagCost, _ := subpixelMotionSearchCandidateCost(src, ref, mbRow, mbCol, diagRow, diagCol, bestRefMV, qIndex, mvProbs)
+	diagCost, _ := stepSubpixelMotionSearchCandidateCost(subCtx, diagRow, diagCol, refRow4, refCol4, errorPerBit, mvProbs)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, diagCost, diagRow, diagCol)
 	return bestCost, bestRow, bestCol
+}
+
+func stepSubpixelMotionSearchCandidateCost(subCtx *subpelSearchCtx, row int, col int, refRow4 int, refCol4 int, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, bool) {
+	dist, ok := subCtx.subpelVarianceForQuarterMV(row, col)
+	if !ok {
+		return maxInt(), false
+	}
+	mvCost := 0
+	if mvProbs != nil {
+		mvCost = vp8enc.MotionVectorSubpelSearchCostFromQuarterDeltas(row, col, refRow4, refCol4, mvProbs, errorPerBit)
+	}
+	return dist + mvCost, true
 }
 
 func interFrameSubpixelMotionVectorInRange(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector) bool {
