@@ -500,6 +500,48 @@ Claim a win only when:
 
 ## Notes for future agents
 
+- 2026-05-10 empirical checkpoint, current local tree after the libvpx
+  threshold-flow port:
+
+  ```text
+  1280x720, 60 frames, 2800 kbps, realtime cpu-used=8, threads=1
+  govpx: 12.226 ms/frame
+  libvpx: 5.170 ms/frame
+  slowdown: 2.365x
+  bytes ratio: 0.9803
+  PSNR delta: +0.185 dB
+  SSIM delta: +0.0115
+
+  1280x720, 240 frames, 2800 kbps, realtime cpu-used=8, threads=1
+  govpx: ~14.22 ms/frame encode-only
+  libvpx: ~5.57 ms/frame in full comparison
+  slowdown: ~2.55x
+  bytes ratio: ~1.04 in full comparison
+  PSNR delta: +0.24 dB
+  SSIM delta: +0.022
+  ```
+
+- The main accepted quality/bitrate fix was not a faster primitive: libvpx
+  initializes `rd_baseline_thresh` from frame `base_qindex`, before cyclic
+  refresh segment Q is applied. Govpx was shrinking per-MB thresholds with
+  segment Q and testing modes libvpx skipped. The local fix pins inter-mode
+  thresholds to frame base Q during the picker while residual scoring still
+  uses the segment quantizer.
+- Rejected experiments:
+  - Realtime positive `cpu-used` floor at requested `cpu-used=8`: improves
+    240-frame speed to about 1.92x slower, but bitrate becomes 1.11x libvpx.
+    Do not reintroduce without a rate-control fix.
+  - Moving the fast picker loop context from stack to encoder scratch:
+    changed auto-speed timing/output and did not improve ns/frame.
+  - Splitting `macroblockLumaMotionVarianceSSE` into a noinline slow path:
+    output-preserving but neutral-to-negative in measurement.
+  - Passing `InterFrameStateConfig` by pointer in `WriteInterReferenceFrame`:
+    plausible from line profile, but measured neutral-to-negative because
+    auto-speed timing/output shifted.
+- Oracle `cpi_speed` traces from instrumented `vpxenc-oracle` ramp to Speed 16
+  quickly, but those traces are timing-contaminated. Treat them as proof that
+  speed-feature decisions are timing-sensitive, not as permission to force
+  Speed 16 or floor Speed at 8.
 - Current follow-up: `cmd/govpx-bench` uses the encoder's normal wall-clock
   autospeed path. Treat any speed win as incomplete until bitrate and
   PSNR/SSIM pass.

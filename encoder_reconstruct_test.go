@@ -431,7 +431,10 @@ func TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins(t *testing.T)
 }
 
 func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
-	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -8, Width: 160, Height: 160}}
+	e := &VP8Encoder{
+		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -8, Width: 160, Height: 160},
+		rc:   rateControlState{currentQuantizer: 40},
+	}
 	e.recordFastInterModeErrorBin(64 << 7)
 	e.recordFastInterModeErrorBin(1 << 30)
 	if e.interModeErrorBins[64] != 1 || e.interModeErrorBins[1023] != 1 {
@@ -458,6 +461,38 @@ func TestFastInterModeErrorBinsResetAndClampLikeLibvpx(t *testing.T) {
 	want := ((19 << 7) << 1) * q / 100
 	if thresholds[libvpxThrNew2] != want {
 		t.Fatalf("NEW2 threshold from previous-frame error bins = %d, want %d", thresholds[libvpxThrNew2], want)
+	}
+}
+
+func TestInterModeThresholdsUseFrameBaseQWithSegmentation(t *testing.T) {
+	var refImg vp8common.Image
+	refs := []interAnalysisReference{{Frame: vp8common.LastFrame, Img: &refImg}}
+	e := &VP8Encoder{
+		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -8, Width: 160, Height: 160},
+		rc:   rateControlState{currentQuantizer: 106},
+	}
+	e.beginInterRDModeDecisionFrame()
+	got := e.interModeRDThresholdsForReferences(92, refs, len(refs))
+	want := libvpxInterModeRDThresholdsForContext(106, 0, DeadlineRealtime, -8, libvpxInterModeThresholdContext{
+		totalMBs:        e.interAnalysisMacroblockCount(),
+		staticThreshold: e.opts.StaticThreshold,
+		errorBins:       &e.interModeSpeedErrorBins,
+		lastEnabled:     true,
+		refFrameCount:   2,
+		temporalLayers:  1,
+	})
+	if got[libvpxThrNearest1] != want[libvpxThrNearest1] {
+		t.Fatalf("NEAREST1 threshold = %d, want frame-base-Q threshold %d", got[libvpxThrNearest1], want[libvpxThrNearest1])
+	}
+	if segmentQ := libvpxInterModeRDThresholdsForContext(92, 0, DeadlineRealtime, -8, libvpxInterModeThresholdContext{
+		totalMBs:        e.interAnalysisMacroblockCount(),
+		staticThreshold: e.opts.StaticThreshold,
+		errorBins:       &e.interModeSpeedErrorBins,
+		lastEnabled:     true,
+		refFrameCount:   2,
+		temporalLayers:  1,
+	}); got[libvpxThrNearest1] == segmentQ[libvpxThrNearest1] {
+		t.Fatalf("NEAREST1 threshold used segment Q: got %d segmentQ %d", got[libvpxThrNearest1], segmentQ[libvpxThrNearest1])
 	}
 }
 
@@ -648,7 +683,10 @@ func TestInterModeRDThresholdsUseTemporalClosestReference(t *testing.T) {
 }
 
 func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
-	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineBestQuality}}
+	e := &VP8Encoder{
+		opts: EncoderOptions{Deadline: DeadlineBestQuality},
+		rc:   rateControlState{currentQuantizer: 40},
+	}
 	e.resetInterRDThresholdMultipliers()
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
@@ -680,7 +718,10 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 func TestInterFastBestThresholdUsesPickInterImprovementDecay(t *testing.T) {
 	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineRealtime, 8)
 
-	improve := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	improve := &VP8Encoder{
+		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		rc:   rateControlState{currentQuantizer: 40},
+	}
 	improve.resetInterRDThresholdMultipliers()
 	improve.beginInterRDModeDecisionFrame()
 	defer improve.endInterRDModeDecisionFrame()
@@ -691,7 +732,10 @@ func TestInterFastBestThresholdUsesPickInterImprovementDecay(t *testing.T) {
 		t.Fatalf("fast improvement NEW1 threshold = %d, want %d", got, want)
 	}
 
-	best := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
+	best := &VP8Encoder{
+		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		rc:   rateControlState{currentQuantizer: 40},
+	}
 	best.resetInterRDThresholdMultipliers()
 	best.beginInterRDModeDecisionFrame()
 	defer best.endInterRDModeDecisionFrame()
@@ -3344,7 +3388,7 @@ func TestStaticInterRDEncodeBreakoutUsesChromaGate(t *testing.T) {
 	}
 }
 
-func TestStaticInterFastEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
+func TestStaticInterEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
 	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
 	src := testImage(16, 16)
 	fillImage(src, 128, 90, 170)
@@ -3353,8 +3397,8 @@ func TestStaticInterFastEncodeBreakoutUsesPickinterChromaGate(t *testing.T) {
 	_, lumaSSE := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, 0, 0, mode.MV)
 
 	src.U[0] = 92
-	if !staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
-		t.Fatalf("RD static breakout = false, want threshold-based chroma gate to skip")
+	if staticInterRDEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &quant, 1) {
+		t.Fatalf("RD static breakout = true, want pickinter encode_breakout chroma gate to reject")
 	}
 	if staticInterFastEncodeBreakout(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, &quant, 1, lumaSSE) {
 		t.Fatalf("fast static breakout = true, want pickinter encode_breakout chroma gate to reject")

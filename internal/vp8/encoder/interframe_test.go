@@ -668,6 +668,103 @@ func TestWriteCoefficientInterFrameDecodesResidualTokenGrid(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
+	tests := []struct {
+		name  string
+		rows  int
+		cols  int
+		cfg   InterFrameStateConfig
+		modes []InterFrameMacroblockMode
+		init  func([]MacroblockCoefficients)
+	}{
+		{
+			name: "mixed references",
+			rows: 2,
+			cols: 3,
+			cfg: func() InterFrameStateConfig {
+				cfg := DefaultInterFrameStateConfig(31)
+				cfg.ProbIntra = 120
+				cfg.ProbLast = 180
+				cfg.ProbGolden = 100
+				cfg.MVBase = tables.DefaultMVContext
+				cfg.MVProbs = tables.DefaultMVContext
+				return cfg
+			}(),
+			modes: []InterFrameMacroblockMode{
+				{Mode: common.ZeroMV, MBSkipCoeff: false},
+				{Mode: common.ZeroMV, MBSkipCoeff: false},
+				{RefFrame: common.GoldenFrame, Mode: common.ZeroMV, MBSkipCoeff: true},
+				{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.TMPred},
+				{Mode: common.ZeroMV, MBSkipCoeff: false},
+				{Mode: common.ZeroMV, MBSkipCoeff: false},
+			},
+			init: func(coeffs []MacroblockCoefficients) {
+				coeffs[0].QCoeff[24][0] = 1
+				coeffs[0].QCoeff[0][1] = -2
+				coeffs[1].QCoeff[3][2] = 4
+				coeffs[3].QCoeff[24][0] = -1
+				coeffs[3].QCoeff[16][0] = 3
+				coeffs[4].QCoeff[0][5] = -7
+				coeffs[5].QCoeff[20][0] = 2
+			},
+		},
+		{
+			name: "four by four tokens",
+			rows: 2,
+			cols: 2,
+			cfg: func() InterFrameStateConfig {
+				cfg := DefaultInterFrameStateConfig(22)
+				cfg.IndependentContexts = true
+				return cfg
+			}(),
+			modes: []InterFrameMacroblockMode{
+				{RefFrame: common.IntraFrame, Mode: common.BPred, UVMode: common.VPred},
+				{Mode: common.ZeroMV, MBSkipCoeff: false},
+				{RefFrame: common.IntraFrame, Mode: common.DCPred, UVMode: common.DCPred, MBSkipCoeff: true},
+				{RefFrame: common.AltRefFrame, Mode: common.ZeroMV, MBSkipCoeff: false},
+			},
+			init: func(coeffs []MacroblockCoefficients) {
+				coeffs[0].QCoeff[0][0] = 5
+				coeffs[0].QCoeff[0][3] = -9
+				coeffs[0].QCoeff[7][15] = 34
+				coeffs[0].QCoeff[16][0] = -4
+				coeffs[1].QCoeff[24][0] = 2
+				coeffs[1].QCoeff[1][1] = 1
+				coeffs[3].QCoeff[24][3] = -18
+				coeffs[3].QCoeff[23][8] = 67
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			coeffs := make([]MacroblockCoefficients, tt.rows*tt.cols)
+			tt.init(coeffs)
+			publicPacket := make([]byte, 8192)
+			scratchPacket := make([]byte, 8192)
+			publicAbove := make([]TokenContextPlanes, tt.cols)
+			scratchAbove := make([]TokenContextPlanes, tt.cols)
+
+			publicN, publicCoef, publicY, publicUV, publicMV, err := WriteCoefficientInterFrameWithProbabilityBase(publicPacket, tt.cols*16, tt.rows*16, tt.cfg, tt.modes, coeffs, publicAbove, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext)
+			if err != nil {
+				t.Fatalf("public WriteCoefficientInterFrameWithProbabilityBase returned error: %v", err)
+			}
+			var scratch PartitionScratch
+			scratchN, scratchCoef, scratchY, scratchUV, scratchMV, _, err := WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(scratchPacket, tt.cols*16, tt.rows*16, tt.cfg, tt.modes, coeffs, scratchAbove, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext, &scratch)
+			if err != nil {
+				t.Fatalf("scratch WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings returned error: %v", err)
+			}
+			if publicN != scratchN || !bytes.Equal(publicPacket[:publicN], scratchPacket[:scratchN]) {
+				t.Fatalf("scratch packet differs from public path: public=%d scratch=%d", publicN, scratchN)
+			}
+			if publicCoef != scratchCoef || publicY != scratchY || publicUV != scratchUV || publicMV != scratchMV {
+				t.Fatalf("scratch probability outputs differ from public path")
+			}
+			assertInterPacketDecodes(t, scratchPacket[:scratchN], tt.rows, tt.cols)
+		})
+	}
+}
+
 func TestWriteZeroReferenceInterFrameDecodesTokenPartitions(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1317,4 +1414,34 @@ func zeroInterFramePacket(t *testing.T, width int, height int) []byte {
 		t.Fatalf("WriteZeroInterFrame returned error: %v", err)
 	}
 	return dst[:n]
+}
+
+func assertInterPacketDecodes(t *testing.T, packet []byte, rows int, cols int) {
+	t.Helper()
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	frame, state, modeReader, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet, vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	var layout vp8dec.PartitionLayout
+	if err := vp8dec.ParsePartitionLayout(packet, frame, state.TokenPartition, &layout); err != nil {
+		t.Fatalf("ParsePartitionLayout returned error: %v", err)
+	}
+	decodedModes := make([]vp8dec.MacroblockMode, rows*cols)
+	if err := vp8dec.DecodeInterModeGrid(&modeReader, rows, cols, &state.Segmentation, state.Mode, &modeProbs, [common.MaxRefFrames]bool{}, decodedModes); err != nil {
+		t.Fatalf("DecodeInterModeGrid returned error: %v", err)
+	}
+	var readers [8]boolcoder.Decoder
+	for i := 0; i < layout.TokenCount; i++ {
+		if err := readers[i].Init(layout.Tokens[i]); err != nil {
+			t.Fatalf("token reader %d Init returned error: %v", i, err)
+		}
+	}
+	tokens := make([]vp8dec.MacroblockTokens, rows*cols)
+	above := make([]vp8dec.EntropyContextPlanes, cols)
+	if _, err := vp8dec.DecodeTokenGrid(readers[:layout.TokenCount], rows, cols, &coefProbs, decodedModes, above, tokens); err != nil {
+		t.Fatalf("DecodeTokenGrid returned error: %v", err)
+	}
 }
