@@ -200,60 +200,7 @@ func DecodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder, rows int, 
 }
 
 func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, blockType int, ctx int, n int, out *[16]int16) int {
-	p := (*probs)[blockType][n][ctx]
-	if br.ReadBool(p[0]) == 0 {
-		return 0
-	}
-
-	for {
-		n++
-		if br.ReadBool(p[1]) == 0 {
-			if n == 16 {
-				return 16
-			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][0]
-		} else {
-			v := 0
-			tokenClass := uint8(2)
-			if br.ReadBool(p[2]) == 0 {
-				tokenClass = 1
-				v = 1
-			} else {
-				if br.ReadBool(p[3]) == 0 {
-					if br.ReadBool(p[4]) == 0 {
-						v = 2
-					} else {
-						v = 3 + int(br.ReadBool(p[5]))
-					}
-				} else {
-					if br.ReadBool(p[6]) == 0 {
-						if br.ReadBool(p[7]) == 0 {
-							v = 5 + int(br.ReadBool(159))
-						} else {
-							v = 7 + 2*int(br.ReadBool(165))
-							v += int(br.ReadBool(145))
-						}
-					} else {
-						bit1 := int(br.ReadBool(p[8]))
-						bit0 := int(br.ReadBool(p[9+bit1]))
-						cat := 2*bit1 + bit0
-						v = readTokenCategory(br, cat)
-					}
-				}
-			}
-
-			j := tables.DefaultZigZag1D[n-1]
-			out[j] = readSignedCoeff(br, v)
-			if n == 16 {
-				return 16
-			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][tokenClass]
-			if br.ReadBool(p[0]) == 0 {
-				return n
-			}
-			continue
-		}
-	}
+	return br.ReadVP8BlockCoeffs(probs, blockType, ctx, n, out)
 }
 
 func clearMacroblockTokens(out *MacroblockTokens) {
@@ -298,33 +245,4 @@ func setUVContext(ctx *EntropyContextPlanes, index int, value uint8) {
 		return
 	}
 	ctx.V[index-2] = value
-}
-
-func readSignedCoeff(br *boolcoder.Decoder, value int) int16 {
-	v := int16(value)
-	mask := -int16(br.ReadBit())
-	return (v ^ mask) - mask
-}
-
-func readTokenCategory(br *boolcoder.Decoder, cat int) int {
-	v := 0
-	switch cat {
-	case 0:
-		for _, prob := range tables.Cat3Prob {
-			v += v + int(br.ReadBool(prob))
-		}
-	case 1:
-		for _, prob := range tables.Cat4Prob {
-			v += v + int(br.ReadBool(prob))
-		}
-	case 2:
-		for _, prob := range tables.Cat5Prob {
-			v += v + int(br.ReadBool(prob))
-		}
-	default:
-		for _, prob := range tables.Cat6Prob {
-			v += v + int(br.ReadBool(prob))
-		}
-	}
-	return v + 3 + (8 << cat)
 }
