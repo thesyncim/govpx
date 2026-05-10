@@ -101,15 +101,17 @@ Update from 2026-05-10, second pass:
   `output_bytes=811123` vs libvpx `827412` (`0.980x`), PSNR `+0.185 dB`,
   SSIM `+0.0115`. This matches the prior good bitrate/quality profile; the
   bitrate gap is not currently the blocker on this fixture.
-- Current govpx-only profile for 720p realtime CBR points away from the
-  near/best-MV decision call flow as the dominant remaining cost:
-  coefficient token/probability writing is about `31%` cumulative,
-  loop-filter pick/apply about `16%`, reconstructing inter coefficients about
-  `24%`, and `selectFastInterFrameModeDecision` about `14%`.
-- Next agents should focus on token writer/probability passes, loop-filter
-  trial reuse, and accepted-candidate coefficient/reconstruction reuse. The
-  mode-decision call flow still matters for parity, but it is no longer the
-  largest measured runtime bucket after the current port.
+- Current govpx-only profile for 720p realtime CBR after the rejected-seed
+  backout shows overlapping cumulative buckets rather than one isolated slow
+  leaf: reconstructing inter coefficients is about `33.6%`,
+  coefficient token/probability writing about `22.3%`,
+  `selectFastInterFrameModeDecision` about `21.6%`, and full loop-filter
+  picking about `19.4%`. The picker is still significant, but the remaining
+  `~2.25x` gap is a pipeline-wide cost problem, not a single bad
+  near/best-MV call decision.
+- Next agents should focus on accepted-candidate coefficient/reconstruction
+  reuse, token writer/probability passes, loop-filter trial reuse, and only
+  then further mode-decision call count work.
 
 Update from 2026-05-10:
 
