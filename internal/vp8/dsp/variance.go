@@ -19,8 +19,7 @@ func SSE16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 //   - Skips the dispatch chain (varianceBlock width/height switch) by
 //     going straight to varianceBlock16x16's SIMD kernel.
 func SSE16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
-	_, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
-	return sse
+	return sse16x16PtrFast(src, srcStride, ref, refStride)
 }
 
 // Variance16x16PtrFast is the SIMD-bypass entry point matching the
@@ -35,8 +34,7 @@ func Variance16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) in
 // callers (chroma SSE walk in macroblockChromaSSE). The caller must
 // have already validated the 8x8 window is fully in-bounds.
 func SSE8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
-	_, sse := VarianceBlock8x8PtrFast(src, srcStride, ref, refStride)
-	return sse
+	return sse8x8PtrFast(src, srcStride, ref, refStride)
 }
 
 func SSE16x8(src []byte, srcStride int, ref []byte, refStride int) int {

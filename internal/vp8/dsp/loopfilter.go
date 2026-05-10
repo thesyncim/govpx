@@ -50,8 +50,28 @@ func LoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thr
 	loopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, count)
 }
 
+// LoopFilterHorizontalEdgesY applies the three 16-wide inner luma horizontal
+// edges of one macroblock. This mirrors libvpx's vp8_loop_filter_bh wrapper.
+func LoopFilterHorizontalEdgesY(s []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterHorizontalEdgesYDispatch(s, stride, blimit, limit, thresh)
+}
+
 func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	loopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+// LoopFilterVerticalEdgesY applies the three 16-wide inner luma vertical edges
+// of one macroblock. This mirrors libvpx's vp8_loop_filter_bv wrapper.
+func LoopFilterVerticalEdgesY(s []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterVerticalEdgesYDispatch(s, stride, blimit, limit, thresh)
+}
+
+func LoopFilterHorizontalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterHorizontalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+func LoopFilterVerticalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterVerticalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
 }
 
 func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
@@ -60,6 +80,14 @@ func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, t
 
 func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	mbLoopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func MBLoopFilterHorizontalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	mbLoopFilterHorizontalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+func MBLoopFilterVerticalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	mbLoopFilterVerticalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
 }
 
 // loopFilterHorizontalEdgeScalar is the libvpx-style scalar reference for

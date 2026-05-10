@@ -20,6 +20,11 @@ func VarianceBlock16x16PtrFast(src *byte, srcStride int, ref *byte, refStride in
 	return varianceBlockGeneric(unsafePtrToSlice(src, 16*srcStride), srcStride, unsafePtrToSlice(ref, 16*refStride), refStride, 16, 16)
 }
 
+func sse16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	_, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
+	return sse
+}
+
 func unsafePtrToSlice(p *byte, n int) []byte {
 	return unsafe.Slice(p, n)
 }

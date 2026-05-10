@@ -16,6 +16,9 @@ func TestVarianceBlocks(t *testing.T) {
 	if got := SSE16x16(src, 32, ref, 32); got != sse {
 		t.Fatalf("SSE16x16 = %d, want %d", got, sse)
 	}
+	if got := SSE16x16PtrFast(&src[0], 32, &ref[0], 32); got != sse {
+		t.Fatalf("SSE16x16PtrFast = %d, want %d", got, sse)
+	}
 	if got, want := Variance16x16(src, 32, ref, 32), sse-(sum*sum>>8); got != want {
 		t.Fatalf("Variance16x16 = %d, want %d", got, want)
 	}
@@ -23,6 +26,9 @@ func TestVarianceBlocks(t *testing.T) {
 	sum, sse = scalarVariance(src[2*32+3:], 32, ref[5*32+1:], 32, 16, 8)
 	if got := SSE16x8(src[2*32+3:], 32, ref[5*32+1:], 32); got != sse {
 		t.Fatalf("SSE16x8 = %d, want %d", got, sse)
+	}
+	if got := SSE16xNPtrFast(&src[2*32+3], 32, &ref[5*32+1], 32, 8); got != sse {
+		t.Fatalf("SSE16xNPtrFast 16x8 = %d, want %d", got, sse)
 	}
 	if got, want := Variance16x8(src[2*32+3:], 32, ref[5*32+1:], 32), sse-(sum*sum>>7); got != want {
 		t.Fatalf("Variance16x8 = %d, want %d", got, want)
@@ -39,6 +45,9 @@ func TestVarianceBlocks(t *testing.T) {
 	sum, sse = scalarVariance(src[3*32+5:], 32, ref[4*32+7:], 32, 8, 8)
 	if got := SSE8x8(src[3*32+5:], 32, ref[4*32+7:], 32); got != sse {
 		t.Fatalf("SSE8x8 = %d, want %d", got, sse)
+	}
+	if got := SSE8x8PtrFast(&src[3*32+5], 32, &ref[4*32+7], 32); got != sse {
+		t.Fatalf("SSE8x8PtrFast = %d, want %d", got, sse)
 	}
 	if got, want := Variance8x8(src[3*32+5:], 32, ref[4*32+7:], 32), sse-(sum*sum>>6); got != want {
 		t.Fatalf("Variance8x8 = %d, want %d", got, want)
@@ -163,6 +172,16 @@ func BenchmarkSSE16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkSSE16x16PtrFast(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	b.ReportAllocs()
+	b.SetBytes(16 * 16)
+	for i := 0; i < b.N; i++ {
+		_ = SSE16x16PtrFast(&src[0], 32, &ref[0], 32)
+	}
+}
+
 func BenchmarkSSE16x8(b *testing.B) {
 	src := make([]byte, 32*32)
 	ref := make([]byte, 32*32)
@@ -170,6 +189,16 @@ func BenchmarkSSE16x8(b *testing.B) {
 	b.SetBytes(16 * 8)
 	for i := 0; i < b.N; i++ {
 		_ = SSE16x8(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSSE16xNPtrFast16x8(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	b.ReportAllocs()
+	b.SetBytes(16 * 8)
+	for i := 0; i < b.N; i++ {
+		_ = SSE16xNPtrFast(&src[0], 32, &ref[0], 32, 8)
 	}
 }
 
@@ -190,6 +219,16 @@ func BenchmarkSSE8x8(b *testing.B) {
 	b.SetBytes(8 * 8)
 	for i := 0; i < b.N; i++ {
 		_ = SSE8x8(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSSE8x8PtrFast(b *testing.B) {
+	src := make([]byte, 32*32)
+	ref := make([]byte, 32*32)
+	b.ReportAllocs()
+	b.SetBytes(8 * 8)
+	for i := 0; i < b.N; i++ {
+		_ = SSE8x8PtrFast(&src[0], 32, &ref[0], 32)
 	}
 }
 

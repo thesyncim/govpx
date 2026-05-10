@@ -44,6 +44,11 @@ func VarianceBlock8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int)
 	return int(sum), int(sse)
 }
 
+func sse8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
+	_, sse := VarianceBlock8x8PtrFast(src, srcStride, ref, refStride)
+	return sse
+}
+
 func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height int) int {
 	var sum int32
 	var sse uint32

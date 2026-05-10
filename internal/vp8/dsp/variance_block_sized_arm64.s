@@ -3,7 +3,7 @@
 // variance_neon_w4 plus a height-parameterised variance_neon_w16. Each
 // kernel returns (sum, sse) of (src - ref) over the whole block.
 //
-// USUBL/SADALP/SMLAL/SMLAL2 aren't natively in Go's arm64 assembler,
+// USUBL/SADDLV/SMLAL/SMLAL2 aren't natively in Go's arm64 assembler,
 // so they're emitted as raw WORD directives; encodings come from
 // clang.
 //
@@ -30,7 +30,9 @@ TEXT ·varianceBlock16xNNEON(SB), NOSPLIT, $0-56
 	MOVD	sseOut+48(FP), R5
 
 	VEOR	V20.B16, V20.B16, V20.B16
+	VEOR	V21.B16, V21.B16, V21.B16
 	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
 
 	CBZ	R6, w16_done
 
@@ -41,13 +43,13 @@ w16_loop:
 	WORD	$0x2e212002	// usubl  v2.8h, v0.8b, v1.8b
 	WORD	$0x6e212003	// usubl2 v3.8h, v0.16b, v1.16b
 
-	WORD	$0x4e606854	// sadalp v20.4s, v2.8h
-	WORD	$0x4e606874	// sadalp v20.4s, v3.8h
+	WORD	$0x4e628694	// add v20.8h, v20.8h, v2.8h
+	WORD	$0x4e6386b5	// add v21.8h, v21.8h, v3.8h
 
 	WORD	$0x0e628056	// smlal  v22.4s, v2.4h, v2.4h
-	WORD	$0x4e628056	// smlal2 v22.4s, v2.8h, v2.8h
+	WORD	$0x4e628057	// smlal2 v23.4s, v2.8h, v2.8h
 	WORD	$0x0e638076	// smlal  v22.4s, v3.4h, v3.4h
-	WORD	$0x4e638076	// smlal2 v22.4s, v3.8h, v3.8h
+	WORD	$0x4e638077	// smlal2 v23.4s, v3.8h, v3.8h
 
 	ADD	R1, R0, R0
 	ADD	R3, R2, R2
@@ -55,16 +57,57 @@ w16_loop:
 	CBNZ	R6, w16_loop
 
 w16_done:
-	VADDV	V20.S4, V20
+	WORD	$0x4e758694	// add v20.8h, v20.8h, v21.8h
+	WORD	$0x4e703a94	// saddlv s20, v20.8h
+	WORD	$0x4eb786d6	// add v22.4s, v22.4s, v23.4s
 	VADDV	V22.S4, V22
 	FMOVS	F20, (R4)
 	FMOVS	F22, (R5)
 	RET
 
+// sseBlock16xNNEON: 16 columns, height rows. Same diff^2 reduction as
+// varianceBlock16xNNEON, but skips the sum accumulator for callers that
+// only need SSE.
+TEXT ·sseBlock16xNNEON(SB), NOSPLIT, $0-48
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	ref+16(FP), R2
+	MOVD	refStride+24(FP), R3
+	MOVD	height+32(FP), R6
+	MOVD	sseOut+40(FP), R4
+
+	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
+
+	CBZ	R6, sse_w16_done
+
+sse_w16_loop:
+	VLD1	(R0), [V0.B16]
+	VLD1	(R2), [V1.B16]
+
+	WORD	$0x2e212002	// usubl  v2.8h, v0.8b, v1.8b
+	WORD	$0x6e212003	// usubl2 v3.8h, v0.16b, v1.16b
+
+	WORD	$0x0e628056	// smlal  v22.4s, v2.4h, v2.4h
+	WORD	$0x4e628057	// smlal2 v23.4s, v2.8h, v2.8h
+	WORD	$0x0e638076	// smlal  v22.4s, v3.4h, v3.4h
+	WORD	$0x4e638077	// smlal2 v23.4s, v3.8h, v3.8h
+
+	ADD	R1, R0, R0
+	ADD	R3, R2, R2
+	SUB	$1, R6, R6
+	CBNZ	R6, sse_w16_loop
+
+sse_w16_done:
+	WORD	$0x4eb786d6	// add v22.4s, v22.4s, v23.4s
+	VADDV	V22.S4, V22
+	FMOVS	F22, (R4)
+	RET
+
 // varianceBlock8xNNEON: 8 columns, height rows. Per row we load 8
 // src bytes + 8 ref bytes via FMOVD (which zeroes the upper half of
-// the V register), USUBL into V2.8H, SADALP into V20 (sum),
-// SMLAL/SMLAL2 into V22 (sse).
+// the V register), USUBL into V2.8H, ADD into V20 (sum), and
+// SMLAL/SMLAL2 into split V22/V23 accumulators (sse).
 TEXT ·varianceBlock8xNNEON(SB), NOSPLIT, $0-56
 	MOVD	src+0(FP), R0
 	MOVD	srcStride+8(FP), R1
@@ -76,6 +119,7 @@ TEXT ·varianceBlock8xNNEON(SB), NOSPLIT, $0-56
 
 	VEOR	V20.B16, V20.B16, V20.B16
 	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
 
 	CBZ	R6, w8_done
 
@@ -85,10 +129,10 @@ w8_loop:
 
 	WORD	$0x2e212002	// usubl  v2.8h, v0.8b, v1.8b
 
-	WORD	$0x4e606854	// sadalp v20.4s, v2.8h
+	WORD	$0x4e628694	// add v20.8h, v20.8h, v2.8h
 
 	WORD	$0x0e628056	// smlal  v22.4s, v2.4h, v2.4h
-	WORD	$0x4e628056	// smlal2 v22.4s, v2.8h, v2.8h
+	WORD	$0x4e628057	// smlal2 v23.4s, v2.8h, v2.8h
 
 	ADD	R1, R0, R0
 	ADD	R3, R2, R2
@@ -96,10 +140,46 @@ w8_loop:
 	CBNZ	R6, w8_loop
 
 w8_done:
-	VADDV	V20.S4, V20
+	WORD	$0x4e703a94	// saddlv s20, v20.8h
+	WORD	$0x4eb786d6	// add v22.4s, v22.4s, v23.4s
 	VADDV	V22.S4, V22
 	FMOVS	F20, (R4)
 	FMOVS	F22, (R5)
+	RET
+
+// sseBlock8xNNEON: 8 columns, height rows. SSE-only companion for hot
+// scoring paths that do not need the variance sum.
+TEXT ·sseBlock8xNNEON(SB), NOSPLIT, $0-48
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	ref+16(FP), R2
+	MOVD	refStride+24(FP), R3
+	MOVD	height+32(FP), R6
+	MOVD	sseOut+40(FP), R4
+
+	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
+
+	CBZ	R6, sse_w8_done
+
+sse_w8_loop:
+	FMOVD	(R0), F0
+	FMOVD	(R2), F1
+
+	WORD	$0x2e212002	// usubl  v2.8h, v0.8b, v1.8b
+
+	WORD	$0x0e628056	// smlal  v22.4s, v2.4h, v2.4h
+	WORD	$0x4e628057	// smlal2 v23.4s, v2.8h, v2.8h
+
+	ADD	R1, R0, R0
+	ADD	R3, R2, R2
+	SUB	$1, R6, R6
+	CBNZ	R6, sse_w8_loop
+
+sse_w8_done:
+	WORD	$0x4eb786d6	// add v22.4s, v22.4s, v23.4s
+	VADDV	V22.S4, V22
+	FMOVS	F22, (R4)
 	RET
 
 // varianceBlock4xNNEON: 4 columns, height rows. We pack two rows of 4

@@ -349,9 +349,7 @@ func applyNormalLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 		dsp.MBLoopFilterVerticalEdge(img.Y[yOff-4:], img.YStride, mblim, lim, hev, 2)
 	}
 	if !skipLF {
-		dsp.LoopFilterVerticalEdge(img.Y[yOff:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterVerticalEdge(img.Y[yOff+4:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterVerticalEdge(img.Y[yOff+8:], img.YStride, blim, lim, hev, 2)
+		dsp.LoopFilterVerticalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
 	}
 
 	// libvpx's vp8_loop_filter_partial_frame applies mbh unconditionally for
@@ -363,9 +361,7 @@ func applyNormalLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 		dsp.MBLoopFilterHorizontalEdge(img.Y[yOff-4*img.YStride:], img.YStride, mblim, lim, hev, 2)
 	}
 	if !skipLF {
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff+4*img.YStride:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff+8*img.YStride:], img.YStride, blim, lim, hev, 2)
+		dsp.LoopFilterHorizontalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
 	}
 }
 
@@ -558,28 +554,20 @@ func applyNormalLoopFilterMB(img *common.Image, row int, col int, yOff int, uOff
 
 	if col > 0 {
 		dsp.MBLoopFilterVerticalEdge(img.Y[yOff-4:], img.YStride, mblim, lim, hev, 2)
-		dsp.MBLoopFilterVerticalEdge(img.U[uOff-4:], img.UStride, mblim, lim, hev, 1)
-		dsp.MBLoopFilterVerticalEdge(img.V[vOff-4:], img.VStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterVerticalEdgeUV(img.U[uOff-4:], img.V[vOff-4:], img.UStride, mblim, lim, hev)
 	}
 	if !skipLF {
-		dsp.LoopFilterVerticalEdge(img.Y[yOff:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterVerticalEdge(img.Y[yOff+4:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterVerticalEdge(img.Y[yOff+8:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterVerticalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
-		dsp.LoopFilterVerticalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+		dsp.LoopFilterVerticalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
+		dsp.LoopFilterVerticalEdgeUV(img.U[uOff:], img.V[vOff:], img.UStride, blim, lim, hev)
 	}
 
 	if row > 0 {
 		dsp.MBLoopFilterHorizontalEdge(img.Y[yOff-4*img.YStride:], img.YStride, mblim, lim, hev, 2)
-		dsp.MBLoopFilterHorizontalEdge(img.U[uOff-4*img.UStride:], img.UStride, mblim, lim, hev, 1)
-		dsp.MBLoopFilterHorizontalEdge(img.V[vOff-4*img.VStride:], img.VStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterHorizontalEdgeUV(img.U[uOff-4*img.UStride:], img.V[vOff-4*img.VStride:], img.UStride, mblim, lim, hev)
 	}
 	if !skipLF {
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff+4*img.YStride:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterHorizontalEdge(img.Y[yOff+8*img.YStride:], img.YStride, blim, lim, hev, 2)
-		dsp.LoopFilterHorizontalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
-		dsp.LoopFilterHorizontalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+		dsp.LoopFilterHorizontalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
+		dsp.LoopFilterHorizontalEdgeUV(img.U[uOff:], img.V[vOff:], img.UStride, blim, lim, hev)
 	}
 }
 
@@ -591,21 +579,17 @@ func applyNormalLoopFilterChromaOnlyMB(img *common.Image, row int, col int, uOff
 	lim := lfi.Limit[level]
 
 	if col > 0 {
-		dsp.MBLoopFilterVerticalEdge(img.U[uOff-4:], img.UStride, mblim, lim, hev, 1)
-		dsp.MBLoopFilterVerticalEdge(img.V[vOff-4:], img.VStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterVerticalEdgeUV(img.U[uOff-4:], img.V[vOff-4:], img.UStride, mblim, lim, hev)
 	}
 	if !skipLF {
-		dsp.LoopFilterVerticalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
-		dsp.LoopFilterVerticalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+		dsp.LoopFilterVerticalEdgeUV(img.U[uOff:], img.V[vOff:], img.UStride, blim, lim, hev)
 	}
 
 	if row > 0 {
-		dsp.MBLoopFilterHorizontalEdge(img.U[uOff-4*img.UStride:], img.UStride, mblim, lim, hev, 1)
-		dsp.MBLoopFilterHorizontalEdge(img.V[vOff-4*img.VStride:], img.VStride, mblim, lim, hev, 1)
+		dsp.MBLoopFilterHorizontalEdgeUV(img.U[uOff-4*img.UStride:], img.V[vOff-4*img.VStride:], img.UStride, mblim, lim, hev)
 	}
 	if !skipLF {
-		dsp.LoopFilterHorizontalEdge(img.U[uOff:], img.UStride, blim, lim, hev, 1)
-		dsp.LoopFilterHorizontalEdge(img.V[vOff:], img.VStride, blim, lim, hev, 1)
+		dsp.LoopFilterHorizontalEdgeUV(img.U[uOff:], img.V[vOff:], img.UStride, blim, lim, hev)
 	}
 }
 
