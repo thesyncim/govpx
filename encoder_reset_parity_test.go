@@ -68,10 +68,13 @@ func TestEncoderResetMatchesColdStart(t *testing.T) {
 	}
 }
 
-// TestEncoderResetCBRBytesMatchColdStart pins the bench-relevant contract:
-// after a warmup pass + Reset, the next 30-frame CBR encode produces a
-// byte-stream byte-identical to a cold-start encoder fed the same input.
-// Without R15-E's Reset overhaul this drifted ~7% lower at 320x240.
+// TestEncoderResetCBRBytesMatchColdStart pins the reset contract on a fixed
+// realtime speed: after a warmup pass + Reset, the next 30-frame CBR encode
+// produces a byte-stream byte-identical to a cold-start encoder fed the same
+// input. The autospeed state reset itself is covered above; byte-identical
+// assertions must bypass autospeed because libvpx's positive cpu_used path is
+// deliberately wall-clock driven, so two otherwise equal encoders can cross a
+// speed threshold on different hosts.
 func TestEncoderResetCBRBytesMatchColdStart(t *testing.T) {
 	const (
 		W, H, FPS, KBPS, F = 320, 240, 30, 1200, 30
@@ -84,7 +87,7 @@ func TestEncoderResetCBRBytesMatchColdStart(t *testing.T) {
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
 			Deadline:            DeadlineRealtime,
-			CpuUsed:             8,
+			CpuUsed:             -8,
 			KeyFrameInterval:    FPS,
 			BufferSizeMs:        600,
 			BufferInitialSizeMs: 400,
