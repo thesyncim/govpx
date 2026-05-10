@@ -6127,6 +6127,20 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 // are bestRefMV.Row>>3 and bestRefMV.Col>>3 respectively. The MV SAD
 // component table is pre-scaled by qIndex so the diamond loop avoids
 // repeating libvpx's per-candidate component-sum multiply.
+func (c *fullPelSearchCtx) fullPelCost(mvRow int, mvCol int, refRow8 int, refCol8 int, qIndex int) int {
+	return c.fullPelSAD(mvRow, mvCol) + libvpxFullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
+}
+
+func (c *fullPelSearchCtx) fullPelSAD(mvRow int, mvCol int) int {
+	refBaseY := c.baseY + (mvRow >> 3)
+	refBaseX := c.baseX + (mvCol >> 3)
+	if uint(refBaseY) <= c.refRowH && uint(refBaseX) <= c.refRowW {
+		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY*c.refYStride+refBaseX))
+		return dsp.SAD16x16PtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride)
+	}
+	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, maxInt())
+}
+
 func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, qIndex int) int {
 	mvCost := libvpxFullPelMVSADCost16FromDeltas(mvRow>>3, mvCol>>3, refRow8, refCol8, qIndex)
 	sadLimit := limit - mvCost
@@ -6501,6 +6515,17 @@ func splitMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCou
 }
 
 func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector) int {
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	mvCol := int(mv.Col)
+	mvRow := int(mv.Row)
+	refBaseY := baseY + (mvRow >> 3)
+	refBaseX := baseX + (mvCol >> 3)
+	if (mvCol|mvRow)&7 == 0 &&
+		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
+		uint(refBaseY) <= uint(ref.CodedHeight-16) && uint(refBaseX) <= uint(ref.CodedWidth-16) {
+		return dsp.SAD16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
+	}
 	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, maxInt())
 }
 

@@ -39,6 +39,9 @@ func (s *fullPelMotionSearch) cost(mv vp8enc.MotionVector) int {
 }
 
 func (s *fullPelMotionSearch) walkCost(mv vp8enc.MotionVector, limit int) int {
+	if limit == maxInt() {
+		return s.ctx.fullPelCost(int(mv.Row), int(mv.Col), s.refRow8, s.refCol8, s.qIndex)
+	}
 	return s.ctx.fullPelCostLimited(int(mv.Row), int(mv.Col), limit, s.refRow8, s.refCol8, s.qIndex)
 }
 
@@ -124,10 +127,13 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 			if bounds.containsFullPelStrict(row, col) {
 				mvRow := row * interFrameMVFullPixelStep
 				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
-				if cost < bestWalkCost {
-					bestWalkCost = cost
-					bestSite = i
+				sad := ctx.fullPelSAD(mvRow, mvCol)
+				if sad < bestWalkCost {
+					cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+					if cost < bestWalkCost {
+						bestWalkCost = cost
+						bestSite = i
+					}
 				}
 			}
 			i++
@@ -172,10 +178,13 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 			}
 			mvRow := row * interFrameMVFullPixelStep
 			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestWalkCost, refRow8, refCol8, qIndex)
-			if cost < bestWalkCost {
-				bestWalkCost = cost
-				bestSite = j
+			sad := ctx.fullPelSAD(mvRow, mvCol)
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+				if cost < bestWalkCost {
+					bestWalkCost = cost
+					bestSite = j
+				}
 			}
 		}
 		if bestSite < 0 {
@@ -202,11 +211,14 @@ func (s *fullPelMotionSearch) exhaustive(best vp8enc.MotionVector, bestWalkCost 
 			if row == bestMVRow && col == bestMVCol {
 				continue
 			}
-			cost := ctx.fullPelCostLimited(row, col, bestWalkCost, refRow8, refCol8, s.qIndex)
-			if cost < bestWalkCost {
-				bestMVRow = row
-				bestMVCol = col
-				bestWalkCost = cost
+			sad := ctx.fullPelSAD(row, col)
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row>>3, col>>3, refRow8, refCol8, s.qIndex)
+				if cost < bestWalkCost {
+					bestMVRow = row
+					bestMVCol = col
+					bestWalkCost = cost
+				}
 			}
 		}
 	}
@@ -256,12 +268,15 @@ func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8en
 		}
 		mvRow := row * interFrameMVFullPixelStep
 		mvCol := col * interFrameMVFullPixelStep
-		cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-		if cost < bestCost {
-			bestMVRow = mvRow
-			bestMVCol = mvCol
-			bestCost = cost
-			bestSite = i
+		sad := ctx.fullPelSAD(mvRow, mvCol)
+		if sad < bestCost {
+			cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+			if cost < bestCost {
+				bestMVRow = mvRow
+				bestMVCol = mvCol
+				bestCost = cost
+				bestSite = i
+			}
 		}
 	}
 	if bestSite >= 0 {
@@ -278,12 +293,15 @@ func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8en
 				}
 				mvRow := row * interFrameMVFullPixelStep
 				mvCol := col * interFrameMVFullPixelStep
-				cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-				if cost < bestCost {
-					bestMVRow = mvRow
-					bestMVCol = mvCol
-					bestCost = cost
-					bestSite = i
+				sad := ctx.fullPelSAD(mvRow, mvCol)
+				if sad < bestCost {
+					cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+					if cost < bestCost {
+						bestMVRow = mvRow
+						bestMVCol = mvCol
+						bestCost = cost
+						bestSite = i
+					}
 				}
 			}
 			if bestSite < 0 {
@@ -312,12 +330,15 @@ func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8en
 			}
 			mvRow := row * interFrameMVFullPixelStep
 			mvCol := col * interFrameMVFullPixelStep
-			cost := ctx.fullPelCostLimited(mvRow, mvCol, bestCost, refRow8, refCol8, qIndex)
-			if cost < bestCost {
-				bestMVRow = mvRow
-				bestMVCol = mvCol
-				bestCost = cost
-				bestSite = i
+			sad := ctx.fullPelSAD(mvRow, mvCol)
+			if sad < bestCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
+				if cost < bestCost {
+					bestMVRow = mvRow
+					bestMVCol = mvCol
+					bestCost = cost
+					bestSite = i
+				}
 			}
 		}
 		if bestSite < 0 {
