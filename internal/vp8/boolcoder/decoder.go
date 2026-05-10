@@ -43,12 +43,12 @@ func (d *Decoder) Init(src []byte) error {
 }
 
 func (d *Decoder) ReadBool(prob uint8) uint8 {
+	rng0 := d.rng
+	split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
 	if d.count < 0 {
 		d.fill()
 	}
 
-	rng0 := d.rng
-	split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
 	bigsplit := uint64(split) << (valueSize - 8)
 
 	value := d.value
@@ -74,12 +74,12 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 }
 
 func (d *Decoder) ReadBit() uint8 {
+	rng0 := d.rng
+	split := (rng0 + 1) >> 1
 	if d.count < 0 {
 		d.fill()
 	}
 
-	rng0 := d.rng
-	split := (rng0 + 1) >> 1
 	bigsplit := uint64(split) << (valueSize - 8)
 
 	value := d.value
