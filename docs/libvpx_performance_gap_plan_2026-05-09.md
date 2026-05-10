@@ -86,27 +86,27 @@ Update from 2026-05-10:
   fast-LF-picker shortcut, the same hard gate is:
   `govpx=14.64 ms/frame`, `libvpx=5.49 ms/frame`, `2.67x` slower,
   `output_bytes_ratio=1.0220`, `PSNR=+0.353 dB`, `SSIM=+0.0211`.
-- With production wall-clock autospeed (`-autospeed-calibration=false`) the
-  bitrate gate is effectively closed:
-  `govpx=14.46 ms/frame`, `libvpx=5.35 ms/frame`, `2.70x` slower,
-  `output_bytes_ratio=0.9963`, `PSNR=+0.403 dB`, `SSIM=+0.0230`.
+- After removing the synthetic autospeed calibration path, restoring libvpx's
+  realtime Speed=4 search bundle (`NSTEP` + iterative subpel), and preparing
+  LF picker state like libvpx, recent wall-clock hard-gate samples are
+  `2.55x-2.59x` slower with `output_bytes_ratio=0.995-1.001`,
+  PSNR about `+0.44 dB`, and SSIM about `+0.023`.
 - Libvpx oracle trace for the same realtime `--cpu-used=8` fixture reports
-  `Speed=8` at frame 1. Govpx's deterministic autospeed calibration currently
-  pins govpx at `Speed=4`, so the comparison is mixing speed-feature bundles.
+  `Speed=8` at frame 1, then higher speed buckets. Govpx must follow the same
+  timer-driven speed-feature selection instead of pinning a local speed bucket.
 - Libvpx flow check: in `onyx_if.c`, VP8 version 0 uses normal loop filter
   until `Speed >= 14`; in `picklpf.c` / `onyx_if.c`, `auto_filter == 1`
   calls the full picker and `auto_filter == 0` calls the fast picker. Therefore
   realtime Speed=4 must use normal filter + full LF picker for both serial and
   threaded rows.
-- Current profile after the flow fix (`/private/tmp/govpx-720-current-flow.cpu`)
+- Current profile after the flow fix (`/private/tmp/govpx-720-libvpx-flow.cpu`)
   shows the remaining speed gap is not one routine: `selectFastInterFrameModeDecision`
-  is ~26% cumulative, `buildReconstructingInterFrameCoefficientsWithSegmentation`
-  ~40%, `pickLoopFilterLevelFull` / `loopFilterTrialLumaSSE` ~19%,
-  `ApplyLoopFilterFullLuma` ~13%, `ApplyLoopFilterChromaOnly` ~7%, and
-  coefficient probability/token writing ~10%.
-- Do not partially "clean up" Speed=4 by removing the local step-subpel shortcut:
-  exact Speed=4 NSTEP+iterative subpel raised the 720p bytes ratio to `1.069x`
-  without closing the speed gap. That is a regression against the bitrate gate.
+  is ~14% cumulative, `buildReconstructingInterFrameCoefficientsWithSegmentation`
+  ~25%, `pickLoopFilterLevelFull` / `loopFilterTrialLumaSSE` ~12%,
+  final reconstruction LF ~5%, and coefficient probability/token writing ~12%.
+- Do not reintroduce Speed=4 HEX or step-subpel shortcuts. Exact Speed=4
+  `NSTEP` + iterative subpel is the libvpx call flow and is now bitrate-safe
+  in the hard gate.
 - Do not simply force HEX at 720p either. Prior attempts triggered NEAREST/NEW
   mode cascades and EOB growth. The correct lane is to route a whole libvpx
   Speed=8 bundle through govpx, then make the Speed=8/HEX path pass the
@@ -500,14 +500,8 @@ Claim a win only when:
 
 ## Notes for future agents
 
-- Current 2026-05-09 follow-up: `cmd/govpx-bench` now defaults
-  `-autospeed-calibration=true` for libvpx comparisons. This keeps govpx on a
-  libvpx-equivalent speed-feature trajectory while still timing real Go
-  encoder work, so bitrate/quality gates are not dominated by Go wall-clock
-  overhead feeding autospeed. Pass `-autospeed-calibration=false` only when
-  explicitly investigating production wall-clock autospeed behavior; local
-  720p full-quality wall-clock runs drifted outside the 1% bitrate gate.
-  Treat any wall-clock autospeed speed win as incomplete until bitrate and
+- Current follow-up: `cmd/govpx-bench` uses the encoder's normal wall-clock
+  autospeed path. Treat any speed win as incomplete until bitrate and
   PSNR/SSIM pass.
 - A temporary LF-only experiment (`loopFilterUsesFastSearch` returning true at
   realtime Speed=4) is also not a global fix. It moved 320p encode-only to

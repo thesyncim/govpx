@@ -831,7 +831,21 @@ func copyFrameImage(dst *vp8common.Image, src *vp8common.Image) {
 }
 
 func copyFrameImageLuma(dst *vp8common.Image, src *vp8common.Image) {
-	copy(dst.Y, src.Y)
+	if dst == nil || src == nil {
+		return
+	}
+	width := min(dst.CodedWidth, src.CodedWidth)
+	height := min(dst.CodedHeight, src.CodedHeight)
+	if width <= 0 || height <= 0 {
+		return
+	}
+	if dst.YStride == src.YStride && width == dst.YStride {
+		copy(dst.Y[:height*dst.YStride], src.Y[:height*src.YStride])
+		return
+	}
+	for row := 0; row < height; row++ {
+		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
+	}
 }
 
 func publicImageFromVP8(src *vp8common.Image) Image {

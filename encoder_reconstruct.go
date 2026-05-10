@@ -881,29 +881,6 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
-	// R17-A (parity-close-r17-a-picker-speed-features): switch the realtime
-	// fast picker's full-pel search from NSTEP to HEX at the auto-selected
-	// Speed=4 floor. The single-thread path keeps iterative subpel search so
-	// the zero-cost serial path stays unchanged; threaded rows inherit the same
-	// search config through their worker-private encoder state.
-	//
-	// The frame-size gate (>= 1080p) keeps the small/mid-frame oracle
-	// scoreboards green:
-	//   - rt-cpu8-128x128-bench-noise: 64 MBs, hex's local-minimum on noise
-	//     flips a 6.25pp NEAR-to-NEAREST swap (12.5pp L1, fails 4pp+6pp gates).
-	//   - rt-cpu8-256x256-bench-noise: 256 MBs, hex pushes L1 to 4.24pp /
-	//     EOB to 1.099 (within gates but on the edge).
-	//   - rt-cpu8-1280x720-bench-noise: 3600 MBs, hex pushes EOB ratio to
-	//     1.128 (just over the 0.10 gate's 1.121 floor) -- the 720p noise
-	//     fixture's NEAREST/NEW swap leaks downstream into a token-coding
-	//     EOB sum bump that the L1 dispersal alone misses.
-	// At 1080p the noise averaging keeps both the dispersal and the EOB
-	// sum stable, so the serial perf win is delivered exactly where the
-	// 1080p fast picker needs it.
-	largeFrame := e.opts.Width >= 1920 && e.opts.Height >= 1080
-	if speed >= 4 && largeFrame {
-		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
-	}
 	if speed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
@@ -913,9 +890,6 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	}
 	if speed >= 15 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
-	}
-	if !e.threadedRowsActive && speed <= 4 {
-		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
 	return cfg
 }
@@ -1355,7 +1329,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
-	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
+	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+bestAdjustment {
 		e.interRDThreshMult[modeIndex] -= bestAdjustment
 	} else {
@@ -2270,7 +2244,11 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		if mbMode == vp8common.NearMV {
 			mv = near
 		}
+		mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 		if mv.IsZero() {
+			return vp8enc.InterFrameMacroblockMode{}, false
+		}
+		if !interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols) {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
@@ -2285,6 +2263,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectRDInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
+			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 			candidate.searched = true
 			candidate.ok = true
 			candidate.mv = mv
@@ -2718,8 +2697,9 @@ func (e *VP8Encoder) fastInterModeForLoopEntry(
 			search := ctx.searchConfig(e)
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			mv, _ := selectInterFrameMotionVectorWithSearchStart(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &e.modeProbs.MV)
+			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
 			candidate.searched = true
-			candidate.ok = !mv.IsZero()
+			candidate.ok = !mv.IsZero() && interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols)
 			candidate.mv = mv
 			candidate.start = start
 		}
@@ -5609,6 +5589,44 @@ func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, m
 		}
 	}
 	return bounds
+}
+
+func interFrameUMVFullPixelInRange(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) bool {
+	if mbRows <= 0 || mbCols <= 0 {
+		return true
+	}
+	umv := interFrameUMVBorderPixels - 16
+	row := int(mv.Row) >> 3
+	col := int(mv.Col) >> 3
+	rowMin := -((mbRow * 16) + umv)
+	rowMax := ((mbRows - 1 - mbRow) * 16) + umv
+	colMin := -((mbCol * 16) + umv)
+	colMax := ((mbCols - 1 - mbCol) * 16) + umv
+	return row >= rowMin && row <= rowMax && col >= colMin && col <= colMax
+}
+
+func clampInterMotionVectorToModeEdges(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) vp8enc.MotionVector {
+	if mbRows <= 0 || mbCols <= 0 {
+		return mv
+	}
+	top := -(mbRow * 16) << 3
+	bottom := (mbRows - 1 - mbRow) * 16 << 3
+	left := -(mbCol * 16) << 3
+	right := (mbCols - 1 - mbCol) * 16 << 3
+	return vp8enc.MotionVector{
+		Row: int16(clampInterMotionVectorComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampInterMotionVectorComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampInterMotionVectorComponent(v int, lowEdge int, highEdge int) int {
+	if v < lowEdge-(16<<3) {
+		return lowEdge - (16 << 3)
+	}
+	if v > highEdge+(16<<3) {
+		return highEdge + (16 << 3)
+	}
+	return v
 }
 
 func (b interFrameFullPixelBounds) containsFullPel(row int, col int) bool {

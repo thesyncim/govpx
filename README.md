@@ -95,10 +95,8 @@ go run ./cmd/govpx-bench -format=json                 # machine-readable
 
 By default it auto-locates `internal/coracle/build/{vpxenc,govpx-vpx-oracle}` (running `make oracle-tools` if missing) for an apples-to-apples reference. Pass `-libvpx-vpxenc=` / `-libvpx-oracle=` to point at custom binaries, or `-auto-libvpx=false` to skip. Output includes the `comparison_vs_reference` block (encode) or `relative_speed_vs_reference` (decode) plus subprocess overhead so you can see where the time is going.
 
-Encode comparison runs default to autospeed calibration for deterministic
-output-parity diagnostics while timing the actual Go encoder. Pass
-`-autospeed-calibration=false` to inspect production wall-clock autospeed
-behavior separately.
+Realtime encode comparisons use the same wall-clock-driven autospeed flow as
+libvpx; there is no synthetic speed calibration path.
 
 ## Layout
 

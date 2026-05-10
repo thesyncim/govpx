@@ -208,37 +208,6 @@ type EncoderOptions struct {
 	// outside the first MB row (e.g. a loop-filter level picker that
 	// scores the partial-frame window at rows/2).
 	OracleTracePredictorDumpAllRows bool
-
-	// AutoSpeedGoOverheadCalibration toggles the Go-vs-C overhead
-	// calibration applied to vp8_auto_select_speed's avg_encode_time /
-	// avg_pick_mode_time inputs. Off by default to preserve parity with
-	// libvpx oracle binaries (oracle scoreboards exercise the patched
-	// libvpx whose per-frame wall-clock overhead matches govpx's Go
-	// runtime overhead, so calibration would *break* their convergence).
-	// On for cmd/govpx-bench and any production caller comparing against
-	// stock libvpx.
-	//
-	// When on, govpx replaces the wall-clock duration that feeds the
-	// auto-select IIR filter with a deterministic synthetic value
-	// proportional to the frame's macroblock count
-	// (libvpxAutoSpeedSynthCostUS). The synthetic duration drives
-	// libvpx's auto_speed_thresh comparisons into the Speed bucket at
-	// which govpx output (kbps, PSNR, interframe bytes) matches stock
-	// libvpx's, independent of the host machine's actual encode speed.
-	// The trajectory becomes a pure function of (cpu_used, framerate,
-	// width, height) so parity tests are reproducible across boxes.
-	//
-	// R12-D's earlier wall-clock-scaling calibration (constant 24/10
-	// ratio of govpx vs libvpx per-frame time) was tuned for 720p only
-	// and broke at 1080p where govpx parked at Speed=6/7 instead of the
-	// Speed=4 floor, driving a 1.04x interframe-byte / -0.31 dB PSNR
-	// divergence (R13). The synthetic-duration model fixes that by
-	// scaling implicitly with MBs/frame so the Speed=4 floor holds at
-	// every supported resolution.
-	//
-	// Cold-start (avg_pick_mode_time==0) and the explicit-Speed branches
-	// are unaffected.
-	AutoSpeedGoOverheadCalibration bool
 }
 
 type EncodeResult struct {
@@ -1220,6 +1189,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// advances frames_since_last_drop_overshoot so the rcf-watchdog
 		// branch can arm next time.
 		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.Size, required, false) {
+			e.finishAutoSpeedTiming(false)
 			e.twoPass.finishFrame(0)
 			result.Dropped = true
 			result.SizeBytes = 0
@@ -1605,7 +1575,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
-	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required, segmentation)
+	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required, segmentation, false, false)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
@@ -1987,7 +1957,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// Output goes to denoiser.runningAvg[INTRA] which propagates to
 	// reference-aligned buffers in commitInterFrameAttempt.
 	e.applyDenoiserToInterFrame(source, rows, cols)
-	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation)
+	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
@@ -1997,8 +1967,13 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.LFDeltaUpdate = e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas)
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
-	if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
-		return interFrameEncodeAttempt{}, err
+	if cfg.RefreshLast || cfg.RefreshGolden || cfg.RefreshAltRef {
+		if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
+			return interFrameEncodeAttempt{}, err
+		}
+	} else {
+		e.loopFilterPickReady = false
+		e.loopFilterPickBest = false
 	}
 	if segmentation.Enabled {
 		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
@@ -3218,56 +3193,9 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 }
 
-// libvpxAutoSpeedSynthCostUS is the synthetic per-macroblock encode cost
-// (in microseconds) that govpx feeds into avg_encode_time / avg_pick_mode_time
-// when AutoSpeedGoOverheadCalibration is enabled. It replaces the wall-clock
-// duration entirely so the Speed trajectory is a pure function of frame size
-// and not the host machine's encode speed.
-//
-// Calibration target: govpx's auto_select must converge to a Speed at which
-// the govpx encoder produces output (kbps, PSNR, interframe bytes) that
-// matches stock libvpx's output, NOT necessarily the same Speed value
-// libvpx itself parks at. Empirically (R13 bench at 320p/480p/720p/1080p),
-// govpx's Speed=4 path produces libvpx-equivalent output across all
-// resolutions, while govpx's Speed=16 path overshoots libvpx's bitrate by
-// 1.30x-1.50x because the higher-Speed mode-decision shortcuts diverge
-// between the two implementations. So we synthesise a per-frame duration
-// that keeps govpx's auto_select pinned at Speed=4 at every resolution.
-//
-// Stability bound: vp8_auto_select_speed (rdopt.c:261) bumps Speed up
-// when ms_for_compress*100 < avg_encode_time*95, which simplifies to
-// avg_encode_time > ms_for_compress * 100/95 ≈ 17544 us at fps=30,
-// cpu_used=8. To stay at Speed=4 we need
-// frame_duration < 17544 us at every supported resolution, including
-// 1080p (8160 MBs). cost_per_MB = 2 us gives frame_duration = 16320 us at
-// 1080p (under the 17544 threshold) and 600 us at 320x240 (well under).
-//
-// Frame-0 keyframe behaviour is preserved: avg_encode_time updates skip
-// keyframes (mirroring onyx_if.c:5110), and avg_pick_mode_time uses the
-// synthetic duration2 = duration/2 just like the C path.
-//
-// The R12-D wall-clock-scaling approach (constant 24/10 ratio) achieved
-// the same Speed=4 outcome at 720p but parked govpx at Speed=6/7 at 1080p
-// because frame wall-clock scales with MB count and the fixed ratio could
-// not absorb the resolution-dependent overhead. The synthetic-cost model
-// scales implicitly with MBs/frame so the Speed=4 floor holds at every
-// resolution.
-const libvpxAutoSpeedSynthCostUS = 2
-
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
 // encode in realtime, IIR-update avg_encode_time (skipped for keyframes) and
 // avg_pick_mode_time (duration2 = duration/2 by libvpx convention).
-//
-// When AutoSpeedGoOverheadCalibration is on, govpx replaces the measured
-// wall-clock duration with a synthetic value proportional to the frame's
-// macroblock count (libvpxAutoSpeedSynthCostUS). This makes the Speed
-// trajectory a pure function of (cpu_used, framerate, width, height) and
-// drops the host-machine-dependence that broke the R12-D wall-clock-scaling
-// approach at 1080p. See the libvpxAutoSpeedSynthCostUS comment for the
-// empirical calibration contract.
-//
-// When calibration is off, we still measure wall-clock and feed it directly,
-// matching the patched libvpx oracle behaviour the parity scoreboards rely on.
 func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	if e == nil || e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
@@ -3277,16 +3205,7 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	if durationNS < 0 {
 		durationNS = 0
 	}
-	var duration int // microseconds
-	if e.opts.AutoSpeedGoOverheadCalibration && e.libvpxAutoSelectSpeedActive() {
-		// Synthetic duration: cost_per_MB * MBs. Resolution-aware so the
-		// Speed trajectory tracks libvpx across all frame sizes; not
-		// host-clock dependent so parity is reproducible across machines.
-		mbs := encoderMacroblockCount(e.opts.Width, e.opts.Height)
-		duration = mbs * libvpxAutoSpeedSynthCostUS
-	} else {
-		duration = int(durationNS / 1000)
-	}
+	duration := int(durationNS / 1000)
 	duration2 := duration / 2
 	if !isKeyFrame {
 		if e.avgEncodeTime == 0 {
@@ -3840,7 +3759,7 @@ func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
 	return -2
 }
 
-func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
+func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig, refreshGolden bool, refreshAltRef bool) (uint8, error) {
 	e.loopFilterPickReady = false
 	e.loopFilterPickLevel = 0
 	e.loopFilterPickBest = false
@@ -3850,10 +3769,11 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	if seedLevel == 0 {
 		return 0, nil
 	}
+	minLevel := e.libvpxMinLoopFilterLevelForFrame(frameType, refreshGolden, refreshAltRef)
 	if e.loopFilterUsesFastSearchForFrame(frameType) {
-		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
+		return e.pickLoopFilterLevelFast(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation, minLevel)
 	}
-	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation)
+	return e.pickLoopFilterLevelFull(src, frameType, seedLevel, sharpness, rows, cols, required, segmentation, minLevel)
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearchForFrame(frameType vp8common.FrameType) bool {
@@ -3875,12 +3795,12 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	}
 }
 
-func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
-	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig, minLevel int) (uint8, error) {
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
-	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation)
+	vp8common.InitLoopFilterInfo(&e.loopInfo, int(sharpness))
+	bestErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, true, segmentation, true)
 	if err != nil {
 		return 0, err
 	}
@@ -3888,7 +3808,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
-		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
+		filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation, true)
 		if err != nil {
 			return 0, err
 		}
@@ -3906,7 +3826,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
-			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation)
+			filtErr, err := e.loopFilterTrialLumaSSE(src, frameType, filtLevel, sharpness, rows, cols, required, true, segmentation, true)
 			if err != nil {
 				return 0, err
 			}
@@ -3923,8 +3843,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFast(src vp8enc.SourceImage, frameType v
 	return uint8(clampLoopFilterPickLevel(bestLevel, minLevel, maxLevel)), nil
 }
 
-func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) (uint8, error) {
-	minLevel := libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType vp8common.FrameType, seedLevel uint8, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig, minLevel int) (uint8, error) {
 	maxLevel := libvpxMaxLoopFilterLevel(e.rc.currentQuantizer)
 	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	filterStep := 4
@@ -3935,6 +3854,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
 	residentLevel := -1
 	bestLumaLevel := -1
+	vp8common.InitLoopFilterInfo(&e.loopInfo, int(sharpness))
 	preserveBestBeforeTrial := func(nextLevel int, bestLevel int) {
 		if bestLevel <= 0 || nextLevel == bestLevel || ssSet[nextLevel] {
 			return
@@ -3948,7 +3868,7 @@ func (e *VP8Encoder) pickLoopFilterLevelFull(src vp8enc.SourceImage, frameType v
 		if ssSet[level] {
 			return ssErr[level], nil
 		}
-		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false, segmentation)
+		trialErr, err := e.loopFilterTrialLumaSSE(src, frameType, level, sharpness, rows, cols, required, false, segmentation, true)
 		if err != nil {
 			return 0, err
 		}
@@ -4072,7 +3992,7 @@ func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionI
 // (e.g. cyclic refresh's MB_LVL_ALT_LF[1] = lf_adjustment) modulate the
 // per-MB filter level the same way libvpx's vp8cx_set_alt_lf_level +
 // vp8_loop_filter_frame_init does inside vp8cx_pick_filter_level.
-func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig) (int, error) {
+func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp8common.FrameType, level int, sharpness uint8, rows int, cols int, required int, partial bool, segmentation vp8enc.SegmentationConfig, preparedInfo bool) (int, error) {
 	if level == 0 {
 		return loopFilterLumaSSE(src, &e.analysis.Img, rows, cols, partial), nil
 	}
@@ -4080,14 +4000,26 @@ func (e *VP8Encoder) loopFilterTrialLumaSSE(src vp8enc.SourceImage, frameType vp
 		startRow, rowCount := loopFilterPartialFrameWindow(rows)
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
 		header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-		if err := vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount); err != nil {
+		var err error
+		if preparedInfo {
+			err = vp8dec.ApplyLoopFilterPartialPrepared(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount)
+		} else {
+			err = vp8dec.ApplyLoopFilterPartial(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo, startRow, rowCount)
+		}
+		if err != nil {
 			return 0, ErrInvalidConfig
 		}
 		return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, true), nil
 	}
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	header := e.encoderLoopFilterHeader(uint8(level), sharpness)
-	if err := vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
+	var err error
+	if preparedInfo {
+		vp8dec.ApplyLoopFilterFullLumaPreparedUnchecked(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
+	} else {
+		err = vp8dec.ApplyLoopFilterFullLuma(&e.loopFilterPick.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
+	}
+	if err != nil {
 		return 0, ErrInvalidConfig
 	}
 	return loopFilterLumaSSE(src, &e.loopFilterPick.Img, rows, cols, false), nil
@@ -4268,6 +4200,16 @@ func libvpxMinLoopFilterLevel(qIndex int) int {
 	return qIndex / 8
 }
 
+func (e *VP8Encoder) libvpxMinLoopFilterLevelForFrame(frameType vp8common.FrameType, refreshGolden bool, refreshAltRef bool) int {
+	if e != nil && frameType == vp8common.InterFrame && e.sourceAltRefActive && refreshGolden && !refreshAltRef {
+		return 0
+	}
+	if e == nil {
+		return 0
+	}
+	return libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
+}
+
 func libvpxMaxLoopFilterLevel(qIndex int) int {
 	_ = qIndex
 	return 63
@@ -4303,7 +4245,7 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 		}
 		copyFrameImageLuma(&e.analysis.Img, reuse)
 		if header.Type == vp8dec.NormalLoopFilter {
-			if err := vp8dec.ApplyLoopFilterChromaOnly(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
+			if err := vp8dec.ApplyLoopFilterChromaOnlyPrepared(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
 				e.loopFilterPickReady = false
 				e.loopFilterPickBest = false
 				return ErrInvalidConfig

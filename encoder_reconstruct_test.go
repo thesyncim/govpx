@@ -57,7 +57,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			stepParam:  2,
 			further:    5,
 			improved:   true,
-			fractional: interAnalysisFractionalSearchStep,
+			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
 			name:       "realtime explicit speed three RD uses first step directly",
@@ -67,7 +67,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 			stepParam:  1,
 			further:    6,
 			improved:   true,
-			fractional: interAnalysisFractionalSearchStep,
+			fractional: interAnalysisFractionalSearchIterative,
 		},
 		{
 			name:       "realtime explicit speed five switches to hex and step subpixel",
@@ -111,7 +111,7 @@ func TestInterAnalysisSearchConfigMirrorsLibvpxRealtimeThresholds(t *testing.T) 
 	}
 }
 
-func TestInterAnalysisSearchConfigUsesCheaperSearchForSerialRealtimeFrames(t *testing.T) {
+func TestInterAnalysisSearchConfigKeepsLibvpxSpeed4RealtimeSearch(t *testing.T) {
 	serial := &VP8Encoder{
 		opts: EncoderOptions{
 			Width:    1280,
@@ -120,8 +120,8 @@ func TestInterAnalysisSearchConfigUsesCheaperSearchForSerialRealtimeFrames(t *te
 			CpuUsed:  8,
 		},
 	}
-	if got := serial.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchNstep || got.fractionalSearch != interAnalysisFractionalSearchStep {
-		t.Fatalf("serial 720p speed=4 search = full %d fractional %d, want nstep+step", got.fullPixelSearch, got.fractionalSearch)
+	if got := serial.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchNstep || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("serial 720p speed=4 search = full %d fractional %d, want nstep+iterative", got.fullPixelSearch, got.fractionalSearch)
 	}
 
 	large := &VP8Encoder{
@@ -132,8 +132,8 @@ func TestInterAnalysisSearchConfigUsesCheaperSearchForSerialRealtimeFrames(t *te
 			CpuUsed:  8,
 		},
 	}
-	if got := large.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchStep {
-		t.Fatalf("large 1080p speed=4 search = full %d fractional %d, want hex+step", got.fullPixelSearch, got.fractionalSearch)
+	if got := large.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchNstep || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("large 1080p speed=4 search = full %d fractional %d, want nstep+iterative", got.fullPixelSearch, got.fractionalSearch)
 	}
 
 	threaded := &VP8Encoder{
@@ -145,8 +145,8 @@ func TestInterAnalysisSearchConfigUsesCheaperSearchForSerialRealtimeFrames(t *te
 		},
 		threadedRowsActive: true,
 	}
-	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchHex || got.fractionalSearch != interAnalysisFractionalSearchIterative {
-		t.Fatalf("threaded 1080p speed=4 search = full %d fractional %d, want hex+iterative", got.fullPixelSearch, got.fractionalSearch)
+	if got := threaded.interAnalysisSearchConfig(); got.fullPixelSearch != interAnalysisFullPixelSearchNstep || got.fractionalSearch != interAnalysisFractionalSearchIterative {
+		t.Fatalf("threaded 1080p speed=4 search = full %d fractional %d, want nstep+iterative", got.fullPixelSearch, got.fractionalSearch)
 	}
 }
 
@@ -672,7 +672,7 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 
 	e.lowerBestInterRDThreshold(libvpxThrNew1)
 	afterBest := e.interModeRDThresholds(40)
-	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*95; got != want {
+	if got, want := afterBest[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*111; got != want {
 		t.Fatalf("best NEW1 threshold = %d, want %d", got, want)
 	}
 }

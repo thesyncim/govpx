@@ -84,16 +84,15 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 }
 
 // gatherH8x8ARM64 copies 8 rows of 8 bytes from s into a [8*16]byte
-// stack buffer at row stride 16. The high 8 lanes of each row are
-// zeroed — the H16 kernel filters all 16 lanes but lanes 8..15 are
-// inactive downstream because we only scatter back the first 8 lanes.
+// stack buffer at row stride 16. The H16 kernel filters all 16 lanes,
+// but lanes 8..15 are inactive downstream because only the first 8 lanes
+// are scattered back.
 func gatherH8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 	dst := tmp[:]
 	for r := range 8 {
 		base := r * 16
 		w := binary.LittleEndian.Uint64(s[r*stride : r*stride+8])
 		binary.LittleEndian.PutUint64(dst[base:base+8], w)
-		binary.LittleEndian.PutUint64(dst[base+8:base+16], 0)
 	}
 }
 
@@ -111,13 +110,9 @@ func scatterH8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 // gatherV8x8ARM64 reads 8 rows of 8 bytes each from s and packs them
 // into tmp such that tmp[r*16+i] = s[i*stride+r] for i in 0..7,
 // r in 0..7 — the same column-major transpose used for the count=2
-// vertical-edge fallback. Lanes 8..15 are zeroed; they're inactive
-// on writeback.
+// vertical-edge fallback. Lanes 8..15 are inactive on writeback.
 func gatherV8x8ARM64(tmp *[8 * 16]byte, s []byte, stride int) {
 	dst := tmp[:]
-	for i := range dst {
-		dst[i] = 0
-	}
 	for i := range 8 {
 		row := s[i*stride : i*stride+8]
 		w := binary.LittleEndian.Uint64(row)

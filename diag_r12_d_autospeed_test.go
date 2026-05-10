@@ -15,20 +15,19 @@ func TestDiagR12_D_AutoSpeedTrajectory(t *testing.T) {
 	const W, H, FPS, KBPS, F = 1280, 720, 30, 1500, 30
 	enc, err := NewVP8Encoder(EncoderOptions{
 		Width: W, Height: H, FPS: FPS,
-		RateControlMode:                RateControlCBR,
-		TargetBitrateKbps:              KBPS,
-		MinQuantizer:                   4,
-		MaxQuantizer:                   56,
-		Deadline:                       DeadlineRealtime,
-		CpuUsed:                        8,
-		KeyFrameInterval:               FPS,
-		BufferSizeMs:                   600,
-		BufferInitialSizeMs:            400,
-		BufferOptimalSizeMs:            500,
-		UndershootPct:                  100,
-		OvershootPct:                   15,
-		Threads:                        1,
-		AutoSpeedGoOverheadCalibration: true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   KBPS,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    FPS,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		UndershootPct:       100,
+		OvershootPct:        15,
+		Threads:             1,
 	})
 	if err != nil {
 		t.Fatal(err)

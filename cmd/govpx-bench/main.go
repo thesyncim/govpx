@@ -26,19 +26,18 @@ import (
 const quantizerHistogramBins = 128
 
 type benchConfig struct {
-	Width                int
-	Height               int
-	Frames               int
-	FPS                  int
-	BitrateKbps          int
-	Mode                 string
-	Decode               bool
-	SkipQuality          bool
-	Threads              int
-	AutoSpeedCalibration bool
-	LibvpxVpxenc         string
-	LibvpxOracle         string
-	LibvpxArgs           []string
+	Width        int
+	Height       int
+	Frames       int
+	FPS          int
+	BitrateKbps  int
+	Mode         string
+	Decode       bool
+	SkipQuality  bool
+	Threads      int
+	LibvpxVpxenc string
+	LibvpxOracle string
+	LibvpxArgs   []string
 }
 
 type benchReport struct {
@@ -170,19 +169,17 @@ type latencyReport struct {
 }
 
 type benchConfigSummary struct {
-	Deadline             string `json:"deadline"`
-	AutoSpeedCalibration bool   `json:"autospeed_calibration,omitempty"`
+	Deadline string `json:"deadline"`
 }
 
 func benchSummary(cfg benchConfig, deadline string) benchConfigSummary {
 	return benchConfigSummary{
-		Deadline:             deadline,
-		AutoSpeedCalibration: cfg.AutoSpeedCalibration,
+		Deadline: deadline,
 	}
 }
 
 func main() {
-	cfg := benchConfig{AutoSpeedCalibration: true}
+	cfg := benchConfig{}
 	opts := defaultBenchCLIOptions()
 	registerBenchFlags(flag.CommandLine, &cfg, &opts)
 	flag.Parse()
@@ -281,7 +278,6 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
-	fs.BoolVar(&cfg.AutoSpeedCalibration, "autospeed-calibration", cfg.AutoSpeedCalibration, "use synthetic autospeed timing for deterministic output-parity diagnostics; pass -autospeed-calibration=false for wall-clock autospeed")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
@@ -915,11 +911,6 @@ func benchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.Enc
 		OvershootPct:        p.OvershootPct,
 		Threads:             p.Threads,
 		TokenPartitions:     p.TokenPartitions,
-		// Default bench runs use synthetic autospeed timing for deterministic
-		// output-parity diagnostics while timing the actual Go encoder.
-		// Passing -autospeed-calibration=false opts into production wall-clock
-		// autospeed.
-		AutoSpeedGoOverheadCalibration: cfg.AutoSpeedCalibration,
 	}
 }
 
