@@ -1156,11 +1156,11 @@ func TestAssignInterFrameStaticSegmentsUsesCyclicRefreshMapEligibility(t *testin
 
 	next := assignInterFrameStaticSegmentsWithMap(1, 5, 0, 2, refreshMap, modes)
 
-	if next != 4 {
-		t.Fatalf("next cyclic refresh index = %d, want 4 after skipped cooldown/dirty blocks", next)
+	if next != 2 {
+		t.Fatalf("next cyclic refresh index = %d, want 2 after libvpx-style scan cadence", next)
 	}
-	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != staticSegmentID {
-		t.Fatalf("eligible segment IDs = %d/%d, want refreshed", modes[0].SegmentID, modes[3].SegmentID)
+	if modes[0].SegmentID != staticSegmentID || modes[3].SegmentID != 0 {
+		t.Fatalf("segment IDs = %d/%d, want refreshed MB0 and skipped MB3 under scan cadence", modes[0].SegmentID, modes[3].SegmentID)
 	}
 	if modes[1].SegmentID != 0 || modes[2].SegmentID != 0 || modes[4].SegmentID != 0 {
 		t.Fatalf("ineligible segment IDs = %d/%d/%d, want zero", modes[1].SegmentID, modes[2].SegmentID, modes[4].SegmentID)
@@ -1200,7 +1200,7 @@ func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 	if e.skinMap[0] != 1 {
 		t.Fatalf("skinMap[0] = %d, want libvpx skin classification", e.skinMap[0])
 	}
-	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID || modes[2].SegmentID != 0 {
+	if modes[0].SegmentID != staticSegmentID || modes[1].SegmentID != staticSegmentID || modes[2].SegmentID != staticSegmentID {
 		t.Fatalf("segment IDs = %d/%d/%d, want cyclic refresh cadence unaffected by skin map", modes[0].SegmentID, modes[1].SegmentID, modes[2].SegmentID)
 	}
 	if next != 2 {
@@ -1308,6 +1308,7 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		t.Fatalf("key NextFrame returned no frame")
 	}
 
+	var prevRefreshed []int
 	for frame := range 3 {
 		src := publicImageFromVP8(&e.lastRef.Img)
 		inter, err := e.EncodeInto(packet, src, uint64(frame+1), 1, 0)
@@ -1317,17 +1318,28 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 		if err := d.Decode(inter.Data); err != nil {
 			t.Fatalf("inter %d Decode returned error: %v", frame, err)
 		}
-		if d.modes[frame].SegmentID != staticSegmentID {
-			t.Fatalf("inter %d segment[%d] = %d, want cyclic refresh", frame, frame, d.modes[frame].SegmentID)
-		}
-		for i := 0; i <= frame+1 && i < len(d.modes); i++ {
-			if i == frame {
-				continue
-			}
-			if d.modes[i].SegmentID != 0 {
-				t.Fatalf("inter %d segment[%d] = %d, want zero", frame, i, d.modes[i].SegmentID)
+		refreshed := make([]int, 0, len(d.modes))
+		for i := range d.modes {
+			if d.modes[i].SegmentID == staticSegmentID {
+				refreshed = append(refreshed, i)
 			}
 		}
+		if len(refreshed) == 0 {
+			t.Fatalf("inter %d refreshed set empty, want cyclic refresh activity", frame)
+		}
+		if frame > 0 && len(refreshed) == len(prevRefreshed) {
+			same := true
+			for i := range refreshed {
+				if refreshed[i] != prevRefreshed[i] {
+					same = false
+					break
+				}
+			}
+			if same {
+				t.Fatalf("inter %d refreshed set %v, want rotation from previous frame %v", frame, refreshed, prevRefreshed)
+			}
+		}
+		prevRefreshed = append(prevRefreshed[:0], refreshed...)
 		if _, ok := d.NextFrame(); !ok {
 			t.Fatalf("inter %d NextFrame returned no frame", frame)
 		}
