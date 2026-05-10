@@ -59,7 +59,8 @@ type rowEncoderState struct {
 	// rows finish so the hot picker does not share a write-heavy bool slice.
 	dotArtifactChecked []bool
 
-	totalRate int
+	totalRate            int
+	totalPredictionError int64
 }
 
 // reset re-initializes the per-row worker state for a fresh frame
@@ -71,6 +72,7 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	}
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rs.totalRate = 0
+	rs.totalPredictionError = 0
 	if e == nil {
 		return
 	}

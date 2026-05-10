@@ -5761,6 +5761,33 @@ func TestCyclicRefreshSegmentationConfigDisabledUnderForceMaxQuantizer(t *testin
 	}
 }
 
+func TestDropEncodedFrameOvershootReadsCurrentPredictionError(t *testing.T) {
+	e := VP8Encoder{}
+	e.opts.ScreenContentMode = 2
+	e.rc.mode = RateControlCBR
+	e.rc.dropFrameAllowed = true
+	e.rc.currentQuantizer = 40
+	e.rc.maxQuantizer = vp8common.MaxQ
+	e.rc.bitsPerFrame = 8000
+	e.rc.bufferOptimalBits = 16000
+	e.rc.bufferLevelBits = 2000
+	e.framePredictionError = int64((200<<4)+1) * 10
+	e.lastPredErrorMB = 100
+
+	if !e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, 4000, 10, false) {
+		t.Fatalf("overshoot drop = false, want true when current pred_err_mb crosses libvpx gates")
+	}
+	if !e.forceMaxQuantizer {
+		t.Fatalf("forceMaxQuantizer = false, want true after overshoot drop")
+	}
+	if e.rc.bufferLevelBits != e.rc.bufferOptimalBits {
+		t.Fatalf("buffer level = %d, want reset to optimal %d", e.rc.bufferLevelBits, e.rc.bufferOptimalBits)
+	}
+	if e.lastPredErrorMB != 100 {
+		t.Fatalf("lastPredErrorMB changed inside drop helper to %d, want caller-owned value retained", e.lastPredErrorMB)
+	}
+}
+
 func TestCyclicRefreshSegmentTransitionsClearOnNonZeroLast(t *testing.T) {
 	// updateCyclicRefreshMapFromInterFrame is the per-MB segment-transition
 	// recorder. After a frame:

@@ -368,6 +368,11 @@ type VP8Encoder struct {
 	// flag is cleared after the next non-dropped frame commits.
 	forceMaxQuantizer bool
 
+	// framePredictionError mirrors libvpx's cpi->mb.prediction_error for
+	// the current inter encode attempt. The overshoot-drop gate reads it
+	// before the caller updates lastPredErrorMB, matching onyx_if.c.
+	framePredictionError int64
+
 	// lastPredErrorMB mirrors libvpx's cpi->last_pred_err_mb
 	// (vp8/encoder/onyx_int.h). After every non-key frame, libvpx records
 	// `cpi->mb.prediction_error / cpi->common.MBs` into this field at
@@ -1231,6 +1236,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			finishSourceAltRef()
 			return result, nil
 		}
+		if !invisible {
+			e.lastPredErrorMB = e.currentPredictionErrorMB(required)
+		}
 		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
 			keyFrame = true
 			sceneCutKeyFrame = true
@@ -1802,12 +1810,12 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 	threshQ := (3 * e.rc.maxQuantizer) >> 2
 	avBytesPerFrame := e.rc.bitsPerFrame >> 3
 	threshRate := 2 * avBytesPerFrame
-	if e.rc.dropFrameAllowed && e.lastPredErrorMB > (threshPredErrMB<<4) {
-		// libvpx widens the trigger when the prior frame already showed
-		// extreme prediction error: thresh_rate >>= 3.
+	predErrMB := e.currentPredictionErrorMB(macroblocks)
+	if e.rc.dropFrameAllowed && predErrMB > (threshPredErrMB<<4) {
+		// libvpx widens the trigger when the current frame shows extreme
+		// prediction error: thresh_rate >>= 3.
 		threshRate >>= 3
 	}
-	predErrMB := 0 // pending pred-err accumulation; see field comment above
 	if Q < threshQ &&
 		projectedSizeBytes > threshRate &&
 		predErrMB > threshPredErrMB &&
@@ -1847,7 +1855,15 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 	return false
 }
 
+func (e *VP8Encoder) currentPredictionErrorMB(macroblocks int) int {
+	if e == nil || macroblocks <= 0 {
+		return 0
+	}
+	return int(e.framePredictionError / int64(macroblocks))
+}
+
 func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, needProjectedSize bool) (interFrameEncodeAttempt, error) {
+	e.framePredictionError = 0
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
@@ -3560,6 +3576,7 @@ func (e *VP8Encoder) Reset() {
 	// so a sequence re-init does not leak overshoot-drop state from the
 	// previous run.
 	e.forceMaxQuantizer = false
+	e.framePredictionError = 0
 	e.lastPredErrorMB = 0
 	// Temporal layer state.
 	e.temporal.frameIndex = 0

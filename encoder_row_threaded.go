@@ -120,9 +120,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 
 	pool.mergeThreadedInterFrameState(e, workerCount, required)
 	totalRate := 0
+	totalPredictionError := int64(0)
 	for workerIndex := range workerCount {
 		totalRate = libvpxAddProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
+		totalPredictionError += pool.workers[workerIndex].totalPredictionError
 	}
+	e.framePredictionError = totalPredictionError
 	pool.encoder = nil
 	pool.job = rowWorkerJobInterFrame
 	pool.args = threadedInterRowsArgs{}
@@ -295,6 +298,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	rs.rowIndex = row
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
+	rowPredictionError := int64(0)
 	lastCol := args.cols - 1
 	for col := range args.cols {
 		if col%pool.syncRange == 0 {
@@ -311,30 +315,32 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 				return rowRate, nil
 			}
 		}
-		rate, err := rs.encodeThreadedInterFrameMacroblock(args, row, col)
+		rate, predictionError, err := rs.encodeThreadedInterFrameMacroblock(args, row, col)
 		if err != nil {
 			return 0, err
 		}
 		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
+		rowPredictionError += predictionError
 	}
+	rs.totalPredictionError += rowPredictionError
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	pool.publishRowColumn(row, lastCol)
 	return rowRate, nil
 }
 
-func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInterRowsArgs, row int, col int) (int, error) {
+func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInterRowsArgs, row int, col int) (int, int64, error) {
 	e := &rs.enc
 	index := row*args.cols + col
 	if args.activeMapEnabled && args.activeMapLastAvailable && e.activeMap[index] == 0 {
 		if !e.encodeInactiveInterMacroblock(row, col, index, args.activeMapLastRef.Img, args.modes, args.coeffs, &args.aboveTok[col], &rs.leftTok) {
-			return 0, ErrInvalidConfig
+			return 0, 0, ErrInvalidConfig
 		}
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	segmentID, ok := interFrameAnalysisSegmentID(&args.modes[index], args.segmentation, args.preserveSegmentID)
 	if !ok {
-		return 0, ErrInvalidConfig
+		return 0, 0, ErrInvalidConfig
 	}
 	var above *vp8enc.InterFrameMacroblockMode
 	var left *vp8enc.InterFrameMacroblockMode
@@ -370,7 +376,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		args.sourceAltRefZeroMVOnly,
 	)
 	if !ok {
-		return 0, ErrInvalidConfig
+		return 0, 0, ErrInvalidConfig
 	}
 	if segmentID != 0 && !decision.cyclicRefreshEligible() {
 		if haveFallbackSnapshot {
@@ -393,10 +399,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		if args.modes[index].Mode == vp8common.BPred {
 			if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
-				return 0, ErrInvalidConfig
+				return 0, 0, ErrInvalidConfig
 			}
 		} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
-			return 0, ErrInvalidConfig
+			return 0, 0, ErrInvalidConfig
 		}
 	} else {
 		args.modes[index] = decision.interMode
@@ -404,7 +410,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		predMode := e.reconstructModes[index]
 		predMode.MBSkipCoeff = true
 		if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
-			return 0, ErrInvalidConfig
+			return 0, 0, ErrInvalidConfig
 		}
 	}
 
@@ -441,17 +447,17 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if args.modes[index].RefFrame == vp8common.IntraFrame && args.modes[index].Mode == vp8common.BPred {
 		updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
-		return decision.projectedRate, nil
+		return decision.projectedRate, int64(decision.predictionError), nil
 	}
 	if args.modes[index].RefFrame == vp8common.IntraFrame {
 		if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
-			return 0, ErrInvalidConfig
+			return 0, 0, ErrInvalidConfig
 		}
 	} else if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
-		return 0, ErrInvalidConfig
+		return 0, 0, ErrInvalidConfig
 	}
 	updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
-	return decision.projectedRate, nil
+	return decision.projectedRate, int64(decision.predictionError), nil
 }
 
 func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount int, required int) {

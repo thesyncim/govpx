@@ -2944,7 +2944,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -2984,7 +2984,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -3026,7 +3026,7 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
+	_, got, gotYRD, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore BPred returned ok=false")
 	}

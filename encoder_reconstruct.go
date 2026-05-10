@@ -420,6 +420,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
+	totalPredictionError := int64(0)
 	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
 	var lastRefForActiveMap *interAnalysisReference
 	if activeMapEnabled {
@@ -503,6 +504,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				decision.intraMode.SegmentID = 0
 			}
 			totalRate = libvpxAddProjectedMacroblockRate(totalRate, decision.projectedRate)
+			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID]
 
@@ -596,6 +598,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
 	e.analysis.ExtendBorders()
+	e.framePredictionError = totalPredictionError
 	return totalRate, nil
 }
 
@@ -1686,6 +1689,9 @@ type interFrameModeDecision struct {
 	useIntra      bool
 	intraMode     vp8enc.InterFrameMacroblockMode
 	projectedRate int
+	// predictionError is the picker `distortion` scalar returned through
+	// vp8_encode_inter_macroblock and accumulated into mb.prediction_error.
+	predictionError int
 }
 
 func (d interFrameModeDecision) cyclicRefreshEligible() bool {
@@ -1836,6 +1842,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	bestSet := false
 	bestScore := maxInt()
 	bestYRD := maxInt()
+	bestDistortion := 0
 	bestModeIndex := -1
 	best := interFrameModeDecision{
 		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
@@ -1870,7 +1877,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			e.recordInterRDModeTest(modeIndex)
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
-			mode, score, yrd, rate, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, distortion, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			// libvpx vp8/encoder/rdopt.c B_PRED case (lines 1949-1971):
 			// when rd_pick_intra4x4mby_modes returns tmp_rd >= best_yrd
 			// the case sets `this_rd = INT_MAX, disable_skip = 1` and
@@ -1925,8 +1932,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				bestSet = true
 				bestScore = score
 				bestYRD = yrd
+				bestDistortion = distortion
 				bestModeIndex = modeIndex
-				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate}
+				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -1955,7 +1963,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		rdLoopSkip := false
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
-			mode, score, yrd, rate, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, qIndex, segmentID, mvthresh, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &nearCache)
 			if ok {
@@ -2011,8 +2019,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestSet = true
 			bestScore = score
 			bestYRD = yrd
+			bestDistortion = distortion
 			bestModeIndex = modeIndex
-			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate}
+			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, predictionError: distortion}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}
@@ -2026,6 +2035,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if bestModeIndex >= 0 {
 		e.lowerBestInterRDThreshold(bestModeIndex)
 	}
+	best.predictionError = bestDistortion
 	return best, true
 }
 
@@ -2036,7 +2046,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
-) (vp8enc.InterFrameMacroblockMode, int, int, int, bool, bool) {
+) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool, bool) {
 	signBias := e.interFrameSignBias()
 	bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	// libvpx: vp8_rd_pick_inter_mode SPLITMV branch picks
@@ -2048,6 +2058,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	bestScore := maxInt()
 	bestPartitionYRD := maxInt()
 	bestRate := 0
+	bestDistortion := 0
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var splitSeeds splitMotionSearchSeeds
 
@@ -2137,6 +2148,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 			bestScore = score
 			bestPartitionYRD = acct.yrd
 			bestRate = acct.rate2
+			bestDistortion = acct.distortion2
 			bestMode = mode
 		}
 		if acct.rdLoopSkip {
@@ -2148,23 +2160,23 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	if e.interAnalysisCompressorSpeed() != 0 {
 		for _, partition := range [3]int{2, 1, 0} {
 			if rdLoopSkip := tryPartition(partition); rdLoopSkip {
-				return bestMode, bestScore, bestPartitionYRD, bestRate, true, true
+				return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
 			}
 		}
 		if e.interAnalysisNoSkipBlock4x4Search() || (bestSet && bestMode.Partition == 2) {
 			if rdLoopSkip := tryPartition(3); rdLoopSkip {
-				return bestMode, bestScore, bestPartitionYRD, bestRate, true, true
+				return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
 			}
 		}
-		return bestMode, bestScore, bestPartitionYRD, bestRate, false, bestSet
+		return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, false, bestSet
 	}
 
 	for _, partition := range e.interAnalysisSplitPartitionOrder() {
 		if rdLoopSkip := tryPartition(partition); rdLoopSkip {
-			return bestMode, bestScore, bestPartitionYRD, bestRate, true, true
+			return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, true, true
 		}
 	}
-	return bestMode, bestScore, bestPartitionYRD, bestRate, false, bestSet
+	return bestMode, bestScore, bestPartitionYRD, bestRate, bestDistortion, false, bestSet
 }
 
 func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
@@ -2183,7 +2195,7 @@ func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSl
 	}
 }
 
-func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, bool) {
+func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -2193,35 +2205,37 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	if mbMode == vp8common.BPred {
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 		}
 		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
 		if !ok {
-			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 		}
 		yRate := bRate + e.interIntraYModeRate(vp8common.BPred)
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
-		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, true
+		distortion := bDist + uvDist
+		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, distortion, true
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	if !predictAnalysisMacroblock(&e.analysis.Img, mbRow, mbCol, &mode, &e.reconstructScratch) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	yRate, yDist := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, qIndex, zbinOverQuant, aboveTok, leftTok, quant, pickerProbs, fastQuant)
 	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
 	if !ok {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, false
+		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	modeRate := e.interIntraYModeRate(mbMode)
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
-	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, true
+	distortion := yDist + uvDist
+	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, distortion, true
 }
 
 func (e *VP8Encoder) interModeForRDLoopEntry(
@@ -2431,7 +2445,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				bestDistortion = distortion
 				bestSSE = sse
 				bestModeIndex = modeIndex
-				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate}
+				best = interFrameModeDecision{useIntra: true, intraMode: mode, projectedRate: rate, predictionError: distortion}
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -2487,7 +2501,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			bestSSE = sse
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = breakoutSkip
-			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate}
+			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate, predictionError: distortion}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}
