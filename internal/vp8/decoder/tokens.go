@@ -11,6 +11,8 @@ import (
 
 var ErrTokenGridBufferTooSmall = errors.New("govpx: VP8 token grid buffer too small")
 
+var zeroMacroblockEOB [25]uint8
+
 type EntropyContextPlanes struct {
 	Y1 [4]uint8
 	U  [2]uint8
@@ -126,7 +128,7 @@ func DecodeTokenGrid(readers []boolcoder.Decoder, rows int, cols int, probs *tab
 			mode := &rowModes[col]
 			token := &rowTokens[col]
 			if mode.MBSkipCoeff {
-				clearMacroblockTokens(token)
+				clearMacroblockTokensIfNeeded(token)
 				ResetMacroblockTokenContext(&above[col], &left, mode.Is4x4)
 				continue
 			}
@@ -175,7 +177,7 @@ func DecodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder, rows int, 
 			token := &rowTokens[col]
 			reader := &readers[rowPartition]
 			if mode.MBSkipCoeff {
-				clearMacroblockTokens(token)
+				clearMacroblockTokensIfNeeded(token)
 				ResetMacroblockTokenContext(&above[col], &left, mode.Is4x4)
 			} else if !frameCorruptResidual && reader.Err() == nil {
 				eobTotal := DecodeMacroblockTokens(reader, probs, mode.Is4x4, &above[col], &left, token)
@@ -189,7 +191,7 @@ func DecodeTokenGridWithErrorConcealment(readers []boolcoder.Decoder, rows int, 
 				if index < firstCorrupt {
 					firstCorrupt = index
 				}
-				clearMacroblockTokens(token)
+				clearMacroblockTokensIfNeeded(token)
 				mode.MBSkipCoeff = true
 			}
 		}
@@ -249,9 +251,7 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 			if br.ReadBool(p[0]) == 0 {
 				return n
 			}
-		}
-		if n == 16 {
-			return 16
+			continue
 		}
 	}
 }
@@ -263,6 +263,13 @@ func clearMacroblockTokens(out *MacroblockTokens) {
 		}
 	}
 	out.EOB = [25]uint8{}
+}
+
+func clearMacroblockTokensIfNeeded(out *MacroblockTokens) {
+	if out.EOB == zeroMacroblockEOB {
+		return
+	}
+	clearMacroblockTokens(out)
 }
 
 func uvContextIndex(block int) (int, int) {
