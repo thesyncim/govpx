@@ -28,6 +28,13 @@ type PartitionScratch struct {
 	buffers [8][]byte
 }
 
+func (s *PartitionScratch) Reset() {
+	if s == nil {
+		return
+	}
+	*s = PartitionScratch{}
+}
+
 // ensureCapacity grows the first partitionCount entries to at least size
 // bytes. The active slice length is set exactly to size so callers can pass
 // the slice into BoolWriter.Init without a separate cap/length check.

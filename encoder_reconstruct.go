@@ -1161,7 +1161,8 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 	if e == nil {
 		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
 	}
-	baseline := e.interModeRDThresholdsBaseline(qIndex, refs, refCount)
+	baselineQIndex := e.interModeRDThresholdQIndex(qIndex)
+	baseline := e.interModeRDThresholdsBaseline(baselineQIndex, refs, refCount)
 	if !e.interRDFrameActive {
 		return baseline
 	}
@@ -1178,6 +1179,13 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 		}
 	}
 	return thresholds
+}
+
+func (e *VP8Encoder) interModeRDThresholdQIndex(qIndex int) int {
+	if e == nil || !e.interRDFrameActive {
+		return qIndex
+	}
+	return e.interRDFrameBaseQIndex
 }
 
 func (e *VP8Encoder) libvpxTemporalLayerCount() int {
@@ -1211,6 +1219,7 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 	if e == nil {
 		return
 	}
+	e.interRDFrameBaseQIndex = vp8common.ClampQIndex(e.rc.currentQuantizer)
 	for i, mult := range e.interRDThreshMult {
 		if mult == 0 {
 			e.interRDThreshMult[i] = libvpxRDThreshMultStart
@@ -2327,29 +2336,15 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 // cmd/govpx-bench's interframe overshoot is dominated by residual-token
 // / entropy-savings path downstream of the picker.
 //
-// R11-N (2026-05-09 investigation): Per-candidate trace diff on the 720p
-// noise fixture localizes the swap to MBs where govpx tests NEARESTMV and
-// picks it, while libvpx skips the NEARESTMV iteration outright (no
-// inter_candidate trace row emitted). At first divergence MB(0,3)
-// frame=1, both engines compute identical ZEROMV (rate=1434 dist=255165
-// score=256991) and DC_PRED (rate=820 dist=203248 score=204292). govpx
-// then tests NEARESTMV with mv=(18,0) (the left col=2 NEWMV's MV) and
-// scores 66728 (winner). libvpx never reaches the NEARESTMV case body —
-// the picker iteration `continue`s before the emit hook. Inspecting the
-// only viable continue paths in vp8_pick_inter_mode (rd_threshes,
-// mode_check_freq, NEARESTMV.mv==0 reject, UMV bounds), none plausibly
-// triggers given the observed neighbor state; libvpx's mode_mv[NEARESTMV]
-// derivation at this MB remains unexplained without additional libvpx-
-// side instrumentation. The cascade compounds: govpx picks NEARESTMV,
-// next-MB's left.mv=non-zero -> nearest=non-zero -> NEARESTMV gets
-// picked again. libvpx's DC_PRED at col=3 stays intra/zero-mv, next-MB's
-// left.mv=0 -> nearest=0 -> NEARESTMV always rejected -> ZEROMV cascade
-// continues. Pinned at L1=1.67pp pending a libvpx-side trace probe that
-// captures (mode_mv[NEARESTMV], cnt[]) at MB entry to confirm whether
-// libvpx really does see nearest=(0,0) (suggesting a state inconsistency
-// between vp8_find_near_mvs_bias's mode_mv_sb fill and the case-NEAREST
-// `continue` gate, e.g., a missed memcpy/clamp interaction) or rejects
-// via a path that's not in the standard upstream source.
+// R11-N/R12-C (2026-05-10 investigation): libvpx picker_entry and
+// iteration_outcome oracle rows prove the 720p swap is threshold gating, not
+// predictor derivation. At frame=1 MB(0,3), libvpx sees nearest=(18,0), then
+// skips NEARESTMV because best_rd=204292 <= rd_threshes[NEAREST1]=227842.
+// Govpx previously derived thresholds from the cyclic-refresh segment Q for
+// the same MB, shrinking NEAREST1 to ~82k and testing a mode libvpx never
+// calls. interModeRDThresholdsForReferences now mirrors
+// vp8_initialize_rd_consts: cpi->rd_baseline_thresh is frame-level from
+// cm->base_qindex, while only residual scoring uses the segment quantizer.
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,
@@ -2464,7 +2459,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		mode.SegmentID = segmentID
-		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant)
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkipCached(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant, &loopCtx)
 		if !ok {
 			continue
 		}
@@ -2641,6 +2636,13 @@ type fastInterModeLoopContext struct {
 	nearCache nearMVCandidateCache
 	search    interAnalysisSearchConfig
 	searchSet bool
+	variance  [12]struct {
+		set      bool
+		ref      *vp8common.Image
+		mv       vp8enc.MotionVector
+		variance int
+		sse      int
+	}
 }
 
 func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSearchConfig {
@@ -4815,11 +4817,15 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRate(src vp8enc.Sour
 }
 
 func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkip(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int, quant *vp8enc.MacroblockQuant) (int, int, int, int, bool, bool) {
+	return e.estimateFastInterModeScoreWithReferenceRateAndSkipCached(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, quant, nil)
+}
+
+func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int, refRate int, quant *vp8enc.MacroblockQuant, ctx *fastInterModeLoopContext) (int, int, int, int, bool, bool) {
 	if ref == nil || mode == nil || mode.RefFrame == vp8common.IntraFrame || mode.Mode == vp8common.SplitMV {
 		return 0, 0, 0, 0, false, false
 	}
 	modeRate := e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
-	variance, sse := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mode.MV)
+	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mode.MV, ctx)
 	zbinOverQuant := 0
 	if e != nil {
 		zbinOverQuant = e.rc.currentZbinOverQuant
@@ -4846,6 +4852,33 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkip(src vp8e
 	}
 	breakoutSkip := staticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.opts.StaticThreshold, sse)
 	return score, variance, sse, modeRate, breakoutSkip, true
+}
+
+func macroblockLumaMotionVarianceSSECached(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, ctx *fastInterModeLoopContext) (int, int) {
+	if ctx == nil {
+		return macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
+	}
+	for i := range ctx.variance {
+		entry := &ctx.variance[i]
+		if entry.set && entry.ref == ref && entry.mv == mv {
+			return entry.variance, entry.sse
+		}
+	}
+	variance, sse := macroblockLumaMotionVarianceSSE(src, ref, mbRow, mbCol, mv)
+	for i := range ctx.variance {
+		entry := &ctx.variance[i]
+		if !entry.set {
+			*entry = struct {
+				set      bool
+				ref      *vp8common.Image
+				mv       vp8enc.MotionVector
+				variance int
+				sse      int
+			}{set: true, ref: ref, mv: mv, variance: variance, sse: sse}
+			break
+		}
+	}
+	return variance, sse
 }
 
 func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
@@ -7588,7 +7621,7 @@ func staticInterRDEncodeBreakoutDistortion(src vp8enc.SourceImage, pred *vp8comm
 		return false, 0
 	}
 	chromaSSE := macroblockChromaSSE(src, pred, mbRow, mbCol)
-	return chromaSSE*2 < threshold, lumaSSE + chromaSSE
+	return chromaSSE*2 < encodeBreakout, lumaSSE + chromaSSE
 }
 
 func staticInterFastEncodeBreakout(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mode *vp8enc.InterFrameMacroblockMode, quant *vp8enc.MacroblockQuant, encodeBreakout int, lumaSSE int) bool {

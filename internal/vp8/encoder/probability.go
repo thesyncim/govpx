@@ -575,27 +575,61 @@ func countBlockCoefficientBranches(counts *coefficientBranchCounts, blockType in
 	return nil
 }
 
+type coefficientTokenBranchPath struct {
+	len   uint8
+	nodes [7]uint8
+	bits  [7]uint8
+}
+
+var coefficientTokenBranchPaths = buildCoefficientTokenBranchPaths()
+
+func buildCoefficientTokenBranchPaths() [tables.MaxEntropyTokens]coefficientTokenBranchPath {
+	var paths [tables.MaxEntropyTokens]coefficientTokenBranchPath
+	for token := range tables.MaxEntropyTokens {
+		encoding := tables.CoefEncodings[token]
+		node := int16(0)
+		for bitIndex := int(encoding.Len) - 1; bitIndex >= 0; bitIndex-- {
+			bit := int((encoding.Value >> uint(bitIndex)) & 1)
+			probIndex := int(node >> 1)
+			if probIndex < 0 || probIndex >= tables.EntropyNodes || int(node)+bit >= len(tables.CoefTree) {
+				panic("govpx: invalid VP8 coefficient token tree")
+			}
+			path := &paths[token]
+			if int(path.len) >= len(path.nodes) {
+				panic("govpx: coefficient token path too long")
+			}
+			path.nodes[path.len] = uint8(probIndex)
+			path.bits[path.len] = uint8(bit)
+			path.len++
+			next := tables.CoefTree[int(node)+bit]
+			if next <= 0 {
+				if bitIndex != 0 || int(-next) != token {
+					panic("govpx: invalid VP8 coefficient token encoding")
+				}
+				break
+			}
+			node = next
+		}
+	}
+	return paths
+}
+
 func countCoefficientTokenBranches(counts *[tables.EntropyNodes][2]int, token int) error {
 	if counts == nil || token < 0 || token >= tables.MaxEntropyTokens {
 		return ErrInvalidPacketConfig
 	}
-	encoding := tables.CoefEncodings[token]
-	node := int16(0)
-	for bitIndex := int(encoding.Len) - 1; bitIndex >= 0; bitIndex-- {
-		bit := int((encoding.Value >> uint(bitIndex)) & 1)
-		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= tables.EntropyNodes || int(node)+bit >= len(tables.CoefTree) {
-			return ErrInvalidPacketConfig
-		}
-		counts[probIndex][bit]++
-		next := tables.CoefTree[int(node)+bit]
-		if next <= 0 {
-			if bitIndex != 0 || int(-next) != token {
-				return ErrInvalidPacketConfig
-			}
-			return nil
-		}
-		node = next
+	switch token {
+	case tables.DCTEOBToken:
+		counts[0][0]++
+		return nil
+	case tables.ZeroToken:
+		counts[0][1]++
+		counts[1][0]++
+		return nil
 	}
-	return ErrInvalidPacketConfig
+	path := coefficientTokenBranchPaths[token]
+	for i := uint8(0); i < path.len; i++ {
+		counts[path.nodes[i]][path.bits[i]]++
+	}
+	return nil
 }

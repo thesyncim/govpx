@@ -49,23 +49,8 @@ func (w *BoolWriter) WriteBit(bit uint8) {
 	count := w.count + shift
 
 	if count >= 0 {
-		offset := shift - count
-		if ((low << uint(offset-1)) & 0x80000000) != 0 {
-			w.propagateCarry()
-			if w.err != nil {
-				return
-			}
-		}
-		if w.pos >= len(w.buf) {
-			w.err = ErrBufferTooSmall
-			return
-		}
-
-		w.buf[w.pos] = byte((low >> uint(24-offset)) & 0xff)
-		w.pos++
-		shift = count
-		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
-		count -= 8
+		w.writeBoolFlush(low, rng, count, shift)
+		return
 	}
 
 	low <<= uint(shift)
@@ -95,25 +80,35 @@ func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
 	count := w.count + shift
 
 	if count >= 0 {
-		offset := shift - count
-		if ((low << uint(offset-1)) & 0x80000000) != 0 {
-			w.propagateCarry()
-			if w.err != nil {
-				return
-			}
-		}
-		if w.pos >= len(w.buf) {
-			w.err = ErrBufferTooSmall
-			return
-		}
-
-		w.buf[w.pos] = byte((low >> uint(24-offset)) & 0xff)
-		w.pos++
-		shift = count
-		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
-		count -= 8
+		w.writeBoolFlush(low, rng, count, shift)
+		return
 	}
 
+	low <<= uint(shift)
+	w.low = low
+	w.rng = rng
+	w.count = count
+}
+
+//go:noinline
+func (w *BoolWriter) writeBoolFlush(low uint32, rng uint32, count int, shift int) {
+	offset := shift - count
+	if ((low << uint(offset-1)) & 0x80000000) != 0 {
+		w.propagateCarry()
+		if w.err != nil {
+			return
+		}
+	}
+	if w.pos >= len(w.buf) {
+		w.err = ErrBufferTooSmall
+		return
+	}
+
+	w.buf[w.pos] = byte((low >> uint(24-offset)) & 0xff)
+	w.pos++
+	shift = count
+	low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+	count -= 8
 	low <<= uint(shift)
 	w.low = low
 	w.rng = rng

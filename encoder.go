@@ -493,13 +493,15 @@ type VP8Encoder struct {
 	interMBsTestedSoFarSnapshot    int
 
 	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
-	// pickers. Within a frame the only input that changes per-MB is qIndex
-	// (via cyclic-refresh segmentation), so the baseline output of
-	// libvpxInterModeRDThresholdsForContext is invariant per qIndex. The
-	// generation counter is bumped at each beginInterRDModeDecisionFrame so
-	// we don't have to clear the table every frame.
+	// pickers. Libvpx initializes cpi->rd_baseline_thresh once per frame
+	// from cm->base_qindex before per-MB segment quant selection, so the
+	// picker thresholds are frame-level even when cyclic refresh changes the
+	// macroblock's quantizer. The generation counter is bumped at each
+	// beginInterRDModeDecisionFrame so we don't have to clear the table every
+	// frame.
 	interRDThreshBaselineGen   uint32
 	interRDThreshBaselineSlots [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
+	interRDFrameBaseQIndex     int
 	// Per-frame search-order (refs are constant per frame) so the
 	// per-MB picker doesn't recompute it in every loop body.
 	interRDFrameRefSearchOrder      [4]int
@@ -891,7 +893,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.currentSourcePTS = pts
 	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
 	// at the top of encode_mb_row for realtime+positive-cpu_used, evolving
-	// cpi->Speed based on cumulative timing. Mirror the same call point.
+	// cpi->Speed based on cumulative timing. Govpx currently mirrors the
+	// frame-level trajectory here; moving this to rows also requires porting
+	// libvpx's row timing accumulation or it over-accelerates the picker.
 	e.libvpxAutoSelectSpeed()
 	e.autoSpeedFrameStartNS = nowMonotonicNS()
 	temporalFrame := e.temporal.nextFrame(e.timing)
@@ -3437,6 +3441,7 @@ func (e *VP8Encoder) Reset() {
 	e.dequantTables = vp8common.FrameDequantTables{}
 	e.dequants = [vp8common.MaxMBSegments]vp8common.MacroblockDequant{}
 	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
+	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
 	e.loopFilterLevel = 0
 	e.lfDeltasSignaledOnce = false
@@ -3456,6 +3461,7 @@ func (e *VP8Encoder) Reset() {
 	// once during the encoder-level scalars block above; leave it at 1 to
 	// match NewVP8Encoder's cold-start trajectory.
 	e.interRDThreshBaselineSlots = [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot{}
+	e.interRDFrameBaseQIndex = 0
 	e.interRDFrameRefSearchOrder = [4]int{}
 	e.interRDFrameRefSearchOrderValid = false
 	e.interMBsTestedSoFar = 0
