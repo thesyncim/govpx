@@ -279,9 +279,9 @@ type oracleTraceLastRefWindowRow struct {
 }
 
 // oracleTraceLFTrialRow records a single per-trial-level evaluation inside
-// the fast loop-filter picker (pickLoopFilterLevelFast). Each row carries
+// the fast loop-filter picker (loopFilterPickContext.pickFast). Each row carries
 // the trial filter level and the resulting partial-frame Y SSE as scored
-// by loopFilterTrialLumaSSE. The libvpx-side oracle patch in
+// by loopFilterPickContext.trialLumaSSE. The libvpx-side oracle patch in
 // internal/coracle/build_vpxenc_oracle.sh emits the matching
 // {"type":"lf_trial",...} rows from vp8cx_pick_filter_level_fast after
 // each calc_partial_ssl_err call. Phase mirrors the libvpx call site and

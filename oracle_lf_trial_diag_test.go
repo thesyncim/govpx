@@ -8,7 +8,7 @@ package govpx
 // internal/coracle/build_vpxenc_oracle.sh emits one
 // {"type":"lf_trial",...} row per calc_partial_ssl_err call; govpx emits
 // the matching row from emitOracleLFTrial. The harness localizes a
-// divergence in vp8cx_pick_filter_level_fast vs pickLoopFilterLevelFast
+// divergence in vp8cx_pick_filter_level_fast vs loopFilterPickContext.pickFast
 // to one of:
 //
 //   - the LF function applied to the trial buffer (different filter math),

@@ -2728,15 +2728,14 @@ func TestLoopFilterTrialLumaSSELevelZeroUsesLibvpxTrialFilter(t *testing.T) {
 			UVMode:   vp8common.DCPred,
 		}
 	}
-	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
-
 	srcImg := sourceImageFromPublic(src)
+	ctx := e.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 	for _, partial := range []bool{false, true} {
 		for i := range e.loopFilterPick.Img.Y {
 			e.loopFilterPick.Img.Y[i] = 201
 		}
 		scratchBefore := append([]byte(nil), e.loopFilterPick.Img.Y...)
-		got := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 0, 0, rows, cols, required, partial, vp8enc.SegmentationConfig{})
+		got := ctx.trialLumaSSE(0, partial)
 		if got <= 0 {
 			t.Fatalf("level zero trial partial=%t SSE = %d, want scored trial", partial, got)
 		}
@@ -2787,10 +2786,10 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 	}
 
 	srcImg := sourceImageFromPublic(src)
-	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
+	ctx := e.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 	for _, level := range []int{8, 24, 48} {
-		partialErr := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, true, vp8enc.SegmentationConfig{})
-		fullErr := e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, level, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
+		partialErr := ctx.trialLumaSSE(level, true)
+		fullErr := ctx.trialLumaSSE(level, false)
 		// The full path computes SSE over the whole frame; recompute the
 		// partial-window SSE on the buffer left behind by the full filter so
 		// we can compare against the partial path.
@@ -2846,9 +2845,10 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 
 	srcImg := sourceImageFromPublic(src)
 	ePartial := buildEncoder()
-	got, err := ePartial.pickLoopFilterLevelFast(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, vp8enc.SegmentationConfig{}, libvpxMinLoopFilterLevel(ePartial.rc.currentQuantizer))
+	partialCtx := ePartial.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
+	got, err := partialCtx.pickFast(24, libvpxMinLoopFilterLevel(ePartial.rc.currentQuantizer))
 	if err != nil {
-		t.Fatalf("pickLoopFilterLevelFast returned error: %v", err)
+		t.Fatalf("loopFilterPickContext.pickFast returned error: %v", err)
 	}
 
 	// Reference: search the same neighborhood as fast search but using the
@@ -2859,9 +2859,9 @@ func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	maxLevel := libvpxMaxLoopFilterLevel(eRef.rc.currentQuantizer)
 	level := clampLoopFilterPickLevel(24, minLevel, maxLevel)
 	bestLevel := level
-	vp8common.InitLoopFilterInfo(&eRef.loopInfo, 0)
+	refCtx := eRef.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 	score := func(lvl int) int {
-		eRef.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, lvl, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
+		refCtx.trialLumaSSE(lvl, false)
 		return loopFilterLumaSSE(srcImg, &eRef.loopFilterPick.Img, rows, cols, true)
 	}
 	bestErr := score(level)
@@ -3020,18 +3020,18 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 		}
 	}
 	srcImg := sourceImageFromPublic(src)
-	vp8common.InitLoopFilterInfo(&e.loopInfo, 0)
+	ctx := e.newLoopFilterPickContext(srcImg, vp8common.InterFrame, 0, rows, cols, required, vp8enc.SegmentationConfig{})
 
 	b.Run("partial", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, true, vp8enc.SegmentationConfig{})
+			ctx.trialLumaSSE(24, true)
 		}
 	})
 	b.Run("full", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			e.loopFilterTrialLumaSSE(srcImg, vp8common.InterFrame, 24, 0, rows, cols, required, false, vp8enc.SegmentationConfig{})
+			ctx.trialLumaSSE(24, false)
 		}
 	})
 }

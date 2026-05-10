@@ -56,81 +56,24 @@ func ApplyLoopFilterUnchecked(img *common.Image, rows int, cols int, modes []Mac
 	applyNormalLoopFilterGridUnchecked(img, rows, cols, modes, frameType, lfi)
 }
 
-// ApplyLoopFilterFullLuma walks every MB in the frame but applies the
-// loop filter to the luma plane only. It exists so the encoder's full
-// pick-loop-filter-level search can score levels using luma SSE
-// without paying for chroma filtering work that the picker never reads.
-// Reconstruction-time loop filtering still goes through ApplyLoopFilter
-// so the committed reference matches libvpx exactly.
-func ApplyLoopFilterFullLuma(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
-	if header.Level == 0 {
-		return nil
-	}
-	if rows < 0 || cols < 0 {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrLoopFilterBufferTooSmall
-	}
-	required := rows * cols
-	if img == nil || lfi == nil || len(modes) < required || frameType < common.KeyFrame || frameType > common.InterFrame {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if !imageHasMacroblockGrid(img, rows, cols) {
-		return ErrLoopFilterBufferTooSmall
-	}
-
-	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
-
-	return applyLoopFilterFullLumaWithInfo(img, rows, cols, modes, frameType, header, lfi)
-}
-
 // ApplyLoopFilterFullLumaPreparedUnchecked is the encoder picker hot path.
 // The caller must have already validated img, dimensions, frameType, mode
 // count, and sharpness setup. This mirrors libvpx's picker loop over trusted
 // MODE_INFO state.
 func ApplyLoopFilterFullLumaPreparedUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) {
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
-	applyLoopFilterFullLumaWithInfoUnchecked(img, rows, cols, modes, frameType, header, lfi)
+	ApplyLoopFilterFullLumaConfiguredUnchecked(img, rows, cols, modes, frameType, header.Type, int(header.Level), LoopFilterFrameConfig(header, segmentation), lfi)
 }
 
-func applyLoopFilterFullLumaWithInfo(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, lfi *common.LoopFilterInfo) error {
-	if header.Type == SimpleLoopFilter {
-		return applySimpleLoopFilterPartialLuma(img, rows, cols, modes, lfi, 0, rows)
-	}
-	return applyNormalLoopFilterPartialLuma(img, rows, cols, modes, frameType, lfi, 0, rows)
-}
-
-func applyLoopFilterFullLumaWithInfoUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, lfi *common.LoopFilterInfo) {
-	if header.Type == SimpleLoopFilter {
+// ApplyLoopFilterFullLumaConfiguredUnchecked is the lowest-level encoder
+// picker path: sharpness tables are already initialized and the caller passes
+// the immutable per-frame delta config used for this trial set.
+func ApplyLoopFilterFullLumaConfiguredUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, filterType LoopFilterType, level int, cfg common.LoopFilterFrameConfig, lfi *common.LoopFilterInfo) {
+	common.InitLoopFilterFrame(lfi, level, cfg)
+	if filterType == SimpleLoopFilter {
 		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, 0, rows)
 		return
 	}
 	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, 0, rows)
-}
-
-func ApplyLoopFilterChromaOnly(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
-	if header.Level == 0 || header.Type == SimpleLoopFilter {
-		return nil
-	}
-	if rows < 0 || cols < 0 {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrLoopFilterBufferTooSmall
-	}
-	required := rows * cols
-	if img == nil || lfi == nil || len(modes) < required || frameType < common.KeyFrame || frameType > common.InterFrame {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if !imageHasMacroblockGrid(img, rows, cols) {
-		return ErrLoopFilterBufferTooSmall
-	}
-
-	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
-	return applyNormalLoopFilterChromaOnlyGrid(img, rows, cols, modes, frameType, lfi)
 }
 
 // ApplyLoopFilterChromaOnlyPrepared skips sharpness-table rebuilds when the
@@ -153,51 +96,8 @@ func ApplyLoopFilterChromaOnlyPrepared(img *common.Image, rows int, cols int, mo
 		return ErrLoopFilterBufferTooSmall
 	}
 
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+	common.InitLoopFilterFrame(lfi, int(header.Level), LoopFilterFrameConfig(header, segmentation))
 	return applyNormalLoopFilterChromaOnlyGrid(img, rows, cols, modes, frameType, lfi)
-}
-
-// ApplyLoopFilterPartial mirrors libvpx's vp8_loop_filter_partial_frame: it
-// filters only the luma plane for MB rows in [startRow, startRow+rowCount) and
-// is intended for use by the encoder's fast loop-filter level picker. Unlike
-// ApplyLoopFilter it skips the chroma planes entirely and unconditionally
-// applies the macroblock horizontal edge filter on the first row of the
-// window (libvpx parity, since the partial window never starts at MB row 0
-// for realistic frame sizes).
-func ApplyLoopFilterPartial(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo, startRow int, rowCount int) error {
-	if header.Level == 0 {
-		return nil
-	}
-	if rows < 0 || cols < 0 {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrLoopFilterBufferTooSmall
-	}
-	required := rows * cols
-	if img == nil || lfi == nil || len(modes) < required || frameType < common.KeyFrame || frameType > common.InterFrame {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if !imageHasMacroblockGrid(img, rows, cols) {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if startRow < 0 || rowCount < 0 || startRow > rows {
-		return ErrLoopFilterBufferTooSmall
-	}
-	if startRow+rowCount > rows {
-		rowCount = rows - startRow
-	}
-	if rowCount == 0 {
-		return nil
-	}
-
-	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
-
-	if header.Type == SimpleLoopFilter {
-		return applySimpleLoopFilterPartialLuma(img, rows, cols, modes, lfi, startRow, rowCount)
-	}
-	return applyNormalLoopFilterPartialLuma(img, rows, cols, modes, frameType, lfi, startRow, rowCount)
 }
 
 // ApplyLoopFilterPartialPreparedUnchecked is the encoder fast-picker hot path.
@@ -214,34 +114,29 @@ func ApplyLoopFilterPartialPreparedUnchecked(img *common.Image, rows int, cols i
 		return
 	}
 
-	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+	ApplyLoopFilterPartialConfiguredUnchecked(img, rows, cols, modes, frameType, header.Type, int(header.Level), LoopFilterFrameConfig(header, segmentation), lfi, startRow, rowCount)
+}
 
-	if header.Type == SimpleLoopFilter {
+// ApplyLoopFilterPartialConfiguredUnchecked mirrors libvpx's
+// vp8_loop_filter_partial_frame over trusted encoder state.
+func ApplyLoopFilterPartialConfiguredUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, filterType LoopFilterType, level int, cfg common.LoopFilterFrameConfig, lfi *common.LoopFilterInfo, startRow int, rowCount int) {
+	if rowCount <= 0 {
+		return
+	}
+	if startRow+rowCount > rows {
+		rowCount = rows - startRow
+	}
+	if rowCount <= 0 {
+		return
+	}
+
+	common.InitLoopFilterFrame(lfi, level, cfg)
+
+	if filterType == SimpleLoopFilter {
 		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, startRow, rowCount)
 		return
 	}
 	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, startRow, rowCount)
-}
-
-func applyNormalLoopFilterPartialLuma(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo, startRow int, rowCount int) error {
-	_ = rows
-	for row := startRow; row < startRow+rowCount; row++ {
-		yRow := row * 16 * img.YStride
-		for col := range cols {
-			index := row*cols + col
-			mode := &modes[index]
-			if !validLoopFilterMode(mode) {
-				return ErrLoopFilterBufferTooSmall
-			}
-			level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
-			if level == 0 {
-				continue
-			}
-			yOff := yRow + col*16
-			applyNormalLoopFilterPartialLumaMB(img, row, col, yOff, mode, frameType, level, lfi)
-		}
-	}
-	return nil
 }
 
 func applyNormalLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo, startRow int, rowCount int) {
@@ -257,27 +152,6 @@ func applyNormalLoopFilterPartialLumaUnchecked(img *common.Image, cols int, mode
 			applyNormalLoopFilterPartialLumaMB(img, row, col, yOff, mode, frameType, level, lfi)
 		}
 	}
-}
-
-func applySimpleLoopFilterPartialLuma(img *common.Image, rows int, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo, startRow int, rowCount int) error {
-	_ = rows
-	for row := startRow; row < startRow+rowCount; row++ {
-		yRow := row * 16 * img.YStride
-		for col := range cols {
-			index := row*cols + col
-			mode := &modes[index]
-			if !validLoopFilterMode(mode) {
-				return ErrLoopFilterBufferTooSmall
-			}
-			level := lfi.Level[mode.SegmentID][mode.RefFrame][lfi.ModeLFLUT[mode.Mode]]
-			if level == 0 {
-				continue
-			}
-			yOff := yRow + col*16
-			applySimpleLoopFilterPartialLumaMB(img, row, col, yOff, mode, level, lfi)
-		}
-	}
-	return nil
 }
 
 func applySimpleLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo, startRow int, rowCount int) {
@@ -481,6 +355,12 @@ func applySimpleLoopFilterRowUnchecked(img *common.Image, row int, cols int, mod
 }
 
 func loopFilterFrameConfig(header LoopFilterHeader, segmentation SegmentationHeader) common.LoopFilterFrameConfig {
+	return LoopFilterFrameConfig(header, segmentation)
+}
+
+// LoopFilterFrameConfig translates parsed VP8 loop-filter header state into
+// the immutable frame-level tables used by common.InitLoopFilterFrame.
+func LoopFilterFrameConfig(header LoopFilterHeader, segmentation SegmentationHeader) common.LoopFilterFrameConfig {
 	cfg := common.LoopFilterFrameConfig{
 		SegmentationEnabled: segmentation.Enabled,
 		SegmentAbsDelta:     segmentation.AbsDelta,

@@ -172,9 +172,8 @@ func TestApplyLoopFilterPartialMatchesFullOnLumaWindow(t *testing.T) {
 	if err := ApplyLoopFilter(&full.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &fullLFI); err != nil {
 		t.Fatalf("ApplyLoopFilter returned error: %v", err)
 	}
-	if err := ApplyLoopFilterPartial(&partial.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &partialLFI, startRow, rowCount); err != nil {
-		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
-	}
+	common.InitLoopFilterInfo(&partialLFI, int(header.SharpnessLevel))
+	ApplyLoopFilterPartialPreparedUnchecked(&partial.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &partialLFI, startRow, rowCount)
 
 	// Compare only the inner rows of the partial window. The bottom 4 luma
 	// lines of the last MB row in the window are touched by the next MB
@@ -253,11 +252,10 @@ func TestApplyLoopFilterFullLumaPlusChromaOnlyMatchesFull(t *testing.T) {
 	if err := ApplyLoopFilter(&full.Img, rows, cols, modes, common.InterFrame, header, segmentation, &fullLFI); err != nil {
 		t.Fatalf("ApplyLoopFilter returned error: %v", err)
 	}
-	if err := ApplyLoopFilterFullLuma(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI); err != nil {
-		t.Fatalf("ApplyLoopFilterFullLuma returned error: %v", err)
-	}
-	if err := ApplyLoopFilterChromaOnly(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI); err != nil {
-		t.Fatalf("ApplyLoopFilterChromaOnly returned error: %v", err)
+	common.InitLoopFilterInfo(&splitLFI, int(header.SharpnessLevel))
+	ApplyLoopFilterFullLumaPreparedUnchecked(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI)
+	if err := ApplyLoopFilterChromaOnlyPrepared(&split.Img, rows, cols, modes, common.InterFrame, header, segmentation, &splitLFI); err != nil {
+		t.Fatalf("ApplyLoopFilterChromaOnlyPrepared returned error: %v", err)
 	}
 
 	if !bytes.Equal(split.Img.Y, full.Img.Y) {
@@ -284,9 +282,8 @@ func TestApplyLoopFilterPartialIgnoresChroma(t *testing.T) {
 	header := LoopFilterHeader{Type: NormalLoopFilter, Level: 24}
 	var lfi common.LoopFilterInfo
 
-	if err := ApplyLoopFilterPartial(&fb.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &lfi, rows/2, 1); err != nil {
-		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
-	}
+	common.InitLoopFilterInfo(&lfi, int(header.SharpnessLevel))
+	ApplyLoopFilterPartialPreparedUnchecked(&fb.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &lfi, rows/2, 1)
 	for i := range uBefore {
 		if fb.Img.U[i] != uBefore[i] || fb.Img.V[i] != vBefore[i] {
 			t.Fatalf("partial loop filter modified chroma at %d (u=%d/%d v=%d/%d)", i, uBefore[i], fb.Img.U[i], vBefore[i], fb.Img.V[i])
@@ -294,14 +291,17 @@ func TestApplyLoopFilterPartialIgnoresChroma(t *testing.T) {
 	}
 }
 
-func TestApplyLoopFilterPartialZeroLevelNoop(t *testing.T) {
+func TestApplyLoopFilterPartialPreparedZeroLevelNoop(t *testing.T) {
 	const cols, rows = 2, 4
 	fb := newLoopFilterFrame(t, cols*16, rows*16)
 	fillLoopFilterMacroblockColumns(&fb.Img, 100, 110, 80, 90)
 	modes := make([]MacroblockMode, rows*cols)
 	var lfi common.LoopFilterInfo
-	if err := ApplyLoopFilterPartial(&fb.Img, rows, cols, modes, common.InterFrame, LoopFilterHeader{Level: 0}, SegmentationHeader{}, &lfi, rows/2, 1); err != nil {
-		t.Fatalf("ApplyLoopFilterPartial returned error: %v", err)
+	before := append([]byte(nil), fb.Img.Y...)
+	common.InitLoopFilterInfo(&lfi, 0)
+	ApplyLoopFilterPartialPreparedUnchecked(&fb.Img, rows, cols, modes, common.InterFrame, LoopFilterHeader{Level: 0}, SegmentationHeader{}, &lfi, rows/2, 1)
+	if !bytes.Equal(fb.Img.Y, before) {
+		t.Fatalf("zero-level prepared partial loop filter changed luma")
 	}
 }
 
