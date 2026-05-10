@@ -3771,6 +3771,9 @@ func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 		return false
 	}
 	speed := e.libvpxCPUUsed()
+	if !e.threadedRowsActive && speed >= 4 {
+		return true
+	}
 	return speed >= 14
 }
 

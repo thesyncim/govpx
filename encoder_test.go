@@ -2524,8 +2524,8 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 		cpuUsed  int
 		want     vp8dec.LoopFilterType
 	}{
-		{name: "realtime positive cpu-used auto-speed", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.NormalLoopFilter},
-		{name: "realtime explicit speed thirteen", deadline: DeadlineRealtime, cpuUsed: -13, want: vp8dec.NormalLoopFilter},
+		{name: "realtime positive cpu-used auto-speed", deadline: DeadlineRealtime, cpuUsed: 14, want: vp8dec.SimpleLoopFilter},
+		{name: "realtime explicit speed thirteen", deadline: DeadlineRealtime, cpuUsed: -13, want: vp8dec.SimpleLoopFilter},
 		{name: "realtime explicit speed fourteen", deadline: DeadlineRealtime, cpuUsed: -14, want: vp8dec.SimpleLoopFilter},
 		{name: "realtime explicit speed fifteen", deadline: DeadlineRealtime, cpuUsed: -15, want: vp8dec.SimpleLoopFilter},
 		{name: "good quality speed fifteen", deadline: DeadlineGoodQuality, cpuUsed: 15, want: vp8dec.NormalLoopFilter},
@@ -2541,15 +2541,16 @@ func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T
 	}
 }
 
-func TestEncoderLoopFilterHeaderKeepsNormalFilterForThreadedRealtimeSpeedFour(t *testing.T) {
+func TestEncoderLoopFilterHeaderUsesSimpleFilterForSerialRealtimeSpeedFourAndKeepsThreadedNormal(t *testing.T) {
 	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
-	if got := serial.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.NormalLoopFilter {
-		t.Fatalf("serial realtime speed=4 loop filter type = %d, want normal", got)
+	if got := serial.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.SimpleLoopFilter {
+		t.Fatalf("serial realtime speed=4 loop filter type = %d, want simple", got)
 	}
 
 	threaded := &VP8Encoder{
-		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
-		rowWorkers: &rowWorkerPool{},
+		opts:               EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
+		rowWorkers:         &rowWorkerPool{},
+		threadedRowsActive: true,
 	}
 	if got := threaded.encoderLoopFilterHeader(17, 3).Type; got != vp8dec.NormalLoopFilter {
 		t.Fatalf("threaded realtime speed=4 loop filter type = %d, want normal", got)
@@ -2741,6 +2742,7 @@ func TestLoopFilterTrialLumaSSEPartialMatchesFullFrameWindow(t *testing.T) {
 	}
 
 	e := newSizedTestEncoder(t, width, height)
+	e.threadedRowsActive = true
 	// Seed the analysis buffer with reconstructed-like values that differ
 	// macroblock-by-macroblock so the loop filter actually has work to do.
 	for r := 0; r < e.analysis.Img.CodedHeight; r++ {
