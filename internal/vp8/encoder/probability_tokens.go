@@ -309,19 +309,21 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 		(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
 		return nil
 	}
+	if eob > 16 {
+		return ErrInvalidPacketConfig
+	}
 
 	band := skipDC
 	tokenCtx := ctx
-	for pos := skipDC; pos < 16; pos++ {
+	for pos := skipDC; pos < eob; pos++ {
 		rc := int(tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
 		if coeff == 0 {
 			(*counts)[blockType][band][tokenCtx][tables.ZeroToken]++
-			if pos == 15 {
-				return nil
+			if pos+1 < 16 {
+				band = int(tables.CoefBandsTable[pos+1])
+				tokenCtx = 0
 			}
-			band = int(tables.CoefBandsTable[pos+1])
-			tokenCtx = 0
 			continue
 		}
 
@@ -330,15 +332,13 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 			return ErrInvalidPacketConfig
 		}
 		(*counts)[blockType][band][tokenCtx][token]++
-		if pos == 15 {
-			return nil
+		if pos+1 < 16 {
+			band = int(tables.CoefBandsTable[pos+1])
+			tokenCtx = int(tables.PrevTokenClass[token])
 		}
-		band = int(tables.CoefBandsTable[pos+1])
-		tokenCtx = int(tables.PrevTokenClass[token])
-		if pos+1 == eob {
-			(*counts)[blockType][band][tokenCtx][tables.DCTEOBToken]++
-			return nil
-		}
+	}
+	if eob < 16 {
+		(*counts)[blockType][band][tokenCtx][tables.DCTEOBToken]++
 	}
 	return nil
 }

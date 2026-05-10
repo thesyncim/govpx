@@ -30,83 +30,24 @@ func TestBuildKeyFrameCoefficientProbabilityUpdates(t *testing.T) {
 	}
 }
 
-func TestCoefficientTokenCountPathMatchesBranchCountPath(t *testing.T) {
-	const rows, cols = 3, 4
-	keyModes := make([]KeyFrameMacroblockMode, rows*cols)
-	interModes := make([]InterFrameMacroblockMode, rows*cols)
-	coeffs := make([]MacroblockCoefficients, rows*cols)
-	for i := range coeffs {
-		keyModes[i] = KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
-		if i%3 == 0 {
-			keyModes[i].YMode = common.BPred
-			for b := range keyModes[i].BModes {
-				keyModes[i].BModes[b] = common.BDCPred
-			}
-		}
-		interModes[i] = InterFrameMacroblockMode{RefFrame: common.LastFrame, Mode: common.ZeroMV, UVMode: common.DCPred}
-		if i%5 == 0 {
-			interModes[i].MBSkipCoeff = true
-		}
-		coeffs[i].QCoeff[24][0] = int16(1 + i%7)
-		coeffs[i].QCoeff[0][1] = int16(2 + i%5)
-		coeffs[i].QCoeff[1][3] = int16(-3 - i%3)
-		coeffs[i].QCoeff[16][0] = int16(1 + i%4)
-		coeffs[i].QCoeff[20][2] = int16(-1 - i%6)
-		setAllMacroblockEOBs(&coeffs[i], keyModes[i].YMode == common.BPred)
+func TestCountBlockCoefficientTokensTrustsStoredEOBWithZeroCoeff(t *testing.T) {
+	var counts coefficientTokenCounts
+	var qcoeff [16]int16
+	qcoeff[tables.DefaultZigZag1D[1]] = 9
+
+	if err := countBlockCoefficientTokens(&counts, 0, 0, 0, &qcoeff, 1); err != nil {
+		t.Fatalf("countBlockCoefficientTokens returned error: %v", err)
 	}
 
-	base := tables.DefaultCoefProbs
-	var keyBranch coefficientBranchCounts
-	var keyToken coefficientTokenCounts
-	if err := buildKeyFrameCoefficientBranchCounts(rows, cols, keyModes, coeffs, make([]TokenContextPlanes, cols), &base, &keyBranch); err != nil {
-		t.Fatalf("buildKeyFrameCoefficientBranchCounts: %v", err)
+	if got := counts[0][0][0][tables.ZeroToken]; got != 1 {
+		t.Fatalf("zero token count at first coefficient = %d, want 1", got)
 	}
-	if err := buildKeyFrameCoefficientTokenCounts(rows, cols, keyModes, coeffs, make([]TokenContextPlanes, cols), &base, &keyToken); err != nil {
-		t.Fatalf("buildKeyFrameCoefficientTokenCounts: %v", err)
+	eobBand := tables.CoefBandsTable[1]
+	if got := counts[0][eobBand][0][tables.DCTEOBToken]; got != 1 {
+		t.Fatalf("EOB token count at stored EOB band = %d, want 1", got)
 	}
-	assertCoefficientCountPathsMatch(t, &base, &keyBranch, &keyToken, true)
-
-	var interBranch coefficientBranchCounts
-	var interToken coefficientTokenCounts
-	if err := buildInterCoefficientBranchCounts(rows, cols, interModes, coeffs, make([]TokenContextPlanes, cols), &base, &interBranch); err != nil {
-		t.Fatalf("buildInterCoefficientBranchCounts: %v", err)
-	}
-	if err := buildInterCoefficientTokenCounts(rows, cols, interModes, coeffs, make([]TokenContextPlanes, cols), &base, &interToken); err != nil {
-		t.Fatalf("buildInterCoefficientTokenCounts: %v", err)
-	}
-	assertCoefficientCountPathsMatch(t, &base, &interBranch, &interToken, false)
-}
-
-func assertCoefficientCountPathsMatch(t *testing.T, base *tables.CoefficientProbs, branch *coefficientBranchCounts, token *coefficientTokenCounts, keyFrame bool) {
-	t.Helper()
-	branchProbs, branchUpdates, err := coefficientProbabilityUpdatesFromCounts(base, branch)
-	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
-	}
-	tokenProbs, tokenUpdates, err := coefficientProbabilityUpdatesFromTokenCounts(base, token)
-	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromTokenCounts: %v", err)
-	}
-	if branchProbs != tokenProbs || branchUpdates != tokenUpdates {
-		t.Fatalf("default token-count path diverged from branch-count path: branch updates=%d token updates=%d", branchUpdates.UpdateCount, tokenUpdates.UpdateCount)
-	}
-	if got, want := coefficientEntropySavingsFromTokenCounts(base, token), coefficientEntropySavingsFromCounts(base, branch); got != want {
-		t.Fatalf("default token-count savings = %d, want branch-count savings %d", got, want)
-	}
-
-	branchProbs, branchUpdates, err = coefficientProbabilityUpdatesFromCountsIndependent(base, branch, keyFrame)
-	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
-	}
-	tokenProbs, tokenUpdates, err = coefficientProbabilityUpdatesFromTokenCountsIndependent(base, token, keyFrame)
-	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromTokenCountsIndependent: %v", err)
-	}
-	if branchProbs != tokenProbs || branchUpdates != tokenUpdates {
-		t.Fatalf("independent token-count path diverged from branch-count path: branch updates=%d token updates=%d", branchUpdates.UpdateCount, tokenUpdates.UpdateCount)
-	}
-	if got, want := coefficientEntropySavingsFromTokenCountsIndependent(base, token, keyFrame), coefficientEntropySavingsFromCountsIndependent(base, branch, keyFrame); got != want {
-		t.Fatalf("independent token-count savings = %d, want branch-count savings %d", got, want)
+	if got := counts[0][eobBand][0][tables.DCTValCategory2]; got != 0 {
+		t.Fatalf("stale coefficient past stored EOB was counted: category2=%d", got)
 	}
 }
 
@@ -212,10 +153,6 @@ func TestIndependentCoefContextDivergesFromDefault(t *testing.T) {
 	base[2][3][1][2] = 1
 	base[2][3][2][2] = 1
 
-	_, defaultUpdates, err := coefficientProbabilityUpdatesFromCounts(&base, &counts)
-	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
-	}
 	_, indepUpdates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &counts, false)
 	if err != nil {
 		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
@@ -223,8 +160,9 @@ func TestIndependentCoefContextDivergesFromDefault(t *testing.T) {
 
 	// Default path: k=0 sees (200,0) but oldp==newp==255 → skipped.
 	// k=1, k=2 have total=0 in counts → skipped. UpdateCount=0.
-	if defaultUpdates.UpdateCount != 0 {
-		t.Fatalf("default path UpdateCount = %d, want 0 (k=0 oldp==newp, k=1/k=2 zero counts)", defaultUpdates.UpdateCount)
+	defaultSavings := coefficientProbabilityUpdateSavings(counts[2][3][0][2], base[2][3][0][2], 255, tables.CoefUpdateProbs[2][3][0][2])
+	if defaultSavings > 0 {
+		t.Fatalf("default path savings = %d, want non-positive because k=0 oldp==newp and k=1/k=2 have zero counts", defaultSavings)
 	}
 
 	// Independent path: aggregate savings at node 2 of (2,3) sum
@@ -244,8 +182,8 @@ func TestIndependentCoefContextDivergesFromDefault(t *testing.T) {
 	if got := indepUpdates.Probs[2][3][2][2]; got != 255 {
 		t.Fatalf("independent path prob[2][3][2][2] = %d, want 255", got)
 	}
-	if indepUpdates.UpdateCount == defaultUpdates.UpdateCount {
-		t.Fatalf("independent UpdateCount (%d) matches default (%d), want divergence", indepUpdates.UpdateCount, defaultUpdates.UpdateCount)
+	if indepUpdates.UpdateCount == 0 {
+		t.Fatalf("independent UpdateCount = 0, want divergence from skipped default path")
 	}
 }
 
@@ -285,23 +223,26 @@ func TestIndependentCoefContextEntropySavingsMatchesPositiveUpdates(t *testing.T
 }
 
 func TestCoefficientProbabilityUpdateSavingsBitsMatchesEntropySavings(t *testing.T) {
-	var counts coefficientBranchCounts
-	counts[0][1][0][0] = [2]int{7, 93}
-	counts[0][1][1][0] = [2]int{91, 9}
-	counts[2][3][2][4] = [2]int{160, 11}
-	counts[3][5][0][6] = [2]int{20, 240}
+	var counts coefficientTokenCounts
+	counts[0][1][0][tables.ZeroToken] = 10000
+	counts[0][1][1][tables.DCTEOBToken] = 10000
+	counts[2][3][2][tables.OneToken] = 10000
+	counts[3][5][0][tables.DCTValCategory5] = 10000
 
 	base := tables.DefaultCoefProbs
 	base[0][1][0][0] = 1
 	base[0][1][1][0] = 255
-	base[2][3][2][4] = 1
-	base[3][5][0][6] = 255
+	base[2][3][2][1] = 1
+	base[3][5][0][5] = 255
 
-	_, updates, err := coefficientProbabilityUpdatesFromCounts(&base, &counts)
+	_, updates, err := coefficientProbabilityUpdatesFromTokenCounts(&base, &counts)
 	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
+		t.Fatalf("coefficientProbabilityUpdatesFromTokenCounts: %v", err)
 	}
-	savings := coefficientEntropySavingsFromCounts(&base, &counts)
+	savings := coefficientEntropySavingsFromTokenCounts(&base, &counts)
+	if updates.UpdateCount == 0 {
+		t.Fatalf("default token-count updates UpdateCount = 0, want positive updates")
+	}
 	if updates.SavingsBits != savings {
 		t.Fatalf("default updates SavingsBits = %d, want entropy savings %d", updates.SavingsBits, savings)
 	}
@@ -432,17 +373,16 @@ func TestKeyFrameIndependentCoefUpdatesUseDefaultCounts(t *testing.T) {
 // NOT fire on the default path. That force IS exercised in the Independent
 // variant, which mirrors the error-resilient branch.
 //
-// We construct a counts vector with a single (block, band, ctx, node)
-// populated at ct=(1,0) so the new probability resolves to 255 against an
-// oldp=128 base. With only one observed branch the entropy savings are
-// dominated by the 8-bit literal cost and are non-positive; the default
-// builder for both inter and key frames must therefore skip the update,
-// while the Independent builder run with keyFrame=true must force it.
+// We construct a token-count vector with one observed coefficient token.
+// With only one observed branch the entropy savings are dominated by the
+// 8-bit literal cost and are non-positive; the default builder for both
+// inter and key frames must therefore skip the update, while the Independent
+// builder run with keyFrame=true must force it.
 func TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce(t *testing.T) {
-	const blk, bnd, k, n = 1, 2, 1, 3
+	const blk, bnd, k = 1, 2, 1
 
-	var counts coefficientBranchCounts
-	counts[blk][bnd][k][n] = [2]int{1, 0}
+	var counts coefficientTokenCounts
+	counts[blk][bnd][k][tables.OneToken] = 1
 
 	var base tables.CoefficientProbs
 	for block := range tables.BlockTypes {
@@ -455,31 +395,42 @@ func TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce(t *testing.T) {
 		}
 	}
 
-	// Sanity-check the construction: newp = clamp((1*256+0)/1) = 255 and
-	// the savings rule alone rejects the update because the 8-bit literal
-	// dominates the tiny per-token cost difference for ct=(1,0).
-	ct := counts[blk][bnd][k][n]
 	const oldProb uint8 = 128
-	newProb := coefficientProbabilityFromBranchCount(ct)
-	if newProb == oldProb {
-		t.Fatalf("setup: newProb (%d) must differ from oldProb (%d)", newProb, oldProb)
+	branchCounts := coefficientBranchCountsFromTokenCounts(&counts[blk][bnd][k])
+	forcedNode := -1
+	var newProb uint8
+	for node := range tables.EntropyNodes {
+		ct := branchCounts[node]
+		if ct[0]+ct[1] == 0 {
+			continue
+		}
+		candidate := coefficientProbabilityFromBranchCount(ct)
+		if candidate == oldProb {
+			continue
+		}
+		updateProb := tables.CoefUpdateProbs[blk][bnd][k][node]
+		if s := coefficientProbabilityUpdateSavings(ct, oldProb, candidate, updateProb); s > 0 {
+			t.Fatalf("setup: node %d savings = %d > 0; want non-positive so default path skips", node, s)
+		}
+		forcedNode = node
+		newProb = candidate
+		break
 	}
-	updateProb := tables.CoefUpdateProbs[blk][bnd][k][n]
-	if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
-		t.Fatalf("setup: savings = %d > 0; want non-positive so default path skips", s)
+	if forcedNode < 0 {
+		t.Fatalf("setup: one-token distribution produced no changed probability")
 	}
 
 	// Default path with key-frame counts: matches libvpx default branch,
 	// so no force-update fires when savings <= 0.
-	defaultProbs, defaultUpdates, err := coefficientProbabilityUpdatesFromCounts(&base, &counts)
+	defaultProbs, defaultUpdates, err := coefficientProbabilityUpdatesFromTokenCounts(&base, &counts)
 	if err != nil {
-		t.Fatalf("coefficientProbabilityUpdatesFromCounts: %v", err)
+		t.Fatalf("coefficientProbabilityUpdatesFromTokenCounts: %v", err)
 	}
-	if defaultUpdates.Update[blk][bnd][k][n] {
-		t.Fatalf("default key-frame path forced update at [%d][%d][%d][%d] (savings<=0); libvpx default branch does not force on key frames", blk, bnd, k, n)
+	if defaultUpdates.Update[blk][bnd][k][forcedNode] {
+		t.Fatalf("default key-frame path forced update at [%d][%d][%d][%d] (savings<=0); libvpx default branch does not force on key frames", blk, bnd, k, forcedNode)
 	}
-	if got := defaultProbs[blk][bnd][k][n]; got != oldProb {
-		t.Fatalf("default key-frame path prob[%d][%d][%d][%d] = %d, want %d (no update)", blk, bnd, k, n, got, oldProb)
+	if got := defaultProbs[blk][bnd][k][forcedNode]; got != oldProb {
+		t.Fatalf("default key-frame path prob[%d][%d][%d][%d] = %d, want %d (no update)", blk, bnd, k, forcedNode, got, oldProb)
 	}
 	if defaultUpdates.UpdateCount != 0 {
 		t.Fatalf("default key-frame path UpdateCount = %d, want 0 (savings rule rejects)", defaultUpdates.UpdateCount)
@@ -487,18 +438,22 @@ func TestDefaultCoefContextKeyFrameMatchesLibvpxNoForce(t *testing.T) {
 
 	// Independent (error-resilient) path with keyFrame=true: libvpx
 	// bitstream.c:924-928 forces u=1 whenever newp != *Pold. With the same
-	// ct, the shared newp across k for this node is the per-context value
-	// (because only one ctx has counts) — so for ctx=k the shared newp is
-	// 255 and oldp is 128 → force fires.
-	indepProbs, indepUpdates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &counts, true)
+	// token counts, the shared newp across k for this node is the
+	// per-context value (because only one ctx has counts), and oldp is 128,
+	// so the force branch fires.
+	var branchCountsForIndependent coefficientBranchCounts
+	for ctx := range tables.PrevCoefContexts {
+		branchCountsForIndependent[blk][bnd][ctx] = coefficientBranchCountsFromTokenCounts(&counts[blk][bnd][ctx])
+	}
+	indepProbs, indepUpdates, err := coefficientProbabilityUpdatesFromCountsIndependent(&base, &branchCountsForIndependent, true)
 	if err != nil {
 		t.Fatalf("coefficientProbabilityUpdatesFromCountsIndependent: %v", err)
 	}
-	if !indepUpdates.Update[blk][bnd][k][n] {
-		t.Fatalf("independent key-frame path did not force update at [%d][%d][%d][%d] (newp != oldp)", blk, bnd, k, n)
+	if !indepUpdates.Update[blk][bnd][k][forcedNode] {
+		t.Fatalf("independent key-frame path did not force update at [%d][%d][%d][%d] (newp != oldp)", blk, bnd, k, forcedNode)
 	}
-	if got := indepProbs[blk][bnd][k][n]; got != newProb {
-		t.Fatalf("independent key-frame path prob[%d][%d][%d][%d] = %d, want %d (forced)", blk, bnd, k, n, got, newProb)
+	if got := indepProbs[blk][bnd][k][forcedNode]; got != newProb {
+		t.Fatalf("independent key-frame path prob[%d][%d][%d][%d] = %d, want %d (forced)", blk, bnd, k, forcedNode, got, newProb)
 	}
 }
 

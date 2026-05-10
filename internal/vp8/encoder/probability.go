@@ -1,9 +1,6 @@
 package encoder
 
-import (
-	"github.com/thesyncim/govpx/internal/vp8/common"
-	"github.com/thesyncim/govpx/internal/vp8/tables"
-)
+import "github.com/thesyncim/govpx/internal/vp8/tables"
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c coefficient probability
 // update selection and vp8/common/treecoder.c branch-count probability fitting.
@@ -72,37 +69,6 @@ func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, m
 	var counts coefficientBranchCounts
 	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, true)
-}
-
-func buildKeyFrameCoefficientBranchCounts(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientBranchCounts) error {
-	if rows < 0 || cols < 0 {
-		return ErrModeBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrModeBufferTooSmall
-	}
-	required := rows * cols
-	if base == nil || counts == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return ErrModeBufferTooSmall
-	}
-
-	for col := range cols {
-		above[col] = TokenContextPlanes{}
-	}
-	for row := range rows {
-		left := TokenContextPlanes{}
-		for col := range cols {
-			index := row*cols + col
-			mode := &modes[index]
-			if !validKeyFrameMacroblockMode(mode) {
-				return ErrInvalidPacketConfig
-			}
-			if err := countCoefficientMacroblockBranches(mode.YMode == common.BPred, &above[col], &left, &coeffs[index], counts); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func validateKeyFrameCoefficientGrid(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs) error {
@@ -182,36 +148,6 @@ func InterCoefficientEntropySavingsIndependent(rows int, cols int, modes []Inter
 	return coefficientEntropySavingsFromTokenCountsIndependent(base, &counts, false), nil
 }
 
-func coefficientEntropySavingsFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) int {
-	if base == nil || counts == nil {
-		return 0
-	}
-	savings := 0
-	for block := range tables.BlockTypes {
-		for band := range tables.CoefBands {
-			for ctx := range tables.PrevCoefContexts {
-				for node := range tables.EntropyNodes {
-					ct := (*counts)[block][band][ctx][node]
-					total := ct[0] + ct[1]
-					if total == 0 {
-						continue
-					}
-					newProb := coefficientProbabilityFromBranchCount(ct)
-					oldProb := (*base)[block][band][ctx][node]
-					if newProb == oldProb {
-						continue
-					}
-					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
-					if s := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb); s > 0 {
-						savings += s
-					}
-				}
-			}
-		}
-	}
-	return savings
-}
-
 func coefficientEntropySavingsFromCountsIndependent(base *tables.CoefficientProbs, counts *coefficientBranchCounts, keyFrame bool) int {
 	if base == nil || counts == nil {
 		return 0
@@ -263,86 +199,6 @@ func BuildInterCoefficientProbabilityUpdatesIndependent(rows int, cols int, mode
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
 	return coefficientProbabilityUpdatesFromTokenCountsIndependent(base, &counts, keyFrame)
-}
-
-func buildInterCoefficientBranchCounts(rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientBranchCounts) error {
-	if rows < 0 || cols < 0 {
-		return ErrModeBufferTooSmall
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return ErrModeBufferTooSmall
-	}
-	required := rows * cols
-	if base == nil || counts == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return ErrModeBufferTooSmall
-	}
-
-	for col := range cols {
-		above[col] = TokenContextPlanes{}
-	}
-	for row := range rows {
-		left := TokenContextPlanes{}
-		for col := range cols {
-			index := row*cols + col
-			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
-			if modes[index].MBSkipCoeff {
-				resetTokenContext(&above[col], &left, is4x4)
-				continue
-			}
-			if !validInterCoefficientTokenMode(&modes[index]) {
-				return ErrInvalidPacketConfig
-			}
-			if err := countCoefficientMacroblockBranches(is4x4, &above[col], &left, &coeffs[index], counts); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// coefficientProbabilityUpdatesFromCounts ports libvpx's default coefficient
-// probability update walk in vp8_update_coef_probs (bitstream.c:865-950) for
-// the non-error-resilient case. The per-(i,j,k,t) update fires only when
-// prob_update_savings>0; the libvpx "force on key frames when newp != *Pold"
-// branch at bitstream.c:920-928 is gated on
-// VPX_ERROR_RESILIENT_PARTITIONS && frame_type == KEY_FRAME, so it does not
-// apply here — that case is handled by
-// coefficientProbabilityUpdatesFromCountsIndependent.
-func coefficientProbabilityUpdatesFromCounts(base *tables.CoefficientProbs, counts *coefficientBranchCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
-	if base == nil || counts == nil {
-		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
-	}
-	frameProbs := *base
-	updates := CoefficientProbabilityUpdates{Probs: *base}
-	for block := range tables.BlockTypes {
-		for band := range tables.CoefBands {
-			for ctx := range tables.PrevCoefContexts {
-				for node := range tables.EntropyNodes {
-					ct := (*counts)[block][band][ctx][node]
-					total := ct[0] + ct[1]
-					if total == 0 {
-						continue
-					}
-					newProb := coefficientProbabilityFromBranchCount(ct)
-					oldProb := frameProbs[block][band][ctx][node]
-					if newProb == oldProb {
-						continue
-					}
-					updateProb := tables.CoefUpdateProbs[block][band][ctx][node]
-					savings := coefficientProbabilityUpdateSavings(ct, oldProb, newProb, updateProb)
-					if savings <= 0 {
-						continue
-					}
-					frameProbs[block][band][ctx][node] = newProb
-					updates.Probs[block][band][ctx][node] = newProb
-					updates.Update[block][band][ctx][node] = true
-					updates.UpdateCount++
-					updates.SavingsBits += savings
-				}
-			}
-		}
-	}
-	return frameProbs, updates, nil
 }
 
 // coefficientProbabilityUpdatesFromCountsIndependent ports libvpx
@@ -483,117 +339,6 @@ func coefficientBitCost(prob uint8, bit int) int {
 	return tables.ProbCost[255-int(prob)]
 }
 
-func countCoefficientMacroblockBranches(is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients, counts *coefficientBranchCounts) error {
-	if above == nil || left == nil || coeffs == nil || counts == nil {
-		return ErrInvalidPacketConfig
-	}
-	blockType := 0
-	skipDC := 0
-	if !is4x4 {
-		eob := coeffs.BlockEOB(24, 0)
-		ctx := int(above.Y2 + left.Y2)
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := countBlockCoefficientBranches(counts, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > 0 {
-			hasCoeffs = 1
-		}
-		above.Y2 = hasCoeffs
-		left.Y2 = hasCoeffs
-
-		blockType = 0
-		skipDC = 1
-	} else {
-		blockType = 3
-	}
-
-	for block := range 16 {
-		eob := coeffs.BlockEOB(block, skipDC)
-		a := block & 3
-		l := (block & 0x0c) >> 2
-		ctx := int(above.Y1[a] + left.Y1[l])
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := countBlockCoefficientBranches(counts, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > skipDC {
-			hasCoeffs = 1
-		}
-		above.Y1[a] = hasCoeffs
-		left.Y1[l] = hasCoeffs
-	}
-
-	for block := 16; block < 24; block++ {
-		eob := coeffs.BlockEOB(block, 0)
-		a, l := tokenUVContextIndex(block)
-		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
-		if ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
-		if err := countBlockCoefficientBranches(counts, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
-			return err
-		}
-		hasCoeffs := uint8(0)
-		if eob > 0 {
-			hasCoeffs = 1
-		}
-		setTokenUVContext(above, a, hasCoeffs)
-		setTokenUVContext(left, l, hasCoeffs)
-	}
-	return nil
-}
-
-func countBlockCoefficientBranches(counts *coefficientBranchCounts, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
-	if counts == nil || qcoeff == nil || blockType < 0 || blockType >= tables.BlockTypes || ctx < 0 || ctx >= tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
-		return ErrInvalidPacketConfig
-	}
-	if eob <= skipDC {
-		return countCoefficientTokenBranches(&(*counts)[blockType][skipDC][ctx], tables.DCTEOBToken)
-	}
-
-	band := skipDC
-	tokenCtx := ctx
-	for pos := skipDC; pos < 16; pos++ {
-		rc := int(tables.DefaultZigZag1D[pos])
-		coeff := int(qcoeff[rc])
-		if coeff == 0 {
-			if err := countCoefficientTokenBranches(&(*counts)[blockType][band][tokenCtx], tables.ZeroToken); err != nil {
-				return err
-			}
-			if pos == 15 {
-				return nil
-			}
-			band = int(tables.CoefBandsTable[pos+1])
-			tokenCtx = 0
-			continue
-		}
-
-		token, _, ok := coeffToken(coeff)
-		if !ok {
-			return ErrInvalidPacketConfig
-		}
-		if err := countCoefficientTokenBranches(&(*counts)[blockType][band][tokenCtx], token); err != nil {
-			return err
-		}
-		if pos == 15 {
-			return nil
-		}
-		band = int(tables.CoefBandsTable[pos+1])
-		tokenCtx = int(tables.PrevTokenClass[token])
-		if pos+1 == eob {
-			return countCoefficientTokenBranches(&(*counts)[blockType][band][tokenCtx], tables.DCTEOBToken)
-		}
-	}
-	return nil
-}
-
 type coefficientTokenBranchPath struct {
 	len   uint8
 	nodes [7]uint8
@@ -631,24 +376,4 @@ func buildCoefficientTokenBranchPaths() [tables.MaxEntropyTokens]coefficientToke
 		}
 	}
 	return paths
-}
-
-func countCoefficientTokenBranches(counts *[tables.EntropyNodes][2]int, token int) error {
-	if counts == nil || token < 0 || token >= tables.MaxEntropyTokens {
-		return ErrInvalidPacketConfig
-	}
-	switch token {
-	case tables.DCTEOBToken:
-		counts[0][0]++
-		return nil
-	case tables.ZeroToken:
-		counts[0][1]++
-		counts[1][0]++
-		return nil
-	}
-	path := coefficientTokenBranchPaths[token]
-	for i := uint8(0); i < path.len; i++ {
-		counts[path.nodes[i]][path.bits[i]]++
-	}
-	return nil
 }
