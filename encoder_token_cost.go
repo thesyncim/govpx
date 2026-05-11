@@ -30,8 +30,14 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 	if blockType == 0 {
 		elidedThreshold = 1
 	}
-	signCost0 := vp8tables.ProbCost[128]
-	signCost1 := vp8tables.ProbCost[255-128]
+	// signCostLookup[0] is the cost when coeff >= 0 (sign bit = 0),
+	// signCostLookup[1] when coeff < 0 (sign bit = 1). Indexed off the
+	// arithmetic-shift sign bit so the per-coefficient sign cost lookup
+	// is branch-free.
+	signCostLookup := [2]int{
+		vp8tables.ProbCost[128],
+		vp8tables.ProbCost[255-128],
+	}
 	for pos < eob {
 		band := int(vp8tables.CoefBandsTable[pos])
 		p := (*probs)[blockType][band][pt]
@@ -56,11 +62,10 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 			return maxInt() / 4
 		}
 		cost += coefTokenCostElided(p, t, blockType, band, pt)
-		if coeff < 0 {
-			cost += signCost1
-		} else {
-			cost += signCost0
-		}
+		// Sign-cost lookup keyed off the sign bit: coeff>>shift is -1 for
+		// negative, 0 for non-negative; masking with 1 selects between
+		// signCost0 and signCost1 without a branch.
+		cost += signCostLookup[(coeff>>mvKernelSignShift)&1]
 		cost += coefficientExtraBitsRate(t, mag)
 		pt = int(vp8tables.PrevTokenClass[t])
 		pos++
@@ -115,9 +120,8 @@ func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
 }
 
 func coefficientTokenMagnitude(coeff int) (int, int, bool) {
-	if coeff < 0 {
-		coeff = -coeff
-	}
+	mask := coeff >> mvKernelSignShift
+	coeff = (coeff ^ mask) - mask
 	switch {
 	case coeff <= 0:
 		return 0, 0, false
