@@ -5,7 +5,7 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func libvpxInterReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
+func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
 	order := [4]int{-1, -1, -1, -1}
 	searchSlot := 1
 	for refIndex := 0; refIndex < refCount && refIndex < len(refs) && searchSlot < len(order); refIndex++ {

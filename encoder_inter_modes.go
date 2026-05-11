@@ -54,7 +54,7 @@ func (d interFrameModeDecision) cyclicRefreshEligible() bool {
 	return !d.useIntra && d.interMode.RefFrame == vp8common.LastFrame && d.interMode.Mode == vp8common.ZeroMV
 }
 
-func libvpxAddProjectedMacroblockRate(total int, rate int) int {
+func addProjectedMacroblockRate(total int, rate int) int {
 	if rate <= 0 {
 		return total
 	}
@@ -116,6 +116,6 @@ func (e *VP8Encoder) interMacroblockInactive(mbRow int, mbCol int, mbCols int) b
 	return index >= 0 && index < len(e.activeMap) && e.activeMap[index] == 0
 }
 
-func libvpxSourceAltRefCandidate(onlyAltRefZeroMV bool, refFrame vp8common.MVReferenceFrame, mode vp8common.MBPredictionMode) bool {
+func sourceAltRefCandidateAllowed(onlyAltRefZeroMV bool, refFrame vp8common.MVReferenceFrame, mode vp8common.MBPredictionMode) bool {
 	return !onlyAltRefZeroMV || (mode == vp8common.ZeroMV && refFrame == vp8common.AltRefFrame)
 }

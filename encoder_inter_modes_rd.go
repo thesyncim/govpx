@@ -66,7 +66,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		start    interFrameSearchStart
 	}
 	if !e.interRDFrameRefSearchOrderValid {
-		e.interRDFrameRefSearchOrder = libvpxInterReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
 	}
 	refSearchOrder := e.interRDFrameRefSearchOrder
@@ -94,7 +94,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
-			if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
 			bestScoreBefore := bestScore
@@ -191,7 +191,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 		e.recordInterRDModeTest(modeIndex)
-		if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
+		if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
 			continue
 		}
 		bestScoreBefore := bestScore

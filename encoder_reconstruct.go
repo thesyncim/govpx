@@ -245,7 +245,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			if !ok {
 				return 0, ErrInvalidConfig
 			}
-			totalRate = libvpxAddProjectedMacroblockRate(totalRate, projectedRate)
+			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
 			mode.SegmentID = segmentID
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
@@ -485,7 +485,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				decision.interMode.SegmentID = 0
 				decision.intraMode.SegmentID = 0
 			}
-			totalRate = libvpxAddProjectedMacroblockRate(totalRate, decision.projectedRate)
+			totalRate = addProjectedMacroblockRate(totalRate, decision.projectedRate)
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID]

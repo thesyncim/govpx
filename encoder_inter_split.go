@@ -24,7 +24,7 @@ func selectInterFrameSplitMotionModeWithSearch(src vp8enc.SourceImage, ref *vp8c
 // rd_check_segment per-label loop including its NEW4X4 gate. The mvthresh
 // argument is the SPLITMV+NEW threshold for the current reference variant
 // (THR_NEW1 for LAST, THR_NEW2 for GOLDEN, THR_NEW3 for ALTREF) plumbed
-// through libvpxSplitMVSubsearchThreshold. Inside rd_check_segment the gate
+// through splitMVThresholdForRefSlot. Inside rd_check_segment the gate
 // is computed as:
 //
 //	label_mv_thresh = 1 * bsi->mvthresh / label_count

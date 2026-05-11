@@ -77,7 +77,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	best := interFrameModeDecision{}
 	var loopCtx fastInterModeLoopContext
 	if !e.interRDFrameRefSearchOrderValid {
-		e.interRDFrameRefSearchOrder = libvpxInterReferenceSearchOrder(refs, refCount)
+		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
 	}
 	refSearchOrder := e.interRDFrameRefSearchOrder
@@ -124,7 +124,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			if rdActive {
 				e.interModeTestHitCounts[modeIndex]++
 			}
-			if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
 			bestScoreBefore := bestScore
@@ -176,7 +176,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if rdActive {
 			e.interModeTestHitCounts[modeIndex]++
 		}
-		if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
+		if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
 			continue
 		}
 		// libvpx pickinter.c does not implement SPLITMV in the non-RD picker

@@ -345,7 +345,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 			p.abort.Store(1)
 			break
 		}
-		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+		worker.totalRate = addProjectedMacroblockRate(worker.totalRate, rate)
 	}
 	p.workerErrors[workerIndex] = err
 }
@@ -369,7 +369,7 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 			p.abort.Store(1)
 			break
 		}
-		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+		worker.totalRate = addProjectedMacroblockRate(worker.totalRate, rate)
 	}
 	p.workerErrors[workerIndex] = err
 }

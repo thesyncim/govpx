@@ -135,10 +135,10 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 
 func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
-	return libvpxSplitMVSubsearchThreshold(thresholds, refSlot)
+	return splitMVThresholdForRefSlot(thresholds, refSlot)
 }
 
-func libvpxSplitMVSubsearchThreshold(thresholds [libvpxInterModeCount]int, refSlot int) int {
+func splitMVThresholdForRefSlot(thresholds [libvpxInterModeCount]int, refSlot int) int {
 	switch refSlot {
 	case 1:
 		return thresholds[libvpxThrNew1]

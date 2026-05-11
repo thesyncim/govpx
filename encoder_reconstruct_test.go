@@ -889,19 +889,19 @@ func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
 	}
 }
 
-func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.T) {
+func TestSplitMVThresholdUsesNewMVReferenceThresholds(t *testing.T) {
 	var thresholds [libvpxInterModeCount]int
 	thresholds[libvpxThrNew1] = 11
 	thresholds[libvpxThrNew2] = 22
 	thresholds[libvpxThrNew3] = 33
 
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 1); got != 11 {
+	if got := splitMVThresholdForRefSlot(thresholds, 1); got != 11 {
 		t.Fatalf("slot 1 SplitMV threshold = %d, want THR_NEW1", got)
 	}
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 2); got != 22 {
+	if got := splitMVThresholdForRefSlot(thresholds, 2); got != 22 {
 		t.Fatalf("slot 2 SplitMV threshold = %d, want THR_NEW2", got)
 	}
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 3); got != 33 {
+	if got := splitMVThresholdForRefSlot(thresholds, 3); got != 33 {
 		t.Fatalf("slot 3 SplitMV threshold = %d, want THR_NEW3", got)
 	}
 }
@@ -961,7 +961,7 @@ func TestInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
 		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
 		{Frame: vp8common.AltRefFrame, Img: &vp8common.Image{}},
 	}
-	order := libvpxInterReferenceSearchOrder(refs[:], len(refs))
+	order := interReferenceSearchOrder(refs[:], len(refs))
 	if order != [4]int{-1, 0, 1, -1} {
 		t.Fatalf("reference search order = %v, want compacted GOLDEN/ALT in slots 1/2", order)
 	}
