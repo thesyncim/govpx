@@ -88,15 +88,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			for i := range govpxFrames {
 				gHash := sha256.Sum256(govpxFrames[i])
 				lHash := sha256.Sum256(libvpxFrames[i])
-				if gHash != lHash {
-					firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
-					gFP, gIsKey := parseVP8FramePartitionSizes(govpxFrames[i])
-					lFP, lIsKey := parseVP8FramePartitionSizes(libvpxFrames[i])
-					t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
-						i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff,
-						gFP, lFP, gIsKey, lIsKey,
-						hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
+				gFP, gIsKey := parseVP8FramePartitionSizes(govpxFrames[i])
+				lFP, lIsKey := parseVP8FramePartitionSizes(libvpxFrames[i])
+				if gHash == lHash {
+					t.Logf("frame %d byte MATCH: len=%d first_part=%d keyframe=%t", i, len(govpxFrames[i]), gFP, gIsKey)
+					continue
 				}
+				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
+				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
+					i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff,
+					gFP, lFP, gIsKey, lIsKey,
+					hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
 			}
 		})
 	}
