@@ -13,6 +13,7 @@ type interFrameNstepSearchResult struct {
 }
 
 type interFrameMotionSearchStats struct {
+	phase                *EncoderPhaseStats
 	fullPelSADCalls      int
 	fullPelSADCandidates int
 	fullPelBatchCalls    int
@@ -31,8 +32,15 @@ func (s *interFrameMotionSearchStats) recordFullPelSAD(candidates int, batch boo
 	}
 	s.fullPelSADCalls++
 	s.fullPelSADCandidates += candidates
+	if phase := s.phase; phase != nil {
+		phase.FullPelSADCalls++
+		phase.FullPelSADCandidates += int64(candidates)
+	}
 	if batch {
 		s.fullPelBatchCalls++
+		if phase := s.phase; phase != nil {
+			phase.FullPelBatchCalls++
+		}
 	}
 }
 
@@ -41,6 +49,9 @@ func (s *interFrameMotionSearchStats) recordFullPelBoundsRejects(count int) {
 		return
 	}
 	s.fullPelBoundsRejects += count
+	if phase := s.phase; phase != nil {
+		phase.FullPelBoundsRejects += int64(count)
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordFullPelEarlyBreak() {
@@ -48,6 +59,9 @@ func (s *interFrameMotionSearchStats) recordFullPelEarlyBreak() {
 		return
 	}
 	s.fullPelEarlyBreaks++
+	if phase := s.phase; phase != nil {
+		phase.FullPelEarlyBreaks++
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordSubpelCandidate() {
@@ -55,6 +69,9 @@ func (s *interFrameMotionSearchStats) recordSubpelCandidate() {
 		return
 	}
 	s.subpelCandidates++
+	if phase := s.phase; phase != nil {
+		phase.SubpelCandidates++
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordSubpelVariance() {
@@ -62,6 +79,9 @@ func (s *interFrameMotionSearchStats) recordSubpelVariance() {
 		return
 	}
 	s.subpelVarianceCalls++
+	if phase := s.phase; phase != nil {
+		phase.SubpelVarianceCalls++
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordSubpelCacheHit() {
@@ -69,6 +89,9 @@ func (s *interFrameMotionSearchStats) recordSubpelCacheHit() {
 		return
 	}
 	s.subpelCacheHits++
+	if phase := s.phase; phase != nil {
+		phase.SubpelCacheHits++
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordSubpelBoundsReject() {
@@ -76,6 +99,9 @@ func (s *interFrameMotionSearchStats) recordSubpelBoundsReject() {
 		return
 	}
 	s.subpelBoundsRejects++
+	if phase := s.phase; phase != nil {
+		phase.SubpelBoundsRejects++
+	}
 }
 
 func (s *interFrameMotionSearchStats) recordSubpelEarlyBreak() {
@@ -83,6 +109,9 @@ func (s *interFrameMotionSearchStats) recordSubpelEarlyBreak() {
 		return
 	}
 	s.subpelEarlyBreaks++
+	if phase := s.phase; phase != nil {
+		phase.SubpelEarlyBreaks++
+	}
 }
 
 type fullPelMotionSearch struct {

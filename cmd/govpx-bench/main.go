@@ -378,6 +378,22 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 		formatDuration(stats.LoopFilterApplyNS/int64(frames)),
 		formatDuration(stats.PacketWriteNS/int64(frames)))
 	fmt.Fprintf(b, "phase attempts  inter=%d  key=%d\n", stats.InterAttempts, stats.KeyAttempts)
+	if stats.LoopFilterTrials > 0 {
+		fmt.Fprintf(b, "lf trials       count=%d  copy=%s  filter=%s  sse=%s\n",
+			stats.LoopFilterTrials,
+			formatDuration(stats.LoopFilterTrialCopyNS/stats.LoopFilterTrials),
+			formatDuration(stats.LoopFilterTrialFilterNS/stats.LoopFilterTrials),
+			formatDuration(stats.LoopFilterTrialSSENS/stats.LoopFilterTrials))
+	}
+	if stats.FullPelSADCalls > 0 || stats.SubpelCandidates > 0 {
+		fmt.Fprintf(b, "motion search   sad_calls=%d  sad_candidates=%d  sad4=%d  subpel=%d  variance=%d  cache_hits=%d\n",
+			stats.FullPelSADCalls,
+			stats.FullPelSADCandidates,
+			stats.FullPelBatchCalls,
+			stats.SubpelCandidates,
+			stats.SubpelVarianceCalls,
+			stats.SubpelCacheHits)
+	}
 }
 
 func formatDecodeReport(r decodeBenchReport) string {

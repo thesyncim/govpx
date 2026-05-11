@@ -152,9 +152,9 @@ func TestRunBenchmarkSkipQuality(t *testing.T) {
 
 func TestRunBenchmarkPhaseTiming(t *testing.T) {
 	report, err := runBenchmark(benchConfig{
-		Width:       16,
-		Height:      16,
-		Frames:      3,
+		Width:       64,
+		Height:      64,
+		Frames:      6,
 		FPS:         30,
 		BitrateKbps: 1200,
 		Mode:        "realtime",
@@ -173,8 +173,15 @@ func TestRunBenchmarkPhaseTiming(t *testing.T) {
 	if report.PhaseNS.PacketWriteNS <= 0 || report.PhaseNS.LoopFilterPickNS <= 0 {
 		t.Fatalf("phase timings = %+v, want packet and loop-filter pick timings", *report.PhaseNS)
 	}
+	if report.PhaseNS.LoopFilterTrials == 0 || report.PhaseNS.LoopFilterTrialFilterNS == 0 {
+		t.Fatalf("loop-filter trial timings = %+v, want counted trial work", *report.PhaseNS)
+	}
+	if report.PhaseNS.FullPelSADCalls == 0 || report.PhaseNS.SubpelVarianceCalls == 0 {
+		t.Fatalf("motion-search topology stats = %+v, want SAD and subpel variance work counted", *report.PhaseNS)
+	}
 	text := formatEncodeReport(report)
-	if !strings.Contains(text, "phase/frame") || !strings.Contains(text, "phase attempts") {
+	if !strings.Contains(text, "phase/frame") || !strings.Contains(text, "phase attempts") ||
+		!strings.Contains(text, "lf trials") || !strings.Contains(text, "motion search") {
 		t.Fatalf("formatted report missing phase timing:\n%s", text)
 	}
 }

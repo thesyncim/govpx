@@ -66,6 +66,22 @@ type EncoderPhaseStats struct {
 	PacketWriteNS      int64 `json:"packet_write_ns"`
 	InterAttempts      int64 `json:"inter_attempts"`
 	KeyAttempts        int64 `json:"key_attempts"`
+
+	LoopFilterTrials        int64 `json:"loop_filter_trials"`
+	LoopFilterTrialCopyNS   int64 `json:"loop_filter_trial_copy_ns"`
+	LoopFilterTrialFilterNS int64 `json:"loop_filter_trial_filter_ns"`
+	LoopFilterTrialSSENS    int64 `json:"loop_filter_trial_sse_ns"`
+
+	FullPelSADCalls      int64 `json:"fullpel_sad_calls"`
+	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
+	FullPelBatchCalls    int64 `json:"fullpel_batch_calls"`
+	FullPelBoundsRejects int64 `json:"fullpel_bounds_rejects"`
+	FullPelEarlyBreaks   int64 `json:"fullpel_early_breaks"`
+	SubpelCandidates     int64 `json:"subpel_candidates"`
+	SubpelVarianceCalls  int64 `json:"subpel_variance_calls"`
+	SubpelCacheHits      int64 `json:"subpel_cache_hits"`
+	SubpelBoundsRejects  int64 `json:"subpel_bounds_rejects"`
+	SubpelEarlyBreaks    int64 `json:"subpel_early_breaks"`
 }
 
 func (s *EncoderPhaseStats) Reset() {
@@ -4292,11 +4308,38 @@ func loopFilterFullPickerBias(bestErr int, filtMid int, filterStep int, sectionI
 // segmentation can still produce nonzero per-MB levels during scoring.
 func (ctx *loopFilterPickContext) trialLumaSSE(level int, partial bool) int {
 	e := ctx.encoder
+	stats := e.opts.PhaseStats
 	if partial {
 		startRow, rowCount := loopFilterPartialFrameWindow(ctx.rows)
+		if stats != nil {
+			stats.LoopFilterTrials++
+			phase := nanotime()
+			copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
+			stats.LoopFilterTrialCopyNS += nanotime() - phase
+			phase = nanotime()
+			vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
+			stats.LoopFilterTrialFilterNS += nanotime() - phase
+			phase = nanotime()
+			err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
+			stats.LoopFilterTrialSSENS += nanotime() - phase
+			return err
+		}
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
 		vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
 		return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
+	}
+	if stats != nil {
+		stats.LoopFilterTrials++
+		phase := nanotime()
+		copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
+		stats.LoopFilterTrialCopyNS += nanotime() - phase
+		phase = nanotime()
+		vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
+		stats.LoopFilterTrialFilterNS += nanotime() - phase
+		phase = nanotime()
+		err := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
+		stats.LoopFilterTrialSSENS += nanotime() - phase
+		return err
 	}
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
 	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)

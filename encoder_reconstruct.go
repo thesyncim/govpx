@@ -2267,6 +2267,12 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			}
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			var motionStats interFrameMotionSearchStats
+			var stats *interFrameMotionSearchStats
+			if e.opts.PhaseStats != nil && !e.threadedRowsActive {
+				motionStats.phase = e.opts.PhaseStats
+				stats = &motionStats
+			}
 			result := interFrameMotionVectorSearch{
 				src:       src,
 				ref:       ref.Img,
@@ -2280,6 +2286,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				start:     start,
 				mvProbs:   &e.modeProbs.MV,
 				mvCosts:   e.currentMotionVectorCostTables(),
+				stats:     stats,
 			}.selectRD()
 			mv := result.mv
 			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
@@ -2507,6 +2514,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			if mvCosts == nil {
 				mvCosts = e.currentMotionVectorCostTables()
 			}
+			var motionStats interFrameMotionSearchStats
+			var stats *interFrameMotionSearchStats
+			if e.opts.PhaseStats != nil && !e.threadedRowsActive {
+				motionStats.phase = e.opts.PhaseStats
+				stats = &motionStats
+			}
 			result := interFrameMotionVectorSearch{
 				src:       src,
 				ref:       ref.Img,
@@ -2520,6 +2533,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				start:     start,
 				mvProbs:   &e.modeProbs.MV,
 				mvCosts:   mvCosts,
+				stats:     stats,
 			}.selectFast()
 			mv := clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
@@ -3633,7 +3647,13 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		if e != nil {
 			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 		}
-		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs)
+		var motionStats interFrameMotionSearchStats
+		var stats *interFrameMotionSearchStats
+		if e != nil && e.opts.PhaseStats != nil && !e.threadedRowsActive {
+			motionStats.phase = e.opts.PhaseStats
+			stats = &motionStats
+		}
+		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs, stats)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, fullMV)
 		if fullCost == 0 {
 			continue
@@ -3649,6 +3669,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 			search:    search,
 			mvProbs:   mvProbs,
 			mvCosts:   mvCosts,
+			stats:     stats,
 		}).refine()
 		if ok && refinedMV != fullMV {
 			count = appendInterAnalysisMotionCandidate(candidates, count, ref, refinedMV)
