@@ -164,12 +164,9 @@ func treeTokenCostFromPath(path *treeTokenPath, probs []uint8) int {
 		if probIdx >= probsLen {
 			return maxInt() / 4
 		}
-		prob := probs[probIdx]
-		if step.bit == 0 {
-			cost += vp8tables.ProbCost[prob]
-		} else {
-			cost += vp8tables.ProbCost[255-int(prob)]
-		}
+		// Branchless lookup keyed on the sign of step.bit: XOR with
+		// -bit flips prob to 255-prob when the bit is set.
+		cost += vp8tables.ProbCost[probs[probIdx]^uint8(-int(step.bit))]
 	}
 	return cost
 }
