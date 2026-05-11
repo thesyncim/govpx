@@ -2566,7 +2566,7 @@ func TestSelectFastInterFrameModeDecisionCanChooseInterleavedIntra(t *testing.T)
 	last.ExtendBorders()
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil, false)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2628,7 +2628,7 @@ func TestSelectFastInterFrameModeDecisionPicksLibvpxUVMode(t *testing.T) {
 	last.ExtendBorders()
 	refs := [...]interAnalysisReference{{Frame: vp8common.LastFrame, Img: &last.Img}}
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 1, 1, 2, 2, testInterSearchQIndex, 0, nil, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 1, 1, 2, 2, testInterSearchQIndex, 0, nil, nil, nil, nil, false)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2683,7 +2683,7 @@ func TestSelectFastInterFrameModeDecisionUsesLibvpxReferenceSlots(t *testing.T) 
 		{Frame: vp8common.GoldenFrame, Img: &golden.Img},
 	}
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, nil, false)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2718,7 +2718,7 @@ func TestSelectFastInterFrameModeDecisionUsesThresholdState(t *testing.T) {
 	defer e.endInterRDModeDecisionFrame()
 	e.beginInterRDModeDecisionMacroblock()
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil, nil)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 40, 0, nil, nil, nil, nil, false)
 
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
@@ -2755,7 +2755,7 @@ func TestSelectRDInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.T)
 	}}
 	quant := testRegularMacroblockQuant(t, 20)
 
-	decision, ok := e.selectRDInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, staticSegmentID, nil, nil, nil, nil, nil, &quant)
+	decision, ok := e.selectRDInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, staticSegmentID, nil, nil, nil, nil, nil, &quant, false)
 
 	if !ok {
 		t.Fatalf("RD mode decision returned ok=false")
@@ -3455,7 +3455,7 @@ func TestSelectFastInterFrameModeDecisionStopsOnStaticEncodeBreakout(t *testing.
 	}
 	quant := testRegularMacroblockQuant(t, 20)
 
-	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, 0, nil, nil, nil, &quant)
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, 20, 0, nil, nil, nil, &quant, false)
 	if !ok {
 		t.Fatalf("fast mode decision returned ok=false")
 	}
@@ -4803,13 +4803,12 @@ func TestSelectInterFrameSplitMotionOtherCostBreakdown(t *testing.T) {
 	}
 }
 
-// TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock asserts that
-// the inter mode dispatcher mirrors libvpx's evaluate_inter_mode /
-// evaluate_inter_mode_rd active_ptr early exits: when active_map[r][c]==0 the
-// picker must return a ZEROMV/LAST decision with skip=1 and segment=0 without
-// running any of the per-mode RD evaluations (i.e. no mode-test counter is
-// incremented and no threshold is touched).
-func TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock(t *testing.T) {
+// TestSelectInterFrameModeDecisionInactiveMacroblockMatchesLibvpxModeLoop
+// asserts that active_map[r][c]==0 is handled at libvpx's evaluate_inter_mode /
+// evaluate_inter_mode_rd point inside the candidate loop. The first tested
+// ZEROMV/LAST candidate wins with skip=1 and segment=0, and its mode-test
+// accounting still mutates exactly like libvpx.
+func TestSelectInterFrameModeDecisionInactiveMacroblockMatchesLibvpxModeLoop(t *testing.T) {
 	const w, h = 32, 16
 	e := newSizedTestEncoder(t, w, h)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
@@ -4880,13 +4879,59 @@ func TestSelectInterFrameModeDecisionShortCircuitsInactiveMacroblock(t *testing.
 		t.Fatalf("cyclicRefreshEligible = false, want true for ZEROMV/LAST")
 	}
 	if e.interMBsTestedSoFar != beforeMBs {
-		t.Fatalf("interMBsTestedSoFar = %d, want %d (no per-MB picker increment on short-circuit)", e.interMBsTestedSoFar, beforeMBs)
+		t.Fatalf("interMBsTestedSoFar = %d, want %d", e.interMBsTestedSoFar, beforeMBs)
 	}
-	if e.interModeTestHitCounts != beforeHits {
-		t.Fatalf("interModeTestHitCounts changed; short-circuit must skip the mode loop entirely")
+	for i := range beforeHits {
+		want := beforeHits[i]
+		if i == libvpxThrZero1 {
+			want++
+		}
+		if got := e.interModeTestHitCounts[i]; got != want {
+			t.Fatalf("interModeTestHitCounts[%d] = %d, want %d", i, got, want)
+		}
 	}
-	if e.interRDThreshTouched != beforeTouched {
-		t.Fatalf("interRDThreshTouched changed; short-circuit must not touch RD thresholds")
+	for i := range beforeTouched {
+		want := beforeTouched[i]
+		if i == libvpxThrZero1 {
+			want = true
+		}
+		if got := e.interRDThreshTouched[i]; got != want {
+			t.Fatalf("interRDThreshTouched[%d] = %v, want %v", i, got, want)
+		}
+	}
+}
+
+func TestFastPickerSourceAltRefGateKeepsModeLoopAccounting(t *testing.T) {
+	const w, h = 16, 16
+	e := newSizedTestEncoder(t, w, h)
+	src := testImage(w, h)
+	fillImage(src, 96, 90, 170)
+	last := testVP8Frame(t, w, h, 80, 90, 170)
+	golden := testVP8Frame(t, w, h, 88, 90, 170)
+	alt := testVP8Frame(t, w, h, 96, 90, 170)
+	refs := [...]interAnalysisReference{
+		{Frame: vp8common.LastFrame, Img: &last.Img, RefRateSet: true, RefRate: 10},
+		{Frame: vp8common.GoldenFrame, Img: &golden.Img, RefRateSet: true, RefRate: 20},
+		{Frame: vp8common.AltRefFrame, Img: &alt.Img, RefRateSet: true, RefRate: 30},
+	}
+	quant := testRegularMacroblockQuant(t, testInterSearchQIndex)
+
+	e.beginInterRDModeDecisionFrame()
+	defer e.endInterRDModeDecisionFrame()
+	e.beginInterRDModeDecisionMacroblock()
+	beforeHits := e.interModeTestHitCounts
+
+	decision, ok := e.selectFastInterFrameModeDecision(sourceImageFromPublic(src), refs[:], len(refs), 0, 0, 1, 1, testInterSearchQIndex, 0, nil, nil, nil, &quant, true)
+	if !ok {
+		t.Fatalf("selectFastInterFrameModeDecision returned ok=false")
+	}
+	if decision.useIntra || decision.interMode.RefFrame != vp8common.AltRefFrame || decision.interMode.Mode != vp8common.ZeroMV {
+		t.Fatalf("decision = %+v, want ALTREF/ZEROMV inter mode", decision)
+	}
+	for _, modeIndex := range []int{libvpxThrZero1, libvpxThrDC, libvpxThrNearest1, libvpxThrNear1, libvpxThrZero2, libvpxThrNearest2, libvpxThrZero3} {
+		if got := e.interModeTestHitCounts[modeIndex]; got != beforeHits[modeIndex]+1 {
+			t.Fatalf("interModeTestHitCounts[%d] = %d, want %d", modeIndex, got, beforeHits[modeIndex]+1)
+		}
 	}
 }
 
@@ -5049,6 +5094,7 @@ func TestSelectRDInterFrameModeDecisionUsesTempTokenContext(t *testing.T) {
 		nil, nil, nil,
 		&above, &left,
 		&quant,
+		false,
 	)
 	if !ok {
 		t.Fatalf("selectRDInterFrameModeDecision returned ok=false")

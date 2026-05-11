@@ -515,6 +515,7 @@ type VP8Encoder struct {
 	loopFilterPickReady bool
 	loopFilterPickLevel uint8
 	loopFilterPickBest  bool
+	loopFilterSegmentLF [vp8common.MaxMBSegments]int8
 	reconstructModes    []vp8dec.MacroblockMode
 	reconstructTokens   []vp8dec.MacroblockTokens
 	dequantTables       vp8common.FrameDequantTables
@@ -3554,6 +3555,7 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterPickReady = false
 	e.loopFilterPickLevel = 0
 	e.loopFilterPickBest = false
+	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
 }
 
 func (e *VP8Encoder) Close() error {
@@ -3793,7 +3795,11 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	minLevel := e.libvpxMinLoopFilterLevelForFrame(frameType, refreshGolden, refreshAltRef)
 	ctx := e.newLoopFilterPickContext(src, frameType, sharpness, rows, cols, required, segmentation)
 	if e.loopFilterUsesFastSearchForFrame(frameType) {
-		return ctx.pickFast(seedLevel, minLevel)
+		level, err := ctx.pickFast(seedLevel, minLevel)
+		if err == nil && level > 0 {
+			e.installLoopFilterSegmentLF(segmentation)
+		}
+		return level, err
 	}
 	return ctx.pickFull(seedLevel, minLevel)
 }
@@ -3818,29 +3824,49 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 }
 
 type loopFilterPickContext struct {
-	encoder     *VP8Encoder
-	src         vp8enc.SourceImage
-	modes       []vp8dec.MacroblockMode
-	frameConfig vp8common.LoopFilterFrameConfig
-	frameType   vp8common.FrameType
-	filterType  vp8dec.LoopFilterType
-	rows        int
-	cols        int
+	encoder         *VP8Encoder
+	src             vp8enc.SourceImage
+	modes           []vp8dec.MacroblockMode
+	fastFrameConfig vp8common.LoopFilterFrameConfig
+	fullFrameConfig vp8common.LoopFilterFrameConfig
+	frameType       vp8common.FrameType
+	filterType      vp8dec.LoopFilterType
+	rows            int
+	cols            int
 }
 
 func (e *VP8Encoder) newLoopFilterPickContext(src vp8enc.SourceImage, frameType vp8common.FrameType, sharpness uint8, rows int, cols int, required int, segmentation vp8enc.SegmentationConfig) loopFilterPickContext {
 	header := e.encoderLoopFilterHeader(0, sharpness)
 	vp8common.InitLoopFilterInfo(&e.loopInfo, int(sharpness))
-	return loopFilterPickContext{
-		encoder:     e,
-		src:         src,
-		modes:       e.reconstructModes[:required],
-		frameConfig: vp8dec.LoopFilterFrameConfig(header, loopFilterSegmentationHeader(segmentation)),
-		frameType:   frameType,
-		filterType:  header.Type,
-		rows:        rows,
-		cols:        cols,
+	fullConfig := vp8dec.LoopFilterFrameConfig(header, loopFilterSegmentationHeader(segmentation))
+	fastConfig := fullConfig
+	if segmentation.Enabled {
+		fastConfig.SegmentLF = e.loopFilterSegmentLF
 	}
+	return loopFilterPickContext{
+		encoder:         e,
+		src:             src,
+		modes:           e.reconstructModes[:required],
+		fastFrameConfig: fastConfig,
+		fullFrameConfig: fullConfig,
+		frameType:       frameType,
+		filterType:      header.Type,
+		rows:            rows,
+		cols:            cols,
+	}
+}
+
+func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.SegmentationConfig) {
+	if e == nil || !segmentation.Enabled {
+		return
+	}
+	var installed [vp8common.MaxMBSegments]int8
+	for segment := range vp8common.MaxMBSegments {
+		if segmentation.FeatureEnabled[vp8common.MBLvlAltLF][segment] {
+			installed[segment] = segmentation.FeatureData[vp8common.MBLvlAltLF][segment]
+		}
+	}
+	e.loopFilterSegmentLF = installed
 }
 
 func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8, error) {
@@ -3884,6 +3910,9 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 
 func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
+	if ctx.fullFrameConfig.SegmentationEnabled {
+		e.loopFilterSegmentLF = ctx.fullFrameConfig.SegmentLF
+	}
 	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	filtMid := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	filterStep := 4
@@ -4019,11 +4048,11 @@ func (ctx *loopFilterPickContext) trialLumaSSE(level int, partial bool) int {
 	if partial {
 		startRow, rowCount := loopFilterPartialFrameWindow(ctx.rows)
 		copyLoopFilterPartialLuma(&e.loopFilterPick.Img, &e.analysis.Img, startRow, rowCount)
-		vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.frameConfig, &e.loopInfo, startRow, rowCount)
+		vp8dec.ApplyLoopFilterPartialConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fastFrameConfig, &e.loopInfo, startRow, rowCount)
 		return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, true)
 	}
 	copyFrameImageLuma(&e.loopFilterPick.Img, &e.analysis.Img)
-	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.frameConfig, &e.loopInfo)
+	vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked(&e.loopFilterPick.Img, ctx.rows, ctx.cols, ctx.modes, ctx.frameType, ctx.filterType, level, ctx.fullFrameConfig, &e.loopInfo)
 	return loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
 }
 
@@ -4241,6 +4270,7 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 		e.loopFilterPickBest = false
 		return nil
 	}
+	e.installLoopFilterSegmentLF(segmentation)
 	if len(e.reconstructModes) < required {
 		return ErrInvalidConfig
 	}

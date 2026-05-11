@@ -22,9 +22,6 @@ type threadedInterRowsArgs struct {
 	refCount               int
 	quants                 [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	aboveTok               []vp8enc.TokenContextPlanes
-	activeMapEnabled       bool
-	activeMapLastAvailable bool
-	activeMapLastRef       interAnalysisReference
 	sourceAltRefZeroMVOnly bool
 }
 
@@ -331,12 +328,6 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInterRowsArgs, row int, col int) (int, int64, error) {
 	e := &rs.enc
 	index := row*args.cols + col
-	if args.activeMapEnabled && args.activeMapLastAvailable && e.activeMap[index] == 0 {
-		if !e.encodeInactiveInterMacroblock(row, col, index, args.activeMapLastRef.Img, args.modes, args.coeffs, &args.aboveTok[col], &rs.leftTok) {
-			return 0, 0, ErrInvalidConfig
-		}
-		return 0, 0, nil
-	}
 
 	segmentID, ok := interFrameAnalysisSegmentID(&args.modes[index], args.segmentation, args.preserveSegmentID)
 	if !ok {
@@ -457,7 +448,6 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 		return
 	}
 	var mergedBins [1024]uint32
-	var mergedTouched [libvpxInterModeCount]bool
 	mergedDotSuppress := 0
 	for workerIndex := range workerCount {
 		worker := &p.workers[workerIndex]
@@ -466,32 +456,11 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 			mergedBins[i] += workerEnc.interModeErrorBins[i]
 		}
 		mergedDotSuppress += workerEnc.mbsZeroLastDotSuppress
-		for i := range mergedTouched {
-			if workerEnc.interRDThreshTouched[i] {
-				mergedTouched[i] = true
-			}
-		}
 	}
 	e.interModeErrorBins = mergedBins
 	e.mbsZeroLastDotSuppress = mergedDotSuppress
-	for i := range e.interRDThreshMult {
-		minMult := 0
-		haveMin := false
-		for workerIndex := range workerCount {
-			workerEnc := &p.workers[workerIndex].enc
-			if !workerEnc.interRDThreshTouched[i] {
-				continue
-			}
-			if !haveMin || workerEnc.interRDThreshMult[i] < minMult {
-				minMult = workerEnc.interRDThreshMult[i]
-				haveMin = true
-			}
-		}
-		if haveMin {
-			e.interRDThreshMult[i] = minMult
-		}
-	}
-	e.interRDThreshTouched = mergedTouched
+	// libvpx copies rd_thresh_mult into each row worker and does not merge
+	// worker-local threshold mutations back into the primary MACROBLOCK.
 	if len(e.dotArtifactChecked) >= required {
 		clear(e.dotArtifactChecked[:required])
 		for workerIndex := range workerCount {

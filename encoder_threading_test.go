@@ -408,7 +408,7 @@ func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
 	pool.shutdownPool()
 }
 
-func TestRowWorkerPoolMergeAggregatesAdaptivePickerState(t *testing.T) {
+func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 	const (
 		workerCount = 3
 		required    = 4
@@ -445,6 +445,8 @@ func TestRowWorkerPoolMergeAggregatesAdaptivePickerState(t *testing.T) {
 	pool.workers[2].dotArtifactChecked = []bool{false, false, true, false}
 
 	e := &VP8Encoder{dotArtifactChecked: make([]bool, required)}
+	e.interRDThreshMult[modeIndex] = 200
+	e.interRDThreshTouched[modeIndex] = true
 	pool.mergeThreadedInterFrameState(e, workerCount, required)
 
 	if got := e.interModeErrorBins[7]; got != 15 {
@@ -462,11 +464,11 @@ func TestRowWorkerPoolMergeAggregatesAdaptivePickerState(t *testing.T) {
 	if got := e.mbsZeroLastDotSuppress; got != 51 {
 		t.Fatalf("mbsZeroLastDotSuppress = %d, want summed 51", got)
 	}
-	if got := e.interRDThreshMult[modeIndex]; got != 77 {
-		t.Fatalf("rd thresh mult = %d, want threaded min 77", got)
+	if got := e.interRDThreshMult[modeIndex]; got != 200 {
+		t.Fatalf("rd thresh mult = %d, want primary state unchanged", got)
 	}
 	if !e.interRDThreshTouched[modeIndex] {
-		t.Fatalf("rd thresh touched = %v, want true", e.interRDThreshTouched[modeIndex])
+		t.Fatalf("rd thresh touched = %v, want primary state unchanged", e.interRDThreshTouched[modeIndex])
 	}
 	for i, want := range []bool{true, true, true, false} {
 		if got := e.dotArtifactChecked[i]; got != want {

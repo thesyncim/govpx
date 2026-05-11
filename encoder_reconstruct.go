@@ -335,16 +335,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
-	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
-	var lastRefForActiveMap *interAnalysisReference
-	if activeMapEnabled {
-		for ri := range refCount {
-			if refs[ri].Frame == vp8common.LastFrame {
-				lastRefForActiveMap = &refs[ri]
-				break
-			}
-		}
-	}
 
 	args := threadedInterRowsArgs{
 		src:                    src,
@@ -359,12 +349,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 		refCount:               refCount,
 		quants:                 quants,
 		aboveTok:               aboveTok,
-		activeMapEnabled:       activeMapEnabled,
 		sourceAltRefZeroMVOnly: sourceAltRefZeroMVOnly,
-	}
-	if lastRefForActiveMap != nil {
-		args.activeMapLastAvailable = true
-		args.activeMapLastRef = *lastRefForActiveMap
 	}
 	threadedRate, err := e.buildReconstructingInterFrameCoefficientsThreaded(args)
 	if err != nil {
@@ -421,26 +406,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	totalRate := 0
 	totalPredictionError := int64(0)
-	activeMapEnabled := e.activeMapEnabled && len(e.activeMap) >= rows*cols
-	var lastRefForActiveMap *interAnalysisReference
-	if activeMapEnabled {
-		for ri := range refCount {
-			if refs[ri].Frame == vp8common.LastFrame {
-				lastRefForActiveMap = &refs[ri]
-				break
-			}
-		}
-	}
 	for row := range rows {
 		var leftTok vp8enc.TokenContextPlanes
 		for col := range cols {
 			index := row*cols + col
-			if activeMapEnabled && lastRefForActiveMap != nil && e.activeMap[index] == 0 {
-				if !e.encodeInactiveInterMacroblock(row, col, index, lastRefForActiveMap.Img, modes, coeffs, &aboveTok[col], &leftTok) {
-					return 0, ErrInvalidConfig
-				}
-				continue
-			}
 			segmentID, ok := interFrameAnalysisSegmentID(&modes[index], segmentation, preserveSegmentID)
 			if !ok {
 				return 0, ErrInvalidConfig
@@ -590,30 +559,6 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	e.analysis.ExtendBorders()
 	e.framePredictionError = totalPredictionError
 	return totalRate, nil
-}
-
-// encodeInactiveInterMacroblock matches libvpx's active-map fast path: an
-// inactive macroblock skips mode decision and codes as ZEROMV from LAST with
-// MBSkipCoeff=1, no segment override, and no residual. See
-// vp8/encoder/pickinter.c evaluate_inter_mode and rdopt.c rd_pick_inter_mode
-// active_ptr branches.
-func (e *VP8Encoder) encodeInactiveInterMacroblock(row int, col int, index int, lastRef *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes) bool {
-	modes[index] = vp8enc.InterFrameMacroblockMode{
-		SegmentID:   0,
-		MBSkipCoeff: true,
-		RefFrame:    vp8common.LastFrame,
-		Mode:        vp8common.ZeroMV,
-		UVMode:      vp8common.DCPred,
-	}
-	clearMacroblockCoefficients(&coeffs[index])
-	convertInterFrameMode(&modes[index], &e.reconstructModes[index])
-	is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
-	convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
-	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, lastRef, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[0], &e.reconstructScratch) {
-		return false
-	}
-	updateInterAnalysisTokenContext(above, left, is4x4, true, &coeffs[index])
-	return true
 }
 
 func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) {
@@ -1718,12 +1663,6 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	quant *vp8enc.MacroblockQuant,
 	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
-	if decision, ok := e.inactiveInterFrameModeDecision(refs, refCount, mbRow, mbCol, mbCols); ok {
-		return decision, true
-	}
-	if sourceAltRefZeroMVOnly {
-		return sourceAltRefZeroMVAltRefDecision(refs, refCount, segmentID)
-	}
 	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
 	if !e.interAnalysisUsesRDModeDecision() {
 		// Libvpx encodeframe.c resets x->rdmult/x->rddiv from the
@@ -1738,6 +1677,7 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 			baseQIndex, segmentID,
 			above, left, aboveLeft,
 			quant,
+			sourceAltRefZeroMVOnly,
 		)
 	}
 	return e.selectRDInterFrameModeDecision(
@@ -1747,6 +1687,7 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 		above, left, aboveLeft,
 		aboveTok, leftTok,
 		quant,
+		sourceAltRefZeroMVOnly,
 	)
 }
 
@@ -1757,63 +1698,16 @@ func (e *VP8Encoder) sourceAltRefZeroMVOnly(flags EncodeFlags) bool {
 		e.isSrcFrameAltRef(e.currentSourcePTS)
 }
 
-func sourceAltRefZeroMVAltRefDecision(refs []interAnalysisReference, refCount int, segmentID uint8) (interFrameModeDecision, bool) {
-	for i := 0; i < refCount && i < len(refs); i++ {
-		ref := refs[i]
-		if ref.Frame != vp8common.AltRefFrame || ref.Img == nil {
-			continue
-		}
-		mode := vp8enc.InterFrameMacroblockMode{
-			RefFrame:  vp8common.AltRefFrame,
-			Mode:      vp8common.ZeroMV,
-			SegmentID: segmentID,
-		}
-		return interFrameModeDecision{
-			ref:       ref,
-			interMode: mode,
-			intraMode: vp8enc.InterFrameMacroblockMode{
-				RefFrame:  vp8common.IntraFrame,
-				Mode:      vp8common.DCPred,
-				UVMode:    vp8common.DCPred,
-				SegmentID: segmentID,
-			},
-		}, true
-	}
-	return interFrameModeDecision{}, false
-}
-
-// inactiveInterFrameModeDecision mirrors libvpx's evaluate_inter_mode /
-// evaluate_inter_mode_rd active_ptr early exits (vp8/encoder/pickinter.c and
-// rdopt.c). When the active map is enabled and the current MB is marked
-// inactive, the picker must short-circuit before any motion search or intra
-// evaluation and lock the MB to ZEROMV from LAST with skip=1 / segment=0.
-// This keeps both pickers aligned with libvpx even when invoked outside the
-// per-frame loop (which already owns its own short-circuit via
-// encodeInactiveInterMacroblock).
-func (e *VP8Encoder) inactiveInterFrameModeDecision(refs []interAnalysisReference, refCount int, mbRow int, mbCol int, mbCols int) (interFrameModeDecision, bool) {
+func (e *VP8Encoder) interMacroblockInactive(mbRow int, mbCol int, mbCols int) bool {
 	if e == nil || !e.activeMapEnabled || mbCols <= 0 {
-		return interFrameModeDecision{}, false
+		return false
 	}
 	index := mbRow*mbCols + mbCol
-	if index < 0 || index >= len(e.activeMap) || e.activeMap[index] != 0 {
-		return interFrameModeDecision{}, false
-	}
-	for ri := range refCount {
-		if refs[ri].Frame != vp8common.LastFrame {
-			continue
-		}
-		return interFrameModeDecision{
-			ref: refs[ri],
-			interMode: vp8enc.InterFrameMacroblockMode{
-				SegmentID:   0,
-				MBSkipCoeff: true,
-				RefFrame:    vp8common.LastFrame,
-				Mode:        vp8common.ZeroMV,
-				UVMode:      vp8common.DCPred,
-			},
-		}, true
-	}
-	return interFrameModeDecision{}, false
+	return index >= 0 && index < len(e.activeMap) && e.activeMap[index] == 0
+}
+
+func libvpxSourceAltRefCandidate(onlyAltRefZeroMV bool, refFrame vp8common.MVReferenceFrame, mode vp8common.MBPredictionMode) bool {
+	return !onlyAltRefZeroMV || (mode == vp8common.ZeroMV && refFrame == vp8common.AltRefFrame)
 }
 
 // selectRDInterFrameModeDecision mirrors libvpx vp8/encoder/rdopt.c
@@ -1840,6 +1734,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
 	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
@@ -1868,6 +1763,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	refSearchOrder := e.interRDFrameRefSearchOrder
 	modeMVs := e.libvpxInterModeMVState(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 	signBias := e.interFrameSignBias()
+	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
 	for modeIndex, mbMode := range libvpxFastInterModeOrder {
 		threshold := thresholds[modeIndex]
@@ -1884,6 +1780,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				continue
 			}
 			e.recordInterRDModeTest(modeIndex)
+			if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+				continue
+			}
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
 			mode, score, yrd, rate, distortion, candidateStaleY2, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
@@ -1964,6 +1863,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 		e.recordInterRDModeTest(modeIndex)
+		if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
+			continue
+		}
 		bestScoreBefore := bestScore
 		bestYRDBefore := bestYRD
 		var mode vp8enc.InterFrameMacroblockMode
@@ -1985,18 +1887,29 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
 				mode.SegmentID = segmentID
-				acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, modeMVs.bestForReference(ref.Frame, signBias))
-				ok = acctOK
-				score = acct.rd
-				yrd = acct.yrd
-				rate = acct.rate2
-				rateY = acct.rateY
-				rateUV = acct.rateUV
-				distortion = acct.distortion2
-				distortionUV = acct.distortionUV
-				mbSkipCoeff = acct.mbSkipCoeff
-				rdLoopSkip = acct.rdLoopSkip
-				candidateStaleY2 = acct.staleY2
+				if inactiveMB {
+					mode.SegmentID = 0
+					mode.MBSkipCoeff = true
+					score = maxInt()
+					yrd = maxInt()
+					rate = e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), modeMVs.counts, modeMVs.bestForReference(ref.Frame, signBias), libvpxRDNewMVBitCostWeight)
+					distortion = 0
+					mbSkipCoeff = true
+					rdLoopSkip = true
+				} else {
+					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, modeMVs.bestForReference(ref.Frame, signBias))
+					ok = acctOK
+					score = acct.rd
+					yrd = acct.yrd
+					rate = acct.rate2
+					rateY = acct.rateY
+					rateUV = acct.rateUV
+					distortion = acct.distortion2
+					distortionUV = acct.distortionUV
+					mbSkipCoeff = acct.mbSkipCoeff
+					rdLoopSkip = acct.rdLoopSkip
+					candidateStaleY2 = acct.staleY2
+				}
 			}
 		}
 		if !ok {
@@ -2345,6 +2258,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	qIndex int, segmentID uint8,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	quant *vp8enc.MacroblockQuant,
+	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
@@ -2380,6 +2294,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	// extra register for the other indexed reads.
 	modeOrder := libvpxFastInterModeOrder
 	refOrder := libvpxFastRefFrameOrder
+	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
 	for modeIndex, mbMode := range modeOrder {
 		threshold := thresholds[modeIndex]
@@ -2397,6 +2312,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			}
 			if rdActive {
 				e.interModeTestHitCounts[modeIndex]++
+			}
+			if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
+				continue
 			}
 			bestScoreBefore := bestScore
 			bestSSEBefore := bestSSE
@@ -2441,6 +2359,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if rdActive {
 			e.interModeTestHitCounts[modeIndex]++
 		}
+		if !libvpxSourceAltRefCandidate(sourceAltRefZeroMVOnly, ref.Frame, mbMode) {
+			continue
+		}
 		// libvpx pickinter.c does not implement SPLITMV in the non-RD picker
 		// (vp8_pick_inter_mode falls back to RAISE-only). Short-circuit
 		// here so we skip the per-mode fastInterModeForLoopEntry plumbing
@@ -2456,6 +2377,28 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 		mode.SegmentID = segmentID
+		if inactiveMB {
+			mode.SegmentID = 0
+			mode.MBSkipCoeff = true
+			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, loopCtx.modeMVs.bestForReference(mode.RefFrame, loopCtx.signBias), libvpxFastNewMVBitCostWeight)
+			if traceEnabled {
+				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode)
+			}
+			e.lowerInterRDThresholdForImprovement(modeIndex)
+			bestSet = true
+			bestScore = maxInt()
+			bestDistortion = 0
+			bestSSE = 0
+			bestModeIndex = modeIndex
+			best = interFrameModeDecision{
+				ref:             ref,
+				interMode:       mode,
+				intraMode:       vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred},
+				projectedRate:   rate,
+				predictionError: 0,
+			}
+			break
+		}
 		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkipCached(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant, &loopCtx)
 		if !ok {
 			continue
@@ -7450,28 +7393,34 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 // (same numeric behavior as fillPredictedResidual4x4).
 func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
 	if baseY >= 0 && baseX >= 0 && baseY+16 <= height && baseX+16 <= width {
-		// Fast path: no clamping. Iterate block-row-major.
-		for by := range 4 {
-			for bx := range 4 {
-				blockOff := (by*4 + bx) * 16
-				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
-				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-				for r := range 4 {
-					so := srcOff + r*srcStride
-					po := predOff + r*predStride
-					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
-					out[blockOff+r*4+1] = int16(int(src[so+1]) - int(pred[po+1]))
-					out[blockOff+r*4+2] = int16(int(src[so+2]) - int(pred[po+2]))
-					out[blockOff+r*4+3] = int16(int(src[so+3]) - int(pred[po+3]))
-				}
-			}
+		srcEnd := (baseY+15)*srcStride + baseX + 15
+		predEnd := (baseY+15)*predStride + baseX + 15
+		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 16*16 {
+			gatherMacroblockYResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
+			return
 		}
-		return
 	}
 	for block := range 16 {
 		x := baseX + (block&3)*4
 		y := baseY + (block>>2)*4
 		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
+	}
+}
+
+func gatherMacroblockYResiduals4x4Unchecked(src *byte, srcStride int, pred *byte, predStride int, baseX int, baseY int, out *int16) {
+	for by := range 4 {
+		for bx := range 4 {
+			blockOff := (by*4 + bx) * 16
+			srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
+			predOff := (baseY+by*4)*predStride + (baseX + bx*4)
+			for r := range 4 {
+				gatherResidualRow4Unchecked(
+					(*byte)(unsafe.Add(unsafe.Pointer(src), srcOff+r*srcStride)),
+					(*byte)(unsafe.Add(unsafe.Pointer(pred), predOff+r*predStride)),
+					(*int16)(unsafe.Add(unsafe.Pointer(out), (blockOff+r*4)*2)),
+				)
+			}
+		}
 	}
 }
 
@@ -7481,28 +7430,42 @@ func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height 
 // gatherer.
 func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
 	if baseY >= 0 && baseX >= 0 && baseY+8 <= height && baseX+8 <= width {
-		for by := range 2 {
-			for bx := range 2 {
-				blockOff := (by*2 + bx) * 16
-				srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
-				predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-				for r := range 4 {
-					so := srcOff + r*srcStride
-					po := predOff + r*predStride
-					out[blockOff+r*4+0] = int16(int(src[so+0]) - int(pred[po+0]))
-					out[blockOff+r*4+1] = int16(int(src[so+1]) - int(pred[po+1]))
-					out[blockOff+r*4+2] = int16(int(src[so+2]) - int(pred[po+2]))
-					out[blockOff+r*4+3] = int16(int(src[so+3]) - int(pred[po+3]))
-				}
-			}
+		srcEnd := (baseY+7)*srcStride + baseX + 7
+		predEnd := (baseY+7)*predStride + baseX + 7
+		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 4*16 {
+			gatherMacroblockUVResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
+			return
 		}
-		return
 	}
 	for block := range 4 {
 		x := baseX + (block&1)*4
 		y := baseY + (block>>1)*4
 		fillPredictedResidual4x4Slice(src, srcStride, width, height, pred, predStride, x, y, out[block*16:block*16+16])
 	}
+}
+
+func gatherMacroblockUVResiduals4x4Unchecked(src *byte, srcStride int, pred *byte, predStride int, baseX int, baseY int, out *int16) {
+	for by := range 2 {
+		for bx := range 2 {
+			blockOff := (by*2 + bx) * 16
+			srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
+			predOff := (baseY+by*4)*predStride + (baseX + bx*4)
+			for r := range 4 {
+				gatherResidualRow4Unchecked(
+					(*byte)(unsafe.Add(unsafe.Pointer(src), srcOff+r*srcStride)),
+					(*byte)(unsafe.Add(unsafe.Pointer(pred), predOff+r*predStride)),
+					(*int16)(unsafe.Add(unsafe.Pointer(out), (blockOff+r*4)*2)),
+				)
+			}
+		}
+	}
+}
+
+func gatherResidualRow4Unchecked(src *byte, pred *byte, out *int16) {
+	*(*int16)(unsafe.Add(unsafe.Pointer(out), 0)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 0))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 0))))
+	*(*int16)(unsafe.Add(unsafe.Pointer(out), 2)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 1))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 1))))
+	*(*int16)(unsafe.Add(unsafe.Pointer(out), 4)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 2))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 2))))
+	*(*int16)(unsafe.Add(unsafe.Pointer(out), 6)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 3))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 3))))
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {

@@ -171,3 +171,21 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 		t.Fatalf("disabled translation = %+v, want zero header", disabled)
 	}
 }
+
+func TestLoopFilterFastPickerUsesInstalledAltLF(t *testing.T) {
+	t.Parallel()
+
+	e := newSizedTestEncoder(t, 16, 16)
+	e.loopFilterSegmentLF[staticSegmentID] = -7
+	cfg := vp8enc.SegmentationConfig{Enabled: true, AbsDelta: false, UpdateData: true, UpdateMap: true}
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][staticSegmentID] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
+
+	ctx := e.newLoopFilterPickContext(sourceImageFromPublic(testImage(16, 16)), vp8common.InterFrame, 0, 1, 1, 1, cfg)
+	if got := ctx.fastFrameConfig.SegmentLF[staticSegmentID]; got != -7 {
+		t.Fatalf("fast picker alt-LF = %d, want installed previous value -7", got)
+	}
+	if got := ctx.fullFrameConfig.SegmentLF[staticSegmentID]; got != aggressiveDenoiseAltLFDelta {
+		t.Fatalf("full picker alt-LF = %d, want current value %d", got, aggressiveDenoiseAltLFDelta)
+	}
+}
