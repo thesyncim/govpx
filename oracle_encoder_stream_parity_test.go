@@ -35,7 +35,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 	const (
 		fps        = 30
 		targetKbps = 700
-		frames     = 4
+		// Default frame budget for each parity case. Cases that diverge
+		// earlier set a smaller frames override below.
+		frames = 16
 	)
 
 	type fixture struct {
@@ -54,12 +56,21 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		deadline Deadline
 		cpuUsed  int
 		fx       fixture
+		// limit caps how many leading frames must byte-match. 0 means
+		// require the full `frames` budget; a positive value pins the
+		// known-good prefix when later frames have a remaining
+		// divergence still being investigated.
+		limit int
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
 		{name: "realtime-cbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64},
 		{name: "good-quality-cbr-cpu5", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: panning64},
-		{name: "best-quality-cbr-cpu0-splitmv", deadline: DeadlineBestQuality, cpuUsed: 0, fx: splitmv64},
+		// best-quality cpu0 SPLITMV byte-matches frames 0-3 but the RD
+		// mode decision diverges from libvpx at frame 4 in this
+		// trellis-driven path; cap the assertion here until that gap
+		// closes.
+		{name: "best-quality-cbr-cpu0-splitmv", deadline: DeadlineBestQuality, cpuUsed: 0, fx: splitmv64, limit: 4},
 		// Larger fixtures where chroma sub-pel rounding previously
 		// diverged on inter frames (per plan.md). The keyframe is
 		// expected to byte-match after the mb_no_coeff_skip header
@@ -95,7 +106,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 			}
 
-			for i := range govpxFrames {
+			limit := len(govpxFrames)
+			if tc.limit > 0 && tc.limit < limit {
+				limit = tc.limit
+			}
+			for i := 0; i < limit; i++ {
 				gHash := sha256.Sum256(govpxFrames[i])
 				lHash := sha256.Sum256(libvpxFrames[i])
 				gFP, gIsKey := parseVP8FramePartitionSizes(govpxFrames[i])
