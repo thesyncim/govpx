@@ -1088,6 +1088,46 @@ func TestSelectInterFrameFullPixelMotionVectorRealtimeHexWalksNextCheckpoints(t 
 	}
 }
 
+func TestInterFrameMotionSearchStatsCountsFullPelTopology(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 13, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			src.Y[(row+16)*src.YStride+col+16] = byte((19 + row*73 + col*151 + row*col*37) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 127, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			v := src.Y[(row+16)*src.YStride+col+16]
+			last.Img.Y[(row+18)*last.Img.YStride+col+16] = v ^ 1
+		}
+	}
+	for row := range 16 {
+		for col := range 16 {
+			last.Img.Y[(row+20)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+
+	cfg := interAnalysisSearchConfig{fullPixelSearch: interAnalysisFullPixelSearchHex, fractionalSearch: interAnalysisFractionalSearchStep}
+	var stats interFrameMotionSearchStats
+	mv, _ := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(sourceImageFromPublic(src), &last.Img, 1, 1, 4, 4, vp8enc.MotionVector{}, testInterSearchQIndex, cfg, interFrameSearchStart{}, &vp8tables.DefaultMVContext, &stats)
+
+	if mv != (vp8enc.MotionVector{Row: 32}) {
+		t.Fatalf("hex full-pixel MV = %+v, want row +32", mv)
+	}
+	if stats.fullPelSADCalls == 0 || stats.fullPelSADCandidates == 0 {
+		t.Fatalf("full-pel stats did not count SAD work: %+v", stats)
+	}
+	if stats.fullPelSADCandidates < stats.fullPelSADCalls {
+		t.Fatalf("full-pel candidates/calls = %d/%d, want candidates >= calls", stats.fullPelSADCandidates, stats.fullPelSADCalls)
+	}
+	if stats.fullPelEarlyBreaks == 0 {
+		t.Fatalf("full-pel early breaks = 0, want HEX neighborhood stop counted")
+	}
+}
+
 func TestSelectInterFrameFullPixelMotionVectorNstepUsesLibvpxSearchSites(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 17, 90, 170)
@@ -1987,6 +2027,40 @@ func TestCollectInterFrameMotionCandidatesIncludesSubpixelCandidate(t *testing.T
 	}
 	if candidates[1].MV != (vp8enc.MotionVector{Row: 2, Col: 2}) {
 		t.Fatalf("subpixel candidate = %+v, want +2,+2", candidates[1].MV)
+	}
+}
+
+func TestInterFrameMotionSearchStatsCountsSubpelTopology(t *testing.T) {
+	src := testImage(48, 48)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(t, 48, 48, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((31 + row*5 + col*17 + row*col*11) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin + 16*ref.Img.YStride + 16
+	dsp.BilinearPredict16x16(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y[16*src.YStride+16:], src.YStride)
+
+	cfg := interAnalysisSearchConfig{
+		fullPixelSearch:  interAnalysisFullPixelSearchHex,
+		fractionalSearch: interAnalysisFractionalSearchIterative,
+	}
+	var stats interFrameMotionSearchStats
+	mv, _ := selectInterFrameMotionVectorWithSearchStartAndStats(sourceImageFromPublic(src), &ref.Img, 1, 1, 3, 3, vp8enc.MotionVector{}, testInterSearchQIndex, cfg, interFrameSearchStart{}, &vp8tables.DefaultMVContext, &stats)
+
+	if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+		t.Fatalf("motion search MV = %+v, want +2,+2", mv)
+	}
+	if stats.subpelCandidates == 0 || stats.subpelVarianceCalls == 0 {
+		t.Fatalf("subpel stats did not count candidate variance work: %+v", stats)
+	}
+	if stats.subpelCandidates < stats.subpelVarianceCalls {
+		t.Fatalf("subpel candidates/variance calls = %d/%d, want candidates >= variance calls", stats.subpelCandidates, stats.subpelVarianceCalls)
+	}
+	if stats.subpelCandidates > interFrameSubpixelSearchCandidateCount() {
+		t.Fatalf("subpel candidates = %d, want <= libvpx-shaped max %d", stats.subpelCandidates, interFrameSubpixelSearchCandidateCount())
 	}
 }
 

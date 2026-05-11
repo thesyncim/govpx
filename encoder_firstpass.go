@@ -539,7 +539,7 @@ func firstPassMotionSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow i
 		Row: int16(int(seed.Row) & ^7),
 		Col: int16(int(seed.Col) & ^7),
 	})
-	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, seed, qIndex, bounds, &vp8tables.DefaultMVContext)
+	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, seed, qIndex, bounds, &vp8tables.DefaultMVContext, nil)
 	centerCost := searcher.walkCost(center, maxInt())
 	search := interAnalysisSearchConfig{
 		fullPixelSearchParam:  libvpxFirstPassSearchStepParam,
