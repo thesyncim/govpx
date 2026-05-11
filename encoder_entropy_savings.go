@@ -125,11 +125,5 @@ func libvpxDecideKeyFrame(thisFramePercentIntra, lastFramePercentIntra int, refr
 }
 
 func clampProb255(p int) int {
-	if p < 0 {
-		return 0
-	}
-	if p > 255 {
-		return 255
-	}
-	return p
+	return min(max(p, 0), 255)
 }

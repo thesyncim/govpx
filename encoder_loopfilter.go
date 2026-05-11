@@ -659,25 +659,11 @@ func loopFilterSearchStep(level int) int {
 }
 
 func clampLoopFilterPickLevel(level int, minLevel int, maxLevel int) int {
-	if level < minLevel {
-		return minLevel
-	}
-	if level > maxLevel {
-		return maxLevel
-	}
-	return level
+	return min(max(level, minLevel), maxLevel)
 }
 
 func libvpxClampLoopFilterLevel(qIndex int, level int) int {
-	minLevel := libvpxMinLoopFilterLevel(qIndex)
-	maxLevel := libvpxMaxLoopFilterLevel(qIndex)
-	if level < minLevel {
-		return minLevel
-	}
-	if level > maxLevel {
-		return maxLevel
-	}
-	return level
+	return min(max(level, libvpxMinLoopFilterLevel(qIndex)), libvpxMaxLoopFilterLevel(qIndex))
 }
 
 func libvpxMinLoopFilterLevel(qIndex int) int {

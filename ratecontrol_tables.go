@@ -303,13 +303,7 @@ func libvpxEstimatedBitsAtQuantizerWithZbin(frameType int, q int, macroblocks in
 }
 
 func clampQuantizerValue(q int, minQ int, maxQ int) int {
-	if q < minQ {
-		return minQ
-	}
-	if q > maxQ {
-		return maxQ
-	}
-	return q
+	return min(max(q, minQ), maxQ)
 }
 
 // libvpxGFBoostQAdjustment ports vp8_gf_boost_qadjustment from

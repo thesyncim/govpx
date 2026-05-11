@@ -470,13 +470,7 @@ func arnrFindMatchingMB(src []byte, srcStride int, ref arnrFrameView, mbRow int,
 }
 
 func arnrClamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
+	return min(max(v, lo), hi)
 }
 
 func arnrInBounds(col, row, colMin, colMax, rowMin, rowMax int) bool {

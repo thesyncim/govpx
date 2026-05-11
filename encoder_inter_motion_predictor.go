@@ -156,13 +156,7 @@ func clampInterFrameModeMotionVector(mv vp8enc.MotionVector, mbRow int, mbCol in
 }
 
 func clampInterFrameModeMotionVectorComponent(v int, lowEdge int, highEdge int) int {
-	if v < lowEdge-(16<<3) {
-		return lowEdge - (16 << 3)
-	}
-	if v > highEdge+(16<<3) {
-		return highEdge + (16 << 3)
-	}
-	return v
+	return min(max(v, lowEdge-(16<<3)), highEdge+(16<<3))
 }
 
 func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int) [8]int {
