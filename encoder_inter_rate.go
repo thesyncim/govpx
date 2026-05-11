@@ -457,10 +457,8 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 		refRow := refY * refStride
 		for col := range 16 {
 			diff := int(srcY0[srcRow+srcXs[col]]) - int(refY0[refRow+refXs[col]])
-			if diff < 0 {
-				diff = -diff
-			}
-			sad += diff
+			mask := diff >> mvKernelSignShift
+			sad += (diff ^ mask) - mask
 		}
 		if sad > limit {
 			return sad
@@ -512,10 +510,8 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
-			if diff < 0 {
-				diff = -diff
-			}
-			sad += diff
+			mask := diff >> mvKernelSignShift
+			sad += (diff ^ mask) - mask
 		}
 	}
 	return sad

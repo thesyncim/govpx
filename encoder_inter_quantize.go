@@ -49,10 +49,9 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 			continue
 		}
 
-		x := z
-		if x < 0 {
-			x = -x
-		}
+		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
+		sign := z >> mvKernelSignShift
+		x := (z ^ sign) - sign
 		zbin := int(quant.Zbin[rc])
 		zbin += int(quant.ZbinBoost[zeroRun])
 		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
@@ -67,9 +66,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 
 		x += int(quant.Round[rc])
 		y := ((((x * int(quant.Quant[rc])) >> 16) + x) * int(quant.QuantShift[rc])) >> 16
-		if z < 0 {
-			y = -y
-		}
+		y = (y ^ sign) - sign
 		q := int16(y)
 		qcoeff[rc] = q
 		dqcoeff[rc] = q * quant.Dequant[rc]
@@ -220,21 +217,17 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 			rate0 = tokens[next][0].rate
 			rate1 = tokens[next][1].rate
 
-			absX := x
-			if absX < 0 {
-				absX = -absX
-			}
-			absC := int(coeff[rc])
-			if absC < 0 {
-				absC = -absC
-			}
+			// Branchless |x| and |coeff[rc]|.
+			xMask := x >> mvKernelSignShift
+			absX := (x ^ xMask) - xMask
+			cInt := int(coeff[rc])
+			cMask := cInt >> mvKernelSignShift
+			absC := (cInt ^ cMask) - cMask
 			shortcut := absX*dq > absC && absX*dq < absC+dq
 			xs := x
 			sz := 0
 			if shortcut {
-				if x < 0 {
-					sz = -1
-				}
+				sz = x >> mvKernelSignShift // -1 if x<0, 0 otherwise
 				xs -= 2*sz + 1
 			}
 
@@ -360,10 +353,8 @@ func libvpxRDTrunc(rdMult int, rate int) int {
 // dctValueToken returns the libvpx coefficient-token classification for value x
 // (mirrors the dct_value_tokens table indexed by signed value).
 func dctValueToken(x int) int {
-	abs := x
-	if abs < 0 {
-		abs = -abs
-	}
+	mask := x >> mvKernelSignShift
+	abs := (x ^ mask) - mask
 	if abs == 0 {
 		return vp8tables.ZeroToken
 	}
@@ -381,20 +372,17 @@ func dctValueBaseCost(x int) int {
 	if x == 0 {
 		return 0
 	}
-	abs := x
-	if abs < 0 {
-		abs = -abs
-	}
+	mask := x >> mvKernelSignShift
+	abs := (x ^ mask) - mask
 	token, _, ok := coefficientTokenMagnitude(abs)
 	if !ok {
 		return maxInt() / 4
 	}
-	cost := 0
-	if x < 0 {
-		cost += boolBitCost(128, 1)
-	} else {
-		cost += boolBitCost(128, 0)
-	}
+	// Sign bit cost: prob 128 means equal cost for bit=0 and bit=1; the
+	// branch on x<0 was a no-op other than to pick which mvKernelSignShift
+	// bit to write — keep the branch-free version by always paying the
+	// equiprobable cost.
+	cost := boolBitCost(128, 0) // == boolBitCost(128, 1) at prob 128
 	cost += coefficientExtraBitsRate(token, abs)
 	return cost
 }
