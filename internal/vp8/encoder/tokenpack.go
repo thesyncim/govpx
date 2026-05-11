@@ -204,7 +204,10 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		if (raw>>coefficientTokenRecordSkipEOBNodeShift)&1 != 0 {
 			start = 1
 		}
-		pathLen := path.len
+		// path.len is bounded by len(coefficientTokenBranchPath.bits) = 7
+		// at build time; clamp here so the per-iter bounds check on
+		// pathBits[i]/pathNodes[i] folds away.
+		pathLen := min(path.len, 7)
 		pathBits := &path.bits
 		pathNodes := &path.nodes
 		for i := start; i < pathLen; i++ {

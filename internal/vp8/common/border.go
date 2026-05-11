@@ -52,11 +52,23 @@ func extendPlane(plane []byte, stride int, width int, height int, left int, righ
 		row := plane[(top+y)*stride:]
 		first := row[left]
 		last := row[left+width-1]
-		for x := range left {
-			row[x] = first
+		// Memset-style fills using the doubling-copy idiom: write the
+		// edge byte once and grow the filled region exponentially via
+		// copy(), which dispatches to runtime memmove. Cuts the per-row
+		// border population from N stores to log2(N) memmoves.
+		if left > 0 {
+			leftBuf := row[:left]
+			leftBuf[0] = first
+			for n := 1; n < left; n *= 2 {
+				copy(leftBuf[n:], leftBuf[:n])
+			}
 		}
-		for x := range right {
-			row[left+width+x] = last
+		if right > 0 {
+			rightBuf := row[left+width : left+width+right]
+			rightBuf[0] = last
+			for n := 1; n < right; n *= 2 {
+				copy(rightBuf[n:], rightBuf[:n])
+			}
 		}
 	}
 
