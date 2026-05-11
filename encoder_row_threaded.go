@@ -44,7 +44,7 @@ func (e *VP8Encoder) useThreadedKeyFrameRows(rows int, cols int) bool {
 		len(pool.workers) > 1 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
-		!e.oracleTraceEnabled()
+		(!oracleTraceBuild || !e.oracleTraceEnabled())
 }
 
 func (e *VP8Encoder) useThreadedInterFrameRows(rows int, cols int) bool {
@@ -53,7 +53,7 @@ func (e *VP8Encoder) useThreadedInterFrameRows(rows int, cols int) bool {
 		len(pool.workers) > 1 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
-		!e.oracleTraceEnabled()
+		(!oracleTraceBuild || !e.oracleTraceEnabled())
 }
 
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args threadedInterRowsArgs) (int, error) {
@@ -117,7 +117,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for workerIndex := range workerCount {
-		totalRate = libvpxAddProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
+		totalRate = addProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
 		totalPredictionError += pool.workers[workerIndex].totalPredictionError
 	}
 	e.framePredictionError = totalPredictionError
@@ -182,7 +182,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 
 	totalRate := 0
 	for workerIndex := range workerCount {
-		totalRate = libvpxAddProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
+		totalRate = addProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
 	}
 	pool.encoder = nil
 	pool.job = rowWorkerJobInterFrame
@@ -296,7 +296,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 		if err != nil {
 			return 0, err
 		}
-		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
+		rowRate = addProjectedMacroblockRate(rowRate, rate)
 	}
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
 	// Post-row store at `cols - 1 + nsync` so the last syncRange MBs of
@@ -393,7 +393,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 		if err != nil {
 			return 0, err
 		}
-		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
+		rowRate = addProjectedMacroblockRate(rowRate, rate)
 		rowPredictionError += predictionError
 	}
 	rs.totalPredictionError += rowPredictionError

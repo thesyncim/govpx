@@ -889,19 +889,19 @@ func TestInterRDModeHitCountGateRaisesThreshold(t *testing.T) {
 	}
 }
 
-func TestLibvpxSplitMVSubsearchThresholdUsesNewMVReferenceThresholds(t *testing.T) {
+func TestSplitMVThresholdUsesNewMVReferenceThresholds(t *testing.T) {
 	var thresholds [libvpxInterModeCount]int
 	thresholds[libvpxThrNew1] = 11
 	thresholds[libvpxThrNew2] = 22
 	thresholds[libvpxThrNew3] = 33
 
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 1); got != 11 {
+	if got := splitMVThresholdForRefSlot(thresholds, 1); got != 11 {
 		t.Fatalf("slot 1 SplitMV threshold = %d, want THR_NEW1", got)
 	}
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 2); got != 22 {
+	if got := splitMVThresholdForRefSlot(thresholds, 2); got != 22 {
 		t.Fatalf("slot 2 SplitMV threshold = %d, want THR_NEW2", got)
 	}
-	if got := libvpxSplitMVSubsearchThreshold(thresholds, 3); got != 33 {
+	if got := splitMVThresholdForRefSlot(thresholds, 3); got != 33 {
 		t.Fatalf("slot 3 SplitMV threshold = %d, want THR_NEW3", got)
 	}
 }
@@ -961,7 +961,7 @@ func TestInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
 		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
 		{Frame: vp8common.AltRefFrame, Img: &vp8common.Image{}},
 	}
-	order := libvpxInterReferenceSearchOrder(refs[:], len(refs))
+	order := interReferenceSearchOrder(refs[:], len(refs))
 	if order != [4]int{-1, 0, 1, -1} {
 		t.Fatalf("reference search order = %v, want compacted GOLDEN/ALT in slots 1/2", order)
 	}
@@ -2160,7 +2160,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BHEPred, blockPred[:], 4, y, pred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], 4, y, pred.Img.YStride, block)
+		copyBPredBlock(blockPred[:], y, pred.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {
@@ -2203,7 +2203,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], 4, y, e.analysis.Img.YStride, block)
+		copyBPredBlock(blockPred[:], y, e.analysis.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {
@@ -3881,7 +3881,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	boostedRC := int(vp8tables.DefaultZigZag1D[7])
 	coeff[boostedRC] = 75
 
-	eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
+	eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 0 || qcoeff[boostedRC] != 0 || dqcoeff[boostedRC] != 0 {
 		t.Fatalf("boosted coefficient eob/q/dq = %d/%d/%d, want suppressed", eob, qcoeff[boostedRC], dqcoeff[boostedRC])
@@ -3892,7 +3892,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	dqcoeff = [16]int16{}
 	earlyRC := int(vp8tables.DefaultZigZag1D[1])
 	coeff[earlyRC] = 80
-	eob = quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
+	eob = quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 2 || qcoeff[earlyRC] == 0 || dqcoeff[earlyRC] == 0 {
 		t.Fatalf("early coefficient eob/q/dq = %d/%d/%d, want quantized", eob, qcoeff[earlyRC], dqcoeff[earlyRC])
@@ -3907,12 +3907,12 @@ func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 66
 
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
 		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
 		t.Fatalf("boosted eob/q = %d/%d, want coefficient suppressed", eob, qcoeff[rc])
 	}
 }
@@ -3927,12 +3927,12 @@ func TestQuantizeBlockWithZbinUsesOverQuant(t *testing.T) {
 	extra := (int(quant.Dequant[1]) * zbinOverQuant) >> 7
 	coeff[rc] = int16(int(quant.Zbin[rc]) + int(quant.ZbinBoost[0]) + extra/2)
 
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
 		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, zbinOverQuant, 0, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, zbinOverQuant, 0, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
 		t.Fatalf("over-quant eob/q/dq = %d/%d/%d, want coefficient suppressed", eob, qcoeff[rc], dqcoeff[rc])
 	}
 }
@@ -5448,8 +5448,8 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	if !initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false) {
-		t.Fatalf("initSplitMotionLabelRDEvaluator returned false")
+	if !ev.init(0, nil, nil, false, false) {
+		t.Fatalf("splitMotionLabelRDEvaluator.init returned false")
 	}
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv := vp8enc.MotionVector{Col: 8}
@@ -5474,7 +5474,7 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 func TestSplitMotionLabelRDCommitsContextsBeforeNewGate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false)
+	ev.init(0, nil, nil, false, false)
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(
 		src, ref, 0, 0, &mode, 0, 16, 8,

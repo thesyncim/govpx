@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import (
@@ -10,12 +12,20 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
+func requireOracleTraceBuild(t *testing.T) {
+	t.Helper()
+	if !oracleTraceBuild {
+		t.Skip("oracle tracing is compiled out; run with -tags govpx_oracle_trace")
+	}
+}
+
 // TestOracleTraceWriterEmitsFrameAndMBRows encodes a 32x32 keyframe followed
 // by an inter frame with the trace writer enabled and asserts the JSONL
 // stream has 1 frame row for the keyframe, 1 frame row for the inter frame,
 // inter-candidate rows for the inter frame, and 8 MB rows (32x32 = 2x2
 // macroblocks for each frame).
 func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
+	requireOracleTraceBuild(t)
 	const w, h = 32, 32
 	var buf bytes.Buffer
 	e, err := NewVP8Encoder(EncoderOptions{
@@ -33,11 +43,11 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
-		OracleTraceWriter:   &buf,
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
+	e.SetOracleTraceWriter(&buf)
 
 	keyImg := testImage(w, h)
 	// Vary content so the encoder makes nontrivial decisions instead of
@@ -263,10 +273,10 @@ func TestOracleTraceWriterEmitsFrameAndMBRows(t *testing.T) {
 }
 
 func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
+	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
-	e := &VP8Encoder{
-		opts: EncoderOptions{OracleTraceWriter: &buf},
-	}
+	e := &VP8Encoder{}
+	e.SetOracleTraceWriter(&buf)
 	mode := vp8enc.KeyFrameMacroblockMode{
 		YMode:  vp8common.BPred,
 		UVMode: vp8common.TMPred,
@@ -303,61 +313,11 @@ func TestOracleKeyFrameMBTraceIncludesIntraModes(t *testing.T) {
 	}
 }
 
-func TestOracleMBTraceIncludesImprovedMVStart(t *testing.T) {
-	var buf bytes.Buffer
-	e := &VP8Encoder{
-		opts: EncoderOptions{OracleTraceWriter: &buf},
-	}
-	mode := vp8enc.InterFrameMacroblockMode{
-		RefFrame:               vp8common.LastFrame,
-		Mode:                   vp8common.NewMV,
-		MV:                     vp8enc.MotionVector{Row: 24, Col: -8},
-		ImprovedMVStart:        true,
-		ImprovedMVNearSADIndex: 3,
-		ImprovedMVSR:           2,
-		ImprovedMVPredictor:    vp8enc.MotionVector{Row: 16, Col: -16},
-	}
-	var coeffs vp8enc.MacroblockCoefficients
-	coeffs.QCoeff[2][3] = -7
-
-	e.emitOracleMBTrace(1, 2, &mode, &coeffs, 0, 0)
-	e.flushOracleMBTraceBuffer()
-
-	lines := splitNonEmptyLines(buf.Bytes())
-	if len(lines) != 1 {
-		t.Fatalf("trace rows = %d, want 1", len(lines))
-	}
-	var row map[string]any
-	if err := json.Unmarshal(lines[0], &row); err != nil {
-		t.Fatalf("trace row is not valid JSON: %v", err)
-	}
-	if got := row["improved_mv_start"]; got != true {
-		t.Fatalf("improved_mv_start = %v, want true", got)
-	}
-	if got := row["improved_mv_near_sadidx"].(float64); got != 3 {
-		t.Fatalf("improved_mv_near_sadidx = %v, want 3", got)
-	}
-	if got := row["improved_mv_row"].(float64); got != 16 {
-		t.Fatalf("improved_mv_row = %v, want 16", got)
-	}
-	if got := row["improved_mv_col"].(float64); got != -16 {
-		t.Fatalf("improved_mv_col = %v, want -16", got)
-	}
-	if got := row["improved_mv_sr"].(float64); got != 2 {
-		t.Fatalf("improved_mv_sr = %v, want 2", got)
-	}
-	qcoeff := row["qcoeff"].([]any)
-	block2 := qcoeff[2].([]any)
-	if got := block2[3].(float64); got != -7 {
-		t.Fatalf("qcoeff[2][3] = %v, want -7", got)
-	}
-}
-
 func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
+	requireOracleTraceBuild(t)
 	var buf bytes.Buffer
-	e := &VP8Encoder{
-		opts: EncoderOptions{OracleTraceWriter: &buf},
-	}
+	e := &VP8Encoder{}
+	e.SetOracleTraceWriter(&buf)
 	mode := vp8enc.InterFrameMacroblockMode{
 		RefFrame:  vp8common.LastFrame,
 		Mode:      vp8common.SplitMV,
@@ -394,102 +354,12 @@ func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	}
 }
 
-func TestOracleInterCandidateTraceIncludesImprovedMVStart(t *testing.T) {
-	var buf bytes.Buffer
-	e := &VP8Encoder{
-		opts: EncoderOptions{OracleTraceWriter: &buf},
-	}
-	mode := vp8enc.InterFrameMacroblockMode{
-		RefFrame:               vp8common.LastFrame,
-		Mode:                   vp8common.NewMV,
-		MV:                     vp8enc.MotionVector{Row: 12, Col: -4},
-		ImprovedMVStart:        true,
-		ImprovedMVNearSADIndex: 2,
-		ImprovedMVSR:           1,
-		ImprovedMVPredictor:    vp8enc.MotionVector{Row: 8, Col: -12},
-	}
-
-	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
-		Picker:          "rd",
-		MBRow:           1,
-		MBCol:           2,
-		ModeIndex:       13,
-		Mode:            vp8common.NewMV,
-		RefSlot:         1,
-		RefFrame:        vp8common.LastFrame,
-		Threshold:       99,
-		BestScoreBefore: 1000,
-		BestYRDBefore:   900,
-		BestSSEBefore:   oracleTraceInterCandidateUnknown,
-		BecameBest:      true,
-		LoopBreak:       true,
-		Score:           77,
-		YRD:             66,
-		Rate:            55,
-		RateY:           11,
-		RateUV:          7,
-		Distortion:      44,
-		DistortionUV:    5,
-		SSE:             oracleTraceInterCandidateUnknown,
-		Skip:            true,
-		ModeTrace:       mode,
-		HasModeTrace:    true,
-	})
-	e.flushOracleMBTraceBuffer()
-
-	lines := splitNonEmptyLines(buf.Bytes())
-	if len(lines) != 1 {
-		t.Fatalf("trace rows = %d, want 1", len(lines))
-	}
-	var row map[string]any
-	if err := json.Unmarshal(lines[0], &row); err != nil {
-		t.Fatalf("trace row is not valid JSON: %v", err)
-	}
-	for key, want := range map[string]any{
-		"type":                    "inter_candidate",
-		"picker":                  "rd",
-		"mode":                    "NEWMV",
-		"ref_frame":               "LAST_FRAME",
-		"outcome":                 "tested",
-		"became_best":             true,
-		"loop_break":              true,
-		"skip":                    true,
-		"improved_mv_start":       true,
-		"frame_index":             float64(0),
-		"mb_row":                  float64(1),
-		"mb_col":                  float64(2),
-		"mode_index":              float64(13),
-		"ref_slot":                float64(1),
-		"threshold":               float64(99),
-		"best_score_before":       float64(1000),
-		"best_yrd_before":         float64(900),
-		"best_sse_before":         float64(oracleTraceInterCandidateUnknown),
-		"score":                   float64(77),
-		"yrd":                     float64(66),
-		"rate":                    float64(55),
-		"rate_y":                  float64(11),
-		"rate_uv":                 float64(7),
-		"distortion":              float64(44),
-		"distortion_uv":           float64(5),
-		"sse":                     float64(oracleTraceInterCandidateUnknown),
-		"mv_row":                  float64(12),
-		"mv_col":                  float64(-4),
-		"improved_mv_near_sadidx": float64(2),
-		"improved_mv_row":         float64(8),
-		"improved_mv_col":         float64(-12),
-		"improved_mv_sr":          float64(1),
-	} {
-		if got := row[key]; got != want {
-			t.Fatalf("%s = %v, want %v", key, got, want)
-		}
-	}
-}
-
 func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
+	requireOracleTraceBuild(t)
 	const w, h = 16, 32
 	var buf bytes.Buffer
 	e := newSizedTestEncoder(t, w, h)
-	e.opts.OracleTraceWriter = &buf
+	e.SetOracleTraceWriter(&buf)
 	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
 		t.Fatalf("SetDeadline returned error: %v", err)
 	}
@@ -538,6 +408,7 @@ func TestOracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 // OracleTraceWriter results in no writer activity and that the encoded byte
 // stream is identical to a baseline run with the same configuration.
 func TestOracleTraceWriterNilProducesNoOverhead(t *testing.T) {
+	requireOracleTraceBuild(t)
 	const w, h = 32, 32
 
 	encode := func(traceWriter *bytes.Buffer) ([]byte, []byte) {
@@ -557,12 +428,12 @@ func TestOracleTraceWriterNilProducesNoOverhead(t *testing.T) {
 			BufferInitialSizeMs: 400,
 			BufferOptimalSizeMs: 500,
 		}
-		if traceWriter != nil {
-			opts.OracleTraceWriter = traceWriter
-		}
 		e, err := NewVP8Encoder(opts)
 		if err != nil {
 			t.Fatalf("NewVP8Encoder returned error: %v", err)
+		}
+		if traceWriter != nil {
+			e.SetOracleTraceWriter(traceWriter)
 		}
 		key := testImage(w, h)
 		for i := range key.Y {

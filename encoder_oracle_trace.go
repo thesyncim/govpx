@@ -1,8 +1,10 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 // Encoder oracle trace mode (off-by-default validation harness).
 //
-// When EncoderOptions.OracleTraceWriter is non-nil the encoder emits a
+// When oracle tracing is enabled for an encoder, the encoder emits a
 // deterministic JSON Lines stream describing per-frame state and per-MB
 // decisions. The format is intended to be diffed against equivalent output
 // instrumented from libvpx (vp8/encoder/encodeframe.c, pickinter.c, rdopt.c,
@@ -18,13 +20,9 @@ package govpx
 // is no allocation and no per-MB cost.
 
 import (
-	"encoding/json"
-	"fmt"
 	"hash/adler32"
-	"io"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
-	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -370,7 +368,8 @@ const oracleTraceInterCandidateUnknown = -1
 // oracle trace. Callers should guard tracing logic with this so the per-MB
 // fast path performs no extra work when the harness is off.
 func (e *VP8Encoder) oracleTraceEnabled() bool {
-	return e != nil && e.opts.OracleTraceWriter != nil
+	state := e.oracleTraceState()
+	return state != nil && state.writer != nil
 }
 
 // oracleTraceFrameSummary is the minimal slice of frame state that callers
@@ -468,7 +467,7 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	row.ProbIntraCoded = int(e.refProbIntra)
 	row.ProbLastCoded = int(e.refProbLast)
 	row.ProbGFCoded = int(e.refProbGolden)
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // oracleTraceProbabilityDigests returns Adler32 digests over the encoder's
@@ -563,7 +562,7 @@ func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
 	default:
 		row.FrameType = "inter"
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // oracleTraceRecodeSummary describes the recode-loop outcome for the just
@@ -593,7 +592,7 @@ func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
 	if row.Reason == "" {
 		row.Reason = "size_recode"
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
@@ -628,7 +627,7 @@ func (e *VP8Encoder) emitOracleDroppedFrameTrace(reason string) {
 		ThisFrameTarget: e.rc.frameTargetBits,
 		Reason:          reason,
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // emitOracleRateAndRecodeTrace emits the per-frame "rate" row plus, when
@@ -649,6 +648,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	if !e.oracleTraceEnabled() {
 		return
 	}
+	state := e.oracleTraceState()
 	keyFrame := frameType == vp8common.KeyFrame
 	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBounds(keyFrame, false)
 	e.emitOracleRateTrace(oracleTraceRateSummary{
@@ -657,7 +657,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		ActiveWorstQ:           activeWorst,
 		ActiveBestQ:            activeBest,
 		BufferLevelBits:        int64(e.rc.bufferLevelBits),
-		TotalByteCount:         e.oracleTraceTotalByteCount,
+		TotalByteCount:         state.totalByteCount,
 		ProjectedFrameSizeBits: projectedBits,
 		ThisFrameTargetBits:    e.rc.frameTargetBits,
 		KFOverspendBits:        e.rc.kfOverspendBits,
@@ -666,13 +666,13 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		CoefSavingsBits:        coefSavings,
 		RefFrameSavingsBits:    refFrameSavings,
 	})
-	if e.oracleTraceRecodeLoopCount > 1 {
-		reason := e.oracleTraceRecodeReason
+	if state.recodeLoopCount > 1 {
+		reason := state.recodeReason
 		if reason == "" {
 			reason = "size_recode"
 		}
 		e.emitOracleRecodeTrace(oracleTraceRecodeSummary{
-			LoopCount: e.oracleTraceRecodeLoopCount,
+			LoopCount: state.recodeLoopCount,
 			FinalQ:    finalQuantizer,
 			Reason:    reason,
 		})
@@ -681,600 +681,5 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	// after pack_bitstream. The trace row already reflects the pre-frame
 	// total so the next frame's rate row sees the same cumulative value
 	// libvpx would.
-	e.oracleTraceTotalByteCount += int64(sizeBytes)
-}
-
-// resetOracleMBTraceBuffer clears any accumulated per-MB trace rows. It is
-// called at the start of each coefficient build pass so retried
-// (recoded) attempts overwrite earlier rows; the final attempt's rows are
-// flushed by flushOracleMBTraceBuffer at frame commit time.
-func (e *VP8Encoder) resetOracleMBTraceBuffer() {
-	if !e.oracleTraceEnabled() {
-		return
-	}
-	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
-	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
-}
-
-// flushOracleMBTraceBuffer writes the buffered per-MB rows to the configured
-// writer in scan order and clears the buffer.
-func (e *VP8Encoder) flushOracleMBTraceBuffer() {
-	if !e.oracleTraceEnabled() {
-		return
-	}
-	w := e.opts.OracleTraceWriter
-	for i := range e.oracleTraceInterCandidateBuffer {
-		emitOracleTraceRow(w, &e.oracleTraceInterCandidateBuffer[i])
-	}
-	for i := range e.oracleTraceMBBuffer {
-		emitOracleTraceRow(w, &e.oracleTraceMBBuffer[i])
-	}
-	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
-	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
-}
-
-func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandidateSummary) {
-	if !e.oracleTraceEnabled() {
-		return
-	}
-	mv := summary.MV
-	improvedMVNearSADIndex := oracleTraceInterCandidateUnknown
-	improvedMVSR := oracleTraceInterCandidateUnknown
-	var improvedMVPredictor vp8enc.MotionVector
-	if summary.HasModeTrace {
-		mv = summary.ModeTrace.MV
-		if summary.ModeTrace.ImprovedMVStart {
-			improvedMVNearSADIndex = int(summary.ModeTrace.ImprovedMVNearSADIndex)
-			improvedMVSR = int(summary.ModeTrace.ImprovedMVSR)
-			improvedMVPredictor = summary.ModeTrace.ImprovedMVPredictor
-		}
-	}
-	if summary.RefFrame == vp8common.IntraFrame || summary.Mode == vp8common.SplitMV {
-		mv = vp8enc.MotionVector{}
-	}
-	outcome := summary.Outcome
-	if outcome == "" {
-		outcome = "tested"
-	}
-	row := oracleTraceInterCandidateRow{
-		Type:       "inter_candidate",
-		FrameIndex: e.frameCount,
-		MBRow:      summary.MBRow,
-		MBCol:      summary.MBCol,
-
-		Picker:    summary.Picker,
-		ModeIndex: summary.ModeIndex,
-		Mode:      oracleTraceModeName(summary.Mode),
-		RefSlot:   summary.RefSlot,
-		RefFrame:  oracleTraceRefName(summary.RefFrame),
-
-		Threshold:       summary.Threshold,
-		BestScoreBefore: summary.BestScoreBefore,
-		BestYRDBefore:   summary.BestYRDBefore,
-		BestSSEBefore:   summary.BestSSEBefore,
-		Outcome:         outcome,
-		BecameBest:      summary.BecameBest,
-		LoopBreak:       summary.LoopBreak,
-
-		Score:        summary.Score,
-		YRD:          summary.YRD,
-		Rate:         summary.Rate,
-		RateY:        summary.RateY,
-		RateUV:       summary.RateUV,
-		Distortion:   summary.Distortion,
-		DistortionUV: summary.DistortionUV,
-		SSE:          summary.SSE,
-		Skip:         summary.Skip,
-
-		MVRow: mv.Row,
-		MVCol: mv.Col,
-
-		ImprovedMVStart:        summary.HasModeTrace && summary.ModeTrace.ImprovedMVStart,
-		ImprovedMVNearSADIndex: improvedMVNearSADIndex,
-		ImprovedMVRow:          improvedMVPredictor.Row,
-		ImprovedMVCol:          improvedMVPredictor.Col,
-		ImprovedMVSR:           improvedMVSR,
-	}
-	e.oracleTraceInterCandidateBuffer = append(e.oracleTraceInterCandidateBuffer, row)
-}
-
-// emitOracleMBTrace appends a per-macroblock trace row to the encoder's
-// internal buffer. The row is flushed to the writer when the surrounding
-// frame is committed; rows from intermediate (recoded) attempts are
-// discarded by resetOracleMBTraceBuffer. mode and coeffs must reference the
-// freshly written entries for (mbRow, mbCol). The caller already holds these
-// values in govpx's per-MB inter loop, so this function performs no
-// additional VP8 computation.
-func (e *VP8Encoder) emitOracleMBTrace(
-	mbRow int, mbCol int,
-	mode *vp8enc.InterFrameMacroblockMode,
-	coeffs *vp8enc.MacroblockCoefficients,
-	mbRate int, aggregatedRate int,
-) {
-	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
-		return
-	}
-	row := oracleTraceMBRow{
-		Type:       "mb",
-		FrameIndex: e.frameCount,
-		MBRow:      mbRow,
-		MBCol:      mbCol,
-		SegmentID:  int(mode.SegmentID),
-		Mode:       oracleTraceModeName(mode.Mode),
-		RefFrame:   oracleTraceRefName(mode.RefFrame),
-		MVRow:      mode.MV.Row,
-		MVCol:      mode.MV.Col,
-		Skip:       mode.MBSkipCoeff,
-
-		ImprovedMVNearSADIndex: -1,
-		ImprovedMVSR:           -1,
-
-		MBRate:         mbRate,
-		AggregatedRate: aggregatedRate,
-	}
-	if mode.ImprovedMVStart {
-		row.ImprovedMVStart = true
-		row.ImprovedMVNearSADIndex = int(mode.ImprovedMVNearSADIndex)
-		row.ImprovedMVRow = mode.ImprovedMVPredictor.Row
-		row.ImprovedMVCol = mode.ImprovedMVPredictor.Col
-		row.ImprovedMVSR = int(mode.ImprovedMVSR)
-	}
-	if mode.Mode == vp8common.SplitMV {
-		partition := int(mode.Partition)
-		row.Partition = &partition
-		row.BlockMVRow = make([]int16, len(mode.BlockMV))
-		row.BlockMVCol = make([]int16, len(mode.BlockMV))
-		for i := range mode.BlockMV {
-			row.BlockMVRow[i] = mode.BlockMV[i].Row
-			row.BlockMVCol[i] = mode.BlockMV[i].Col
-		}
-	}
-	if mode.RefFrame == vp8common.IntraFrame && mode.Mode == vp8common.BPred {
-		// Mirror the libvpx oracle dump: emit per-sub-block intra mode picks
-		// for inter-frame B_PRED MBs so the R11-J / R12-C diagnostic can
-		// compare 4x4 picks at the col-7 right-edge MBs on 128x128 frame 1.
-		row.BModes = make([]string, len(mode.BModes))
-		for i, bMode := range mode.BModes {
-			row.BModes[i] = oracleTraceBModeName(bMode)
-		}
-	}
-	sum := 0
-	for i := range 25 {
-		row.EOB[i] = coeffs.EOB[i]
-		row.QCoeff[i] = coeffs.QCoeff[i]
-	}
-	is4x4 := false
-	if mode.RefFrame != vp8common.IntraFrame {
-		is4x4 = mode.Mode == vp8common.SplitMV
-	} else {
-		is4x4 = mode.Mode == vp8common.BPred
-	}
-	segID := int(mode.SegmentID)
-	if segID >= 0 && segID < len(e.dequants) {
-		applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
-	}
-	if is4x4 && coeffs.OracleStaleY2Set {
-		// libvpx's vp8_quantize_mb skips block 24 for SPLITMV/B_PRED,
-		// so xd->block[24].qcoeff/eobs[24] retain stale data from the
-		// last RD-pick mode that quantized Y2. Mirror that trace-only
-		// contribution without modifying the actual encoder block-24 state.
-		row.EOB[24] = coeffs.OracleStaleY2EOB
-		row.QCoeff[24] = coeffs.OracleStaleY2QCoeff
-	}
-	for i := range 25 {
-		sum += int(row.EOB[i])
-	}
-	row.EOBSum = sum
-	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
-}
-
-func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
-	mbRow int, mbCol int,
-	mode *vp8enc.KeyFrameMacroblockMode,
-	coeffs *vp8enc.MacroblockCoefficients,
-	mbRate int, aggregatedRate int,
-) {
-	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
-		return
-	}
-	row := oracleTraceMBRow{
-		Type:       "mb",
-		FrameIndex: e.frameCount,
-		MBRow:      mbRow,
-		MBCol:      mbCol,
-		SegmentID:  int(mode.SegmentID),
-		Mode:       oracleTraceModeName(mode.YMode),
-		RefFrame:   oracleTraceRefName(vp8common.IntraFrame),
-		UVMode:     oracleTraceModeName(mode.UVMode),
-
-		ImprovedMVNearSADIndex: -1,
-		ImprovedMVSR:           -1,
-
-		MBRate:         mbRate,
-		AggregatedRate: aggregatedRate,
-	}
-	if mode.YMode == vp8common.BPred {
-		row.BModes = make([]string, len(mode.BModes))
-		for i, bMode := range mode.BModes {
-			row.BModes[i] = oracleTraceBModeName(bMode)
-		}
-	}
-	sum := 0
-	for i := range 25 {
-		row.EOB[i] = coeffs.EOB[i]
-		row.QCoeff[i] = coeffs.QCoeff[i]
-	}
-	is4x4 := mode.YMode == vp8common.BPred
-	segID := int(mode.SegmentID)
-	if segID >= 0 && segID < len(e.dequants) {
-		applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
-	}
-	if is4x4 && coeffs.OracleStaleY2Set {
-		row.EOB[24] = coeffs.OracleStaleY2EOB
-		row.QCoeff[24] = coeffs.OracleStaleY2QCoeff
-	}
-	for i := range 25 {
-		sum += int(row.EOB[i])
-	}
-	row.EOBSum = sum
-	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
-}
-
-// applyOracleEOBAdjust mirrors libvpx's per-Y-block eob bump for the per-MB
-// oracle trace. There are two libvpx code paths that can leave eob=1 with
-// an all-zero qcoeff[0] in xd->eobs / xd->block[i].qcoeff at oracle-capture
-// time:
-//
-//  1. vp8_quantize_mb runs vp8_fast_quantize_b_c (or
-//     vp8_regular_quantize_b_c) on the Y block with the original (un-zeroed)
-//     dct[0] against Y1DC's zbin/round/quant. If that DC quantizes to
-//     non-zero, *d->eob is set to 1 even when every other position is zero.
-//     vp8_dequant_idct_add_y_block later memsets qcoeff[0..1] back to zero,
-//     but eob=1 survives. govpx tracks the would-have-been bit per Y block
-//     in coeffs.OracleY1DCEOB1[block].
-//
-//  2. vp8_inverse_transform_mby runs the inverse Walsh on the Y2 block,
-//     writing a per-Y-block DC value into xd->qcoeff[i*16]. eob_adjust then
-//     bumps eobs[i] from 0 to 1 if that DC is non-zero, so the IDCT path
-//     doesn't skip the block. The same memset clears qcoeff[0..1] later.
-//
-// The adjustment is purely cosmetic for the trace (bitstream tokenize,
-// reconstruction, and the parity decoder all already handle the eob=0 vs
-// eob=1 distinction correctly because the qcoeff payload is identical). It
-// only happens when the macroblock has a Y2 second-order block (i.e. the
-// non-4x4 / non-SPLITMV / non-B_PRED case).
-//
-// y2Dequant is the segment-specific Y2 dequant table (cpi->common.Y2dequant
-// in libvpx). is4x4 mirrors libvpx's `mode != SPLITMV` (or `mode != B_PRED`
-// for keyframes) gate that skips the eob_adjust.
-func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]int16, is4x4 bool, eob *[25]uint8) {
-	if coeffs == nil || y2Dequant == nil || eob == nil || is4x4 {
-		return
-	}
-	// Path 1: bump from libvpx Y1DC quantize on the original dct[0] of each
-	// Y block. coeffs.OracleY1DCEOB1[block] was populated at quantize time
-	// from the same dct[0] that fed the Y2 forward Walsh.
-	for js := range 16 {
-		if eob[js] == 0 && coeffs.OracleY1DCEOB1[js] != 0 {
-			eob[js] = 1
-		}
-	}
-	// Path 2: bump from libvpx eob_adjust against the inverse-Walsh DC of
-	// the Y2 block. This is the residual case where the post-Walsh DC is
-	// non-zero even though Y1DC quantize produced zero.
-	var y2DQ [16]int16
-	for i := range 16 {
-		y2DQ[i] = int16(int(coeffs.QCoeff[24][i]) * int(y2Dequant[i]))
-	}
-	var dcSlots [16 * 16]int16
-	if eob[24] > 1 {
-		dsp.InverseWalsh4x4(&y2DQ, dcSlots[:])
-	} else {
-		dsp.DCOnlyInverseWalsh4x4(y2DQ[0], dcSlots[:])
-	}
-	for js := range 16 {
-		if eob[js] == 0 && dcSlots[js*16] != 0 {
-			eob[js] = 1
-		}
-	}
-}
-
-// emitOracleLFTrial writes a single per-trial-level row for the fast
-// loop-filter picker. Each call corresponds to one libvpx-side
-// calc_partial_ssl_err invocation inside vp8cx_pick_filter_level_fast,
-// at one of three phases: "seed" (initial cm->filter_level scoring),
-// "down" (decreasing-level loop body), "up" (increasing-level loop
-// body). The libvpx-side oracle patch in
-// internal/coracle/build_vpxenc_oracle.sh emits the matching row from
-// govpx_oracle_emit_lf_trial after each calc_partial_ssl_err call.
-func (e *VP8Encoder) emitOracleLFTrial(phase string, trialLevel int, trialYSSE int) {
-	if !e.oracleTraceEnabled() {
-		return
-	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &oracleTraceLFTrialRow{
-		Type:       "lf_trial",
-		FrameIndex: e.frameCount,
-		Phase:      phase,
-		TrialLevel: trialLevel,
-		TrialYSSE:  trialYSSE,
-	})
-}
-
-// emitOracleInterPredictorTrace writes "predictor" rows for the supplied
-// macroblock's Y/U/V predictor planes, encoded as ASCII hex. Emission is
-// gated by EncoderOptions.OracleTracePredictorDump so the regular oracle
-// trace stream stays compact; when enabled the writer receives one row per
-// plane keyed by (frame_index, mb_row, mb_col, plane). Mirrors the
-// libvpx-side `govpx_oracle_emit_predictor` C helper in
-// internal/coracle/build_vpxenc_oracle.sh which captures
-// `xd->dst.{y,u,v}_buffer` between `vp8_encode_inter16x16` and
-// `vp8_inverse_transform_mby`. govpx captures the same value via
-// `reconstructInterAnalysisMacroblock(MBSkipCoeff=1)` which writes only the
-// predictor into the analysis image.
-func (e *VP8Encoder) emitOracleInterPredictorTrace(mbRow int, mbCol int, img *vp8common.Image) {
-	e.emitOracleInterMBPlanesTrace("predictor", mbRow, mbCol, img)
-}
-
-// emitOracleInterReconstructedTrace mirrors emitOracleInterPredictorTrace
-// but captures the post-residual-add buffer (i.e. the final reconstructed
-// MB output that becomes part of the LAST reference for the next frame).
-// The libvpx-side counterpart lives at the tail of
-// vp8cx_encode_inter_macroblock, after vp8_dequant_idct_add_uv_block / the
-// invtrans_mby step.
-func (e *VP8Encoder) emitOracleInterReconstructedTrace(mbRow int, mbCol int, img *vp8common.Image) {
-	e.emitOracleInterMBPlanesTrace("reconstructed", mbRow, mbCol, img)
-}
-
-// emitOracleLastRefWindow writes "last_ref_window" rows capturing the
-// LAST reference's Y/U/V planes including the border bytes the chroma
-// sub-pel filter taps reach for MB row 0. Mirrors the libvpx-side
-// `govpx_oracle_emit_last_ref_window` helper. Called once per inter
-// frame, before the first MB is encoded, to localize whether border
-// content matches between encoders.
-func (e *VP8Encoder) emitOracleLastRefWindow(ref *vp8common.Image) {
-	if !e.oracleTraceEnabled() || !e.opts.OracleTracePredictorDump || ref == nil {
-		return
-	}
-	w := e.opts.OracleTraceWriter
-	border := ref.YBorder
-	uvBorder := ref.UVBorder
-	yWindowH := border + 16
-	uvWindowH := uvBorder + 8
-	yWindowW := border + ref.CodedWidth
-	uvWindowW := uvBorder + (ref.CodedWidth+1)>>1
-	// Step back by border rows and border columns to reach top-left of
-	// captured window.
-	yStart := ref.YOrigin - border*ref.YStride - border
-	uStart := ref.UOrigin - uvBorder*ref.UStride - uvBorder
-	vStart := ref.VOrigin - uvBorder*ref.VStride - uvBorder
-	if yStart < 0 || uStart < 0 || vStart < 0 {
-		return
-	}
-	emitOracleTraceRow(w, &oracleTraceLastRefWindowRow{
-		Type:       "last_ref_window",
-		FrameIndex: e.frameCount,
-		Plane:      "y",
-		Width:      yWindowW,
-		Height:     yWindowH,
-		BorderTop:  border,
-		BorderLeft: border,
-		Hex:        oracleTraceHexEncodePlane(ref.YFull[yStart:], yWindowW, yWindowH, ref.YStride),
-	})
-	emitOracleTraceRow(w, &oracleTraceLastRefWindowRow{
-		Type:       "last_ref_window",
-		FrameIndex: e.frameCount,
-		Plane:      "u",
-		Width:      uvWindowW,
-		Height:     uvWindowH,
-		BorderTop:  uvBorder,
-		BorderLeft: uvBorder,
-		Hex:        oracleTraceHexEncodePlane(ref.UFull[uStart:], uvWindowW, uvWindowH, ref.UStride),
-	})
-	emitOracleTraceRow(w, &oracleTraceLastRefWindowRow{
-		Type:       "last_ref_window",
-		FrameIndex: e.frameCount,
-		Plane:      "v",
-		Width:      uvWindowW,
-		Height:     uvWindowH,
-		BorderTop:  uvBorder,
-		BorderLeft: uvBorder,
-		Hex:        oracleTraceHexEncodePlane(ref.VFull[vStart:], uvWindowW, uvWindowH, ref.VStride),
-	})
-}
-
-func (e *VP8Encoder) emitOracleInterMBPlanesTrace(rowType string, mbRow int, mbCol int, img *vp8common.Image) {
-	if !e.oracleTraceEnabled() || !e.opts.OracleTracePredictorDump || img == nil {
-		return
-	}
-	if !e.opts.OracleTracePredictorDumpAllRows && mbRow != 0 {
-		// Default scope: row 0 only (8 MBs at 128 px wide). Set
-		// EncoderOptions.OracleTracePredictorDumpAllRows to capture
-		// every row when tracking down a divergence beyond row 0
-		// (e.g., the partial-frame loop-filter trial reads MB row
-		// rows/2). The libvpx-side helper applies the same gate via
-		// GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS so the captured key
-		// sets line up.
-		return
-	}
-	w := e.opts.OracleTraceWriter
-	yOff := mbRow*16*img.YStride + mbCol*16
-	uOff := mbRow*8*img.UStride + mbCol*8
-	vOff := mbRow*8*img.VStride + mbCol*8
-	emitOracleTraceRow(w, &oracleTracePredictorRow{
-		Type:       rowType,
-		FrameIndex: e.frameCount,
-		MBRow:      mbRow,
-		MBCol:      mbCol,
-		Plane:      "y",
-		Width:      16,
-		Height:     16,
-		Hex:        oracleTraceHexEncodePlane(img.Y[yOff:], 16, 16, img.YStride),
-	})
-	emitOracleTraceRow(w, &oracleTracePredictorRow{
-		Type:       rowType,
-		FrameIndex: e.frameCount,
-		MBRow:      mbRow,
-		MBCol:      mbCol,
-		Plane:      "u",
-		Width:      8,
-		Height:     8,
-		Hex:        oracleTraceHexEncodePlane(img.U[uOff:], 8, 8, img.UStride),
-	})
-	emitOracleTraceRow(w, &oracleTracePredictorRow{
-		Type:       rowType,
-		FrameIndex: e.frameCount,
-		MBRow:      mbRow,
-		MBCol:      mbCol,
-		Plane:      "v",
-		Width:      8,
-		Height:     8,
-		Hex:        oracleTraceHexEncodePlane(img.V[vOff:], 8, 8, img.VStride),
-	})
-}
-
-// oracleTraceHexEncodePlane returns a width*height-byte ASCII-hex
-// (lowercase) encoding of a plane region. Matches the C-side
-// govpx_oracle_emit_plane_hex helper exactly so the resulting JSON rows
-// are byte-comparable across encoders.
-func oracleTraceHexEncodePlane(plane []byte, width int, height int, stride int) string {
-	const hex = "0123456789abcdef"
-	if width <= 0 || height <= 0 || stride <= 0 {
-		return ""
-	}
-	out := make([]byte, 0, 2*width*height)
-	for row := range height {
-		start := row * stride
-		end := start + width
-		if end > len(plane) {
-			break
-		}
-		for _, b := range plane[start:end] {
-			out = append(out, hex[(b>>4)&0xf], hex[b&0xf])
-		}
-	}
-	return string(out)
-}
-
-// emitOracleTraceRow marshals a row to JSON, appends a newline, and writes a
-// single payload to the configured writer. Marshal errors are silently
-// ignored to avoid disturbing the encode path; the trace is a debugging aid.
-func emitOracleTraceRow(w io.Writer, row any) {
-	if w == nil {
-		return
-	}
-	buf, err := json.Marshal(row)
-	if err != nil {
-		return
-	}
-	buf = append(buf, '\n')
-	_, _ = w.Write(buf)
-}
-
-// oracleTraceReferenceChecksums computes Adler32 checksums over the visible
-// region of the supplied reconstruction image (Y/U/V planes). Adler32 is
-// chosen because it is cheap, deterministic, available in the standard
-// library, and aligns with libvpx's existing checksum tooling.
-func oracleTraceReferenceChecksums(img *vp8common.Image) (uint32, uint32, uint32) {
-	if img == nil {
-		return 0, 0, 0
-	}
-	yChecksum := planeAdler32(img.Y, img.Width, img.Height, img.YStride)
-	uvWidth := (img.Width + 1) >> 1
-	uvHeight := (img.Height + 1) >> 1
-	uChecksum := planeAdler32(img.U, uvWidth, uvHeight, img.UStride)
-	vChecksum := planeAdler32(img.V, uvWidth, uvHeight, img.VStride)
-	return yChecksum, uChecksum, vChecksum
-}
-
-func planeAdler32(plane []byte, width int, height int, stride int) uint32 {
-	if width <= 0 || height <= 0 || stride <= 0 {
-		return 0
-	}
-	h := adler32.New()
-	for row := range height {
-		start := row * stride
-		end := start + width
-		if end > len(plane) {
-			break
-		}
-		_, _ = h.Write(plane[start:end])
-	}
-	return h.Sum32()
-}
-
-func oracleTraceModeName(mode vp8common.MBPredictionMode) string {
-	switch mode {
-	case vp8common.DCPred:
-		return "DC_PRED"
-	case vp8common.VPred:
-		return "V_PRED"
-	case vp8common.HPred:
-		return "H_PRED"
-	case vp8common.TMPred:
-		return "TM_PRED"
-	case vp8common.BPred:
-		return "B_PRED"
-	case vp8common.NearestMV:
-		return "NEARESTMV"
-	case vp8common.NearMV:
-		return "NEARMV"
-	case vp8common.ZeroMV:
-		return "ZEROMV"
-	case vp8common.NewMV:
-		return "NEWMV"
-	case vp8common.SplitMV:
-		return "SPLITMV"
-	default:
-		return fmt.Sprintf("MODE_%d", int(mode))
-	}
-}
-
-func oracleTraceBModeName(mode vp8common.BPredictionMode) string {
-	switch mode {
-	case vp8common.BDCPred:
-		return "B_DC_PRED"
-	case vp8common.BTMPred:
-		return "B_TM_PRED"
-	case vp8common.BVEPred:
-		return "B_VE_PRED"
-	case vp8common.BHEPred:
-		return "B_HE_PRED"
-	case vp8common.BLDPred:
-		return "B_LD_PRED"
-	case vp8common.BRDPred:
-		return "B_RD_PRED"
-	case vp8common.BVRPred:
-		return "B_VR_PRED"
-	case vp8common.BVLPred:
-		return "B_VL_PRED"
-	case vp8common.BHDPred:
-		return "B_HD_PRED"
-	case vp8common.BHUPred:
-		return "B_HU_PRED"
-	case vp8common.Left4x4:
-		return "LEFT4X4"
-	case vp8common.Above4x4:
-		return "ABOVE4X4"
-	case vp8common.Zero4x4:
-		return "ZERO4X4"
-	case vp8common.New4x4:
-		return "NEW4X4"
-	default:
-		return fmt.Sprintf("B_MODE_%d", int(mode))
-	}
-}
-
-func oracleTraceRefName(ref vp8common.MVReferenceFrame) string {
-	switch ref {
-	case vp8common.IntraFrame:
-		return "INTRA_FRAME"
-	case vp8common.LastFrame:
-		return "LAST_FRAME"
-	case vp8common.GoldenFrame:
-		return "GOLDEN_FRAME"
-	case vp8common.AltRefFrame:
-		return "ALTREF_FRAME"
-	default:
-		return fmt.Sprintf("REF_%d", int(ref))
-	}
+	state.totalByteCount += int64(sizeBytes)
 }

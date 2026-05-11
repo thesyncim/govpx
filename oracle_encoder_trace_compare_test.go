@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import (
@@ -216,12 +218,13 @@ func findVpxencOracle(t *testing.T) string {
 
 func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image) []byte {
 	t.Helper()
+	requireOracleTraceBuild(t)
 	var trace bytes.Buffer
-	opts.OracleTraceWriter = &trace
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
+	enc.SetOracleTraceWriter(&trace)
 	packet := make([]byte, opts.Width*opts.Height*3)
 	for i, source := range sources {
 		result, err := enc.EncodeInto(packet, source, uint64(i), 1, 0)

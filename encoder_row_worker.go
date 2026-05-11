@@ -82,8 +82,6 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	rs.enc.threadedRowsActive = true
 	rs.enc.threadedDotArtifactBudget = e.threadedDotArtifactBudget
 	rs.enc.reconstructScratch = rs.scratch
-	rs.enc.oracleTraceMBBuffer = nil
-	rs.enc.oracleTraceInterCandidateBuffer = nil
 	if cap(rs.dotArtifactChecked) < required {
 		rs.dotArtifactChecked = make([]bool, required)
 	} else {
@@ -347,7 +345,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 			p.abort.Store(1)
 			break
 		}
-		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+		worker.totalRate = addProjectedMacroblockRate(worker.totalRate, rate)
 	}
 	p.workerErrors[workerIndex] = err
 }
@@ -371,7 +369,7 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 			p.abort.Store(1)
 			break
 		}
-		worker.totalRate = libvpxAddProjectedMacroblockRate(worker.totalRate, rate)
+		worker.totalRate = addProjectedMacroblockRate(worker.totalRate, rate)
 	}
 	p.workerErrors[workerIndex] = err
 }

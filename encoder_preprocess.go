@@ -445,11 +445,10 @@ func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength i
 	// included with filter_weight=2 (libvpx's alt_ref_index path). Frames
 	// that fail to qualify are skipped per-MB inside processARNRMacroblock.
 	refs := make([]arnrFrameView, 0, 1+1+forward)
-	centerIdx := -1
 	if useBack {
 		refs = append(refs, arnrViewFromImage(&e.arnrLastSource.Img))
 	}
-	centerIdx = len(refs)
+	centerIdx := len(refs)
 	refs = append(refs, arnrViewFromSource(center))
 	for i := range forward {
 		entry := e.lookaheadFutureEntry(i)

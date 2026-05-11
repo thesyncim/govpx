@@ -283,7 +283,6 @@ func TestLookaheadActiveMapBypassedWhenFlagsOrMultiBuffer(t *testing.T) {
 	// With flags != 0 or len(lookahead) != 1, libvpx falls back to the full
 	// frame copy. Verify both gates by inspecting the destination after push.
 	width, height := 32, 32
-	e := newLookaheadTestEncoder(t, 2)
 	mbRows := encoderMacroblockRows(height)
 	mbCols := encoderMacroblockCols(width)
 	mask := make([]uint8, mbRows*mbCols)

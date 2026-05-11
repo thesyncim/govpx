@@ -2212,8 +2212,8 @@ func TestRecodeForcedKeyFrameRetriesAtAdjustedQ(t *testing.T) {
 	if _, err := enc.EncodeInto(dst, src, 1, 1, EncodeForceKeyFrame); err != nil {
 		t.Fatalf("forced-KF EncodeInto returned error: %v", err)
 	}
-	if enc.oracleTraceRecodeLoopCount < 1 {
-		t.Fatalf("oracleTraceRecodeLoopCount = %d, want >=1 after forced-KF encode", enc.oracleTraceRecodeLoopCount)
+	if oracleTraceBuild && enc.oracleTraceRecodeLoopCountForTest() < 1 {
+		t.Fatalf("oracle trace recode loop count = %d, want >=1 after forced-KF encode", enc.oracleTraceRecodeLoopCountForTest())
 	}
 	if enc.thisKeyFrameForced {
 		t.Fatalf("thisKeyFrameForced still set after forced-KF commit, want cleared")
@@ -4326,8 +4326,8 @@ func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
 	if !info.KeyFrame {
 		t.Fatalf("packet KeyFrame = false, want keyframe packet")
 	}
-	if len(e.oracleTraceMBBuffer) != 0 {
-		t.Fatalf("discarded inter-attempt MB trace rows = %d, want 0", len(e.oracleTraceMBBuffer))
+	if oracleTraceBuild && e.oracleTraceMBBufferLenForTest() != 0 {
+		t.Fatalf("discarded inter-attempt MB trace rows = %d, want 0", e.oracleTraceMBBufferLenForTest())
 	}
 }
 

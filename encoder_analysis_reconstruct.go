@@ -1,0 +1,384 @@
+package govpx
+
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+)
+
+func macroblockImageSSE(src vp8enc.SourceImage, img *vp8common.Image, mbRow int, mbCol int) int {
+	return macroblockLumaSSE(src, img, mbRow, mbCol, vp8enc.MotionVector{}) +
+		macroblockChromaSSE(src, img, mbRow, mbCol)
+}
+
+func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int) int {
+	if img == nil {
+		return maxInt()
+	}
+	baseY := srcMbRow * 16
+	baseX := srcMbCol * 16
+	refBaseY := refMbRow * 16
+	refBaseX := refMbCol * 16
+	if baseY >= 0 && baseX >= 0 &&
+		baseY+16 <= src.Height && baseX+16 <= src.Width &&
+		refBaseY >= 0 && refBaseX >= 0 &&
+		refBaseY+16 <= img.CodedHeight && refBaseX+16 <= img.CodedWidth {
+		return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[refBaseY*img.YStride+refBaseX:], img.YStride)
+	}
+
+	sad := 0
+	for row := range 16 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(refBaseY+row, img.CodedHeight)
+		for col := range 16 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(refBaseX+col, img.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[refY*img.YStride+refX])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += diff
+		}
+	}
+	return sad
+}
+
+func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, scratch *vp8dec.IntraReconstructionScratch) bool {
+	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	yOK := false
+	if mode.Is4x4 || mode.Mode == vp8common.BPred {
+		yOK = vp8dec.PredictIntraY4x4(&mode.BModes, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft)
+	} else {
+		yOK = vp8dec.PredictIntraY16x16(mode.Mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable)
+	}
+	return yOK &&
+		vp8dec.PredictIntraUV8x8(mode.UVMode, img.U[uOff:], img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
+		vp8dec.PredictIntraUV8x8(mode.UVMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
+func predictAnalysisChroma(img *vp8common.Image, row int, col int, uvMode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
+	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	return vp8dec.PredictIntraUV8x8(uvMode, img.U[uOff:], img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) &&
+		vp8dec.PredictIntraUV8x8(uvMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
+func predictAnalysisBPredBlock(mode vp8common.BPredictionMode, dst []byte, stride int, macroblock []byte, macroblockStride int, above []byte, left []byte, topLeft byte, block int) bool {
+	blockRow := block >> 2
+	blockCol := block & 3
+	y := blockRow * 4
+	x := blockCol * 4
+	var blockAbove [8]byte
+	var blockLeft [4]byte
+
+	if blockRow == 0 {
+		copy(blockAbove[:], above[x:x+8])
+	} else {
+		aboveOff := (y-1)*macroblockStride + x
+		copy(blockAbove[:4], macroblock[aboveOff:aboveOff+4])
+		if blockCol < 3 {
+			copy(blockAbove[4:], macroblock[aboveOff+4:aboveOff+8])
+		} else {
+			copy(blockAbove[4:], above[16:20])
+		}
+	}
+
+	if blockCol == 0 {
+		copy(blockLeft[:], left[y:y+4])
+	} else {
+		for i := range 4 {
+			blockLeft[i] = macroblock[(y+i)*macroblockStride+x-1]
+		}
+	}
+
+	blockTopLeft := topLeft
+	switch {
+	case blockRow == 0 && blockCol == 0:
+	case blockRow == 0:
+		blockTopLeft = above[x-1]
+	case blockCol == 0:
+		blockTopLeft = left[y-1]
+	default:
+		blockTopLeft = macroblock[(y-1)*macroblockStride+x-1]
+	}
+
+	return dsp.Intra4x4Predict(dst, stride, mode, blockAbove[:], blockLeft[:], blockTopLeft)
+}
+
+func bPredBlockSSE(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, predStride int) int {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	sse := 0
+	for row := range 4 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range 4 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*predStride+col])
+			sse += diff * diff
+		}
+	}
+	return sse
+}
+
+func fillBPredResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred []byte, out *[16]int16) {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	for row := range 4 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range 4 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			out[row*4+col] = int16(int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*4+col]))
+		}
+	}
+}
+
+func copyBPredBlock(src []byte, dst []byte, dstStride int, block int) {
+	y := (block >> 2) * 4
+	x := (block & 3) * 4
+	for row := range 4 {
+		copy(dst[(y+row)*dstStride+x:], src[row*4:row*4+4])
+	}
+}
+
+func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
+	return dsp.TransformBlockError(coeff, dqcoeff)
+}
+
+func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, fastQuant bool, optimize bool, collectOracle bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
+	collectOracle = oracleTraceBuild && collectOracle
+	if img == nil || mode == nil || quant == nil || coeffs == nil || scratch == nil || !mode.Is4x4 || mode.Mode != vp8common.BPred {
+		return false
+	}
+	if coefProbs == nil {
+		return false
+	}
+
+	refs := vp8dec.BuildIntraPredictorRefs(img, mbRow, mbCol, &scratch.Refs)
+	yOff := mbRow*16*img.YStride + mbCol*16
+	uOff := mbRow*8*img.UStride + mbCol*8
+	vOff := mbRow*8*img.VStride + mbCol*8
+	y := img.Y[yOff:]
+	u := img.U[uOff:]
+	v := img.V[vOff:]
+
+	var input [16]int16
+	var dct [16]int16
+	var dq [16]int16
+	var yAbove [4]uint8
+	var yLeft [4]uint8
+	var y2Above, y2Left uint8
+	if aboveTok != nil {
+		yAbove = aboveTok.Y1
+		y2Above = aboveTok.Y2
+	}
+	if leftTok != nil {
+		yLeft = leftTok.Y1
+		y2Left = leftTok.Y2
+	}
+	var staleY2Input [16]int16
+	for block := range 16 {
+		blockOffset := analysisYBlockOffset(block, img.YStride)
+		if !predictAnalysisBPredBlock(mode.BModes[block], y[blockOffset:], img.YStride, y, img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
+			return false
+		}
+		x := mbCol*16 + (block&3)*4
+		yCoord := mbRow*16 + (block>>2)*4
+		fillPredictedResidual4x4(src.Y, src.YStride, src.Width, src.Height, img.Y, img.YStride, x, yCoord, &input)
+		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
+		// Capture a local Y2-equivalent snapshot for direct helper callers.
+		// The encoder path overwrites this from picker state.
+		staleY2Input[block] = dct[0]
+		a := block & 3
+		l := (block & 0x0c) >> 2
+		ctx := int(yAbove[a] + yLeft[l])
+		// libvpx vp8_encode_intra4x4mby (encodeintra.c) never invokes the
+		// trellis optimizer for B_PRED Y sub-blocks: it calls
+		// vp8_encode_intra4x4block which runs only x->quantize_b before the
+		// IDCT-add. The frame-level vp8_optimize_mby pass is wired only
+		// from vp8_encode_intra16x16mby. So the Y plane of any B_PRED MB
+		// (keyframe or inter intra-coded) must be quantized without
+		// trellising regardless of the encoder-level optimize flag; only
+		// the UV blocks below pick up the optimizer (they go through
+		// vp8_encode_intra16x16mbuv -> vp8_optimize_mbuv). Without this
+		// gate the BestQuality keyframe Y reconstruction byte-diverges
+		// from libvpx on B_PRED MBs (see r9-4 SplitMV-quadrant fixture).
+		eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, 0, mode.RefFrame == vp8common.IntraFrame, fastQuant, false, &dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+		coeffs.SetBlockEOB(block, eob)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		yAbove[a] = hasCoeffs
+		yLeft[l] = hasCoeffs
+		addQuantizedBlockResidual(eob, &dq, y[blockOffset:], img.YStride)
+	}
+	coeffs.QCoeff[24] = [16]int16{}
+	coeffs.SetBlockEOB(24, 0)
+	// Direct helper callers do not carry the RD picker's mutable Y2 block
+	// state. The encoder path overwrites this with the picker-carried
+	// snapshot from the last whole-block candidate.
+	if collectOracle {
+		var staleY2Coeff [16]int16
+		var staleY2Q [16]int16
+		var staleY2DQ [16]int16
+		intra := mode.RefFrame == vp8common.IntraFrame
+		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
+		staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
+		recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
+	}
+
+	if !vp8dec.PredictIntraUV8x8(mode.UVMode, u, img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+	if !vp8dec.PredictIntraUV8x8(mode.UVMode, v, img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+		return false
+	}
+
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	var uvAbove [4]uint8
+	var uvLeft [4]uint8
+	if aboveTok != nil {
+		uvAbove = tokenUVContextArray(aboveTok)
+	}
+	if leftTok != nil {
+		uvLeft = tokenUVContextArray(leftTok)
+	}
+	// Whole-UV residual+DCT batch — prediction was already written
+	// into img.U / img.V above so all 8 chroma 4x4 residuals are
+	// independent and can be transformed in a single dispatched call,
+	// matching libvpx v1.16.0 vp8_transform_mbuv's two fdct8x4 calls.
+	var uvResiduals [8 * 16]int16
+	var uvDcts [8 * 16]int16
+	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, img.U, img.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, img.V, img.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
+	for block := range 4 {
+		copy(dct[:], uvDcts[block*16:block*16+16])
+		a, l := macroblockCoefficientUVContextIndex(16 + block)
+		ctx := int(uvAbove[a] + uvLeft[l])
+		eob := quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		coeffs.SetBlockEOB(16+block, eob)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		uvAbove[a] = hasCoeffs
+		uvLeft[l] = hasCoeffs
+		addQuantizedBlockResidual(eob, &dq, u[analysisUVBlockOffset(block, img.UStride):], img.UStride)
+
+		copy(dct[:], uvDcts[(4+block)*16:(4+block)*16+16])
+		a, l = macroblockCoefficientUVContextIndex(20 + block)
+		ctx = int(uvAbove[a] + uvLeft[l])
+		eob = quantizeEncodedBlock(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, 0, mode.RefFrame == vp8common.IntraFrame, fastQuant, optimize, &dct, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		coeffs.SetBlockEOB(20+block, eob)
+		hasCoeffs = 0
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		uvAbove[a] = hasCoeffs
+		uvLeft[l] = hasCoeffs
+		addQuantizedBlockResidual(eob, &dq, v[analysisUVBlockOffset(block, img.VStride):], img.VStride)
+	}
+	return true
+}
+
+func addQuantizedBlockResidual(eob int, dq *[16]int16, dst []byte, stride int) {
+	if eob == 0 {
+		return
+	}
+	if eob == 1 {
+		dsp.DCOnlyIDCT4x4Add(dq[0], dst, stride, dst, stride)
+		return
+	}
+	dsp.IDCT4x4Add(dq, dst, stride, dst, stride)
+}
+
+func analysisYBlockOffset(block int, stride int) int {
+	return (block>>2)*4*stride + (block&3)*4
+}
+
+func analysisUVBlockOffset(block int, stride int) int {
+	return (block>>1)*4*stride + (block&1)*4
+}
+
+func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	if mode.Mode == vp8common.SplitMV {
+		return vp8dec.ReconstructSplitMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
+	}
+	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
+}
+
+// addInterResidualToAnalysisMacroblock assumes img already contains the
+// matching inter predictor for mode at row/col.
+func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	if img == nil || mode == nil || tokens == nil || dequant == nil || scratch == nil || mode.RefFrame == vp8common.IntraFrame {
+		return false
+	}
+	switch mode.Mode {
+	case vp8common.ZeroMV, vp8common.NearestMV, vp8common.NearMV, vp8common.NewMV, vp8common.SplitMV:
+	default:
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return true
+	}
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	vp8dec.TransformMacroblockTokens(tokens, dequant, mode.Is4x4 || mode.Mode == vp8common.SplitMV, &scratch.Residual)
+	vp8dec.AddMacroblockResidual(tokens, &scratch.Residual, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
+	return true
+}
+
+func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	return vp8dec.ReconstructIntraMacroblock(mode, tokens, dequant, refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual)
+}
+
+func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out *[16]int16) {
+	for row := range 4 {
+		sampleY := clampEncodeCoord(y+row, height)
+		for col := range 4 {
+			sampleX := clampEncodeCoord(x+col, width)
+			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
+		}
+	}
+}
+
+// fillPredictedResidual4x4Slice mirrors fillPredictedResidual4x4 but
+// writes into a caller-supplied slice. Used by the whole-MB residual
+// builders that gather all 4x4 blocks into one contiguous buffer
+// before dispatching ForwardDCT4x4Batch (the libvpx v1.16.0
+// vp8_transform_mb / vp8_transform_intra_mby pattern).
+func fillPredictedResidual4x4Slice(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out []int16) {
+	for row := range 4 {
+		sampleY := clampEncodeCoord(y+row, height)
+		for col := range 4 {
+			sampleX := clampEncodeCoord(x+col, width)
+			out[row*4+col] = int16(int(src[sampleY*srcStride+sampleX]) - int(pred[(y+row)*predStride+x+col]))
+		}
+	}
+}
+
+func clampEncodeCoord(v int, limit int) int {
+	if v < 0 {
+		return 0
+	}
+	if v >= limit {
+		return limit - 1
+	}
+	return v
+}

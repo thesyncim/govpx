@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 // Second-pass allocation oracle compare.
