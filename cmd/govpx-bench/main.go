@@ -14,7 +14,8 @@ func main() {
 	opts := defaultBenchCLIOptions()
 	registerBenchFlags(flag.CommandLine, &cfg, &opts)
 	flag.Parse()
-	if opts.autoCompare {
+	plotMode := opts.plotPath != ""
+	if opts.autoCompare && !plotMode {
 		resolveLibvpxDefaults(&cfg, opts.buildLibvpx)
 	}
 
@@ -34,7 +35,14 @@ func main() {
 
 	var report any
 	var err error
-	if cfg.Decode {
+	if plotMode {
+		report, err = runPlotComparison(cfg, plotOptions{
+			ffmpegPath: opts.ffmpeg,
+			svgPath:    opts.plotPath,
+			csvPath:    opts.plotCSV,
+			jsonPath:   opts.plotJSON,
+		})
+	} else if cfg.Decode {
 		report, err = runDecodeBenchmark(cfg)
 	} else {
 		report, err = runBenchmark(cfg)
@@ -71,6 +79,8 @@ func main() {
 			os.Stdout.WriteString(formatEncodeReport(r))
 		case decodeBenchReport:
 			os.Stdout.WriteString(formatDecodeReport(r))
+		case plotComparisonReport:
+			os.Stdout.WriteString(formatPlotReport(r))
 		default:
 			fmt.Fprintf(os.Stderr, "govpx-bench: unexpected report type %T\n", r)
 			os.Exit(1)
