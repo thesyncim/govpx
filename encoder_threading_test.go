@@ -274,8 +274,12 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 		threadCounts = append(threadCounts, n)
 	}
 
-	makeFrame := func(index int) Image {
-		img := testImage(width, height)
+	// Pre-allocate one frame and mutate its content per iteration. The
+	// previous form allocated 1.4 MB per b.N iter (Y/U/V slices), which
+	// reported as encoder allocations even though the encoder hot path
+	// itself is zero-alloc.
+	img := testImage(width, height)
+	fillFrame := func(index int) {
 		for i := range img.Y {
 			img.Y[i] = byte((i*7 + index*13) & 0xFF)
 		}
@@ -285,7 +289,6 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 		for i := range img.V {
 			img.V[i] = byte(144 + ((i*2 + index*5) & 0x3F))
 		}
-		return img
 	}
 
 	for _, threads := range threadCounts {
@@ -312,13 +315,15 @@ func BenchmarkEncodeIntoThreadingMatrix(b *testing.B) {
 			}
 			buf := make([]byte, width*height*4)
 			// Prime: encode a key frame so subsequent encodes are inter.
-			if _, err := e.EncodeInto(buf, makeFrame(0), 0, 1, 0); err != nil {
+			fillFrame(0)
+			if _, err := e.EncodeInto(buf, img, 0, 1, 0); err != nil {
 				b.Fatalf("prime EncodeInto Threads=%d: %v", threads, err)
 			}
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := e.EncodeInto(buf, makeFrame(i+1), uint64(i+1), 1, 0); err != nil {
+				fillFrame(i + 1)
+				if _, err := e.EncodeInto(buf, img, uint64(i+1), 1, 0); err != nil {
 					b.Fatalf("EncodeInto Threads=%d frame %d: %v", threads, i+1, err)
 				}
 			}
