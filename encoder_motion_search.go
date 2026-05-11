@@ -441,132 +441,13 @@ func (s *fullPelMotionSearch) exhaustive(best vp8enc.MotionVector, bestWalkCost 
 	return best, s.cost(best)
 }
 
+// hex runs the libvpx-style hex_search loop (initial 6-point ring +
+// 3-point next-checkpoints walk + 4-neighbour final refine) via the
+// super-kernel: stats are accumulated locally, MV cost is inlined
+// against a pinned per-q table, and the ±2 and ±1 site neighbourhoods
+// are batched through the x4 SAD primitive when the centre is interior.
 func (s *fullPelMotionSearch) hex(best vp8enc.MotionVector, bestCost int) (vp8enc.MotionVector, int) {
-	hex := [...]vp8enc.MotionVector{
-		{Row: -1, Col: -2},
-		{Row: 1, Col: -2},
-		{Row: 2, Col: 0},
-		{Row: 1, Col: 2},
-		{Row: -1, Col: 2},
-		{Row: -2, Col: 0},
-	}
-	nextCheckpoints := [...][3]vp8enc.MotionVector{
-		{{Row: -2, Col: 0}, {Row: -1, Col: -2}, {Row: 1, Col: -2}},
-		{{Row: -1, Col: -2}, {Row: 1, Col: -2}, {Row: 2, Col: 0}},
-		{{Row: 1, Col: -2}, {Row: 2, Col: 0}, {Row: 1, Col: 2}},
-		{{Row: 2, Col: 0}, {Row: 1, Col: 2}, {Row: -1, Col: 2}},
-		{{Row: 1, Col: 2}, {Row: -1, Col: 2}, {Row: -2, Col: 0}},
-		{{Row: -1, Col: 2}, {Row: -2, Col: 0}, {Row: -1, Col: -2}},
-	}
-	neighbors := [...]vp8enc.MotionVector{
-		{Row: 0, Col: -1},
-		{Row: -1, Col: 0},
-		{Row: 1, Col: 0},
-		{Row: 0, Col: 1},
-	}
-
-	bestRow := int(best.Row) >> 3
-	bestCol := int(best.Col) >> 3
-	bestSite := -1
-	ctx := &s.ctx
-	refRow8 := s.refRow8
-	refCol8 := s.refCol8
-	bounds := s.bounds
-	qIndex := s.qIndex
-	nextRow := bestRow
-	nextCol := bestCol
-	for i, step := range hex {
-		row := bestRow + int(step.Row)
-		col := bestCol + int(step.Col)
-		if !bounds.containsFullPel(row, col) {
-			s.stats.recordFullPelBoundsRejects(1)
-			continue
-		}
-		s.stats.recordFullPelSAD(1, false)
-		sad := ctx.fullPelSADFull(row, col)
-		if sad < bestCost {
-			cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
-			if cost < bestCost {
-				nextRow = row
-				nextCol = col
-				bestCost = cost
-				bestSite = i
-			}
-		}
-	}
-	if bestSite >= 0 {
-		bestRow = nextRow
-		bestCol = nextCol
-		k := bestSite
-		for j := 1; j < 127; j++ {
-			bestSite = -1
-			nextRow = bestRow
-			nextCol = bestCol
-			for i, step := range nextCheckpoints[k] {
-				row := bestRow + int(step.Row)
-				col := bestCol + int(step.Col)
-				if !bounds.containsFullPel(row, col) {
-					s.stats.recordFullPelBoundsRejects(1)
-					continue
-				}
-				s.stats.recordFullPelSAD(1, false)
-				sad := ctx.fullPelSADFull(row, col)
-				if sad < bestCost {
-					cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
-					if cost < bestCost {
-						nextRow = row
-						nextCol = col
-						bestCost = cost
-						bestSite = i
-					}
-				}
-			}
-			if bestSite < 0 {
-				s.stats.recordFullPelEarlyBreak()
-				break
-			}
-			bestRow = nextRow
-			bestCol = nextCol
-			k += 5 + bestSite
-			if k >= 12 {
-				k -= 12
-			} else if k >= 6 {
-				k -= 6
-			}
-		}
-	}
-
-	for range 8 {
-		bestSite = -1
-		nextRow = bestRow
-		nextCol = bestCol
-		for i, step := range neighbors {
-			row := bestRow + int(step.Row)
-			col := bestCol + int(step.Col)
-			if !bounds.containsFullPel(row, col) {
-				s.stats.recordFullPelBoundsRejects(1)
-				continue
-			}
-			s.stats.recordFullPelSAD(1, false)
-			sad := ctx.fullPelSADFull(row, col)
-			if sad < bestCost {
-				cost := sad + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
-				if cost < bestCost {
-					nextRow = row
-					nextCol = col
-					bestCost = cost
-					bestSite = i
-				}
-			}
-		}
-		if bestSite < 0 {
-			s.stats.recordFullPelEarlyBreak()
-			break
-		}
-		bestRow = nextRow
-		bestCol = nextCol
-	}
-	return vp8enc.MotionVector{Row: int16(bestRow * interFrameMVFullPixelStep), Col: int16(bestCol * interFrameMVFullPixelStep)}, bestCost
+	return hexSuperKernel(s, best, bestCost)
 }
 
 // interFrameNstepSites and interFrameDiamondSites are package-level
