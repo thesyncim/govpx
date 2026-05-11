@@ -521,6 +521,31 @@ type VP8Encoder struct {
 	dequantTables       vp8common.FrameDequantTables
 	dequants            [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch  vp8dec.IntraReconstructionScratch
+	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
+	// inputs across the picker → accepted-path boundary in
+	// selectRDInterFrameModeDecision /
+	// buildReconstructingInterFrameCoefficientsWithSegmentation. Two slots
+	// alternate: the picker writes each candidate's DCTs into the
+	// non-winner slot, and when a candidate becomes best the slot index
+	// flips (no data copy). The accepted-path reads from the winner slot
+	// to skip predict + residual gather + FDCT for the winning inter mode.
+	// On Best deadline and GoodQuality CpuUsed<=0 the picker uses the same
+	// fastQuant flag as the accepted path, so the cache's FDCT-input is
+	// identical to what the accepted path would have computed; the
+	// trellis (when libvpxOptimizeCoefficients()==true) still runs in the
+	// accepted path against the cached DCTs end-to-end so token-context
+	// outputs stay byte-identical.
+	interRDCoeffCacheSlots [2]interRDCoeffCacheState
+	// interRDCoeffCacheWinner is the index in interRDCoeffCacheSlots that
+	// holds the current running-best candidate's DCT cache. The accepted
+	// path consumes interRDCoeffCacheSlots[interRDCoeffCacheWinner] once
+	// per MB and then invalidates it via reset() (clearing the valid bit).
+	interRDCoeffCacheWinner uint8
+	// interRDCoeffCacheScratchTarget points at the scratch slot that the
+	// in-flight picker candidate should write into (1 - winner). nil when
+	// no RD picker pass is active, so non-picker callers of
+	// buildPredictedMacroblockCoefficientsRD skip the cache write.
+	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
 	loopInfo            vp8common.LoopFilterInfo
 	loopFilterLevel     uint8
 	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /

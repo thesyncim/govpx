@@ -404,6 +404,12 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
 		is4x4 := interFrameModeUses4x4Tokens(args.modes[index].Mode)
+		// Same picker → accepted-path cache short-circuit as the serial
+		// builder (see buildReconstructingInterFrameCoefficientsWithSegmentation
+		// for the contract). Each row worker has its own encoder view, so
+		// the per-encoder DCT cache slots are per-row-private — no cross-
+		// worker coordination needed.
+		cacheIn := e.consumeInterRDCoeffCache()
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 			coefProbs:     &e.coefProbs,
 			src:           args.src,
@@ -422,6 +428,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			optimize:      e.libvpxOptimizeCoefficients(),
 			collectOracle: false,
 			coeffs:        &args.coeffs[index],
+			cacheIn:       cacheIn,
 		})
 	}
 
