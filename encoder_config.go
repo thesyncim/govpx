@@ -274,9 +274,6 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 }
 
 func (e *VP8Encoder) libvpxCPUUsed() int {
-	if e == nil {
-		return 0
-	}
 	// libvpx encodeframe.c:685-691: realtime mode runs vp8_auto_select_speed
 	// which evolves cpi->Speed. Mirror that: for realtime+positive-cpu_used,
 	// return the adaptive autoSpeed (seeded to 4 at cold start, cf.
@@ -338,7 +335,7 @@ func nowMonotonicNS() int64 { return nanotime() }
 // When cpu_used < 0 libvpx pins Speed=-cpu_used directly per
 // encodeframe.c:686-687, bypassing auto-select.
 func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
-	if e == nil || e.opts.Deadline != DeadlineRealtime {
+	if e.opts.Deadline != DeadlineRealtime {
 		return false
 	}
 	return e.opts.CpuUsed >= 0
@@ -350,9 +347,6 @@ func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
 // Speed=4. Otherwise raise/lower based on the (1e6/framerate)*(16-cpu)/16
 // ms budget vs cumulative timer state, capped at [4,16].
 func (e *VP8Encoder) libvpxAutoSelectSpeed() {
-	if e == nil {
-		return
-	}
 	if e.opts.Deadline != DeadlineRealtime {
 		return
 	}
@@ -411,7 +405,7 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 }
 
 func (e *VP8Encoder) beginAutoSpeedTiming() {
-	if e == nil || e.opts.Deadline != DeadlineRealtime {
+	if e.opts.Deadline != DeadlineRealtime {
 		return
 	}
 	if e.autoSpeedFrameStartNS == 0 {
@@ -420,16 +414,14 @@ func (e *VP8Encoder) beginAutoSpeedTiming() {
 }
 
 func (e *VP8Encoder) cancelAutoSpeedTiming() {
-	if e != nil {
-		e.autoSpeedFrameStartNS = 0
-	}
+	e.autoSpeedFrameStartNS = 0
 }
 
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
 // encode in realtime, IIR-update avg_encode_time (skipped for keyframes) and
 // avg_pick_mode_time (duration2 = duration/2 by libvpx convention).
 func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
-	if e == nil || e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
+	if e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
 	}
 	durationNS := nowMonotonicNS() - e.autoSpeedFrameStartNS
@@ -456,9 +448,6 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 }
 
 func (e *VP8Encoder) resetAutoSpeedTiming() {
-	if e == nil {
-		return
-	}
 	e.autoSpeed = 0
 	e.avgPickModeTime = 0
 	e.avgEncodeTime = 0

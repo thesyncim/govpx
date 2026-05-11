@@ -9,7 +9,6 @@ import (
 )
 
 const interFrameFullPixelSearchRadius = 16
-const interFrameMVSearchRange = interFrameFullPixelSearchRadius * 8
 const interFrameMVFullPixelStep = 8
 const interFrameSubpixelSearchMaxCandidates = 31
 const interFrameMotionCandidateMax = 15
@@ -67,9 +66,6 @@ func defaultInterAnalysisSearchConfig() interAnalysisSearchConfig {
 // iterative sub-pixel function pointer.
 func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	cfg := defaultInterAnalysisSearchConfig()
-	if e == nil {
-		return cfg
-	}
 	speed := e.libvpxCPUUsed()
 	cfg.fullPixelSearch = interAnalysisFullPixelSearchNstep
 	cfg.fullPixelSearchParam = libvpxInterFrameSearchParamForFeatureSpeed(e.opts.Deadline, speed)
@@ -103,7 +99,7 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 }
 
 func (e *VP8Encoder) interAnalysisCompressorSpeed() int {
-	if e == nil || e.opts.Deadline == DeadlineBestQuality {
+	if e.opts.Deadline == DeadlineBestQuality {
 		return 0
 	}
 	if e.opts.Deadline == DeadlineRealtime {
@@ -113,9 +109,6 @@ func (e *VP8Encoder) interAnalysisCompressorSpeed() int {
 }
 
 func (e *VP8Encoder) interAnalysisUsesRDModeDecision() bool {
-	if e == nil {
-		return true
-	}
 	switch e.opts.Deadline {
 	case DeadlineBestQuality:
 		return true
@@ -127,9 +120,6 @@ func (e *VP8Encoder) interAnalysisUsesRDModeDecision() bool {
 }
 
 func (e *VP8Encoder) libvpxOptimizeCoefficients() bool {
-	if e == nil {
-		return true
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return false
@@ -141,9 +131,6 @@ func (e *VP8Encoder) libvpxOptimizeCoefficients() bool {
 }
 
 func (e *VP8Encoder) libvpxUseFastQuant() bool {
-	if e == nil {
-		return false
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return e.libvpxCPUUsed() > 0
@@ -155,9 +142,6 @@ func (e *VP8Encoder) libvpxUseFastQuant() bool {
 }
 
 func (e *VP8Encoder) libvpxUseFastQuantForPick() bool {
-	if e == nil {
-		return false
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return e.libvpxCPUUsed() > 0
@@ -169,9 +153,6 @@ func (e *VP8Encoder) libvpxUseFastQuantForPick() bool {
 }
 
 func (e *VP8Encoder) currentMotionVectorCostTables() *vp8enc.MotionVectorCostTables {
-	if e == nil {
-		return nil
-	}
 	if !e.mvCostTablesValid || e.mvCostProbs != e.modeProbs.MV {
 		e.mvCostTables.Build(&e.modeProbs.MV)
 		e.mvCostProbs = e.modeProbs.MV
@@ -187,9 +168,6 @@ func (e *VP8Encoder) currentMotionVectorCostTables() *vp8enc.MotionVectorCostTab
 // which means realtime always uses the fast picker, and good-quality
 // switches to it once cpu-used > 3 (when sf->RD is turned off).
 func (e *VP8Encoder) libvpxUseFastIntraPick() bool {
-	if e == nil {
-		return false
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return true
@@ -378,9 +356,6 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 }
 
 func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
-	if e == nil {
-		return libvpxInterModeRDThresholds(qIndex, 0, DeadlineBestQuality, 0)
-	}
 	baselineQIndex := e.interModeRDThresholdQIndex(qIndex)
 	baseline := e.interModeRDThresholdsBaseline(baselineQIndex, refs, refCount)
 	if !e.interRDFrameActive {
@@ -402,14 +377,14 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 }
 
 func (e *VP8Encoder) interModeRDThresholdQIndex(qIndex int) int {
-	if e == nil || !e.interRDFrameActive {
+	if !e.interRDFrameActive {
 		return qIndex
 	}
 	return e.interRDFrameBaseQIndex
 }
 
 func (e *VP8Encoder) libvpxTemporalLayerCount() int {
-	if e == nil || !e.opts.TemporalScalability.Enabled {
+	if !e.opts.TemporalScalability.Enabled {
 		return 1
 	}
 	pattern, ok := temporalLayeringPattern(e.opts.TemporalScalability.Mode)
@@ -420,9 +395,6 @@ func (e *VP8Encoder) libvpxTemporalLayerCount() int {
 }
 
 func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
-	if e == nil {
-		return
-	}
 	for i := range e.interRDThreshMult {
 		e.interRDThreshMult[i] = libvpxRDThreshMultStart
 	}
@@ -436,9 +408,6 @@ func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
 }
 
 func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
-	if e == nil {
-		return
-	}
 	e.interRDFrameBaseQIndex = vp8common.ClampQIndex(e.rc.currentQuantizer)
 	for i, mult := range e.interRDThreshMult {
 		if mult == 0 {
@@ -465,16 +434,10 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 }
 
 func (e *VP8Encoder) endInterRDModeDecisionFrame() {
-	if e == nil {
-		return
-	}
 	e.interRDFrameActive = false
 }
 
 func (e *VP8Encoder) beginInterRDModeDecisionMacroblock() {
-	if e == nil {
-		return
-	}
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionFrame()
 	}
@@ -482,13 +445,12 @@ func (e *VP8Encoder) beginInterRDModeDecisionMacroblock() {
 }
 
 // interRDModeTestAllowed gates per-mode candidate evaluation by libvpx's
-// rd_threshes hit-count throttle. It is callable from outside the picker
-// loops via tests, so it accepts nil receivers / out-of-range indices, but
-// the hot path always passes a non-nil encoder and a 0..libvpxInterModeCount-1
-// modeIndex (callers iterate libvpxFastInterModeOrder). The two early returns
-// keep the inlining cost low so the picker loop sees a flattened test.
+// rd_threshes hit-count throttle. The hot path passes a live encoder and a
+// 0..libvpxInterModeCount-1 modeIndex (callers iterate
+// libvpxFastInterModeOrder); the range check remains for package-level tests
+// that exercise the safe entry point directly.
 func (e *VP8Encoder) interRDModeTestAllowed(modeIndex int) bool {
-	if e == nil || !e.interRDFrameActive {
+	if !e.interRDFrameActive {
 		return true
 	}
 	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
@@ -513,14 +475,14 @@ func (e *VP8Encoder) interRDModeTestAllowedFast(modeIndex int) bool {
 }
 
 func (e *VP8Encoder) recordInterRDModeTest(modeIndex int) {
-	if e == nil || !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
 	e.interModeTestHitCounts[modeIndex]++
 }
 
 func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
-	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
@@ -532,7 +494,7 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 }
 
 func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
-	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
 	e.interRDThreshMult[modeIndex] += 4
@@ -543,7 +505,7 @@ func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 }
 
 func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
-	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
@@ -556,7 +518,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 }
 
 func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
-	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
 	}
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
@@ -569,9 +531,6 @@ func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
 }
 
 func (e *VP8Encoder) recordFastInterModeErrorBin(distortion int) {
-	if e == nil {
-		return
-	}
 	if distortion < 0 {
 		distortion = 0
 	}

@@ -7,7 +7,7 @@ package dsp
 //
 //   sadBlock16x16NEON - full 16x16 SAD (no early exit).
 //   sadBlock16x16LimitNEON - 16x16 SAD with a per-row early-exit
-//     check; mirrors the scalar sadBlockLimit's semantics so the
+//     check; mirrors the scalar limited-SAD semantics so the
 //     motion-search caller keeps its existing best-so-far pruning.
 
 //go:noescape

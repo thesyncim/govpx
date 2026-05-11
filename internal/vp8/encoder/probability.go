@@ -66,8 +66,7 @@ func BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows int, cols int, m
 	if err := validateKeyFrameCoefficientGrid(rows, cols, modes, coeffs, above, base); err != nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, err
 	}
-	var counts coefficientBranchCounts
-	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
+	counts := defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientProbabilityUpdatesFromCountsIndependent(base, &counts, true)
 }
 
@@ -143,8 +142,7 @@ func KeyFrameCoefficientEntropySavingsIndependent(rows int, cols int, modes []Ke
 	if err := validateKeyFrameCoefficientGrid(rows, cols, modes, coeffs, above, base); err != nil {
 		return 0, err
 	}
-	var counts coefficientBranchCounts
-	counts = defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
+	counts := defaultKeyFrameIndependentCoefficientBranchCountsForUpdate()
 	return coefficientEntropySavingsFromCountsIndependent(base, &counts, true), nil
 }
 

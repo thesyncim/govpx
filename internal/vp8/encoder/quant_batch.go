@@ -15,22 +15,11 @@ package encoder
 //
 // The dispatcher hands off to per-arch SIMD ports
 // (quant_batch_arm64.go, quant_batch_amd64.go); on platforms without
-// a SIMD port it falls through to fastQuantizeBlockBatchScalar, which
-// matches the libvpx vp8_fast_quantize_b_c reference per block.
+// a SIMD port it falls through to the scalar reference in
+// quant_batch_other.go, which matches vp8_fast_quantize_b_c per block.
 func FastQuantizeBlockBatch(coeff []int16, quant *BlockQuant, qcoeff []int16, dqcoeff []int16, eobs []uint8, count int) {
 	if count <= 0 {
 		return
 	}
 	fastQuantizeBlockBatchSIMD(coeff, quant, qcoeff, dqcoeff, eobs, count)
-}
-
-func fastQuantizeBlockBatchScalar(coeff []int16, quant *BlockQuant, qcoeff []int16, dqcoeff []int16, eobs []uint8, count int) {
-	for i := range count {
-		var c, q, dq [16]int16
-		copy(c[:], coeff[i*16:i*16+16])
-		eob := fastQuantizeBlockScalar(&c, quant, &q, &dq)
-		copy(qcoeff[i*16:i*16+16], q[:])
-		copy(dqcoeff[i*16:i*16+16], dq[:])
-		eobs[i] = uint8(eob)
-	}
 }

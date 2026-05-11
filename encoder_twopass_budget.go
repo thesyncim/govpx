@@ -4,9 +4,6 @@ import "math"
 
 func (e *VP8Encoder) pass2MaybeArmAltRefPending(currentFrame uint64, currentPTS uint64, keyFrame bool) {
 	_ = keyFrame
-	if e == nil {
-		return
-	}
 	if !e.twoPass.enabled() {
 		return
 	}

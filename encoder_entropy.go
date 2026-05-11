@@ -165,7 +165,7 @@ func libvpxShouldConvertRefCountsToProb(temporalLayerCount int, refreshGolden bo
 // the live encoder coefProbs (used for key frames, committed-encode paths,
 // and pre-snapshot transient state).
 func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
-	if e != nil && e.rdPickerCoefProbsActive != nil {
+	if e.rdPickerCoefProbsActive != nil {
 		return e.rdPickerCoefProbsActive
 	}
 	return &e.coefProbs
@@ -196,7 +196,7 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 // when none of the per-reference snapshots have been valid yet — in which
 // case the caller falls back to e.coefProbs.
 func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8tables.CoefficientProbs {
-	if e == nil || !e.coefProbsSnapshotsValid {
+	if !e.coefProbsSnapshotsValid {
 		return nil
 	}
 	switch {

@@ -411,7 +411,7 @@ func (e *VP8Encoder) computeFirstPassStats(src vp8enc.SourceImage, duration uint
 }
 
 func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) (int, bool) {
-	if e == nil || quant == nil || dequant == nil {
+	if quant == nil || dequant == nil {
 		return 0, false
 	}
 	useDCPred := (mbCol != 0 || mbRow != 0) && (mbCol == 0 || mbRow == 0)
@@ -450,7 +450,7 @@ func (e *VP8Encoder) reconstructFirstPassIntraMacroblock(src vp8enc.SourceImage,
 }
 
 func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant) (int, bool) {
-	if e == nil || quant == nil {
+	if quant == nil {
 		return 0, false
 	}
 	img := &e.firstPassNewRef.Img
@@ -491,7 +491,7 @@ func (e *VP8Encoder) reconstructFirstPassBPredIntraMacroblock(src vp8enc.SourceI
 }
 
 func (e *VP8Encoder) reconstructFirstPassInterMacroblock(src vp8enc.SourceImage, mbRow int, mbCol int, mv vp8enc.MotionVector, qIndex int, quant *vp8enc.MacroblockQuant, dequant *vp8common.MacroblockDequant) bool {
-	if e == nil || quant == nil || dequant == nil {
+	if quant == nil || dequant == nil {
 		return false
 	}
 	mode := vp8enc.InterFrameMacroblockMode{

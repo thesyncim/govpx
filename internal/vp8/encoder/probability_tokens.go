@@ -365,7 +365,7 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 	for pos := skipDC; pos < eob; pos++ {
 		rc := int(tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
-		// Inline coeffToken via the abs+LUT path used by
+		// Inline coefficient classification via the abs+LUT path used by
 		// writeBlockTokensEOB so this count walk matches the writer
 		// classification exactly. Index 0 of the LUT is ZeroToken, so
 		// coeff == 0 needs no special case for the token id; the only

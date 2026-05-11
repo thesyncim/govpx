@@ -26,10 +26,6 @@ var coefUpdateProbsFlat = unsafe.Slice(
 	coefProbsFlatLen,
 )
 
-func parseCoefficientProbabilityHeader(br *boolcoder.Decoder) CoefficientProbabilityHeader {
-	return parseCoefficientProbabilityHeaderInto(br, nil)
-}
-
 func parseCoefficientProbabilityHeaderInto(br *boolcoder.Decoder, probs *tables.CoefficientProbs) CoefficientProbabilityHeader {
 	var dst []uint8
 	if probs != nil {

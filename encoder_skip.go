@@ -42,7 +42,7 @@ func (e *VP8Encoder) baseSkipFalseProb(qIndex int) uint8 {
 	} else if qIndex >= len(libvpxBaseSkipFalseProbs) {
 		qIndex = len(libvpxBaseSkipFalseProbs) - 1
 	}
-	if e == nil || e.baseSkipFalseProbs[qIndex] == 0 {
+	if e.baseSkipFalseProbs[qIndex] == 0 {
 		return libvpxBaseSkipFalseProbs[qIndex]
 	}
 	return e.baseSkipFalseProbs[qIndex]
@@ -70,10 +70,8 @@ func clampInterAnalysisSkipFalseProb(prob uint8) uint8 {
 
 func (e *VP8Encoder) interFrameAnalysisSkipFalseProb(qIndex int, refreshGolden bool, refreshAltRef bool, singleLayerSrcAltRef bool) uint8 {
 	prob := e.baseSkipFalseProb(qIndex)
-	if e != nil {
-		if last := e.lastSkipFalseProbs[skipFalseReferenceIndex(refreshGolden, refreshAltRef)]; last != 0 {
-			prob = last
-		}
+	if last := e.lastSkipFalseProbs[skipFalseReferenceIndex(refreshGolden, refreshAltRef)]; last != 0 {
+		prob = last
 	}
 	prob = clampInterAnalysisSkipFalseProb(prob)
 	if singleLayerSrcAltRef {
@@ -83,7 +81,7 @@ func (e *VP8Encoder) interFrameAnalysisSkipFalseProb(qIndex int, refreshGolden b
 }
 
 func (e *VP8Encoder) commitInterFrameSkipFalseProb(attempt interFrameEncodeAttempt) {
-	if e == nil || attempt.Config.ProbSkipFalse == 0 {
+	if attempt.Config.ProbSkipFalse == 0 {
 		return
 	}
 	prob := attempt.Config.ProbSkipFalse

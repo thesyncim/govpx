@@ -4,7 +4,7 @@ package dsp
 
 // SSE2 port of the libvpx v1.16.0 vpx_dsp/x86/sad_sse2.asm SAD primitives,
 // plus a govpx-specific 16x16 limit-aware variant matching the scalar
-// sadBlockLimit semantics. PSADBW makes byte abs-diff + horizontal-sum a
+// limited-SAD semantics. PSADBW makes byte abs-diff + horizontal-sum a
 // single instruction, so SAD is essentially load-bound.
 //
 // AVX2 entry points (sad_avx2_amd64.s) double the per-iteration row

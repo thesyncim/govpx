@@ -22,21 +22,6 @@ var (
 	ErrUnsupportedInterReconstructionMode = errors.New("govpx: unsupported VP8 inter reconstruction mode")
 )
 
-type interPredictorPlan struct {
-	YPlane []byte
-	UPlane []byte
-	VPlane []byte
-
-	YOffset int
-	UOffset int
-	VOffset int
-
-	YXOffset  int
-	YYOffset  int
-	UVXOffset int
-	UVYOffset int
-}
-
 type MacroblockResidual struct {
 	DQCoeff [25 * 16]int16
 }
@@ -449,55 +434,6 @@ func isWholeMacroblockInterMode(mode common.MBPredictionMode) bool {
 	}
 }
 
-func wholeMVReferencePlan(ref *common.Image, mbRow int, mbCol int, mv MotionVector, cfg InterPredictionConfig) (interPredictorPlan, bool) {
-	if ref == nil {
-		return interPredictorPlan{}, false
-	}
-
-	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
-	yRow := mbRow*16 + int(mv.Row>>3)
-	yCol := mbCol*16 + int(mv.Col>>3)
-	yXOffset := int(mv.Col) & 7
-	yYOffset := int(mv.Row) & 7
-	yOffset, ok := wholeMVPlaneOffset(yPlane, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), yRow, yCol, 16, 16, yXOffset, yYOffset, yOrigin, yBorder, cfg)
-	if !ok {
-		return interPredictorPlan{}, false
-	}
-
-	uPlane, uOrigin, uvBorder := referencePlane(ref.U, ref.UFull, ref.UOrigin, ref.UVBorder)
-	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
-	uvMVRow := chromaMotionVectorComponent(mv.Row)
-	uvMVCol := chromaMotionVectorComponent(mv.Col)
-	uvMVRow, uvMVCol = fullPixelChromaMotionVector(uvMVRow, uvMVCol, cfg)
-	uvRow := mbRow*8 + (uvMVRow >> 3)
-	uvCol := mbCol*8 + (uvMVCol >> 3)
-	uvXOffset := uvMVCol & 7
-	uvYOffset := uvMVRow & 7
-	uvWidth := (codedImageWidth(ref) + 1) >> 1
-	uvHeight := (codedImageHeight(ref) + 1) >> 1
-	uOffset, ok := wholeMVPlaneOffset(uPlane, ref.UStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset, uOrigin, uvBorder, cfg)
-	if !ok {
-		return interPredictorPlan{}, false
-	}
-	vOffset, ok := wholeMVPlaneOffset(vPlane, ref.VStride, uvWidth, uvHeight, uvRow, uvCol, 8, 8, uvXOffset, uvYOffset, vOrigin, uvBorder, cfg)
-	if !ok {
-		return interPredictorPlan{}, false
-	}
-
-	return interPredictorPlan{
-		YPlane:    yPlane,
-		UPlane:    uPlane,
-		VPlane:    vPlane,
-		YOffset:   yOffset,
-		UOffset:   uOffset,
-		VOffset:   vOffset,
-		YXOffset:  yXOffset,
-		YYOffset:  yYOffset,
-		UVXOffset: uvXOffset,
-		UVYOffset: uvYOffset,
-	}, true
-}
-
 func referencePlane(visible []byte, full []byte, origin int, border int) ([]byte, int, int) {
 	if len(full) == 0 {
 		return visible, 0, 0
@@ -521,30 +457,6 @@ func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight in
 		return 0, false
 	}
 	return origin + row*stride + col, true
-}
-
-func predictInter16x16(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
-	if xOffset|yOffset == 0 {
-		dsp.Copy16x16(src, srcStride, dst, dstStride)
-		return
-	}
-	if cfg.UseBilinear {
-		dsp.BilinearPredict16x16(src, srcStride, xOffset, yOffset, dst, dstStride)
-		return
-	}
-	dsp.SixTapPredict16x16(src, srcStride, xOffset, yOffset, dst, dstStride)
-}
-
-func predictInter8x8(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
-	if xOffset|yOffset == 0 {
-		dsp.Copy8x8(src, srcStride, dst, dstStride)
-		return
-	}
-	if cfg.UseBilinear {
-		dsp.BilinearPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
-		return
-	}
-	dsp.SixTapPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
 }
 
 func predictInter4x4(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
@@ -647,29 +559,6 @@ func clampChromaUMVComponent(v int, lowEdge int, highEdge int) int {
 		return (highEdge + (16 << 3)) >> 1
 	}
 	return v
-}
-
-func chromaMotionVectorComponent(v int16) int {
-	mv := int(v)
-	if mv < 0 {
-		mv--
-	} else {
-		mv++
-	}
-	return mv / 2
-}
-
-func referenceImageForMode(refFrame common.MVReferenceFrame, last *common.Image, golden *common.Image, alt *common.Image) *common.Image {
-	switch refFrame {
-	case common.LastFrame:
-		return last
-	case common.GoldenFrame:
-		return golden
-	case common.AltRefFrame:
-		return alt
-	default:
-		return nil
-	}
 }
 
 func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, refs IntraPredictorRefs, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual) bool {

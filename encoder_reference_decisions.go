@@ -51,9 +51,6 @@ func (e *VP8Encoder) isSrcFrameAltRef(framePTS uint64) bool {
 }
 
 func (e *VP8Encoder) interFrameSignBias() [vp8common.MaxRefFrames]bool {
-	if e == nil {
-		return [vp8common.MaxRefFrames]bool{}
-	}
 	signBias := [vp8common.MaxRefFrames]bool{}
 	signBias[vp8common.AltRefFrame] = e.sourceAltRefActive
 	return signBias
@@ -149,8 +146,7 @@ func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, la
 }
 
 func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGoldenFrame bool, temporalEnabled bool, invisible bool) (int, bool) {
-	if e == nil ||
-		!e.opts.AdaptiveKeyFrames ||
+	if !e.opts.AdaptiveKeyFrames ||
 		e.twoPass.enabled() ||
 		temporalEnabled ||
 		invisible ||
@@ -214,9 +210,6 @@ func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, g
 	last = flags&EncodeNoReferenceLast == 0
 	golden = flags&EncodeNoReferenceGolden == 0
 	alt = flags&EncodeNoReferenceAltRef == 0
-	if e == nil {
-		return last, golden, alt
-	}
 	if e.goldenRefAliasesLast {
 		golden = false
 	}

@@ -76,9 +76,6 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 }
 
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
-	if e == nil {
-		return false
-	}
 	if e.opts.ScreenContentMode == 2 && refreshGolden {
 		return false
 	}
@@ -114,7 +111,7 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 // current Q is below qp_thresh, and the frame is far enough past the last
 // key frame (frames_since_key > 2 * consec_zerolast).
 func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
-	if e == nil || e.opts.NoiseSensitivity < 3 {
+	if e.opts.NoiseSensitivity < 3 {
 		return false
 	}
 	mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
@@ -266,7 +263,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows
 	// inter picker as a ZEROMV-LAST bias reset. It does not feed skin
 	// classification back into cyclic_refresh_map eligibility, so keep the
 	// refresh walk driven solely by the cyclic map state here.
-	if e != nil && e.opts.StaticThreshold > 0 && e.opts.ScreenContentMode == 0 && len(e.skinMap) >= count {
+	if e.opts.StaticThreshold > 0 && e.opts.ScreenContentMode == 0 && len(e.skinMap) >= count {
 		computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
 	}
 	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.cyclicRefreshAttemptMap[:count], modes)
@@ -306,7 +303,7 @@ func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMod
 }
 
 func (e *VP8Encoder) updateConsecutiveZeroLast(modes []vp8enc.InterFrameMacroblockMode) {
-	if e == nil || len(e.consecZeroLast) == 0 {
+	if len(e.consecZeroLast) == 0 {
 		return
 	}
 	updateConsecutiveZeroLast(modes, e.consecZeroLast)
@@ -370,20 +367,10 @@ func clearUint8Map(values []uint8) {
 
 func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
 	layers := 1
-	if e != nil && e.temporal.enabled {
+	if e.temporal.enabled {
 		layers = e.temporal.pattern.Layers
 	}
-	screenContentMode := 0
-	q := 0
-	framesSinceKey := 0
-	lastSkipCount := 0
-	if e != nil {
-		screenContentMode = e.opts.ScreenContentMode
-		q = e.rc.currentQuantizer
-		framesSinceKey = e.rc.framesSinceKeyframe
-		lastSkipCount = e.lastInterSkipCount
-	}
-	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, screenContentMode, q, framesSinceKey, lastSkipCount)
+	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, e.opts.ScreenContentMode, e.rc.currentQuantizer, e.rc.framesSinceKeyframe, e.lastInterSkipCount)
 }
 
 func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
@@ -645,7 +632,7 @@ const (
 // consec_zero_last_mvbias (the bias-only counter), which is reset for any
 // MB this function checks so a triggered MB gets a fresh num_frames window.
 func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int) bool {
-	if e == nil || lastRef == nil {
+	if lastRef == nil {
 		return false
 	}
 	if e.opts.ScreenContentMode != 0 {

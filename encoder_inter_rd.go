@@ -48,7 +48,7 @@ type interResidualRDContext struct {
 }
 
 func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, segmentID uint8, refRate int) (interResidualRDAccounting, bool) {
-	if e == nil || mode == nil {
+	if mode == nil {
 		return interResidualRDAccounting{}, false
 	}
 	signBias := e.interFrameSignBias()
@@ -76,13 +76,10 @@ func (e *VP8Encoder) estimateInterResidualRDAccounting(src vp8enc.SourceImage, r
 }
 
 func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *interResidualRDContext) (interResidualRDAccounting, bool) {
-	if e == nil || ctx == nil || ctx.ref == nil || ctx.mode == nil || ctx.quant == nil || ctx.segmentID >= vp8common.MaxMBSegments {
+	if ctx == nil || ctx.ref == nil || ctx.mode == nil || ctx.quant == nil || ctx.segmentID >= vp8common.MaxMBSegments {
 		return interResidualRDAccounting{}, false
 	}
-	zbinOverQuant := 0
-	if e != nil {
-		zbinOverQuant = e.rc.currentZbinOverQuant
-	}
+	zbinOverQuant := e.rc.currentZbinOverQuant
 	var decMode vp8dec.MacroblockMode
 	convertInterFrameMode(ctx.mode, &decMode)
 	predMode := decMode
@@ -177,7 +174,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 
 func (e *VP8Encoder) estimateFastInterModeScore(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, qIndex int) (int, bool) {
 	refRate := 1 << 30
-	if e != nil && mode != nil {
+	if mode != nil {
 		refRate = e.interReferenceFrameRate(mode.RefFrame)
 	}
 	score, _, _, _, _, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkip(src, ref, mbRow, mbCol, mbRows, mbCols, mode, above, left, aboveLeft, qIndex, refRate, nil)
@@ -199,10 +196,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mode.MV, ctx)
-	zbinOverQuant := 0
-	if e != nil {
-		zbinOverQuant = e.rc.currentZbinOverQuant
-	}
+	zbinOverQuant := e.rc.currentZbinOverQuant
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
 	if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
 		adj := 100
@@ -252,7 +246,7 @@ func fastInterVarianceCacheIndex(ref *vp8common.Image, mv vp8enc.MotionVector) i
 }
 
 func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
-	if e == nil || len(e.skinMap) == 0 {
+	if len(e.skinMap) == 0 {
 		return false
 	}
 	index := mbRow*mbCols + mbCol
@@ -263,7 +257,7 @@ func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
 }
 
 func (e *VP8Encoder) fastZeroMVLastAdjustmentEligible(mbRows int, mbCols int) bool {
-	if e == nil || e.opts.ScreenContentMode != 0 {
+	if e.opts.ScreenContentMode != 0 {
 		return false
 	}
 	required := mbRows * mbCols

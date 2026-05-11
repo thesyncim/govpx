@@ -67,9 +67,6 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 }
 
 func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference, refCount int) vp8common.MVReferenceFrame {
-	if e == nil {
-		return vp8common.LastFrame
-	}
 	closest := vp8common.IntraFrame
 	limit := min(refCount, len(refs))
 	for i := range limit {
@@ -109,9 +106,6 @@ func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount in
 }
 
 func (e *VP8Encoder) interAnalysisMacroblockCount() int {
-	if e == nil {
-		return 0
-	}
 	if e.opts.Width > 0 && e.opts.Height > 0 {
 		return encoderMacroblockCount(e.opts.Width, e.opts.Height)
 	}

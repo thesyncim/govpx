@@ -52,7 +52,7 @@ func TestSADSIMDMatchesScalar(t *testing.T) {
 }
 
 // TestSAD16x16LimitSIMDMatchesScalar covers the limit-aware 16x16 SIMD
-// kernel against the scalar sadBlockLimit on a sweep of limits including
+// kernel against the scalar limited-SAD path on a sweep of limits including
 // edge cases (0, exact match, slightly under, well above).
 func TestSAD16x16LimitSIMDMatchesScalar(t *testing.T) {
 	const planeStride = 32

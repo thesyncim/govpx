@@ -665,14 +665,14 @@ type VP8Encoder struct {
 const encoderQuantizerFeedbackMaxAttempts = 8
 
 func (e *VP8Encoder) phaseStart() int64 {
-	if e == nil || e.opts.PhaseStats == nil {
+	if e.opts.PhaseStats == nil {
 		return 0
 	}
 	return nanotime()
 }
 
 func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
-	if start == 0 || e == nil || e.opts.PhaseStats == nil {
+	if start == 0 || e.opts.PhaseStats == nil {
 		return
 	}
 	elapsed := nanotime() - start
@@ -692,7 +692,7 @@ func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
 }
 
 func (e *VP8Encoder) phaseCountAttempt(keyFrame bool) {
-	if e == nil || e.opts.PhaseStats == nil {
+	if e.opts.PhaseStats == nil {
 		return
 	}
 	if keyFrame {

@@ -130,34 +130,6 @@ func packCoefficientTokenRecord(blockType int, band int, ctx int, token int, mag
 	return CoefficientTokenRecord(value), true
 }
 
-func (r CoefficientTokenRecord) token() int {
-	return int((uint32(r) >> coefficientTokenRecordTokenShift) & coefficientTokenRecordTokenMask)
-}
-
-func (r CoefficientTokenRecord) blockType() int {
-	return int((uint32(r) >> coefficientTokenRecordBlockTypeShift) & coefficientTokenRecordTwoBitMask)
-}
-
-func (r CoefficientTokenRecord) band() int {
-	return int((uint32(r) >> coefficientTokenRecordBandShift) & coefficientTokenRecordBandMask)
-}
-
-func (r CoefficientTokenRecord) ctx() int {
-	return int((uint32(r) >> coefficientTokenRecordContextShift) & coefficientTokenRecordTwoBitMask)
-}
-
-func (r CoefficientTokenRecord) magnitude() int {
-	return int((uint32(r) >> coefficientTokenRecordMagnitudeShift) & coefficientTokenRecordMagMask)
-}
-
-func (r CoefficientTokenRecord) sign() uint8 {
-	return uint8((uint32(r) >> coefficientTokenRecordSignShift) & 1)
-}
-
-func (r CoefficientTokenRecord) skipEOBNode() bool {
-	return ((uint32(r) >> coefficientTokenRecordSkipEOBNodeShift) & 1) != 0
-}
-
 func validPreparedCoefficientTokenRows(records *InterCoefficientTokenRecords, rows int) bool {
 	if records == nil || rows < 0 || records.Rows != rows || len(records.RowStarts) < rows+1 {
 		return false
@@ -387,10 +359,9 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 	for coeffPos := skipDC; coeffPos < eob; coeffPos++ {
 		zigZagPos := int(tables.DefaultZigZag1D[coeffPos])
 		coeff := int(qcoeff[zigZagPos])
-		// Inline of coeffToken: abs + LUT load vs the previous switch
-		// + function call (gcflags -m=2 reports coeffToken as too
-		// complex to inline). mag carries the absolute magnitude; sign
-		// is derived directly from the signed coeff. Index 0 of the
+		// Inline coefficient classification: abs + LUT load instead of
+		// a range-comparison switch. mag carries the absolute magnitude;
+		// sign is derived directly from the signed coeff. Index 0 of the
 		// LUT is tables.ZeroToken so the zero-coefficient branch falls
 		// through with no special case. Out-of-range magnitudes are
 		// rejected once with ErrInvalidPacketConfig.

@@ -348,7 +348,7 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 // off. Used by the fast-mode RD path to scale ZEROMV-LAST scores when the
 // denoiser is in YUV-aggressive mode.
 func (e *VP8Encoder) denoiserPickmodeMVBias() int {
-	if e == nil || e.opts.NoiseSensitivity <= 0 {
+	if e.opts.NoiseSensitivity <= 0 {
 		return 100
 	}
 	_, params := denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
@@ -419,7 +419,7 @@ const (
 // source so subsequent inter frames have a defined reference for
 // motion-compensated denoising.
 func (e *VP8Encoder) initDenoiserAvgFromKeyFrame(source vp8enc.SourceImage) {
-	if e == nil || e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
+	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return
 	}
 	for i := range e.denoiser.runningAvg {
@@ -437,7 +437,7 @@ func (e *VP8Encoder) initDenoiserAvgFromKeyFrame(source vp8enc.SourceImage) {
 // filtered or copied pixels into runningAvg[INTRA]. The per-MB FILTER /
 // COPY / kNoFilter state is recorded for next-frame bias decisions.
 func (e *VP8Encoder) applyDenoiserToInterFrame(source vp8enc.SourceImage, rows int, cols int) {
-	if e == nil || e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
+	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return
 	}
 	if rows <= 0 || cols <= 0 {
@@ -541,7 +541,7 @@ func copyMacroblock8x8(dst []byte, dstStride int, src []byte, srcStride int) {
 // keeping the denoiser's parallel reference stream in sync with the encoder's
 // references.
 func (e *VP8Encoder) copyDenoiserAvgForRefresh(refreshLast bool, refreshGolden bool, refreshAltRef bool) {
-	if e == nil || e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
+	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return
 	}
 	intra := &e.denoiser.runningAvg[denoiserAvgIntra]

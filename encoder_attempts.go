@@ -198,9 +198,6 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 // branch only. boostedReferenceFrame mirrors `(cm->refresh_golden_frame
 // || cm->refresh_alt_ref_frame)`.
 func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) bool {
-	if e == nil {
-		return true
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return false
@@ -227,9 +224,6 @@ func (e *VP8Encoder) libvpxInterRecodeLoopActive(boostedReferenceFrame bool) boo
 // (vp8_special_case_for_forced_key_frame) is independent of recode_loop and
 // is gated separately at the call site.
 func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
-	if e == nil {
-		return true
-	}
 	switch e.opts.Deadline {
 	case DeadlineRealtime:
 		return false
@@ -269,9 +263,6 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 // keyFrame skips the gate so libvpx's `frame_type != KEY_FRAME` check
 // is honored. Returns true when the caller must discard the frame.
 func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int, macroblocks int, keyFrame bool) bool {
-	if e == nil {
-		return false
-	}
 	// Only fires in one-pass CBR with the rt-drop-recode signal active.
 	// libvpx's `cpi->rt_drop_recode_on_overshoot` is enabled by default and
 	// only cleared when an external rate controller takes over (see
@@ -359,7 +350,7 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 }
 
 func (e *VP8Encoder) currentPredictionErrorMB(macroblocks int) int {
-	if e == nil || macroblocks <= 0 {
+	if macroblocks <= 0 {
 		return 0
 	}
 	return int(e.framePredictionError / int64(macroblocks))
@@ -648,7 +639,7 @@ func (e *VP8Encoder) refFrameEntropySavingsBitsForFrame(keyFrame bool, macrobloc
 }
 
 func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks int) int {
-	if e == nil || macroblocks <= 0 {
+	if macroblocks <= 0 {
 		return 0
 	}
 	rows := encoderMacroblockRows(e.opts.Height)

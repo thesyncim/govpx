@@ -212,11 +212,9 @@ func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
 // "coeff == 0" branch.
 //
 // Materializing the classifier as a 2049-byte lookup turns the hot
-// per-coefficient classification (previously a function call with a
-// six-way range-comparison switch -- gcflags -m=2 reports
-// "cannot inline coeffToken: function too complex: cost 102 exceeds
-// budget 80") into a single byte load that the compiler can fold into
-// the surrounding loop body. Out-of-range magnitudes
+// per-coefficient classification (previously a helper with a six-way
+// range-comparison switch) into a single byte load that the compiler can fold
+// into the surrounding loop body. Out-of-range magnitudes
 // (abs(coeff) > DCTMaxValue) are filtered by the caller before
 // indexing, so the LUT itself never needs a sentinel value.
 var coeffAbsTokenLUT = buildCoeffAbsTokenLUT()
@@ -250,16 +248,6 @@ func buildCoeffAbsTokenLUT() [tables.DCTMaxValue + 1]uint8 {
 		}
 	}
 	return lut
-}
-
-func coeffToken(coeff int) (int, int, bool) {
-	if coeff < 0 {
-		coeff = -coeff
-	}
-	if coeff <= 0 || coeff > tables.DCTMaxValue {
-		return 0, 0, false
-	}
-	return int(coeffAbsTokenLUT[coeff]), coeff, true
 }
 
 // ResetTokenContextPlanes applies the inter-frame mb_no_coeff_skip context
@@ -346,5 +334,3 @@ func setTokenUVContext(ctx *TokenContextPlanes, index int, value uint8) {
 	}
 	ctx.V[index-2] = value
 }
-
-const maxCategory6Coeff = tables.DCTMaxValue

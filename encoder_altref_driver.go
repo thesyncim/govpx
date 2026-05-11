@@ -20,9 +20,6 @@ const autoAltRefHiddenFlags = EncodeForceAltRefFrame |
 // also requires LookaheadFrames > 1 because LookaheadFrames == 1 leaves no
 // future entries to peek at the schedule's offset.
 func (e *VP8Encoder) autoAltRefDriverEnabled() bool {
-	if e == nil {
-		return false
-	}
 	if !e.opts.AutoAltRef {
 		return false
 	}
@@ -42,9 +39,6 @@ func (e *VP8Encoder) autoAltRefDriverEnabled() bool {
 // `index < max_sz - 1` (LookaheadFrames - 1) and `index < count`, so the
 // reachable upper bound is the smaller of the two.
 func (e *VP8Encoder) autoAltRefSectionInterval() int {
-	if e == nil {
-		return 0
-	}
 	interval := autoAltRefDefaultSectionInterval
 	if maxOffset := e.opts.LookaheadFrames - 1; interval > maxOffset {
 		interval = maxOffset
@@ -147,9 +141,6 @@ func (e *VP8Encoder) autoAltRefShouldEmitHidden() bool {
 // (see `updateGoldenFrameStats` and the keyframe-path decrement inside
 // `resetGoldenFrameStats`), so we can use it directly as the peek index.
 func (e *VP8Encoder) altRefPeekOffset() int {
-	if e == nil {
-		return -1
-	}
 	if e.framesTillAltRefFrame < 0 {
 		return -1
 	}

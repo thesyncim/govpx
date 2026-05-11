@@ -9,3 +9,11 @@ package encoder
 func forwardDCT4x4BatchSIMD(input []int16, output []int16, count int) {
 	forwardDCT4x4BatchScalar(input, output, count)
 }
+
+func forwardDCT4x4BatchScalar(input []int16, output []int16, count int) {
+	for i := range count {
+		var out [16]int16
+		forwardDCT4x4Scalar(input[i*16:i*16+16], 4, &out)
+		copy(output[i*16:i*16+16], out[:])
+	}
+}

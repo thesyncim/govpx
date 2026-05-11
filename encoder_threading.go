@@ -21,9 +21,6 @@ const maxEncoderThreads = 64
 // frames may still fall back to the serial loop when they are too small or
 // when oracle tracing requires byte-stable serial instrumentation.
 func (e *VP8Encoder) effectiveThreadCount() int {
-	if e == nil {
-		return 1
-	}
 	threads := e.opts.Threads
 	if threads <= 0 {
 		threads = 1

@@ -27,10 +27,6 @@ type LoopFilterHeader struct {
 	ModeDeltas [common.MaxModeLFDeltas]int8
 }
 
-func parseLoopFilterHeader(br *boolcoder.Decoder) LoopFilterHeader {
-	return parseLoopFilterHeaderWithPrevious(br, LoopFilterHeader{})
-}
-
 func parseLoopFilterHeaderWithPrevious(br *boolcoder.Decoder, previous LoopFilterHeader) LoopFilterHeader {
 	var h LoopFilterHeader
 	h.RefDeltas = previous.RefDeltas

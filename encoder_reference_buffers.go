@@ -23,7 +23,7 @@ func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 }
 
 func (e *VP8Encoder) rememberLastFrameInterModes(signBias [vp8common.MaxRefFrames]bool) {
-	if e == nil || len(e.interFrameModes) == 0 {
+	if len(e.interFrameModes) == 0 {
 		return
 	}
 	if len(e.lastFrameInterModes) != len(e.interFrameModes) {
@@ -118,9 +118,6 @@ func (e *VP8Encoder) copyInterFrameReferences(cfg vp8enc.InterFrameStateConfig) 
 }
 
 func (e *VP8Encoder) updateKeyFrameReferenceFrameNumbers() {
-	if e == nil {
-		return
-	}
 	frameNumber := e.frameCount
 	e.referenceFrameNumbers[vp8common.LastFrame] = frameNumber
 	e.referenceFrameNumbers[vp8common.GoldenFrame] = frameNumber
@@ -128,9 +125,6 @@ func (e *VP8Encoder) updateKeyFrameReferenceFrameNumbers() {
 }
 
 func (e *VP8Encoder) updateInterReferenceFrameNumbers(cfg vp8enc.InterFrameStateConfig) {
-	if e == nil {
-		return
-	}
 	frameNumber := e.frameCount
 
 	if cfg.RefreshAltRef {

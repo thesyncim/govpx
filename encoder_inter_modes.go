@@ -102,14 +102,13 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 }
 
 func (e *VP8Encoder) sourceAltRefZeroMVOnly(flags EncodeFlags) bool {
-	return e != nil &&
-		flags&EncodeInvisibleFrame == 0 &&
+	return flags&EncodeInvisibleFrame == 0 &&
 		e.opts.ARNRMaxFrames == 0 &&
 		e.isSrcFrameAltRef(e.currentSourcePTS)
 }
 
 func (e *VP8Encoder) interMacroblockInactive(mbRow int, mbCol int, mbCols int) bool {
-	if e == nil || !e.activeMapEnabled || mbCols <= 0 {
+	if !e.activeMapEnabled || mbCols <= 0 {
 		return false
 	}
 	index := mbRow*mbCols + mbCol

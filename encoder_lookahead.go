@@ -28,7 +28,7 @@ func (e *VP8Encoder) initLookahead(width int, height int, depth int) error {
 }
 
 func (e *VP8Encoder) lookaheadEnabled() bool {
-	return e != nil && e.opts.LookaheadFrames > 0 && len(e.lookahead) > 0
+	return e.opts.LookaheadFrames > 0 && len(e.lookahead) > 0
 }
 
 func (e *VP8Encoder) lookaheadSize() int {

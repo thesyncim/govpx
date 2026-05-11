@@ -7,10 +7,7 @@ import (
 )
 
 func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, staleY2Snapshot, bool) {
-	zbinOverQuant := 0
-	if e != nil {
-		zbinOverQuant = e.rc.currentZbinOverQuant
-	}
+	zbinOverQuant := e.rc.currentZbinOverQuant
 	fastQuant := e.libvpxUseFastQuantForPick()
 	pickerProbs := e.pickerCoefProbs()
 	if mbMode == vp8common.BPred {

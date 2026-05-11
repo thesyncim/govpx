@@ -67,7 +67,7 @@ func (e *VP8Encoder) encoderLoopFilterHeader(level uint8, sharpness uint8) vp8de
 }
 
 func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
-	if e == nil || e.opts.Deadline != DeadlineRealtime {
+	if e.opts.Deadline != DeadlineRealtime {
 		return false
 	}
 	return e.libvpxCPUUsed() >= 14
@@ -91,9 +91,6 @@ func (e *VP8Encoder) computeLFDeltaUpdateBit(deltaEnabled bool, refDeltas [vp8co
 	if !deltaEnabled {
 		return false
 	}
-	if e == nil {
-		return true
-	}
 	if e.opts.ErrorResilient {
 		return true
 	}
@@ -108,7 +105,7 @@ func (e *VP8Encoder) computeLFDeltaUpdateBit(deltaEnabled bool, refDeltas [vp8co
 // mode_ref_lf_delta_update. Called from the keyframe / inter-frame commit
 // paths so recode iterations within a frame see the pre-frame state.
 func (e *VP8Encoder) updateLastSignaledLFDeltas(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) {
-	if e == nil || !deltaEnabled {
+	if !deltaEnabled {
 		return
 	}
 	e.lastSignaledRefLFDeltas = refDeltas
@@ -117,7 +114,7 @@ func (e *VP8Encoder) updateLastSignaledLFDeltas(deltaEnabled bool, refDeltas [vp
 }
 
 func (e *VP8Encoder) encoderLoopFilterInterModeDelta() int8 {
-	if e != nil && e.opts.Deadline == DeadlineRealtime {
+	if e.opts.Deadline == DeadlineRealtime {
 		return -12
 	}
 	return -2
@@ -147,9 +144,6 @@ func (e *VP8Encoder) loopFilterUsesFastSearchForFrame(frameType vp8common.FrameT
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
-	if e == nil {
-		return false
-	}
 	speed := e.libvpxCPUUsed()
 	switch e.opts.Deadline {
 	case DeadlineGoodQuality:
@@ -195,7 +189,7 @@ func (e *VP8Encoder) newLoopFilterPickContext(src vp8enc.SourceImage, frameType 
 }
 
 func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.SegmentationConfig) {
-	if e == nil || !segmentation.Enabled {
+	if !segmentation.Enabled {
 		return
 	}
 	var installed [vp8common.MaxMBSegments]int8
@@ -697,10 +691,7 @@ func libvpxMinLoopFilterLevel(qIndex int) int {
 }
 
 func (e *VP8Encoder) libvpxMinLoopFilterLevelForFrame(frameType vp8common.FrameType, refreshGolden bool, refreshAltRef bool) int {
-	if e != nil && frameType == vp8common.InterFrame && e.sourceAltRefActive && refreshGolden && !refreshAltRef {
-		return 0
-	}
-	if e == nil {
+	if frameType == vp8common.InterFrame && e.sourceAltRefActive && refreshGolden && !refreshAltRef {
 		return 0
 	}
 	return libvpxMinLoopFilterLevel(e.rc.currentQuantizer)
@@ -712,7 +703,7 @@ func libvpxMaxLoopFilterLevel(qIndex int) int {
 }
 
 func (e *VP8Encoder) libvpxMaxLoopFilterLevelForFrame() int {
-	if e != nil && e.twoPass.sectionIntraRating > 8 {
+	if e.twoPass.sectionIntraRating > 8 {
 		return vp8common.MaxLoopFilter * 3 / 4
 	}
 	return libvpxMaxLoopFilterLevel(0)

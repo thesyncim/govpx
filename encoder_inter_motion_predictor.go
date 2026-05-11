@@ -40,7 +40,7 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	search interAnalysisSearchConfig,
 ) interFrameSearchStart {
-	if e == nil || !search.improvedMVPrediction || refFrame == vp8common.IntraFrame {
+	if !search.improvedMVPrediction || refFrame == vp8common.IntraFrame {
 		return interFrameSearchStart{}
 	}
 	var slots [8]improvedInterFrameMVSlot

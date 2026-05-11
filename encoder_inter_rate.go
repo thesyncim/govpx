@@ -63,9 +63,6 @@ func interMacroblockSkipRateWithProb(prob uint8, skip bool) int {
 }
 
 func (e *VP8Encoder) interMacroblockSkipRate(skip bool) int {
-	if e == nil {
-		return interMacroblockSkipRate(skip)
-	}
 	return interMacroblockSkipRateWithProb(e.probSkipFalse, skip)
 }
 
@@ -157,7 +154,7 @@ func (e *VP8Encoder) interReferenceFrameRatesForFlags(flags EncodeFlags) (last i
 }
 
 func (e *VP8Encoder) interReferenceFrameRatesUseTemporalSingleRefSpecialCase() bool {
-	if e == nil || !e.opts.TemporalScalability.Enabled {
+	if !e.opts.TemporalScalability.Enabled {
 		return false
 	}
 	pattern, ok := temporalLayeringPattern(e.opts.TemporalScalability.Mode)

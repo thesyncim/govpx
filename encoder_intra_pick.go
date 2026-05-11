@@ -568,9 +568,6 @@ func intraYModeRateWithProbs(keyFrame bool, mode vp8common.MBPredictionMode, int
 }
 
 func (e *VP8Encoder) interIntraYModeRate(mode vp8common.MBPredictionMode) int {
-	if e == nil {
-		return intraYModeRate(false, mode)
-	}
 	return intraYModeRateWithProbs(false, mode, e.modeProbs.YMode[:])
 }
 
