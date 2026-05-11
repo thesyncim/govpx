@@ -353,7 +353,7 @@ func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg In
 			}
 			w.WriteBool(1, cfg.ProbSkipFalse)
 			w.WriteBool(1, cfg.ProbIntra)
-			if !WriteInterReferenceFrame(w, cfg, refFrame) {
+			if !writeInterReferenceFrameWithProbs(w, cfg.ProbLast, cfg.ProbGolden, refFrame) {
 				return ErrInvalidPacketConfig
 			}
 			counts := zeroMVInterModeCounts(row, col)
@@ -386,6 +386,8 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 	uvModeProbs := interFrameUVModeProbs(cfg)
 	mvProbs := interFrameMVProbs(cfg)
 	signBias := interFrameSignBias(cfg)
+	probLast := cfg.ProbLast
+	probGolden := cfg.ProbGolden
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
@@ -410,7 +412,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 				continue
 			}
 			w.WriteBool(1, cfg.ProbIntra)
-			if !WriteInterReferenceFrame(w, cfg, refFrame) {
+			if !writeInterReferenceFrameWithProbs(w, probLast, probGolden, refFrame) {
 				return ErrInvalidPacketConfig
 			}
 			var above *InterFrameMacroblockMode
@@ -579,15 +581,19 @@ func writeSubMotionVectorReference(w *BoolWriter, mode common.BPredictionMode, p
 }
 
 func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) bool {
+	return writeInterReferenceFrameWithProbs(w, cfg.ProbLast, cfg.ProbGolden, refFrame)
+}
+
+func writeInterReferenceFrameWithProbs(w *BoolWriter, probLast uint8, probGolden uint8, refFrame common.MVReferenceFrame) bool {
 	switch refFrame {
 	case common.LastFrame:
-		w.WriteBool(0, cfg.ProbLast)
+		w.WriteBool(0, probLast)
 	case common.GoldenFrame:
-		w.WriteBool(1, cfg.ProbLast)
-		w.WriteBool(0, cfg.ProbGolden)
+		w.WriteBool(1, probLast)
+		w.WriteBool(0, probGolden)
 	case common.AltRefFrame:
-		w.WriteBool(1, cfg.ProbLast)
-		w.WriteBool(1, cfg.ProbGolden)
+		w.WriteBool(1, probLast)
+		w.WriteBool(1, probGolden)
 	default:
 		return false
 	}
