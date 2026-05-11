@@ -712,15 +712,10 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 // cmd/govpx-bench's interframe overshoot is dominated by residual-token
 // / entropy-savings path downstream of the picker.
 //
-// R11-N/R12-C (2026-05-10 investigation): libvpx picker_entry and
-// iteration_outcome oracle rows prove the 720p swap is threshold gating, not
-// predictor derivation. At frame=1 MB(0,3), libvpx sees nearest=(18,0), then
-// skips NEARESTMV because best_rd=204292 <= rd_threshes[NEAREST1]=227842.
-// Govpx previously derived thresholds from the cyclic-refresh segment Q for
-// the same MB, shrinking NEAREST1 to ~82k and testing a mode libvpx never
-// calls. interModeRDThresholdsForReferences now mirrors
-// vp8_initialize_rd_consts: cpi->rd_baseline_thresh is frame-level from
-// cm->base_qindex, while only residual scoring uses the segment quantizer.
+// The threshold gates must use the frame base quantizer, not the active
+// cyclic-refresh segment quantizer. libvpx derives rd_baseline_thresh from
+// cm->base_qindex in vp8_initialize_rd_consts; only residual scoring uses the
+// segment quantizer. Using the segment Q here admits modes libvpx would skip.
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,

@@ -649,10 +649,9 @@ func bPredModeRate(keyFrame bool, mode vp8common.BPredictionMode, above vp8commo
 // vp8_bmode_tree leaves are -B_DC_PRED..-B_HU_PRED (slots 0..9). The
 // vp8_sub_mv_ref_tree leaves are -LEFT4X4..-NEW4X4 (slots 10..13). The
 // second call therefore writes slots 10..13 ONLY — slots 0..3 retain the
-// bmode-token costs from the first init. (Before R12-C this function was
-// returning sub_mv_ref token costs for slots 0..3, which is what an
-// off-by-tree-walk reading of vp8_cost_tokens would suggest but the actual
-// tree-walk only touches the negated-leaf slots.)
+// bmode-token costs from the first init. An off-by-tree-walk reading of
+// vp8_cost_tokens suggests sub_mv_ref token costs for slots 0..3, but the
+// actual tree-walk only touches the negated-leaf slots.
 //
 // pick_intra4x4block iterates `mode = B_DC_PRED..B_HE_PRED` (slots 0..3) and
 // reads `mode_costs[mode]`, which therefore returns the bmode-token cost

@@ -163,9 +163,8 @@ func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArg
 
 // buildPredictedMacroblockCoefficientsRD fuses per-MB residual gather,
 // batched FDCT, per-block quantize+token-cost+context-update, and the
-// Y2 second-order pass into one whole-MB pipeline. R11-C: replaces the
-// per-block FDCT/quantize/token loop with batched FDCT (Y x16 and UV
-// x8) + a single in-bounds residual gather, mirroring libvpx
+// Y2 second-order pass into one whole-MB pipeline. It uses batched FDCT
+// (Y x16 and UV x8) plus a single in-bounds residual gather, mirroring libvpx
 // vp8/encoder/encodemb.c vp8_encode_inter16x16 / vp8_encode_intra16x16
 // where vp8_transform_mb -> vp8_quantize_mb -> tokenize_mb run as one
 // coordinated pass.

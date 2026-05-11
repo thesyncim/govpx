@@ -149,8 +149,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	}
 	if mode.RefFrame == vp8common.IntraFrame && mode.Mode == vp8common.BPred {
 		// Mirror the libvpx oracle dump: emit per-sub-block intra mode picks
-		// for inter-frame B_PRED MBs so the R11-J / R12-C diagnostic can
-		// compare 4x4 picks at the col-7 right-edge MBs on 128x128 frame 1.
+		// for inter-frame B_PRED MBs so parity tooling can compare 4x4 picks.
 		row.BModes = make([]string, len(mode.BModes))
 		for i, bMode := range mode.BModes {
 			row.BModes[i] = oracleTraceBModeName(bMode)
