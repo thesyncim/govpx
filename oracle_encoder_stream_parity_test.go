@@ -45,6 +45,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 	}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
 	splitmv64 := fixture{name: "splitmv-64x64", w: 64, h: 64, source: encoderValidationSplitMVQuadrantFrame}
+	panning96 := fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}
+	panning128 := fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}
+	panning160x96 := fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}
 
 	cases := []struct {
 		name     string
@@ -57,6 +60,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64},
 		{name: "good-quality-cbr-cpu5", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: panning64},
 		{name: "best-quality-cbr-cpu0-splitmv", deadline: DeadlineBestQuality, cpuUsed: 0, fx: splitmv64},
+		// Larger fixtures where chroma sub-pel rounding previously
+		// diverged on inter frames (per plan.md). The keyframe is
+		// expected to byte-match after the mb_no_coeff_skip header
+		// fix; inter frames here are the next divergence to close.
+		{name: "realtime-cbr-cpu8-96x96", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning96},
+		{name: "realtime-cbr-cpu8-128x128", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning128},
+		{name: "realtime-cbr-cpu8-160x96", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning160x96},
 	}
 
 	for _, tc := range cases {
