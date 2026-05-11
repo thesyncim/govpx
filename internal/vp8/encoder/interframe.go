@@ -95,7 +95,7 @@ func DefaultInterFrameStateConfig(baseQIndex uint8) InterFrameStateConfig {
 	}
 }
 
-func WriteInterFrameStateHeader(w *BoolWriter, cfg InterFrameStateConfig) error {
+func WriteInterFrameStateHeader(w *BoolWriter, cfg *InterFrameStateConfig) error {
 	if w == nil || !validInterFrameStateConfig(cfg) {
 		return ErrInvalidPacketConfig
 	}
@@ -154,10 +154,10 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 	firstStart := FrameTagSize
 	first := BoolWriter{}
 	first.Init(dst[firstStart:])
-	if err := WriteInterFrameStateHeader(&first, cfg); err != nil {
+	if err := WriteInterFrameStateHeader(&first, &cfg); err != nil {
 		return 0, err
 	}
-	if err := WriteReferenceFrameZeroMVModeGrid(&first, rows, cols, cfg, refFrame); err != nil {
+	if err := WriteReferenceFrameZeroMVModeGrid(&first, rows, cols, &cfg, refFrame); err != nil {
 		return 0, err
 	}
 	first.Finish()
@@ -219,41 +219,70 @@ type InterFrameMacroblockMode struct {
 	ImprovedMVPredictor    MotionVector
 }
 
+// InterFramePacket owns the packet-writer inputs for a fully reconstructed
+// inter frame. State is a value so convenience callers stay allocation-free;
+// callers that need the adapted probability tables read them from the result.
+type InterFramePacket struct {
+	Dst      []byte
+	Width    int
+	Height   int
+	State    InterFrameStateConfig
+	Modes    []InterFrameMacroblockMode
+	Coeffs   []MacroblockCoefficients
+	Above    []TokenContextPlanes
+	CoefBase *tables.CoefficientProbs
+
+	YModeBase  *[tables.YModeProbCount]uint8
+	UVModeBase *[tables.UVModeProbCount]uint8
+	MVBase     *[2][tables.MVPCount]uint8
+	Scratch    *PartitionScratch
+}
+
+type InterFramePacketResult struct {
+	Size             int
+	FrameCoefProbs   tables.CoefficientProbs
+	FrameYModeProbs  [tables.YModeProbCount]uint8
+	FrameUVModeProbs [tables.UVModeProbCount]uint8
+	FrameMVProbs     [2][tables.MVPCount]uint8
+	CoefSavingsBits  int
+}
+
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
-	n, _, _, _, _, err := WriteCoefficientInterFrameWithProbabilityBase(dst, width, height, cfg, modes, coeffs, above, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext)
-	return n, err
-}
-
-func WriteCoefficientInterFrameWithProbabilityBase(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8) (int, tables.CoefficientProbs, [tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
-	return WriteCoefficientInterFrameWithProbabilityBaseScratch(dst, width, height, cfg, modes, coeffs, above, coefBase, yModeBase, uvModeBase, mvBase, nil)
-}
-
-// WriteCoefficientInterFrameWithProbabilityBaseScratch is the
-// allocation-pooled variant. Callers in the encoder hot path pass a
-// long-lived *PartitionScratch so the multi-token-partition path reuses
-// its per-partition byte buffers across encodes; passing nil falls back to
-// allocating per call (preserves the legacy public API behaviour).
-func WriteCoefficientInterFrameWithProbabilityBaseScratch(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8, partScratch *PartitionScratch) (int, tables.CoefficientProbs, [tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, error) {
-	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, _, err := WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst, width, height, cfg, modes, coeffs, above, coefBase, yModeBase, uvModeBase, mvBase, partScratch)
-	return n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, err
-}
-
-func WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, coefBase *tables.CoefficientProbs, yModeBase [tables.YModeProbCount]uint8, uvModeBase [tables.UVModeProbCount]uint8, mvBase [2][tables.MVPCount]uint8, partScratch *PartitionScratch) (int, tables.CoefficientProbs, [tables.YModeProbCount]uint8, [tables.UVModeProbCount]uint8, [2][tables.MVPCount]uint8, int, error) {
-	if len(dst) < FrameTagSize {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, ErrBufferTooSmall
+	packet := InterFramePacket{
+		Dst:    dst,
+		Width:  width,
+		Height: height,
+		State:  cfg,
+		Modes:  modes,
+		Coeffs: coeffs,
+		Above:  above,
 	}
-	if width <= 0 || width > 0x3fff || height <= 0 || height > 0x3fff {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, ErrInvalidPacketConfig
+	result, err := packet.Write()
+	return result.Size, err
+}
+
+func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
+	var result InterFramePacketResult
+	if p == nil {
+		return result, ErrInvalidPacketConfig
 	}
+	if len(p.Dst) < FrameTagSize {
+		return result, ErrBufferTooSmall
+	}
+	if p.Width <= 0 || p.Width > 0x3fff || p.Height <= 0 || p.Height > 0x3fff {
+		return result, ErrInvalidPacketConfig
+	}
+	cfg := &p.State
 	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
 	if !ok || !cfg.MBNoCoeffSkip {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, ErrInvalidPacketConfig
+		return result, ErrInvalidPacketConfig
 	}
-	rows := (height + 15) >> 4
-	cols := (width + 15) >> 4
+	rows := (p.Height + 15) >> 4
+	cols := (p.Width + 15) >> 4
 	required := rows * cols
-	if coefBase == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, ErrModeBufferTooSmall
+	coefBase := p.coefBase()
+	if len(p.Modes) < required || len(p.Coeffs) < required || len(p.Above) < cols {
+		return result, ErrModeBufferTooSmall
 	}
 	var (
 		frameCoefProbs tables.CoefficientProbs
@@ -261,48 +290,48 @@ func WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst []byte, 
 		err            error
 	)
 	if cfg.IndependentContexts {
-		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesIndependent(rows, cols, modes, coeffs, above, coefBase, false)
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesIndependent(rows, cols, p.Modes, p.Coeffs, p.Above, coefBase, false)
 	} else {
-		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, coefBase)
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdates(rows, cols, p.Modes, p.Coeffs, p.Above, coefBase)
 	}
 	if err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		return result, err
 	}
 	cfg.CoefficientProbs = coefUpdates
-	frameYModeProbs, frameUVModeProbs, frameMVProbs, err := adaptInterFrameModeProbabilitiesWithBases(rows, cols, modes, yModeBase, uvModeBase, mvBase, &cfg)
+	frameYModeProbs, frameUVModeProbs, frameMVProbs, err := adaptInterFrameModeProbabilitiesWithBases(rows, cols, p.Modes, p.yModeBase(), p.uvModeBase(), p.mvBase(), cfg)
 	if err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		return result, err
 	}
 
 	firstStart := FrameTagSize
 	first := BoolWriter{}
-	first.Init(dst[firstStart:])
+	first.Init(p.Dst[firstStart:])
 	if err := WriteInterFrameStateHeader(&first, cfg); err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		return result, err
 	}
-	if err := WriteLastFrameZeroMVModeGridWithSkip(&first, rows, cols, cfg, modes); err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+	if err := WriteLastFrameZeroMVModeGridWithSkip(&first, rows, cols, cfg, p.Modes); err != nil {
+		return result, err
 	}
 	first.Finish()
 	if err := first.Err(); err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		return result, err
 	}
 	firstSize := first.BytesWritten()
 	if firstSize > MaxFirstPartitionSize {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, ErrInvalidPacketConfig
+		return result, ErrInvalidPacketConfig
 	}
 
 	tokenStart := firstStart + firstSize
 	n := 0
 	if partitionCount == 1 {
 		tokens := BoolWriter{}
-		tokens.Init(dst[tokenStart:])
-		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
-			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		tokens.Init(p.Dst[tokenStart:])
+		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
+			return result, err
 		}
 		tokens.Finish()
 		if err := tokens.Err(); err != nil {
-			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+			return result, err
 		}
 		n = tokenStart + tokens.BytesWritten()
 	} else {
@@ -311,31 +340,61 @@ func WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst []byte, 
 			partitions int
 			resolved   *PartitionScratch
 		)
-		resolved, partitions, err = preparePartitionWriters(partScratch, &writers, dst, tokenStart, cfg.TokenPartition)
+		resolved, partitions, err = preparePartitionWriters(p.Scratch, &writers, p.Dst, tokenStart, cfg.TokenPartition)
 		if err != nil {
-			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+			return result, err
 		}
-		if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, modes, coeffs, above, &frameCoefProbs); err != nil {
-			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+		if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
+			return result, err
 		}
-		n, err = finalizePartitionedTokenPayload(resolved, &writers, dst, tokenStart, partitions)
+		n, err = finalizePartitionedTokenPayload(resolved, &writers, p.Dst, tokenStart, partitions)
 		if err != nil {
-			return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+			return result, err
 		}
 	}
 
-	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
-		return 0, tables.CoefficientProbs{}, [tables.YModeProbCount]uint8{}, [tables.UVModeProbCount]uint8{}, [2][tables.MVPCount]uint8{}, 0, err
+	if err := PutFrameTag(p.Dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+		return result, err
 	}
-	return n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, coefUpdates.SavingsBits, nil
+	result.Size = n
+	result.FrameCoefProbs = frameCoefProbs
+	result.FrameYModeProbs = frameYModeProbs
+	result.FrameUVModeProbs = frameUVModeProbs
+	result.FrameMVProbs = frameMVProbs
+	result.CoefSavingsBits = coefUpdates.SavingsBits
+	return result, nil
 }
 
-func WriteLastFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig) error {
-	return WriteReferenceFrameZeroMVModeGrid(w, rows, cols, cfg, common.LastFrame)
+func (p *InterFramePacket) coefBase() *tables.CoefficientProbs {
+	if p.CoefBase != nil {
+		return p.CoefBase
+	}
+	return &tables.DefaultCoefProbs
 }
 
-func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) error {
-	if w == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip || !validSegmentationConfig(cfg.Segmentation) {
+func (p *InterFramePacket) yModeBase() [tables.YModeProbCount]uint8 {
+	if p.YModeBase != nil {
+		return *p.YModeBase
+	}
+	return tables.DefaultYModeProbs
+}
+
+func (p *InterFramePacket) uvModeBase() [tables.UVModeProbCount]uint8 {
+	if p.UVModeBase != nil {
+		return *p.UVModeBase
+	}
+	return tables.DefaultUVModeProbs
+}
+
+func (p *InterFramePacket) mvBase() [2][tables.MVPCount]uint8 {
+	if p.MVBase != nil {
+		return *p.MVBase
+	}
+	return tables.DefaultMVContext
+}
+
+func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg *InterFrameStateConfig, refFrame common.MVReferenceFrame) error {
+	if w == nil || cfg == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip || !validSegmentationConfig(cfg.Segmentation) {
 		return ErrInvalidPacketConfig
 	}
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
@@ -366,7 +425,7 @@ func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg In
 	return nil
 }
 
-func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode) error {
+func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg *InterFrameStateConfig, modes []InterFrameMacroblockMode) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall
 	}
@@ -374,7 +433,7 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 		return ErrModeBufferTooSmall
 	}
 	required := rows * cols
-	if w == nil || len(modes) < required || !cfg.MBNoCoeffSkip {
+	if w == nil || cfg == nil || len(modes) < required || !cfg.MBNoCoeffSkip {
 		return ErrModeBufferTooSmall
 	}
 	if !validSegmentationConfig(cfg.Segmentation) {
@@ -580,10 +639,6 @@ func writeSubMotionVectorReference(w *BoolWriter, mode common.BPredictionMode, p
 	return w.Err() == nil
 }
 
-func WriteInterReferenceFrame(w *BoolWriter, cfg InterFrameStateConfig, refFrame common.MVReferenceFrame) bool {
-	return writeInterReferenceFrameWithProbs(w, cfg.ProbLast, cfg.ProbGolden, refFrame)
-}
-
 func writeInterReferenceFrameWithProbs(w *BoolWriter, probLast uint8, probGolden uint8, refFrame common.MVReferenceFrame) bool {
 	switch refFrame {
 	case common.LastFrame:
@@ -657,7 +712,7 @@ func adaptInterFrameModeProbabilitiesWithBases(rows int, cols int, modes []Inter
 	var yModeCounts [tables.YModeProbCount][2]int
 	var uvModeCounts [tables.UVModeProbCount][2]int
 	var mvEvents motionVectorEventCounts
-	signBias := interFrameSignBias(*cfg)
+	signBias := interFrameSignBias(cfg)
 	for row := range rows {
 		for col := range cols {
 			index := row*cols + col
@@ -887,7 +942,7 @@ func normalizeUVModeProbabilityBase(base [tables.UVModeProbCount]uint8) [tables.
 	return base
 }
 
-func interFrameYModeProbs(cfg InterFrameStateConfig) [tables.YModeProbCount]uint8 {
+func interFrameYModeProbs(cfg *InterFrameStateConfig) [tables.YModeProbCount]uint8 {
 	probs := normalizeYModeProbabilityBase(cfg.YModeBase)
 	if cfg.YModeUpdate {
 		probs = normalizeYModeProbabilityBase(cfg.YModeProbs)
@@ -895,7 +950,7 @@ func interFrameYModeProbs(cfg InterFrameStateConfig) [tables.YModeProbCount]uint
 	return probs
 }
 
-func interFrameUVModeProbs(cfg InterFrameStateConfig) [tables.UVModeProbCount]uint8 {
+func interFrameUVModeProbs(cfg *InterFrameStateConfig) [tables.UVModeProbCount]uint8 {
 	probs := normalizeUVModeProbabilityBase(cfg.UVModeBase)
 	if cfg.UVModeUpdate {
 		probs = normalizeUVModeProbabilityBase(cfg.UVModeProbs)
@@ -903,7 +958,7 @@ func interFrameUVModeProbs(cfg InterFrameStateConfig) [tables.UVModeProbCount]ui
 	return probs
 }
 
-func interFrameMVProbs(cfg InterFrameStateConfig) [2][tables.MVPCount]uint8 {
+func interFrameMVProbs(cfg *InterFrameStateConfig) [2][tables.MVPCount]uint8 {
 	probs := cfg.MVBase
 	if probs == ([2][tables.MVPCount]uint8{}) {
 		probs = tables.DefaultMVContext
@@ -1103,7 +1158,7 @@ type InterModeCounts struct {
 	Split   uint8
 }
 
-func interFrameSignBias(cfg InterFrameStateConfig) [common.MaxRefFrames]bool {
+func interFrameSignBias(cfg *InterFrameStateConfig) [common.MaxRefFrames]bool {
 	return [common.MaxRefFrames]bool{
 		common.GoldenFrame: cfg.GoldenSignBias,
 		common.AltRefFrame: cfg.AltRefSignBias,
@@ -1589,7 +1644,7 @@ func interModeUses4x4Tokens(mode common.MBPredictionMode) bool {
 	return mode == common.BPred || mode == common.SplitMV
 }
 
-func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {
+func writeInterRefreshHeader(w *BoolWriter, cfg *InterFrameStateConfig) {
 	writeBoolBit(w, cfg.RefreshGolden)
 	writeBoolBit(w, cfg.RefreshAltRef)
 	if !cfg.RefreshGolden {
@@ -1604,7 +1659,7 @@ func writeInterRefreshHeader(w *BoolWriter, cfg InterFrameStateConfig) {
 	writeBoolBit(w, cfg.RefreshLast)
 }
 
-func writeInterModeHeader(w *BoolWriter, cfg InterFrameStateConfig) error {
+func writeInterModeHeader(w *BoolWriter, cfg *InterFrameStateConfig) error {
 	writeBoolBit(w, cfg.MBNoCoeffSkip)
 	if cfg.MBNoCoeffSkip {
 		w.WriteLiteral(uint32(cfg.ProbSkipFalse), 8)
@@ -1686,8 +1741,9 @@ func zeroMVInterModeCounts(row int, col int) uint8 {
 	return counts
 }
 
-func validInterFrameStateConfig(cfg InterFrameStateConfig) bool {
-	return cfg.LoopFilterLevel <= 63 &&
+func validInterFrameStateConfig(cfg *InterFrameStateConfig) bool {
+	return cfg != nil &&
+		cfg.LoopFilterLevel <= 63 &&
 		cfg.SharpnessLevel <= 7 &&
 		cfg.TokenPartition >= common.OnePartition &&
 		cfg.TokenPartition <= common.EightPartition &&

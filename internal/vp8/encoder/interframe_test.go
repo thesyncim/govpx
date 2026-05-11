@@ -552,7 +552,7 @@ func TestWriteLastFrameZeroMVModeGridWithSkipWritesSegmentMap(t *testing.T) {
 	var w BoolWriter
 	buf := make([]byte, 128)
 	w.Init(buf)
-	if err := WriteLastFrameZeroMVModeGridWithSkip(&w, 2, 2, cfg, modes); err != nil {
+	if err := WriteLastFrameZeroMVModeGridWithSkip(&w, 2, 2, &cfg, modes); err != nil {
 		t.Fatalf("WriteLastFrameZeroMVModeGridWithSkip returned error: %v", err)
 	}
 	w.Finish()
@@ -753,20 +753,42 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 			scratchPacket := make([]byte, 8192)
 			publicAbove := make([]TokenContextPlanes, tt.cols)
 			scratchAbove := make([]TokenContextPlanes, tt.cols)
-
-			publicN, publicCoef, publicY, publicUV, publicMV, err := WriteCoefficientInterFrameWithProbabilityBase(publicPacket, tt.cols*16, tt.rows*16, tt.cfg, tt.modes, coeffs, publicAbove, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext)
+			publicResult, err := (&InterFramePacket{
+				Dst:    publicPacket,
+				Width:  tt.cols * 16,
+				Height: tt.rows * 16,
+				State:  tt.cfg,
+				Modes:  tt.modes,
+				Coeffs: coeffs,
+				Above:  publicAbove,
+			}).Write()
 			if err != nil {
-				t.Fatalf("public WriteCoefficientInterFrameWithProbabilityBase returned error: %v", err)
+				t.Fatalf("public InterFramePacket.Write returned error: %v", err)
 			}
 			var scratch PartitionScratch
-			scratchN, scratchCoef, scratchY, scratchUV, scratchMV, _, err := WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(scratchPacket, tt.cols*16, tt.rows*16, tt.cfg, tt.modes, coeffs, scratchAbove, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext, &scratch)
+			scratchResult, err := (&InterFramePacket{
+				Dst:     scratchPacket,
+				Width:   tt.cols * 16,
+				Height:  tt.rows * 16,
+				State:   tt.cfg,
+				Modes:   tt.modes,
+				Coeffs:  coeffs,
+				Above:   scratchAbove,
+				Scratch: &scratch,
+			}).Write()
 			if err != nil {
-				t.Fatalf("scratch WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings returned error: %v", err)
+				t.Fatalf("scratch InterFramePacket.Write returned error: %v", err)
 			}
+			publicN := publicResult.Size
+			scratchN := scratchResult.Size
 			if publicN != scratchN || !bytes.Equal(publicPacket[:publicN], scratchPacket[:scratchN]) {
 				t.Fatalf("scratch packet differs from public path: public=%d scratch=%d", publicN, scratchN)
 			}
-			if publicCoef != scratchCoef || publicY != scratchY || publicUV != scratchUV || publicMV != scratchMV {
+			if publicResult.FrameCoefProbs != scratchResult.FrameCoefProbs ||
+				publicResult.FrameYModeProbs != scratchResult.FrameYModeProbs ||
+				publicResult.FrameUVModeProbs != scratchResult.FrameUVModeProbs ||
+				publicResult.FrameMVProbs != scratchResult.FrameMVProbs ||
+				publicResult.CoefSavingsBits != scratchResult.CoefSavingsBits {
 				t.Fatalf("scratch probability outputs differ from public path")
 			}
 			assertInterPacketDecodes(t, scratchPacket[:scratchN], tt.rows, tt.cols)

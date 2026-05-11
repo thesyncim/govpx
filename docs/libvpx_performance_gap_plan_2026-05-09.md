@@ -276,7 +276,7 @@ Still, focused on `EncodeInto`, the large cumulative nodes are:
 | Loop-filter level picking | `pickLoopFilterLevelFull` / `loopFilterTrialLumaSSE` 13.8% cum | Multiple trial copy/filter/SSE passes before final filter |
 | Mode decision | `selectFastInterFrameModeDecision` 18.6% cum | Still significant after DSP SIMD landed |
 | Candidate RD coefficient work | `buildPredictedMacroblockCoefficientsRD` 11.4% cum | Transform/quant/rate/distortion during candidate scoring |
-| Token/probability writing | `WriteCoefficientInterFrameWithProbabilityBaseScratch` 9.4% cum | Full coefficient/probability pass after RD |
+| Token/probability writing | `InterFramePacket.Write` 9.4% cum | Full coefficient/probability pass after RD |
 | Final loop filter | `applyReconstructionLoopFilter` 5.2% cum | Separate pass after LF search |
 | SIMD leaves | `varianceBlock16x16NEON`, loopfilter NEON, SAD NEON, six-tap NEON | Covered but still called often |
 
@@ -476,9 +476,10 @@ Owner type: bitstream/probability agent.
 Acceptance:
 
 - Packet bytes remain identical for existing tests.
-- `WriteCoefficientInterFrameWithProbabilityBaseScratch` and projected-size
-  helpers show lower cumulative time.
-- No public API changes.
+- `InterFramePacket.Write` and projected-size helpers show lower cumulative
+  time.
+- Internal packet-writer callers use the struct API directly instead of the
+  removed probability-base/scratch wrapper chain.
 
 ### Lane E: 720p realtime search topology
 

@@ -6,7 +6,6 @@ import (
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
-	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestWriteCoefficientInterFrameScratchDecodesWithPublicDecoder(t *testing.T) {
@@ -40,10 +39,21 @@ func TestWriteCoefficientInterFrameScratchDecodesWithPublicDecoder(t *testing.T)
 	above := make([]vp8enc.TokenContextPlanes, cols)
 	inter := make([]byte, 8192)
 	var scratch vp8enc.PartitionScratch
-	interN, _, _, _, _, _, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(inter, width, height, cfg, modes, coeffs, above, &tables.DefaultCoefProbs, tables.DefaultYModeProbs, tables.DefaultUVModeProbs, tables.DefaultMVContext, &scratch)
-	if err != nil {
-		t.Fatalf("WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings returned error: %v", err)
+	packet := vp8enc.InterFramePacket{
+		Dst:     inter,
+		Width:   width,
+		Height:  height,
+		State:   cfg,
+		Modes:   modes,
+		Coeffs:  coeffs,
+		Above:   above,
+		Scratch: &scratch,
 	}
+	packetResult, err := packet.Write()
+	if err != nil {
+		t.Fatalf("InterFramePacket.Write returned error: %v", err)
+	}
+	interN := packetResult.Size
 
 	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {

@@ -1828,8 +1828,8 @@ the anchor and look for the surrounding mismatch.
     the current frame's coefficient content, using
     `defaultKeyFrameIndependentCoefficientBranchCounts` derived from
     libvpx v1.16.0 `defaultcoefcounts.h`. Wiring lives in
-    `WriteCoefficientInterFrameWithProbabilityBase`
-    / `WriteCoefficientKeyFrameWithProbabilityBase` via the
+    `InterFramePacket.Write` /
+    `WriteCoefficientKeyFrameWithProbabilityBase` via the
     `IndependentContexts` field on `InterFrameStateConfig` /
     `KeyFrameStateConfig`, fed from `EncoderOptions.ErrorResilient` in
     [`encoder.go`](../encoder.go). Error-resilient key frames now force

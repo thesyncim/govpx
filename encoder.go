@@ -1982,18 +1982,33 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.Segmentation = segmentation
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
-	n, frameCoefProbs, frameYModeProbs, frameUVModeProbs, frameMVProbs, packetCoefSavings, err := vp8enc.WriteCoefficientInterFrameWithProbabilityBaseScratchAndSavings(dst, e.opts.Width, e.opts.Height, cfg, e.interFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &e.coefProbs, e.modeProbs.YMode, e.modeProbs.UVMode, e.modeProbs.MV, &e.partScratch)
+	packet := vp8enc.InterFramePacket{
+		Dst:        dst,
+		Width:      e.opts.Width,
+		Height:     e.opts.Height,
+		State:      cfg,
+		Modes:      e.interFrameModes[:required],
+		Coeffs:     e.keyFrameCoeffs[:required],
+		Above:      e.tokenAbove[:cols],
+		CoefBase:   &e.coefProbs,
+		YModeBase:  &e.modeProbs.YMode,
+		UVModeBase: &e.modeProbs.UVMode,
+		MVBase:     &e.modeProbs.MV,
+		Scratch:    &e.partScratch,
+	}
+	packetResult, err := packet.Write()
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
+	n := packetResult.Size
 	projectedBits := encodedSizeBits(n)
 	coefSavings := 0
 	refFrameSavings := 0
 	if needProjectedSize {
-		coefSavings = packetCoefSavings
+		coefSavings = packetResult.CoefSavingsBits
 		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: frameCoefProbs, FrameYModeProbs: frameYModeProbs, FrameUVModeProbs: frameUVModeProbs, FrameMVProbs: frameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
