@@ -10,7 +10,7 @@ import (
 	govpx "github.com/thesyncim/govpx"
 )
 
-func benchSummary(cfg benchConfig, deadline string) benchConfigSummary {
+func benchSummary(deadline string) benchConfigSummary {
 	return benchConfigSummary{
 		Deadline: deadline,
 	}
@@ -26,9 +26,7 @@ type benchCLIOptions struct {
 
 func defaultBenchCLIOptions() benchCLIOptions {
 	return benchCLIOptions{
-		format:      "text",
-		autoCompare: true,
-		buildLibvpx: true,
+		format: "text",
 	}
 }
 
@@ -41,13 +39,13 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	fs.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	fs.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
-	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip govpx and libvpx quality decode/PSNR/SSIM computation")
+	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
-	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and libvpx; negative realtime values pin libvpx Speed")
+	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
-	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
-	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
+	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for reference comparison")
+	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", "", "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
 	fs.BoolVar(&opts.buildLibvpx, "build-libvpx", opts.buildLibvpx, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
 	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
@@ -67,11 +65,11 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	needOracle := cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
 	if buildIfMissing && haveRoot && (needVpxenc || needOracle) {
 		fmt.Fprintln(os.Stderr, "govpx-bench: building libvpx oracle tools (make oracle-tools)")
-		make := exec.Command("make", "oracle-tools")
-		make.Dir = root
-		make.Stdout = os.Stderr
-		make.Stderr = os.Stderr
-		if err := make.Run(); err != nil {
+		makeCmd := exec.Command("make", "oracle-tools")
+		makeCmd.Dir = root
+		makeCmd.Stdout = os.Stderr
+		makeCmd.Stderr = os.Stderr
+		if err := makeCmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "govpx-bench: make oracle-tools failed: %v\n", err)
 		}
 	}

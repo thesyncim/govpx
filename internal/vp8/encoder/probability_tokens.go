@@ -25,22 +25,10 @@ func ResetInterCoefficientTokenCounts(counts *InterCoefficientTokenCounts) {
 	*counts = InterCoefficientTokenCounts{}
 }
 
-// AccumulateInterMacroblockTokenCounts adds the per-MB token counts derived
-// from the supplied coefficients to the accumulator, then updates above/left
-// context planes to mirror the count walk in buildInterCoefficientTokenCounts.
-// Used by accepted-MB reconstruction so the packet writer can reuse the
-// counts without re-walking the grid.
-func AccumulateInterMacroblockTokenCounts(counts *InterCoefficientTokenCounts, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
-	if counts == nil {
-		return ErrInvalidPacketConfig
-	}
-	return countCoefficientMacroblockTokens(is4x4, above, left, coeffs, counts)
-}
-
 // AccumulateInterMacroblockTokenCountsAndRecords adds the supplied MB's
 // coefficient tokens to both the probability-update counts and the prepared
-// token-record stream. The above/left context mutations are identical to
-// AccumulateInterMacroblockTokenCounts.
+// token-record stream. The above/left context mutations mirror
+// buildInterCoefficientTokenCounts.
 func AccumulateInterMacroblockTokenCountsAndRecords(counts *InterCoefficientTokenCounts, records *InterCoefficientTokenRecords, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
 	if counts == nil {
 		return ErrInvalidPacketConfig

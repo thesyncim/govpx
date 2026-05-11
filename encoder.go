@@ -22,32 +22,50 @@ func nanotime() int64
 //go:linkname runtimeProcYield runtime.procyield
 func runtimeProcYield(cycles uint32)
 
+// Deadline selects the encoder speed/quality operating mode.
 type Deadline int
 
 const (
+	// DeadlineBestQuality favors quality and exhaustive decisions.
 	DeadlineBestQuality Deadline = iota
+	// DeadlineGoodQuality favors quality with bounded speed features.
 	DeadlineGoodQuality
+	// DeadlineRealtime favors low-latency realtime decisions.
 	DeadlineRealtime
 )
 
+// EncodeFlags controls per-frame VP8 reference and packet behavior.
 type EncodeFlags uint32
 
 const (
+	// EncodeForceKeyFrame forces the next encoded packet to be a key frame.
 	EncodeForceKeyFrame EncodeFlags = 1 << iota
 
+	// EncodeInvisibleFrame encodes a hidden frame that updates references but
+	// is not displayed.
 	EncodeInvisibleFrame
 
+	// EncodeNoReferenceLast prevents inter prediction from LAST.
 	EncodeNoReferenceLast
+	// EncodeNoReferenceGolden prevents inter prediction from GOLDEN.
 	EncodeNoReferenceGolden
+	// EncodeNoReferenceAltRef prevents inter prediction from ALTREF.
 	EncodeNoReferenceAltRef
 
+	// EncodeNoUpdateLast prevents refreshing LAST from this frame.
 	EncodeNoUpdateLast
+	// EncodeNoUpdateGolden prevents refreshing GOLDEN from this frame.
 	EncodeNoUpdateGolden
+	// EncodeNoUpdateAltRef prevents refreshing ALTREF from this frame.
 	EncodeNoUpdateAltRef
 
+	// EncodeNoUpdateEntropy prevents the frame from committing updated entropy
+	// probabilities.
 	EncodeNoUpdateEntropy
 
+	// EncodeForceGoldenFrame forces a GOLDEN refresh from this frame.
 	EncodeForceGoldenFrame
+	// EncodeForceAltRefFrame forces an ALTREF refresh from this frame.
 	EncodeForceAltRefFrame
 )
 
@@ -55,36 +73,65 @@ const (
 // nanoseconds. The encoder updates the caller-owned value only when
 // EncoderOptions.PhaseStats is non-nil; normal encodes do not read the clock.
 type EncoderPhaseStats struct {
+	// InterReconstructNS is time spent rebuilding inter-frame prediction and
+	// residual planes.
 	InterReconstructNS int64 `json:"inter_reconstruct_ns"`
-	KeyReconstructNS   int64 `json:"key_reconstruct_ns"`
-	LoopFilterPickNS   int64 `json:"loop_filter_pick_ns"`
-	LoopFilterApplyNS  int64 `json:"loop_filter_apply_ns"`
-	PacketWriteNS      int64 `json:"packet_write_ns"`
-	InterAttempts      int64 `json:"inter_attempts"`
-	KeyAttempts        int64 `json:"key_attempts"`
+	// KeyReconstructNS is time spent rebuilding key-frame prediction and
+	// residual planes.
+	KeyReconstructNS int64 `json:"key_reconstruct_ns"`
+	// LoopFilterPickNS is time spent selecting loop-filter parameters.
+	LoopFilterPickNS int64 `json:"loop_filter_pick_ns"`
+	// LoopFilterApplyNS is time spent applying the loop filter to committed
+	// frames.
+	LoopFilterApplyNS int64 `json:"loop_filter_apply_ns"`
+	// PacketWriteNS is time spent packing VP8 frame data.
+	PacketWriteNS int64 `json:"packet_write_ns"`
+	// InterAttempts counts inter-frame encode attempts, including recodes.
+	InterAttempts int64 `json:"inter_attempts"`
+	// KeyAttempts counts key-frame encode attempts, including recodes.
+	KeyAttempts int64 `json:"key_attempts"`
 
-	LoopFilterTrials        int64 `json:"loop_filter_trials"`
-	LoopFilterTrialCopyNS   int64 `json:"loop_filter_trial_copy_ns"`
+	// LoopFilterTrials counts candidate filter-strength evaluations.
+	LoopFilterTrials int64 `json:"loop_filter_trials"`
+	// LoopFilterTrialCopyNS is time spent copying trial frame buffers.
+	LoopFilterTrialCopyNS int64 `json:"loop_filter_trial_copy_ns"`
+	// LoopFilterTrialFilterNS is time spent filtering trial frame buffers.
 	LoopFilterTrialFilterNS int64 `json:"loop_filter_trial_filter_ns"`
-	LoopFilterTrialSSENS    int64 `json:"loop_filter_trial_sse_ns"`
+	// LoopFilterTrialSSENS is time spent scoring loop-filter trials.
+	LoopFilterTrialSSENS int64 `json:"loop_filter_trial_sse_ns"`
 
-	InterRDCoeffCacheRequests  int64 `json:"inter_rd_coeff_cache_requests"`
-	InterRDCoeffCacheDCTHits   int64 `json:"inter_rd_coeff_cache_dct_hits"`
+	// InterRDCoeffCacheRequests counts inter RD coefficient-cache lookups.
+	InterRDCoeffCacheRequests int64 `json:"inter_rd_coeff_cache_requests"`
+	// InterRDCoeffCacheDCTHits counts cached DCT/residual reuse hits.
+	InterRDCoeffCacheDCTHits int64 `json:"inter_rd_coeff_cache_dct_hits"`
+	// InterRDCoeffCacheCoeffHits counts cached quantized-coefficient reuse hits.
 	InterRDCoeffCacheCoeffHits int64 `json:"inter_rd_coeff_cache_coeff_hits"`
-	InterCoefTokenRecords      int64 `json:"inter_coef_token_records"`
+	// InterCoefTokenRecords counts token-rate records produced during inter RD.
+	InterCoefTokenRecords int64 `json:"inter_coef_token_records"`
 
-	FullPelSADCalls      int64 `json:"fullpel_sad_calls"`
+	// FullPelSADCalls counts full-pixel SAD search invocations.
+	FullPelSADCalls int64 `json:"fullpel_sad_calls"`
+	// FullPelSADCandidates counts full-pixel candidate positions scored.
 	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
-	FullPelBatchCalls    int64 `json:"fullpel_batch_calls"`
+	// FullPelBatchCalls counts vectorized multi-candidate SAD batches.
+	FullPelBatchCalls int64 `json:"fullpel_batch_calls"`
+	// FullPelBoundsRejects counts full-pixel candidates outside legal bounds.
 	FullPelBoundsRejects int64 `json:"fullpel_bounds_rejects"`
-	FullPelEarlyBreaks   int64 `json:"fullpel_early_breaks"`
-	SubpelCandidates     int64 `json:"subpel_candidates"`
-	SubpelVarianceCalls  int64 `json:"subpel_variance_calls"`
-	SubpelCacheHits      int64 `json:"subpel_cache_hits"`
-	SubpelBoundsRejects  int64 `json:"subpel_bounds_rejects"`
-	SubpelEarlyBreaks    int64 `json:"subpel_early_breaks"`
+	// FullPelEarlyBreaks counts SAD evaluations stopped by an existing best.
+	FullPelEarlyBreaks int64 `json:"fullpel_early_breaks"`
+	// SubpelCandidates counts sub-pixel candidate positions scored.
+	SubpelCandidates int64 `json:"subpel_candidates"`
+	// SubpelVarianceCalls counts sub-pixel variance evaluations.
+	SubpelVarianceCalls int64 `json:"subpel_variance_calls"`
+	// SubpelCacheHits counts sub-pixel predictor-cache hits.
+	SubpelCacheHits int64 `json:"subpel_cache_hits"`
+	// SubpelBoundsRejects counts sub-pixel candidates outside legal bounds.
+	SubpelBoundsRejects int64 `json:"subpel_bounds_rejects"`
+	// SubpelEarlyBreaks counts sub-pixel evaluations stopped by an existing best.
+	SubpelEarlyBreaks int64 `json:"subpel_early_breaks"`
 }
 
+// Reset clears all accumulated phase counters.
 func (s *EncoderPhaseStats) Reset() {
 	if s == nil {
 		return
@@ -102,16 +149,18 @@ const (
 	encoderPhasePacketWrite
 )
 
+// EncoderOptions configures a VP8 encoder.
 type EncoderOptions struct {
+	// Width and Height are the fixed visible dimensions accepted by EncodeInto.
 	Width  int
 	Height int
 
-	// Convenience framerate model.
-	// If FPS is set, TimebaseNum/TimebaseDen may be derived.
+	// FPS sets a 1/FPS timebase when TimebaseNum and TimebaseDen are zero.
 	FPS int
 
-	// Explicit timing model.
+	// TimebaseNum is the numerator of the caller timebase.
 	TimebaseNum int
+	// TimebaseDen is the denominator of the caller timebase.
 	TimebaseDen int
 
 	// Threads selects the worker-goroutine count for the inter-frame
@@ -136,27 +185,40 @@ type EncoderOptions struct {
 	//   - A negative value is rejected with ErrInvalidConfig.
 	Threads int
 
-	// Rate control.
-	RateControlMode   RateControlMode
+	// RateControlMode selects VBR, CBR, or constrained-quality behavior.
+	RateControlMode RateControlMode
+	// TargetBitrateKbps is the total target bitrate.
 	TargetBitrateKbps int
-	MinBitrateKbps    int
-	MaxBitrateKbps    int
+	// MinBitrateKbps optionally bounds runtime bitrate updates.
+	MinBitrateKbps int
+	// MaxBitrateKbps optionally bounds runtime bitrate updates.
+	MaxBitrateKbps int
 
+	// MinQuantizer is the lowest public 0..63 quantizer the encoder may use.
 	MinQuantizer int
+	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
 	MaxQuantizer int
 	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. In RateControlCQ mode,
 	// zero uses libvpx's default level unless MinQuantizer is also zero.
 	CQLevel int
 
+	// UndershootPct caps libvpx-style downward rate adjustment.
 	UndershootPct int
-	OvershootPct  int
+	// OvershootPct caps libvpx-style upward rate adjustment.
+	OvershootPct int
 
-	BufferSizeMs        int
+	// BufferSizeMs is the virtual rate-control buffer size in milliseconds.
+	BufferSizeMs int
+	// BufferInitialSizeMs is the initial virtual buffer fill in milliseconds.
 	BufferInitialSizeMs int
+	// BufferOptimalSizeMs is the target virtual buffer fill in milliseconds.
 	BufferOptimalSizeMs int
-	MaxIntraBitratePct  int
-	GFCBRBoostPct       int
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
+	MaxIntraBitratePct int
+	// GFCBRBoostPct controls golden-frame boost in CBR mode.
+	GFCBRBoostPct int
 
+	// DropFrameAllowed enables rate-control frame dropping.
 	DropFrameAllowed bool
 	// DropFrameWaterMark mirrors libvpx's rc_dropframe_thresh / oxcf
 	// drop_frames_water_mark (vpx_codec_enc_cfg_t). It is the
@@ -168,13 +230,16 @@ type EncoderOptions struct {
 	// no decimation ever fires.
 	DropFrameWaterMark int
 
+	// TemporalScalability configures automatic temporal-layer scheduling.
 	TemporalScalability TemporalScalabilityConfig
 
-	// Realtime/performance behavior.
+	// Deadline selects the encoder speed/quality operating mode.
 	Deadline Deadline
-	CpuUsed  int
+	// CpuUsed selects the libvpx-style speed preset in [-16, 16].
+	CpuUsed int
 
-	// GOP/keyframe behavior.
+	// KeyFrameInterval is the maximum GOP distance in frames. Zero disables
+	// interval-forced key frames.
 	KeyFrameInterval int
 	// LookaheadFrames enables buffered encoding. When positive, EncodeInto
 	// queues input frames and returns ErrFrameNotReady until enough future
@@ -193,7 +258,7 @@ type EncoderOptions struct {
 	// the committed inter-mode map crosses the intra-percentage thresholds.
 	AdaptiveKeyFrames bool
 
-	// VP8 behavior.
+	// ErrorResilient writes frames that reset inter-frame entropy adaptation.
 	ErrorResilient bool
 	// ErrorResilientPartitions mirrors libvpx's
 	// VPX_ERROR_RESILIENT_PARTITIONS bit (set via `--error-resilient=2` or
@@ -207,7 +272,7 @@ type EncoderOptions struct {
 	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
-	// Quality knobs.
+	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
 	Sharpness int
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
 	// 1=Y denoise, 2=YUV denoise, 3..6=more aggressive YUV denoise.
@@ -219,10 +284,13 @@ type EncoderOptions struct {
 	ARNRStrength  int
 	ARNRType      int
 	// TwoPassStats enables second-pass VBR planning when non-empty.
-	TwoPassStats      []FirstPassFrameStats
+	TwoPassStats []FirstPassFrameStats
+	// TwoPassVBRBiasPct controls second-pass VBR bias when stats are present.
 	TwoPassVBRBiasPct int
-	TwoPassMinPct     int
-	TwoPassMaxPct     int
+	// TwoPassMinPct sets the second-pass minimum section bitrate percentage.
+	TwoPassMinPct int
+	// TwoPassMaxPct sets the second-pass maximum section bitrate percentage.
+	TwoPassMaxPct int
 	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
@@ -236,11 +304,16 @@ type EncoderOptions struct {
 	PhaseStats *EncoderPhaseStats
 }
 
+// EncodeResult describes one encoder output packet.
 type EncodeResult struct {
+	// Data aliases the caller-provided output buffer passed to EncodeInto or
+	// FlushInto. Copy it if it must outlive that buffer.
 	Data []byte
 
+	// KeyFrame reports whether Data is a VP8 key frame.
 	KeyFrame bool
-	Dropped  bool
+	// Dropped reports that rate control intentionally emitted no packet.
+	Dropped bool
 	// Droppable reports libvpx's encoded-frame discardability signal: true
 	// when the frame updates no reference, entropy, or segmentation state.
 	Droppable bool
@@ -249,8 +322,10 @@ type EncodeResult struct {
 	SceneCut bool
 	// LookaheadDepth reports queued future frames remaining after this frame.
 	LookaheadDepth int
-	ARNRFiltered   bool
-	Denoised       bool
+	// ARNRFiltered reports that the frame used alt-ref noise reduction.
+	ARNRFiltered bool
+	// Denoised reports that denoiser preprocessing changed the source.
+	Denoised bool
 	// FirstPassStats is populated from TwoPassStats when second-pass planning
 	// drives this frame.
 	FirstPassStats FirstPassFrameStats
@@ -258,6 +333,7 @@ type EncodeResult struct {
 	// TwoPassStats drives the frame.
 	TwoPassFrameTargetBits int
 
+	// PTS and Duration echo the caller-provided frame timing values.
 	PTS      uint64
 	Duration uint64
 
@@ -266,31 +342,51 @@ type EncodeResult struct {
 	Quantizer         int
 	InternalQuantizer int
 
+	// SizeBytes is len(Data) for emitted frames.
 	SizeBytes int
 
+	// TargetBitrateKbps is the active total target bitrate.
 	TargetBitrateKbps int
-	FrameTargetBits   int
-	BufferLevelBits   int
+	// FrameTargetBits is the final rate-control target for this frame.
+	FrameTargetBits int
+	// BufferLevelBits is the post-frame rate-control buffer level.
+	BufferLevelBits int
 
-	TemporalLayerID                int
-	TemporalLayerCount             int
-	TemporalLayerSync              bool
-	TL0PICIDX                      uint8
+	// TemporalLayerID is the emitted frame's temporal-layer index.
+	TemporalLayerID int
+	// TemporalLayerCount is the active temporal layer count.
+	TemporalLayerCount int
+	// TemporalLayerSync reports a WebRTC-style temporal sync frame.
+	TemporalLayerSync bool
+	// TL0PICIDX is the temporal-layer-zero picture index.
+	TL0PICIDX uint8
+	// TemporalLayerTargetBitrateKbps is the instantaneous bitrate assigned to
+	// TemporalLayerID.
 	TemporalLayerTargetBitrateKbps int
 	// TemporalLayerCumulativeBitrateKbps reports the cumulative libvpx
 	// ts_target_bitrate[] entry for TemporalLayerID.
 	TemporalLayerCumulativeBitrateKbps int
-	TemporalLayerFrameBandwidthBits    int
-	TemporalLayerBufferLevelBits       int
-	TemporalLayerMaximumBufferBits     int
-	TemporalLayerInputFrames           int
-	TemporalLayerEncodedFrames         int
-	TemporalLayerTotalEncodedFrames    int
-	TemporalLayerEncodedBits           int
+	// TemporalLayerFrameBandwidthBits is the per-frame budget for the layer.
+	TemporalLayerFrameBandwidthBits int
+	// TemporalLayerBufferLevelBits is the post-frame layer buffer level.
+	TemporalLayerBufferLevelBits int
+	// TemporalLayerMaximumBufferBits is the layer buffer cap.
+	TemporalLayerMaximumBufferBits int
+	// TemporalLayerInputFrames counts input frames assigned to the layer.
+	TemporalLayerInputFrames int
+	// TemporalLayerEncodedFrames counts non-dropped frames assigned to the layer.
+	TemporalLayerEncodedFrames int
+	// TemporalLayerTotalEncodedFrames counts all encoded frames up to this frame.
+	TemporalLayerTotalEncodedFrames int
+	// TemporalLayerEncodedBits accumulates layer output bits.
+	TemporalLayerEncodedBits int
 
+	// PSNRHint is a cheap distortion-derived quality hint, not a full PSNR
+	// measurement.
 	PSNRHint float64
 }
 
+// VP8Encoder encodes caller-provided I420 images into raw VP8 frame payloads.
 type VP8Encoder struct {
 	opts EncoderOptions
 
@@ -824,6 +920,8 @@ type interFrameEncodeAttempt struct {
 	CyclicRefreshNextIndex int
 }
 
+// NewVP8Encoder creates a VP8 encoder with validated options and persistent
+// frame buffers sized for EncoderOptions.Width and EncoderOptions.Height.
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	normalized, timing, err := normalizeEncoderOptions(opts)
 	if err != nil {

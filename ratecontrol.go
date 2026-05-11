@@ -2,32 +2,48 @@ package govpx
 
 import "math"
 
+// RateControlMode selects the encoder bitrate control strategy.
 type RateControlMode int
 
 const (
+	// RateControlVBR selects variable bitrate mode.
 	RateControlVBR RateControlMode = iota
+	// RateControlCBR selects constant bitrate mode.
 	RateControlCBR
+	// RateControlCQ selects constrained-quality mode.
 	RateControlCQ
 )
 
+// RateControlConfig is the runtime-updatable subset of encoder rate-control
+// options.
 type RateControlConfig struct {
+	// Mode selects VBR, CBR, or constrained-quality behavior.
 	Mode RateControlMode
 
+	// TargetBitrateKbps is the total target bitrate.
 	TargetBitrateKbps int
-	MinBitrateKbps    int
-	MaxBitrateKbps    int
+	// MinBitrateKbps and MaxBitrateKbps optionally bound runtime bitrate
+	// updates.
+	MinBitrateKbps int
+	MaxBitrateKbps int
 
+	// MinQuantizer and MaxQuantizer bound the public 0..63 quantizer range.
 	MinQuantizer int
 	MaxQuantizer int
-	CQLevel      int
+	// CQLevel is the constrained-quality public quantizer level.
+	CQLevel int
 
+	// UndershootPct and OvershootPct cap libvpx-style rate adjustment.
 	UndershootPct int
 	OvershootPct  int
 
+	// BufferSizeMs, BufferInitialSizeMs, and BufferOptimalSizeMs describe the
+	// virtual rate-control buffer in milliseconds.
 	BufferSizeMs        int
 	BufferInitialSizeMs int
 	BufferOptimalSizeMs int
 
+	// DropFrameAllowed enables rate-control frame dropping.
 	DropFrameAllowed bool
 	// DropFrameWaterMark mirrors libvpx's oxcf.drop_frames_water_mark
 	// (driven by the public --drop-frame=N CLI knob and
@@ -40,20 +56,29 @@ type RateControlConfig struct {
 	// DropFrameAllowed without setting an explicit threshold.
 	DropFrameWaterMark int
 
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
 	MaxIntraBitratePct int
-	GFCBRBoostPct      int
+	// GFCBRBoostPct controls golden-frame boost in CBR mode.
+	GFCBRBoostPct int
 }
 
+// RealtimeTarget describes a low-latency runtime target update.
 type RealtimeTarget struct {
+	// BitrateKbps changes the total target bitrate when non-zero.
 	BitrateKbps int
-	FPS         int
+	// FPS changes the timebase to 1/FPS when non-zero.
+	FPS int
 
+	// Width and Height must match the encoder dimensions when set.
 	Width  int
 	Height int
 
+	// MinQuantizer and MaxQuantizer update the public quantizer range when
+	// non-zero.
 	MinQuantizer int
 	MaxQuantizer int
 
+	// AllowFrameDrop enables or disables realtime frame dropping.
 	AllowFrameDrop bool
 }
 

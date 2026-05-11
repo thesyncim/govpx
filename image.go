@@ -5,13 +5,18 @@ package govpx
 // Plane slices may include stride padding. Width and Height define the visible
 // image size, and callers must honor the per-plane strides.
 type Image struct {
+	// Width and Height are the visible luma dimensions in pixels.
 	Width  int
 	Height int
 
+	// Y, U, and V hold visible plane data plus any caller-owned stride padding.
+	// U and V use 4:2:0 chroma dimensions: (Width+1)/2 by (Height+1)/2.
 	Y []byte
 	U []byte
 	V []byte
 
+	// YStride, UStride, and VStride are bytes between adjacent rows in each
+	// plane. They must be at least the visible width of their plane.
 	YStride int
 	UStride int
 	VStride int

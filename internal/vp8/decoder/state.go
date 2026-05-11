@@ -50,14 +50,6 @@ func ParseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet []byte, fra
 	return parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs, false)
 }
 
-func ParseStateHeaderWithErrorConcealment(packet []byte, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, bool, error) {
-	frame, err := ParseFrameHeader(packet)
-	if err != nil {
-		return FrameHeader{}, StateHeader{}, boolcoder.Decoder{}, false, err
-	}
-	return ParseStateHeaderFromFrameWithErrorConcealment(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs)
-}
-
 func ParseStateHeaderFromFrameWithErrorConcealment(packet []byte, frame FrameHeader, previousQuant QuantHeader, previousLoopFilter LoopFilterHeader, probs *tables.CoefficientProbs, modeProbs *ModeProbs) (FrameHeader, StateHeader, boolcoder.Decoder, bool, error) {
 	frame, state, br, err := parseStateHeaderFromFrameWithReaderAndProbsAndLoopFilter(packet, frame, previousQuant, previousLoopFilter, probs, modeProbs, true)
 	if err != nil {

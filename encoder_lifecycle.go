@@ -8,6 +8,8 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+// Reset returns the encoder to its cold-start state while retaining allocated
+// buffers and validated configuration.
 func (e *VP8Encoder) Reset() {
 	if e == nil {
 		return
@@ -198,6 +200,8 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
 }
 
+// Close releases encoder state. Further method calls return ErrClosed or no
+// output.
 func (e *VP8Encoder) Close() error {
 	if e == nil || e.closed {
 		return ErrClosed

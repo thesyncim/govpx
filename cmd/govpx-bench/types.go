@@ -62,9 +62,8 @@ type measuredEncodePacket struct {
 
 // comparisonReport summarizes how govpx compared against the libvpx
 // reference encoder on the same input. It is populated only when a
-// libvpx vpxenc binary is configured (via `-libvpx-vpxenc` or the
-// `GOVPX_VPXENC` environment variable) so callers can read a single
-// "did we beat libvpx?" snapshot without diffing the full reference
+// libvpx vpxenc binary is explicitly configured so callers can read a
+// single "did we beat libvpx?" snapshot without diffing the full reference
 // block manually.
 type comparisonReport struct {
 	BitrateRatioVsReference float64 `json:"bitrate_ratio_vs_reference"`

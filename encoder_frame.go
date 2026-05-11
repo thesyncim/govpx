@@ -5,6 +5,8 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
+// EncodeInto encodes one input frame into dst. The returned Data slice aliases
+// dst and is invalidated by caller reuse of that buffer.
 func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint64, flags EncodeFlags) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed
@@ -28,6 +30,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
 }
 
+// FlushInto drains a lookahead encoder at end of stream. It returns
+// ErrFrameNotReady when no queued frame can be emitted.
 func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed

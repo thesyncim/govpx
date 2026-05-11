@@ -387,7 +387,7 @@ func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.
 
 func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
-	if serial.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
+	if serial.loopFilterUsesFastSearchForFrame() {
 		t.Fatalf("serial realtime speed=4 used fast loop-filter search")
 	}
 
@@ -395,11 +395,11 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
 		rowWorkers: &rowWorkerPool{},
 	}
-	if threaded.loopFilterUsesFastSearchForFrame(vp8common.InterFrame) {
+	if threaded.loopFilterUsesFastSearchForFrame() {
 		t.Fatalf("threaded realtime speed=4 used fast loop-filter search")
 	}
 	fast := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -5}}
-	if !fast.loopFilterUsesFastSearchForFrame(vp8common.KeyFrame) {
+	if !fast.loopFilterUsesFastSearchForFrame() {
 		t.Fatalf("realtime explicit speed=5 did not use fast loop-filter search")
 	}
 }

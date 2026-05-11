@@ -104,8 +104,9 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 // BuildInterCoefficientProbabilityUpdates but reuses token counts already
 // accumulated by the encoder during accepted-MB reconstruction. The counts
 // must have been built using the same modes/coeffs/context-reset logic as
-// buildInterCoefficientTokenCounts (i.e. AccumulateInterMacroblockTokenCounts
-// for accepted MBs and ResetTokenContextPlanes for skipped MBs).
+// buildInterCoefficientTokenCounts (i.e. the count half of
+// AccumulateInterMacroblockTokenCountsAndRecords for accepted MBs and
+// ResetTokenContextPlanes for skipped MBs).
 func BuildInterCoefficientProbabilityUpdatesFromPrebuiltCounts(base *tables.CoefficientProbs, counts *InterCoefficientTokenCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
 	if base == nil || counts == nil {
 		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig

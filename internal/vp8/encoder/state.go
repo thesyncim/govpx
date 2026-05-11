@@ -2,7 +2,6 @@ package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp8/common"
-	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/bitstream.c keyframe state-header
@@ -139,18 +138,6 @@ func writeLoopFilterDelta(w *BoolWriter, delta int8) {
 		w.WriteBit(1)
 	} else {
 		w.WriteBit(0)
-	}
-}
-
-func WriteNoCoefficientProbabilityUpdates(w *BoolWriter) {
-	for block := range tables.BlockTypes {
-		for band := range tables.CoefBands {
-			for ctx := range tables.PrevCoefContexts {
-				for node := range tables.EntropyNodes {
-					w.WriteBool(0, tables.CoefUpdateProbs[block][band][ctx][node])
-				}
-			}
-		}
 	}
 }
 

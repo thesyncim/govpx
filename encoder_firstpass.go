@@ -25,25 +25,45 @@ const (
 	libvpxFirstPassQIndex = 26
 )
 
+// FirstPassFrameStats mirrors libvpx FIRSTPASS_STATS for one analyzed frame or
+// for the finalized sequence total.
 type FirstPassFrameStats struct {
-	Frame               uint64
-	IntraError          float64
-	CodedError          float64
+	// Frame is the source-frame ordinal accumulated by libvpx first pass.
+	Frame uint64
+	// IntraError is the intra prediction error.
+	IntraError float64
+	// CodedError is the selected coded prediction error.
+	CodedError float64
+	// SSIMWeightedPredErr is the SSIM-weighted prediction error.
 	SSIMWeightedPredErr float64
-	PcntInter           float64
-	PcntMotion          float64
-	PcntSecondRef       float64
-	PcntNeutral         float64
-	MVr                 float64
-	MVrAbs              float64
-	MVc                 float64
-	MVcAbs              float64
-	MVrv                float64
-	MVcv                float64
-	MVInOutCount        float64
-	NewMVCount          float64
-	Duration            float64
-	Count               float64
+	// PcntInter is the fraction of macroblocks coded as inter.
+	PcntInter float64
+	// PcntMotion is the fraction of macroblocks with non-zero motion.
+	PcntMotion float64
+	// PcntSecondRef is the fraction using the second reference.
+	PcntSecondRef float64
+	// PcntNeutral is libvpx's neutral-block fraction.
+	PcntNeutral float64
+	// MVr accumulates signed row motion vectors.
+	MVr float64
+	// MVrAbs accumulates absolute row motion vectors.
+	MVrAbs float64
+	// MVc accumulates signed column motion vectors.
+	MVc float64
+	// MVcAbs accumulates absolute column motion vectors.
+	MVcAbs float64
+	// MVrv accumulates row motion-vector variance terms.
+	MVrv float64
+	// MVcv accumulates column motion-vector variance terms.
+	MVcv float64
+	// MVInOutCount is libvpx's in/out motion-vector accumulator.
+	MVInOutCount float64
+	// NewMVCount counts macroblocks that selected a new motion vector.
+	NewMVCount float64
+	// Duration is the frame duration in caller timebase units.
+	Duration float64
+	// Count is the number of frames represented by this record.
+	Count float64
 	// IsTotal marks an entry as the libvpx terminal "total stats" packet
 	// emitted at end-of-encode (vp8_end_first_pass). The total mirrors
 	// cpi->twopass.total_stats: a running aggregate of every per-frame
@@ -142,6 +162,8 @@ func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
 	return out
 }
 
+// CollectFirstPassStats analyzes one source frame for two-pass VBR planning.
+// It updates the encoder's first-pass reference state but does not emit VP8.
 func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint64, flags EncodeFlags) (FirstPassFrameStats, error) {
 	if e == nil || e.closed {
 		return FirstPassFrameStats{}, ErrClosed

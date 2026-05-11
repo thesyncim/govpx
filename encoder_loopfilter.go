@@ -129,7 +129,7 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	}
 	minLevel := e.libvpxMinLoopFilterLevelForFrame(frameType, refreshGolden, refreshAltRef)
 	ctx := e.newLoopFilterPickContext(src, frameType, sharpness, rows, cols, required, segmentation)
-	if e.loopFilterUsesFastSearchForFrame(frameType) {
+	if e.loopFilterUsesFastSearchForFrame() {
 		level, err := ctx.pickFast(seedLevel, minLevel)
 		if err == nil && level > 0 {
 			e.installLoopFilterSegmentLF(segmentation)
@@ -139,7 +139,7 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 	return ctx.pickFull(seedLevel, minLevel)
 }
 
-func (e *VP8Encoder) loopFilterUsesFastSearchForFrame(frameType vp8common.FrameType) bool {
+func (e *VP8Encoder) loopFilterUsesFastSearchForFrame() bool {
 	return e.loopFilterUsesFastSearch()
 }
 

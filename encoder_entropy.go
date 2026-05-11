@@ -214,14 +214,11 @@ func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8ta
 }
 
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
-	if !attempt.Config.RefreshEntropyProbs {
-		// Mirror libvpx onyx_if.c encode_frame_to_data_rate
-		// `if (refresh_entropy_probs == 0) cm->fc = cm->lfc;` rollback: when
-		// the bitstream did NOT carry a refresh, the post-frame fc is reset
-		// to the pre-frame snapshot (lfc). govpx's e.coefProbs already
-		// reflects that pre-frame snapshot in this branch, so the
-		// per-reference lfc_X snapshots below also see it.
-	} else {
+	// Mirror libvpx onyx_if.c encode_frame_to_data_rate
+	// `if (refresh_entropy_probs == 0) cm->fc = cm->lfc;` rollback: when the
+	// bitstream did NOT carry a refresh, e.coefProbs already reflects the
+	// pre-frame snapshot, so only the refresh=true branch commits new probs.
+	if attempt.Config.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 		e.modeProbs.YMode = attempt.FrameYModeProbs
 		e.modeProbs.UVMode = attempt.FrameUVModeProbs

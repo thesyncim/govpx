@@ -1,31 +1,58 @@
 package govpx
 
 const (
+	// MaxTemporalLayers is the largest VP8 temporal-layer count exposed by
+	// govpx.
 	MaxTemporalLayers     = 5
 	maxTemporalPeriodSize = 16
 )
 
+// TemporalLayeringMode selects a built-in temporal scalability pattern.
 type TemporalLayeringMode int
 
 const (
+	// TemporalLayeringOneLayer disables temporal layering.
 	TemporalLayeringOneLayer TemporalLayeringMode = iota
+	// TemporalLayeringTwoLayers selects the common two-layer pattern.
 	TemporalLayeringTwoLayers
+	// TemporalLayeringTwoLayersThreeFrame selects a three-frame two-layer
+	// pattern.
 	TemporalLayeringTwoLayersThreeFrame
+	// TemporalLayeringThreeLayersSixFrame selects a six-frame three-layer
+	// pattern.
 	TemporalLayeringThreeLayersSixFrame
+	// TemporalLayeringThreeLayersNoInterLayerPrediction disables inter-layer
+	// prediction in the three-layer pattern.
 	TemporalLayeringThreeLayersNoInterLayerPrediction
+	// TemporalLayeringThreeLayersLayerOnePrediction allows layer-one
+	// prediction in the three-layer pattern.
 	TemporalLayeringThreeLayersLayerOnePrediction
+	// TemporalLayeringThreeLayers selects the default three-layer pattern.
 	TemporalLayeringThreeLayers
+	// TemporalLayeringFiveLayers selects a five-layer pattern.
 	TemporalLayeringFiveLayers
+	// TemporalLayeringTwoLayersWithSync selects two layers with sync frames.
 	TemporalLayeringTwoLayersWithSync
+	// TemporalLayeringThreeLayersWithSync selects three layers with sync
+	// frames.
 	TemporalLayeringThreeLayersWithSync
+	// TemporalLayeringThreeLayersAltRefWithSync selects three layers with
+	// alt-ref-backed sync frames.
 	TemporalLayeringThreeLayersAltRefWithSync
+	// TemporalLayeringThreeLayersOneReference selects a three-layer one-ref
+	// pattern.
 	TemporalLayeringThreeLayersOneReference
+	// TemporalLayeringThreeLayersNoSync selects a three-layer pattern without
+	// sync signaling.
 	TemporalLayeringThreeLayersNoSync
 )
 
+// TemporalScalabilityConfig configures automatic temporal-layer scheduling.
 type TemporalScalabilityConfig struct {
+	// Enabled turns on temporal layering.
 	Enabled bool
-	Mode    TemporalLayeringMode
+	// Mode selects the built-in layer pattern.
+	Mode TemporalLayeringMode
 
 	// LayerTargetBitrateKbps is cumulative by temporal layer, matching
 	// libvpx's ts_target_bitrate[] contract.

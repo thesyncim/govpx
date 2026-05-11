@@ -165,7 +165,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		EncodedFrames: encodedFrames,
 		DroppedFrames: droppedFrames,
 		QuantizerHist: quantizerHistogramMap(&quantHist),
-		Options:       benchSummary(cfg, deadlineName),
+		Options:       benchSummary(deadlineName),
 	}
 	if cfg.PhaseTiming {
 		report.PhaseNS = &phaseStats
@@ -181,8 +181,8 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	return report, nil
 }
 
-// buildComparisonReport derives govpx-vs-libvpx ratios and deltas from a
-// completed govpx benchReport plus its libvpx referenceReport. Ratios are
+// measuredEncodeQualityMetrics decodes measured govpx packets and compares
+// each visible output against its source frame.
 func measuredEncodeQualityMetrics(packets []measuredEncodePacket, frames []govpx.Image) (float64, float64, int, error) {
 	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {

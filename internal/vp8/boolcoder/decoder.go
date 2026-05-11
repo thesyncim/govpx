@@ -419,18 +419,6 @@ func (d *Decoder) Corrupted() bool {
 	return d.Err() != nil
 }
 
-func (d *Decoder) Range() uint32 {
-	return d.rng
-}
-
-func (d *Decoder) Count() int {
-	return d.count
-}
-
-func (d *Decoder) Pos() int {
-	return d.pos
-}
-
 func (d *Decoder) fill() {
 	shift := valueSize - 8 - (d.count + 8)
 	bytesLeft := len(d.buf) - d.pos

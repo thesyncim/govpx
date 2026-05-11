@@ -104,7 +104,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 		t.Fatalf("predictAnalysisMacroblock returned false")
 	}
 	gotYRate, gotYDist, _, _ := wholeBlockYTransformRD(
-		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 20, 0,
+		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0,
 		nil, nil, &quant, &probs, false,
 	)
 	if yRate != gotYRate+yModeRate {
@@ -115,7 +115,7 @@ func TestPredictBestWholeBlockIntraPicksVerticalGradient(t *testing.T) {
 		t.Fatalf("Y distortion = %d, want fresh transform-RD distortion %d", yDist, gotYDist)
 	}
 	gotUVTokRate, gotUVDist := wholeBlockChromaTransformRD(
-		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 20, 0,
+		sourceImageFromPublic(src), &freshPred.Img, mbRow, mbCol, 0,
 		nil, nil, &quant, &probs, false,
 	)
 	if uvRate != gotUVTokRate+uvModeRate {

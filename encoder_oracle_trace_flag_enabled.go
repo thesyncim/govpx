@@ -23,6 +23,8 @@ type oracleTraceState struct {
 
 var oracleTraceStates sync.Map
 
+// SetOracleTraceWriter enables oracle trace emission for this encoder. It is
+// available only in govpx_oracle_trace builds.
 func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
 	if e == nil {
 		return
@@ -35,6 +37,8 @@ func (e *VP8Encoder) SetOracleTraceWriter(w io.Writer) {
 	state.writer = w
 }
 
+// SetOracleTracePredictorDump enables predictor-plane rows in oracle traces.
+// It is available only in govpx_oracle_trace builds.
 func (e *VP8Encoder) SetOracleTracePredictorDump(enabled bool, allRows bool) {
 	if e == nil {
 		return

@@ -74,7 +74,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 			P95: percentileLatency(latencies, 95),
 			P99: percentileLatency(latencies, 99),
 		},
-		Options: benchSummary(cfg, deadlineName),
+		Options: benchSummary(deadlineName),
 	}
 	if cfg.LibvpxOracle != "" {
 		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))

@@ -204,10 +204,8 @@ func formatRatio(ratio float64, suffix string) string {
 	return fmt.Sprintf("%.2f%s", ratio, suffix)
 }
 
-// resolveLibvpxDefaults fills cfg.LibvpxVpxenc / cfg.LibvpxOracle from the
-// project's makefile-built binaries at internal/coracle/build/, optionally
-// running `make oracle-tools` to build them if they are missing. Falls back
-// to a PATH lookup for vpxenc only — the decoder benchmark needs the
+// buildComparisonReport derives govpx-vs-libvpx ratios and deltas from a
+// completed govpx benchReport plus its libvpx referenceReport.
 func buildComparisonReport(report benchReport, reference referenceReport) *comparisonReport {
 	cmp := &comparisonReport{
 		BitrateDeltaKbps:     report.OutputBitrateKbps - reference.OutputBitrateKbps,

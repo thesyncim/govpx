@@ -21,7 +21,7 @@ cleanly onto libvpx behavior where that behavior is useful.
 The highest-value missing controls are:
 
 1. `VP8E_SET_ROI_MAP`
-2. `VP8_SET_REFERENCE` / `VP8_COPY_REFERENCE` on encoder and decoder
+2. `VP8_SET_REFERENCE` / `VP8_COPY_REFERENCE` on encoder
 3. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
 4. VPX_Q constant-quality mode
 5. Optional: spatial resampling / scale mode, output-partition packetization,
@@ -52,6 +52,7 @@ does not actually wire into the VP8 encoder.
 | `VP8E_SET_ACTIVEMAP` | `SetActiveMap` | Per-MB active/inactive map exists. |
 | `VP8E_SET_SCREEN_CONTENT_MODE` | `EncoderOptions.ScreenContentMode`, `SetScreenContentMode` | Modes 0..2. |
 | `VP8_SET_POSTPROC` on decoder | `DecoderOptions.PostProcess*` | Decoder postproc is exposed as Go flags. |
+| `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on decoder | `VP8Decoder.SetReferenceFrame`, `VP8Decoder.CopyReferenceFrame` | Requires a decoded key frame to establish dimensions. Reference selectors use the same LAST/GOLDEN/ALTREF values as `ReferenceFlags`. |
 | `VP8D_GET_LAST_REF_UPDATES`, `VP8D_GET_LAST_REF_USED`, `VPXD_GET_LAST_QUANTIZER`, `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.RefUpdates`, `FrameInfo.RefUsed`, `FrameInfo.InternalQuantizer`, `FrameInfo.Quantizer`, `FrameInfo.Corrupted`, `VP8Decoder.LastFrameInfo` | Ref flags use Go bit flags matching libvpx's LAST/GOLDEN/ALTREF bit values. `InternalQuantizer` is VP8 base qindex; `Quantizer` is govpx's public 0..63 mapping. |
 | `VP8E_GET_LAST_QUANTIZER`, `VP8E_GET_LAST_QUANTIZER_64` | `EncodeResult.InternalQuantizer`, `EncodeResult.Quantizer`, `VP8Encoder.LastQuantizer` | Exposes both libvpx's internal qindex and the public 0..63 mapping. |
 | Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
@@ -108,8 +109,8 @@ Port notes:
 
 ### Reference Set/Copy
 
-Status: missing. Priority: high for recovery/oracle/debug users, medium for
-normal encode/decode.
+Status: decoder covered, encoder missing. Priority: high for
+recovery/oracle/debug users, medium for normal encode/decode.
 
 libvpx controls:
 
@@ -125,15 +126,15 @@ Why it is sane:
 - It helps WebRTC-style applications and diagnostics.
 - govpx already owns explicit `lastRef`, `goldenRef`, and `altRef` buffers.
 
-Suggested Go API:
+Current and suggested Go API:
 
 ```go
-type ReferenceFrame int
+type ReferenceFrame ReferenceFlags
 
 const (
-    ReferenceLast ReferenceFrame = iota + 1
-    ReferenceGolden
-    ReferenceAltRef
+    ReferenceLast   ReferenceFrame = ReferenceFrame(ReferenceFlagLast)
+    ReferenceGolden ReferenceFrame = ReferenceFrame(ReferenceFlagGolden)
+    ReferenceAltRef ReferenceFrame = ReferenceFrame(ReferenceFlagAltRef)
 )
 
 func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error
@@ -148,8 +149,8 @@ Port notes:
 - On encoder reference replacement, invalidate or update state that assumes
   reference identity: alias flags, reference frame numbers, last-frame inter
   modes, source alt-ref lifecycle, and denoiser reference averages.
-- Decoder set-reference should require an initialized decoder size, or accept
-  the first set as initialization only if the semantics are documented.
+- Decoder set-reference requires an initialized decoder size and extends
+  borders after copying visible samples.
 
 ### `VP8E_SET_TUNING`
 
@@ -322,8 +323,8 @@ decode.
 
 ## Suggested Port Order
 
-1. Add reference set/copy on decoder, then encoder. Keep the encoder state
-   invalidation explicit and heavily tested.
+1. Add reference set/copy on encoder. Keep state invalidation explicit and
+   heavily tested.
 2. Add ROI map, using existing segmentation machinery and oracle tests.
 3. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
 4. Add `RateControlQ` if constant-quality callers need it.

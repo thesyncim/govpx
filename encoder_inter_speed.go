@@ -647,21 +647,21 @@ func libvpxRealtimeAdaptiveInterModeThreshold(errorBins *[1024]uint32, totalMBs 
 	if errorBins == nil || totalMBs <= 0 || speed <= 6 {
 		return 2000
 	}
-	min := max(staticThreshold, 2000)
-	min >>= 7
-	if min < 0 {
-		min = 0
+	minimum := max(staticThreshold, 2000)
+	minimum >>= 7
+	if minimum < 0 {
+		minimum = 0
 	}
-	if min > len(errorBins) {
-		min = len(errorBins)
+	if minimum > len(errorBins) {
+		minimum = len(errorBins)
 	}
 	totalSkip := 0
-	for i := 0; i < min; i++ {
+	for i := 0; i < minimum; i++ {
 		totalSkip += int(errorBins[i])
 	}
 	remaining := max(totalMBs-totalSkip, 0)
 	sum := 0
-	i := min
+	i := minimum
 	for ; i < len(errorBins); i++ {
 		sum += int(errorBins[i])
 		if int64(10*sum) >= int64(speed-6)*int64(remaining) {

@@ -2,31 +2,61 @@ package govpx
 
 import vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 
+// StreamInfo describes the VP8 frame-header fields that can be read without
+// fully decoding a packet.
 type StreamInfo struct {
-	Width   int
-	Height  int
+	// Width and Height are the visible coded dimensions carried by key frames.
+	// Inter frames reuse the current stream dimensions.
+	Width  int
+	Height int
+	// Profile is the VP8 bitstream profile number.
 	Profile int
 
-	KeyFrame  bool
+	// KeyFrame reports whether the packet is a VP8 key frame.
+	KeyFrame bool
+	// ShowFrame reports whether decoding the packet produces visible output.
 	ShowFrame bool
 
+	// FirstPartitionSize is the VP8 first-partition byte count from the frame
+	// tag.
 	FirstPartitionSize int
 }
 
+// ReferenceFlags is a bit mask of VP8 reference buffers.
 type ReferenceFlags uint8
 
 const (
+	// ReferenceFlagLast identifies the LAST reference buffer.
 	ReferenceFlagLast ReferenceFlags = 1 << iota
+	// ReferenceFlagGolden identifies the GOLDEN reference buffer.
 	ReferenceFlagGolden
+	// ReferenceFlagAltRef identifies the alternate-reference buffer.
 	ReferenceFlagAltRef
 )
 
+// ReferenceFrame selects one VP8 reference buffer for set/copy controls.
+type ReferenceFrame ReferenceFlags
+
+const (
+	// ReferenceLast selects the LAST reference buffer.
+	ReferenceLast ReferenceFrame = ReferenceFrame(ReferenceFlagLast)
+	// ReferenceGolden selects the GOLDEN reference buffer.
+	ReferenceGolden ReferenceFrame = ReferenceFrame(ReferenceFlagGolden)
+	// ReferenceAltRef selects the alternate-reference buffer.
+	ReferenceAltRef ReferenceFrame = ReferenceFrame(ReferenceFlagAltRef)
+)
+
+// FrameInfo describes the result of decoding or encoding a VP8 frame.
 type FrameInfo struct {
+	// Width and Height are the visible output dimensions.
 	Width  int
 	Height int
 
-	KeyFrame  bool
+	// KeyFrame reports whether the frame is a key frame.
+	KeyFrame bool
+	// ShowFrame reports whether the packet produced visible output.
 	ShowFrame bool
+	// Corrupted reports decoder corruption or concealment state.
 	Corrupted bool
 
 	// Quantizer is the public 0..63 quantizer corresponding to
@@ -34,12 +64,17 @@ type FrameInfo struct {
 	// libvpx's VPXD_GET_LAST_QUANTIZER control.
 	Quantizer         int
 	InternalQuantizer int
-	RefUpdates        ReferenceFlags
-	RefUsed           ReferenceFlags
+	// RefUpdates reports reference buffers refreshed by the frame.
+	RefUpdates ReferenceFlags
+	// RefUsed reports reference buffers used by inter prediction in the frame.
+	RefUsed ReferenceFlags
 
+	// PTS is the caller-provided presentation timestamp.
 	PTS uint64
 }
 
+// PeekVP8StreamInfo parses VP8 frame-header metadata without decoding the
+// frame.
 func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 	header, err := vp8dec.ParseFrameHeader(packet)
 	if err != nil {

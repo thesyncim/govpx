@@ -295,6 +295,21 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 	}
 }
 
+func TestBenchCLIOptionsDefaultGovpxOnly(t *testing.T) {
+	t.Setenv("GOVPX_VPXENC", "/tmp/should-not-be-used")
+	t.Setenv("GOVPX_ORACLE", "/tmp/should-not-be-used")
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	cfg := benchConfig{}
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(fs, &cfg, &opts)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if opts.autoCompare || opts.buildLibvpx || cfg.LibvpxVpxenc != "" || cfg.LibvpxOracle != "" {
+		t.Fatalf("defaults = opts:%+v cfg:%+v, want govpx-only without implicit libvpx/oracle", opts, cfg)
+	}
+}
+
 func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
 	report := benchReport{
 		OutputBitrateKbps: 1200,

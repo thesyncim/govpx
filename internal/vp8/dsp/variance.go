@@ -22,14 +22,6 @@ func SSE16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
 	return sse16x16PtrFast(src, srcStride, ref, refStride)
 }
 
-// Variance16x16PtrFast is the SIMD-bypass entry point matching the
-// SSE16x16PtrFast contract. Returns sse - sum*sum/256 as the variance
-// definition mandates for a 16x16 block.
-func Variance16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
-	sum, sse := VarianceBlock16x16PtrFast(src, srcStride, ref, refStride)
-	return sse - (sum * sum >> 8)
-}
-
 // SSE8x8PtrFast is the 8x8-SSE SIMD-bypass entry point used by hot
 // callers (chroma SSE walk in macroblockChromaSSE). The caller must
 // have already validated the 8x8 window is fully in-bounds.
@@ -70,16 +62,6 @@ func SSE4x4(src []byte, srcStride int, ref []byte, refStride int) int {
 func Variance16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 16)
 	return sse - (sum * sum >> 8)
-}
-
-// VarianceSSE16x16 returns (variance, sse) in one pass over the 16x16
-// block. Callers that need both quantities — e.g. the inter-frame mode
-// picker's macroblockLumaMotionVarianceSSE — would otherwise issue two
-// independent SIMD kernels for the same data; this entry shares the
-// (sum, sse) reduction so the kernel runs only once.
-func VarianceSSE16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
-	sum, sse := varianceBlock(src, srcStride, ref, refStride, 16, 16)
-	return sse - (sum * sum >> 8), sse
 }
 
 func Variance16x8(src []byte, srcStride int, ref []byte, refStride int) int {

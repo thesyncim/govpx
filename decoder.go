@@ -7,19 +7,27 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+// PostProcessFlag selects optional libvpx-style decoder postprocessing.
 type PostProcessFlag uint32
 
 const (
+	// PostProcessDeblock enables VP8 deblocking postprocess.
 	PostProcessDeblock PostProcessFlag = 1 << iota
+	// PostProcessDemacroblock enables block-edge smoothing postprocess.
 	PostProcessDemacroblock
+	// PostProcessAddNoise enables luma noise restoration postprocess.
 	PostProcessAddNoise
+	// PostProcessMFQE enables multi-frame quality enhancement.
 	PostProcessMFQE
 
 	allPostProcessFlags    = PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE
 	legacyPostProcessFlags = PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE
 )
 
+// DecoderOptions configures a VP8 decoder.
 type DecoderOptions struct {
+	// Threads selects decoder worker count. Values greater than one enable the
+	// row pipeline where supported; zero uses the serial path.
 	Threads int
 
 	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
@@ -38,6 +46,8 @@ type DecoderOptions struct {
 	// additive noise; valid range is [0, 16].
 	PostProcessNoiseLevel int
 
+	// MaxWidth and MaxHeight reject key frames larger than the configured
+	// dimensions when non-zero.
 	MaxWidth  int
 	MaxHeight int
 
@@ -47,6 +57,7 @@ type DecoderOptions struct {
 	RejectResolutionChange bool
 }
 
+// VP8Decoder decodes raw VP8 frame payloads.
 type VP8Decoder struct {
 	opts            DecoderOptions
 	closed          bool
@@ -98,6 +109,7 @@ type VP8Decoder struct {
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
+// NewVP8Decoder creates a VP8 decoder with validated options.
 func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	if err := validateDecoderOptions(opts); err != nil {
 		return nil, err
@@ -113,10 +125,14 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	return d, nil
 }
 
+// Decode decodes one raw VP8 frame payload and queues visible output for
+// NextFrame.
 func (d *VP8Decoder) Decode(packet []byte) error {
 	return d.DecodeWithPTS(packet, 0)
 }
 
+// DecodeWithPTS decodes one raw VP8 frame payload and records pts in the
+// resulting FrameInfo.
 func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -179,6 +195,9 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	return nil
 }
 
+// NextFrame returns the most recent visible decoded frame, if one is queued.
+// The returned image aliases decoder-owned storage until the next Decode,
+// Reset, or Close.
 func (d *VP8Decoder) NextFrame() (Image, bool) {
 	if d == nil || d.closed || !d.frameReady {
 		return Image{}, false
@@ -187,6 +206,7 @@ func (d *VP8Decoder) NextFrame() (Image, bool) {
 	return d.lastFrame, true
 }
 
+// LastFrameInfo returns metadata for the most recently decoded frame.
 func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	if d == nil || d.closed || !d.lastInfoValid {
 		return FrameInfo{}, false
@@ -194,10 +214,52 @@ func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	return d.lastInfo, true
 }
 
+// SetReferenceFrame replaces an initialized decoder reference buffer with src.
+// The source image must match the current stream dimensions.
+func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	fb, ok := d.referenceFrameBuffer(ref)
+	if !ok || !d.referenceFramesInitialized() {
+		return ErrInvalidConfig
+	}
+	if !src.validForEncode(d.frameWidth, d.frameHeight) {
+		return ErrInvalidConfig
+	}
+	copyPublicImageToVP8(&fb.Img, src)
+	fb.ExtendBorders()
+	return nil
+}
+
+// CopyReferenceFrame copies an initialized decoder reference buffer into dst.
+// The destination image must match the current stream dimensions.
+func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	if dst == nil {
+		return ErrInvalidConfig
+	}
+	fb, ok := d.referenceFrameBuffer(ref)
+	if !ok || !d.referenceFramesInitialized() {
+		return ErrInvalidConfig
+	}
+	if !dst.validForEncode(d.frameWidth, d.frameHeight) {
+		return ErrInvalidConfig
+	}
+	copyVP8ImageToPublic(dst, &fb.Img)
+	return nil
+}
+
+// DecodeInto decodes one raw VP8 frame payload into caller-owned output
+// storage when the packet is visible.
 func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
 	return d.DecodeIntoWithPTS(packet, dst, 0)
 }
 
+// DecodeIntoWithPTS decodes one raw VP8 frame payload into caller-owned output
+// storage and records pts in the returned FrameInfo.
 func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (FrameInfo, error) {
 	if d == nil || d.closed {
 		return FrameInfo{}, ErrClosed
@@ -267,6 +329,8 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	return frameInfo, nil
 }
 
+// Reset returns the decoder to its cold-start state while retaining allocated
+// buffers for reuse.
 func (d *VP8Decoder) Reset() {
 	if d == nil {
 		return
@@ -307,6 +371,8 @@ func (d *VP8Decoder) Reset() {
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
 }
 
+// Close releases decoder state. Further method calls return ErrClosed or no
+// output.
 func (d *VP8Decoder) Close() error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -867,6 +933,31 @@ func (d *VP8Decoder) refreshReferences() {
 	}
 }
 
+// referenceFrameBuffer maps the public reference selector to the decoder-owned
+// bordered buffer. Invalid selectors include combined ReferenceFlags values.
+func (d *VP8Decoder) referenceFrameBuffer(ref ReferenceFrame) (*vp8common.FrameBuffer, bool) {
+	switch ref {
+	case ReferenceLast:
+		return &d.lastRef, true
+	case ReferenceGolden:
+		return &d.goldenRef, true
+	case ReferenceAltRef:
+		return &d.altRef, true
+	default:
+		return nil, false
+	}
+}
+
+// referenceFramesInitialized reports whether set/copy reference controls can
+// safely use the reference buffers. govpx requires a decoded key frame to
+// establish stream dimensions before callers can replace decoder references.
+func (d *VP8Decoder) referenceFramesInitialized() bool {
+	return d.initialized &&
+		d.frameWidth > 0 &&
+		d.frameHeight > 0 &&
+		d.lastRef.BufferLen() != 0
+}
+
 func copyExtendedFrameImage(dst *vp8common.Image, src *vp8common.Image) {
 	copy(dst.YFull, src.YFull)
 	copy(dst.UFull, src.UFull)
@@ -914,6 +1005,16 @@ func copyVP8ImageToPublic(dst *Image, src *vp8common.Image) {
 	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+}
+
+// copyPublicImageToVP8 copies only visible samples into a bordered VP8 image;
+// callers that install a reference must extend borders afterwards.
+func copyPublicImageToVP8(dst *vp8common.Image, src Image) {
+	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, dst.Width, dst.Height)
+	uvWidth := (dst.Width + 1) >> 1
+	uvHeight := (dst.Height + 1) >> 1
 	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
 	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
