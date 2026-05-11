@@ -350,6 +350,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		return result, nil
 	}
 
+	if e.opts.Tuning == TuneSSIM {
+		if err := e.prepareTuningActivityMap(source, rows, cols); err != nil {
+			return EncodeResult{}, err
+		}
+	} else if e.activityMapValid {
+		e.activityMapValid = false
+	}
 	staticSegmentationAllowed := !temporalFrame.Enabled || temporalFrame.LayerID == 0
 	e.beginAutoSpeedTiming()
 	if !keyFrame {

@@ -351,7 +351,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 func (ctx *splitMotionSubsetContext) candidateRD(block int, mv vp8enc.MotionVector, rate int) (int, [4]uint8, [4]uint8, bool) {
 	if ctx.labelRD != nil {
 		if labelRate, labelDist, nextAbove, nextLeft, ok := ctx.labelRD.rateDistortion(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, ctx.qIndex, ctx.quant, ctx.coefProbs, ctx.mode, ctx.subset, mv, rate); ok {
-			return rdModeScoreWithZbin(ctx.qIndex, ctx.labelRD.zbinOverQuant, labelRate, labelDist), nextAbove, nextLeft, true
+			return ctx.labelRD.score(ctx.qIndex, labelRate, labelDist), nextAbove, nextLeft, true
 		}
 	}
 	sad := splitBlockSAD(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, mv)
@@ -364,6 +364,8 @@ func splitMotionLabelRDScore(qIndex int, rate int, distortion int) int {
 
 type splitMotionLabelRDEvaluator struct {
 	zbinOverQuant int
+	rdMult        int
+	rdDiv         int
 	fastQuant     bool
 	optimize      bool
 	yAbove        [4]uint8
@@ -386,6 +388,29 @@ func (ev *splitMotionLabelRDEvaluator) init(zbinOverQuant int, aboveTok *vp8enc.
 		ev.yLeft = leftTok.Y1
 	}
 	return true
+}
+
+// setRDConstants pins the macroblock-level RD constants used for SPLITMV label
+// evaluation. TuneSSIM callers pass the activity-adjusted multiplier here.
+func (ev *splitMotionLabelRDEvaluator) setRDConstants(rdMult int, rdDiv int) {
+	if ev == nil {
+		return
+	}
+	ev.rdMult = rdMult
+	ev.rdDiv = rdDiv
+}
+
+// score prices a SPLITMV label candidate, falling back to the standard zbin
+// RD path when no macroblock-specific constants were installed.
+func (ev *splitMotionLabelRDEvaluator) score(qIndex int, rate int, distortion int) int {
+	if ev == nil || ev.rdMult <= 0 || ev.rdDiv <= 0 {
+		zbinOverQuant := 0
+		if ev != nil {
+			zbinOverQuant = ev.zbinOverQuant
+		}
+		return rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, distortion)
+	}
+	return libvpxRDCost(ev.rdMult, ev.rdDiv, rate, distortion)
 }
 
 func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, qIndex int, quant *vp8enc.MacroblockQuant, coefProbs *vp8tables.CoefficientProbs, mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, labelRate int) (int, int, [4]uint8, [4]uint8, bool) {

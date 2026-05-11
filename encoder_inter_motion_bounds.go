@@ -20,12 +20,12 @@ func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, m
 	}
 	if mbRows > 0 {
 		umv := interFrameUMVBorderPixels - 16
-		bounds.rowMin = max(bounds.rowMin, -((mbRow*16)+umv))
+		bounds.rowMin = max(bounds.rowMin, -((mbRow * 16) + umv))
 		bounds.rowMax = min(bounds.rowMax, ((mbRows-1-mbRow)*16)+umv)
 	}
 	if mbCols > 0 {
 		umv := interFrameUMVBorderPixels - 16
-		bounds.colMin = max(bounds.colMin, -((mbCol*16)+umv))
+		bounds.colMin = max(bounds.colMin, -((mbCol * 16) + umv))
 		bounds.colMax = min(bounds.colMax, ((mbCols-1-mbCol)*16)+umv)
 	}
 	return bounds

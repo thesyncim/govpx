@@ -53,14 +53,25 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	search := e.interAnalysisSearchConfig()
 	compressor := e.interAnalysisCompressorSpeed()
 	zbinOverQuant := e.rc.currentZbinOverQuant
+	if e.activityMapValid {
+		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, ctx.mbRow, ctx.mbCol)
+	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	coefProbs := e.pickerCoefProbs()
 
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
 		labelRD.init(zbinOverQuant, ctx.aboveTok, ctx.leftTok, fastQuant, false)
+		if e.activityMapValid {
+			rdMult, rdDiv := libvpxRDConstantsWithZbin(ctx.qIndex, zbinOverQuant)
+			rdMult = e.tunedRDMultiplier(rdMult, ctx.mbRow, ctx.mbCol)
+			labelRD.setRDConstants(rdMult, rdDiv)
+		}
 		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
 		overheadRD := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, overheadRate, 0)
+		if e.activityMapValid {
+			overheadRD = e.tunedRDModeScoreWithZbin(ctx.qIndex, zbinOverQuant, ctx.mbRow, ctx.mbCol, overheadRate, 0)
+		}
 		shapeCtx := splitMotionShapeContext{
 			src:               ctx.src,
 			ref:               ctx.ref.Img,
