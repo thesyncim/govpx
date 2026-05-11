@@ -72,6 +72,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		sharpness int
 		// extraArgs is appended to the libvpx vpxenc-oracle command.
 		extraArgs []string
+		// fastLF flips on FastLoopFilterPick.
+		fastLF bool
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
@@ -101,6 +103,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		// Diverges from frame 0 today; pinned at limit=0.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
+		// FastLoopFilterPick=true is a deliberate parity-breaking opt-in
+		// that swaps the full-frame loop-filter trial picker for the
+		// partial-frame variant whenever speed >= 4. Pin the divergence
+		// here so we can spot any frame that happens to byte-match (=
+		// libvpx's full picker happened to pick the same level as the
+		// partial picker for that fixture).
+		{name: "realtime-cbr-cpu8-fastlf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, limit: -1, fastLF: true},
 	}
 
 	for _, tc := range cases {
@@ -127,6 +136,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				ErrorResilient:           tc.errorResilient,
 				ErrorResilientPartitions: tc.errorResilientPartitions,
 				Sharpness:                tc.sharpness,
+				FastLoopFilterPick:       tc.fastLF,
 			}
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
