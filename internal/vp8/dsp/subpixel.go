@@ -37,25 +37,25 @@ func SixTapPredict4x4(src []byte, srcStride int, xoffset int, yoffset int, dst [
 }
 
 func SixTapPredict16x8(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
-	if xoffset == 0 && yoffset == 0 {
-		copyCentralBlock(src, srcStride, dst, dstStride, 16, 8)
+	if xoffset != 0 || yoffset != 0 {
+		if sixTapPredict16x8Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+			return
+		}
+		sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 8)
 		return
 	}
-	if sixTapPredict16x8Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
-		return
-	}
-	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 8)
+	copyCentralBlock(src, srcStride, dst, dstStride, 16, 8)
 }
 
 func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
-	if xoffset == 0 && yoffset == 0 {
-		copyCentralBlock(src, srcStride, dst, dstStride, 8, 16)
+	if xoffset != 0 || yoffset != 0 {
+		if sixTapPredict8x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+			return
+		}
+		sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 16)
 		return
 	}
-	if sixTapPredict8x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
-		return
-	}
-	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 16)
+	copyCentralBlock(src, srcStride, dst, dstStride, 8, 16)
 }
 
 func SixTapPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
@@ -126,7 +126,7 @@ func copyCentralBlock(src []byte, srcStride int, dst []byte, dstStride int, widt
 func sixTapPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int, width int, height int) {
 	hFilter := tables.SubPelFilters[xoffset]
 	vFilter := tables.SubPelFilters[yoffset]
-	var tmp [21 * 16]int
+	var tmp [21 * 16]byte
 
 	for y := 0; y < height+5; y++ {
 		srcRow := y * srcStride
@@ -139,7 +139,7 @@ func sixTapPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []by
 				int(src[srcRow+x+4])*int(hFilter[4]) +
 				int(src[srcRow+x+5])*int(hFilter[5]) +
 				tables.FilterWeight/2
-			tmp[tmpRow+x] = int(ClipPixel(v >> tables.FilterShift))
+			tmp[tmpRow+x] = ClipPixel(v >> tables.FilterShift)
 		}
 	}
 
@@ -147,12 +147,12 @@ func sixTapPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []by
 		dstRow := y * dstStride
 		tmpRow := y * width
 		for x := range width {
-			v := tmp[tmpRow+x]*int(vFilter[0]) +
-				tmp[tmpRow+width+x]*int(vFilter[1]) +
-				tmp[tmpRow+2*width+x]*int(vFilter[2]) +
-				tmp[tmpRow+3*width+x]*int(vFilter[3]) +
-				tmp[tmpRow+4*width+x]*int(vFilter[4]) +
-				tmp[tmpRow+5*width+x]*int(vFilter[5]) +
+			v := int(tmp[tmpRow+x])*int(vFilter[0]) +
+				int(tmp[tmpRow+width+x])*int(vFilter[1]) +
+				int(tmp[tmpRow+2*width+x])*int(vFilter[2]) +
+				int(tmp[tmpRow+3*width+x])*int(vFilter[3]) +
+				int(tmp[tmpRow+4*width+x])*int(vFilter[4]) +
+				int(tmp[tmpRow+5*width+x])*int(vFilter[5]) +
 				tables.FilterWeight/2
 			dst[dstRow+x] = ClipPixel(v >> tables.FilterShift)
 		}

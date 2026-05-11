@@ -108,12 +108,19 @@ func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 		q1 := (*byte)(unsafe.Add(base, i+5*stride))
 		q2 := (*byte)(unsafe.Add(base, i+6*stride))
 		q3 := (*byte)(unsafe.Add(base, i+7*stride))
-		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
-		if mask == 0 {
+		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
+		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
 			continue
 		}
-		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
-		loopFilter(mask, hev, p1, p0, q0, q1)
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		loopFilter(-1, hev, p1, p0, q0, q1)
 	}
 }
 
@@ -132,12 +139,19 @@ func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte,
 		q1 := (*byte)(unsafe.Add(row, 5))
 		q2 := (*byte)(unsafe.Add(row, 6))
 		q3 := (*byte)(unsafe.Add(row, 7))
-		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
-		if mask == 0 {
+		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
+		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
 			continue
 		}
-		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
-		loopFilter(mask, hev, p1, p0, q0, q1)
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		loopFilter(-1, hev, p1, p0, q0, q1)
 	}
 }
 
@@ -155,12 +169,19 @@ func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit b
 		q1 := (*byte)(unsafe.Add(base, i+5*stride))
 		q2 := (*byte)(unsafe.Add(base, i+6*stride))
 		q3 := (*byte)(unsafe.Add(base, i+7*stride))
-		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
-		if mask == 0 {
+		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
+		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
 			continue
 		}
-		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
-		mbLoopFilter(mask, hev, p2, p1, p0, q0, q1, q2)
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		mbLoopFilter(-1, hev, p2, p1, p0, q0, q1, q2)
 	}
 }
 
@@ -179,12 +200,19 @@ func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 		q1 := (*byte)(unsafe.Add(row, 5))
 		q2 := (*byte)(unsafe.Add(row, 6))
 		q3 := (*byte)(unsafe.Add(row, 7))
-		mask := filterMask(limit, blimit, *p3, *p2, *p1, *p0, *q0, *q1, *q2, *q3)
-		if mask == 0 {
+		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
+		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
 			continue
 		}
-		hev := hevMask(thresh, *p1, *p0, *q0, *q1)
-		mbLoopFilter(mask, hev, p2, p1, p0, q0, q1, q2)
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		mbLoopFilter(-1, hev, p2, p1, p0, q0, q1, q2)
 	}
 }
 
@@ -199,29 +227,20 @@ func signedCharClamp(v int) int8 {
 }
 
 func filterMask(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) int8 {
-	mask := byte(0)
-	if absByteDiff(p3, p2) > limit {
-		mask = 1
+	if loopFilterAllowed(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3) {
+		return -1
 	}
-	if absByteDiff(p2, p1) > limit {
-		mask = 1
-	}
-	if absByteDiff(p1, p0) > limit {
-		mask = 1
-	}
-	if absByteDiff(q1, q0) > limit {
-		mask = 1
-	}
-	if absByteDiff(q2, q1) > limit {
-		mask = 1
-	}
-	if absByteDiff(q3, q2) > limit {
-		mask = 1
-	}
-	if int(absByteDiff(p0, q0))*2+int(absByteDiff(p1, q1))/2 > int(blimit) {
-		mask = 1
-	}
-	return int8(mask) - 1
+	return 0
+}
+
+func loopFilterAllowed(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) bool {
+	return absByteDiff(p3, p2) <= limit &&
+		absByteDiff(p2, p1) <= limit &&
+		absByteDiff(p1, p0) <= limit &&
+		absByteDiff(q1, q0) <= limit &&
+		absByteDiff(q2, q1) <= limit &&
+		absByteDiff(q3, q2) <= limit &&
+		int(absByteDiff(p0, q0))*2+int(absByteDiff(p1, q1))/2 <= int(blimit)
 }
 
 func hevMask(thresh byte, p1 byte, p0 byte, q0 byte, q1 byte) int8 {

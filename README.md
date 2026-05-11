@@ -103,8 +103,13 @@ Fast local checks:
 ```sh
 make ci
 go test ./... -count=1
+go test -tags purego ./... -count=1
 go vet ./...
 ```
+
+`-tags purego` is a compile-time scalar backend: it excludes the module's
+architecture assembly files and selects the tuned Go fallbacks in
+`internal/vp8/dsp` and `internal/vp8/encoder`.
 
 Oracle checks:
 

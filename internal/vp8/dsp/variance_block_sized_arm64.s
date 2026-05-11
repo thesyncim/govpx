@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON variance kernels for non-16x16 block sizes. Mirrors
 // libvpx v1.16.0 vpx_dsp/arm/variance_neon.c variance_neon_w8 and
 // variance_neon_w4 plus a height-parameterised variance_neon_w16. Each

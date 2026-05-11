@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 port of the libvpx v1.16.0 VP8 two-tap (bilinear) subpel
 // predictor. Mirrors vp8/common/filter.c bilinear_predict 16x16 / 8x8.
 // Filter taps are non-negative and sum to 128, so all intermediate

@@ -29,11 +29,11 @@ VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
-.PHONY: all ci fmtcheck test pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
+.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
 
 all: ci
 
-ci: fmtcheck test
+ci: fmtcheck test test-purego
 
 fmtcheck:
 	files="$$($(GOFMT) -l $$($(GIT) ls-files '*.go'))"; \
@@ -50,6 +50,14 @@ verify-decoder-parity: ci decoder-oracle-test
 
 test:
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test ./... -count=1
+
+test-purego:
+	sfiles="$$(GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) list -tags purego -f '{{if .SFiles}}{{.ImportPath}} {{.SFiles}}{{end}}' ./...)"; \
+	if [ -n "$$sfiles" ]; then \
+		printf 'purego selected assembly files:\n%s\n' "$$sfiles"; \
+		exit 1; \
+	fi
+	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test -tags purego ./... -count=1
 
 pgo-refresh:
 	mkdir -p .pgo

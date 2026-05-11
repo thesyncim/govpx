@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // AVX2 SAD primitives for the VP8 picker. Mirrors libvpx v1.16.0
 // vpx_dsp/x86/sad4d_avx2.c / sad_avx2.c — VPSADBW on YMM does
 // abs-diff + horizontal-sum across 32 bytes, producing four 16-bit

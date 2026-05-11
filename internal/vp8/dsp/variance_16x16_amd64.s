@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 16-wide second-pass bilinear filter for subpel variance.
 // Mirrors libvpx v1.16.0 vpx_dsp/variance.c (second pass) and
 // vpx_dsp/x86/subpel_variance_sse2.asm semantics:

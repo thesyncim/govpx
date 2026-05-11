@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 SAD primitives. Mirrors libvpx v1.16.0 vpx_dsp/x86/sad_sse2.asm
 // (vpx_sad{4,8,16}x{4,8,16}_sse2) plus a govpx-specific 16x16 limit-aware
 // variant matching internal/vp8/dsp/sad.go's sadBlockLimit semantics.

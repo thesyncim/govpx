@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 port of the libvpx v1.16.0 VP8 six-tap subpel predictor.
 // Mirrors vp8/common/x86/subpixel_sse2.asm conceptually; the kernel
 // decomposes the inner product into three PMADDWL pairs over byte

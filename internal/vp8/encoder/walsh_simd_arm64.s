@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON port of the libvpx v1.16.0
 // vp8/encoder/arm/neon/vp8_shortwalsh4x4_neon.c
 // (vp8_short_walsh4x4_neon).

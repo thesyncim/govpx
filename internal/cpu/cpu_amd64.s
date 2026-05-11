@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // CPUID and XGETBV trampolines for AVX2 detection.
 //
 // Calling conventions (ABI0):

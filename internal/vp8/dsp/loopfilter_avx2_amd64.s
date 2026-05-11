@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // AVX2 (VEX-encoded) port of the libvpx v1.16.0 VP8 loop_filter and
 // mb_loop_filter inner kernels (16-wide horizontal-edge form).
 // Mirrors the SSE2 kernel in loopfilter_amd64.s but uses VEX-encoded

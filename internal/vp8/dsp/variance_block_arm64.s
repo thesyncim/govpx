@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON 16x16 variance block. Mirrors libvpx v1.16.0
 // vpx_dsp/arm/variance_neon.c variance_neon_w16:
 //

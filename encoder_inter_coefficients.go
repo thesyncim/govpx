@@ -131,7 +131,7 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 // match guards against accidental cross-MB reuse if the picker scratch
 // outlives a frame.
 func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
-	if c == nil || !c.valid || args == nil {
+	if c == nil || !c.valid {
 		return false
 	}
 	return c.mbRow == args.mbRow &&
@@ -195,6 +195,24 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	if args == nil {
 		return stats
 	}
+	if args.coefProbs == nil || args.pred == nil || args.quant == nil || args.coeffs == nil {
+		return stats
+	}
+	if args.cacheIn != nil && args.phaseStats != nil {
+		args.phaseStats.InterRDCoeffCacheRequests++
+	}
+	if interRDCacheCoefficientsReusable(args.cacheIn, args) {
+		if args.phaseStats != nil {
+			args.phaseStats.InterRDCoeffCacheCoeffHits++
+		}
+		*args.coeffs = args.cacheIn.coeffs
+		return stats
+	}
+	return buildPredictedMacroblockCoefficientsWork(args)
+}
+
+func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficientArgs) predictedMacroblockRDStats {
+	var stats predictedMacroblockRDStats
 	coefProbs := args.coefProbs
 	src := args.src
 	mbRow := args.mbRow
@@ -213,19 +231,6 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	collectOracle := oracleTraceBuild && args.collectOracle
 	coeffs := args.coeffs
 	collectStats := args.collectStats
-	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
-		return stats
-	}
-	if args.cacheIn != nil && args.phaseStats != nil {
-		args.phaseStats.InterRDCoeffCacheRequests++
-	}
-	if interRDCacheCoefficientsReusable(args.cacheIn, args) {
-		if args.phaseStats != nil {
-			args.phaseStats.InterRDCoeffCacheCoeffHits++
-		}
-		*coeffs = args.cacheIn.coeffs
-		return stats
-	}
 	var y2Input [16]int16
 	var y2Coeff [16]int16
 	var dq [16]int16
@@ -574,11 +579,11 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 }
 
 func storeInterRDCacheCoefficients(args *predictedMacroblockCoefficientArgs) {
-	if args == nil || args.cacheOut == nil {
+	if args.cacheOut == nil {
 		return
 	}
 	args.cacheOut.coeffsValid = false
-	if args.optimize || (oracleTraceBuild && args.collectOracle) || args.coeffs == nil {
+	if args.optimize || (oracleTraceBuild && args.collectOracle) {
 		return
 	}
 	if args.coeffs != &args.cacheOut.coeffs {

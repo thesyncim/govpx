@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 batched port of libvpx v1.16.0
 // vp8/encoder/x86/vp8_quantize_sse2.c vp8_fast_quantize_b_sse2.
 // Same per-block kernel as fastQuantizeBlockSSE2; quant tables and

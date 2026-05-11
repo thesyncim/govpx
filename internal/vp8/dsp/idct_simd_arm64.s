@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON port of the libvpx v1.16.0
 // vp8/common/arm/neon/shortidct4x4llm_neon.c (vp8_short_idct4x4llm_neon)
 // plus a NEON DC-only fast path mirroring DCOnlyIDCT4x4Add.

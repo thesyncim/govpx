@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON sum-of-squared-differences for a 4x4 coefficient block. Mirrors
 // libvpx v1.16.0 vp8_block_error (vp8/encoder/encodemb.c) which computes
 //

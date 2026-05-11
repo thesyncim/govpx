@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON intra-prediction kernels. Mirrors libvpx v1.16.0
 // vp8/common/arm/neon/vp8_intrapred_neon.c per-mode primitives for
 // the Y16x16 and UV8x8 whole-block predictors:

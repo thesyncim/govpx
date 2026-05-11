@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 port of libvpx v1.16.0 vp8/common/idctllm.c vp8_short_idct4x4llm
 // (single 4x4 block) and DC-only fast path. The libvpx SSE2 reference
 // processes pairs of blocks (vp8_idct_dequant_full_2x_sse2 in

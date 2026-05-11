@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 variance kernels for non-16x16 block sizes. Mirrors libvpx
 // v1.16.0 vpx_dsp/x86/variance_sse2.c variance_kernel_sse2 plus the
 // non-16-wide vpx_get_mb_ss-style reductions. Each kernel returns

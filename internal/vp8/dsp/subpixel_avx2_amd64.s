@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // AVX2 port of the libvpx v1.16.0 VP8 six-tap subpel predictor for
 // the 16x16 size. Mirrors the SSE2 kernel in subpixel_amd64.s but
 // processes 16 columns per iteration in a pair of YMM accumulators

@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON 4x4 B_PRED intra-prediction kernels. Mirrors libvpx
 // v1.16.0 vp8/common/reconintra4x4.c per-mode formulas (exact AVG3
 // = (a + 2*b + c + 2) >> 2 and AVG2 = (a + b + 1) >> 1) with

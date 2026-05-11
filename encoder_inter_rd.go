@@ -84,8 +84,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	convertInterFrameMode(ctx.mode, &decMode)
 	predMode := decMode
 	predMode.MBSkipCoeff = true
-	var zeroTokens vp8dec.MacroblockTokens
-	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref, ctx.mbRow, ctx.mbCol, &predMode, &zeroTokens, &e.dequants[ctx.segmentID], &e.reconstructScratch) {
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref, ctx.mbRow, ctx.mbCol, &predMode, nil, &e.dequants[ctx.segmentID], &e.reconstructScratch) {
 		return interResidualRDAccounting{}, false
 	}
 

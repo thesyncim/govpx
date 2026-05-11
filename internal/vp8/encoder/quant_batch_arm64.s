@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON batched port of the libvpx v1.16.0
 // vp8/encoder/arm/neon/fastquantizeb_neon.c vp8_fast_quantize_b_neon
 // kernel. Per-block arithmetic is identical to fastQuantizeBlockNEON;

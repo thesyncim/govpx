@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // AVX2 bilinear filter kernels for VP8 subpel variance, widths 16+.
 // Mirrors libvpx v1.16.0 vpx_dsp/x86/subpel_variance_sse2.asm but
 // processes two rows per loop iteration via 256-bit operands. VP8

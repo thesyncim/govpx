@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 intra-prediction kernels. Mirrors libvpx v1.16.0
 // vp8/common/x86/vp8_intrapred_sse2.asm per-mode primitives for the
 // Y16x16 and UV8x8 whole-block predictors:

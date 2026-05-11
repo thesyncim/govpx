@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 bilinear filter kernels for subpel variance widths 8 and 4.
 // Mirrors libvpx v1.16.0 vpx_dsp/x86/subpel_variance_sse2.asm:
 //

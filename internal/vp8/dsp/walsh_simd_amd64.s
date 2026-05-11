@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 port of libvpx v1.16.0 vp8/common/x86/iwalsh_sse2.asm
 // (vp8_short_inv_walsh4x4_sse2).
 //

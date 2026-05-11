@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON residual gather kernels. Mirrors libvpx v1.16.0
 // vp8/encoder/encodemb.c's vp8_subtract_mby / vp8_subtract_mbuv:
 //

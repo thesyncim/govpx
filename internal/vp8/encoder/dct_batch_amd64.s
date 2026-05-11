@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 batched port of libvpx v1.16.0 vp8/encoder/x86/dct_sse2.asm
 // vp8_short_fdct4x4_sse2 wrapped in an outer assembly loop so one
 // Go<->asm transition processes up to `count` 4x4 blocks at block

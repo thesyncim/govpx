@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON implementation of the 16-wide second-pass bilinear
 // filter for subpel variance. Mirrors the math in
 // varFilterBlock2DBilinearSecondPass16Scalar:

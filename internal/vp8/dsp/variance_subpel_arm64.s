@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON bilinear filter kernels for subpel variance widths 8
 // and 4. Mirrors libvpx v1.16.0 vpx_dsp/arm/subpel_variance_neon.c.
 //

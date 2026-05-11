@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // AVX2 variance kernels for VP8 picker block sizes 16x16, 16x8, 16xN
 // (even N) and 8x16. Mirrors libvpx v1.16.0 vpx_dsp/x86/variance_avx2.c
 // variance16_kernel_avx2 / variance8_kernel_avx2:

@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON SAD primitives. Mirrors libvpx v1.16.0 vpx_dsp/arm/sad_neon.c
 // (sad{4,8,16}xh_neon) plus a govpx-specific 16x16 limit-aware variant
 // matching internal/vp8/dsp/sad.go's sadBlockLimit semantics.

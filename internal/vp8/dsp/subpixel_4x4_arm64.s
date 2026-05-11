@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON 4x4 six-tap subpel prediction. Mirrors libvpx v1.16.0
 // vp8/common/arm/neon/sixtappredict_neon.c sixtap_filter4d_neon's
 // w4 path. Two passes:

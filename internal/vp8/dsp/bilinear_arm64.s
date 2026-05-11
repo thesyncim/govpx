@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON two-tap (bilinear) subpel prediction. Mirrors libvpx v1.16.0
 // vp8/common/filter.c bilinear_predict 16x16 and 8x8 paths.
 //

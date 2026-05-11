@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON 16-wide first-pass bilinear filter for subpel variance.
 // Mirrors libvpx v1.16.0 vpx_dsp/arm/subpel_variance_neon.c
 // var_filter_block2d_bilinear_w16:

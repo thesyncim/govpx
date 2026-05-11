@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 port of the libvpx v1.16.0 vp8 loop_filter and mb_loop_filter
 // inner kernels (16-wide horizontal-edge form). Mirrors
 // vp8/common/x86/loopfilter_sse2.asm — LFH_FILTER_AND_HEV_MASK plus

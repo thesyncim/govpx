@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 16x16 variance block. Mirrors libvpx v1.16.0
 // vpx_dsp/x86/variance_sse2.c variance16_kernel_sse2 / variance16_sse2:
 //

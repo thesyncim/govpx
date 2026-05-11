@@ -1,3 +1,5 @@
+//go:build arm64 && !purego
+
 // ARMv8 NEON port of the libvpx v1.16.0 vp8 loop_filter and mb_loop_filter
 // inner kernels (16-wide horizontal-edge form). Each routine consumes a
 // pointer at the start of the p3 row, reads p3..q3 at +pitch increments,

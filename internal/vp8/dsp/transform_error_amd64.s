@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 // SSE2 sum-of-squared-differences for a 4x4 coefficient block. Mirrors
 // libvpx v1.16.0 vp8_block_error_sse2 (vp8/encoder/x86/block_error_sse2.asm)
 // which computes
