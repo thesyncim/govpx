@@ -532,7 +532,27 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
 			modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&coeffs[index], is4x4)
-			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
+			// Lane C accepted-candidate reuse: the picker→accepted boundary
+			// for an inter MB ends up calling convertInterFrameMode twice —
+			// first at the winner branch above (lines 469/480) right after
+			// `modes[index] = decision.{intra,inter}Mode`, then a second
+			// time here after the MBSkipCoeff fix-up below. Between those
+			// two calls the only field of modes[index] that mutates is
+			// MBSkipCoeff (set on the line just above): every other input
+			// to convertInterFrameMode (SegmentID, RefFrame, Mode, UVMode,
+			// Is4x4, BModes, MV, BlockMV, Partition) is assigned exactly
+			// once when `modes[index] = decision.{...}` runs and is not
+			// touched by the intervening builders
+			// (buildReconstructingBPredMacroblockCoefficients,
+			// predictAnalysisMacroblock, reconstructInterAnalysisMacroblock
+			// via a predMode stack copy, buildPredictedMacroblockCoefficients,
+			// clearMacroblockCoefficients) — they read mode fields but never
+			// write back into modes[index] or e.reconstructModes[index].
+			// So patching MBSkipCoeff alone is byte-identical to the
+			// previous full re-serialize, but skips an entire MacroblockMode
+			// memset plus the per-MB [16]MotionVector BlockMV fill that the
+			// compiler cannot prove dead.
+			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {

@@ -427,7 +427,15 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 
 	is4x4 := interFrameModeUses4x4Tokens(args.modes[index].Mode)
 	args.modes[index].MBSkipCoeff = breakoutSkip || macroblockCoefficientsEmpty(&args.coeffs[index], is4x4)
-	convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
+	// Lane C accepted-candidate reuse: matches the serial path. The first
+	// convertInterFrameMode above (lines 383/393) is what produced
+	// e.reconstructModes[index] from args.modes[index]; nothing between
+	// that call and this point writes back to args.modes[index] or
+	// e.reconstructModes[index] except the MBSkipCoeff fix-up on the line
+	// above. So updating MBSkipCoeff alone is byte-identical to the prior
+	// full re-serialize and skips the MacroblockMode memset plus the
+	// per-MB [16]MotionVector BlockMV fill the compiler cannot prove dead.
+	e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if args.modes[index].RefFrame == vp8common.IntraFrame && args.modes[index].Mode == vp8common.BPred {
 		updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
