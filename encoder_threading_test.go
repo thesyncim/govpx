@@ -120,16 +120,19 @@ func TestEncoderThreadsProducesIdenticalBitstream(t *testing.T) {
 	encode := func(t *testing.T, threads int) [][]byte {
 		t.Helper()
 		e, err := NewVP8Encoder(EncoderOptions{
-			Width:               width,
-			Height:              height,
-			FPS:                 30,
-			RateControlMode:     RateControlCBR,
-			TargetBitrateKbps:   1200,
-			MinQuantizer:        4,
-			MaxQuantizer:        56,
-			DropFrameAllowed:    false,
-			Deadline:            DeadlineRealtime,
-			CpuUsed:             8,
+			Width:             width,
+			Height:            height,
+			FPS:               30,
+			RateControlMode:   RateControlCBR,
+			TargetBitrateKbps: 1200,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			DropFrameAllowed:  false,
+			Deadline:          DeadlineRealtime,
+			// Pin realtime Speed. Positive cpu_used enables wall-clock
+			// autoSpeed, which can legitimately pick different speeds between
+			// repeated runs and obscure the threading determinism invariant.
+			CpuUsed:             -8,
 			KeyFrameInterval:    120,
 			ErrorResilient:      true,
 			BufferSizeMs:        600,
@@ -206,16 +209,19 @@ func TestEncoderThreadsProducesDeterministicAtFixedN(t *testing.T) {
 	encode := func(t *testing.T, threads int) [][]byte {
 		t.Helper()
 		e, err := NewVP8Encoder(EncoderOptions{
-			Width:               width,
-			Height:              height,
-			FPS:                 30,
-			RateControlMode:     RateControlCBR,
-			TargetBitrateKbps:   1200,
-			MinQuantizer:        4,
-			MaxQuantizer:        56,
-			DropFrameAllowed:    false,
-			Deadline:            DeadlineRealtime,
-			CpuUsed:             8,
+			Width:             width,
+			Height:            height,
+			FPS:               30,
+			RateControlMode:   RateControlCBR,
+			TargetBitrateKbps: 1200,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			DropFrameAllowed:  false,
+			Deadline:          DeadlineRealtime,
+			// Pin realtime Speed. Positive cpu_used enables wall-clock
+			// autoSpeed, which is intentionally timing-sensitive; this test is
+			// about fixed-N row-threading determinism.
+			CpuUsed:             -8,
 			KeyFrameInterval:    120,
 			ErrorResilient:      true,
 			BufferSizeMs:        600,
