@@ -97,9 +97,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// the divergence is visible and any closer-match commit will
 		// show up as additional byte-MATCH log rows.
 		{name: "realtime-vbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
-		// Error-resilient partitions (independent context savings branch).
-		// Diverges from frame 0 today; pinned at limit=0.
-		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=1"}},
+		// Error-resilient partitions (independent context savings
+		// branch). libvpx --error-resilient takes a bitmask; value 2
+		// is VPX_ERROR_RESILIENT_PARTITIONS, which is what
+		// EncoderOptions.ErrorResilientPartitions maps to.
+		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=2"}},
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		// Diverges from frame 0 today; pinned at limit=0.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
@@ -170,9 +172,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 					continue
 				}
 				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
+				// firstNonTagDiff skips the 3-byte frame tag (which
+				// encodes first_partition_size) so we can spot the
+				// next genuine bitstream divergence inside the
+				// uncompressed-header span.
+				firstNonTagDiff := firstByteDiff(govpxFrames[i][3:], libvpxFrames[i][3:])
+				if firstNonTagDiff >= 0 {
+					firstNonTagDiff += 3
+				}
 				if i >= limit {
-					t.Logf("frame %d byte mismatch (not asserted, limit=%d): govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d",
-						i, limit, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff, gFP, lFP)
+					t.Logf("frame %d byte mismatch (not asserted, limit=%d): govpx_len=%d libvpx_len=%d first_diff=%d non_tag_diff=%d govpx_first_part=%d libvpx_first_part=%d",
+						i, limit, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff, firstNonTagDiff, gFP, lFP)
 					continue
 				}
 				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
