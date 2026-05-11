@@ -285,6 +285,17 @@ type EncoderOptions struct {
 	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
+	// FastLoopFilterPick lowers the loop-filter fast-pick gate to the
+	// partial-frame trial picker whenever the encoder's speed value is
+	// >= 4 (vs libvpx's default > 4). This is a deliberate, opt-in
+	// departure from libvpx parity that recovers ~20-30% of EncodeInto
+	// wall time at cold-start realtime+positive-cpu_used because the
+	// libvpx auto-speed selector sits at speed=4 indefinitely on short
+	// corpora and otherwise burns the loop-filter level pick on five
+	// full-frame trials per frame. Off by default; turn on when you
+	// have already verified that the loop-filter level drift produced
+	// by the partial picker is acceptable for the target use case.
+	FastLoopFilterPick bool
 	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
 	Sharpness int
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
