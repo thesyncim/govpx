@@ -12,7 +12,8 @@ import (
 // SSE2 port of the libvpx v1.16.0 VP8 six-tap subpel predictor.
 // Routes SixTapPredict16x16, SixTapPredict8x8, SixTapPredict8x4,
 // SixTapPredict4x4 through hand-written SSE2; the 16x8 and 8x16
-// sizes still fall through to the scalar reference in subpixel.go.
+// sizes still fall through to the scalar reference in subpixel.go
+// on amd64 — NEON has them but SSE2 does not yet.
 //
 // The kernel decomposes the 6-tap horizontal/vertical inner product
 // into three PMADDWD pairs over byte sources widened to int16 lanes
@@ -61,6 +62,16 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	}
 	sixTapPredict16x16SSE2(dstPtr, dstStride, srcPtr, srcStride, hFilter, vFilter, &tmp)
 	return true
+}
+
+func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	return false
+}
+
+func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	return false
 }
 
 func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,

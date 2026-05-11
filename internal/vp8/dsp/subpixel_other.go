@@ -11,6 +11,16 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	return false
 }
 
+func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	return false
+}
+
+func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	return false
+}
+
 func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
 	return false

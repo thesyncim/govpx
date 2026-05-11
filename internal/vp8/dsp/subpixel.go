@@ -41,12 +41,18 @@ func SixTapPredict16x8(src []byte, srcStride int, xoffset int, yoffset int, dst 
 		copyCentralBlock(src, srcStride, dst, dstStride, 16, 8)
 		return
 	}
+	if sixTapPredict16x8Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
+		return
+	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 16, 8)
 }
 
 func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
 	if xoffset == 0 && yoffset == 0 {
 		copyCentralBlock(src, srcStride, dst, dstStride, 8, 16)
+		return
+	}
+	if sixTapPredict8x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return
 	}
 	sixTapPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 16)

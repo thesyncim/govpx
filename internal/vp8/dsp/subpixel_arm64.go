@@ -9,13 +9,20 @@ import (
 )
 
 // ARMv8 NEON port of the libvpx v1.16.0
-// vp8/common/arm/neon/sixtappredict_neon.c 16x16, 8x8, 8x4, and 4x4
-// paths. The 16x8 and 8x16 sizes still fall through to the scalar
-// reference in subpixel.go.
+// vp8/common/arm/neon/sixtappredict_neon.c 16x16, 16x8, 8x16, 8x8,
+// 8x4, and 4x4 paths.
 
 //go:noescape
 func sixTapPredict16x16NEON(dst *byte, dstStride int, src *byte, srcStride int,
 	hFilter *[6]int16, vFilter *[6]int16, tmp *[21 * 16]byte)
+
+//go:noescape
+func sixTapPredict16x8NEON(dst *byte, dstStride int, src *byte, srcStride int,
+	hFilter *[6]int16, vFilter *[6]int16, tmp *[13 * 16]byte)
+
+//go:noescape
+func sixTapPredict8x16NEON(dst *byte, dstStride int, src *byte, srcStride int,
+	hFilter *[6]int16, vFilter *[6]int16, tmp *[21 * 8]byte)
 
 //go:noescape
 func sixTapPredict8x8NEON(dst *byte, dstStride int, src *byte, srcStride int,
@@ -41,6 +48,36 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	hFilter := &tables.SubPelFilters[xoffset]
 	vFilter := &tables.SubPelFilters[yoffset]
 	sixTapPredict16x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
+	return true
+}
+
+func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+		return false
+	}
+	if srcStride <= 0 || dstStride <= 0 {
+		return false
+	}
+	var tmp [13 * 16]byte
+	hFilter := &tables.SubPelFilters[xoffset]
+	vFilter := &tables.SubPelFilters[yoffset]
+	sixTapPredict16x8NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
+	return true
+}
+
+func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
+	dst []byte, dstStride int) bool {
+	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+		return false
+	}
+	if srcStride <= 0 || dstStride <= 0 {
+		return false
+	}
+	var tmp [21 * 8]byte
+	hFilter := &tables.SubPelFilters[xoffset]
+	vFilter := &tables.SubPelFilters[yoffset]
+	sixTapPredict8x16NEON(unsafe.SliceData(dst), dstStride, unsafe.SliceData(src), srcStride, hFilter, vFilter, &tmp)
 	return true
 }
 

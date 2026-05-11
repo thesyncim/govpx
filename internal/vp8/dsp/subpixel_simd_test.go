@@ -21,6 +21,10 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 	}{
 		{"16x16", 16, 16, 32},
 		{"16x16-stride48", 16, 16, 48},
+		{"16x8", 16, 8, 32},
+		{"16x8-stride48", 16, 8, 48},
+		{"8x16", 8, 16, 32},
+		{"8x16-stride40", 8, 16, 40},
 		{"8x8", 8, 8, 32},
 		{"8x8-stride40", 8, 8, 40},
 		{"8x4", 8, 4, 32},
@@ -52,6 +56,10 @@ func TestSixTapPredictSIMDMatchesScalar(t *testing.T) {
 					switch tc.w*100 + tc.h {
 					case 16*100 + 16:
 						SixTapPredict16x16(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
+					case 16*100 + 8:
+						SixTapPredict16x8(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
+					case 8*100 + 16:
+						SixTapPredict8x16(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
 					case 8*100 + 8:
 						SixTapPredict8x8(src, tc.stride, xoff, yoff, dstSIMD, tc.w)
 					case 8*100 + 4:
