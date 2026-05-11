@@ -37,6 +37,17 @@ func AccumulateInterMacroblockTokenCounts(counts *InterCoefficientTokenCounts, i
 	return countCoefficientMacroblockTokens(is4x4, above, left, coeffs, counts)
 }
 
+// AccumulateInterMacroblockTokenCountsAndRecords adds the supplied MB's
+// coefficient tokens to both the probability-update counts and the prepared
+// token-record stream. The above/left context mutations are identical to
+// AccumulateInterMacroblockTokenCounts.
+func AccumulateInterMacroblockTokenCountsAndRecords(counts *InterCoefficientTokenCounts, records *InterCoefficientTokenRecords, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
+	if counts == nil {
+		return ErrInvalidPacketConfig
+	}
+	return countCoefficientMacroblockTokensAndRecords(is4x4, above, left, coeffs, counts, records)
+}
+
 func buildKeyFrameCoefficientTokenCounts(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientTokenCounts) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall
@@ -262,6 +273,10 @@ func coefficientProbabilityUpdatesFromTokenCountsIndependent(base *tables.Coeffi
 }
 
 func countCoefficientMacroblockTokens(is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients, counts *coefficientTokenCounts) error {
+	return countCoefficientMacroblockTokensAndRecords(is4x4, above, left, coeffs, counts, nil)
+}
+
+func countCoefficientMacroblockTokensAndRecords(is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients, counts *coefficientTokenCounts, records *InterCoefficientTokenRecords) error {
 	if above == nil || left == nil || coeffs == nil || counts == nil {
 		return ErrInvalidPacketConfig
 	}
@@ -273,7 +288,7 @@ func countCoefficientMacroblockTokens(is4x4 bool, above *TokenContextPlanes, lef
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig
 		}
-		if err := countBlockCoefficientTokens(counts, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
+		if err := countBlockCoefficientTokensAndRecords(counts, records, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
 			return err
 		}
 		hasCoeffs := uint8(0)
@@ -297,7 +312,7 @@ func countCoefficientMacroblockTokens(is4x4 bool, above *TokenContextPlanes, lef
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig
 		}
-		if err := countBlockCoefficientTokens(counts, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
+		if err := countBlockCoefficientTokensAndRecords(counts, records, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
 			return err
 		}
 		hasCoeffs := uint8(0)
@@ -315,7 +330,7 @@ func countCoefficientMacroblockTokens(is4x4 bool, above *TokenContextPlanes, lef
 		if ctx >= tables.PrevCoefContexts {
 			return ErrInvalidPacketConfig
 		}
-		if err := countBlockCoefficientTokens(counts, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
+		if err := countBlockCoefficientTokensAndRecords(counts, records, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
 			return err
 		}
 		hasCoeffs := uint8(0)
@@ -329,12 +344,16 @@ func countCoefficientMacroblockTokens(is4x4 bool, above *TokenContextPlanes, lef
 }
 
 func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
+	return countBlockCoefficientTokensAndRecords(counts, nil, blockType, ctx, skipDC, qcoeff, eob)
+}
+
+func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, records *InterCoefficientTokenRecords, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
 	if counts == nil || qcoeff == nil || blockType < 0 || blockType >= tables.BlockTypes || ctx < 0 || ctx >= tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
 		return ErrInvalidPacketConfig
 	}
 	if eob <= skipDC {
 		(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
-		return nil
+		return records.appendToken(blockType, skipDC, ctx, tables.DCTEOBToken, 0, 0, false)
 	}
 	if eob > 16 {
 		return ErrInvalidPacketConfig
@@ -342,6 +361,7 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 
 	band := skipDC
 	tokenCtx := ctx
+	skipEOBNode := false
 	for pos := skipDC; pos < eob; pos++ {
 		rc := int(tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
@@ -353,21 +373,30 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 		// "tokenCtx = 0" reset, which now falls out of
 		// tables.PrevTokenClass[ZeroToken] (= 0).
 		mag := coeff
+		sign := uint8(0)
 		if coeff < 0 {
 			mag = -coeff
+			sign = 1
 		}
 		if mag > tables.DCTMaxValue {
 			return ErrInvalidPacketConfig
 		}
 		token := int(coeffAbsTokenLUT[mag])
 		(*counts)[blockType][band][tokenCtx][token]++
+		if err := records.appendToken(blockType, band, tokenCtx, token, mag, sign, skipEOBNode); err != nil {
+			return err
+		}
 		if pos+1 < 16 {
 			band = int(tables.CoefBandsTable[pos+1])
 			tokenCtx = int(tables.PrevTokenClass[token])
+			skipEOBNode = tokenCtx == 0
 		}
 	}
 	if eob < 16 {
 		(*counts)[blockType][band][tokenCtx][tables.DCTEOBToken]++
+		if err := records.appendToken(blockType, band, tokenCtx, tables.DCTEOBToken, 0, 0, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }

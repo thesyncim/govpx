@@ -687,6 +687,7 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 				cfg.ProbIntra = 120
 				cfg.ProbLast = 180
 				cfg.ProbGolden = 100
+				cfg.TokenPartition = common.FourPartition
 				cfg.MVBase = tables.DefaultMVContext
 				cfg.MVProbs = tables.DefaultMVContext
 				return cfg
@@ -751,8 +752,10 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 			tt.init(coeffs)
 			publicPacket := make([]byte, 8192)
 			scratchPacket := make([]byte, 8192)
+			prebuiltPacket := make([]byte, 8192)
 			publicAbove := make([]TokenContextPlanes, tt.cols)
 			scratchAbove := make([]TokenContextPlanes, tt.cols)
+			prebuiltAbove := make([]TokenContextPlanes, tt.cols)
 			publicResult, err := (&InterFramePacket{
 				Dst:    publicPacket,
 				Width:  tt.cols * 16,
@@ -779,10 +782,32 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 			if err != nil {
 				t.Fatalf("scratch InterFramePacket.Write returned error: %v", err)
 			}
+			var counts InterCoefficientTokenCounts
+			var records InterCoefficientTokenRecords
+			buildInterCoefficientTokenCachesForTest(t, tt.rows, tt.cols, tt.modes, coeffs, &counts, &records)
+			prebuiltResult, err := (&InterFramePacket{
+				Dst:                prebuiltPacket,
+				Width:              tt.cols * 16,
+				Height:             tt.rows * 16,
+				State:              tt.cfg,
+				Modes:              tt.modes,
+				Coeffs:             coeffs,
+				Above:              prebuiltAbove,
+				Scratch:            &scratch,
+				PrebuiltCoefCounts: &counts,
+				PrebuiltCoefTokens: &records,
+			}).Write()
+			if err != nil {
+				t.Fatalf("prebuilt InterFramePacket.Write returned error: %v", err)
+			}
 			publicN := publicResult.Size
 			scratchN := scratchResult.Size
 			if publicN != scratchN || !bytes.Equal(publicPacket[:publicN], scratchPacket[:scratchN]) {
 				t.Fatalf("scratch packet differs from public path: public=%d scratch=%d", publicN, scratchN)
+			}
+			prebuiltN := prebuiltResult.Size
+			if publicN != prebuiltN || !bytes.Equal(publicPacket[:publicN], prebuiltPacket[:prebuiltN]) {
+				t.Fatalf("prebuilt packet differs from public path: public=%d prebuilt=%d", publicN, prebuiltN)
 			}
 			if publicResult.FrameCoefProbs != scratchResult.FrameCoefProbs ||
 				publicResult.FrameYModeProbs != scratchResult.FrameYModeProbs ||
@@ -791,8 +816,39 @@ func TestWriteCoefficientInterFrameScratchMatchesPublicPacket(t *testing.T) {
 				publicResult.CoefSavingsBits != scratchResult.CoefSavingsBits {
 				t.Fatalf("scratch probability outputs differ from public path")
 			}
+			if publicResult.FrameCoefProbs != prebuiltResult.FrameCoefProbs ||
+				publicResult.FrameYModeProbs != prebuiltResult.FrameYModeProbs ||
+				publicResult.FrameUVModeProbs != prebuiltResult.FrameUVModeProbs ||
+				publicResult.FrameMVProbs != prebuiltResult.FrameMVProbs ||
+				publicResult.CoefSavingsBits != prebuiltResult.CoefSavingsBits {
+				t.Fatalf("prebuilt probability outputs differ from public path")
+			}
 			assertInterPacketDecodes(t, scratchPacket[:scratchN], tt.rows, tt.cols)
+			assertInterPacketDecodes(t, prebuiltPacket[:prebuiltN], tt.rows, tt.cols)
 		})
+	}
+}
+
+func buildInterCoefficientTokenCachesForTest(t *testing.T, rows int, cols int, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, counts *InterCoefficientTokenCounts, records *InterCoefficientTokenRecords) {
+	t.Helper()
+	ResetInterCoefficientTokenCounts(counts)
+	ResetInterCoefficientTokenRecords(records, rows, rows*cols)
+	above := make([]TokenContextPlanes, cols)
+	for row := range rows {
+		MarkInterCoefficientTokenRecordRowStart(records, row)
+		left := TokenContextPlanes{}
+		for col := range cols {
+			index := row*cols + col
+			is4x4 := interModeUses4x4Tokens(modes[index].Mode)
+			if modes[index].MBSkipCoeff {
+				resetTokenContext(&above[col], &left, is4x4)
+				continue
+			}
+			if err := AccumulateInterMacroblockTokenCountsAndRecords(counts, records, is4x4, &above[col], &left, &coeffs[index]); err != nil {
+				t.Fatalf("AccumulateInterMacroblockTokenCountsAndRecords returned error: %v", err)
+			}
+		}
+		MarkInterCoefficientTokenRecordRowEnd(records, row)
 	}
 }
 

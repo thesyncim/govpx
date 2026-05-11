@@ -510,8 +510,8 @@ type VP8Encoder struct {
 	altRefAliasesLast    bool
 	goldenRefAliasesAlt  bool
 
-	loopFilterPick      vp8common.FrameBuffer
-	loopFilterBest      vp8common.FrameBuffer
+	loopFilterPick vp8common.FrameBuffer
+	loopFilterBest vp8common.FrameBuffer
 	// loopFilterPickAlt is the second LF-trial scratch buffer used by the
 	// full picker when running filt_low/filt_high trials concurrently at
 	// Threads >= 2. Resized only when the row-worker pool exists; remains
@@ -537,6 +537,12 @@ type VP8Encoder struct {
 	// to recomputing during Write.
 	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCountsValid bool
+	// interCoefTokenRecords is the matching Lane D coefficient token stream.
+	// Populated during the same accepted-MB walk as interCoefTokenCounts so
+	// InterFramePacket.Write can emit coefficient tokens without re-walking
+	// QCoeff/EOB/context state. Only valid for the single-threaded builder.
+	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
+	interCoefTokenRecordsValid bool
 	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
 	// inputs across the picker → accepted-path boundary in
 	// selectRDInterFrameModeDecision /
@@ -803,6 +809,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		probSkipFalse:      128,
 		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
 	}
+	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(normalized.Height), encoderMacroblockCount(normalized.Width, normalized.Height))
 	e.resetInterRDThresholdMultipliers()
 	vp8dec.ResetModeProbs(&e.modeProbs)
 	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
@@ -2038,13 +2045,16 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		MVBase:     &e.modeProbs.MV,
 		Scratch:    &e.partScratch,
 	}
-	// Lane D: hand the pre-built coefficient token counts to the packet
-	// writer so it can skip its own count walk. The cache is only valid
-	// after a successful single-threaded reconstruction pass; threaded
-	// reconstructions do not populate it (see encoder_row_threaded.go) and
-	// the writer falls back to the original count walk in that case.
+	// Lane D: hand the pre-built coefficient token counts and record stream
+	// to the packet writer so it can skip its own count/context/QCoeff walks.
+	// The caches are only valid after a successful single-threaded
+	// reconstruction pass; threaded reconstructions do not populate them
+	// (see encoder_row_threaded.go) and the writer falls back in that case.
 	if e.interCoefTokenCountsValid {
 		packet.PrebuiltCoefCounts = &e.interCoefTokenCounts
+	}
+	if e.interCoefTokenRecordsValid {
+		packet.PrebuiltCoefTokens = &e.interCoefTokenRecords
 	}
 	packetResult, err := packet.Write()
 	if err != nil {
@@ -3532,6 +3542,8 @@ func (e *VP8Encoder) Reset() {
 	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
 	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
 	e.interCoefTokenCountsValid = false
+	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(e.opts.Height), encoderMacroblockCount(e.opts.Width, e.opts.Height))
+	e.interCoefTokenRecordsValid = false
 	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
 	e.loopInfoAlt = vp8common.LoopFilterInfo{}

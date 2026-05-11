@@ -244,6 +244,12 @@ type InterFramePacket struct {
 	// buildInterCoefficientTokenCounts. Lane D consolidation: the encoder
 	// builds these during accepted-MB reconstruction.
 	PrebuiltCoefCounts *InterCoefficientTokenCounts
+
+	// PrebuiltCoefTokens, if non-nil, is consumed as the row-indexed
+	// coefficient token stream and replaces the packet writer's coefficient
+	// grid walk. Probability updates still run first; these records are
+	// emitted with the finalized per-frame coefficient probabilities.
+	PrebuiltCoefTokens *InterCoefficientTokenRecords
 }
 
 type InterFramePacketResult struct {
@@ -339,8 +345,14 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 	if partitionCount == 1 {
 		tokens := BoolWriter{}
 		tokens.Init(p.Dst[tokenStart:])
-		if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
-			return result, err
+		if p.PrebuiltCoefTokens != nil {
+			if err := writePreparedInterCoefficientTokenGrid(&tokens, rows, p.PrebuiltCoefTokens, &frameCoefProbs); err != nil {
+				return result, err
+			}
+		} else {
+			if err := WriteInterCoefficientTokenGrid(&tokens, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
+				return result, err
+			}
 		}
 		tokens.Finish()
 		if err := tokens.Err(); err != nil {
@@ -357,8 +369,14 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 		if err != nil {
 			return result, err
 		}
-		if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
-			return result, err
+		if p.PrebuiltCoefTokens != nil {
+			if err := writePreparedInterCoefficientTokenGridPartitioned(&writers, partitions, rows, p.PrebuiltCoefTokens, &frameCoefProbs); err != nil {
+				return result, err
+			}
+		} else {
+			if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
+				return result, err
+			}
 		}
 		n, err = finalizePartitionedTokenPayload(resolved, &writers, p.Dst, tokenStart, partitions)
 		if err != nil {
