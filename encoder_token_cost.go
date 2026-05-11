@@ -203,10 +203,9 @@ func treeTokenCostSlow(tree []int16, probs []uint8, token int) int {
 }
 
 func boolBitCost(prob uint8, bit int) int {
-	if bit == 0 {
-		return vp8tables.ProbCost[prob]
-	}
-	return vp8tables.ProbCost[255-int(prob)]
+	// Branchless sign-XOR: prob^uint8(-bit) flips prob to 255-prob
+	// (== ^prob) when bit is set.
+	return vp8tables.ProbCost[prob^uint8(-bit)]
 }
 
 func rdModeScore(qIndex int, rate int, distortion int) int {
