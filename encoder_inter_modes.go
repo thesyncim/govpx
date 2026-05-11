@@ -171,7 +171,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	defer func() {
 		e.interRDCoeffCacheScratchTarget = nil
 	}()
-	traceEnabled := e.oracleTraceEnabled()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
@@ -658,7 +658,6 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
 		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}
-		attachImprovedMVTrace(&mode, candidate.start)
 		return mode, true
 	default:
 		return vp8enc.InterFrameMacroblockMode{}, false
@@ -727,7 +726,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	traceEnabled := e.oracleTraceEnabled()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
@@ -897,7 +896,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				continue
 			}
 			mode.MV = mv
-			attachImprovedMVTrace(&mode, start)
 		default:
 			continue
 		}
@@ -979,11 +977,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 }
 
 // emitFastPickerIntraCandidateTrace and emitFastPickerInterCandidateTrace are
-// the trace plumbing for the fast picker hot loop. Splitting them off keeps
-// the picker's stack frame small (the oracleTraceInterCandidateSummary
-// literal is otherwise materialised twice in selectFastInterFrameModeDecision
-// and reserves stack space whether or not OracleTraceWriter is set). The calls
-// stay behind oracleTraceEnabled so normal encodes do not build trace rows.
+// trace plumbing for the fast picker hot loop. They must stay behind
+// oracleTraceBuild at call sites so normal builds compile the summaries away.
 func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, modeIndex int, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
 	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 		Picker:          "fast",

@@ -1,8 +1,10 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 // Encoder oracle trace mode (off-by-default validation harness).
 //
-// When EncoderOptions.OracleTraceWriter is non-nil the encoder emits a
+// When oracle tracing is enabled for an encoder, the encoder emits a
 // deterministic JSON Lines stream describing per-frame state and per-MB
 // decisions. The format is intended to be diffed against equivalent output
 // instrumented from libvpx (vp8/encoder/encodeframe.c, pickinter.c, rdopt.c,
@@ -366,7 +368,8 @@ const oracleTraceInterCandidateUnknown = -1
 // oracle trace. Callers should guard tracing logic with this so the per-MB
 // fast path performs no extra work when the harness is off.
 func (e *VP8Encoder) oracleTraceEnabled() bool {
-	return e != nil && e.opts.OracleTraceWriter != nil
+	state := e.oracleTraceState()
+	return state != nil && state.writer != nil
 }
 
 // oracleTraceFrameSummary is the minimal slice of frame state that callers
@@ -464,7 +467,7 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	row.ProbIntraCoded = int(e.refProbIntra)
 	row.ProbLastCoded = int(e.refProbLast)
 	row.ProbGFCoded = int(e.refProbGolden)
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // oracleTraceProbabilityDigests returns Adler32 digests over the encoder's
@@ -559,7 +562,7 @@ func (e *VP8Encoder) emitOracleRateTrace(summary oracleTraceRateSummary) {
 	default:
 		row.FrameType = "inter"
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // oracleTraceRecodeSummary describes the recode-loop outcome for the just
@@ -589,7 +592,7 @@ func (e *VP8Encoder) emitOracleRecodeTrace(summary oracleTraceRecodeSummary) {
 	if row.Reason == "" {
 		row.Reason = "size_recode"
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // emitOracleDroppedFrameTrace writes a single per-frame trace row capturing
@@ -624,7 +627,7 @@ func (e *VP8Encoder) emitOracleDroppedFrameTrace(reason string) {
 		ThisFrameTarget: e.rc.frameTargetBits,
 		Reason:          reason,
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &row)
+	emitOracleTraceRow(e.oracleTraceState().writer, &row)
 }
 
 // emitOracleRateAndRecodeTrace emits the per-frame "rate" row plus, when
@@ -645,6 +648,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	if !e.oracleTraceEnabled() {
 		return
 	}
+	state := e.oracleTraceState()
 	keyFrame := frameType == vp8common.KeyFrame
 	activeBest, activeWorst := e.rc.libvpxActiveQuantizerBounds(keyFrame, false)
 	e.emitOracleRateTrace(oracleTraceRateSummary{
@@ -653,7 +657,7 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		ActiveWorstQ:           activeWorst,
 		ActiveBestQ:            activeBest,
 		BufferLevelBits:        int64(e.rc.bufferLevelBits),
-		TotalByteCount:         e.oracleTraceTotalByteCount,
+		TotalByteCount:         state.totalByteCount,
 		ProjectedFrameSizeBits: projectedBits,
 		ThisFrameTargetBits:    e.rc.frameTargetBits,
 		KFOverspendBits:        e.rc.kfOverspendBits,
@@ -662,13 +666,13 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 		CoefSavingsBits:        coefSavings,
 		RefFrameSavingsBits:    refFrameSavings,
 	})
-	if e.oracleTraceRecodeLoopCount > 1 {
-		reason := e.oracleTraceRecodeReason
+	if state.recodeLoopCount > 1 {
+		reason := state.recodeReason
 		if reason == "" {
 			reason = "size_recode"
 		}
 		e.emitOracleRecodeTrace(oracleTraceRecodeSummary{
-			LoopCount: e.oracleTraceRecodeLoopCount,
+			LoopCount: state.recodeLoopCount,
 			FinalQ:    finalQuantizer,
 			Reason:    reason,
 		})
@@ -677,10 +681,5 @@ func (e *VP8Encoder) emitOracleRateAndRecodeTrace(frameType vp8common.FrameType,
 	// after pack_bitstream. The trace row already reflects the pre-frame
 	// total so the next frame's rate row sees the same cumulative value
 	// libvpx would.
-	e.oracleTraceTotalByteCount += int64(sizeBytes)
+	state.totalByteCount += int64(sizeBytes)
 }
-
-// resetOracleMBTraceBuffer clears any accumulated per-MB trace rows. It is
-// called at the start of each coefficient build pass so retried
-// (recoded) attempts overwrite earlier rows; the final attempt's rows are
-// flushed by flushOracleMBTraceBuffer at frame commit time.

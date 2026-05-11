@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import (
@@ -10,8 +12,9 @@ func (e *VP8Encoder) resetOracleMBTraceBuffer() {
 	if !e.oracleTraceEnabled() {
 		return
 	}
-	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
-	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
+	state := e.oracleTraceState()
+	state.mbBuffer = state.mbBuffer[:0]
+	state.interCandidateBuffer = state.interCandidateBuffer[:0]
 }
 
 // flushOracleMBTraceBuffer writes the buffered per-MB rows to the configured
@@ -20,15 +23,16 @@ func (e *VP8Encoder) flushOracleMBTraceBuffer() {
 	if !e.oracleTraceEnabled() {
 		return
 	}
-	w := e.opts.OracleTraceWriter
-	for i := range e.oracleTraceInterCandidateBuffer {
-		emitOracleTraceRow(w, &e.oracleTraceInterCandidateBuffer[i])
+	state := e.oracleTraceState()
+	w := state.writer
+	for i := range state.interCandidateBuffer {
+		emitOracleTraceRow(w, &state.interCandidateBuffer[i])
 	}
-	for i := range e.oracleTraceMBBuffer {
-		emitOracleTraceRow(w, &e.oracleTraceMBBuffer[i])
+	for i := range state.mbBuffer {
+		emitOracleTraceRow(w, &state.mbBuffer[i])
 	}
-	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
-	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
+	state.interCandidateBuffer = state.interCandidateBuffer[:0]
+	state.mbBuffer = state.mbBuffer[:0]
 }
 
 func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandidateSummary) {
@@ -36,16 +40,8 @@ func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandi
 		return
 	}
 	mv := summary.MV
-	improvedMVNearSADIndex := oracleTraceInterCandidateUnknown
-	improvedMVSR := oracleTraceInterCandidateUnknown
-	var improvedMVPredictor vp8enc.MotionVector
 	if summary.HasModeTrace {
 		mv = summary.ModeTrace.MV
-		if summary.ModeTrace.ImprovedMVStart {
-			improvedMVNearSADIndex = int(summary.ModeTrace.ImprovedMVNearSADIndex)
-			improvedMVSR = int(summary.ModeTrace.ImprovedMVSR)
-			improvedMVPredictor = summary.ModeTrace.ImprovedMVPredictor
-		}
 	}
 	if summary.RefFrame == vp8common.IntraFrame || summary.Mode == vp8common.SplitMV {
 		mv = vp8enc.MotionVector{}
@@ -87,13 +83,11 @@ func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandi
 		MVRow: mv.Row,
 		MVCol: mv.Col,
 
-		ImprovedMVStart:        summary.HasModeTrace && summary.ModeTrace.ImprovedMVStart,
-		ImprovedMVNearSADIndex: improvedMVNearSADIndex,
-		ImprovedMVRow:          improvedMVPredictor.Row,
-		ImprovedMVCol:          improvedMVPredictor.Col,
-		ImprovedMVSR:           improvedMVSR,
+		ImprovedMVNearSADIndex: oracleTraceInterCandidateUnknown,
+		ImprovedMVSR:           oracleTraceInterCandidateUnknown,
 	}
-	e.oracleTraceInterCandidateBuffer = append(e.oracleTraceInterCandidateBuffer, row)
+	state := e.oracleTraceState()
+	state.interCandidateBuffer = append(state.interCandidateBuffer, row)
 }
 
 // emitOracleMBTrace appends a per-macroblock trace row to the encoder's
@@ -129,13 +123,6 @@ func (e *VP8Encoder) emitOracleMBTrace(
 
 		MBRate:         mbRate,
 		AggregatedRate: aggregatedRate,
-	}
-	if mode.ImprovedMVStart {
-		row.ImprovedMVStart = true
-		row.ImprovedMVNearSADIndex = int(mode.ImprovedMVNearSADIndex)
-		row.ImprovedMVRow = mode.ImprovedMVPredictor.Row
-		row.ImprovedMVCol = mode.ImprovedMVPredictor.Col
-		row.ImprovedMVSR = int(mode.ImprovedMVSR)
 	}
 	if mode.Mode == vp8common.SplitMV {
 		partition := int(mode.Partition)
@@ -182,7 +169,8 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
-	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
+	state := e.oracleTraceState()
+	state.mbBuffer = append(state.mbBuffer, row)
 }
 
 func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
@@ -234,7 +222,8 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 		sum += int(row.EOB[i])
 	}
 	row.EOBSum = sum
-	e.oracleTraceMBBuffer = append(e.oracleTraceMBBuffer, row)
+	state := e.oracleTraceState()
+	state.mbBuffer = append(state.mbBuffer, row)
 }
 
 // applyOracleEOBAdjust mirrors libvpx's per-Y-block eob bump for the per-MB

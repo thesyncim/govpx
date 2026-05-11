@@ -208,16 +208,6 @@ type interFrameSearchStart struct {
 	ok           bool
 }
 
-func attachImprovedMVTrace(mode *vp8enc.InterFrameMacroblockMode, start interFrameSearchStart) {
-	if mode == nil || !start.ok {
-		return
-	}
-	mode.ImprovedMVStart = true
-	mode.ImprovedMVNearSADIndex = int8(start.nearSADIndex)
-	mode.ImprovedMVSR = int8(start.sr)
-	mode.ImprovedMVPredictor = start.mv
-}
-
 func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFrameSearchStart) interAnalysisSearchConfig {
 	if !start.ok {
 		return search

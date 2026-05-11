@@ -1,3 +1,5 @@
+//go:build govpx_oracle_trace
+
 package govpx
 
 import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
@@ -6,7 +8,7 @@ func (e *VP8Encoder) emitOracleLFTrial(phase string, trialLevel int, trialYSSE i
 	if !e.oracleTraceEnabled() {
 		return
 	}
-	emitOracleTraceRow(e.opts.OracleTraceWriter, &oracleTraceLFTrialRow{
+	emitOracleTraceRow(e.oracleTraceState().writer, &oracleTraceLFTrialRow{
 		Type:       "lf_trial",
 		FrameIndex: e.frameCount,
 		Phase:      phase,
@@ -47,10 +49,14 @@ func (e *VP8Encoder) emitOracleInterReconstructedTrace(mbRow int, mbCol int, img
 // frame, before the first MB is encoded, to localize whether border
 // content matches between encoders.
 func (e *VP8Encoder) emitOracleLastRefWindow(ref *vp8common.Image) {
-	if !e.oracleTraceEnabled() || !e.opts.OracleTracePredictorDump || ref == nil {
+	if !e.oracleTraceEnabled() || ref == nil {
 		return
 	}
-	w := e.opts.OracleTraceWriter
+	state := e.oracleTraceState()
+	if !state.predictorDump {
+		return
+	}
+	w := state.writer
 	border := ref.YBorder
 	uvBorder := ref.UVBorder
 	yWindowH := border + 16
@@ -98,10 +104,14 @@ func (e *VP8Encoder) emitOracleLastRefWindow(ref *vp8common.Image) {
 }
 
 func (e *VP8Encoder) emitOracleInterMBPlanesTrace(rowType string, mbRow int, mbCol int, img *vp8common.Image) {
-	if !e.oracleTraceEnabled() || !e.opts.OracleTracePredictorDump || img == nil {
+	if !e.oracleTraceEnabled() || img == nil {
 		return
 	}
-	if !e.opts.OracleTracePredictorDumpAllRows && mbRow != 0 {
+	state := e.oracleTraceState()
+	if !state.predictorDump {
+		return
+	}
+	if !state.predictorDumpAllRows && mbRow != 0 {
 		// Default scope: row 0 only (8 MBs at 128 px wide). Set
 		// EncoderOptions.OracleTracePredictorDumpAllRows to capture
 		// every row when tracking down a divergence beyond row 0
@@ -111,7 +121,7 @@ func (e *VP8Encoder) emitOracleInterMBPlanesTrace(rowType string, mbRow int, mbC
 		// sets line up.
 		return
 	}
-	w := e.opts.OracleTraceWriter
+	w := state.writer
 	yOff := mbRow*16*img.YStride + mbCol*16
 	uOff := mbRow*8*img.UStride + mbCol*8
 	vOff := mbRow*8*img.VStride + mbCol*8

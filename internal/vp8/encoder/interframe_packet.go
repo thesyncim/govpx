@@ -18,11 +18,6 @@ type InterFrameMacroblockMode struct {
 	MV          MotionVector
 	Partition   uint8
 	BlockMV     [16]MotionVector
-
-	ImprovedMVStart        bool
-	ImprovedMVNearSADIndex int8
-	ImprovedMVSR           int8
-	ImprovedMVPredictor    MotionVector
 }
 
 // InterFramePacket owns the packet-writer inputs for a fully reconstructed

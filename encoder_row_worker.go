@@ -82,8 +82,6 @@ func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
 	rs.enc.threadedRowsActive = true
 	rs.enc.threadedDotArtifactBudget = e.threadedDotArtifactBudget
 	rs.enc.reconstructScratch = rs.scratch
-	rs.enc.oracleTraceMBBuffer = nil
-	rs.enc.oracleTraceInterCandidateBuffer = nil
 	if cap(rs.dotArtifactChecked) < required {
 		rs.dotArtifactChecked = make([]bool, required)
 	} else {

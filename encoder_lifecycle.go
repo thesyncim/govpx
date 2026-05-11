@@ -128,11 +128,7 @@ func (e *VP8Encoder) Reset() {
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interModeErrorBins = [1024]uint32{}
 	e.interModeSpeedErrorBins = [1024]uint32{}
-	e.oracleTraceMBBuffer = e.oracleTraceMBBuffer[:0]
-	e.oracleTraceInterCandidateBuffer = e.oracleTraceInterCandidateBuffer[:0]
-	e.oracleTraceRecodeLoopCount = 0
-	e.oracleTraceRecodeReason = ""
-	e.oracleTraceTotalByteCount = 0
+	e.resetOracleTraceState()
 	// Rate-control: zero the entire struct then re-apply config so every
 	// field NewVP8Encoder ever touches lands at the cold-start value.
 	e.rc = rateControlState{}

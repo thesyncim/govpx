@@ -44,7 +44,7 @@ func (e *VP8Encoder) useThreadedKeyFrameRows(rows int, cols int) bool {
 		len(pool.workers) > 1 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
-		!e.oracleTraceEnabled()
+		(!oracleTraceBuild || !e.oracleTraceEnabled())
 }
 
 func (e *VP8Encoder) useThreadedInterFrameRows(rows int, cols int) bool {
@@ -53,7 +53,7 @@ func (e *VP8Encoder) useThreadedInterFrameRows(rows int, cols int) bool {
 		len(pool.workers) > 1 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
-		!e.oracleTraceEnabled()
+		(!oracleTraceBuild || !e.oracleTraceEnabled())
 }
 
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args threadedInterRowsArgs) (int, error) {

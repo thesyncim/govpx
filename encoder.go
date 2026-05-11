@@ -5,7 +5,6 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
-	"io"
 	"sync/atomic"
 	_ "unsafe" // for go:linkname
 )
@@ -235,32 +234,6 @@ type EncoderOptions struct {
 	// timings. The caller owns the pointed-to value and may Reset it between
 	// warmup and measured passes.
 	PhaseStats *EncoderPhaseStats
-
-	// OracleTraceWriter is an off-by-default oracle harness output. When
-	// non-nil, the encoder writes a deterministic JSON Lines trace describing
-	// per-frame state and per-macroblock decisions for inter frames. The
-	// schema is intended to be compared against equivalent output instrumented
-	// from libvpx for parity validation. Leave nil for normal encoding; no
-	// allocation or work is performed when nil.
-	OracleTraceWriter io.Writer
-
-	// OracleTracePredictorDump enables per-MB inter-prediction predictor
-	// rows in the oracle trace. When true (and OracleTraceWriter is non-nil)
-	// the encoder writes one "predictor" row per Y/U/V plane for MB(0,0) of
-	// each inter frame, capturing the post-sub-pel pre-residual buffer.
-	// Mirrors the libvpx-side GOVPX_ORACLE_PREDICTOR_DUMP env-var gate; off
-	// by default since the diagnostic only fires for chroma sub-pel rounding
-	// gap localization at sizes >64x64. No effect on encoded bytes.
-	OracleTracePredictorDump bool
-
-	// OracleTracePredictorDumpAllRows widens the predictor/reconstructed
-	// dump scope to every MB row of every inter frame (instead of MB
-	// row 0 only). Has effect only when OracleTracePredictorDump is also
-	// true. Mirrors the libvpx-side GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS
-	// env-var gate. Used when chasing divergences whose root cause lives
-	// outside the first MB row (e.g. a loop-filter level picker that
-	// scores the partial-frame window at rows/2).
-	OracleTracePredictorDumpAllRows bool
 }
 
 type EncodeResult struct {
@@ -665,28 +638,6 @@ type VP8Encoder struct {
 	mvCostTables            vp8enc.MotionVectorCostTables
 	mvCostProbs             [2][vp8tables.MVPCount]uint8
 	mvCostTablesValid       bool
-
-	// oracleTraceMBBuffer accumulates per-MB oracle trace rows for the inter
-	// frame currently being built. Rows from intermediate recode attempts are
-	// reset; the final committed attempt's rows are flushed to
-	// EncoderOptions.OracleTraceWriter at frame end. Unused (nil) when the
-	// oracle trace is disabled.
-	oracleTraceMBBuffer []oracleTraceMBRow
-	// oracleTraceInterCandidateBuffer accumulates evaluated inter-mode
-	// candidate rows for the same accepted encode attempt as oracleTraceMBBuffer.
-	oracleTraceInterCandidateBuffer []oracleTraceInterCandidateRow
-
-	// oracleTraceRecodeLoopCount counts encode-attempt iterations within the
-	// in-flight key/inter recode loop. Reset to 0 at the start of each loop
-	// and incremented per attempt; consumed when the rate/recode rows are
-	// emitted at frame commit. Unused outside the trace harness.
-	oracleTraceRecodeLoopCount int
-	oracleTraceRecodeReason    string
-
-	// oracleTraceTotalByteCount accumulates the total bytes emitted across
-	// every committed frame, mirroring libvpx's cpi->total_byte_count for
-	// the rate-row oracle trace. Updated only when the trace is enabled.
-	oracleTraceTotalByteCount int64
 
 	// threadedRowsActive marks the worker-private encoder view used by the
 	// row-threaded inter-frame builder. It is false on the canonical encoder

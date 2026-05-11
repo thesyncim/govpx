@@ -14,10 +14,14 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	// attempt restores this snapshot so the next attempt re-encodes from the
 	// same pre-attempt entropy/skip-prob state.
 	e.saveCodingContext()
-	e.oracleTraceRecodeLoopCount = 0
-	e.oracleTraceRecodeReason = ""
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		e.resetOracleTraceRecode()
+	}
 	for attempt := 0; ; attempt++ {
-		e.oracleTraceRecodeLoopCount++
+		if traceEnabled {
+			e.incrementOracleTraceRecodeLoop()
+		}
 		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
@@ -36,7 +40,9 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 			if !recoded {
 				return result, nil
 			}
-			e.oracleTraceRecodeReason = "kf_forced_quality"
+			if traceEnabled {
+				e.setOracleTraceRecodeReason("kf_forced_quality")
+			}
 			e.rc.currentQuantizer = nextQ
 			e.restoreCodingContext()
 			continue
@@ -57,7 +63,9 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, true, false, required, &recode) {
 			return result, nil
 		}
-		e.oracleTraceRecodeReason = "size_recode"
+		if traceEnabled {
+			e.setOracleTraceRecodeReason("size_recode")
+		}
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
 		e.restoreCodingContext()
 	}
@@ -137,8 +145,10 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// that here so the inter recode loop has the same pre-attempt invariants
 	// as libvpx.
 	e.saveCodingContext()
-	e.oracleTraceRecodeLoopCount = 0
-	e.oracleTraceRecodeReason = ""
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		e.resetOracleTraceRecode()
+	}
 	// libvpx gates the inter recode loop on `cpi->sf.recode_loop`:
 	// 0 -> no recode, 1 -> recode all, 2 -> recode key/golden/altref only.
 	// At realtime (`compressor_speed == 2`) recode_loop is always 0, so a
@@ -150,8 +160,10 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// `recode_loop_test` and `set_speed_features` case 1/2/3.
 	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
 	for attempt := 0; ; attempt++ {
-		e.oracleTraceRecodeLoopCount++
-		needProjectedSize := allowRecode || e.oracleTraceEnabled()
+		if traceEnabled {
+			e.incrementOracleTraceRecodeLoop()
+		}
+		needProjectedSize := allowRecode || traceEnabled
 		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, needProjectedSize)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
@@ -159,7 +171,9 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if !allowRecode || attempt+1 >= encoderQuantizerFeedbackMaxAttempts || !e.updateQuantizerForProjectedFrameSize(result.ProjectedSizeBits, false, boostedReferenceFrame, required, &recode) {
 			return result, nil
 		}
-		e.oracleTraceRecodeReason = "size_recode"
+		if traceEnabled {
+			e.setOracleTraceRecodeReason("size_recode")
+		}
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
 		e.restoreCodingContext()
 	}

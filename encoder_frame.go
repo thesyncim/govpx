@@ -176,7 +176,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		}
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&droppedResult, temporalFrame)
-		e.emitOracleDroppedFrameTrace("decimation")
+		if oracleTraceBuild {
+			e.emitOracleDroppedFrameTrace("decimation")
+		}
 		e.frameCount++
 		finishSourceAltRef()
 		return droppedResult, nil
@@ -336,7 +338,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// (rc.shouldDropInterFrame) gates on bufferLevelBits<0 which is the
 		// libvpx-equivalent calc_pframe_target_size buffer-underrun branch,
 		// so the reason is "buffer_underrun".
-		e.emitOracleDroppedFrameTrace("buffer_underrun")
+		if oracleTraceBuild {
+			e.emitOracleDroppedFrameTrace("buffer_underrun")
+		}
 		e.frameCount++
 		finishSourceAltRef()
 		return result, nil
@@ -372,7 +376,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.rc.framesSinceKeyframe++
 			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
-			e.emitOracleDroppedFrameTrace("overshoot")
+			if oracleTraceBuild {
+				e.emitOracleDroppedFrameTrace("overshoot")
+			}
 			e.frameCount++
 			finishSourceAltRef()
 			return result, nil
@@ -425,7 +431,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.SizeBytes = attempt.Size
 			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
 			result.Droppable = interFrameDroppable(attempt.Config)
-			e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits, attempt.CoefSavingsBits, attempt.RefFrameSavingsBits)
+			if oracleTraceBuild {
+				e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits, attempt.CoefSavingsBits, attempt.RefFrameSavingsBits)
+			}
 			e.rc.postEncodeFrameWithPacketContext(attempt.Size, rateControlPostEncodeContext{
 				goldenFrame:           attempt.Config.RefreshGolden,
 				altRefFrame:           attempt.Config.RefreshAltRef,
@@ -473,24 +481,26 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				AltRef: attempt.Config.RefreshAltRef,
 			}, encodedSizeBits(attempt.Size), e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
-			e.emitOracleFrameTrace(oracleTraceFrameSummary{
-				FrameType:            vp8common.InterFrame,
-				BaseQIndex:           int(attempt.Config.BaseQIndex),
-				LoopFilter:           int(attempt.Config.LoopFilterLevel),
-				SharpnessLevel:       int(attempt.Config.SharpnessLevel),
-				RefLFDeltas:          attempt.Config.RefLFDeltas,
-				ModeLFDeltas:         attempt.Config.ModeLFDeltas,
-				ModeRefLFDeltaEnable: attempt.Config.LFDeltaEnabled,
-				ModeRefLFDeltaUpdate: attempt.Config.LFDeltaUpdate,
-				RefreshLast:          attempt.Config.RefreshLast,
-				RefreshGolden:        attempt.Config.RefreshGolden,
-				RefreshAltRef:        attempt.Config.RefreshAltRef,
-				GoldenSignBias:       attempt.Config.GoldenSignBias,
-				AltRefSignBias:       attempt.Config.AltRefSignBias,
-				SegEnabled:           attempt.Config.Segmentation.Enabled,
-				SizeBytes:            attempt.Size,
-			})
-			e.flushOracleMBTraceBuffer()
+			if oracleTraceBuild {
+				e.emitOracleFrameTrace(oracleTraceFrameSummary{
+					FrameType:            vp8common.InterFrame,
+					BaseQIndex:           int(attempt.Config.BaseQIndex),
+					LoopFilter:           int(attempt.Config.LoopFilterLevel),
+					SharpnessLevel:       int(attempt.Config.SharpnessLevel),
+					RefLFDeltas:          attempt.Config.RefLFDeltas,
+					ModeLFDeltas:         attempt.Config.ModeLFDeltas,
+					ModeRefLFDeltaEnable: attempt.Config.LFDeltaEnabled,
+					ModeRefLFDeltaUpdate: attempt.Config.LFDeltaUpdate,
+					RefreshLast:          attempt.Config.RefreshLast,
+					RefreshGolden:        attempt.Config.RefreshGolden,
+					RefreshAltRef:        attempt.Config.RefreshAltRef,
+					GoldenSignBias:       attempt.Config.GoldenSignBias,
+					AltRefSignBias:       attempt.Config.AltRefSignBias,
+					SegEnabled:           attempt.Config.Segmentation.Enabled,
+					SizeBytes:            attempt.Size,
+				})
+				e.flushOracleMBTraceBuffer()
+			}
 			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
 			// frame will be a forced KF so the forced-KF recode branch has a
 			// baseline to compare against.
@@ -555,7 +565,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
-	e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size, keyAttempt.ProjectedSizeBits, keyAttempt.CoefSavingsBits, keyAttempt.RefFrameSavingsBits)
+	if oracleTraceBuild {
+		e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size, keyAttempt.ProjectedSizeBits, keyAttempt.CoefSavingsBits, keyAttempt.RefFrameSavingsBits)
+	}
 	e.rc.postEncodeFrameWithPacketContext(keyAttempt.Size, rateControlPostEncodeContext{
 		keyFrame:              true,
 		macroblocks:           required,
@@ -596,22 +608,24 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.interRDFrameActive = false
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
-	e.emitOracleFrameTrace(oracleTraceFrameSummary{
-		FrameType:            vp8common.KeyFrame,
-		BaseQIndex:           e.rc.currentQuantizer,
-		LoopFilter:           int(keyAttempt.LoopFilterLevel),
-		SharpnessLevel:       int(keyAttempt.SharpnessLevel),
-		RefLFDeltas:          keyAttempt.RefLFDeltas,
-		ModeLFDeltas:         keyAttempt.ModeLFDeltas,
-		ModeRefLFDeltaEnable: keyAttempt.LFDeltaEnabled,
-		ModeRefLFDeltaUpdate: keyAttempt.LFDeltaUpdate,
-		RefreshLast:          true,
-		RefreshGolden:        true,
-		RefreshAltRef:        true,
-		SegEnabled:           keyAttempt.SegmentationEnabled,
-		SizeBytes:            keyAttempt.Size,
-	})
-	e.flushOracleMBTraceBuffer()
+	if oracleTraceBuild {
+		e.emitOracleFrameTrace(oracleTraceFrameSummary{
+			FrameType:            vp8common.KeyFrame,
+			BaseQIndex:           e.rc.currentQuantizer,
+			LoopFilter:           int(keyAttempt.LoopFilterLevel),
+			SharpnessLevel:       int(keyAttempt.SharpnessLevel),
+			RefLFDeltas:          keyAttempt.RefLFDeltas,
+			ModeLFDeltas:         keyAttempt.ModeLFDeltas,
+			ModeRefLFDeltaEnable: keyAttempt.LFDeltaEnabled,
+			ModeRefLFDeltaUpdate: keyAttempt.LFDeltaUpdate,
+			RefreshLast:          true,
+			RefreshGolden:        true,
+			RefreshAltRef:        true,
+			SegEnabled:           keyAttempt.SegmentationEnabled,
+			SizeBytes:            keyAttempt.Size,
+		})
+		e.flushOracleMBTraceBuffer()
+	}
 	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
 	// frame has been committed; the next forced KF will set it again. Update
 	// the next_key_frame_forced bookkeeping for the following frame's

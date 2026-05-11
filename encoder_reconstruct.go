@@ -155,7 +155,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationThre
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
-	e.resetOracleMBTraceBuffer()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		e.resetOracleMBTraceBuffer()
+	}
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
@@ -194,9 +197,12 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
-	// Reset oracle trace MB buffer at the start of each build pass so retried
-	// (recoded) key-frame attempts overwrite earlier rows.
-	e.resetOracleMBTraceBuffer()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		// Reset oracle trace MB buffer at the start of each build pass so
+		// retried key-frame attempts overwrite earlier rows.
+		e.resetOracleMBTraceBuffer()
+	}
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
@@ -244,12 +250,14 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if modes[index].YMode == vp8common.BPred {
-				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), e.oracleTraceEnabled(), &coeffs[index], &e.reconstructScratch) {
+				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
 				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
-				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
+				if traceEnabled {
+					e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
+				}
 				continue
 			}
 			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -270,7 +278,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				intra:         true,
 				fastQuant:     e.libvpxUseFastQuant(),
 				optimize:      e.libvpxOptimizeCoefficients(),
-				collectOracle: e.oracleTraceEnabled(),
+				collectOracle: traceEnabled,
 				coeffs:        &coeffs[index],
 			})
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
@@ -278,7 +286,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				return 0, ErrInvalidConfig
 			}
 			vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
-			e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
+			if traceEnabled {
+				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
+			}
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
@@ -305,7 +315,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
-	e.resetOracleMBTraceBuffer()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		e.resetOracleMBTraceBuffer()
+	}
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
@@ -331,7 +344,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 		return 0, ErrInvalidConfig
 	}
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
-	e.emitOracleLastRefWindow(&e.lastRef.Img)
+	if traceEnabled {
+		e.emitOracleLastRefWindow(&e.lastRef.Img)
+	}
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
@@ -376,9 +391,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
-	// Reset oracle trace MB buffer at the start of each build pass so retried
-	// (recoded) attempts overwrite earlier rows.
-	e.resetOracleMBTraceBuffer()
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
+	if traceEnabled {
+		// Reset oracle trace MB buffer at the start of each build pass so
+		// retried attempts overwrite earlier rows.
+		e.resetOracleMBTraceBuffer()
+	}
 	required := rows * cols
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
@@ -406,9 +424,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 		return 0, ErrInvalidConfig
 	}
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
-	// Capture the LAST reference (with border) once per inter frame so the
-	// chroma sub-pel diagnostic can verify border content matches libvpx.
-	e.emitOracleLastRefWindow(&e.lastRef.Img)
+	if traceEnabled {
+		e.emitOracleLastRefWindow(&e.lastRef.Img)
+	}
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
@@ -477,7 +495,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
-					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), e.oracleTraceEnabled(), &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
@@ -492,12 +510,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
-				// Capture the inter predictor before residual is added.
-				// Mirrors libvpx's xd->dst.{y,u,v}_buffer between
-				// vp8_encode_inter16x16 and vp8_inverse_transform_mby. Only
-				// emits when EncoderOptions.OracleTracePredictorDump is
-				// enabled and only for MB(0,0).
-				e.emitOracleInterPredictorTrace(row, col, &e.analysis.Img)
+				if traceEnabled {
+					// Capture the inter predictor before residual is added.
+					e.emitOracleInterPredictorTrace(row, col, &e.analysis.Img)
+				}
 			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.opts.StaticThreshold))
@@ -532,7 +548,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					intra:         modes[index].RefFrame == vp8common.IntraFrame,
 					fastQuant:     e.libvpxUseFastQuant(),
 					optimize:      e.libvpxOptimizeCoefficients(),
-					collectOracle: e.oracleTraceEnabled(),
+					collectOracle: traceEnabled,
 					coeffs:        &coeffs[index],
 					cacheIn:       cacheIn,
 					phaseStats:    e.opts.PhaseStats,
@@ -576,8 +592,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// (e.g. the 4 right-edge col-7 B_PRED MBs on 128x128 frame
 				// 1) and reports the visible Y as MATCH even when they
 				// diverge.
-				e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+				if traceEnabled {
+					e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
+					e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+				}
 				continue
 			}
 			if modes[index].RefFrame == vp8common.IntraFrame {
@@ -592,13 +610,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &e.interCoefTokenRecords, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {
 				return 0, ErrInvalidConfig
 			}
-			// Capture the post-residual reconstruction so the predictor diff
-			// harness can pinpoint whether the gap originated in the
-			// predictor (matched libvpx already) or the residual stage.
-			// Mirrors libvpx's `govpx_oracle_emit_reconstructed` injected at
-			// the tail of vp8cx_encode_inter_macroblock.
-			e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-			e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+			if traceEnabled {
+				e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
+				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+			}
 		}
 		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)

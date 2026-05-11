@@ -209,6 +209,7 @@ func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.Segmentation
 
 func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
 	ssErr := [vp8common.MaxLoopFilter + 1]int{}
 	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
@@ -224,12 +225,16 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
 	bestErr := score(level)
-	e.emitOracleLFTrial("seed", level, bestErr)
+	if traceEnabled {
+		e.emitOracleLFTrial("seed", level, bestErr)
+	}
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
 		filtErr := score(filtLevel)
-		e.emitOracleLFTrial("down", filtLevel, filtErr)
+		if traceEnabled {
+			e.emitOracleLFTrial("down", filtLevel, filtErr)
+		}
 		if filtErr < bestErr {
 			bestErr = filtErr
 			bestLevel = filtLevel
@@ -244,7 +249,9 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
 			filtErr := score(filtLevel)
-			e.emitOracleLFTrial("up", filtLevel, filtErr)
+			if traceEnabled {
+				e.emitOracleLFTrial("up", filtLevel, filtErr)
+			}
 			if filtErr < bestErr {
 				bestErr = filtErr - (filtErr >> 10)
 				bestLevel = filtLevel
@@ -259,6 +266,7 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 
 func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
+	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	if ctx.fullFrameConfig.SegmentationEnabled {
 		e.loopFilterSegmentLF = ctx.fullFrameConfig.SegmentLF
 	}
@@ -291,7 +299,9 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		if level != 0 {
 			residentLevel = level
 		}
-		e.emitOracleLFTrial("full", level, trialErr)
+		if traceEnabled {
+			e.emitOracleLFTrial("full", level, trialErr)
+		}
 		return trialErr
 	}
 
@@ -342,8 +352,10 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 			if filtHigh != 0 {
 				residentLevel = filtHigh
 			}
-			e.emitOracleLFTrial("full", filtLow, filtErrLow)
-			e.emitOracleLFTrial("full", filtHigh, filtErrHigh)
+			if traceEnabled {
+				e.emitOracleLFTrial("full", filtLow, filtErrLow)
+				e.emitOracleLFTrial("full", filtHigh, filtErrHigh)
+			}
 			if filtErrLow-bias < bestErr {
 				if filtErrLow < bestErr {
 					bestErr = filtErrLow
