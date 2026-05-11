@@ -496,12 +496,10 @@ func splitChromaMotionVector(mode *MacroblockMode, block int) (int, int) {
 
 func splitChromaMotionVectorComponent(a int16, b int16, c int16, d int16) int {
 	sum := int(a) + int(b) + int(c) + int(d)
-	if sum < 0 {
-		sum -= 4
-	} else {
-		sum += 4
-	}
-	return sum / 8
+	// Branchless rounding away from zero by 4 before the /8: sign-mask
+	// flips +4 to -4 when sum is negative.
+	mask := sum >> intSignShiftDec
+	return (sum + 4 + 8*mask) / 8
 }
 
 func fullPixelMotionVector(mv MotionVector, cfg InterPredictionConfig) MotionVector {

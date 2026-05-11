@@ -133,10 +133,8 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 		avgRow := runningAvg[r*avgStride:]
 		for c := range 16 {
 			diff := int(mcRow[c]) - int(sigRow[c])
-			absdiff := diff
-			if absdiff < 0 {
-				absdiff = -absdiff
-			}
+			diffMask := diff >> mvKernelSignShift
+			absdiff := (diff ^ diffMask) - diffMask
 			if absdiff <= 3+shiftInc1 {
 				avgRow[c] = mcRow[c]
 				colSum[c] += diff
@@ -164,19 +162,15 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 	}
 	sumDiff := 0
 	for c := range 16 {
-		if colSum[c] >= 128 {
-			colSum[c] = 127
-		}
+		colSum[c] = min(colSum[c], 127)
 		sumDiff += colSum[c]
 	}
 	thresh := denoiserSumDiffThreshold
 	if increaseDenoising {
 		thresh = denoiserSumDiffThresholdHigh
 	}
-	abs := sumDiff
-	if abs < 0 {
-		abs = -abs
-	}
+	absMask := sumDiff >> mvKernelSignShift
+	abs := (sumDiff ^ absMask) - absMask
 	if abs > thresh {
 		delta := ((abs - thresh) >> 8) + 1
 		if delta >= 4 {
@@ -189,13 +183,8 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 			avgRow := runningAvg[r*avgStride:]
 			for c := range 16 {
 				diff := int(mcRow[c]) - int(sigRow[c])
-				adjustment := diff
-				if adjustment < 0 {
-					adjustment = -adjustment
-				}
-				if adjustment > delta {
-					adjustment = delta
-				}
+				dMask := diff >> mvKernelSignShift
+				adjustment := min((diff^dMask)-dMask, delta)
 				if diff > 0 {
 					val := max(int(avgRow[c])-adjustment, 0)
 					avgRow[c] = byte(val)
@@ -209,15 +198,11 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 		}
 		sumDiff = 0
 		for c := range 16 {
-			if colSum[c] >= 128 {
-				colSum[c] = 127
-			}
+			colSum[c] = min(colSum[c], 127)
 			sumDiff += colSum[c]
 		}
-		abs = sumDiff
-		if abs < 0 {
-			abs = -abs
-		}
+		absMask = sumDiff >> mvKernelSignShift
+		abs = (sumDiff ^ absMask) - absMask
 		if abs > thresh {
 			return denoiserCopyBlock
 		}
@@ -253,8 +238,12 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 			sumBlock += int(row[c])
 		}
 	}
-	if abs := sumBlock - 128*8*8; (abs < 0 && -abs < denoiserSumDiffFromAvgThreshUV) || (abs >= 0 && abs < denoiserSumDiffFromAvgThreshUV) {
-		return denoiserCopyBlock
+	{
+		raw := sumBlock - 128*8*8
+		rawMask := raw >> mvKernelSignShift
+		if (raw^rawMask)-rawMask < denoiserSumDiffFromAvgThreshUV {
+			return denoiserCopyBlock
+		}
 	}
 	sumDiff := 0
 	for r := range 8 {
@@ -263,10 +252,8 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 		avgRow := runningAvg[r*avgStride:]
 		for c := range 8 {
 			diff := int(mcRow[c]) - int(sigRow[c])
-			absdiff := diff
-			if absdiff < 0 {
-				absdiff = -absdiff
-			}
+			dMask := diff >> mvKernelSignShift
+			absdiff := (diff ^ dMask) - dMask
 			if absdiff <= 3+shiftInc1 {
 				avgRow[c] = mcRow[c]
 				sumDiff += diff
@@ -296,10 +283,8 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 	if increaseDenoising {
 		thresh = denoiserSumDiffThresholdHighUV
 	}
-	abs := sumDiff
-	if abs < 0 {
-		abs = -abs
-	}
+	absMask := sumDiff >> mvKernelSignShift
+	abs := (sumDiff ^ absMask) - absMask
 	if abs > thresh {
 		delta := ((abs - thresh) >> 8) + 1
 		if delta >= 4 {
@@ -311,13 +296,8 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 			avgRow := runningAvg[r*avgStride:]
 			for c := range 8 {
 				diff := int(mcRow[c]) - int(sigRow[c])
-				adjustment := diff
-				if adjustment < 0 {
-					adjustment = -adjustment
-				}
-				if adjustment > delta {
-					adjustment = delta
-				}
+				dMask := diff >> mvKernelSignShift
+				adjustment := min((diff^dMask)-dMask, delta)
 				if diff > 0 {
 					val := max(int(avgRow[c])-adjustment, 0)
 					avgRow[c] = byte(val)
@@ -329,10 +309,8 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 				}
 			}
 		}
-		abs = sumDiff
-		if abs < 0 {
-			abs = -abs
-		}
+		absMask = sumDiff >> mvKernelSignShift
+		abs = (sumDiff ^ absMask) - absMask
 		if abs > thresh {
 			return denoiserCopyBlock
 		}

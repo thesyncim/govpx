@@ -20,25 +20,13 @@ func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, m
 	}
 	if mbRows > 0 {
 		umv := interFrameUMVBorderPixels - 16
-		rowMin := -((mbRow * 16) + umv)
-		rowMax := ((mbRows - 1 - mbRow) * 16) + umv
-		if bounds.rowMin < rowMin {
-			bounds.rowMin = rowMin
-		}
-		if bounds.rowMax > rowMax {
-			bounds.rowMax = rowMax
-		}
+		bounds.rowMin = max(bounds.rowMin, -((mbRow*16)+umv))
+		bounds.rowMax = min(bounds.rowMax, ((mbRows-1-mbRow)*16)+umv)
 	}
 	if mbCols > 0 {
 		umv := interFrameUMVBorderPixels - 16
-		colMin := -((mbCol * 16) + umv)
-		colMax := ((mbCols - 1 - mbCol) * 16) + umv
-		if bounds.colMin < colMin {
-			bounds.colMin = colMin
-		}
-		if bounds.colMax > colMax {
-			bounds.colMax = colMax
-		}
+		bounds.colMin = max(bounds.colMin, -((mbCol*16)+umv))
+		bounds.colMax = min(bounds.colMax, ((mbCols-1-mbCol)*16)+umv)
 	}
 	return bounds
 }
@@ -72,13 +60,7 @@ func clampInterMotionVectorToModeEdges(mv vp8enc.MotionVector, mbRow int, mbCol 
 }
 
 func clampInterMotionVectorComponent(v int, lowEdge int, highEdge int) int {
-	if v < lowEdge-(16<<3) {
-		return lowEdge - (16 << 3)
-	}
-	if v > highEdge+(16<<3) {
-		return highEdge + (16 << 3)
-	}
-	return v
+	return min(max(v, lowEdge-(16<<3)), highEdge+(16<<3))
 }
 
 func (b interFrameFullPixelBounds) containsFullPel(row int, col int) bool {
@@ -90,17 +72,7 @@ func (b interFrameFullPixelBounds) containsFullPelStrict(row int, col int) bool 
 }
 
 func (b interFrameFullPixelBounds) clampEighth(mv vp8enc.MotionVector) vp8enc.MotionVector {
-	row := int(mv.Row) >> 3
-	col := int(mv.Col) >> 3
-	if row < b.rowMin {
-		row = b.rowMin
-	} else if row > b.rowMax {
-		row = b.rowMax
-	}
-	if col < b.colMin {
-		col = b.colMin
-	} else if col > b.colMax {
-		col = b.colMax
-	}
+	row := min(max(int(mv.Row)>>3, b.rowMin), b.rowMax)
+	col := min(max(int(mv.Col)>>3, b.colMin), b.colMax)
 	return vp8enc.MotionVector{Row: int16(row * interFrameMVFullPixelStep), Col: int16(col * interFrameMVFullPixelStep)}
 }

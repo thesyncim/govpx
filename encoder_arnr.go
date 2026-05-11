@@ -316,20 +316,10 @@ func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx i
 // effect when the search picks an MB that straddles the edge.
 func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, srcW, srcH, size int) {
 	for j := range size {
-		yy := srcY + j
-		if yy < 0 {
-			yy = 0
-		} else if yy >= srcH {
-			yy = srcH - 1
-		}
+		yy := min(max(srcY+j, 0), srcH-1)
 		row := src[yy*srcStride:]
 		for i := range size {
-			xx := srcX + i
-			if xx < 0 {
-				xx = 0
-			} else if xx >= srcW {
-				xx = srcW - 1
-			}
+			xx := min(max(srcX+i, 0), srcW-1)
 			dst[j*dstStride+i] = row[xx]
 		}
 	}

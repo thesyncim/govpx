@@ -121,12 +121,10 @@ func interFrameSubpixelMotionVectorInRange(mv vp8enc.MotionVector, bestRefMV vp8
 	maxFullPelEighths := interFrameMaxFullPelVal << 3
 	rowDelta := int(mv.Row) - int(bestRefMV.Row)
 	colDelta := int(mv.Col) - int(bestRefMV.Col)
-	if rowDelta < 0 {
-		rowDelta = -rowDelta
-	}
-	if colDelta < 0 {
-		colDelta = -colDelta
-	}
+	rMask := rowDelta >> mvKernelSignShift
+	cMask := colDelta >> mvKernelSignShift
+	rowDelta = (rowDelta ^ rMask) - rMask
+	colDelta = (colDelta ^ cMask) - cMask
 	return rowDelta <= maxFullPelEighths && colDelta <= maxFullPelEighths
 }
 

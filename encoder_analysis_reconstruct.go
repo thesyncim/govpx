@@ -36,10 +36,9 @@ func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMb
 			srcX := clampEncodeCoord(baseX+col, src.Width)
 			refX := clampEncodeCoord(refBaseX+col, img.CodedWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(img.Y[refY*img.YStride+refX])
-			if diff < 0 {
-				diff = -diff
-			}
-			sad += diff
+			// Branchless |diff| via sign-mask splat.
+			mask := diff >> mvKernelSignShift
+			sad += (diff ^ mask) - mask
 		}
 	}
 	return sad
@@ -374,11 +373,5 @@ func fillPredictedResidual4x4Slice(src []byte, srcStride int, width int, height 
 }
 
 func clampEncodeCoord(v int, limit int) int {
-	if v < 0 {
-		return 0
-	}
-	if v >= limit {
-		return limit - 1
-	}
-	return v
+	return min(max(v, 0), limit-1)
 }
