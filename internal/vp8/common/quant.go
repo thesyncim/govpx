@@ -49,13 +49,7 @@ type MacroblockDequant struct {
 }
 
 func ClampQIndex(qIndex int) int {
-	if qIndex > MaxQ {
-		return MaxQ
-	}
-	if qIndex < MinQ {
-		return MinQ
-	}
-	return qIndex
+	return min(max(qIndex, MinQ), MaxQ)
 }
 
 func DCQuant(qIndex int, delta int) int {
@@ -67,11 +61,7 @@ func DC2Quant(qIndex int, delta int) int {
 }
 
 func DCUVQuant(qIndex int, delta int) int {
-	v := int(dcQLookup[ClampQIndex(qIndex+delta)])
-	if v > 132 {
-		return 132
-	}
-	return v
+	return min(int(dcQLookup[ClampQIndex(qIndex+delta)]), 132)
 }
 
 func ACYQuant(qIndex int) int {
