@@ -256,12 +256,12 @@ func libvpxRDConstants(qIndex int) (int, int) {
 
 func libvpxRDConstantsWithZbin(qIndex int, zbinOverQuant int) (int, int) {
 	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
-	rdMult := int(2.80 * float64(qValue*qValue))
-	if zbinOverQuant > 0 {
-		oqFactor := 1.0 + 0.0015625*float64(zbinOverQuant)
-		modq := int(float64(qValue) * oqFactor)
-		rdMult = int(2.80 * float64(modq*modq))
-	}
+	// zbinOverQuant=0 collapses oqFactor to 1.0 and modq to qValue, so
+	// the no-zbin path produces the same rdMult as the modq formula.
+	// Single straight-line computation drops the function below the
+	// inliner budget.
+	modq := int(float64(qValue) * (1.0 + 0.0015625*float64(zbinOverQuant)))
+	rdMult := int(2.80 * float64(modq*modq))
 	rdDiv := 100
 	if rdMult > 1000 {
 		rdDiv = 1
