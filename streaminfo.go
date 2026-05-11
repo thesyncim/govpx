@@ -13,6 +13,14 @@ type StreamInfo struct {
 	FirstPartitionSize int
 }
 
+type ReferenceFlags uint8
+
+const (
+	ReferenceFlagLast ReferenceFlags = 1 << iota
+	ReferenceFlagGolden
+	ReferenceFlagAltRef
+)
+
 type FrameInfo struct {
 	Width  int
 	Height int
@@ -20,6 +28,14 @@ type FrameInfo struct {
 	KeyFrame  bool
 	ShowFrame bool
 	Corrupted bool
+
+	// Quantizer is the public 0..63 quantizer corresponding to
+	// InternalQuantizer. InternalQuantizer is the VP8 base qindex reported by
+	// libvpx's VPXD_GET_LAST_QUANTIZER control.
+	Quantizer         int
+	InternalQuantizer int
+	RefUpdates        ReferenceFlags
+	RefUsed           ReferenceFlags
 
 	PTS uint64
 }

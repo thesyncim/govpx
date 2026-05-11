@@ -35,6 +35,10 @@ func vp8InterFirstPartitionLastZeroMV() []byte {
 }
 
 func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common.TokenPartition, skipCoeff bool) []byte {
+	return vp8InterFirstPartitionLastZeroMVWithConfig(tokenPartition, skipCoeff, 0)
+}
+
+func vp8InterFirstPartitionLastZeroMVWithConfig(tokenPartition vp8common.TokenPartition, skipCoeff bool, baseQIndex uint8) []byte {
 	var w vp8TestBoolWriter
 	w.init()
 	w.writeBool(0, 128)
@@ -43,7 +47,7 @@ func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common
 	w.writeLiteral(0, 3)
 	w.writeBool(0, 128)
 	w.writeLiteral(uint32(tokenPartition), 2)
-	w.writeLiteral(0, 7)
+	w.writeLiteral(uint32(baseQIndex&0x7f), 7)
 	for range 5 {
 		w.writeBool(0, 128)
 	}
@@ -82,6 +86,26 @@ func vp8InterFirstPartitionLastZeroMVWithTokenPartition(tokenPartition vp8common
 	w.writeBool(0, 128)
 	w.writeBool(0, vp8tables.InterModeContexts[0][0])
 
+	payload := w.finish()
+	return append(payload, make([]byte, 200)...)
+}
+
+func vp8FirstPartitionWithBaseQIndex(baseQIndex uint8) []byte {
+	var w vp8TestBoolWriter
+	w.init()
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 6)
+	w.writeLiteral(0, 3)
+	w.writeBool(0, 128)
+	w.writeLiteral(0, 2)
+	w.writeLiteral(uint32(baseQIndex&0x7f), 7)
+	for range 5 {
+		w.writeBool(0, 128)
+	}
+	w.writeBool(0, 128)
 	payload := w.finish()
 	return append(payload, make([]byte, 200)...)
 }

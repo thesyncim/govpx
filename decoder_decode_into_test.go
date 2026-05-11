@@ -105,6 +105,63 @@ func TestDecodeIntoCopiesSupportedKeyFrame(t *testing.T) {
 	}
 }
 
+func TestDecodeIntoFrameInfoReportsQuantizerAndReferences(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	dst := newTestImage(16, 16)
+	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithBaseQIndex(20))
+
+	key, err := d.DecodeIntoWithPTS(keyPacket, &dst, 100)
+	if err != nil {
+		t.Fatalf("key DecodeIntoWithPTS error = %v, want nil", err)
+	}
+	if key.InternalQuantizer != 20 || key.Quantizer != libvpxQIndexToPublicQuantizer(20) {
+		t.Fatalf("key quantizer = public:%d internal:%d, want public %d / internal 20", key.Quantizer, key.InternalQuantizer, libvpxQIndexToPublicQuantizer(20))
+	}
+	if key.RefUpdates != ReferenceFlagLast|ReferenceFlagGolden|ReferenceFlagAltRef || key.RefUsed != 0 {
+		t.Fatalf("key refs = updates:%03b used:%03b, want all updates / no inter refs", key.RefUpdates, key.RefUsed)
+	}
+
+	first := vp8InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 36)
+	inter, err := d.DecodeIntoWithPTS(vp8InterFramePacketWithFirstPartition(first), &dst, 101)
+	if err != nil {
+		t.Fatalf("inter DecodeIntoWithPTS error = %v, want nil", err)
+	}
+	if inter.InternalQuantizer != 36 || inter.Quantizer != libvpxQIndexToPublicQuantizer(36) {
+		t.Fatalf("inter quantizer = public:%d internal:%d, want public %d / internal 36", inter.Quantizer, inter.InternalQuantizer, libvpxQIndexToPublicQuantizer(36))
+	}
+	if inter.RefUpdates != 0 || inter.RefUsed != ReferenceFlagLast {
+		t.Fatalf("inter refs = updates:%03b used:%03b, want no updates / LAST used", inter.RefUpdates, inter.RefUsed)
+	}
+}
+
+func TestDecodeLastFrameInfoReportsMostRecentFrame(t *testing.T) {
+	d, err := NewVP8Decoder(DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	if _, ok := d.LastFrameInfo(); ok {
+		t.Fatalf("LastFrameInfo before decode returned ok")
+	}
+	keyPacket := vp8KeyFramePacketWithFirstPartition(16, 16, vp8FirstPartitionWithBaseQIndex(18))
+	if err := d.DecodeWithPTS(keyPacket, 200); err != nil {
+		t.Fatalf("key DecodeWithPTS error = %v, want nil", err)
+	}
+	key, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatalf("LastFrameInfo after key decode returned !ok")
+	}
+	if key.PTS != 200 || !key.KeyFrame || key.InternalQuantizer != 18 || key.RefUpdates != ReferenceFlagLast|ReferenceFlagGolden|ReferenceFlagAltRef {
+		t.Fatalf("key LastFrameInfo = %+v, want PTS 200 key q18 all ref updates", key)
+	}
+	d.Reset()
+	if _, ok := d.LastFrameInfo(); ok {
+		t.Fatalf("LastFrameInfo after Reset returned ok")
+	}
+}
+
 func TestDecodeIntoInvisibleFrameDoesNotCopyOutput(t *testing.T) {
 	d, err := NewVP8Decoder(DecoderOptions{})
 	if err != nil {

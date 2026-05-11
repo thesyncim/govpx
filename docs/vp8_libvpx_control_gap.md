@@ -22,10 +22,9 @@ The highest-value missing controls are:
 
 1. `VP8E_SET_ROI_MAP`
 2. `VP8_SET_REFERENCE` / `VP8_COPY_REFERENCE` on encoder and decoder
-3. Decoder metadata getters for last reference updates/uses and last quantizer
-4. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
-5. VPX_Q constant-quality mode
-6. Optional: spatial resampling / scale mode, output-partition packetization,
+3. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
+4. VPX_Q constant-quality mode
+5. Optional: spatial resampling / scale mode, output-partition packetization,
    PSNR packets, and `VP8E_SET_RTC_EXTERNAL_RATECTRL`
 
 The controls that are probably not worth porting by default are encoder
@@ -53,7 +52,8 @@ does not actually wire into the VP8 encoder.
 | `VP8E_SET_ACTIVEMAP` | `SetActiveMap` | Per-MB active/inactive map exists. |
 | `VP8E_SET_SCREEN_CONTENT_MODE` | `EncoderOptions.ScreenContentMode`, `SetScreenContentMode` | Modes 0..2. |
 | `VP8_SET_POSTPROC` on decoder | `DecoderOptions.PostProcess*` | Decoder postproc is exposed as Go flags. |
-| `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.Corrupted` | Returned from decode paths, though not as a separate method. |
+| `VP8D_GET_LAST_REF_UPDATES`, `VP8D_GET_LAST_REF_USED`, `VPXD_GET_LAST_QUANTIZER`, `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.RefUpdates`, `FrameInfo.RefUsed`, `FrameInfo.InternalQuantizer`, `FrameInfo.Quantizer`, `FrameInfo.Corrupted`, `VP8Decoder.LastFrameInfo` | Ref flags use Go bit flags matching libvpx's LAST/GOLDEN/ALTREF bit values. `InternalQuantizer` is VP8 base qindex; `Quantizer` is govpx's public 0..63 mapping. |
+| `VP8E_GET_LAST_QUANTIZER`, `VP8E_GET_LAST_QUANTIZER_64` | `EncodeResult.InternalQuantizer`, `EncodeResult.Quantizer`, `VP8Encoder.LastQuantizer` | Exposes both libvpx's internal qindex and the public 0..63 mapping. |
 | Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
 
 ## Sane Missing Controls
@@ -150,73 +150,6 @@ Port notes:
   modes, source alt-ref lifecycle, and denoiser reference averages.
 - Decoder set-reference should require an initialized decoder size, or accept
   the first set as initialization only if the semantics are documented.
-
-### Decoder Last-Frame Metadata
-
-Status: partially missing. Priority: medium.
-
-libvpx controls:
-
-- `VP8D_GET_LAST_REF_UPDATES`
-- `VP8D_GET_LAST_REF_USED`
-- `VPXD_GET_LAST_QUANTIZER`
-- `VP8D_GET_FRAME_CORRUPTED`
-
-govpx already returns corruption state through `FrameInfo.Corrupted`. The
-remaining metadata is not exposed.
-
-Why it is sane:
-
-- This is cheap API surface.
-- It helps RTP/WebRTC bookkeeping, diagnostics, and oracle parity.
-
-Suggested Go shape:
-
-```go
-type ReferenceFlags uint8
-
-const (
-    ReferenceFlagLast ReferenceFlags = 1 << iota
-    ReferenceFlagGolden
-    ReferenceFlagAltRef
-)
-
-type FrameInfo struct {
-    ...
-    Quantizer int
-    InternalQuantizer int
-    RefUpdates ReferenceFlags
-    RefUsed ReferenceFlags
-}
-```
-
-Port notes:
-
-- `RefUpdates` can come from the parsed refresh header.
-- `RefUsed` can be derived while decoding inter modes.
-- `InternalQuantizer` is the VP8 base qindex; `Quantizer` can use govpx's
-  public 0..63 conversion.
-
-### Encoder Last-Quantizer Getters
-
-Status: partially covered. Priority: low.
-
-libvpx controls:
-
-- `VP8E_GET_LAST_QUANTIZER`
-- `VP8E_GET_LAST_QUANTIZER_64`
-
-govpx returns the public 0..63 quantizer in `EncodeResult.Quantizer`, but it
-does not expose a standalone getter or the internal qindex of the last encoded
-frame.
-
-Suggested Go API:
-
-```go
-func (e *VP8Encoder) LastQuantizer() (public int, internal int, ok bool)
-```
-
-Alternatively add `InternalQuantizer` to `EncodeResult`.
 
 ### `VP8E_SET_TUNING`
 
@@ -389,12 +322,10 @@ decode.
 
 ## Suggested Port Order
 
-1. Add low-risk metadata first: `FrameInfo` ref flags and quantizer, plus
-   `LastQuantizer` on the encoder.
-2. Add reference set/copy on decoder, then encoder. Keep the encoder state
+1. Add reference set/copy on decoder, then encoder. Keep the encoder state
    invalidation explicit and heavily tested.
-3. Add ROI map, using existing segmentation machinery and oracle tests.
-4. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
-5. Add `RateControlQ` if constant-quality callers need it.
-6. Revisit spatial resampling only after deciding the coded-size/display-size
+2. Add ROI map, using existing segmentation machinery and oracle tests.
+3. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
+4. Add `RateControlQ` if constant-quality callers need it.
+5. Revisit spatial resampling only after deciding the coded-size/display-size
    API contract.

@@ -54,6 +54,7 @@ type VP8Decoder struct {
 	frameReady      bool
 	lastFrame       Image
 	lastInfo        FrameInfo
+	lastInfoValid   bool
 	currentPTS      uint64
 	visibleFrames   int
 	initialized     bool
@@ -186,6 +187,13 @@ func (d *VP8Decoder) NextFrame() (Image, bool) {
 	return d.lastFrame, true
 }
 
+func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return FrameInfo{}, false
+	}
+	return d.lastInfo, true
+}
+
 func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
 	return d.DecodeIntoWithPTS(packet, dst, 0)
 }
@@ -267,6 +275,7 @@ func (d *VP8Decoder) Reset() {
 	d.frameReady = false
 	d.lastFrame = Image{}
 	d.lastInfo = FrameInfo{}
+	d.lastInfoValid = false
 	d.currentPTS = 0
 	d.visibleFrames = 0
 	d.initialized = false
@@ -436,14 +445,19 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 	}
 	width, height := d.outputDimensions(info)
 	frameInfo := FrameInfo{
-		Width:     width,
-		Height:    height,
-		KeyFrame:  info.KeyFrame,
-		ShowFrame: info.ShowFrame,
-		Corrupted: d.frameCorrupt,
-		PTS:       pts,
+		Width:             width,
+		Height:            height,
+		KeyFrame:          info.KeyFrame,
+		ShowFrame:         info.ShowFrame,
+		Corrupted:         d.frameCorrupt,
+		Quantizer:         libvpxQIndexToPublicQuantizer(int(d.state.Quant.BaseQIndex)),
+		InternalQuantizer: int(d.state.Quant.BaseQIndex),
+		RefUpdates:        referenceFlagsFromRefresh(d.state.Refresh),
+		RefUsed:           d.referenceFlagsUsed(info),
+		PTS:               pts,
 	}
 	d.lastInfo = frameInfo
+	d.lastInfoValid = true
 	if info.ShowFrame {
 		d.visibleFrames++
 	}
@@ -461,22 +475,61 @@ func (d *VP8Decoder) canConceal(info StreamInfo) bool {
 func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo {
 	d.currentPTS = pts
 	frameInfo := FrameInfo{
-		Width:     d.frameWidth,
-		Height:    d.frameHeight,
-		KeyFrame:  false,
-		ShowFrame: info.ShowFrame,
-		Corrupted: true,
-		PTS:       pts,
+		Width:             d.frameWidth,
+		Height:            d.frameHeight,
+		KeyFrame:          false,
+		ShowFrame:         info.ShowFrame,
+		Corrupted:         true,
+		Quantizer:         libvpxQIndexToPublicQuantizer(int(d.previousQuant.BaseQIndex)),
+		InternalQuantizer: int(d.previousQuant.BaseQIndex),
+		RefUpdates:        referenceFlagsFromRefresh(d.state.Refresh),
+		RefUsed:           d.referenceFlagsUsed(info),
+		PTS:               pts,
 	}
 	d.lastInfo = frameInfo
+	d.lastInfoValid = true
 	if info.ShowFrame {
 		d.visibleFrames++
 	}
 	return frameInfo
 }
 
+func referenceFlagsFromRefresh(refresh vp8dec.RefreshHeader) ReferenceFlags {
+	var flags ReferenceFlags
+	if refresh.RefreshLast {
+		flags |= ReferenceFlagLast
+	}
+	if refresh.RefreshGolden {
+		flags |= ReferenceFlagGolden
+	}
+	if refresh.RefreshAltRef {
+		flags |= ReferenceFlagAltRef
+	}
+	return flags
+}
+
+func (d *VP8Decoder) referenceFlagsUsed(info StreamInfo) ReferenceFlags {
+	if info.KeyFrame {
+		return 0
+	}
+	var flags ReferenceFlags
+	for i := 0; i < len(d.modes); i++ {
+		switch d.modes[i].RefFrame {
+		case vp8common.LastFrame:
+			flags |= ReferenceFlagLast
+		case vp8common.GoldenFrame:
+			flags |= ReferenceFlagGolden
+		case vp8common.AltRefFrame:
+			flags |= ReferenceFlagAltRef
+		}
+	}
+	return flags
+}
+
 func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (FrameInfo, error) {
 	d.state = vp8dec.StateHeader{}
+	d.state.Quant = d.previousQuant
+	d.state.Refresh.RefreshLast = true
 	d.frameHeader = vp8dec.FrameHeader{FrameType: vp8common.InterFrame, Profile: 0, ShowFrame: true}
 	for i := range d.tokens {
 		d.tokens[i] = vp8dec.MacroblockTokens{}

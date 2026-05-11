@@ -421,13 +421,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.FrameTargetBits = e.rc.frameTargetBits
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			result.Quantizer = libvpxQIndexToPublicQuantizer(e.rc.currentQuantizer)
+			result.InternalQuantizer = e.rc.currentQuantizer
 		} else {
 			finalQuantizer := e.rc.currentQuantizer
 			e.commitInterFrameAttempt(attempt)
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
-			result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
+			e.setEncodeResultQuantizer(&result, finalQuantizer)
 			result.Droppable = interFrameDroppable(attempt.Config)
 			if oracleTraceBuild {
 				e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits, attempt.CoefSavingsBits, attempt.RefFrameSavingsBits)
@@ -562,7 +563,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
-	result.Quantizer = libvpxQIndexToPublicQuantizer(finalQuantizer)
+	e.setEncodeResultQuantizer(&result, finalQuantizer)
 	if oracleTraceBuild {
 		e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size, keyAttempt.ProjectedSizeBits, keyAttempt.CoefSavingsBits, keyAttempt.RefFrameSavingsBits)
 	}

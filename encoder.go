@@ -261,7 +261,10 @@ type EncodeResult struct {
 	PTS      uint64
 	Duration uint64
 
-	Quantizer int
+	// Quantizer is the public 0..63 quantizer. InternalQuantizer is the VP8
+	// base qindex reported by libvpx's VP8E_GET_LAST_QUANTIZER control.
+	Quantizer         int
+	InternalQuantizer int
 
 	SizeBytes int
 
@@ -298,6 +301,10 @@ type VP8Encoder struct {
 	closed        bool
 	forceKeyFrame bool
 	frameCount    uint64
+
+	lastQuantizerPublic   int
+	lastQuantizerInternal int
+	lastQuantizerValid    bool
 
 	// libvpx vp8_auto_select_speed (rdopt.c:261) state. Mirrored exactly:
 	// at realtime+positive-cpu_used, at the start of each encode_mb_row
