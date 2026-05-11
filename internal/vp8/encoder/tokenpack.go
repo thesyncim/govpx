@@ -97,26 +97,14 @@ func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords
 	records.RowStarts[row+1] = len(records.Records)
 }
 
-func (records *InterCoefficientTokenRecords) appendToken(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) error {
+// appendTokenUnchecked is the hot-path entry that packs+appends a
+// coefficient token without re-validating the inputs. Callers (e.g.
+// countBlockCoefficientTokensAndRecords) validate at function entry,
+// so the per-coefficient cost of re-validating showed up as ~10% extra
+// time in the entropy walk under pprof.
+func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) {
 	if records == nil {
-		return nil
-	}
-	record, ok := packCoefficientTokenRecord(blockType, band, ctx, token, magnitude, sign, skipEOBNode)
-	if !ok {
-		return ErrInvalidPacketConfig
-	}
-	records.Records = append(records.Records, record)
-	return nil
-}
-
-func packCoefficientTokenRecord(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) (CoefficientTokenRecord, bool) {
-	if blockType < 0 || blockType >= tables.BlockTypes ||
-		band < 0 || band >= tables.CoefBands ||
-		ctx < 0 || ctx >= tables.PrevCoefContexts ||
-		token < 0 || token >= tables.MaxEntropyTokens ||
-		magnitude < 0 || magnitude > tables.DCTMaxValue ||
-		sign > 1 {
-		return 0, false
+		return
 	}
 	value := uint32(token) << coefficientTokenRecordTokenShift
 	value |= uint32(blockType) << coefficientTokenRecordBlockTypeShift
@@ -127,7 +115,7 @@ func packCoefficientTokenRecord(blockType int, band int, ctx int, token int, mag
 	if skipEOBNode {
 		value |= 1 << coefficientTokenRecordSkipEOBNodeShift
 	}
-	return CoefficientTokenRecord(value), true
+	records.Records = append(records.Records, CoefficientTokenRecord(value))
 }
 
 func validPreparedCoefficientTokenRows(records *InterCoefficientTokenRecords, rows int) bool {
@@ -196,13 +184,10 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	pos := w.pos
 	buf := w.buf
 
-	// Records are validated when produced by packCoefficientTokenRecord:
-	// it rejects out-of-range token/blockType/band/ctx/magnitude/sign
-	// before appending, and appendToken propagates the error. By the time
-	// we reach this writer, every field is guaranteed to be in range, so
-	// the per-record OOR check below is dead weight in the hot loop.
-	// (writeBlockTokensEOB's matching emit path likewise relies on the
-	// caller validating eob/qcoeff once at MB granularity.)
+	// Records are validated at the producer (countBlockCoefficientTokensAndRecords)
+	// before being packed by appendTokenUnchecked. By the time we reach this
+	// writer, every field is guaranteed to be in range, so the per-record
+	// OOR check below is dead weight in the hot loop.
 	for _, record := range records {
 		raw := uint32(record)
 		token := int(raw & coefficientTokenRecordTokenMask)
@@ -263,12 +248,9 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			continue
 		}
 
-		// magnitude is guaranteed in (0, DCTMaxValue] by the producer (see
-		// countBlockCoefficientTokensAndRecords): non-zero non-EOB tokens
-		// only appear for non-zero coeffs, and packCoefficientTokenRecord
-		// already rejected out-of-range magnitudes when the record was
-		// appended. The offset (= mag - baseVal) is non-negative for the
-		// same reason.
+		// magnitude is guaranteed in (0, DCTMaxValue] by the producer
+		// (countBlockCoefficientTokensAndRecords); the offset
+		// (= mag - baseVal) is non-negative for the same reason.
 		mag := int((raw >> coefficientTokenRecordMagnitudeShift) & coefficientTokenRecordMagMask)
 		extra := coefficientExtraBitEncodings[token]
 		extraLen := int(extra.len)

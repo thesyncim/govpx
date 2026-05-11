@@ -341,7 +341,8 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 	}
 	if eob <= skipDC {
 		(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
-		return records.appendToken(blockType, skipDC, ctx, tables.DCTEOBToken, 0, 0, false)
+		records.appendTokenUnchecked(blockType, skipDC, ctx, tables.DCTEOBToken, 0, 0, false)
+		return nil
 	}
 	if eob > 16 {
 		return ErrInvalidPacketConfig
@@ -353,13 +354,6 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 	for pos := skipDC; pos < eob; pos++ {
 		rc := int(tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
-		// Inline coefficient classification via the abs+LUT path used by
-		// writeBlockTokensEOB so this count walk matches the writer
-		// classification exactly. Index 0 of the LUT is ZeroToken, so
-		// coeff == 0 needs no special case for the token id; the only
-		// thing the zero branch used to own was the
-		// "tokenCtx = 0" reset, which now falls out of
-		// tables.PrevTokenClass[ZeroToken] (= 0).
 		// Branchless |coeff| split into magnitude and sign nibble: signMask
 		// is -1 when coeff is negative, 0 otherwise.
 		signMask := coeff >> intSignShift
@@ -370,9 +364,9 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 		}
 		token := int(coeffAbsTokenLUT[mag])
 		(*counts)[blockType][band][tokenCtx][token]++
-		if err := records.appendToken(blockType, band, tokenCtx, token, mag, sign, skipEOBNode); err != nil {
-			return err
-		}
+		// Validation hoisted to the function entry, so the per-coeff
+		// pack-and-append skips the redundant range checks.
+		records.appendTokenUnchecked(blockType, band, tokenCtx, token, mag, sign, skipEOBNode)
 		if pos+1 < 16 {
 			band = int(tables.CoefBandsTable[pos+1])
 			tokenCtx = int(tables.PrevTokenClass[token])
@@ -381,9 +375,7 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 	}
 	if eob < 16 {
 		(*counts)[blockType][band][tokenCtx][tables.DCTEOBToken]++
-		if err := records.appendToken(blockType, band, tokenCtx, tables.DCTEOBToken, 0, 0, false); err != nil {
-			return err
-		}
+		records.appendTokenUnchecked(blockType, band, tokenCtx, tables.DCTEOBToken, 0, 0, false)
 	}
 	return nil
 }
