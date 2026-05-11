@@ -70,10 +70,10 @@ func ApplyLoopFilterFullLumaPreparedUnchecked(img *common.Image, rows int, cols 
 func ApplyLoopFilterFullLumaConfiguredUnchecked(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, filterType LoopFilterType, level int, cfg common.LoopFilterFrameConfig, lfi *common.LoopFilterInfo) {
 	common.InitLoopFilterFrame(lfi, level, cfg)
 	if filterType == SimpleLoopFilter {
-		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, 0, rows)
+		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, 0, rows, false)
 		return
 	}
-	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, 0, rows)
+	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, 0, rows, false)
 }
 
 // ApplyLoopFilterChromaOnlyPrepared skips sharpness-table rebuilds when the
@@ -133,13 +133,13 @@ func ApplyLoopFilterPartialConfiguredUnchecked(img *common.Image, rows int, cols
 	common.InitLoopFilterFrame(lfi, level, cfg)
 
 	if filterType == SimpleLoopFilter {
-		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, startRow, rowCount)
+		applySimpleLoopFilterPartialLumaUnchecked(img, cols, modes, lfi, startRow, rowCount, true)
 		return
 	}
-	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, startRow, rowCount)
+	applyNormalLoopFilterPartialLumaUnchecked(img, cols, modes, frameType, lfi, startRow, rowCount, true)
 }
 
-func applyNormalLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo, startRow int, rowCount int) {
+func applyNormalLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo, startRow int, rowCount int, topContext bool) {
 	for row := startRow; row < startRow+rowCount; row++ {
 		yRow := row * 16 * img.YStride
 		for col := range cols {
@@ -149,12 +149,12 @@ func applyNormalLoopFilterPartialLumaUnchecked(img *common.Image, cols int, mode
 				continue
 			}
 			yOff := yRow + col*16
-			applyNormalLoopFilterPartialLumaMB(img, row, col, yOff, mode, frameType, level, lfi)
+			applyNormalLoopFilterPartialLumaMB(img, row, col, yOff, mode, frameType, level, lfi, topContext)
 		}
 	}
 }
 
-func applySimpleLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo, startRow int, rowCount int) {
+func applySimpleLoopFilterPartialLumaUnchecked(img *common.Image, cols int, modes []MacroblockMode, lfi *common.LoopFilterInfo, startRow int, rowCount int, topContext bool) {
 	for row := startRow; row < startRow+rowCount; row++ {
 		yRow := row * 16 * img.YStride
 		for col := range cols {
@@ -164,12 +164,12 @@ func applySimpleLoopFilterPartialLumaUnchecked(img *common.Image, cols int, mode
 				continue
 			}
 			yOff := yRow + col*16
-			applySimpleLoopFilterPartialLumaMB(img, row, col, yOff, mode, level, lfi)
+			applySimpleLoopFilterPartialLumaMB(img, row, col, yOff, mode, level, lfi, topContext)
 		}
 	}
 }
 
-func applyNormalLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOff int, mode *MacroblockMode, frameType common.FrameType, level byte, lfi *common.LoopFilterInfo) {
+func applyNormalLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOff int, mode *MacroblockMode, frameType common.FrameType, level byte, lfi *common.LoopFilterInfo, topContext bool) {
 	skipLF := loopFilterSkipsInnerEdges(mode)
 	hev := lfi.HEVThresh[lfi.HEVThreshLUT[frameType][level]]
 	mblim := lfi.MBLimit[level]
@@ -183,20 +183,15 @@ func applyNormalLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 		dsp.LoopFilterVerticalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
 	}
 
-	// libvpx's vp8_loop_filter_partial_frame applies mbh unconditionally for
-	// every MB in the window. Practically the partial window starts at MB row
-	// rows/2 so row > 0 always holds for realistic frame sizes; we keep the
-	// guard so tiny frames where the window happens to begin at row 0 still
-	// behave like the full-frame variant.
-	if row > 0 {
-		dsp.MBLoopFilterHorizontalEdge(img.Y[yOff-4*img.YStride:], img.YStride, mblim, lim, hev, 2)
+	if row > 0 || topContext {
+		dsp.MBLoopFilterHorizontalEdge(loopFilterYAt(img, yOff-4*img.YStride), img.YStride, mblim, lim, hev, 2)
 	}
 	if !skipLF {
 		dsp.LoopFilterHorizontalEdgesY(img.Y[yOff:], img.YStride, blim, lim, hev)
 	}
 }
 
-func applySimpleLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOff int, mode *MacroblockMode, level byte, lfi *common.LoopFilterInfo) {
+func applySimpleLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOff int, mode *MacroblockMode, level byte, lfi *common.LoopFilterInfo, topContext bool) {
 	skipLF := loopFilterSkipsInnerEdges(mode)
 	mblim := lfi.MBLimit[level]
 	blim := lfi.BLimit[level]
@@ -210,14 +205,21 @@ func applySimpleLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+10:], img.YStride, blim)
 	}
 
-	if row > 0 {
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff-2*img.YStride:], img.YStride, mblim)
+	if row > 0 || topContext {
+		dsp.LoopFilterSimpleHorizontalEdge(loopFilterYAt(img, yOff-2*img.YStride), img.YStride, mblim)
 	}
 	if !skipLF {
 		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+2*img.YStride:], img.YStride, blim)
 		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+6*img.YStride:], img.YStride, blim)
 		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+10*img.YStride:], img.YStride, blim)
 	}
+}
+
+func loopFilterYAt(img *common.Image, off int) []byte {
+	if off >= 0 {
+		return img.Y[off:]
+	}
+	return img.YFull[img.YOrigin+off:]
 }
 
 func applyNormalLoopFilterGrid(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {

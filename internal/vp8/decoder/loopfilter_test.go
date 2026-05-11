@@ -291,6 +291,40 @@ func TestApplyLoopFilterPartialIgnoresChroma(t *testing.T) {
 	}
 }
 
+func TestApplyLoopFilterPartialAppliesTopContextEdge(t *testing.T) {
+	const cols, rows = 2, 1
+	fb := newLoopFilterFrame(t, cols*16, rows*16)
+	for y := -4; y < 0; y++ {
+		row := fb.Img.YOrigin + y*fb.Img.YStride
+		for x := 0; x < fb.Img.CodedWidth; x++ {
+			fb.Img.YFull[row+x] = 80
+		}
+	}
+	for y := range fb.Img.CodedHeight {
+		row := y * fb.Img.YStride
+		for x := range fb.Img.CodedWidth {
+			fb.Img.Y[row+x] = 96
+		}
+	}
+	beforeTop := append([]byte(nil), fb.Img.YFull[fb.Img.YOrigin-fb.Img.YStride:fb.Img.YOrigin-fb.Img.YStride+fb.Img.CodedWidth]...)
+	beforeVisible := append([]byte(nil), fb.Img.Y[:fb.Img.CodedWidth]...)
+
+	modes := make([]MacroblockMode, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.DCPred, UVMode: common.DCPred, RefFrame: common.IntraFrame}
+	}
+	header := LoopFilterHeader{Type: SimpleLoopFilter, Level: 63}
+	var lfi common.LoopFilterInfo
+	common.InitLoopFilterInfo(&lfi, int(header.SharpnessLevel))
+	ApplyLoopFilterPartialPreparedUnchecked(&fb.Img, rows, cols, modes, common.InterFrame, header, SegmentationHeader{}, &lfi, 0, 1)
+
+	afterTop := fb.Img.YFull[fb.Img.YOrigin-fb.Img.YStride : fb.Img.YOrigin-fb.Img.YStride+fb.Img.CodedWidth]
+	afterVisible := fb.Img.Y[:fb.Img.CodedWidth]
+	if bytes.Equal(afterTop, beforeTop) && bytes.Equal(afterVisible, beforeVisible) {
+		t.Fatalf("partial loop filter did not apply the top-context mbh edge")
+	}
+}
+
 func TestApplyLoopFilterPartialPreparedZeroLevelNoop(t *testing.T) {
 	const cols, rows = 2, 4
 	fb := newLoopFilterFrame(t, cols*16, rows*16)

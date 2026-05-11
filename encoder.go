@@ -4057,42 +4057,53 @@ func (ctx *loopFilterPickContext) trialLumaSSE(level int, partial bool) int {
 }
 
 // copyLoopFilterPartialLuma refreshes the luma plane window the partial-frame
-// loop-filter trial reads. It mirrors libvpx's yv12_copy_partial_frame: copy
-// the [startRow, startRow+rowCount) MB rows plus 4 luma lines above so the
-// macroblock horizontal edge filter has fresh context to read.
+// loop-filter trial reads. It mirrors libvpx's yv12_copy_partial_frame:
+// copy from ((y_height >> 5) * 16) - 4 for rowCount MB rows plus the 4
+// luma context lines above, filling negative top-context rows from the
+// visible top row.
 func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, startRow int, rowCount int) {
 	if rowCount <= 0 {
 		return
 	}
-	startY := startRow * 16
-	if startY > 4 {
-		startY -= 4
-	} else {
-		startY = 0
-	}
-	endY := min(min((startRow+rowCount)*16, src.CodedHeight), dst.CodedHeight)
-	if endY <= startY {
+	startY := startRow*16 - 4
+	lineCount := rowCount*16 + 4
+	if lineCount <= 0 {
 		return
 	}
 	if src.YStride == dst.YStride && len(src.YFull) > 0 && len(dst.YFull) > 0 {
 		// libvpx yv12_copy_partial_frame copies y_stride bytes from the
 		// visible-origin row, preserving right-border/stride bytes used by
 		// vp8_loop_filter_partial_frame.
+		topOff := src.YOrigin
 		srcOff := src.YOrigin + startY*src.YStride
 		dstOff := dst.YOrigin + startY*dst.YStride
-		n := (endY - startY) * src.YStride
-		if srcOff >= 0 && dstOff >= 0 && srcOff+n <= len(src.YFull) && dstOff+n <= len(dst.YFull) {
-			copy(dst.YFull[dstOff:dstOff+n], src.YFull[srcOff:srcOff+n])
-			return
+		for dstOff < dst.YOrigin && lineCount > 0 {
+			if dstOff < 0 || topOff < 0 || topOff+src.YStride > len(src.YFull) || dstOff+dst.YStride > len(dst.YFull) {
+				return
+			}
+			copy(dst.YFull[dstOff:dstOff+dst.YStride], src.YFull[topOff:topOff+src.YStride])
+			srcOff += src.YStride
+			dstOff += dst.YStride
+			lineCount--
 		}
-	}
-	width := min(dst.CodedWidth, src.CodedWidth)
-	if src.YStride == dst.YStride && width == src.YStride {
-		// Fast path: contiguous copy when strides and full coded width match.
-		copy(dst.Y[startY*dst.YStride:endY*dst.YStride], src.Y[startY*src.YStride:endY*src.YStride])
+		n := lineCount * src.YStride
+		if lineCount > 0 && srcOff >= 0 && dstOff >= 0 && srcOff+n <= len(src.YFull) && dstOff+n <= len(dst.YFull) {
+			copy(dst.YFull[dstOff:dstOff+n], src.YFull[srcOff:srcOff+n])
+		}
 		return
 	}
-	for row := startY; row < endY; row++ {
+	width := min(dst.CodedWidth, src.CodedWidth)
+	startVisibleY := max(startY, 0)
+	endVisibleY := min(min(startY+lineCount, src.CodedHeight), dst.CodedHeight)
+	if endVisibleY <= startVisibleY {
+		return
+	}
+	if src.YStride == dst.YStride && width == src.YStride {
+		// Fast path: contiguous copy when strides and full coded width match.
+		copy(dst.Y[startVisibleY*dst.YStride:endVisibleY*dst.YStride], src.Y[startVisibleY*src.YStride:endVisibleY*src.YStride])
+		return
+	}
+	for row := startVisibleY; row < endVisibleY; row++ {
 		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
 	}
 }

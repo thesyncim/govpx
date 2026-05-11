@@ -2728,6 +2728,41 @@ func TestCopyLoopFilterPartialLumaCopiesLibvpxStrideWindow(t *testing.T) {
 	}
 }
 
+func TestCopyLoopFilterPartialLumaCopiesLibvpxTopContext(t *testing.T) {
+	src := testVP8Frame(t, 16, 16, 10, 128, 128)
+	dst := testVP8Frame(t, 16, 16, 99, 128, 128)
+	for i := range src.Img.YFull {
+		src.Img.YFull[i] = byte(i*17 + 3)
+	}
+	for i := range dst.Img.YFull {
+		dst.Img.YFull[i] = 0
+	}
+
+	startRow, rowCount := loopFilterPartialFrameWindow(1)
+	copyLoopFilterPartialLuma(&dst.Img, &src.Img, startRow, rowCount)
+
+	top := src.Img.YFull[src.Img.YOrigin : src.Img.YOrigin+src.Img.YStride]
+	for y := -4; y < 0; y++ {
+		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
+		if got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]; !bytes.Equal(got, top) {
+			t.Fatalf("top context row %d differs from libvpx top-row fill", y)
+		}
+	}
+	for y := 0; y < 16; y++ {
+		srcOff := src.Img.YOrigin + y*src.Img.YStride
+		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
+		got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]
+		want := src.Img.YFull[srcOff : srcOff+src.Img.YStride]
+		if !bytes.Equal(got, want) {
+			t.Fatalf("visible row %d differs from libvpx y_stride window", y)
+		}
+	}
+	beforeOff := dst.Img.YOrigin - 5*dst.Img.YStride
+	if bytes.Equal(dst.Img.YFull[beforeOff:beforeOff+dst.Img.YStride], top) {
+		t.Fatalf("row before top context was copied")
+	}
+}
+
 func TestLoopFilterTrialLumaSSELevelZeroUsesLibvpxTrialFilter(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16
