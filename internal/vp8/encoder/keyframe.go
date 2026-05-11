@@ -203,8 +203,16 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst []byte, width int, h
 		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
 	}
 	partitionCount, ok := tokenPartitionCount(cfg.TokenPartition)
-	if !ok || cfg.MBNoCoeffSkip {
+	if !ok {
 		return 0, tables.CoefficientProbs{}, ErrInvalidPacketConfig
+	}
+	// Mirror libvpx alloccommon.c init: pc->mb_no_coeff_skip defaults to 1
+	// for every frame, so the keyframe header always emits the
+	// mb_no_coeff_skip bit + 8-bit prob_skip_false literal. ProbSkipFalse
+	// defaults to 255 (no MB actually skipped) which matches libvpx when
+	// every MB carries at least one non-zero coefficient.
+	if cfg.MBNoCoeffSkip && cfg.ProbSkipFalse == 0 {
+		cfg.ProbSkipFalse = 255
 	}
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
@@ -233,7 +241,7 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst []byte, width int, h
 	if err := WriteKeyFrameStateHeader(&first, cfg); err != nil {
 		return 0, tables.CoefficientProbs{}, err
 	}
-	if err := WriteKeyFrameModeGridWithSegmentation(&first, rows, cols, modes, cfg.Segmentation); err != nil {
+	if err := WriteKeyFrameModeGridWithSegmentationAndSkip(&first, rows, cols, modes, cfg.Segmentation, cfg.MBNoCoeffSkip, cfg.ProbSkipFalse); err != nil {
 		return 0, tables.CoefficientProbs{}, err
 	}
 	first.Finish()

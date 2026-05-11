@@ -17,6 +17,11 @@ type KeyFrameMacroblockMode struct {
 	YMode     common.MBPredictionMode
 	UVMode    common.MBPredictionMode
 	BModes    [16]common.BPredictionMode
+	// MBSkipCoeff mirrors libvpx's mb_skip_coeff: when set, libvpx omits
+	// the per-block token writes for this MB and the decoder treats every
+	// coefficient as 0. govpx writes this bit only when the enclosing
+	// frame has KeyFrameStateConfig.MBNoCoeffSkip=true.
+	MBSkipCoeff bool
 }
 
 var keyFrameYModeTokens = initKeyFrameYModeTokens()
@@ -49,6 +54,15 @@ func WriteKeyFrameModeGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMa
 }
 
 func WriteKeyFrameModeGridWithSegmentation(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode, segmentation SegmentationConfig) error {
+	return WriteKeyFrameModeGridWithSegmentationAndSkip(w, rows, cols, modes, segmentation, false, 0)
+}
+
+// WriteKeyFrameModeGridWithSegmentationAndSkip writes the keyframe
+// mode grid plus per-MB skip_coeff bit when mbNoCoeffSkip is true.
+// Mirrors libvpx vp8/encoder/bitstream.c pack_mb_row inside the
+// keyframe path: the skip bit is written before the Y/UV mode tokens,
+// at probSkipFalse.
+func WriteKeyFrameModeGridWithSegmentationAndSkip(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode, segmentation SegmentationConfig, mbNoCoeffSkip bool, probSkipFalse uint8) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall
 	}
@@ -81,6 +95,13 @@ func WriteKeyFrameModeGridWithSegmentation(w *BoolWriter, rows int, cols int, mo
 					return w.Err()
 				}
 				return ErrInvalidPacketConfig
+			}
+			if mbNoCoeffSkip {
+				skipBit := uint8(0)
+				if modes[index].MBSkipCoeff {
+					skipBit = 1
+				}
+				w.WriteBool(skipBit, probSkipFalse)
 			}
 			if !WriteKeyFrameMacroblockMode(w, above, left, &modes[index]) {
 				if w.Err() != nil {
