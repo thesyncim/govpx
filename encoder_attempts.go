@@ -619,11 +619,7 @@ func (e *VP8Encoder) projectedFrameSizeBitsFromRateWithKnownCoefSavings(keyFrame
 	}
 	projectedBits := projectedRate >> 8
 	refFrameSavings = e.refFrameEntropySavingsBitsForFrame(keyFrame, macroblocks, refreshGolden, refreshAltRef)
-	projectedBits -= coefSavings + refFrameSavings
-	if projectedBits < 0 {
-		projectedBits = 0
-	}
-	return projectedBits, refFrameSavings
+	return max(projectedBits-coefSavings-refFrameSavings, 0), refFrameSavings
 }
 
 // refFrameEntropySavingsBitsForFrame mirrors libvpx's inter-frame ref-frame
