@@ -2,9 +2,14 @@ package encoder
 
 import (
 	"math"
+	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
+
+// intSignShift splats an int's sign bit across every position when used
+// as the right-shift count (-1 for negatives, 0 otherwise).
+const intSignShift = bits.UintSize - 1
 
 // Ported from libvpx v1.16.0:
 // - vp8/encoder/encodemv.c motion-vector component packing and costing
@@ -190,50 +195,32 @@ func motionVectorComponentCost(component int, probs []uint8) int {
 }
 
 func clampMVMCompCostInput(component int) int {
-	if component < 0 {
-		return 0
-	}
-	if component > mvComponentMax {
-		return mvComponentMax
-	}
-	return component
+	return min(max(component, 0), mvComponentMax)
 }
 
 // clampMVSignedComponent clamps a signed 1/4-pel component delta to the
 // libvpx mvcost table extents (-mv_max..mv_max), preserving sign so the
 // MVC-style signed lookup remains valid.
 func clampMVSignedComponent(component int) int {
-	if component < -mvComponentMax {
-		return -mvComponentMax
-	}
-	if component > mvComponentMax {
-		return mvComponentMax
-	}
-	return component
+	return min(max(component, -mvComponentMax), mvComponentMax)
 }
 
 func motionVectorSADComponentCost(component int) int {
-	if component < 0 {
-		component = -component
-	}
-	return motionVectorSADCosts[component]
+	// Branchless |component|: sign-extend to splat the sign bit, then
+	// (x^mask)-mask flips negatives without a conditional jump.
+	mask := component >> intSignShift
+	return motionVectorSADCosts[(component^mask)-mask]
 }
 
 func clampMVFullPixelComponent(component int) int {
-	if component > mvFullPixelMax {
-		return mvFullPixelMax
-	}
-	if component < -mvFullPixelMax {
-		return -mvFullPixelMax
-	}
-	return component
+	return min(max(component, -mvFullPixelMax), mvFullPixelMax)
 }
 
+// mvBoolCost looks up the prob/255-prob entry without a branch. bit is
+// guaranteed to be 0 or 1 by callers; XORing prob with -bit (cast to
+// uint8 so -1 becomes 0xff) flips it when the bit is set.
 func mvBoolCost(prob uint8, bit int) int {
-	if bit == 0 {
-		return tables.ProbCost[prob]
-	}
-	return tables.ProbCost[255-int(prob)]
+	return tables.ProbCost[prob^uint8(-bit)]
 }
 
 func mvTreeTokenCost(tree []int16, probs []uint8, token TreeToken) int {

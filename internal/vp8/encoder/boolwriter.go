@@ -37,12 +37,12 @@ func (w *BoolWriter) WriteBit(bit uint8) {
 	}
 
 	split := (w.rng + 1) >> 1
-	rng := split
-	low := w.low
-	if bit != 0 {
-		low += split
-		rng = w.rng - split
-	}
+	// Branchless conditional select keyed on bit: mask is all-ones when
+	// bit is set, zero otherwise, so the add and the rng-split fold-in
+	// vanish on the bit==0 path without a jump.
+	mask := -uint32(bit & 1)
+	low := w.low + (split & mask)
+	rng := split + ((w.rng - 2*split) & mask)
 
 	shift := int(tables.BoolNorm[byte(rng)])
 	rng <<= uint(shift)
@@ -68,12 +68,13 @@ func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
 	}
 
 	split := uint32(1 + (((w.rng - 1) * uint32(probability)) >> 8))
-	rng := split
-	low := w.low
-	if bit != 0 {
-		low += split
-		rng = w.rng - split
-	}
+	// Branchless conditional select keyed on bit: mask is all-ones when
+	// the bit is set, zero otherwise. The `bit==0` arm keeps rng=split
+	// and low unchanged; the `bit==1` arm folds in (w.rng - split) -
+	// split = w.rng - 2*split.
+	mask := -uint32(bit & 1)
+	low := w.low + (split & mask)
+	rng := split + ((w.rng - 2*split) & mask)
 
 	shift := int(tables.BoolNorm[byte(rng)])
 	rng <<= uint(shift)

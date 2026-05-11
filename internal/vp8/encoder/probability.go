@@ -332,14 +332,10 @@ func coefficientProbabilityFromBranchCount(ct [2]int) uint8 {
 	if total <= 0 {
 		return 128
 	}
-	prob := (ct[0]*256 + (total >> 1)) / total
-	if prob <= 0 {
-		return 1
-	}
-	if prob > 255 {
-		return 255
-	}
-	return uint8(prob)
+	// Saturate (1, 255] in one branchless step. Min/max stays in CMOV
+	// territory and the hot encoder probability-update loop calls this
+	// per-token-context.
+	return uint8(min(max((ct[0]*256+(total>>1))/total, 1), 255))
 }
 
 func coefficientProbabilityUpdateSavings(ct [2]int, oldProb uint8, newProb uint8, updateProb uint8) int {
@@ -354,10 +350,9 @@ func coefficientBranchCost(ct [2]int, prob uint8) int {
 }
 
 func coefficientBitCost(prob uint8, bit int) int {
-	if bit == 0 {
-		return tables.ProbCost[prob]
-	}
-	return tables.ProbCost[255-int(prob)]
+	// XOR-with-(-bit) flips prob to (255-prob) when bit == 1 without
+	// dispatching through a branch.
+	return tables.ProbCost[prob^uint8(-bit)]
 }
 
 type coefficientTokenBranchPath struct {
