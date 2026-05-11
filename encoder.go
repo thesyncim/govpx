@@ -3959,14 +3959,25 @@ func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.Segmentation
 func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
 	maxLevel := e.libvpxMaxLoopFilterLevelForFrame()
+	ssErr := [vp8common.MaxLoopFilter + 1]int{}
+	ssSet := [vp8common.MaxLoopFilter + 1]bool{}
+	score := func(level int) int {
+		if ssSet[level] {
+			return ssErr[level]
+		}
+		err := ctx.trialLumaSSE(level, true)
+		ssErr[level] = err
+		ssSet[level] = true
+		return err
+	}
 	level := clampLoopFilterPickLevel(int(seedLevel), minLevel, maxLevel)
 	bestLevel := level
-	bestErr := ctx.trialLumaSSE(level, true)
+	bestErr := score(level)
 	e.emitOracleLFTrial("seed", level, bestErr)
 
 	filtLevel := level - loopFilterSearchStep(level)
 	for filtLevel >= minLevel {
-		filtErr := ctx.trialLumaSSE(filtLevel, true)
+		filtErr := score(filtLevel)
 		e.emitOracleLFTrial("down", filtLevel, filtErr)
 		if filtErr < bestErr {
 			bestErr = filtErr
@@ -3981,7 +3992,7 @@ func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8
 	if bestLevel == level {
 		bestErr -= bestErr >> 10
 		for filtLevel < maxLevel {
-			filtErr := ctx.trialLumaSSE(filtLevel, true)
+			filtErr := score(filtLevel)
 			e.emitOracleLFTrial("up", filtLevel, filtErr)
 			if filtErr < bestErr {
 				bestErr = filtErr - (filtErr >> 10)
