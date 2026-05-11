@@ -94,12 +94,8 @@ func encodedSizeBits(sizeBytes int) int {
 }
 
 func libvpxRollingBits(previous int, current int, weight int, shift uint) int {
-	if previous < 0 {
-		previous = 0
-	}
-	if current < 0 {
-		current = 0
-	}
+	previous = max(previous, 0)
+	current = max(current, 0)
 	if weight <= 0 {
 		return current
 	}
