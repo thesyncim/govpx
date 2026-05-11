@@ -22,12 +22,17 @@ type benchCLIOptions struct {
 	buildLibvpx bool
 	cpuProfile  string
 	memProfile  string
+	ffmpeg      string
+	plotPath    string
+	plotCSV     string
+	plotJSON    string
 }
 
 func defaultBenchCLIOptions() benchCLIOptions {
 	return benchCLIOptions{
 		format:      "text",
 		autoCompare: true,
+		ffmpeg:      "ffmpeg",
 	}
 }
 
@@ -49,6 +54,10 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", "", "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc (and PATH vpxenc) for encode comparison; decoder mode also locates the oracle")
 	fs.BoolVar(&opts.buildLibvpx, "build-libvpx", opts.buildLibvpx, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
+	fs.StringVar(&opts.ffmpeg, "ffmpeg", opts.ffmpeg, "ffmpeg binary for -plot mode; it must include the libvpx encoder and libvmaf filter")
+	fs.StringVar(&opts.plotPath, "plot", "", "write a reproducible govpx-vs-libvpx VMAF SVG comparison plot using ffmpeg")
+	fs.StringVar(&opts.plotCSV, "plot-csv", "", "optional CSV path for -plot per-frame VMAF metrics; defaults beside the SVG")
+	fs.StringVar(&opts.plotJSON, "plot-json", "", "optional JSON path for -plot VMAF summary data; defaults beside the SVG")
 	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
 	fs.StringVar(&opts.memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
 }

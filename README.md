@@ -128,6 +128,7 @@ encoder parity gates. The oracle trace harness is behind the
 go run ./cmd/govpx-bench
 go run ./cmd/govpx-bench -decode -frames=120
 go run ./cmd/govpx-bench -format=json
+go run ./cmd/govpx-bench -plot benchmarks/govpx-vs-libvpx.svg -width=1280 -height=720 -frames=120 -fps=30 -bitrate=2500 -mode=realtime -threads=1
 ```
 
 Benchmark runs compare encode results against libvpx by default when
@@ -136,6 +137,11 @@ Benchmark runs compare encode results against libvpx by default when
 `-auto-libvpx=false` for a govpx-only run. Decoder reference timing only uses
 `govpx-vpx-oracle` in `-decode` mode. Use `-build-libvpx=true` only when you
 want the bench command to build the pinned tools.
+
+`-plot` uses only ffmpeg: it encodes the libvpx reference with `ffmpeg -c:v
+libvpx`, scores govpx and libvpx with ffmpeg's `libvmaf`, `psnr`, and `ssim`
+filters, and writes SVG plus sibling CSV/JSON files. The selected ffmpeg binary
+must expose both the `libvpx` encoder and `libvmaf` filter.
 
 Do not treat README numbers as performance data. Run the benchmark on the target
 machine, Go version, CPU, frame size, bitrate, deadline, and thread count that
