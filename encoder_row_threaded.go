@@ -85,9 +85,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 		pool.workerErrors[workerIndex] = nil
 	}
 
-	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
-		pool.start[workerIndex] <- struct{}{}
-	}
+	pool.startHelperWorkers()
 	pool.runThreadedInterFrameWorker(0)
 
 	var firstErr error
@@ -95,8 +93,8 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 		firstErr = err
 		pool.abort.Store(1)
 	}
-	for range workerCount - 1 {
-		workerIndex := <-pool.done
+	pool.waitHelperWorkers()
+	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
 		if err := pool.workerErrors[workerIndex]; err != nil && firstErr == nil {
 			firstErr = err
 			pool.abort.Store(1)
@@ -154,9 +152,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 		pool.workerErrors[workerIndex] = nil
 	}
 
-	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
-		pool.start[workerIndex] <- struct{}{}
-	}
+	pool.startHelperWorkers()
 	pool.runThreadedKeyFrameWorker(0)
 
 	var firstErr error
@@ -164,8 +160,8 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 		firstErr = err
 		pool.abort.Store(1)
 	}
-	for range workerCount - 1 {
-		workerIndex := <-pool.done
+	pool.waitHelperWorkers()
+	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
 		if err := pool.workerErrors[workerIndex]; err != nil && firstErr == nil {
 			firstErr = err
 			pool.abort.Store(1)
@@ -240,9 +236,7 @@ func (e *VP8Encoder) applyChromaOnlyLoopFilterThreaded(rows int, cols int, requi
 		pool.workerErrors[workerIndex] = nil
 	}
 
-	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
-		pool.start[workerIndex] <- struct{}{}
-	}
+	pool.startHelperWorkers()
 	pool.runThreadedLFChromaWorker(0)
 
 	var firstErr error
@@ -250,8 +244,8 @@ func (e *VP8Encoder) applyChromaOnlyLoopFilterThreaded(rows int, cols int, requi
 		firstErr = err
 		pool.abort.Store(1)
 	}
-	for range workerCount - 1 {
-		workerIndex := <-pool.done
+	pool.waitHelperWorkers()
+	for workerIndex := 1; workerIndex < workerCount; workerIndex++ {
 		if err := pool.workerErrors[workerIndex]; err != nil && firstErr == nil {
 			firstErr = err
 			pool.abort.Store(1)

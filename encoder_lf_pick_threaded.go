@@ -13,7 +13,7 @@ import (
 // long-lived encoder/source-image storage, so the dispatcher writes
 // fields directly into the pool and the worker reads them without any
 // closure capture. The result is written back into errOut for the
-// dispatcher to consume after the worker signals done.
+// dispatcher to consume after the helper lane marks the dispatch done.
 //
 // Critical zero-alloc invariant: this struct is embedded by value in
 // rowWorkerPool. Because the pool itself is only allocated when
@@ -85,11 +85,10 @@ func (e *VP8Encoder) canParallelLFTrials() bool {
 //
 // The dispatch follows the same pattern as
 // buildReconstructingInterFrameCoefficientsThreaded: write all inputs
-// to the pool's pre-allocated slot, signal the worker via the start
-// channel, run the local trial, then drain the done channel. The pool
-// is otherwise idle at this point in the frame (the row-parallel
-// reconstruction has already finished), so worker slot 1 is
-// guaranteed free.
+// to the pool's pre-allocated slot, wake one helper lane, run the
+// local trial, then wait for that helper. The pool is otherwise idle
+// at this point in the frame (the row-parallel reconstruction has
+// already finished), so worker slot 1 is guaranteed free.
 func (ctx *loopFilterPickContext) dispatchLFTrialPair(lowLevel int, highLevel int) (int, int) {
 	e := ctx.encoder
 	pool := e.rowWorkers
@@ -116,13 +115,13 @@ func (ctx *loopFilterPickContext) dispatchLFTrialPair(lowLevel int, highLevel in
 	e.loopInfoAlt = e.loopInfo
 	pool.job = rowWorkerJobLFTrial
 	pool.encoder = e
-	pool.workerCount = 1
+	pool.workerCount = 2
 	pool.required = 0
 	pool.abort.Store(0)
 	// Worker 1 is guaranteed free at the LF-picker stage: the
 	// reconstruction phase that consumes the pool finished before
 	// pickLoopFilterLevel was called.
-	pool.start[1] <- struct{}{}
+	pool.startHelperWorkers()
 
 	// Run filt_high inline on the main scratch + loopInfo so the
 	// resident-level bookkeeping in pickFull matches the serial state
@@ -142,8 +141,7 @@ func (ctx *loopFilterPickContext) dispatchLFTrialPair(lowLevel int, highLevel in
 	)
 	highErr := loopFilterLumaSSE(ctx.src, &e.loopFilterPick.Img, ctx.rows, ctx.cols, false)
 
-	// Drain the worker.
-	<-pool.done
+	pool.waitHelperWorkers()
 	lowErr := pool.lfTrial.errOut
 	pool.encoder = nil
 	pool.job = rowWorkerJobInterFrame

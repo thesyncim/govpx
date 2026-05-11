@@ -111,6 +111,14 @@ func (p *paddedAtomicInt64) Load() int64 {
 	return p.value.Load()
 }
 
+const (
+	// Helpers usually receive the next frame immediately after finishing
+	// their row slice. Spin briefly before parking so steady realtime
+	// encodes avoid runtime sudog churn on the worker start channels.
+	rowWorkerIdleSpinBudget       = 65536
+	rowWorkerIdleSchedulerBackoff = 4096
+)
+
 func encoderThreadSyncRange(mbCols int) int {
 	switch {
 	case mbCols <= 0:
@@ -156,24 +164,18 @@ type rowWorkerPool struct {
 	// syncRange mirrors libvpx's cpi->mt_sync_range.
 	syncRange int
 
-	// start has one lane per worker. The channels are allocated once
-	// with the pool; each frame publishes immutable frame arguments on
-	// the pool and then releases the active workers through these lanes.
-	start []chan struct{}
-
-	// done returns the worker index after that worker has finished its
-	// frame slice. Buffered to worker count so fast workers never block
-	// on the dispatcher while slower rows are still running.
-	done chan int
-
 	// dotArtifactBudget is the frame-global suppression cap shared across
 	// worker-private encoder views. It keeps the libvpx ZEROMV-LAST bias
 	// budget global instead of letting each worker spend its own copy.
 	dotArtifactBudget atomic.Int32
 
+	// start has one lane per helper worker. The main goroutine owns lane 0,
+	// so only lanes [1, len(workers)) have persistent goroutines.
+	start []chan struct{}
+
 	// Frame-local dispatch state read by persistent worker goroutines.
 	// The dispatcher writes these fields before sending on start and
-	// rewrites them only after receiving done from every active worker.
+	// rewrites them only after every active helper increments doneCount.
 	encoder      *VP8Encoder
 	job          rowWorkerJob
 	keyArgs      threadedKeyRowsArgs
@@ -183,6 +185,7 @@ type rowWorkerPool struct {
 	workerCount  int
 	required     int
 	abort        atomic.Int32
+	doneCount    atomic.Int32
 	workerErrors []error
 
 	// shutdown closes when the encoder is finalized.
@@ -206,11 +209,10 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		rowProgress:  make([]paddedAtomicInt64, mbRows),
 		syncRange:    encoderThreadSyncRange(mbCols),
 		start:        make([]chan struct{}, threads),
-		done:         make(chan int, threads),
 		workerErrors: make([]error, threads),
 		shutdown:     make(chan struct{}),
 	}
-	for i := range pool.workers {
+	for i := 1; i < len(pool.workers); i++ {
 		start := make(chan struct{})
 		pool.start[i] = start
 		pool.wg.Add(1)
@@ -222,21 +224,62 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	defer p.wg.Done()
 	for {
-		select {
-		case <-start:
-			switch p.job {
-			case rowWorkerJobKeyFrame:
-				p.runThreadedKeyFrameWorker(workerIndex)
-			case rowWorkerJobLFTrial:
-				p.runLFTrialWorker(workerIndex)
-			case rowWorkerJobLFChroma:
-				p.runThreadedLFChromaWorker(workerIndex)
-			default:
-				p.runThreadedInterFrameWorker(workerIndex)
-			}
-			p.done <- workerIndex
-		case <-p.shutdown:
+		if !p.waitForWorkerStart(start) {
 			return
+		}
+		workerCount := p.workerCount
+		if workerIndex >= workerCount {
+			continue
+		}
+		switch p.job {
+		case rowWorkerJobKeyFrame:
+			p.runThreadedKeyFrameWorker(workerIndex)
+		case rowWorkerJobLFTrial:
+			p.runLFTrialWorker(workerIndex)
+		case rowWorkerJobLFChroma:
+			p.runThreadedLFChromaWorker(workerIndex)
+		default:
+			p.runThreadedInterFrameWorker(workerIndex)
+		}
+		p.doneCount.Add(1)
+	}
+}
+
+func (p *rowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
+	for spins := 0; spins < rowWorkerIdleSpinBudget; spins++ {
+		select {
+		case _, ok := <-start:
+			return ok
+		default:
+		}
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
+	}
+	_, ok := <-start
+	return ok
+}
+
+func (p *rowWorkerPool) startHelperWorkers() {
+	if p == nil || p.workerCount <= 1 {
+		return
+	}
+	p.doneCount.Store(0)
+	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
+		p.start[workerIndex] <- struct{}{}
+	}
+}
+
+func (p *rowWorkerPool) waitHelperWorkers() {
+	if p == nil || p.workerCount <= 1 {
+		return
+	}
+	want := int32(p.workerCount - 1)
+	for spins := 0; p.doneCount.Load() < want; spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
 		}
 	}
 }
@@ -403,6 +446,9 @@ func (p *rowWorkerPool) shutdownPool() {
 		// already closed
 	default:
 		close(p.shutdown)
+		for workerIndex := 1; workerIndex < len(p.start); workerIndex++ {
+			close(p.start[workerIndex])
+		}
 	}
 	p.wg.Wait()
 }
