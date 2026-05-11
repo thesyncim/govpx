@@ -288,6 +288,126 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	}
 }
 
+// ReadCoefUpdateProbsInto scans the full VP8 coefficient probability update
+// header in a single call. For every entry of updateProbs it reads one
+// "should update" bool; on a 1, it reads an 8-bit literal and writes the new
+// value into the matching probs slot. updateProbs and probs are flat views of
+// the [BlockTypes][CoefBands][PrevCoefContexts][EntropyNodes] tables.
+//
+// nonDefaultPartitionCtx is set to true when any update lands on a ctx > 0
+// slot, matching the IndependentPartitions = false signal in the parent header.
+// updateCount returns the number of updates applied.
+//
+// The decoder state is kept in registers across the entire scan, avoiding the
+// per-call pointer dereferences that the standalone ReadBool method incurs.
+// updateProbs must be exactly BlockTypes*CoefBands*PrevCoefContexts*EntropyNodes
+// (= 4*8*3*11 = 1056) long; probs, when non-nil, has the same length.
+// nodesPerCtx is EntropyNodes (=11) and ctxsPerBand is PrevCoefContexts (=3).
+func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, nodesPerCtx, ctxsPerBand int) (updateCount int, nonDefaultPartitionCtx bool) {
+	value := d.value
+	count := d.count
+	rng := d.rng
+	pos := d.pos
+	buf := d.buf
+
+	for i, prob := range updateProbs {
+		// Inline ReadBool for the update flag.
+		rng0 := rng
+		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		if count < 0 {
+			// Inline fill().
+			shift := valueSize - 8 - (count + 8)
+			bytesLeft := len(buf) - pos
+			bitsLeft := bytesLeft * 8
+			x := shift + 8 - bitsLeft
+			loopEnd := 0
+			if x >= 0 {
+				count += lotsOfBits
+				loopEnd = x
+			}
+			if x < 0 || bitsLeft != 0 {
+				for shift >= loopEnd {
+					count += 8
+					value |= uint64(buf[pos]) << uint(shift)
+					pos++
+					shift -= 8
+				}
+			}
+		}
+
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		var bit uint8
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			bit = 1
+		}
+		s := tables.BoolNorm[byte(nextRange)]
+		rng = nextRange << s
+		value <<= s
+		count -= int(s)
+
+		if bit == 0 {
+			continue
+		}
+
+		// Read an 8-bit literal using inline ReadBit calls.
+		var lit uint32
+		for k := 7; k >= 0; k-- {
+			rng0 = rng
+			split = (rng0 + 1) >> 1
+			if count < 0 {
+				shift := valueSize - 8 - (count + 8)
+				bytesLeft := len(buf) - pos
+				bitsLeft := bytesLeft * 8
+				x := shift + 8 - bitsLeft
+				loopEnd := 0
+				if x >= 0 {
+					count += lotsOfBits
+					loopEnd = x
+				}
+				if x < 0 || bitsLeft != 0 {
+					for shift >= loopEnd {
+						count += 8
+						value |= uint64(buf[pos]) << uint(shift)
+						pos++
+						shift -= 8
+					}
+				}
+			}
+			bigsplit = uint64(split) << (valueSize - 8)
+			nextRange = split
+			var lbit uint32
+			if value >= bigsplit {
+				nextRange = rng0 - split
+				value -= bigsplit
+				lbit = 1
+			}
+			s = tables.BoolNorm[byte(nextRange)]
+			rng = nextRange << s
+			value <<= s
+			count -= int(s)
+			lit |= lbit << uint(k)
+		}
+
+		if probs != nil {
+			probs[i] = uint8(lit)
+		}
+		updateCount++
+		// node = i % nodesPerCtx; ctx = (i / nodesPerCtx) % ctxsPerBand.
+		if (i/nodesPerCtx)%ctxsPerBand != 0 {
+			nonDefaultPartitionCtx = true
+		}
+	}
+
+	d.value = value
+	d.count = count
+	d.rng = rng
+	d.pos = pos
+	return updateCount, nonDefaultPartitionCtx
+}
+
 func (d *Decoder) Err() error {
 	if d.count > valueSize && d.count < lotsOfBits {
 		return ErrTruncated

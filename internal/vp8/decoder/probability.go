@@ -1,6 +1,8 @@
 package decoder
 
 import (
+	"unsafe"
+
 	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -14,29 +16,33 @@ type CoefficientProbabilityHeader struct {
 	IndependentPartitions bool
 }
 
+const coefProbsFlatLen = tables.BlockTypes * tables.CoefBands * tables.PrevCoefContexts * tables.EntropyNodes
+
+// coefUpdateProbsFlat is a flat view of tables.CoefUpdateProbs used by the
+// hot coefficient probability update header reader. The underlying storage
+// lives in tables.CoefUpdateProbs; this slice is read-only.
+var coefUpdateProbsFlat = unsafe.Slice(
+	(*uint8)(unsafe.Pointer(&tables.CoefUpdateProbs[0][0][0][0])),
+	coefProbsFlatLen,
+)
+
 func parseCoefficientProbabilityHeader(br *boolcoder.Decoder) CoefficientProbabilityHeader {
 	return parseCoefficientProbabilityHeaderInto(br, nil)
 }
 
 func parseCoefficientProbabilityHeaderInto(br *boolcoder.Decoder, probs *tables.CoefficientProbs) CoefficientProbabilityHeader {
-	h := CoefficientProbabilityHeader{IndependentPartitions: true}
-	for block := range tables.BlockTypes {
-		for band := range tables.CoefBands {
-			for ctx := range tables.PrevCoefContexts {
-				for node := range tables.EntropyNodes {
-					if br.ReadBool(tables.CoefUpdateProbs[block][band][ctx][node]) != 0 {
-						value := uint8(br.ReadLiteral(8))
-						if probs != nil {
-							(*probs)[block][band][ctx][node] = value
-						}
-						h.UpdateCount++
-						if ctx > 0 {
-							h.IndependentPartitions = false
-						}
-					}
-				}
-			}
-		}
+	var dst []uint8
+	if probs != nil {
+		dst = unsafe.Slice((*uint8)(unsafe.Pointer(&(*probs)[0][0][0][0])), coefProbsFlatLen)
 	}
-	return h
+	updateCount, nonDefault := br.ReadCoefUpdateProbsInto(
+		coefUpdateProbsFlat,
+		dst,
+		tables.EntropyNodes,
+		tables.PrevCoefContexts,
+	)
+	return CoefficientProbabilityHeader{
+		UpdateCount:           updateCount,
+		IndependentPartitions: !nonDefault,
+	}
 }

@@ -97,6 +97,195 @@ func TestDecoderAllocatesZeroAfterInit(t *testing.T) {
 	}
 }
 
+func TestReadCoefUpdateProbsIntoMatchesScalarLoop(t *testing.T) {
+	// Build a synthetic update header: every-other entry triggers an update.
+	const (
+		blocks = 4
+		bands  = 8
+		ctxs   = 3
+		nodes  = 11
+	)
+	total := blocks * bands * ctxs * nodes
+
+	updateProbs := make([]uint8, total)
+	for i := range updateProbs {
+		// Use a mix of low and high probabilities so the bool stream exercises
+		// both renormalisation paths.
+		updateProbs[i] = uint8(((i * 37) + 17) & 0xff)
+		if updateProbs[i] == 0 {
+			updateProbs[i] = 1
+		}
+	}
+
+	updateBits := make([]uint8, total)
+	literals := make([]uint8, total)
+	for i := range updateBits {
+		updateBits[i] = uint8(i % 5)
+		if updateBits[i] > 1 {
+			updateBits[i] = 0
+		}
+		literals[i] = uint8((i * 13) & 0xff)
+	}
+
+	var w testWriter
+	w.init()
+	wantUpdates := 0
+	wantNonDefault := false
+	for i := 0; i < total; i++ {
+		w.writeBool(updateBits[i], updateProbs[i])
+		if updateBits[i] != 0 {
+			for k := 7; k >= 0; k-- {
+				w.writeBool(uint8((literals[i]>>uint(k))&1), 128)
+			}
+			wantUpdates++
+			if (i/nodes)%ctxs != 0 {
+				wantNonDefault = true
+			}
+		}
+	}
+	payload := w.finish()
+
+	// Compute the want probs by running the scalar ReadBool/ReadLiteral path.
+	scalarProbs := make([]uint8, total)
+	for i := range scalarProbs {
+		scalarProbs[i] = 200 // sentinel
+	}
+	wantProbs := append([]uint8(nil), scalarProbs...)
+	{
+		var d Decoder
+		_ = d.Init(payload)
+		for i := 0; i < total; i++ {
+			if d.ReadBool(updateProbs[i]) != 0 {
+				wantProbs[i] = uint8(d.ReadLiteral(8))
+			}
+		}
+		if err := d.Err(); err != nil {
+			t.Fatalf("scalar Err = %v", err)
+		}
+	}
+
+	// Now run the batched path.
+	gotProbs := append([]uint8(nil), scalarProbs...)
+	var d Decoder
+	_ = d.Init(payload)
+	gotUpdates, gotNonDefault := d.ReadCoefUpdateProbsInto(updateProbs, gotProbs, nodes, ctxs)
+	if err := d.Err(); err != nil {
+		t.Fatalf("batched Err = %v", err)
+	}
+	if gotUpdates != wantUpdates {
+		t.Fatalf("updateCount = %d, want %d", gotUpdates, wantUpdates)
+	}
+	if gotNonDefault != wantNonDefault {
+		t.Fatalf("nonDefault = %v, want %v", gotNonDefault, wantNonDefault)
+	}
+	for i := range wantProbs {
+		if gotProbs[i] != wantProbs[i] {
+			t.Fatalf("probs[%d] = %d, want %d", i, gotProbs[i], wantProbs[i])
+		}
+	}
+}
+
+func TestReadCoefUpdateProbsIntoNilProbs(t *testing.T) {
+	updateProbs := make([]uint8, 32)
+	for i := range updateProbs {
+		updateProbs[i] = 200
+	}
+	var w testWriter
+	w.init()
+	want := 0
+	for i := range updateProbs {
+		bit := uint8(i & 1)
+		w.writeBool(bit, updateProbs[i])
+		if bit != 0 {
+			for k := 7; k >= 0; k-- {
+				w.writeBool(uint8((123>>uint(k))&1), 128)
+			}
+			want++
+		}
+	}
+	payload := w.finish()
+
+	var d Decoder
+	_ = d.Init(payload)
+	got, _ := d.ReadCoefUpdateProbsInto(updateProbs, nil, 1, 1)
+	if got != want {
+		t.Fatalf("updateCount = %d, want %d", got, want)
+	}
+}
+
+type testWriter struct {
+	low   uint32
+	rng   uint32
+	count int
+	buf   []byte
+}
+
+func (w *testWriter) init() {
+	w.low = 0
+	w.rng = 255
+	w.count = -24
+	w.buf = w.buf[:0]
+}
+
+func (w *testWriter) finish() []byte {
+	for range 32 {
+		w.writeBool(0, 128)
+	}
+	return w.buf
+}
+
+func (w *testWriter) writeBool(bit uint8, prob uint8) {
+	split := uint32(1 + (((w.rng - 1) * uint32(prob)) >> 8))
+	rng := split
+	low := w.low
+	if bit != 0 {
+		low += split
+		rng = w.rng - split
+	}
+	var norm = [256]uint8{
+		0, 7, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+		2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+		2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	}
+	shift := int(norm[byte(rng)])
+	rng <<= uint(shift)
+	count := w.count + shift
+
+	if count >= 0 {
+		offset := shift - count
+		if ((low << uint(offset-1)) & 0x80000000) != 0 {
+			for i := len(w.buf) - 1; i >= 0; i-- {
+				if w.buf[i] != 0xff {
+					w.buf[i]++
+					break
+				}
+				w.buf[i] = 0
+			}
+		}
+		w.buf = append(w.buf, byte((low>>uint(24-offset))&0xff))
+		shift = count
+		low = uint32((uint64(low) << uint(offset)) & 0xffffff)
+		count -= 8
+	}
+	low <<= uint(shift)
+	w.low = low
+	w.rng = rng
+	w.count = count
+}
+
 func BenchmarkReadBool(b *testing.B) {
 	src := []byte{0x6a, 0xc3, 0x71, 0x9d, 0x55, 0x00, 0xff, 0x13, 0x88}
 	var d Decoder
