@@ -219,20 +219,14 @@ func (rc *rateControlState) estimateKeyFrameFrequency() int {
 
 func libvpxLimitCBRInterQuantizerDrop(lastInterQuantizer int, currentQuantizer int) int {
 	const limitDown = 12
-	if lastInterQuantizer-currentQuantizer > limitDown {
-		return lastInterQuantizer - limitDown
-	}
-	return currentQuantizer
+	return max(currentQuantizer, lastInterQuantizer-limitDown)
 }
 
 func (rc *rateControlState) clampScreenContentBufferDebt(screenContentMode int) {
 	if screenContentMode <= 0 || rc.maximumBufferBits <= 0 {
 		return
 	}
-	minimumBuffer := -rc.maximumBufferBits
-	if rc.bufferLevelBits < minimumBuffer {
-		rc.bufferLevelBits = minimumBuffer
-	}
+	rc.bufferLevelBits = max(rc.bufferLevelBits, -rc.maximumBufferBits)
 }
 
 func (rc *rateControlState) updateQuantizerAverages(q int, keyFrame bool, goldenFrame bool) {
