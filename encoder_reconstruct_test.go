@@ -1851,7 +1851,7 @@ func TestIterativeInterFrameSubpixelMotionVectorUsesBilinearVariance(t *testing.
 		mvProbs: &mvProbs,
 		mvCosts: &mvCosts,
 	}
-	mv, cost, ok := search.iterative()
+	mv, cost, _, _, ok := search.iterative()
 
 	if !ok {
 		t.Fatalf("interFrameSubpixelSearch.iterative returned ok=false")
