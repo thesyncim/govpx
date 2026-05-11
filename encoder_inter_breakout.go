@@ -140,29 +140,3 @@ func referencePlaneBlockOffset(plane []byte, stride int, origin int, y int, x in
 	}
 	return off, true
 }
-
-func macroblockChromaBufferSSE(src vp8enc.SourceImage, mbRow int, mbCol int, predU []byte, predUStride int, predV []byte, predVStride int) int {
-	baseY := mbRow * 8
-	baseX := mbCol * 8
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+8 <= uvHeight && baseX+8 <= uvWidth &&
-		len(predU) >= 7*predUStride+8 && len(predV) >= 7*predVStride+8 {
-		srcOffset := baseY*src.UStride + baseX
-		return dsp.SSE8x8(src.U[srcOffset:], src.UStride, predU, predUStride) +
-			dsp.SSE8x8(src.V[baseY*src.VStride+baseX:], src.VStride, predV, predVStride)
-	}
-
-	sse := 0
-	for row := range 8 {
-		srcY := clampEncodeCoord(baseY+row, uvHeight)
-		for col := range 8 {
-			srcX := clampEncodeCoord(baseX+col, uvWidth)
-			uDiff := int(src.U[srcY*src.UStride+srcX]) - int(predU[row*predUStride+col])
-			vDiff := int(src.V[srcY*src.VStride+srcX]) - int(predV[row*predVStride+col])
-			sse += uDiff*uDiff + vDiff*vDiff
-		}
-	}
-	return sse
-}

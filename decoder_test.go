@@ -1341,7 +1341,6 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
-	previous := d.lastRef.Img.Y[0]
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
@@ -1355,7 +1354,7 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("priming inter NextFrame returned no frame")
 	}
-	previous = d.lastRef.Img.Y[0]
+	previous := d.lastRef.Img.Y[0]
 
 	err = d.DecodeWithPTS([]byte{0x11, 0}, 102)
 	if err != nil {
@@ -1474,7 +1473,6 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
-	previous := d.lastRef.Img.Y[0]
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
@@ -1485,7 +1483,7 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("priming inter NextFrame returned no frame")
 	}
-	previous = d.lastRef.Img.Y[0]
+	previous := d.lastRef.Img.Y[0]
 	dst := newTestImage(16, 16)
 	fillImage(dst, 7, 8, 9)
 

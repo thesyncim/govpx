@@ -545,15 +545,6 @@ func (d *interSplitMVRDDecision) LumaEOB(block int) int {
 	return d.Coeffs.BlockEOB(block, 0)
 }
 
-// UVEOB returns the per-4x4-block chroma EOB stored after the chosen SPLITMV
-// partition's transform/quantize pass. U blocks are 0..3, V blocks are 4..7.
-func (d *interSplitMVRDDecision) UVEOB(block int) int {
-	if d == nil || block < 0 || block > 7 {
-		return 0
-	}
-	return d.Coeffs.BlockEOB(16+block, 0)
-}
-
 // selectInterFrameSplitMotionDecisionRD ports rdopt.c's SPLITMV branch in
 // vp8_rd_pick_inter_mode: after vp8_rd_pick_best_mbsegmentation commits the
 // per-subblock luma MVs, we run macro_block_yrd over the 4x4 luma residual

@@ -17,23 +17,6 @@ func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Imag
 	return splitBlockSAD(src, ref, mbRow, mbCol, block, width, height, mv) + interMotionSplitBlockSearchVectorCost(mv, bestRefMV, qIndex)
 }
 
-func interMotionSearchCostLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, bestRefMV vp8enc.MotionVector, qIndex int) int {
-	return interMotionSearchCostLimitedSADPerBit(src, ref, mbRow, mbCol, mv, limit, bestRefMV, libvpxSADPerBit16(qIndex))
-}
-
-// interMotionSearchCostLimitedSADPerBit takes sadPerBit pre-bound so a
-// hot caller can hoist the LUT lookup out of its inner loop. Behaviour
-// matches interMotionSearchCostLimited; macroblockSADLimited's own hot
-// path covers the full-pel-in-bounds case.
-func interMotionSearchCostLimitedSADPerBit(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int, bestRefMV vp8enc.MotionVector, sadPerBit int) int {
-	mvCost := vp8enc.MotionVectorSADCost(mv, bestRefMV, sadPerBit)
-	sadLimit := limit - mvCost
-	if sadLimit < 0 {
-		return limit + 1
-	}
-	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, sadLimit) + mvCost
-}
-
 // fullPelSearchCtx hoists the per-MB invariants for the diamond / n-step /
 // refine / hex / exhaustive full-pel search kernels out of the per-site inner
 // loop. Like libvpx's mcomp.c, candidate SAD reads from the bordered reference

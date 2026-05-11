@@ -389,8 +389,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		if thisFramePercentIntra, recodeKeyFrame := e.shouldRecodeInterAttemptAsKeyFrame(required, attempt.Config.RefreshGolden, temporalFrame.Enabled, invisible); recodeKeyFrame {
 			keyFrame = true
 			sceneCutKeyFrame = true
-			goldenCBRRefresh = false
-			boostedReferenceFrame = false
 			e.rc.thisFramePercentIntra = thisFramePercentIntra
 			// libvpx clears source_alt_ref_active before restarting the
 			// encode as a key frame; the normal key-frame commit below will

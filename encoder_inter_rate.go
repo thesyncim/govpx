@@ -294,13 +294,6 @@ func analysisSplitAboveMV(cur *vp8enc.InterFrameMacroblockMode, above *vp8enc.In
 	return cur.BlockMV[block-4]
 }
 
-func interMotionVectorCost(mv vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8) int {
-	if mvProbs == nil {
-		return maxInt() / 4
-	}
-	return vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, mvProbs, libvpxFastNewMVBitCostWeight)
-}
-
 func interNewMVVectorCost(mv vp8enc.MotionVector, best vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, weight int) int {
 	if mvProbs == nil {
 		return maxInt() / 4

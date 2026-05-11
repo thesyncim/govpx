@@ -348,10 +348,6 @@ func (rc *rateControlState) shouldDropInterFrame() bool {
 }
 
 func (rc *rateControlState) postDropFrame() {
-	targetBits := rc.frameTargetBits
-	if targetBits <= 0 {
-		targetBits = rc.bitsPerFrame
-	}
 	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
 	rc.clampBuffer()
 	if rc.frameDropPressure > 0 {

@@ -2160,7 +2160,7 @@ func TestPredictBestKeyFrameIntraModeChoosesBPred(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BHEPred, blockPred[:], 4, y, pred.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], 4, y, pred.Img.YStride, block)
+		copyBPredBlock(blockPred[:], y, pred.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {
@@ -2203,7 +2203,7 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 		if !predictAnalysisBPredBlock(vp8common.BLDPred, blockPred[:], 4, y, e.analysis.Img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block) {
 			t.Fatalf("predictAnalysisBPredBlock returned false")
 		}
-		copyBPredBlock(blockPred[:], 4, y, e.analysis.Img.YStride, block)
+		copyBPredBlock(blockPred[:], y, e.analysis.Img.YStride, block)
 		copyBPredBlockToSource(blockPred[:], 4, src, 1, 1, block)
 	}
 	for row := 16; row < 32; row++ {
@@ -3881,7 +3881,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	boostedRC := int(vp8tables.DefaultZigZag1D[7])
 	coeff[boostedRC] = 75
 
-	eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
+	eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 0 || qcoeff[boostedRC] != 0 || dqcoeff[boostedRC] != 0 {
 		t.Fatalf("boosted coefficient eob/q/dq = %d/%d/%d, want suppressed", eob, qcoeff[boostedRC], dqcoeff[boostedRC])
@@ -3892,7 +3892,7 @@ func TestQuantizeBlockWithZbinUsesZeroRunBoost(t *testing.T) {
 	dqcoeff = [16]int16{}
 	earlyRC := int(vp8tables.DefaultZigZag1D[1])
 	coeff[earlyRC] = 80
-	eob = quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff)
+	eob = quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff)
 
 	if eob != 2 || qcoeff[earlyRC] == 0 || dqcoeff[earlyRC] == 0 {
 		t.Fatalf("early coefficient eob/q/dq = %d/%d/%d, want quantized", eob, qcoeff[earlyRC], dqcoeff[earlyRC])
@@ -3907,12 +3907,12 @@ func TestQuantizeBlockWithZbinUsesModeBoost(t *testing.T) {
 	rc := int(vp8tables.DefaultZigZag1D[1])
 	coeff[rc] = 66
 
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
 		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, lastFrameZeroMVZbinBoost, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 {
 		t.Fatalf("boosted eob/q = %d/%d, want coefficient suppressed", eob, qcoeff[rc])
 	}
 }
@@ -3927,12 +3927,12 @@ func TestQuantizeBlockWithZbinUsesOverQuant(t *testing.T) {
 	extra := (int(quant.Dequant[1]) * zbinOverQuant) >> 7
 	coeff[rc] = int16(int(quant.Zbin[rc]) + int(quant.ZbinBoost[0]) + extra/2)
 
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, 0, 0, &qcoeff, &dqcoeff); eob != 2 || qcoeff[rc] == 0 {
 		t.Fatalf("unboosted eob/q = %d/%d, want coefficient quantized", eob, qcoeff[rc])
 	}
 	qcoeff = [16]int16{}
 	dqcoeff = [16]int16{}
-	if eob := quantizeBlockWithZbin(&coeff, &quant, 80, zbinOverQuant, 0, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
+	if eob := quantizeBlockWithZbin(&coeff, &quant, zbinOverQuant, 0, &qcoeff, &dqcoeff); eob != 0 || qcoeff[rc] != 0 || dqcoeff[rc] != 0 {
 		t.Fatalf("over-quant eob/q/dq = %d/%d/%d, want coefficient suppressed", eob, qcoeff[rc], dqcoeff[rc])
 	}
 }

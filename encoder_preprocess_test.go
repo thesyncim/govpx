@@ -75,27 +75,6 @@ func solidPlane(width int, height int, val byte) []byte {
 	return p
 }
 
-// movingSquarePlane draws a 32x32 white square on a black background at
-// pixel offset (offX, offY).
-func movingSquarePlane(width int, height int, offX int, offY int) []byte {
-	p := make([]byte, width*height)
-	for y := range 32 {
-		ty := y + offY
-		if ty < 0 || ty >= height {
-			continue
-		}
-		row := ty * width
-		for x := range 32 {
-			tx := x + offX
-			if tx < 0 || tx >= width {
-				continue
-			}
-			p[row+tx] = 220
-		}
-	}
-	return p
-}
-
 func TestARNRZeroStrengthIsIdentityOnIdenticalFrames(t *testing.T) {
 	const w, h = 64, 64
 	plane := solidPlane(w, h, 64)

@@ -6,10 +6,6 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func selectInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
-	return selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(src, ref, mbRow, mbCol, block, width, height, bestRefMV, bestRefMV, qIndex)
-}
-
 func selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, searchCenter vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) (vp8enc.MotionVector, int) {
 	return selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(src, ref, mbRow, mbCol, block, width, height, searchCenter, bestRefMV, qIndex, 0, true)
 }
@@ -110,7 +106,7 @@ func splitMotionFullSearchFallbackNeeded(src vp8enc.SourceImage, ref *vp8common.
 }
 
 func interMotionSplitBlockFullPixelVarianceCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int) (int, bool) {
-	variance, _, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, int(mv.Row)/2, int(mv.Col)/2)
+	variance, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, int(mv.Row)/2, int(mv.Col)/2)
 	if !ok {
 		return maxInt(), false
 	}
@@ -230,7 +226,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 	tr := br
 	tc := bc
 	bestMV := vp8enc.MotionVector{Row: int16(br * 2), Col: int16(bc * 2)}
-	bestDist, _, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, br, bc)
+	bestDist, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, br, bc)
 	if !ok {
 		return vp8enc.MotionVector{}, 0, false
 	}
@@ -310,7 +306,7 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 }
 
 func splitBlockSubpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) (int, bool) {
-	dist, _, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, row, col)
+	dist, ok := splitBlockSubpixelVarianceForQuarterMV(src, ref, mbRow, mbCol, block, width, height, row, col)
 	if !ok {
 		return maxInt(), false
 	}
@@ -321,15 +317,16 @@ func splitBlockSubpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp
 	return dist + interMotionSubpelCandidateVectorCost(mv, bestRefMV, qIndex, mvProbs), true
 }
 
-func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int) (int, int, bool) {
+func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int) (int, bool) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
 	if baseY < 0 || baseX < 0 || baseY+height > src.Height || baseX+width > src.Width {
-		return 0, 0, false
+		return 0, false
 	}
 	refBaseY := baseY + (row >> 2)
 	refBaseX := baseX + (col >> 2)
 	xOffset := (col & 3) << 1
 	yOffset := (row & 3) << 1
-	return splitBlockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset)
+	variance, _, ok := splitBlockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset)
+	return variance, ok
 }

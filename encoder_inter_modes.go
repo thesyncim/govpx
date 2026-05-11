@@ -326,7 +326,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		var candidateStaleY2 staleY2Snapshot
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
-			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
+			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
@@ -341,7 +341,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					mbSkipCoeff = true
 					rdLoopSkip = true
 				} else {
-					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV)
+					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV)
 					ok = acctOK
 					score = acct.rd
 					yrd = acct.yrd
@@ -433,7 +433,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	src vp8enc.SourceImage, ref interAnalysisReference,
-	mbRow int, mbCol int, mbRows int, mbCols int,
+	mbRow int, mbCol int, mbCols int,
 	bestRefMV vp8enc.MotionVector, modeCounts vp8enc.InterModeCounts, qIndex int, segmentID uint8, mvthresh int, bestYRD int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
@@ -452,21 +452,21 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var splitSeeds splitMotionSearchSeeds
 
-	tryPartition := func(partition int) bool {
+	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
 		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuantForPick(), false)
 		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, modeCounts)
 		overheadRD := rdModeScoreWithZbin(qIndex, e.rc.currentZbinOverQuant, overheadRate, 0)
 		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, e.pickerCoefProbs(), bestSegmentYRD, overheadRD)
 		if !shape.OK {
-			return false
+			return
 		}
 		// libvpx: when this_segment_rd >= bsi->segment_rd at any label,
 		// rd_check_segment returns without updating bsi (no bsi.r/bsi.d
 		// commit). govpx mirrors that — the abandoned shape is not
 		// considered for best mode and does not refresh bestSegmentYRD.
 		if shape.Cutoff {
-			return false
+			return
 		}
 		mode := shape.Mode
 		mode.SegmentID = segmentID
@@ -483,7 +483,6 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 			bestSet = true
 			bestMode = mode
 		}
-		return false
 	}
 
 	if e.interAnalysisCompressorSpeed() != 0 {
@@ -503,7 +502,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 	if !bestSet {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
 	}
-	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &bestMode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeCounts, bestRefMV)
+	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, &bestMode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeCounts, bestRefMV)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
 	}
@@ -909,9 +908,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			}
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
-			bestScore = maxInt()
 			bestDistortion = 0
-			bestSSE = 0
 			bestModeIndex = modeIndex
 			best = interFrameModeDecision{
 				ref:             ref,
@@ -1176,16 +1173,16 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 		var dct [16]int16
 		var qcoeff [16]int16
 		var dqcoeff [16]int16
-		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], 4, &input)
+		fillBPredResidual4x4(src, mbRow, mbCol, block, bestPred[:], &input)
 		vp8enc.ForwardDCT4x4(input[:], 4, &dct)
-		eob := quantizeDecisionBlock(fastQuant, &dct, quantY1, qIndex, zbinOverQuant, 0, &qcoeff, &dqcoeff)
+		eob := quantizeDecisionBlock(fastQuant, &dct, quantY1, zbinOverQuant, &qcoeff, &dqcoeff)
 		var recon [16]byte
 		if eob > 1 {
 			dsp.IDCT4x4Add(&dqcoeff, bestPred[:], 4, recon[:], 4)
 		} else {
 			dsp.DCOnlyIDCT4x4Add(dqcoeff[0], bestPred[:], 4, recon[:], 4)
 		}
-		copyBPredBlock(recon[:], 4, y, yStride, block)
+		copyBPredBlock(recon[:], y, yStride, block)
 
 		rate += bestRate
 		distortion += bestDist

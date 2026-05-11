@@ -31,7 +31,7 @@ func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
 	}
 }
 
-func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0
 	}
@@ -88,7 +88,7 @@ func quantizeOptimizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 }
 
 func quantizeOptimizedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qIndex int, blockType int, ctx int, skipDC int, zbinOverQuant int, zbinModeBoost int, rdZbinOverQuant int, intra bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	eob := quantizeBlockWithZbin(coeff, quant, qIndex, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
+	eob := quantizeBlockWithZbin(coeff, quant, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
 	eob = optimizeQuantizedBlock(coefProbs, qIndex, blockType, ctx, skipDC, rdZbinOverQuant, intra, coeff, quant, qcoeff, eob)
 	dequantizeQuantizedBlock(quant, qcoeff, dqcoeff)
 	return eob
@@ -112,14 +112,14 @@ func quantizeEncodedBlockWithRDZbin(coefProbs *vp8tables.CoefficientProbs, qInde
 		}
 		return eob
 	}
-	return quantizeBlockWithZbin(coeff, quant, qIndex, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
+	return quantizeBlockWithZbin(coeff, quant, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
 }
 
-func quantizeDecisionBlock(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+func quantizeDecisionBlock(fastQuant bool, coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQuant int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if fastQuant {
 		return vp8enc.FastQuantizeBlock(coeff, quant, qcoeff, dqcoeff)
 	}
-	return quantizeBlockWithZbin(coeff, quant, qIndex, zbinOverQuant, zbinModeBoost, qcoeff, dqcoeff)
+	return quantizeBlockWithZbin(coeff, quant, zbinOverQuant, 0, qcoeff, dqcoeff)
 }
 
 func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) {
