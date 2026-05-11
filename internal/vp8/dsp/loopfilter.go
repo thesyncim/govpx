@@ -247,15 +247,16 @@ func loopFilterAllowed(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 by
 		int(absByteDiff(p0, q0))*2+int(absByteDiff(p1, q1))/2 <= int(blimit)
 }
 
+// hevMask returns -1 when either p1-p0 or q1-q0 exceeds the high-edge
+// threshold, 0 otherwise. Branchless: subtract once each, splat the sign
+// bit from `thresh - diff` and OR the two masks so the inner loopfilter
+// kernel can stay branch-free.
 func hevMask(thresh byte, p1 byte, p0 byte, q0 byte, q1 byte) int8 {
-	hev := int8(0)
-	if absByteDiff(p1, p0) > thresh {
-		hev = -1
-	}
-	if absByteDiff(q1, q0) > thresh {
-		hev = -1
-	}
-	return hev
+	d1 := int(absByteDiff(p1, p0)) - int(thresh) - 1
+	d2 := int(absByteDiff(q1, q0)) - int(thresh) - 1
+	// d1<0 (diff <= thresh) → mask 0; d1>=0 → mask -1.
+	mask := ^(d1 >> signShift) | ^(d2 >> signShift)
+	return int8(mask)
 }
 
 func loopFilter(mask int8, hev int8, op1 *byte, op0 *byte, oq0 *byte, oq1 *byte) {
