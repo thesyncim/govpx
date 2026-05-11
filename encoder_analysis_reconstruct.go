@@ -151,6 +151,7 @@ func transformBlockError(coeff *[16]int16, dqcoeff *[16]int16) int {
 }
 
 func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, img *vp8common.Image, mode *vp8dec.MacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, fastQuant bool, optimize bool, collectOracle bool, coeffs *vp8enc.MacroblockCoefficients, scratch *vp8dec.IntraReconstructionScratch) bool {
+	collectOracle = oracleTraceBuild && collectOracle
 	if img == nil || mode == nil || quant == nil || coeffs == nil || scratch == nil || !mode.Is4x4 || mode.Mode != vp8common.BPred {
 		return false
 	}
@@ -229,9 +230,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		intra := mode.RefFrame == vp8common.IntraFrame
 		vp8enc.ForwardWalsh4x4(staleY2Input[:], 4, &staleY2Coeff)
 		staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, 0, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
-		coeffs.OracleStaleY2EOB = uint8(staleEOB)
-		coeffs.OracleStaleY2QCoeff = staleY2Q
-		coeffs.OracleStaleY2Set = true
+		recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 	}
 
 	if !vp8dec.PredictIntraUV8x8(mode.UVMode, u, img.UStride, refs.UAbove, refs.ULeft, refs.UTopLeft, refs.UpAvailable, refs.LeftAvailable) {

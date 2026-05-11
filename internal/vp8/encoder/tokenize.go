@@ -15,49 +15,6 @@ type TokenContextPlanes struct {
 	Y2 uint8
 }
 
-type MacroblockCoefficients struct {
-	QCoeff [25][16]int16
-
-	// EOB is the authoritative per-block end-of-block count, matching
-	// libvpx's xd->eobs side channel. Token writers do not rescan QCoeff.
-	EOB [25]uint8
-
-	// OracleY1DCEOB1 tracks, per Y block 0..15, whether libvpx's
-	// vp8_quantize_mb would have produced *d->eob = 1 against the original
-	// (un-zeroed) DC coefficient using the Y1 DC quantizer. govpx zeros
-	// dct[0] before quantize because that DC is hoisted into the Y2
-	// second-order block (this matches libvpx's bitstream tokenize, which
-	// starts at c=1 for Y_NO_DC), so coeffs.EOB[block] never reflects the
-	// libvpx-side DC bump. The libvpx-side oracle captures eobs *after*
-	// vp8_dequant_idct_add_y_block has memset qcoeff[0..1] back to zero,
-	// at which point eob=1 with all-zero qcoeff is the visible state for
-	// any Y block whose original dct[0] satisfied Y1DC's zbin/round/quant.
-	//
-	// This field is populated by buildPredictedMacroblockCoefficientsRD
-	// when it has access to the original dct[0] and the segment's Y1DC
-	// quantizer. It is used by emitOracleMBTrace to bump per-block eob
-	// from 0 to 1 in trace rows so the eob match-rate scoreboard matches
-	// libvpx. It does not influence bitstream emission, reconstruction,
-	// or any other encoding decision.
-	OracleY1DCEOB1 [16]uint8
-
-	// OracleStaleY2EOB and OracleStaleY2QCoeff carry a "would-be" Y2
-	// second-order block snapshot for SPLITMV/B_PRED macroblocks. libvpx's
-	// vp8_quantize_mb skips block 24 when has_2nd_order is false, so
-	// xd->block[24].qcoeff and xd->eobs[24] retain stale data from
-	// whichever earlier RD-pick mode last quantized Y2. The libvpx oracle
-	// trace captures that stale state, which makes the per-MB eob_sum
-	// scoreboard diverge from govpx (which keeps block 24 zero for
-	// SPLITMV/B_PRED). This field lets the trace emitter mirror libvpx's
-	// stale Y2 contribution. The encoder path fills this from the RD picker's
-	// last whole-block candidate that quantized Y2; direct coefficient helpers
-	// may fill a local trace-only fallback. Only consulted by emitOracleMBTrace;
-	// never feeds bitstream emission, reconstruction, or any RD decision.
-	OracleStaleY2EOB    uint8
-	OracleStaleY2QCoeff [16]int16
-	OracleStaleY2Set    bool
-}
-
 func WriteBlockTokens(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16) error {
 	if w == nil || probs == nil || qcoeff == nil || blockType < 0 || blockType >= tables.BlockTypes || ctx < 0 || ctx >= tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
 		return ErrInvalidPacketConfig

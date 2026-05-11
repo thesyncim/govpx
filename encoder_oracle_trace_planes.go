@@ -19,9 +19,9 @@ func (e *VP8Encoder) emitOracleLFTrial(phase string, trialLevel int, trialYSSE i
 
 // emitOracleInterPredictorTrace writes "predictor" rows for the supplied
 // macroblock's Y/U/V predictor planes, encoded as ASCII hex. Emission is
-// gated by EncoderOptions.OracleTracePredictorDump so the regular oracle
-// trace stream stays compact; when enabled the writer receives one row per
-// plane keyed by (frame_index, mb_row, mb_col, plane). Mirrors the
+// gated by SetOracleTracePredictorDump so the regular oracle trace stream
+// stays compact; when enabled the writer receives one row per plane keyed
+// by (frame_index, mb_row, mb_col, plane). Mirrors the
 // libvpx-side `govpx_oracle_emit_predictor` C helper in
 // internal/coracle/build_vpxenc_oracle.sh which captures
 // `xd->dst.{y,u,v}_buffer` between `vp8_encode_inter16x16` and
@@ -112,11 +112,10 @@ func (e *VP8Encoder) emitOracleInterMBPlanesTrace(rowType string, mbRow int, mbC
 		return
 	}
 	if !state.predictorDumpAllRows && mbRow != 0 {
-		// Default scope: row 0 only (8 MBs at 128 px wide). Set
-		// EncoderOptions.OracleTracePredictorDumpAllRows to capture
-		// every row when tracking down a divergence beyond row 0
-		// (e.g., the partial-frame loop-filter trial reads MB row
-		// rows/2). The libvpx-side helper applies the same gate via
+		// Default scope: row 0 only (8 MBs at 128 px wide). Use
+		// SetOracleTracePredictorDump(enabled, allRows=true) to capture
+		// every row when tracking down a divergence beyond row 0. The
+		// libvpx-side helper applies the same gate via
 		// GOVPX_ORACLE_PREDICTOR_DUMP_ALL_ROWS so the captured key
 		// sets line up.
 		return

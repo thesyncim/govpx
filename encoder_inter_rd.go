@@ -128,9 +128,9 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 	rate2 := modeRate + otherCost + stats.rateY + rateUV
 	distortion2 := stats.distortionY + stats.distortionUV
 	mbSkipCoeff := stats.tteob == 0
-	staleY2 := staleY2Snapshot{}
-	if !is4x4 {
-		staleY2 = staleY2Snapshot{set: true, eob: coeffDst.EOB[24], qcoeff: coeffDst.QCoeff[24]}
+	var staleY2 staleY2Snapshot
+	if oracleTraceBuild && !is4x4 {
+		staleY2 = makeOracleStaleY2Snapshot(coeffDst.EOB[24], coeffDst.QCoeff[24])
 	}
 	if mbSkipCoeff {
 		rate2 -= stats.rateY + stats.rateUV

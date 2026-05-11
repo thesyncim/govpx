@@ -11,6 +11,8 @@ const oracleTraceBuild = false
 
 const oracleTraceInterCandidateUnknown = -1
 
+type staleY2Snapshot struct{}
+
 type oracleTraceFrameSummary struct {
 	FrameType            vp8common.FrameType
 	BaseQIndex           int
@@ -78,6 +80,12 @@ func (e *VP8Encoder) flushOracleMBTraceBuffer() {}
 
 func (e *VP8Encoder) emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary) {}
 
+func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(int, int, int, int, int, int, bool, int, int, int, int, *vp8enc.InterFrameMacroblockMode) {
+}
+
+func (e *VP8Encoder) emitFastPickerInterCandidateTrace(int, int, int, int, vp8common.MVReferenceFrame, int, int, int, bool, bool, int, int, int, int, *vp8enc.InterFrameMacroblockMode) {
+}
+
 func (e *VP8Encoder) emitOracleMBTrace(int, int, *vp8enc.InterFrameMacroblockMode, *vp8enc.MacroblockCoefficients, int, int) {
 }
 
@@ -97,3 +105,17 @@ func (e *VP8Encoder) emitOracleFrameTrace(oracleTraceFrameSummary) {}
 func (e *VP8Encoder) emitOracleDroppedFrameTrace(string) {}
 
 func (e *VP8Encoder) emitOracleRateAndRecodeTrace(vp8common.FrameType, int, int, int, int, int) {}
+
+func makeOracleStaleY2Snapshot(uint8, [16]int16) staleY2Snapshot { return staleY2Snapshot{} }
+
+func oracleStaleY2SnapshotSet(staleY2Snapshot) bool { return false }
+
+func applyOracleStaleY2Snapshot(*vp8enc.MacroblockCoefficients, staleY2Snapshot) {}
+
+func recordOracleY1DCEOB1(*vp8enc.MacroblockCoefficients, int, uint8) {}
+
+func recordOracleStaleY2(*vp8enc.MacroblockCoefficients, uint8, [16]int16) {}
+
+func libvpxY1DCWouldQuantizeNonzero(int16, *vp8enc.BlockQuant, int, int, bool) uint8 {
+	return 0
+}

@@ -31,64 +31,6 @@ func interZbinModeBoost(mode *vp8enc.InterFrameMacroblockMode) int {
 	}
 }
 
-// libvpxY1DCWouldQuantizeNonzero returns 1 when libvpx's vp8_quantize_mb path
-// would have produced a non-zero quantized DC for the given Y1DC quantizer
-// on the supplied input coefficient dct0.
-//
-// Why: libvpx's transform_mb does NOT zero block[i].coeff[0] before
-// vp8_quantize_mb, so vp8_fast_quantize_b_c / vp8_regular_quantize_b_c
-// quantize the original Y-block DC against Y1DC's zbin/round/quant tables.
-// When that quantization produces y != 0, libvpx records *d->eob = 1 even
-// for an otherwise empty Y_NO_DC block. Later, vp8_inverse_transform_mby
-// overwrites qcoeff[0] (with the inverse-Walsh DC) and
-// vp8_dequant_idct_add_y_block memsets qcoeff[0..1] back to zero, but eob=1
-// is preserved through the pipeline. The libvpx-side oracle reads this
-// post-IDCT eob.
-//
-// govpx's pipeline zeroes dct[0] before quantize because Y_NO_DC tokenize
-// starts at c=1 anyway, so coeffs.EOB[block] never carries that DC bump.
-// This helper recovers the bump for the per-MB oracle trace so the
-// scoreboard's eob_sum match-rate aligns with libvpx. The helper does NOT
-// influence bitstream emission or reconstruction; the OracleY1DCEOB1 flag
-// it populates is read only by emitOracleMBTrace.
-//
-// fastQuant selects between vp8_fast_quantize_b_c (no zbin gate) and
-// vp8_regular_quantize_b_c (zbin gate at position 0, where zbin_boost[0]=0
-// so only zbin_extra contributes). zbinOverQuant and zbinModeBoost mirror
-// the macroblock-level fields fed to vp8_update_zbin_extra.
-func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOverQuant int, zbinModeBoost int, fastQuant bool) uint8 {
-	if quant == nil {
-		return 0
-	}
-	z := int(dct0)
-	if z == 0 {
-		return 0
-	}
-	x := z
-	if x < 0 {
-		x = -x
-	}
-	if fastQuant {
-		y := ((x + int(quant.Round[0])) * int(quant.QuantFast[0])) >> 16
-		if y != 0 {
-			return 1
-		}
-		return 0
-	}
-	zbin := int(quant.Zbin[0])
-	zbin += int(quant.ZbinBoost[0])
-	zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
-	if x < zbin {
-		return 0
-	}
-	x += int(quant.Round[0])
-	y := ((((x * int(quant.Quant[0])) >> 16) + x) * int(quant.QuantShift[0])) >> 16
-	if y != 0 {
-		return 1
-	}
-	return 0
-}
-
 func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0

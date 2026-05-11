@@ -498,7 +498,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
-					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
+					if oracleTraceBuild {
+						applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
+					}
 				} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
@@ -554,7 +556,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					phaseStats:    e.opts.PhaseStats,
 				})
 				if is4x4 {
-					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
+					if oracleTraceBuild {
+						applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
+					}
 				}
 			}
 			is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
@@ -651,15 +655,6 @@ func updateInterAnalysisTokenContextAndCount(counts *vp8enc.InterCoefficientToke
 		return nil
 	}
 	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(counts, records, is4x4, above, left, coeffs)
-}
-
-func applyOracleStaleY2Snapshot(coeffs *vp8enc.MacroblockCoefficients, snapshot staleY2Snapshot) {
-	if coeffs == nil || !snapshot.set {
-		return
-	}
-	coeffs.OracleStaleY2Set = true
-	coeffs.OracleStaleY2EOB = snapshot.eob
-	coeffs.OracleStaleY2QCoeff = snapshot.qcoeff
 }
 
 func keyFrameAnalysisSegmentID(mode *vp8enc.KeyFrameMacroblockMode, segmentation vp8enc.SegmentationConfig, preserve bool) (uint8, bool) {

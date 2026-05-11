@@ -151,7 +151,7 @@ func interRDCacheCoefficientsReusable(c *interRDCoeffCacheState, args *predicted
 	return interRDCacheReusable(c, args) &&
 		c.coeffsValid &&
 		!args.collectStats &&
-		!args.collectOracle &&
+		(!oracleTraceBuild || !args.collectOracle) &&
 		!args.optimize
 }
 
@@ -168,9 +168,9 @@ func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArg
 // where vp8_transform_mb -> vp8_quantize_mb -> tokenize_mb run as one
 // coordinated pass.
 //
-// Output (coeffs.QCoeff, coeffs.EOB, OracleY1DC*, OracleStaleY2*,
-// returned predictedMacroblockRDStats) is byte-identical to the
-// original per-block reference path.
+// Output (coeffs.QCoeff, coeffs.EOB, trace side data, and returned
+// predictedMacroblockRDStats) is byte-identical to the original per-block
+// reference path.
 func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProbs, src vp8enc.SourceImage, mbRow int, mbCol int, pred *vp8common.Image, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, qIndex int, zbinOverQuant int, zbinModeBoost int, is4x4 bool, intra bool, fastQuant bool, optimize bool, coeffs *vp8enc.MacroblockCoefficients) predictedMacroblockRDStats {
 	return buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
 		coefProbs:     coefProbs,
@@ -213,7 +213,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	intra := args.intra
 	fastQuant := args.fastQuant
 	optimize := args.optimize
-	collectOracle := args.collectOracle
+	collectOracle := oracleTraceBuild && args.collectOracle
 	coeffs := args.coeffs
 	collectStats := args.collectStats
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
@@ -298,7 +298,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 				// the encode path actually exercises has the proper DC at
 				// slot 0, which govpx mirrors in quant.Y1.
 				if collectOracle {
-					coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+					recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant))
 				}
 				dct[0] = 0
 			}
@@ -370,7 +370,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 				// the encode path actually exercises has the proper DC at
 				// slot 0, which govpx mirrors in quant.Y1.
 				if collectOracle {
-					coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+					recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant))
 				}
 				dct[0] = 0
 				a := block & 3
@@ -426,9 +426,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 			var staleY2DQ [16]int16
 			vp8enc.ForwardWalsh4x4(y2Input[:], 4, &staleY2Coeff)
 			staleEOB := min(max(quantizeEncodedBlockWithRDZbin(coefProbs, qIndex, 1, int(y2Above+y2Left), 0, zbinOverQuant/2, zbinModeBoost, zbinOverQuant, intra, fastQuant, optimize, &staleY2Coeff, &quant.Y2, &staleY2Q, &staleY2DQ), 0), 16)
-			coeffs.OracleStaleY2EOB = uint8(staleEOB)
-			coeffs.OracleStaleY2QCoeff = staleY2Q
-			coeffs.OracleStaleY2Set = true
+			recordOracleStaleY2(coeffs, uint8(staleEOB), staleY2Q)
 		}
 	}
 
@@ -583,7 +581,7 @@ func storeInterRDCacheCoefficients(args *predictedMacroblockCoefficientArgs) {
 		return
 	}
 	args.cacheOut.coeffsValid = false
-	if args.optimize || args.collectOracle || args.coeffs == nil {
+	if args.optimize || (oracleTraceBuild && args.collectOracle) || args.coeffs == nil {
 		return
 	}
 	if args.coeffs != &args.cacheOut.coeffs {

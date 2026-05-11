@@ -52,12 +52,6 @@ type interFrameModeDecision struct {
 	predictionError int
 }
 
-type staleY2Snapshot struct {
-	set    bool
-	eob    uint8
-	qcoeff [16]int16
-}
-
 func (d interFrameModeDecision) cyclicRefreshEligible() bool {
 	return !d.useIntra && d.interMode.RefFrame == vp8common.LastFrame && d.interMode.Mode == vp8common.ZeroMV
 }
@@ -242,7 +236,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				e.raiseInterRDThreshold(modeIndex)
 				continue
 			}
-			if candidateStaleY2.set {
+			if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
 				lastStaleY2 = candidateStaleY2
 			}
 			mode.SegmentID = segmentID
@@ -365,7 +359,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		if !ok {
 			continue
 		}
-		if candidateStaleY2.set {
+		if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
 			lastStaleY2 = candidateStaleY2
 		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
@@ -572,7 +566,10 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
 	distortion := yDist + uvDist
-	staleY2 := staleY2Snapshot{set: true, eob: y2EOB, qcoeff: y2QCoeff}
+	var staleY2 staleY2Snapshot
+	if oracleTraceBuild {
+		staleY2 = makeOracleStaleY2Snapshot(uint8(y2EOB), y2QCoeff)
+	}
 	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: uvMode}, score, yrd, rate, distortion, staleY2, true
 }
 
@@ -974,68 +971,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 	}
 	return best, true
-}
-
-// emitFastPickerIntraCandidateTrace and emitFastPickerInterCandidateTrace are
-// trace plumbing for the fast picker hot loop. They must stay behind
-// oracleTraceBuild at call sites so normal builds compile the summaries away.
-func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, modeIndex int, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
-	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
-		Picker:          "fast",
-		MBRow:           mbRow,
-		MBCol:           mbCol,
-		ModeIndex:       modeIndex,
-		Mode:            mode.Mode,
-		RefSlot:         0,
-		RefFrame:        vp8common.IntraFrame,
-		Threshold:       threshold,
-		BestScoreBefore: bestScoreBefore,
-		BestYRDBefore:   oracleTraceInterCandidateUnknown,
-		BestSSEBefore:   bestSSEBefore,
-		Outcome:         "tested",
-		BecameBest:      becameBest,
-		Score:           score,
-		YRD:             oracleTraceInterCandidateUnknown,
-		Rate:            rate,
-		RateY:           oracleTraceInterCandidateUnknown,
-		RateUV:          oracleTraceInterCandidateUnknown,
-		Distortion:      distortion,
-		DistortionUV:    oracleTraceInterCandidateUnknown,
-		SSE:             sse,
-		Skip:            mode.MBSkipCoeff,
-		ModeTrace:       *mode,
-		HasModeTrace:    true,
-	})
-}
-
-func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, modeIndex int, refSlot int, refFrame vp8common.MVReferenceFrame, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, breakoutSkip bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
-	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
-		Picker:          "fast",
-		MBRow:           mbRow,
-		MBCol:           mbCol,
-		ModeIndex:       modeIndex,
-		Mode:            mode.Mode,
-		RefSlot:         refSlot,
-		RefFrame:        refFrame,
-		Threshold:       threshold,
-		BestScoreBefore: bestScoreBefore,
-		BestYRDBefore:   oracleTraceInterCandidateUnknown,
-		BestSSEBefore:   bestSSEBefore,
-		Outcome:         "tested",
-		BecameBest:      becameBest,
-		LoopBreak:       breakoutSkip,
-		Score:           score,
-		YRD:             oracleTraceInterCandidateUnknown,
-		Rate:            rate,
-		RateY:           oracleTraceInterCandidateUnknown,
-		RateUV:          oracleTraceInterCandidateUnknown,
-		Distortion:      distortion,
-		DistortionUV:    oracleTraceInterCandidateUnknown,
-		SSE:             sse,
-		Skip:            breakoutSkip,
-		ModeTrace:       *mode,
-		HasModeTrace:    true,
-	})
 }
 
 func libvpxInterReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
