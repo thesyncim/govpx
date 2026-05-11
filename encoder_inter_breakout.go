@@ -110,12 +110,10 @@ func macroblockChromaMotionSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbR
 
 func chromaMotionVectorComponent(v int16) int {
 	c := int(v)
-	if c < 0 {
-		c--
-	} else {
-		c++
-	}
-	return c / 2
+	// (c-1)/2 when c<0, (c+1)/2 otherwise. Sign-mask folds the offset
+	// into one straight-line expression.
+	mask := c >> mvKernelSignShift
+	return (c + 1 + 2*mask) / 2
 }
 
 func referenceChromaPlane(visible []byte, full []byte, origin int) ([]byte, int) {
