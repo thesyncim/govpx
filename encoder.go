@@ -4074,6 +4074,18 @@ func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, start
 	if endY <= startY {
 		return
 	}
+	if src.YStride == dst.YStride && len(src.YFull) > 0 && len(dst.YFull) > 0 {
+		// libvpx yv12_copy_partial_frame copies y_stride bytes from the
+		// visible-origin row, preserving right-border/stride bytes used by
+		// vp8_loop_filter_partial_frame.
+		srcOff := src.YOrigin + startY*src.YStride
+		dstOff := dst.YOrigin + startY*dst.YStride
+		n := (endY - startY) * src.YStride
+		if srcOff >= 0 && dstOff >= 0 && srcOff+n <= len(src.YFull) && dstOff+n <= len(dst.YFull) {
+			copy(dst.YFull[dstOff:dstOff+n], src.YFull[srcOff:srcOff+n])
+			return
+		}
+	}
 	width := min(dst.CodedWidth, src.CodedWidth)
 	if src.YStride == dst.YStride && width == src.YStride {
 		// Fast path: contiguous copy when strides and full coded width match.

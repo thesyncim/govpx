@@ -1267,18 +1267,6 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 	e.interRDThreshTouched[modeIndex] = true
 }
 
-func (e *VP8Encoder) lowerFastInterThresholdForImprovement(modeIndex int) {
-	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
-		return
-	}
-	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
-		e.interRDThreshMult[modeIndex] -= 2
-	} else {
-		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
-	}
-	e.interRDThreshTouched[modeIndex] = true
-}
-
 func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 	if e == nil || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
 		return
@@ -1761,7 +1749,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		e.interRDFrameRefSearchOrderValid = true
 	}
 	refSearchOrder := e.interRDFrameRefSearchOrder
-	modeMVs := e.libvpxInterModeMVState(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	modeMVs := e.interModeMVSlots(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 	signBias := e.interFrameSignBias()
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
 
@@ -1855,10 +1843,12 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 
-		ref, refIndex, ok := libvpxInterReferenceSearchAt(refs, refSearchOrder, refSlot)
+		ref, refIndex, ok := interReferenceBySearchSlot(refs, refSearchOrder, refSlot)
 		if !ok {
 			continue
 		}
+		refBiasSlot := interModeSignBiasSlotForReference(ref.Frame, signBias)
+		bestRefMV := modeMVs.best[refBiasSlot]
 		if !e.interRDModeTestAllowed(modeIndex) {
 			continue
 		}
@@ -1881,7 +1871,6 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		var candidateStaleY2 staleY2Snapshot
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
-			bestRefMV := modeMVs.bestForReference(ref.Frame, signBias)
 			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
@@ -1892,12 +1881,12 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					mode.MBSkipCoeff = true
 					score = maxInt()
 					yrd = maxInt()
-					rate = e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), modeMVs.counts, modeMVs.bestForReference(ref.Frame, signBias), libvpxRDNewMVBitCostWeight)
+					rate = e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV, libvpxRDNewMVBitCostWeight)
 					distortion = 0
 					mbSkipCoeff = true
 					rdLoopSkip = true
 				} else {
-					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, modeMVs.bestForReference(ref.Frame, signBias))
+					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV)
 					ok = acctOK
 					score = acct.rd
 					yrd = acct.yrd
@@ -2125,20 +2114,21 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		mv       vp8enc.MotionVector
 		start    interFrameSearchStart
 	},
-	modeMVs *libvpxInterModeMVState,
+	modeMVs *interModeMVSlots,
 ) (vp8enc.InterFrameMacroblockMode, bool) {
 	switch mbMode {
 	case vp8common.ZeroMV:
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
 	case vp8common.NearestMV, vp8common.NearMV:
 		signBias := e.interFrameSignBias()
-		var state libvpxInterModeMVState
+		var state interModeMVSlots
 		if modeMVs != nil {
 			state = *modeMVs
 		} else {
-			state = e.libvpxInterModeMVState([]interAnalysisReference{ref}, [4]int{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+			state = e.interModeMVSlots([]interAnalysisReference{ref}, [4]int{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		}
-		nearest, near := state.nearForReference(ref.Frame, signBias)
+		slot := interModeSignBiasSlotForReference(ref.Frame, signBias)
+		nearest, near := state.nearest[slot], state.near[slot]
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
@@ -2160,7 +2150,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			signBias := e.interFrameSignBias()
 			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 			if modeMVs != nil {
-				bestRefMV = modeMVs.bestForReference(ref.Frame, signBias)
+				bestRefMV = modeMVs.best[interModeSignBiasSlotForReference(ref.Frame, signBias)]
 			}
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
@@ -2277,9 +2267,16 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		e.interRDFrameRefSearchOrderValid = true
 	}
 	refSearchOrder := e.interRDFrameRefSearchOrder
-	loopCtx.modeMVs = e.libvpxInterModeMVState(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
+	loopCtx.modeMVs = e.interModeMVSlots(refs, refSearchOrder, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 	loopCtx.signBias = e.interFrameSignBias()
 	loopCtx.mvCosts = e.currentMotionVectorCostTables()
+	activeSignBiasSlot := 0
+	bestRefMV := vp8enc.MotionVector{}
+	if baseRefIndex := refSearchOrder[1]; baseRefIndex >= 0 && baseRefIndex < len(refs) {
+		activeSignBiasSlot = interModeSignBiasSlotForReference(refs[baseRefIndex].Frame, loopCtx.signBias)
+		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot]
+		loopCtx.bestRefMV = bestRefMV
+	}
 	// Hoist the rd_threshes throttle gate out of the per-mode loop. Once
 	// inside the picker e is non-nil, modeIndex is bounded by the loop
 	// range, and interRDFrameActive is invariant across iterations — so the
@@ -2341,7 +2338,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			continue
 		}
 
-		// Inlined libvpxInterReferenceSearchAt fast path (refSlot is in
+		// Inlined interReferenceBySearchSlot fast path (refSlot is in
 		// 1..3 by construction here): the helper does the same lookup but
 		// the loop touches it on every iteration so inlining avoids the
 		// extra bounds checks against searchOrder/refs.
@@ -2352,6 +2349,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		ref := refs[refIndex]
 		if ref.Img == nil {
 			continue
+		}
+		refBiasSlot := interModeSignBiasSlotForReference(ref.Frame, loopCtx.signBias)
+		if activeSignBiasSlot != refBiasSlot {
+			activeSignBiasSlot = refBiasSlot
+			bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot]
+			loopCtx.bestRefMV = bestRefMV
 		}
 		if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
 			continue
@@ -2364,23 +2367,67 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		// libvpx pickinter.c does not implement SPLITMV in the non-RD picker
 		// (vp8_pick_inter_mode falls back to RAISE-only). Short-circuit
-		// here so we skip the per-mode fastInterModeForLoopEntry plumbing
-		// entirely on the three SPLITMV slots (modeIndex 16/17/18).
+		// here and mirror the RAISE-only outcome on the three SPLITMV slots
+		// (modeIndex 16/17/18).
 		if mbMode == vp8common.SplitMV {
 			e.raiseInterRDThreshold(modeIndex)
 			continue
 		}
 		bestScoreBefore := bestScore
 		bestSSEBefore := bestSSE
-		mode, ok := e.fastInterModeForLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &loopCtx)
-		if !ok {
+		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode}
+		switch mbMode {
+		case vp8common.ZeroMV:
+		case vp8common.NearestMV, vp8common.NearMV:
+			mv := loopCtx.modeMVs.nearest[activeSignBiasSlot]
+			if mbMode == vp8common.NearMV {
+				mv = loopCtx.modeMVs.near[activeSignBiasSlot]
+			}
+			if mv.IsZero() {
+				continue
+			}
+			mode.MV = mv
+		case vp8common.NewMV:
+			search := loopCtx.searchConfig(e)
+			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			mvCosts := loopCtx.mvCosts
+			if mvCosts == nil {
+				mvCosts = e.currentMotionVectorCostTables()
+			}
+			result := interFrameMotionVectorSearch{
+				src:       src,
+				ref:       ref.Img,
+				mbRow:     mbRow,
+				mbCol:     mbCol,
+				mbRows:    mbRows,
+				mbCols:    mbCols,
+				bestRefMV: bestRefMV,
+				qIndex:    qIndex,
+				search:    search,
+				start:     start,
+				mvProbs:   &e.modeProbs.MV,
+				mvCosts:   mvCosts,
+			}.selectFast()
+			mv := clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
+			if result.haveError && mv == result.mv {
+				loopCtx.storeVariance(ref.Img, mv, result.variance, result.sse)
+			}
+			if mv.IsZero() {
+				continue
+			}
+			mode.MV = mv
+			attachImprovedMVTrace(&mode, start)
+		default:
+			continue
+		}
+		if !interFrameUMVFullPixelInRange(mode.MV, mbRow, mbCol, mbRows, mbCols) {
 			continue
 		}
 		mode.SegmentID = segmentID
 		if inactiveMB {
 			mode.SegmentID = 0
 			mode.MBSkipCoeff = true
-			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, loopCtx.modeMVs.bestForReference(mode.RefFrame, loopCtx.signBias), libvpxFastNewMVBitCostWeight)
+			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, libvpxFastNewMVBitCostWeight)
 			if traceEnabled {
 				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode)
 			}
@@ -2538,7 +2585,7 @@ func libvpxInterReferenceSearchOrder(refs []interAnalysisReference, refCount int
 	return order
 }
 
-func libvpxInterReferenceSearchAt(refs []interAnalysisReference, searchOrder [4]int, refSlot int) (interAnalysisReference, int, bool) {
+func interReferenceBySearchSlot(refs []interAnalysisReference, searchOrder [4]int, refSlot int) (interAnalysisReference, int, bool) {
 	if refSlot <= 0 || refSlot >= len(searchOrder) {
 		return interAnalysisReference{}, 0, false
 	}
@@ -2549,11 +2596,7 @@ func libvpxInterReferenceSearchAt(refs []interAnalysisReference, searchOrder [4]
 	return refs[refIndex], refIndex, true
 }
 
-func libvpxFastInterReferenceAt(refs []interAnalysisReference, refCount int, refSlot int) (interAnalysisReference, int, bool) {
-	return libvpxInterReferenceSearchAt(refs, libvpxInterReferenceSearchOrder(refs, refCount), refSlot)
-}
-
-type libvpxInterModeMVState struct {
+type interModeMVSlots struct {
 	nearest [2]vp8enc.MotionVector
 	near    [2]vp8enc.MotionVector
 	best    [2]vp8enc.MotionVector
@@ -2567,34 +2610,26 @@ func interModeSignBiasSlot(bias bool) int {
 	return 0
 }
 
-func (s libvpxInterModeMVState) nearForReference(refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool) (vp8enc.MotionVector, vp8enc.MotionVector) {
-	slot := interModeSignBiasSlot(false)
+func interModeSignBiasSlotForReference(refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool) int {
+	slot := 0
 	if refFrame >= 0 && int(refFrame) < len(signBias) {
 		slot = interModeSignBiasSlot(signBias[refFrame])
 	}
-	return s.nearest[slot], s.near[slot]
+	return slot
 }
 
-func (s libvpxInterModeMVState) bestForReference(refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool) vp8enc.MotionVector {
-	slot := interModeSignBiasSlot(false)
-	if refFrame >= 0 && int(refFrame) < len(signBias) {
-		slot = interModeSignBiasSlot(signBias[refFrame])
-	}
-	return s.best[slot]
-}
-
-func (e *VP8Encoder) libvpxInterModeMVState(
+func (e *VP8Encoder) interModeMVSlots(
 	refs []interAnalysisReference, refSearchOrder [4]int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	mbRow int, mbCol int, mbRows int, mbCols int,
-) libvpxInterModeMVState {
-	var state libvpxInterModeMVState
-	baseRef, _, ok := libvpxInterReferenceSearchAt(refs, refSearchOrder, 1)
+) interModeMVSlots {
+	var state interModeMVSlots
+	baseRef, _, ok := interReferenceBySearchSlot(refs, refSearchOrder, 1)
 	if !ok {
 		return state
 	}
 	signBias := e.interFrameSignBias()
-	slot := interModeSignBiasSlot(signBias[baseRef.Frame])
+	slot := interModeSignBiasSlotForReference(baseRef.Frame, signBias)
 	nearest, near := interAnalysisReferenceMotionPredictorsWithSignBias(baseRef.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, signBias)
 	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, baseRef.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	state.counts = vp8enc.InterFrameModeCounts(above, left, aboveLeft, baseRef.Frame, signBias)
@@ -2602,25 +2637,16 @@ func (e *VP8Encoder) libvpxInterModeMVState(
 	state.near[slot] = near
 	state.best[slot] = best
 	opp := 1 - slot
-	state.nearest[opp] = invertAndClampInterModeMV(nearest, mbRow, mbCol, mbRows, mbCols)
-	state.near[opp] = invertAndClampInterModeMV(near, mbRow, mbCol, mbRows, mbCols)
-	state.best[opp] = invertAndClampInterModeMV(best, mbRow, mbCol, mbRows, mbCols)
+	state.nearest[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -nearest.Row, Col: -nearest.Col}, mbRow, mbCol, mbRows, mbCols)
+	state.near[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -near.Row, Col: -near.Col}, mbRow, mbCol, mbRows, mbCols)
+	state.best[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -best.Row, Col: -best.Col}, mbRow, mbCol, mbRows, mbCols)
 	return state
 }
 
-func invertAndClampInterModeMV(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) vp8enc.MotionVector {
-	return clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -mv.Row, Col: -mv.Col}, mbRow, mbCol, mbRows, mbCols)
-}
-
 type fastInterModeLoopContext struct {
-	newMVCandidates [3]struct {
-		searched bool
-		ok       bool
-		mv       vp8enc.MotionVector
-		start    interFrameSearchStart
-	}
-	modeMVs   libvpxInterModeMVState
+	modeMVs   interModeMVSlots
 	signBias  [vp8common.MaxRefFrames]bool
+	bestRefMV vp8enc.MotionVector
 	search    interAnalysisSearchConfig
 	searchSet bool
 	mvCosts   *vp8enc.MotionVectorCostTables
@@ -2643,82 +2669,6 @@ func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSe
 		ctx.searchSet = true
 	}
 	return ctx.search
-}
-
-func (e *VP8Encoder) fastInterModeForLoopEntry(
-	src vp8enc.SourceImage, ref interAnalysisReference, refIndex int, mbMode vp8common.MBPredictionMode,
-	mbRow int, mbCol int, mbRows int, mbCols int, qIndex int,
-	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
-	ctx *fastInterModeLoopContext,
-) (vp8enc.InterFrameMacroblockMode, bool) {
-	switch mbMode {
-	case vp8common.ZeroMV:
-		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.ZeroMV}, true
-	case vp8common.NearestMV, vp8common.NearMV:
-		signBias := e.interFrameSignBias()
-		var modeMVs libvpxInterModeMVState
-		if ctx != nil {
-			signBias = ctx.signBias
-			modeMVs = ctx.modeMVs
-		} else {
-			modeMVs = e.libvpxInterModeMVState([]interAnalysisReference{ref}, [4]int{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
-		}
-		nearest, near := modeMVs.nearForReference(ref.Frame, signBias)
-		mv := nearest
-		if mbMode == vp8common.NearMV {
-			mv = near
-		}
-		if mv.IsZero() {
-			return vp8enc.InterFrameMacroblockMode{}, false
-		}
-		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
-	case vp8common.NewMV:
-		if ctx == nil || refIndex < 0 || refIndex >= len(ctx.newMVCandidates) {
-			return vp8enc.InterFrameMacroblockMode{}, false
-		}
-		candidate := &ctx.newMVCandidates[refIndex]
-		if !candidate.searched {
-			bestRefMV := ctx.modeMVs.bestForReference(ref.Frame, ctx.signBias)
-			search := ctx.searchConfig(e)
-			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
-			mvCosts := ctx.mvCosts
-			if mvCosts == nil {
-				mvCosts = e.currentMotionVectorCostTables()
-			}
-			result := interFrameMotionVectorSearch{
-				src:       src,
-				ref:       ref.Img,
-				mbRow:     mbRow,
-				mbCol:     mbCol,
-				mbRows:    mbRows,
-				mbCols:    mbCols,
-				bestRefMV: bestRefMV,
-				qIndex:    qIndex,
-				search:    search,
-				start:     start,
-				mvProbs:   &e.modeProbs.MV,
-				mvCosts:   mvCosts,
-			}.selectFast()
-			mv := result.mv
-			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)
-			if result.haveError && mv == result.mv {
-				ctx.storeVariance(ref.Img, mv, result.variance, result.sse)
-			}
-			candidate.searched = true
-			candidate.ok = !mv.IsZero() && interFrameUMVFullPixelInRange(mv, mbRow, mbCol, mbRows, mbCols)
-			candidate.mv = mv
-			candidate.start = start
-		}
-		if !candidate.ok {
-			return vp8enc.InterFrameMacroblockMode{}, false
-		}
-		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: vp8common.NewMV, MV: candidate.mv}
-		attachImprovedMVTrace(&mode, candidate.start)
-		return mode, true
-	default:
-		// libvpx pickinter.c does not support SPLITMV in the non-RD picker.
-		return vp8enc.InterFrameMacroblockMode{}, false
-	}
 }
 
 func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
@@ -4857,7 +4807,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	var modeRate int
 	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContext(mode, left, above, refRate, ctx.modeMVs.counts, ctx.modeMVs.bestForReference(mode.RefFrame, ctx.signBias), libvpxFastNewMVBitCostWeight)
+		modeRate = e.interMotionModeRateWithReferenceRateAndModeContext(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, libvpxFastNewMVBitCostWeight)
 	} else {
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}

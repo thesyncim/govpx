@@ -715,22 +715,8 @@ func TestInterRDThresholdStateMutatesLikeLibvpxRDLoop(t *testing.T) {
 	}
 }
 
-func TestInterFastBestThresholdUsesPickInterImprovementDecay(t *testing.T) {
+func TestInterFastBestThresholdUsesPickInterBestDecay(t *testing.T) {
 	baseline := libvpxInterModeRDThresholds(40, 0, DeadlineRealtime, 8)
-
-	improve := &VP8Encoder{
-		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
-		rc:   rateControlState{currentQuantizer: 40},
-	}
-	improve.resetInterRDThresholdMultipliers()
-	improve.beginInterRDModeDecisionFrame()
-	defer improve.endInterRDModeDecisionFrame()
-
-	improve.lowerFastInterThresholdForImprovement(libvpxThrNew1)
-	afterImprovement := improve.interModeRDThresholds(40)
-	if got, want := afterImprovement[libvpxThrNew1], (baseline[libvpxThrNew1]>>7)*126; got != want {
-		t.Fatalf("fast improvement NEW1 threshold = %d, want %d", got, want)
-	}
 
 	best := &VP8Encoder{
 		opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
@@ -836,21 +822,7 @@ func TestLibvpxSplitMVStepParamFromSeedDistance(t *testing.T) {
 	}
 }
 
-func TestLibvpxFastInterReferenceAtUsesEnabledReferenceSlots(t *testing.T) {
-	refs := [...]interAnalysisReference{
-		{Frame: vp8common.LastFrame, Img: &vp8common.Image{}},
-		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
-	}
-	ref, refIndex, ok := libvpxFastInterReferenceAt(refs[:], 2, 2)
-	if !ok || refIndex != 1 || ref.Frame != vp8common.GoldenFrame {
-		t.Fatalf("slot 2 = %+v index=%d ok=%t, want GOLDEN index 1", ref, refIndex, ok)
-	}
-	if _, _, ok := libvpxFastInterReferenceAt(refs[:], 2, 3); ok {
-		t.Fatalf("slot 3 ok=true, want disabled ALTREF slot to be skipped")
-	}
-}
-
-func TestLibvpxInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
+func TestInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) {
 	refs := [...]interAnalysisReference{
 		{Frame: vp8common.GoldenFrame, Img: &vp8common.Image{}},
 		{Frame: vp8common.AltRefFrame, Img: &vp8common.Image{}},
@@ -860,15 +832,15 @@ func TestLibvpxInterReferenceSearchOrderCompactsEnabledReferences(t *testing.T) 
 		t.Fatalf("reference search order = %v, want compacted GOLDEN/ALT in slots 1/2", order)
 	}
 
-	ref, refIndex, ok := libvpxInterReferenceSearchAt(refs[:], order, 1)
+	ref, refIndex, ok := interReferenceBySearchSlot(refs[:], order, 1)
 	if !ok || refIndex != 0 || ref.Frame != vp8common.GoldenFrame {
 		t.Fatalf("slot 1 = %+v index=%d ok=%t, want compacted GOLDEN", ref, refIndex, ok)
 	}
-	ref, refIndex, ok = libvpxInterReferenceSearchAt(refs[:], order, 2)
+	ref, refIndex, ok = interReferenceBySearchSlot(refs[:], order, 2)
 	if !ok || refIndex != 1 || ref.Frame != vp8common.AltRefFrame {
 		t.Fatalf("slot 2 = %+v index=%d ok=%t, want compacted ALTREF", ref, refIndex, ok)
 	}
-	if _, _, ok := libvpxInterReferenceSearchAt(refs[:], order, 3); ok {
+	if _, _, ok := interReferenceBySearchSlot(refs[:], order, 3); ok {
 		t.Fatalf("slot 3 ok=true, want no third enabled reference")
 	}
 }
@@ -2491,24 +2463,6 @@ func TestInterModeForRDLoopEntryAllowsZeroNewMVOnFlatMatch(t *testing.T) {
 	}
 	if mode.Mode != vp8common.NewMV || mode.RefFrame != vp8common.LastFrame || !mode.MV.IsZero() {
 		t.Fatalf("RD NEWMV loop entry mode = %+v, want LAST/NEWMV with zero MV", mode)
-	}
-}
-
-func TestFastInterModeForLoopEntryRejectsZeroNewMVOnFlatMatch(t *testing.T) {
-	e := newSizedTestEncoder(t, 16, 16)
-	e.modeProbs.MV = vp8tables.DefaultMVContext
-	fillBenchmarkVP8Image(&e.analysis.Img, 72, 90, 170)
-	e.analysis.ExtendBorders()
-
-	src := testImage(16, 16)
-	fillImage(src, 72, 90, 170)
-	last := testVP8Frame(t, 16, 16, 72, 90, 170)
-	ref := interAnalysisReference{Frame: vp8common.LastFrame, Img: &last.Img}
-	var loopCtx fastInterModeLoopContext
-
-	mode, ok := e.fastInterModeForLoopEntry(sourceImageFromPublic(src), ref, 0, vp8common.NewMV, 0, 0, 1, 1, testInterSearchQIndex, nil, nil, nil, &loopCtx)
-	if ok {
-		t.Fatalf("fast NEWMV loop entry accepted mode %+v, want zero MV rejected", mode)
 	}
 }
 
