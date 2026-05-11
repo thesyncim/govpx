@@ -40,9 +40,10 @@ Flags:
   (PLI/FIR/etc.) flips an atomic that asks the encoder to emit a keyframe on
   the next frame.
 
-The encoder uses a realtime CBR profile with a 2-second keyframe interval,
-which is why a fresh page may take up to ~2 seconds to show its first
-frame.
+The encoder uses a realtime CBR profile with frame dropping, error resilience,
+and the VP8 RTC external-rate-control mode enabled. A 2-second keyframe
+interval is still configured, so a fresh page may take up to ~2 seconds to show
+its first frame.
 
 ## What this proves
 

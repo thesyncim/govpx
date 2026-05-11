@@ -162,12 +162,41 @@ func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	return nil
 }
 
+// SetFrameDropAllowed changes realtime frame dropping without touching bitrate.
+func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.setFrameDropAllowed(enabled)
+	return nil
+}
+
+func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
+	e.rc.dropFrameAllowed = enabled
+	if enabled {
+		if e.opts.DropFrameWaterMark > 0 {
+			e.rc.dropFramesWaterMark = min(e.opts.DropFrameWaterMark, 100)
+		} else if e.rc.dropFramesWaterMark <= 0 {
+			e.rc.dropFramesWaterMark = defaultDropFramesWaterMark
+		}
+		if e.opts.DropFrameWaterMark <= 0 {
+			e.opts.DropFrameWaterMark = e.rc.dropFramesWaterMark
+		}
+	} else {
+		e.rc.dropFramesWaterMark = 0
+	}
+	e.opts.DropFrameAllowed = enabled
+}
+
 // SetRealtimeTarget applies a WebRTC-style runtime target update.
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
 	if target.BitrateKbps < 0 || target.FPS < 0 || target.Width < 0 || target.Height < 0 {
+		return ErrInvalidConfig
+	}
+	if target.FrameDrop < RealtimeFrameDropUnchanged || target.FrameDrop > RealtimeFrameDropEnabled {
 		return ErrInvalidConfig
 	}
 	if target.MinQuantizer < 0 || target.MaxQuantizer < 0 || target.MinQuantizer > maxQuantizer || target.MaxQuantizer > maxQuantizer {
@@ -220,7 +249,16 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.rc.lastQuantizer = e.rc.cqLevel
 		e.rc.lastInterQuantizer = e.rc.cqLevel
 	}
-	e.rc.dropFrameAllowed = target.AllowFrameDrop
+	switch target.FrameDrop {
+	case RealtimeFrameDropEnabled:
+		e.setFrameDropAllowed(true)
+	case RealtimeFrameDropDisabled:
+		e.setFrameDropAllowed(false)
+	case RealtimeFrameDropUnchanged:
+		if target.AllowFrameDrop {
+			e.setFrameDropAllowed(true)
+		}
+	}
 	nextTemporal := e.temporal
 	if target.BitrateKbps > 0 {
 		nextRC := e.rc

@@ -16,6 +16,18 @@ const (
 	RateControlQ
 )
 
+// RealtimeFrameDropMode selects how SetRealtimeTarget changes frame dropping.
+type RealtimeFrameDropMode int
+
+const (
+	// RealtimeFrameDropUnchanged leaves the current frame-drop setting intact.
+	RealtimeFrameDropUnchanged RealtimeFrameDropMode = iota
+	// RealtimeFrameDropDisabled disables realtime frame dropping.
+	RealtimeFrameDropDisabled
+	// RealtimeFrameDropEnabled enables realtime frame dropping.
+	RealtimeFrameDropEnabled
+)
+
 // RateControlConfig is the runtime-updatable subset of encoder rate-control
 // options.
 type RateControlConfig struct {
@@ -82,7 +94,13 @@ type RealtimeTarget struct {
 	MinQuantizer int
 	MaxQuantizer int
 
-	// AllowFrameDrop enables or disables realtime frame dropping.
+	// FrameDrop changes realtime frame dropping. The zero value leaves the
+	// current setting unchanged, which is the right default for bitrate-only
+	// WebRTC bandwidth-estimation updates.
+	FrameDrop RealtimeFrameDropMode
+	// AllowFrameDrop enables realtime frame dropping when true. It is kept for
+	// source compatibility with older callers; use FrameDrop when disabling or
+	// when the update must be explicit.
 	AllowFrameDrop bool
 }
 
@@ -257,6 +275,8 @@ var libvpxQuantizerTranslation = [maxQuantizer + 1]int{
 	82, 85, 88, 91, 94, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124, 127,
 }
 
+const defaultDropFramesWaterMark = 60
+
 func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingState) error {
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
@@ -291,7 +311,7 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	// pass --drop-frame to opt in; here we make the toggle alone enough).
 	rc.dropFramesWaterMark = cfg.DropFrameWaterMark
 	if rc.dropFrameAllowed && rc.dropFramesWaterMark <= 0 {
-		rc.dropFramesWaterMark = 60
+		rc.dropFramesWaterMark = defaultDropFramesWaterMark
 	}
 	if rc.dropFramesWaterMark > 100 {
 		rc.dropFramesWaterMark = 100

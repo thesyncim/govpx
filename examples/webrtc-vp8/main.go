@@ -180,19 +180,22 @@ func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, forceKey *atomic.B
 
 func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample, forceKey *atomic.Bool) {
 	enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
-		Width:               frameWidth,
-		Height:              frameHeight,
-		FPS:                 framerate,
-		RateControlMode:     govpx.RateControlCBR,
-		TargetBitrateKbps:   600,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-		KeyFrameInterval:    framerate * 2,
-		Deadline:            govpx.DeadlineRealtime,
-		ErrorResilient:      true,
+		Width:                  frameWidth,
+		Height:                 frameHeight,
+		FPS:                    framerate,
+		RateControlMode:        govpx.RateControlCBR,
+		TargetBitrateKbps:      600,
+		MinQuantizer:           4,
+		MaxQuantizer:           56,
+		BufferSizeMs:           600,
+		BufferInitialSizeMs:    400,
+		BufferOptimalSizeMs:    500,
+		DropFrameAllowed:       true,
+		DropFrameWaterMark:     60,
+		KeyFrameInterval:       framerate * 2,
+		Deadline:               govpx.DeadlineRealtime,
+		ErrorResilient:         true,
+		RTCExternalRateControl: true,
 	})
 	if err != nil {
 		log.Printf("NewVP8Encoder: %v", err)

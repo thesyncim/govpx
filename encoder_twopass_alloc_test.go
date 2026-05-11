@@ -136,6 +136,7 @@ func TestEncoderHotPathAllocs(t *testing.T) {
 		{name: "SetStaticThreshold", fn: func() { _ = e.SetStaticThreshold(1) }},
 		{name: "SetScreenContentMode", fn: func() { _ = e.SetScreenContentMode(1) }},
 		{name: "SetRTCExternalRateControl", fn: func() { _ = e.SetRTCExternalRateControl(true) }},
+		{name: "SetFrameDropAllowed", fn: func() { _ = e.SetFrameDropAllowed(true) }},
 		{name: "SetRealtimeTarget", fn: func() { _ = e.SetRealtimeTarget(RealtimeTarget{FPS: 30}) }},
 		{name: "SetTemporalScalability", fn: func() { _ = e.SetTemporalScalability(temporal) }},
 		{name: "SetTemporalLayerID", fn: func() { _ = e.SetTemporalLayerID(1) }},
