@@ -322,11 +322,13 @@ func mbLoopFilter(mask int8, hev int8, op2 *byte, op1 *byte, op0 *byte, oq0 *byt
 	*op2 = unsignedPixel(signedCharClamp(int(ps2) + int(u)))
 }
 
+// simpleFilterMask returns -1 when the combined |p0-q0|*2 + |p1-q1|/2
+// step stays within blimit, 0 otherwise. Sign-mask splat replaces the
+// trailing if so the loopfilter row scan stays branch-free.
 func simpleFilterMask(blimit byte, p1 byte, p0 byte, q0 byte, q1 byte) int8 {
-	if int(absByteDiff(p0, q0))*2+int(absByteDiff(p1, q1))/2 <= int(blimit) {
-		return -1
-	}
-	return 0
+	diff := int(blimit) - (int(absByteDiff(p0, q0))*2 + int(absByteDiff(p1, q1))/2)
+	// diff >= 0 → mask -1; diff < 0 → mask 0.
+	return int8(^(diff >> signShift))
 }
 
 func simpleFilter(mask int8, op1 *byte, op0 *byte, oq0 *byte, oq1 *byte) {
