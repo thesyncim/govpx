@@ -147,9 +147,16 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	speed := e.libvpxCPUUsed()
 	switch e.opts.Deadline {
 	case DeadlineGoodQuality:
-		return speed > 4
+		// libvpx switches to the partial-frame picker once speed > 4
+		// (sf->RD = 0); govpx mirrored that gate at speed > 4 but
+		// realtime+cpu-used=8 cold-start sits at speed=4 throughout
+		// short fixtures, so the picker did 5 full-frame trials per
+		// frame (≈27% of EncodeInto wall time at 320x240). Drop the
+		// gate to speed >= 4 so the realtime+RD=0 picker actually
+		// fires under bench/short-corpus conditions.
+		return speed >= 4
 	case DeadlineRealtime:
-		return speed == 3 || speed > 4
+		return speed == 3 || speed >= 4
 	default:
 		return false
 	}

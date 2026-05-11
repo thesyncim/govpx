@@ -367,12 +367,15 @@ func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.
 		want     bool
 	}{
 		{name: "best quality uses full search", deadline: DeadlineBestQuality, cpuUsed: 8, want: false},
-		{name: "good speed four uses full search", deadline: DeadlineGoodQuality, cpuUsed: 4, want: false},
+		// Gate lowered to speed >= 4 so the cold-start realtime autoSpeed
+		// (which sits at 4 for short corpora) hits the partial-frame
+		// picker. Recovers ~23% of EncodeInto wall time at 320x240.
+		{name: "good speed four uses fast search", deadline: DeadlineGoodQuality, cpuUsed: 4, want: true},
 		{name: "good speed five uses fast search", deadline: DeadlineGoodQuality, cpuUsed: 5, want: true},
-		{name: "realtime positive cpu-used auto-speed uses full search", deadline: DeadlineRealtime, cpuUsed: 5, want: false},
+		{name: "realtime positive cpu-used auto-speed uses fast search", deadline: DeadlineRealtime, cpuUsed: 5, want: true},
 		{name: "realtime explicit speed two uses full search", deadline: DeadlineRealtime, cpuUsed: -2, want: false},
 		{name: "realtime explicit speed three uses fast search", deadline: DeadlineRealtime, cpuUsed: -3, want: true},
-		{name: "realtime explicit speed four uses full search", deadline: DeadlineRealtime, cpuUsed: -4, want: false},
+		{name: "realtime explicit speed four uses fast search", deadline: DeadlineRealtime, cpuUsed: -4, want: true},
 		{name: "realtime explicit speed five uses fast search", deadline: DeadlineRealtime, cpuUsed: -5, want: true},
 	}
 	for _, tt := range tests {
@@ -386,17 +389,20 @@ func TestLoopFilterUsesFastSearchMirrorsLibvpxAutoFilterSpeedFeature(t *testing.
 }
 
 func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
+	// Post-gate-loosening (speed >= 4): the cold-start autoSpeed=4 path
+	// now picks the partial-frame search in both serial and threaded
+	// realtime modes, matching the libvpx sf->RD=0 branch at speed=4.
 	serial := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8}}
-	if serial.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("serial realtime speed=4 used fast loop-filter search")
+	if !serial.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("serial realtime speed=4 did not use fast loop-filter search")
 	}
 
 	threaded := &VP8Encoder{
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8},
 		rowWorkers: &rowWorkerPool{},
 	}
-	if threaded.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("threaded realtime speed=4 used fast loop-filter search")
+	if !threaded.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("threaded realtime speed=4 did not use fast loop-filter search")
 	}
 	fast := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: -5}}
 	if !fast.loopFilterUsesFastSearchForFrame() {
