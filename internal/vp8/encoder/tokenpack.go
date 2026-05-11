@@ -211,14 +211,20 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		ctx := int((raw >> coefficientTokenRecordContextShift) & coefficientTokenRecordTwoBitMask)
 
 		p := &(*probs)[blockType][band][ctx]
-		path := coefficientTokenBranchPaths[token]
+		// Take a pointer instead of copying the 15-byte path struct on each
+		// record; the table never moves so the indirection has no aliasing
+		// concern in this hot per-token loop.
+		path := &coefficientTokenBranchPaths[token]
 		start := uint8(0)
 		if (raw>>coefficientTokenRecordSkipEOBNodeShift)&1 != 0 {
 			start = 1
 		}
-		for i := start; i < path.len; i++ {
-			bit := path.bits[i]
-			probability := p[path.nodes[i]]
+		pathLen := path.len
+		pathBits := &path.bits
+		pathNodes := &path.nodes
+		for i := start; i < pathLen; i++ {
+			bit := pathBits[i]
+			probability := p[pathNodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
 			// Branchless interval selection: mask is all-ones when bit
 			// is set, zero otherwise. The bit==0 arm keeps rng = split
