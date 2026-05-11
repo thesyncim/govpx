@@ -477,7 +477,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			if !ok {
 				return 0, ErrInvalidConfig
 			}
-			if segmentID != 0 && !decision.cyclicRefreshEligible() {
+			if !e.roi.enabled && segmentID != 0 && !decision.cyclicRefreshEligible() {
 				if haveFallbackSnapshot {
 					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				}
@@ -518,7 +518,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
-				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.opts.StaticThreshold))
+				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {

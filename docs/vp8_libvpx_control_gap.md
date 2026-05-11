@@ -20,10 +20,9 @@ cleanly onto libvpx behavior where that behavior is useful.
 
 The highest-value missing controls are:
 
-1. `VP8E_SET_ROI_MAP`
-2. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
-3. VPX_Q constant-quality mode
-4. Optional: spatial resampling / scale mode, output-partition packetization,
+1. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
+2. VPX_Q constant-quality mode
+3. Optional: spatial resampling / scale mode, output-partition packetization,
    PSNR packets, and `VP8E_SET_RTC_EXTERNAL_RATECTRL`
 
 The controls that are probably not worth porting by default are encoder
@@ -49,6 +48,7 @@ does not actually wire into the VP8 encoder.
 | `VP8E_SET_FRAME_FLAGS` and VP8 `EFLAG_*` | `EncodeFlags` on `EncodeInto` | More Go-native than a sticky control. Covers ref/use/update/entropy/golden/altref/keyframe flags. |
 | `VP8E_SET_TEMPORAL_LAYER_ID` | `SetTemporalLayerID` | Also has `TemporalScalabilityConfig` for built-in patterns. |
 | `VP8E_SET_ACTIVEMAP` | `SetActiveMap` | Per-MB active/inactive map exists. |
+| `VP8E_SET_ROI_MAP` | `ROIMap`, `SetROIMap` | Per-MB VP8 segment map with public quantizer deltas, loop-filter deltas, and per-segment static thresholds. ROI disables cyclic refresh while active, matching libvpx. |
 | `VP8E_SET_SCREEN_CONTENT_MODE` | `EncoderOptions.ScreenContentMode`, `SetScreenContentMode` | Modes 0..2. |
 | `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on encoder | `VP8Encoder.SetReferenceFrame`, `VP8Encoder.CopyReferenceFrame` | Reference selectors use LAST/GOLDEN/ALTREF. Setting a reference extends borders and invalidates encoder state tied to old reference identity. |
 | `VP8_SET_POSTPROC` on decoder | `DecoderOptions.PostProcess*` | Decoder postproc is exposed as Go flags. |
@@ -57,11 +57,11 @@ does not actually wire into the VP8 encoder.
 | `VP8E_GET_LAST_QUANTIZER`, `VP8E_GET_LAST_QUANTIZER_64` | `EncodeResult.InternalQuantizer`, `EncodeResult.Quantizer`, `VP8Encoder.LastQuantizer` | Exposes both libvpx's internal qindex and the public 0..63 mapping. |
 | Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
 
-## Sane Missing Controls
+## Detailed Control Notes
 
 ### `VP8E_SET_ROI_MAP`
 
-Status: missing. Priority: high.
+Status: covered. Priority: high.
 
 What libvpx exposes:
 
@@ -81,7 +81,7 @@ Why it is sane:
 - govpx already has segmentation machinery for cyclic refresh and alt-LF
   paths, so the port is mostly a public control plus plumbing and precedence.
 
-Suggested Go API:
+Current Go API:
 
 ```go
 type ROIMap struct {
@@ -97,15 +97,15 @@ type ROIMap struct {
 func (e *VP8Encoder) SetROIMap(m *ROIMap) error
 ```
 
-Port notes:
+Implementation notes:
 
 - Translate public q deltas through the same public-q to qindex table libvpx
   uses.
 - Reject wrong macroblock dimensions.
 - Define precedence against cyclic refresh explicitly. Matching libvpx means
   ROI turns cyclic refresh off while active.
-- Gate with oracle tests for bitstream segmentation headers, per-MB segment
-  IDs, q deltas, LF deltas, and static-threshold behavior.
+- Tests cover bitstream segmentation headers, per-MB segment IDs, q deltas, LF
+  deltas, validation, disable semantics, and static-threshold selection.
 
 ### Reference Set/Copy
 

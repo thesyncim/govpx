@@ -87,10 +87,10 @@ a raw VP8 frame payload, not IVF or WebM.
 
 Encoder support includes CBR, CQ, one-pass and two-pass VBR controls, temporal
 layers, token partitions, adaptive keyframes, lookahead, automatic alt-ref,
-ARNR, denoise, screen-content mode, active maps, and realtime control methods
-such as `SetBitrateKbps`, `SetRateControl`, `SetRealtimeTarget`, `SetDeadline`,
-and `SetCPUUsed`. `SetReferenceFrame` and `CopyReferenceFrame` can replace or
-inspect the encoder's LAST, GOLDEN, or ALTREF buffers.
+ARNR, denoise, screen-content mode, active maps, ROI maps, and realtime control
+methods such as `SetBitrateKbps`, `SetRateControl`, `SetRealtimeTarget`,
+`SetDeadline`, and `SetCPUUsed`. `SetReferenceFrame` and `CopyReferenceFrame`
+can replace or inspect the encoder's LAST, GOLDEN, or ALTREF buffers.
 
 For lookahead or auto-alt-ref, `EncodeInto` can return `ErrFrameNotReady` while
 frames are queued. Call `FlushInto` at end of stream until it returns no more

@@ -446,6 +446,7 @@ type VP8Encoder struct {
 	// Key frames ignore the map.
 	activeMap        []uint8
 	activeMapEnabled bool
+	roi              roiMapState
 
 	// libvpx dot-artifact suppression: count of MBs that have biased
 	// against ZEROMV-LAST this frame (capped at MBs/10), and the current

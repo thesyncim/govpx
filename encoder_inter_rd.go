@@ -92,7 +92,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	modeRate := e.interMotionModeRateWithReferenceRateAndModeContext(ctx.mode, ctx.left, ctx.above, ctx.refRate, ctx.modeCounts, ctx.bestRefMV, libvpxRDNewMVBitCostWeight)
 	refCost := boolBitCost(e.refProbIntra, 1) + ctx.refRate
 	otherCost := e.interMacroblockSkipRate(false)
-	if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.opts.StaticThreshold); breakout {
+	if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.interStaticThresholdForSegment(ctx.segmentID)); breakout {
 		rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)
 		return interResidualRDAccounting{
 			rd:          rd,
@@ -217,7 +217,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 		// Non-aggressive denoise leaves the multiplier at 100.
 		score = (score * adj * e.denoiserPickmodeMVBias()) / 10000
 	}
-	breakoutSkip := staticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.opts.StaticThreshold, sse)
+	breakoutSkip := staticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.interStaticThresholdForSegment(mode.SegmentID), sse)
 	return score, variance, sse, modeRate, breakoutSkip, true
 }
 

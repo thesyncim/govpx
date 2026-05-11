@@ -442,7 +442,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	if !ok {
 		return 0, 0, ErrInvalidConfig
 	}
-	if segmentID != 0 && !decision.cyclicRefreshEligible() {
+	if !e.roi.enabled && segmentID != 0 && !decision.cyclicRefreshEligible() {
 		if haveFallbackSnapshot {
 			restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 		}
@@ -475,7 +475,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	}
 
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
-		(args.modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(args.src, &e.analysis.Img, row, col, quant, e.opts.StaticThreshold))
+		(args.modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(args.src, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
 	if breakoutSkip {
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {

@@ -78,14 +78,23 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	quantDeltas := libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	segmentation := vp8enc.SegmentationConfig{}
-	if staticSegmentationAllowed {
+	roiSegmentation := e.roiSegmentationConfig()
+	if roiSegmentation.Enabled {
+		segmentation = roiSegmentation
+	} else if staticSegmentationAllowed {
 		segmentation = e.cyclicRefreshSegmentationConfig(true)
 	}
 	var err error
 	projectedRate := 0
 	phase := e.phaseStart()
 	if segmentation.Enabled {
-		assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
+		if roiSegmentation.Enabled {
+			if !e.assignKeyFrameROISegments(rows, cols, e.keyFrameModes[:required]) {
+				return keyFrameEncodeAttempt{}, ErrInvalidConfig
+			}
+		} else {
+			assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
+		}
 		projectedRate, err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	} else {
 		projectedRate, err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
@@ -398,8 +407,13 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		e.probSkipFalse = previousProbSkipFalse
 	}()
 	segmentation := vp8enc.SegmentationConfig{}
-	if staticSegmentationAllowed {
+	cyclicRefreshEnabled := false
+	roiSegmentation := e.roiSegmentationConfig()
+	if roiSegmentation.Enabled {
+		segmentation = roiSegmentation
+	} else if staticSegmentationAllowed {
 		segmentation = e.cyclicRefreshSegmentationConfig(cfg.RefreshGolden)
+		cyclicRefreshEnabled = segmentation.Enabled
 	}
 	if segmentation.Enabled {
 		cfg.Segmentation = segmentation
@@ -468,7 +482,13 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	}()
 	phase := e.phaseStart()
 	if segmentation.Enabled {
-		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
+		if roiSegmentation.Enabled {
+			if !e.assignInterFrameROISegments(rows, cols, e.interFrameModes[:required]) {
+				return interFrameEncodeAttempt{}, ErrInvalidConfig
+			}
+		} else {
+			cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
+		}
 		if e.rowWorkers != nil {
 			projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 		} else {
@@ -556,7 +576,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		coefSavings = packetResult.CoefSavingsBits
 		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: segmentation.Enabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
