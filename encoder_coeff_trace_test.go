@@ -6,6 +6,84 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+type coefficientTokenTraceEntry struct {
+	Position       int
+	Coefficient    int
+	Token          int
+	TokenRate      int
+	SignRate       int
+	ExtraBits      int
+	BandIndex      int
+	PrevTokenClass int
+}
+
+func coefficientBlockTokenTrace(probs *vp8tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) ([]coefficientTokenTraceEntry, int) {
+	if probs == nil || qcoeff == nil || blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
+		return nil, maxInt() / 4
+	}
+	if eob < skipDC {
+		eob = skipDC
+	}
+	if eob > 16 {
+		eob = 16
+	}
+
+	pt := ctx
+	cost := 0
+	trace := make([]coefficientTokenTraceEntry, 0, eob-skipDC+1)
+	for pos := skipDC; pos < eob; pos++ {
+		band := int(vp8tables.CoefBandsTable[pos])
+		p := (*probs)[blockType][band][pt]
+		rc := int(vp8tables.DefaultZigZag1D[pos])
+		coeff := int(qcoeff[rc])
+		entry := coefficientTokenTraceEntry{
+			Position:       pos,
+			Coefficient:    coeff,
+			BandIndex:      band,
+			PrevTokenClass: pt,
+		}
+		var token int
+		if coeff == 0 {
+			token = vp8tables.ZeroToken
+			entry.Token = token
+			entry.TokenRate = coefTokenCostElided(p, token, blockType, band, pt)
+			cost += entry.TokenRate
+		} else {
+			t, mag, ok := coefficientTokenMagnitude(coeff)
+			if !ok {
+				return nil, maxInt() / 4
+			}
+			token = t
+			entry.Token = token
+			entry.TokenRate = coefTokenCostElided(p, token, blockType, band, pt)
+			if coeff < 0 {
+				entry.SignRate = boolBitCost(128, 1)
+			} else {
+				entry.SignRate = boolBitCost(128, 0)
+			}
+			entry.ExtraBits = coefficientExtraBitsRate(token, mag)
+			cost += entry.TokenRate + entry.SignRate + entry.ExtraBits
+		}
+		trace = append(trace, entry)
+		pt = int(vp8tables.PrevTokenClass[token])
+	}
+	if eob < 16 {
+		band := int(vp8tables.CoefBandsTable[eob])
+		p := (*probs)[blockType][band][pt]
+		eobRate := treeTokenCost(vp8tables.CoefTree[:], p[:], vp8tables.DCTEOBToken)
+		trace = append(trace, coefficientTokenTraceEntry{
+			Position:       eob,
+			Coefficient:    0,
+			Token:          vp8tables.DCTEOBToken,
+			TokenRate:      eobRate,
+			BandIndex:      band,
+			PrevTokenClass: pt,
+		})
+		cost += eobRate
+	}
+	return trace, cost
+}
+
 func TestCoefficientBlockTokenTraceMatchesAggregateRate(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	// Use a representative block: a couple of non-zero coefficients
