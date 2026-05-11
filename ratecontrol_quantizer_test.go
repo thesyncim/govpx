@@ -183,6 +183,12 @@ func TestRateControlFrameSizeBoundsMirrorLibvpx(t *testing.T) {
 			wantUnder: 425,
 			wantOver:  1575,
 		},
+		{
+			name:      "q",
+			rc:        rateControlState{mode: RateControlQ},
+			wantUnder: 425,
+			wantOver:  1575,
+		},
 	}
 
 	for _, tc := range tests {
@@ -419,6 +425,26 @@ func TestRateControlCQActiveQuantizerBoundsRespectCQLevel(t *testing.T) {
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
 	if activeBest != 43 || activeWorst != 51 {
 		t.Fatalf("CQ active bounds = %d/%d, want cq-level floor 43/51", activeBest, activeWorst)
+	}
+}
+
+func TestRateControlQActiveQuantizerBoundsDoNotUseCQFloor(t *testing.T) {
+	rc := rateControlState{
+		mode:                    RateControlQ,
+		minQuantizer:            4,
+		maxQuantizer:            51,
+		cqLevel:                 43,
+		normalInterFrames:       151,
+		normalInterAvgQuantizer: 51,
+	}
+
+	activeBest, activeWorst := rc.libvpxActiveQuantizerBounds(false, false)
+	wantBest := libvpxInterMinQ[51]
+	if wantBest >= rc.cqLevel {
+		t.Fatalf("test fixture invalid: inter_minq[51] = %d, want below CQ level %d", wantBest, rc.cqLevel)
+	}
+	if activeBest != wantBest || activeWorst != 51 {
+		t.Fatalf("Q active bounds = %d/%d, want no CQ floor %d/51", activeBest, activeWorst, wantBest)
 	}
 }
 

@@ -144,7 +144,51 @@ func TestRateControlCQDefaultLevelMirrorsLibvpx(t *testing.T) {
 	}
 }
 
-func TestRateControlCQValidatesLevelAgainstBounds(t *testing.T) {
+func TestRateControlQUsesConstantQualitySemantics(t *testing.T) {
+	var rc rateControlState
+	err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             32,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	if rc.mode != RateControlQ {
+		t.Fatalf("mode = %d, want RateControlQ", rc.mode)
+	}
+	cqQIndex := libvpxPublicQuantizerToQIndex(32)
+	minQIndex := libvpxPublicQuantizerToQIndex(4)
+	if rc.cqLevel != cqQIndex {
+		t.Fatalf("Q cqLevel = %d, want qindex %d", rc.cqLevel, cqQIndex)
+	}
+	if rc.currentQuantizer != minQIndex {
+		t.Fatalf("Q current quantizer = %d, want min qindex %d", rc.currentQuantizer, minQIndex)
+	}
+	if rc.bufferSizeMs != 600 || rc.bufferInitialSizeMs != 400 || rc.bufferOptimalSizeMs != 500 {
+		t.Fatalf("Q buffer ms = size:%d initial:%d optimal:%d, want public 600/400/500",
+			rc.bufferSizeMs, rc.bufferInitialSizeMs, rc.bufferOptimalSizeMs)
+	}
+
+	rc.beginFrame(false)
+	if rc.currentQuantizer != minQIndex {
+		t.Fatalf("beginFrame Q quantizer = %d, want no CQ floor at min qindex %d", rc.currentQuantizer, minQIndex)
+	}
+}
+
+func TestRateControlCQAndQValidateLevelAgainstBounds(t *testing.T) {
+	modes := []struct {
+		name string
+		mode RateControlMode
+	}{
+		{name: "cq", mode: RateControlCQ},
+		{name: "q", mode: RateControlQ},
+	}
 	tests := []struct {
 		name string
 		cfg  RateControlConfig
@@ -188,11 +232,14 @@ func TestRateControlCQValidatesLevelAgainstBounds(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range tests {
-		var rc rateControlState
-		err := rc.applyConfig(tc.cfg, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
-		if err != ErrInvalidQuantizer {
-			t.Fatalf("%s error = %v, want ErrInvalidQuantizer", tc.name, err)
+	for _, mode := range modes {
+		for _, tc := range tests {
+			tc.cfg.Mode = mode.mode
+			var rc rateControlState
+			err := rc.applyConfig(tc.cfg, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+			if err != ErrInvalidQuantizer {
+				t.Fatalf("%s %s error = %v, want ErrInvalidQuantizer", mode.name, tc.name, err)
+			}
 		}
 	}
 }

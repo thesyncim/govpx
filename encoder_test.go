@@ -31,6 +31,11 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 		t.Fatalf("CQ level error = %v, want ErrInvalidQuantizer", err)
 	}
 
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, RateControlMode: RateControlQ, TargetBitrateKbps: 1200, MinQuantizer: 4, MaxQuantizer: 56, CQLevel: 64})
+	if !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("Q CQ level error = %v, want ErrInvalidQuantizer", err)
+	}
+
 	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, MaxIntraBitratePct: -1})
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("max intra bitrate error = %v, want ErrInvalidConfig", err)
