@@ -4862,6 +4862,12 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
+	coeffDst := &coeffs
+	if e.interRDCoeffCacheScratchTarget != nil {
+		e.interRDCoeffCacheScratchTarget.coeffs = vp8enc.MacroblockCoefficients{}
+		e.interRDCoeffCacheScratchTarget.coeffsValid = false
+		coeffDst = &e.interRDCoeffCacheScratchTarget.coeffs
+	}
 	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
 	// Plumb the encoder's scratch DCT cache (when an RD picker pass is
 	// active) through to buildPredictedMacroblockCoefficients so each
@@ -4886,7 +4892,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 		fastQuant:     e.libvpxUseFastQuantForPick(),
 		optimize:      false,
 		collectStats:  true,
-		coeffs:        &coeffs,
+		coeffs:        coeffDst,
 		cacheOut:      e.interRDCoeffCacheScratchTarget,
 	})
 	rateUV := stats.rateUV
@@ -4895,7 +4901,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 	mbSkipCoeff := stats.tteob == 0
 	staleY2 := staleY2Snapshot{}
 	if !is4x4 {
-		staleY2 = staleY2Snapshot{set: true, eob: coeffs.EOB[24], qcoeff: coeffs.QCoeff[24]}
+		staleY2 = staleY2Snapshot{set: true, eob: coeffDst.EOB[24], qcoeff: coeffDst.QCoeff[24]}
 	}
 	if mbSkipCoeff {
 		rate2 -= stats.rateY + stats.rateUV
@@ -7228,6 +7234,7 @@ type predictedMacroblockCoefficientArgs struct {
 // cached DCTs so all token-context outputs stay byte-identical.
 type interRDCoeffCacheState struct {
 	valid         bool
+	coeffsValid   bool
 	is4x4         bool
 	intra         bool
 	fastQuant     bool
@@ -7244,6 +7251,10 @@ type interRDCoeffCacheState struct {
 	YDCTs [16 * 16]int16
 	// UVDCTs holds the 8 chroma DCTs (U0..U3 then V0..V3).
 	UVDCTs [8 * 16]int16
+	// coeffs holds the post-quantized coefficient package for picker
+	// candidates whose quantizer output is reusable by the accepted path
+	// (same quant identity, no trellis/optimizer dependency).
+	coeffs vp8enc.MacroblockCoefficients
 }
 
 func (c *interRDCoeffCacheState) reset() {
@@ -7251,15 +7262,17 @@ func (c *interRDCoeffCacheState) reset() {
 		return
 	}
 	c.valid = false
+	c.coeffsValid = false
 }
 
-// consumeInterRDCoeffCache returns the winner cache slot if it is valid
-// and immediately invalidates it (single-use). Returns nil when the cache
-// is empty so the caller does not need to perform parity checks before
-// falling back to the full coefficient build. Parity validation against
-// the consumer's args is still performed inside buildPredictedMacroblock-
-// Coefficients via interRDCacheReusable, so a stale winner that survived
-// the loop without becoming the actual winner is safely rejected there.
+// consumeInterRDCoeffCache returns the winner cache slot if it is valid.
+// Returns nil when the cache is empty so the caller does not need to perform
+// parity checks before falling back to the full coefficient build. Parity
+// validation against the consumer's args is still performed inside
+// buildPredictedMacroblockCoefficients via interRDCacheReusable, so a stale
+// winner that survived the loop without becoming the actual winner is safely
+// rejected there. The next picker invocation resets both slots, so keeping the
+// valid bit set for this consumer does not leak across macroblocks.
 func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 	if e == nil {
 		return nil
@@ -7268,9 +7281,7 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 	if !winner.valid {
 		return nil
 	}
-	cache := winner
-	winner.valid = false
-	return cache
+	return winner
 }
 
 // interRDCacheReusable returns true when the picker → accepted-path DCT
@@ -7295,6 +7306,14 @@ func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCo
 		c.qIndex == args.qIndex &&
 		c.zbinOverQuant == args.zbinOverQuant &&
 		c.zbinModeBoost == args.zbinModeBoost
+}
+
+func interRDCacheCoefficientsReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
+	return interRDCacheReusable(c, args) &&
+		c.coeffsValid &&
+		!args.collectStats &&
+		!args.collectOracle &&
+		!args.optimize
 }
 
 func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArgs) {
@@ -7360,6 +7379,10 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	coeffs := args.coeffs
 	collectStats := args.collectStats
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
+		return stats
+	}
+	if interRDCacheCoefficientsReusable(args.cacheIn, args) {
+		*coeffs = args.cacheIn.coeffs
 		return stats
 	}
 	var y2Input [16]int16
@@ -7595,6 +7618,7 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 		if collectStats {
 			stats.distortionUV >>= 2
 		}
+		storeInterRDCacheCoefficients(args)
 		return stats
 	}
 
@@ -7646,7 +7670,22 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	if collectStats {
 		stats.distortionUV >>= 2
 	}
+	storeInterRDCacheCoefficients(args)
 	return stats
+}
+
+func storeInterRDCacheCoefficients(args *predictedMacroblockCoefficientArgs) {
+	if args == nil || args.cacheOut == nil {
+		return
+	}
+	args.cacheOut.coeffsValid = false
+	if args.optimize || args.collectOracle || args.coeffs == nil {
+		return
+	}
+	if args.coeffs != &args.cacheOut.coeffs {
+		args.cacheOut.coeffs = *args.coeffs
+	}
+	args.cacheOut.coeffsValid = true
 }
 
 // gatherMacroblockYResiduals4x4 writes the 16 luma 4x4 residuals of

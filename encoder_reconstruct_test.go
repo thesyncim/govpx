@@ -243,6 +243,92 @@ func TestLibvpxUseFastQuantForPickGateMirrorsSpeedFeatures(t *testing.T) {
 	}
 }
 
+func TestConsumeInterRDCoeffCacheKeepsWinnerValidForConsumer(t *testing.T) {
+	var e VP8Encoder
+	e.interRDCoeffCacheWinner = 0
+	e.interRDCoeffCacheSlots[0] = interRDCoeffCacheState{
+		valid:         true,
+		is4x4:         false,
+		intra:         false,
+		fastQuant:     true,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		mbRow:         2,
+		mbCol:         3,
+	}
+
+	cache := e.consumeInterRDCoeffCache()
+	if cache == nil {
+		t.Fatalf("consumeInterRDCoeffCache returned nil")
+	}
+	args := predictedMacroblockCoefficientArgs{
+		mbRow:         2,
+		mbCol:         3,
+		is4x4:         false,
+		intra:         false,
+		fastQuant:     true,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+	}
+	if !interRDCacheReusable(cache, &args) {
+		t.Fatalf("consumed cache is not reusable by matching accepted-path args")
+	}
+}
+
+func TestInterRDCoeffCacheReusesPreparedCoefficients(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var quant vp8enc.MacroblockQuant
+	var pred vp8common.Image
+	cache := interRDCoeffCacheState{
+		valid:         true,
+		coeffsValid:   true,
+		is4x4:         false,
+		intra:         false,
+		fastQuant:     true,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		mbRow:         2,
+		mbCol:         3,
+	}
+	cache.coeffs.QCoeff[24][0] = 3
+	cache.coeffs.SetBlockEOB(24, 1)
+	var out vp8enc.MacroblockCoefficients
+
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:     &probs,
+		mbRow:         2,
+		mbCol:         3,
+		pred:          &pred,
+		quant:         &quant,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		fastQuant:     true,
+		coeffs:        &out,
+		cacheIn:       &cache,
+	})
+	if stats != (predictedMacroblockRDStats{}) {
+		t.Fatalf("stats = %+v, want zero for accepted-path coefficient reuse", stats)
+	}
+	if out != cache.coeffs {
+		t.Fatalf("reused coeffs = %+v, want cached %+v", out, cache.coeffs)
+	}
+	if interRDCacheCoefficientsReusable(&cache, &predictedMacroblockCoefficientArgs{
+		mbRow:         2,
+		mbCol:         3,
+		fastQuant:     true,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		optimize:      true,
+	}) {
+		t.Fatalf("optimized accepted path must not reuse picker coefficients")
+	}
+}
+
 func TestLibvpxFrameQuantDeltas(t *testing.T) {
 	tests := []struct {
 		name              string
