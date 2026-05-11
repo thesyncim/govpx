@@ -7456,68 +7456,125 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	}
 	yDcts := yDctsPtr[:]
 
-	for block := range 16 {
-		dct := (*[16]int16)(yDcts[block*16 : block*16+16])
+	if fastQuant {
+		var yDQ [16 * 16]int16
+		var yEOB [16]uint8
+		yQuant := &quant.Y1DC
+		blockType := 0
+		skipDC := 1
 		if is4x4 {
-			// Capture a local Y2-equivalent snapshot for direct helper
-			// callers. The encoder path overwrites this from picker state.
+			yQuant = &quant.Y1
+			blockType = 3
+			skipDC = 0
+		}
+		for block := range 16 {
+			dct := (*[16]int16)(yDcts[block*16 : block*16+16])
 			y2Input[block] = dct[0]
+			if !is4x4 {
+				// Use quant.Y1 (not quant.Y1DC) because govpx's Y1DC dequant
+				// table is normalized so dequant[0]=1 (the actual DC value
+				// lives in the Y2 second-order block); the libvpx Y1quant[Q]
+				// the encode path actually exercises has the proper DC at
+				// slot 0, which govpx mirrors in quant.Y1.
+				if collectOracle {
+					coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+				}
+				dct[0] = 0
+			}
+		}
+		qY := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[0][0])), 16*16)
+		vp8enc.FastQuantizeBlockBatch(yDcts, yQuant, qY, yDQ[:], yEOB[:], 16)
+		for block := range 16 {
+			dct := (*[16]int16)(yDcts[block*16 : block*16+16])
+			dqY := (*[16]int16)(yDQ[block*16 : block*16+16])
 			a := block & 3
 			l := (block & 0x0c) >> 2
 			ctx := 0
 			if needTokenContext {
 				ctx = int(yAbove[a] + yLeft[l])
 			}
-			eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+			eob := int(yEOB[block])
 			coeffs.SetBlockEOB(block, eob)
 			if collectStats {
-				stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
-				stats.distortionY += transformBlockError(dct, &dq)
-				if eob > 0 {
+				stats.rateY += coefficientBlockTokenRate(coefProbs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob)
+				stats.distortionY += transformBlockError(dct, dqY)
+				if eob > skipDC {
 					stats.tteob++
 				}
 			}
 			if needTokenContext {
 				hasCoeffs := uint8(0)
-				if eob > 0 {
+				if eob > skipDC {
 					hasCoeffs = 1
 				}
 				yAbove[a] = hasCoeffs
 				yLeft[l] = hasCoeffs
 			}
-		} else {
-			y2Input[block] = dct[0]
-			// Use quant.Y1 (not quant.Y1DC) because govpx's Y1DC dequant
-			// table is normalized so dequant[0]=1 (the actual DC value
-			// lives in the Y2 second-order block); the libvpx Y1quant[Q]
-			// the encode path actually exercises has the proper DC at
-			// slot 0, which govpx mirrors in quant.Y1.
-			if collectOracle {
-				coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
-			}
-			dct[0] = 0
-			a := block & 3
-			l := (block & 0x0c) >> 2
-			ctx := 0
-			if needTokenContext {
-				ctx = int(yAbove[a] + yLeft[l])
-			}
-			eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
-			coeffs.SetBlockEOB(block, eob)
-			if collectStats {
-				stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
-				stats.distortionY += transformBlockError(dct, &dq)
-				if eob > 1 {
-					stats.tteob++
+		}
+	} else {
+		for block := range 16 {
+			dct := (*[16]int16)(yDcts[block*16 : block*16+16])
+			if is4x4 {
+				// Capture a local Y2-equivalent snapshot for direct helper
+				// callers. The encoder path overwrites this from picker state.
+				y2Input[block] = dct[0]
+				a := block & 3
+				l := (block & 0x0c) >> 2
+				ctx := 0
+				if needTokenContext {
+					ctx = int(yAbove[a] + yLeft[l])
 				}
-			}
-			if needTokenContext {
-				hasCoeffs := uint8(0)
-				if eob > 1 {
-					hasCoeffs = 1
+				eob := quantizeEncodedBlock(coefProbs, qIndex, 3, ctx, 0, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+				coeffs.SetBlockEOB(block, eob)
+				if collectStats {
+					stats.rateY += coefficientBlockTokenRate(coefProbs, 3, ctx, 0, &coeffs.QCoeff[block], eob)
+					stats.distortionY += transformBlockError(dct, &dq)
+					if eob > 0 {
+						stats.tteob++
+					}
 				}
-				yAbove[a] = hasCoeffs
-				yLeft[l] = hasCoeffs
+				if needTokenContext {
+					hasCoeffs := uint8(0)
+					if eob > 0 {
+						hasCoeffs = 1
+					}
+					yAbove[a] = hasCoeffs
+					yLeft[l] = hasCoeffs
+				}
+			} else {
+				y2Input[block] = dct[0]
+				// Use quant.Y1 (not quant.Y1DC) because govpx's Y1DC dequant
+				// table is normalized so dequant[0]=1 (the actual DC value
+				// lives in the Y2 second-order block); the libvpx Y1quant[Q]
+				// the encode path actually exercises has the proper DC at
+				// slot 0, which govpx mirrors in quant.Y1.
+				if collectOracle {
+					coeffs.OracleY1DCEOB1[block] = libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant)
+				}
+				dct[0] = 0
+				a := block & 3
+				l := (block & 0x0c) >> 2
+				ctx := 0
+				if needTokenContext {
+					ctx = int(yAbove[a] + yLeft[l])
+				}
+				eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
+				coeffs.SetBlockEOB(block, eob)
+				if collectStats {
+					stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
+					stats.distortionY += transformBlockError(dct, &dq)
+					if eob > 1 {
+						stats.tteob++
+					}
+				}
+				if needTokenContext {
+					hasCoeffs := uint8(0)
+					if eob > 1 {
+						hasCoeffs = 1
+					}
+					yAbove[a] = hasCoeffs
+					yLeft[l] = hasCoeffs
+				}
 			}
 		}
 	}
