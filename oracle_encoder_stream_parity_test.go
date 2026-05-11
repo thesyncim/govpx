@@ -77,6 +77,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// tokenPartitions overrides EncoderOptions.TokenPartitions
 		// (0=1 partition, 1=2, 2=4, 3=8).
 		tokenPartitions int
+		// targetKbpsOverride lets a case pin a different bitrate
+		// budget than the test's default targetKbps.
+		targetKbpsOverride int
+		// minQ / maxQ override the default 4 / 56 quantizer band.
+		minQ int
+		maxQ int
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
@@ -121,6 +127,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-2partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu8-4partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu8-8partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// Different bitrate targets.
+		{name: "realtime-cbr-cpu8-bitrate200", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu8-bitrate2000", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// Tight quantizer band.
+		{name: "realtime-cbr-cpu8-q10-30", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, minQ: 10, maxQ: 30},
 	}
 
 	for _, tc := range cases {
@@ -133,14 +144,26 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if rcMode == 0 {
 				rcMode = RateControlCBR
 			}
+			caseTargetKbps := targetKbps
+			if tc.targetKbpsOverride > 0 {
+				caseTargetKbps = tc.targetKbpsOverride
+			}
+			minQ := 4
+			if tc.minQ > 0 {
+				minQ = tc.minQ
+			}
+			maxQ := 56
+			if tc.maxQ > 0 {
+				maxQ = tc.maxQ
+			}
 			opts := EncoderOptions{
 				Width:                    tc.fx.w,
 				Height:                   tc.fx.h,
 				FPS:                      fps,
 				RateControlMode:          rcMode,
-				TargetBitrateKbps:        targetKbps,
-				MinQuantizer:             4,
-				MaxQuantizer:             56,
+				TargetBitrateKbps:        caseTargetKbps,
+				MinQuantizer:             minQ,
+				MaxQuantizer:             maxQ,
 				KeyFrameInterval:         999,
 				Deadline:                 tc.deadline,
 				CpuUsed:                  tc.cpuUsed,
@@ -156,7 +179,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if extraArgs == nil {
 				extraArgs = []string{"--end-usage=cbr"}
 			}
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, targetKbps, sources, extraArgs)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, caseTargetKbps, sources, extraArgs)
 
 			if len(govpxFrames) != len(libvpxFrames) {
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
@@ -254,8 +277,8 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--kf-min-dist=999",
 		"--kf-max-dist=999",
 		"--target-bitrate=" + strconv.Itoa(targetKbps),
-		"--min-q=4",
-		"--max-q=56",
+		"--min-q=" + strconv.Itoa(opts.MinQuantizer),
+		"--max-q=" + strconv.Itoa(opts.MaxQuantizer),
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
