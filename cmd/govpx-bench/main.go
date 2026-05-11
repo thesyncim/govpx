@@ -36,40 +36,42 @@ type benchConfig struct {
 	SkipQuality  bool
 	Threads      int
 	CpuUsed      int
+	PhaseTiming  bool
 	LibvpxVpxenc string
 	LibvpxOracle string
 	LibvpxArgs   []string
 }
 
 type benchReport struct {
-	Encoder           string             `json:"encoder"`
-	Mode              string             `json:"mode"`
-	Width             int                `json:"width"`
-	Height            int                `json:"height"`
-	Frames            int                `json:"frames"`
-	FPS               int                `json:"fps"`
-	TargetBitrateKbps int                `json:"target_bitrate_kbps"`
-	OutputBitrateKbps float64            `json:"output_bitrate_kbps"`
-	BitrateErrorPct   float64            `json:"bitrate_error_pct"`
-	NSPerFrame        int64              `json:"ns_per_frame"`
-	EncodeFPS         float64            `json:"encode_fps"`
-	MacroblocksPerSec float64            `json:"macroblocks_per_second"`
-	AllocsPerFrame    float64            `json:"allocs_per_frame"`
-	PSNR              float64            `json:"psnr"`
-	SSIM              float64            `json:"ssim"`
-	QualityFrames     int                `json:"quality_frames"`
-	QualitySkipped    bool               `json:"quality_skipped,omitempty"`
-	KeyframeBytes     int                `json:"keyframe_bytes"`
-	AvgInterBytes     float64            `json:"avg_interframe_bytes"`
-	Quantizers        quantizerReport    `json:"quantizers"`
-	LatencyNS         latencyReport      `json:"latency_ns"`
-	OutputBytes       int                `json:"output_bytes"`
-	EncodedFrames     int                `json:"encoded_frames"`
-	DroppedFrames     int                `json:"dropped_frames"`
-	QuantizerHist     map[string]int     `json:"quantizer_histogram"`
-	Reference         *referenceReport   `json:"reference,omitempty"`
-	Comparison        *comparisonReport  `json:"comparison_vs_reference,omitempty"`
-	Options           benchConfigSummary `json:"options"`
+	Encoder           string                   `json:"encoder"`
+	Mode              string                   `json:"mode"`
+	Width             int                      `json:"width"`
+	Height            int                      `json:"height"`
+	Frames            int                      `json:"frames"`
+	FPS               int                      `json:"fps"`
+	TargetBitrateKbps int                      `json:"target_bitrate_kbps"`
+	OutputBitrateKbps float64                  `json:"output_bitrate_kbps"`
+	BitrateErrorPct   float64                  `json:"bitrate_error_pct"`
+	NSPerFrame        int64                    `json:"ns_per_frame"`
+	EncodeFPS         float64                  `json:"encode_fps"`
+	MacroblocksPerSec float64                  `json:"macroblocks_per_second"`
+	AllocsPerFrame    float64                  `json:"allocs_per_frame"`
+	PSNR              float64                  `json:"psnr"`
+	SSIM              float64                  `json:"ssim"`
+	QualityFrames     int                      `json:"quality_frames"`
+	QualitySkipped    bool                     `json:"quality_skipped,omitempty"`
+	KeyframeBytes     int                      `json:"keyframe_bytes"`
+	AvgInterBytes     float64                  `json:"avg_interframe_bytes"`
+	Quantizers        quantizerReport          `json:"quantizers"`
+	LatencyNS         latencyReport            `json:"latency_ns"`
+	PhaseNS           *govpx.EncoderPhaseStats `json:"phase_ns,omitempty"`
+	OutputBytes       int                      `json:"output_bytes"`
+	EncodedFrames     int                      `json:"encoded_frames"`
+	DroppedFrames     int                      `json:"dropped_frames"`
+	QuantizerHist     map[string]int           `json:"quantizer_histogram"`
+	Reference         *referenceReport         `json:"reference,omitempty"`
+	Comparison        *comparisonReport        `json:"comparison_vs_reference,omitempty"`
+	Options           benchConfigSummary       `json:"options"`
 }
 
 type measuredEncodePacket struct {
@@ -280,6 +282,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "skip-quality", false, "alias for -encode-only")
 	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
 	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and libvpx; negative realtime values pin libvpx Speed")
+	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", os.Getenv("GOVPX_VPXENC"), "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", os.Getenv("GOVPX_ORACLE"), "optional libvpx checksum oracle path for decoder reference timing")
 	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
@@ -347,6 +350,9 @@ func formatEncodeReport(r benchReport) string {
 		r.Quantizers.Min, r.Quantizers.Max, r.Quantizers.Mean, r.EncodedFrames, r.DroppedFrames)
 	fmt.Fprintf(&b, "govpx latency   p50=%s  p95=%s  p99=%s\n",
 		formatDuration(r.LatencyNS.P50), formatDuration(r.LatencyNS.P95), formatDuration(r.LatencyNS.P99))
+	if r.PhaseNS != nil {
+		appendEncodePhaseReport(&b, *r.PhaseNS, r.Frames)
+	}
 	if r.Reference != nil {
 		ref := r.Reference
 		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
@@ -359,6 +365,19 @@ func formatEncodeReport(r benchReport) string {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
 	}
 	return b.String()
+}
+
+func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, frames int) {
+	if frames <= 0 {
+		frames = 1
+	}
+	fmt.Fprintf(b, "phase/frame     inter_recon=%s  key_recon=%s  lf_pick=%s  lf_apply=%s  packet=%s\n",
+		formatDuration(stats.InterReconstructNS/int64(frames)),
+		formatDuration(stats.KeyReconstructNS/int64(frames)),
+		formatDuration(stats.LoopFilterPickNS/int64(frames)),
+		formatDuration(stats.LoopFilterApplyNS/int64(frames)),
+		formatDuration(stats.PacketWriteNS/int64(frames)))
+	fmt.Fprintf(b, "phase attempts  inter=%d  key=%d\n", stats.InterAttempts, stats.KeyAttempts)
 }
 
 func formatDecodeReport(r decodeBenchReport) string {
@@ -551,7 +570,12 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
 	}
 
-	enc, err := newBenchmarkEncoder(cfg, deadline)
+	encoderOpts := benchmarkEncoderOptions(cfg, deadline)
+	var phaseStats govpx.EncoderPhaseStats
+	if cfg.PhaseTiming {
+		encoderOpts.PhaseStats = &phaseStats
+	}
+	enc, err := govpx.NewVP8Encoder(encoderOpts)
 	if err != nil {
 		return benchReport{}, err
 	}
@@ -576,6 +600,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		}
 	}
 	enc.Reset()
+	phaseStats.Reset()
 	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
 	encodeMallocs := uint64(0)
 	for i, frame := range frames {
@@ -684,6 +709,9 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		DroppedFrames: droppedFrames,
 		QuantizerHist: quantizerHistogramMap(&quantHist),
 		Options:       benchSummary(cfg, deadlineName),
+	}
+	if cfg.PhaseTiming {
+		report.PhaseNS = &phaseStats
 	}
 	if cfg.LibvpxVpxenc != "" {
 		reference, err := runLibvpxBenchmark(cfg, frames, deadlineName)

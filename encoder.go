@@ -55,6 +55,36 @@ const (
 	EncodeForceAltRefFrame
 )
 
+// EncoderPhaseStats accumulates opt-in coarse encoder phase timing in
+// nanoseconds. The encoder updates the caller-owned value only when
+// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the clock.
+type EncoderPhaseStats struct {
+	InterReconstructNS int64 `json:"inter_reconstruct_ns"`
+	KeyReconstructNS   int64 `json:"key_reconstruct_ns"`
+	LoopFilterPickNS   int64 `json:"loop_filter_pick_ns"`
+	LoopFilterApplyNS  int64 `json:"loop_filter_apply_ns"`
+	PacketWriteNS      int64 `json:"packet_write_ns"`
+	InterAttempts      int64 `json:"inter_attempts"`
+	KeyAttempts        int64 `json:"key_attempts"`
+}
+
+func (s *EncoderPhaseStats) Reset() {
+	if s == nil {
+		return
+	}
+	*s = EncoderPhaseStats{}
+}
+
+type encoderPhase uint8
+
+const (
+	encoderPhaseInterReconstruct encoderPhase = iota
+	encoderPhaseKeyReconstruct
+	encoderPhaseLoopFilterPick
+	encoderPhaseLoopFilterApply
+	encoderPhasePacketWrite
+)
+
 type EncoderOptions struct {
 	Width  int
 	Height int
@@ -182,6 +212,11 @@ type EncoderOptions struct {
 	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
 	// oxcf.encode_breakout for first-pass and inter-frame static skips.
 	StaticThreshold int
+
+	// PhaseStats, when non-nil, receives coarse per-attempt encoder phase
+	// timings. The caller owns the pointed-to value and may Reset it between
+	// warmup and measured passes.
+	PhaseStats *EncoderPhaseStats
 
 	// OracleTraceWriter is an off-by-default oracle harness output. When
 	// non-nil, the encoder writes a deterministic JSON Lines trace describing
@@ -659,6 +694,44 @@ type VP8Encoder struct {
 }
 
 const encoderQuantizerFeedbackMaxAttempts = 8
+
+func (e *VP8Encoder) phaseStart() int64 {
+	if e == nil || e.opts.PhaseStats == nil {
+		return 0
+	}
+	return nanotime()
+}
+
+func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
+	if start == 0 || e == nil || e.opts.PhaseStats == nil {
+		return
+	}
+	elapsed := nanotime() - start
+	stats := e.opts.PhaseStats
+	switch phase {
+	case encoderPhaseInterReconstruct:
+		stats.InterReconstructNS += elapsed
+	case encoderPhaseKeyReconstruct:
+		stats.KeyReconstructNS += elapsed
+	case encoderPhaseLoopFilterPick:
+		stats.LoopFilterPickNS += elapsed
+	case encoderPhaseLoopFilterApply:
+		stats.LoopFilterApplyNS += elapsed
+	case encoderPhasePacketWrite:
+		stats.PacketWriteNS += elapsed
+	}
+}
+
+func (e *VP8Encoder) phaseCountAttempt(keyFrame bool) {
+	if e == nil || e.opts.PhaseStats == nil {
+		return
+	}
+	if keyFrame {
+		e.opts.PhaseStats.KeyAttempts++
+	} else {
+		e.opts.PhaseStats.InterAttempts++
+	}
+}
 
 // savedCodingContext mirrors libvpx vp8/encoder/ratectrl.c CODING_CONTEXT.
 // vp8_save_coding_context snapshots these fields before the recode do-loop in
@@ -1603,6 +1676,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 }
 
 func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
+	e.phaseCountAttempt(true)
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return keyFrameEncodeAttempt{}, ErrInvalidConfig
 	}
@@ -1613,22 +1687,29 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	var err error
 	projectedRate := 0
+	phase := e.phaseStart()
 	if segmentation.Enabled {
 		assignKeyFrameStaticSegments(rows, cols, e.keyFrameModes[:required])
 		projectedRate, err = e.buildReconstructingKeyFrameCoefficientsWithSegmentation(source, e.rc.currentQuantizer, segmentation, true, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	} else {
 		projectedRate, err = e.buildReconstructingKeyFrameCoefficients(source, e.rc.currentQuantizer, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols)
 	}
+	e.phaseEnd(encoderPhaseKeyReconstruct, phase)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	lfLevel, lfSharpness := e.encoderLoopFilter(vp8common.KeyFrame)
+	phase = e.phaseStart()
 	lfLevel, err = e.pickLoopFilterLevel(source, vp8common.KeyFrame, lfLevel, lfSharpness, rows, cols, required, segmentation, false, false)
+	e.phaseEnd(encoderPhaseLoopFilterPick, phase)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
-	if err := e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required); err != nil {
+	phase = e.phaseStart()
+	err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
+	e.phaseEnd(encoderPhaseLoopFilterApply, phase)
+	if err != nil {
 		return keyFrameEncodeAttempt{}, err
 	}
 	if segmentation.Enabled {
@@ -1651,7 +1732,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefreshEntropyProbs: true,
 		IndependentContexts: e.opts.ErrorResilientPartitions,
 	}
+	phase = e.phaseStart()
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch)
+	e.phaseEnd(encoderPhasePacketWrite, phase)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -1881,6 +1964,7 @@ func (e *VP8Encoder) currentPredictionErrorMB(macroblocks int) int {
 }
 
 func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, needProjectedSize bool) (interFrameEncodeAttempt, error) {
+	e.phaseCountAttempt(false)
 	e.framePredictionError = 0
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
@@ -1935,7 +2019,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			}
 			fillZeroInterFrameModes(e.interFrameModes[:required], refFrame)
 			cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
+			phase := e.phaseStart()
 			n, err := vp8enc.WriteZeroReferenceInterFrame(dst, e.opts.Width, e.opts.Height, cfg, refFrame)
+			e.phaseEnd(encoderPhasePacketWrite, phase)
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
@@ -1987,6 +2073,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	defer func() {
 		e.rdPickerCoefProbsActive = previousRDPickerCoefProbs
 	}()
+	phase := e.phaseStart()
 	if segmentation.Enabled {
 		cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
 		if e.rowWorkers != nil {
@@ -2001,6 +2088,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			projectedRate, err = e.buildReconstructingInterFrameCoefficients(source, e.rc.currentQuantizer, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
 		}
 	}
+	e.phaseEnd(encoderPhaseInterReconstruct, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
@@ -2008,7 +2096,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// Output goes to denoiser.runningAvg[INTRA] which propagates to
 	// reference-aligned buffers in commitInterFrameAttempt.
 	e.applyDenoiserToInterFrame(source, rows, cols)
+	phase = e.phaseStart()
 	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
+	e.phaseEnd(encoderPhaseLoopFilterPick, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
@@ -2019,7 +2109,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
 	if cfg.RefreshLast || cfg.RefreshGolden || cfg.RefreshAltRef {
-		if err := e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required); err != nil {
+		phase = e.phaseStart()
+		err = e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required)
+		e.phaseEnd(encoderPhaseLoopFilterApply, phase)
+		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
 	} else {
@@ -2056,7 +2149,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if e.interCoefTokenRecordsValid {
 		packet.PrebuiltCoefTokens = &e.interCoefTokenRecords
 	}
+	phase = e.phaseStart()
 	packetResult, err := packet.Write()
+	e.phaseEnd(encoderPhasePacketWrite, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}

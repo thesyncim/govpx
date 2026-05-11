@@ -150,6 +150,35 @@ func TestRunBenchmarkSkipQuality(t *testing.T) {
 	}
 }
 
+func TestRunBenchmarkPhaseTiming(t *testing.T) {
+	report, err := runBenchmark(benchConfig{
+		Width:       16,
+		Height:      16,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		SkipQuality: true,
+		PhaseTiming: true,
+	})
+	if err != nil {
+		t.Fatalf("runBenchmark returned error: %v", err)
+	}
+	if report.PhaseNS == nil {
+		t.Fatalf("PhaseNS = nil, want populated when PhaseTiming is true")
+	}
+	if report.PhaseNS.KeyAttempts == 0 || report.PhaseNS.InterAttempts == 0 {
+		t.Fatalf("phase attempts = %+v, want key and inter attempts counted", *report.PhaseNS)
+	}
+	if report.PhaseNS.PacketWriteNS <= 0 || report.PhaseNS.LoopFilterPickNS <= 0 {
+		t.Fatalf("phase timings = %+v, want packet and loop-filter pick timings", *report.PhaseNS)
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "phase/frame") || !strings.Contains(text, "phase attempts") {
+		t.Fatalf("formatted report missing phase timing:\n%s", text)
+	}
+}
+
 func TestRunBenchmarkSkipQualityIncludesLibvpxReference(t *testing.T) {
 	report, err := runBenchmark(benchConfig{
 		Width:        16,
@@ -239,11 +268,11 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 			cfg := benchConfig{}
 			opts := defaultBenchCLIOptions()
 			registerBenchFlags(fs, &cfg, &opts)
-			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-auto-libvpx=false"}); err != nil {
+			if err := fs.Parse([]string{flagName, "-format=json", "-width=32", "-height=24", "-frames=7", "-cpu-used=-4", "-phase-timing", "-auto-libvpx=false"}); err != nil {
 				t.Fatalf("Parse returned error: %v", err)
 			}
-			if !cfg.SkipQuality {
-				t.Fatalf("SkipQuality = false, want true for %s", flagName)
+			if !cfg.SkipQuality || !cfg.PhaseTiming {
+				t.Fatalf("SkipQuality/PhaseTiming = %v/%v, want true/true for %s", cfg.SkipQuality, cfg.PhaseTiming, flagName)
 			}
 			if cfg.Width != 32 || cfg.Height != 24 || cfg.Frames != 7 || cfg.CpuUsed != -4 {
 				t.Fatalf("parsed config = %dx%d frames=%d cpu=%d, want 32x24 frames=7 cpu=-4", cfg.Width, cfg.Height, cfg.Frames, cfg.CpuUsed)
