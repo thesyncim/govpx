@@ -345,19 +345,21 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 	for pos := skipDC; pos < eob; pos++ {
 		rc := int(tables.DefaultZigZag1D[pos])
 		coeff := int(qcoeff[rc])
-		if coeff == 0 {
-			(*counts)[blockType][band][tokenCtx][tables.ZeroToken]++
-			if pos+1 < 16 {
-				band = int(tables.CoefBandsTable[pos+1])
-				tokenCtx = 0
-			}
-			continue
+		// Inline coeffToken via the abs+LUT path used by
+		// writeBlockTokensEOB so this count walk matches the writer
+		// classification exactly. Index 0 of the LUT is ZeroToken, so
+		// coeff == 0 needs no special case for the token id; the only
+		// thing the zero branch used to own was the
+		// "tokenCtx = 0" reset, which now falls out of
+		// tables.PrevTokenClass[ZeroToken] (= 0).
+		mag := coeff
+		if coeff < 0 {
+			mag = -coeff
 		}
-
-		token, _, ok := coeffToken(coeff)
-		if !ok {
+		if mag > tables.DCTMaxValue {
 			return ErrInvalidPacketConfig
 		}
+		token := int(coeffAbsTokenLUT[mag])
 		(*counts)[blockType][band][tokenCtx][token]++
 		if pos+1 < 16 {
 			band = int(tables.CoefBandsTable[pos+1])

@@ -249,36 +249,60 @@ func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
 	return eob
 }
 
+// coeffAbsTokenLUT maps abs(coeff) in [0, DCTMaxValue] to the VP8 entropy
+// token id. Index 0 carries tables.ZeroToken so the table can also be
+// consulted by callers that prefer a single load over an explicit
+// "coeff == 0" branch.
+//
+// Materializing the classifier as a 2049-byte lookup turns the hot
+// per-coefficient classification (previously a function call with a
+// six-way range-comparison switch -- gcflags -m=2 reports
+// "cannot inline coeffToken: function too complex: cost 102 exceeds
+// budget 80") into a single byte load that the compiler can fold into
+// the surrounding loop body. Out-of-range magnitudes
+// (abs(coeff) > DCTMaxValue) are filtered by the caller before
+// indexing, so the LUT itself never needs a sentinel value.
+var coeffAbsTokenLUT = buildCoeffAbsTokenLUT()
+
+func buildCoeffAbsTokenLUT() [tables.DCTMaxValue + 1]uint8 {
+	var lut [tables.DCTMaxValue + 1]uint8
+	for i := 0; i <= tables.DCTMaxValue; i++ {
+		switch {
+		case i == 0:
+			lut[i] = tables.ZeroToken
+		case i == 1:
+			lut[i] = tables.OneToken
+		case i == 2:
+			lut[i] = tables.TwoToken
+		case i == 3:
+			lut[i] = tables.ThreeToken
+		case i == 4:
+			lut[i] = tables.FourToken
+		case i <= 6:
+			lut[i] = tables.DCTValCategory1
+		case i <= 10:
+			lut[i] = tables.DCTValCategory2
+		case i <= 18:
+			lut[i] = tables.DCTValCategory3
+		case i <= 34:
+			lut[i] = tables.DCTValCategory4
+		case i <= 66:
+			lut[i] = tables.DCTValCategory5
+		default:
+			lut[i] = tables.DCTValCategory6
+		}
+	}
+	return lut
+}
+
 func coeffToken(coeff int) (int, int, bool) {
 	if coeff < 0 {
 		coeff = -coeff
 	}
-	switch {
-	case coeff <= 0:
-		return 0, 0, false
-	case coeff == 1:
-		return tables.OneToken, coeff, true
-	case coeff == 2:
-		return tables.TwoToken, coeff, true
-	case coeff == 3:
-		return tables.ThreeToken, coeff, true
-	case coeff == 4:
-		return tables.FourToken, coeff, true
-	case coeff <= 6:
-		return tables.DCTValCategory1, coeff, true
-	case coeff <= 10:
-		return tables.DCTValCategory2, coeff, true
-	case coeff <= 18:
-		return tables.DCTValCategory3, coeff, true
-	case coeff <= 34:
-		return tables.DCTValCategory4, coeff, true
-	case coeff <= 66:
-		return tables.DCTValCategory5, coeff, true
-	case coeff <= maxCategory6Coeff:
-		return tables.DCTValCategory6, coeff, true
-	default:
+	if coeff <= 0 || coeff > tables.DCTMaxValue {
 		return 0, 0, false
 	}
+	return int(coeffAbsTokenLUT[coeff]), coeff, true
 }
 
 // ResetTokenContextPlanes applies the inter-frame mb_no_coeff_skip context
