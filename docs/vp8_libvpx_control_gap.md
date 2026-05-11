@@ -21,10 +21,9 @@ cleanly onto libvpx behavior where that behavior is useful.
 The highest-value missing controls are:
 
 1. `VP8E_SET_ROI_MAP`
-2. `VP8_SET_REFERENCE` / `VP8_COPY_REFERENCE` on encoder
-3. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
-4. VPX_Q constant-quality mode
-5. Optional: spatial resampling / scale mode, output-partition packetization,
+2. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
+3. VPX_Q constant-quality mode
+4. Optional: spatial resampling / scale mode, output-partition packetization,
    PSNR packets, and `VP8E_SET_RTC_EXTERNAL_RATECTRL`
 
 The controls that are probably not worth porting by default are encoder
@@ -51,6 +50,7 @@ does not actually wire into the VP8 encoder.
 | `VP8E_SET_TEMPORAL_LAYER_ID` | `SetTemporalLayerID` | Also has `TemporalScalabilityConfig` for built-in patterns. |
 | `VP8E_SET_ACTIVEMAP` | `SetActiveMap` | Per-MB active/inactive map exists. |
 | `VP8E_SET_SCREEN_CONTENT_MODE` | `EncoderOptions.ScreenContentMode`, `SetScreenContentMode` | Modes 0..2. |
+| `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on encoder | `VP8Encoder.SetReferenceFrame`, `VP8Encoder.CopyReferenceFrame` | Reference selectors use LAST/GOLDEN/ALTREF. Setting a reference extends borders and invalidates encoder state tied to old reference identity. |
 | `VP8_SET_POSTPROC` on decoder | `DecoderOptions.PostProcess*` | Decoder postproc is exposed as Go flags. |
 | `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on decoder | `VP8Decoder.SetReferenceFrame`, `VP8Decoder.CopyReferenceFrame` | Requires a decoded key frame to establish dimensions. Reference selectors use the same LAST/GOLDEN/ALTREF values as `ReferenceFlags`. |
 | `VP8D_GET_LAST_REF_UPDATES`, `VP8D_GET_LAST_REF_USED`, `VPXD_GET_LAST_QUANTIZER`, `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.RefUpdates`, `FrameInfo.RefUsed`, `FrameInfo.InternalQuantizer`, `FrameInfo.Quantizer`, `FrameInfo.Corrupted`, `VP8Decoder.LastFrameInfo` | Ref flags use Go bit flags matching libvpx's LAST/GOLDEN/ALTREF bit values. `InternalQuantizer` is VP8 base qindex; `Quantizer` is govpx's public 0..63 mapping. |
@@ -109,8 +109,8 @@ Port notes:
 
 ### Reference Set/Copy
 
-Status: decoder covered, encoder missing. Priority: high for
-recovery/oracle/debug users, medium for normal encode/decode.
+Status: covered. Priority: high for recovery/oracle/debug users, medium for
+normal encode/decode.
 
 libvpx controls:
 
@@ -126,7 +126,7 @@ Why it is sane:
 - It helps WebRTC-style applications and diagnostics.
 - govpx already owns explicit `lastRef`, `goldenRef`, and `altRef` buffers.
 
-Current and suggested Go API:
+Current Go API:
 
 ```go
 type ReferenceFrame ReferenceFlags
@@ -143,7 +143,7 @@ func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error
 func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error
 ```
 
-Port notes:
+Implemented notes:
 
 - Extend borders after setting a reference.
 - On encoder reference replacement, invalidate or update state that assumes
@@ -323,10 +323,8 @@ decode.
 
 ## Suggested Port Order
 
-1. Add reference set/copy on encoder. Keep state invalidation explicit and
-   heavily tested.
-2. Add ROI map, using existing segmentation machinery and oracle tests.
-3. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
-4. Add `RateControlQ` if constant-quality callers need it.
-5. Revisit spatial resampling only after deciding the coded-size/display-size
+1. Add ROI map, using existing segmentation machinery and oracle tests.
+2. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
+3. Add `RateControlQ` if constant-quality callers need it.
+4. Revisit spatial resampling only after deciding the coded-size/display-size
    API contract.
