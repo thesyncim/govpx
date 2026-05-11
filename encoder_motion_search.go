@@ -225,8 +225,53 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
 	qIndex := s.qIndex
+	var sad4 [4]uint32
 	for range searchRange {
 		bestSite := -1
+		if bounds.containsFullPelStrict(bestRow-1, bestCol) &&
+			bounds.containsFullPelStrict(bestRow, bestCol-1) &&
+			bounds.containsFullPelStrict(bestRow, bestCol+1) &&
+			bounds.containsFullPelStrict(bestRow+1, bestCol) &&
+			ctx.fullPelSADFull4(bestRow-1, bestCol, bestRow, bestCol-1, bestRow, bestCol+1, bestRow+1, bestCol, &sad4) {
+			sad := int(sad4[0])
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(bestRow-1, bestCol, refRow8, refCol8, qIndex)
+				if cost < bestWalkCost {
+					bestWalkCost = cost
+					bestSite = 0
+				}
+			}
+			sad = int(sad4[1])
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(bestRow, bestCol-1, refRow8, refCol8, qIndex)
+				if cost < bestWalkCost {
+					bestWalkCost = cost
+					bestSite = 1
+				}
+			}
+			sad = int(sad4[2])
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(bestRow, bestCol+1, refRow8, refCol8, qIndex)
+				if cost < bestWalkCost {
+					bestWalkCost = cost
+					bestSite = 2
+				}
+			}
+			sad = int(sad4[3])
+			if sad < bestWalkCost {
+				cost := sad + libvpxFullPelMVSADCost16FromDeltas(bestRow+1, bestCol, refRow8, refCol8, qIndex)
+				if cost < bestWalkCost {
+					bestWalkCost = cost
+					bestSite = 3
+				}
+			}
+			if bestSite < 0 {
+				break
+			}
+			bestRow += int(neighbors[bestSite].Row)
+			bestCol += int(neighbors[bestSite].Col)
+			continue
+		}
 		for j, step := range neighbors {
 			row := bestRow + int(step.Row)
 			col := bestCol + int(step.Col)
