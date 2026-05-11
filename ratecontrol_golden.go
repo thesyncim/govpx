@@ -102,30 +102,15 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 	if in.Macroblocks > 0 {
 		pctGFActive = (100 * in.GFActiveCount) / in.Macroblocks
 	}
-	if pctGFActive > gfFrameUsage {
-		gfFrameUsage = pctGFActive
-	}
-	if gfFrameUsage < 0 {
-		gfFrameUsage = 0
-	}
-	if gfFrameUsage > 100 {
-		gfFrameUsage = 100
-	}
+	gfFrameUsage = min(max(max(gfFrameUsage, pctGFActive), 0), 100)
 
-	intraIdx := max(in.ThisFramePercentIntra, 0)
-	if intraIdx >= 15 {
-		intraIdx = 14
-	}
+	intraIdx := min(max(in.ThisFramePercentIntra, 0), 14)
 
 	boost := libvpxGFBoostQAdjustment[q]
 	boost = boost * libvpxGFIntraUsageAdjustment[intraIdx] / 100
 	boost = boost * libvpxGFAdjustTable[gfFrameUsage] / 100
 
-	if boost > libvpxKFGFBoostQLimits[q] {
-		boost = libvpxKFGFBoostQLimits[q]
-	} else if boost < 110 {
-		boost = 110
-	}
+	boost = min(max(boost, 110), libvpxKFGFBoostQLimits[q])
 
 	framesTillUpdate := in.BaselineGFInterval
 	if boost > 750 {
@@ -140,11 +125,9 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 	if boost >= 1500 {
 		framesTillUpdate++
 	}
-	if libvpxGFIntervalTable[gfFrameUsage] > framesTillUpdate {
-		framesTillUpdate = libvpxGFIntervalTable[gfFrameUsage]
-	}
-	if in.MaxGFInterval > 0 && framesTillUpdate > in.MaxGFInterval {
-		framesTillUpdate = in.MaxGFInterval
+	framesTillUpdate = max(framesTillUpdate, libvpxGFIntervalTable[gfFrameUsage])
+	if in.MaxGFInterval > 0 {
+		framesTillUpdate = min(framesTillUpdate, in.MaxGFInterval)
 	}
 	return gfParamsOutput{
 		Boost:            boost,
