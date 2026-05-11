@@ -199,17 +199,19 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
 	lastCol := args.cols - 1
+	// Mirrors libvpx vp8/encoder/ethreading.c: publish at trigger
+	// `(mb_col-1)%nsync == 0` (col ∈ {1, 1+nsync, 1+2*nsync, ...})
+	// with value `mb_col-1`, and wait at trigger `mb_col%nsync == 0`
+	// (col ∈ {0, nsync, 2*nsync, ...}) for above to satisfy
+	// `current_mb_col[above] >= mb_col + nsync`. The +nsync target
+	// accounts for the 4 above-right pixels of MB(row-1, col+1) that
+	// intra prediction reads.
 	for col := range args.cols {
+		if col > 0 && (col-1)%pool.syncRange == 0 {
+			pool.publishRowColumn(row, col-1)
+		}
 		if col%pool.syncRange == 0 {
-			publishCol := col - 1
-			if publishCol < -1 {
-				publishCol = -1
-			}
-			pool.publishRowColumn(row, publishCol)
-			target := col + pool.syncRange - 1
-			if target > lastCol {
-				target = lastCol
-			}
+			target := min(col+pool.syncRange, lastCol)
 			if !pool.waitForAboveColumnAbort(row, target, abort) {
 				return rowRate, nil
 			}
@@ -221,7 +223,11 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 		rowRate = libvpxAddProjectedMacroblockRate(rowRate, rate)
 	}
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
-	pool.publishRowColumn(row, lastCol)
+	// Post-row store at `cols - 1 + nsync` so the last syncRange MBs of
+	// the row below see a value beyond any in-row target. Matches
+	// libvpx's `vpx_atomic_store_release(current_mb_col, mb_col + nsync)`
+	// at end-of-row.
+	pool.publishRowColumn(row, lastCol+pool.syncRange)
 	return rowRate, nil
 }
 
@@ -298,16 +304,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	rowPredictionError := int64(0)
 	lastCol := args.cols - 1
 	for col := range args.cols {
+		if col > 0 && (col-1)%pool.syncRange == 0 {
+			pool.publishRowColumn(row, col-1)
+		}
 		if col%pool.syncRange == 0 {
-			publishCol := col - 1
-			if publishCol < -1 {
-				publishCol = -1
-			}
-			pool.publishRowColumn(row, publishCol)
-			target := col + pool.syncRange - 1
-			if target > lastCol {
-				target = lastCol
-			}
+			target := min(col+pool.syncRange, lastCol)
 			if !pool.waitForAboveColumnAbort(row, target, abort) {
 				return rowRate, nil
 			}
@@ -321,7 +322,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	}
 	rs.totalPredictionError += rowPredictionError
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
-	pool.publishRowColumn(row, lastCol)
+	pool.publishRowColumn(row, lastCol+pool.syncRange)
 	return rowRate, nil
 }
 
