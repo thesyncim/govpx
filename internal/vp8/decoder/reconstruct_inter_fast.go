@@ -201,18 +201,13 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	yOff := state.yOrigin + yRow2*state.yStride + yCol2
 
 	// --- UV plane offset & predict ---
-	// chromaMotionVectorComponent inlined.
-	var uvMVRow, uvMVCol int
-	if mvRow < 0 {
-		uvMVRow = (mvRow - 1) / 2
-	} else {
-		uvMVRow = (mvRow + 1) / 2
-	}
-	if mvCol < 0 {
-		uvMVCol = (mvCol - 1) / 2
-	} else {
-		uvMVCol = (mvCol + 1) / 2
-	}
+	// chromaMotionVectorComponent inlined. (mv +/- 1) is folded into a
+	// single +1 with a sign-keyed -2 correction so the divide isn't
+	// gated by a branch:
+	//   mask = -1 if mv<0 else 0; (mv + 1 + 2*mask) == (mv-1) when mv<0
+	//   and (mv+1) when mv>=0.
+	uvMVRow := (mvRow + 1 + 2*(mvRow>>intSignShiftDec)) / 2
+	uvMVCol := (mvCol + 1 + 2*(mvCol>>intSignShiftDec)) / 2
 	if state.fullPixel {
 		uvMVRow &^= 7
 		uvMVCol &^= 7

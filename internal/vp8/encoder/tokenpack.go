@@ -220,12 +220,13 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			bit := path.bits[i]
 			probability := p[path.nodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			if bit != 0 {
-				low += split
-				rng -= split
-			} else {
-				rng = split
-			}
+			// Branchless interval selection: mask is all-ones when bit
+			// is set, zero otherwise. The bit==0 arm keeps rng = split
+			// and low unchanged; the bit==1 arm folds in
+			// (old_rng - split) - split = rng - 2*split.
+			mask := -uint32(bit & 1)
+			low += split & mask
+			rng = split + ((rng - 2*split) & mask)
 
 			shift := int(tables.BoolNorm[byte(rng)])
 			rng <<= uint(shift)
@@ -271,12 +272,13 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			bit := uint8((offset >> uint(shiftIndex)) & 1)
 			probability := extra.probs[i]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			if bit != 0 {
-				low += split
-				rng -= split
-			} else {
-				rng = split
-			}
+			// Branchless interval selection: mask is all-ones when bit
+			// is set, zero otherwise. The bit==0 arm keeps rng = split
+			// and low unchanged; the bit==1 arm folds in
+			// (old_rng - split) - split = rng - 2*split.
+			mask := -uint32(bit & 1)
+			low += split & mask
+			rng = split + ((rng - 2*split) & mask)
 
 			shift := int(tables.BoolNorm[byte(rng)])
 			rng <<= uint(shift)
@@ -365,12 +367,12 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 		// LUT is tables.ZeroToken so the zero-coefficient branch falls
 		// through with no special case. Out-of-range magnitudes are
 		// rejected once with ErrInvalidPacketConfig.
-		mag := coeff
-		sign := uint8(0)
-		if coeff < 0 {
-			mag = -coeff
-			sign = 1
-		}
+		// Branchless |coeff| split. signMask sign-extends so the abs and
+		// the sign-nibble both come from the same shift, dropping the
+		// per-coefficient negative-branch from the inner pack loop.
+		signMask := coeff >> intSignShift
+		mag := (coeff ^ signMask) - signMask
+		sign := uint8(signMask & 1)
 		if mag > tables.DCTMaxValue {
 			return ErrInvalidPacketConfig
 		}
@@ -386,12 +388,13 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			bit := path.bits[i]
 			probability := p[path.nodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			if bit != 0 {
-				low += split
-				rng -= split
-			} else {
-				rng = split
-			}
+			// Branchless interval selection: mask is all-ones when bit
+			// is set, zero otherwise. The bit==0 arm keeps rng = split
+			// and low unchanged; the bit==1 arm folds in
+			// (old_rng - split) - split = rng - 2*split.
+			mask := -uint32(bit & 1)
+			low += split & mask
+			rng = split + ((rng - 2*split) & mask)
 
 			shift := int(tables.BoolNorm[byte(rng)])
 			rng <<= uint(shift)
@@ -427,12 +430,10 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 				bit := uint8((offset >> uint(shiftIndex)) & 1)
 				probability := extra.probs[i]
 				split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-				if bit != 0 {
-					low += split
-					rng -= split
-				} else {
-					rng = split
-				}
+				// Branchless interval selection.
+				mask := -uint32(bit & 1)
+				low += split & mask
+				rng = split + ((rng - 2*split) & mask)
 
 				shift := int(tables.BoolNorm[byte(rng)])
 				rng <<= uint(shift)
@@ -460,12 +461,12 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			}
 
 			split := (rng + 1) >> 1
-			if sign != 0 {
-				low += split
-				rng -= split
-			} else {
-				rng = split
-			}
+			// Branchless sign-bit encoding. The sign bit is uniformly
+			// distributed, so the branch would frequently mispredict;
+			// folding it into mask arithmetic costs the same on either path.
+			signMask := -uint32(sign & 1)
+			low += split & signMask
+			rng = split + ((rng - 2*split) & signMask)
 			rng <<= 1
 			if (low & 0x80000000) != 0 {
 				w.pos = pos
@@ -503,12 +504,13 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			bit := path.bits[i]
 			probability := p[path.nodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
-			if bit != 0 {
-				low += split
-				rng -= split
-			} else {
-				rng = split
-			}
+			// Branchless interval selection: mask is all-ones when bit
+			// is set, zero otherwise. The bit==0 arm keeps rng = split
+			// and low unchanged; the bit==1 arm folds in
+			// (old_rng - split) - split = rng - 2*split.
+			mask := -uint32(bit & 1)
+			low += split & mask
+			rng = split + ((rng - 2*split) & mask)
 
 			shift := int(tables.BoolNorm[byte(rng)])
 			rng <<= uint(shift)

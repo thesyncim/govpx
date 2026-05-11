@@ -360,12 +360,11 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 		// thing the zero branch used to own was the
 		// "tokenCtx = 0" reset, which now falls out of
 		// tables.PrevTokenClass[ZeroToken] (= 0).
-		mag := coeff
-		sign := uint8(0)
-		if coeff < 0 {
-			mag = -coeff
-			sign = 1
-		}
+		// Branchless |coeff| split into magnitude and sign nibble: signMask
+		// is -1 when coeff is negative, 0 otherwise.
+		signMask := coeff >> intSignShift
+		mag := (coeff ^ signMask) - signMask
+		sign := uint8(signMask & 1)
 		if mag > tables.DCTMaxValue {
 			return ErrInvalidPacketConfig
 		}

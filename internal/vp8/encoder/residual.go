@@ -169,8 +169,5 @@ func sourcePlaneLen(stride int, rows int, visibleWidth int) int {
 }
 
 func clampCoord(v int, limit int) int {
-	if v >= limit {
-		return limit - 1
-	}
-	return v
+	return min(v, limit-1)
 }

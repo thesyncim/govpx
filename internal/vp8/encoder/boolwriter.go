@@ -138,12 +138,10 @@ func (w *BoolWriter) WriteLiteral(value uint32, bits int) {
 
 	for bit := bits - 1; bit >= 0; bit-- {
 		split := (rng + 1) >> 1
-		if (value>>uint(bit))&1 != 0 {
-			low += split
-			rng -= split
-		} else {
-			rng = split
-		}
+		// Branchless interval selection keyed on the literal bit.
+		mask := -((value >> uint(bit)) & 1)
+		low += split & mask
+		rng = split + ((rng - 2*split) & mask)
 
 		shift := int(tables.BoolNorm[byte(rng)])
 		rng <<= uint(shift)

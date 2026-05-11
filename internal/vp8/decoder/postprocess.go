@@ -3,11 +3,18 @@ package decoder
 import (
 	"errors"
 	"math"
+	"math/bits"
 	"runtime"
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 )
+
+// intSignShiftDec is the right-shift count that splats an int's sign
+// bit across every position (-1 for negatives, 0 otherwise) — the
+// building block for branchless abs / clamp / sign-mask helpers in the
+// decoder hot paths.
+const intSignShiftDec = bits.UintSize - 1
 
 // Ported from libvpx v1.16.0:
 // - vp8/common/postproc.c
@@ -504,10 +511,11 @@ func copyBlock(src []byte, srcStride int, dst []byte, dstStride int, width int, 
 }
 
 func absInt16(v int16) int {
-	if v < 0 {
-		return -int(v)
-	}
-	return int(v)
+	// Branchless |v|: sign-extend to splat the sign bit, then
+	// (x^mask)-mask flips negatives without a conditional jump.
+	x := int(v)
+	mask := x >> intSignShiftDec
+	return (x ^ mask) - mask
 }
 
 func validPostProcessImage(img *common.Image) bool {
@@ -657,13 +665,7 @@ func planeAddNoise(start []byte, noise []int8, blackClamp int, whiteClamp int, w
 }
 
 func clampPostProcessByte(v int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return v
+	return min(max(v, 0), 255)
 }
 
 func postProcDownAndAcrossMBRow(src []byte, srcStart int, dst []byte, dstStart int, srcPitch int, dstPitch int, cols int, flimits []byte, size int) {
@@ -784,8 +786,6 @@ func mbPostProcDown(plane []byte, start int, pitch int, rows int, cols int, flim
 
 func byteDiff(a byte, b byte) int {
 	diff := int(a) - int(b)
-	if diff < 0 {
-		return -diff
-	}
-	return diff
+	mask := diff >> intSignShiftDec
+	return (diff ^ mask) - mask
 }

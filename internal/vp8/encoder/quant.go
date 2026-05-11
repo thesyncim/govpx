@@ -138,19 +138,14 @@ func fastQuantizeBlockScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]in
 	for i := range 16 {
 		rc := int(tables.DefaultZigZag1D[i])
 		z := int(coeff[rc])
-		if z == 0 {
-			qcoeff[rc] = 0
-			dqcoeff[rc] = 0
-			continue
-		}
-		x := z
-		if x < 0 {
-			x = -x
-		}
+		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
+		// Quantize the magnitude then fold the sign back in. The zero-z
+		// case naturally produces y==0 with the same writes as the
+		// previous early-return, so the conditional skip vanishes.
+		sign := z >> intSignShift
+		x := (z ^ sign) - sign
 		y := ((x + int(quant.Round[rc])) * int(quant.QuantFast[rc])) >> 16
-		if z < 0 {
-			y = -y
-		}
+		y = (y ^ sign) - sign
 		q := int16(y)
 		qcoeff[rc] = q
 		dqcoeff[rc] = q * quant.Dequant[rc]

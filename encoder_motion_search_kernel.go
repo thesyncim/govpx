@@ -1,9 +1,16 @@
 package govpx
 
 import (
+	"math/bits"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
+
+// mvKernelSignShift splats an int's sign bit (-1 for negatives, 0
+// otherwise) for the branchless |delta| trick used by the per-q
+// motion-cost lookups in this file.
+const mvKernelSignShift = bits.UintSize - 1
 
 // fullPelLocalStats accumulates motion-search counters in local
 // variables for the duration of a single search call. Flushing once
@@ -58,24 +65,16 @@ func boundsInteriorByPad(b interFrameFullPixelBounds, row int, col int, padRow i
 // fullPelMVSADCostInline mirrors libvpxFullPelMVSADCost16FromDeltas
 // but reads the pinned per-q SAD-cost table directly so the inner
 // loop avoids the function-call overhead and table-lookup helper.
-// Clamp-then-abs and abs-then-clamp are equivalent for the symmetric
-// 255-cap (see legacy helper), so we abs first to keep the hot path
-// branch-light.
+// Branchless |delta| then symmetric 255 cap keeps both lookups
+// straight-line so the hex/diamond steps can keep their accumulator
+// pipeline tight.
 func fullPelMVSADCostInline(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, costs *[256]int) int {
 	rd := mvRow8 - refRow8
-	if rd < 0 {
-		rd = -rd
-	}
-	if rd > 255 {
-		rd = 255
-	}
+	rdMask := rd >> mvKernelSignShift
+	rd = min((rd^rdMask)-rdMask, 255)
 	cd := mvCol8 - refCol8
-	if cd < 0 {
-		cd = -cd
-	}
-	if cd > 255 {
-		cd = 255
-	}
+	cdMask := cd >> mvKernelSignShift
+	cd = min((cd^cdMask)-cdMask, 255)
 	return (costs[rd] + costs[cd] + 128) >> 8
 }
 

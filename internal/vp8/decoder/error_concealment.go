@@ -243,8 +243,6 @@ func maxInt(a int, b int) int {
 }
 
 func absInt(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
+	mask := v >> intSignShiftDec
+	return (v ^ mask) - mask
 }

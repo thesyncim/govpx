@@ -12,8 +12,9 @@ func forwardDCT4x4BatchSIMD(input []int16, output []int16, count int) {
 
 func forwardDCT4x4BatchScalar(input []int16, output []int16, count int) {
 	for i := range count {
-		var out [16]int16
-		forwardDCT4x4Scalar(input[i*16:i*16+16], 4, &out)
-		copy(output[i*16:i*16+16], out[:])
+		// Pin the output block to a 16-element array view so the kernel
+		// writes the result in place; saves the per-block staging copy.
+		out := (*[16]int16)(output[i*16 : i*16+16])
+		forwardDCT4x4Scalar(input[i*16:i*16+16], 4, out)
 	}
 }
