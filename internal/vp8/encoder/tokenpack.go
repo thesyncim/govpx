@@ -224,26 +224,25 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	pos := w.pos
 	buf := w.buf
 
+	// Records are validated when produced by packCoefficientTokenRecord:
+	// it rejects out-of-range token/blockType/band/ctx/magnitude/sign
+	// before appending, and appendToken propagates the error. By the time
+	// we reach this writer, every field is guaranteed to be in range, so
+	// the per-record OOR check below is dead weight in the hot loop.
+	// (writeBlockTokensEOB's matching emit path likewise relies on the
+	// caller validating eob/qcoeff once at MB granularity.)
 	for _, record := range records {
-		token := record.token()
-		blockType := record.blockType()
-		band := record.band()
-		ctx := record.ctx()
-		if token < 0 || token >= tables.MaxEntropyTokens ||
-			blockType < 0 || blockType >= tables.BlockTypes ||
-			band < 0 || band >= tables.CoefBands ||
-			ctx < 0 || ctx >= tables.PrevCoefContexts {
-			return ErrInvalidPacketConfig
-		}
+		raw := uint32(record)
+		token := int(raw & coefficientTokenRecordTokenMask)
+		blockType := int((raw >> coefficientTokenRecordBlockTypeShift) & coefficientTokenRecordTwoBitMask)
+		band := int((raw >> coefficientTokenRecordBandShift) & coefficientTokenRecordBandMask)
+		ctx := int((raw >> coefficientTokenRecordContextShift) & coefficientTokenRecordTwoBitMask)
 
 		p := &(*probs)[blockType][band][ctx]
 		path := coefficientTokenBranchPaths[token]
 		start := uint8(0)
-		if record.skipEOBNode() {
+		if (raw>>coefficientTokenRecordSkipEOBNodeShift)&1 != 0 {
 			start = 1
-		}
-		if start > path.len {
-			return ErrInvalidPacketConfig
 		}
 		for i := start; i < path.len; i++ {
 			bit := path.bits[i]
@@ -285,16 +284,16 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			continue
 		}
 
-		mag := record.magnitude()
-		if mag <= 0 || mag > tables.DCTMaxValue {
-			return ErrInvalidPacketConfig
-		}
+		// magnitude is guaranteed in (0, DCTMaxValue] by the producer (see
+		// countBlockCoefficientTokensAndRecords): non-zero non-EOB tokens
+		// only appear for non-zero coeffs, and packCoefficientTokenRecord
+		// already rejected out-of-range magnitudes when the record was
+		// appended. The offset (= mag - baseVal) is non-negative for the
+		// same reason.
+		mag := int((raw >> coefficientTokenRecordMagnitudeShift) & coefficientTokenRecordMagMask)
 		extra := coefficientExtraBitEncodings[token]
 		extraLen := int(extra.len)
 		offset := mag - int(extra.baseVal)
-		if offset < 0 {
-			return ErrInvalidPacketConfig
-		}
 		for i := 0; i < extraLen; i++ {
 			shiftIndex := extraLen - 1 - i
 			bit := uint8((offset >> uint(shiftIndex)) & 1)
@@ -333,7 +332,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		}
 
 		split := (rng + 1) >> 1
-		if record.sign() != 0 {
+		if (raw>>coefficientTokenRecordSignShift)&1 != 0 {
 			low += split
 			rng -= split
 		} else {
