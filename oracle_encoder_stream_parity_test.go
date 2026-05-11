@@ -61,6 +61,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// known-good prefix when later frames have a remaining
 		// divergence still being investigated.
 		limit int
+		// rcMode is the rate control mode; zero defaults to CBR.
+		rcMode RateControlMode
+		// errorResilient triggers libvpx's ErrorResilient mode.
+		errorResilient bool
+		// errorResilientPartitions triggers the VPX_ERROR_RESILIENT_PARTITIONS
+		// branch in libvpx independent_coef_context_savings.
+		errorResilientPartitions bool
+		// sharpness overrides the loop-filter sharpness level.
+		sharpness int
+		// extraArgs is appended to the libvpx vpxenc-oracle command.
+		extraArgs []string
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
@@ -78,6 +89,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-96x96", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning96},
 		{name: "realtime-cbr-cpu8-128x128", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning128},
 		{name: "realtime-cbr-cpu8-160x96", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning160x96},
+		// VBR cross-mode coverage on the 64x64 panning fixture. Diverges
+		// from frame 0 today; pinned at limit=0 (no byte-parity asserted)
+		// while VBR rate-control parity is investigated. Keep listed so
+		// the divergence is visible and any closer-match commit will
+		// show up as additional byte-MATCH log rows.
+		{name: "realtime-vbr-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
+		// Error-resilient partitions (independent context savings branch).
+		// Diverges from frame 0 today; pinned at limit=0.
+		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=1"}},
+		// Sharpness != 0 exercises the loop-filter header literal width.
+		// Diverges from frame 0 today; pinned at limit=0.
+		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
 	}
 
 	for _, tc := range cases {
@@ -86,31 +109,48 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			for i := range sources {
 				sources[i] = tc.fx.source(tc.fx.w, tc.fx.h, i)
 			}
+			rcMode := tc.rcMode
+			if rcMode == 0 {
+				rcMode = RateControlCBR
+			}
 			opts := EncoderOptions{
-				Width:             tc.fx.w,
-				Height:            tc.fx.h,
-				FPS:               fps,
-				RateControlMode:   RateControlCBR,
-				TargetBitrateKbps: targetKbps,
-				MinQuantizer:      4,
-				MaxQuantizer:      56,
-				KeyFrameInterval:  999,
-				Deadline:          tc.deadline,
-				CpuUsed:           tc.cpuUsed,
+				Width:                    tc.fx.w,
+				Height:                   tc.fx.h,
+				FPS:                      fps,
+				RateControlMode:          rcMode,
+				TargetBitrateKbps:        targetKbps,
+				MinQuantizer:             4,
+				MaxQuantizer:             56,
+				KeyFrameInterval:         999,
+				Deadline:                 tc.deadline,
+				CpuUsed:                  tc.cpuUsed,
+				ErrorResilient:           tc.errorResilient,
+				ErrorResilientPartitions: tc.errorResilientPartitions,
+				Sharpness:                tc.sharpness,
 			}
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, targetKbps, sources, nil)
+			extraArgs := tc.extraArgs
+			if extraArgs == nil {
+				extraArgs = []string{"--end-usage=cbr"}
+			}
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, opts, targetKbps, sources, extraArgs)
 
 			if len(govpxFrames) != len(libvpxFrames) {
 				t.Fatalf("frame count mismatch: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
 			}
 
 			limit := len(govpxFrames)
-			if tc.limit > 0 && tc.limit < limit {
+			switch {
+			case tc.limit < 0:
+				// Known divergent config: no byte-parity asserted yet,
+				// but we still run the encode so the per-frame status
+				// logs make the gap visible.
+				limit = 0
+			case tc.limit > 0 && tc.limit < limit:
 				limit = tc.limit
 			}
-			for i := 0; i < limit; i++ {
+			for i := 0; i < len(govpxFrames); i++ {
 				gHash := sha256.Sum256(govpxFrames[i])
 				lHash := sha256.Sum256(libvpxFrames[i])
 				gFP, gIsKey := parseVP8FramePartitionSizes(govpxFrames[i])
@@ -120,6 +160,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 					continue
 				}
 				firstDiff := firstByteDiff(govpxFrames[i], libvpxFrames[i])
+				if i >= limit {
+					t.Logf("frame %d byte mismatch (not asserted, limit=%d): govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d",
+						i, limit, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff, gFP, lFP)
+					continue
+				}
 				t.Errorf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d govpx_first_part=%d libvpx_first_part=%d govpx_keyframe=%t libvpx_keyframe=%t govpx_sha=%s libvpx_sha=%s",
 					i, len(govpxFrames[i]), len(libvpxFrames[i]), firstDiff,
 					gFP, lFP, gIsKey, lIsKey,
@@ -181,7 +226,6 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--target-bitrate=" + strconv.Itoa(targetKbps),
 		"--min-q=4",
 		"--max-q=56",
-		"--end-usage=cbr",
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
