@@ -680,9 +680,7 @@ func applyTemporalFilter(src []byte, srcStride int, pred []byte, predStride int,
 			diff := int(srcRow[i]) - int(predRow[i])
 			modifier := diff*diff*3 + rounding
 			modifier >>= uint(strength)
-			if modifier > 16 {
-				modifier = 16
-			}
+			modifier = min(modifier, 16)
 			modifier = (16 - modifier) * filterWeight
 			count[k] += uint32(modifier)
 			accumulator[k] += uint32(modifier) * uint32(predRow[i])
