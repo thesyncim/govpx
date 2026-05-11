@@ -39,21 +39,25 @@ func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, 
 	dc := 128
 
 	if upAvailable && leftAvailable {
+		ab := above[:size]
+		le := left[:size]
 		sum := 0
 		for i := range size {
-			sum += int(above[i]) + int(left[i])
+			sum += int(ab[i]) + int(le[i])
 		}
 		dc = (sum + size) / (2 * size)
 	} else if upAvailable {
+		ab := above[:size]
 		sum := 0
 		for i := range size {
-			sum += int(above[i])
+			sum += int(ab[i])
 		}
 		dc = (sum + (size >> 1)) / size
 	} else if leftAvailable {
+		le := left[:size]
 		sum := 0
 		for i := range size {
-			sum += int(left[i])
+			sum += int(le[i])
 		}
 		dc = (sum + (size >> 1)) / size
 	}

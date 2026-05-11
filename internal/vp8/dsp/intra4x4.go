@@ -131,140 +131,176 @@ func intra4x4HEPredictScalar(dst []byte, dstStride int, left []byte, topLeft byt
 }
 
 func intra4x4LDPredictScalar(dst []byte, dstStride int, above []byte) {
-	a, b, c, d := above[0], above[1], above[2], above[3]
-	e, f, g, h := above[4], above[5], above[6], above[7]
+	// Pin each output row to a 4-byte array view so the per-cell writes
+	// run without bounds checks. The eight above[] taps go through a
+	// single pointer view for the same reason.
+	a8 := (*[8]byte)(above[:8])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	a, b, c, d := a8[0], a8[1], a8[2], a8[3]
+	e, f, g, h := a8[4], a8[5], a8[6], a8[7]
 
-	dst[0*dstStride+0] = avg3(a, b, c)
-	dst[0*dstStride+1] = avg3(b, c, d)
-	dst[1*dstStride+0] = dst[0*dstStride+1]
-	dst[0*dstStride+2] = avg3(c, d, e)
-	dst[1*dstStride+1] = dst[0*dstStride+2]
-	dst[2*dstStride+0] = dst[0*dstStride+2]
-	dst[0*dstStride+3] = avg3(d, e, f)
-	dst[1*dstStride+2] = dst[0*dstStride+3]
-	dst[2*dstStride+1] = dst[0*dstStride+3]
-	dst[3*dstStride+0] = dst[0*dstStride+3]
-	dst[1*dstStride+3] = avg3(e, f, g)
-	dst[2*dstStride+2] = dst[1*dstStride+3]
-	dst[3*dstStride+1] = dst[1*dstStride+3]
-	dst[2*dstStride+3] = avg3(f, g, h)
-	dst[3*dstStride+2] = dst[2*dstStride+3]
-	dst[3*dstStride+3] = avg3(g, h, h)
+	r0[0] = avg3(a, b, c)
+	r0[1] = avg3(b, c, d)
+	r1[0] = r0[1]
+	r0[2] = avg3(c, d, e)
+	r1[1] = r0[2]
+	r2[0] = r0[2]
+	r0[3] = avg3(d, e, f)
+	r1[2] = r0[3]
+	r2[1] = r0[3]
+	r3[0] = r0[3]
+	r1[3] = avg3(e, f, g)
+	r2[2] = r1[3]
+	r3[1] = r1[3]
+	r2[3] = avg3(f, g, h)
+	r3[2] = r2[3]
+	r3[3] = avg3(g, h, h)
 }
 
 func intra4x4RDPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	a, b, c, d := above[0], above[1], above[2], above[3]
-	i, j, k, l := left[0], left[1], left[2], left[3]
+	a4 := (*[4]byte)(above[:4])
+	l4 := (*[4]byte)(left[:4])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	a, b, c, d := a4[0], a4[1], a4[2], a4[3]
+	i, j, k, l := l4[0], l4[1], l4[2], l4[3]
 	x := topLeft
 
-	dst[3*dstStride+0] = avg3(j, k, l)
-	dst[3*dstStride+1] = avg3(i, j, k)
-	dst[2*dstStride+0] = dst[3*dstStride+1]
-	dst[3*dstStride+2] = avg3(x, i, j)
-	dst[2*dstStride+1] = dst[3*dstStride+2]
-	dst[1*dstStride+0] = dst[3*dstStride+2]
-	dst[3*dstStride+3] = avg3(a, x, i)
-	dst[2*dstStride+2] = dst[3*dstStride+3]
-	dst[1*dstStride+1] = dst[3*dstStride+3]
-	dst[0*dstStride+0] = dst[3*dstStride+3]
-	dst[2*dstStride+3] = avg3(b, a, x)
-	dst[1*dstStride+2] = dst[2*dstStride+3]
-	dst[0*dstStride+1] = dst[2*dstStride+3]
-	dst[1*dstStride+3] = avg3(c, b, a)
-	dst[0*dstStride+2] = dst[1*dstStride+3]
-	dst[0*dstStride+3] = avg3(d, c, b)
+	r3[0] = avg3(j, k, l)
+	r3[1] = avg3(i, j, k)
+	r2[0] = r3[1]
+	r3[2] = avg3(x, i, j)
+	r2[1] = r3[2]
+	r1[0] = r3[2]
+	r3[3] = avg3(a, x, i)
+	r2[2] = r3[3]
+	r1[1] = r3[3]
+	r0[0] = r3[3]
+	r2[3] = avg3(b, a, x)
+	r1[2] = r2[3]
+	r0[1] = r2[3]
+	r1[3] = avg3(c, b, a)
+	r0[2] = r1[3]
+	r0[3] = avg3(d, c, b)
 }
 
 func intra4x4VRPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	a, b, c, d := above[0], above[1], above[2], above[3]
-	i, j, k := left[0], left[1], left[2]
+	a4 := (*[4]byte)(above[:4])
+	l3 := (*[3]byte)(left[:3])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	a, b, c, d := a4[0], a4[1], a4[2], a4[3]
+	i, j, k := l3[0], l3[1], l3[2]
 	x := topLeft
 
-	dst[0*dstStride+0] = avg2(x, a)
-	dst[2*dstStride+1] = dst[0*dstStride+0]
-	dst[0*dstStride+1] = avg2(a, b)
-	dst[2*dstStride+2] = dst[0*dstStride+1]
-	dst[0*dstStride+2] = avg2(b, c)
-	dst[2*dstStride+3] = dst[0*dstStride+2]
-	dst[0*dstStride+3] = avg2(c, d)
+	r0[0] = avg2(x, a)
+	r2[1] = r0[0]
+	r0[1] = avg2(a, b)
+	r2[2] = r0[1]
+	r0[2] = avg2(b, c)
+	r2[3] = r0[2]
+	r0[3] = avg2(c, d)
 
-	dst[3*dstStride+0] = avg3(k, j, i)
-	dst[2*dstStride+0] = avg3(j, i, x)
-	dst[1*dstStride+0] = avg3(i, x, a)
-	dst[3*dstStride+1] = dst[1*dstStride+0]
-	dst[1*dstStride+1] = avg3(x, a, b)
-	dst[3*dstStride+2] = dst[1*dstStride+1]
-	dst[1*dstStride+2] = avg3(a, b, c)
-	dst[3*dstStride+3] = dst[1*dstStride+2]
-	dst[1*dstStride+3] = avg3(b, c, d)
+	r3[0] = avg3(k, j, i)
+	r2[0] = avg3(j, i, x)
+	r1[0] = avg3(i, x, a)
+	r3[1] = r1[0]
+	r1[1] = avg3(x, a, b)
+	r3[2] = r1[1]
+	r1[2] = avg3(a, b, c)
+	r3[3] = r1[2]
+	r1[3] = avg3(b, c, d)
 }
 
 func intra4x4VLPredictScalar(dst []byte, dstStride int, above []byte) {
-	a, b, c, d := above[0], above[1], above[2], above[3]
-	e, f, g, h := above[4], above[5], above[6], above[7]
+	a8 := (*[8]byte)(above[:8])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	a, b, c, d := a8[0], a8[1], a8[2], a8[3]
+	e, f, g, h := a8[4], a8[5], a8[6], a8[7]
 
-	dst[0*dstStride+0] = avg2(a, b)
-	dst[0*dstStride+1] = avg2(b, c)
-	dst[2*dstStride+0] = dst[0*dstStride+1]
-	dst[0*dstStride+2] = avg2(c, d)
-	dst[2*dstStride+1] = dst[0*dstStride+2]
-	dst[0*dstStride+3] = avg2(d, e)
-	dst[2*dstStride+2] = dst[0*dstStride+3]
-	dst[2*dstStride+3] = avg3(e, f, g)
+	r0[0] = avg2(a, b)
+	r0[1] = avg2(b, c)
+	r2[0] = r0[1]
+	r0[2] = avg2(c, d)
+	r2[1] = r0[2]
+	r0[3] = avg2(d, e)
+	r2[2] = r0[3]
+	r2[3] = avg3(e, f, g)
 
-	dst[1*dstStride+0] = avg3(a, b, c)
-	dst[1*dstStride+1] = avg3(b, c, d)
-	dst[3*dstStride+0] = dst[1*dstStride+1]
-	dst[1*dstStride+2] = avg3(c, d, e)
-	dst[3*dstStride+1] = dst[1*dstStride+2]
-	dst[1*dstStride+3] = avg3(d, e, f)
-	dst[3*dstStride+2] = dst[1*dstStride+3]
-	dst[3*dstStride+3] = avg3(f, g, h)
+	r1[0] = avg3(a, b, c)
+	r1[1] = avg3(b, c, d)
+	r3[0] = r1[1]
+	r1[2] = avg3(c, d, e)
+	r3[1] = r1[2]
+	r1[3] = avg3(d, e, f)
+	r3[2] = r1[3]
+	r3[3] = avg3(f, g, h)
 }
 
 func intra4x4HDPredictScalar(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	a, b, c := above[0], above[1], above[2]
-	i, j, k, l := left[0], left[1], left[2], left[3]
+	a3 := (*[3]byte)(above[:3])
+	l4 := (*[4]byte)(left[:4])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	a, b, c := a3[0], a3[1], a3[2]
+	i, j, k, l := l4[0], l4[1], l4[2], l4[3]
 	x := topLeft
 
-	dst[0*dstStride+0] = avg2(i, x)
-	dst[1*dstStride+2] = dst[0*dstStride+0]
-	dst[1*dstStride+0] = avg2(j, i)
-	dst[2*dstStride+2] = dst[1*dstStride+0]
-	dst[2*dstStride+0] = avg2(k, j)
-	dst[3*dstStride+2] = dst[2*dstStride+0]
-	dst[3*dstStride+0] = avg2(l, k)
+	r0[0] = avg2(i, x)
+	r1[2] = r0[0]
+	r1[0] = avg2(j, i)
+	r2[2] = r1[0]
+	r2[0] = avg2(k, j)
+	r3[2] = r2[0]
+	r3[0] = avg2(l, k)
 
-	dst[0*dstStride+3] = avg3(a, b, c)
-	dst[0*dstStride+2] = avg3(x, a, b)
-	dst[0*dstStride+1] = avg3(i, x, a)
-	dst[1*dstStride+3] = dst[0*dstStride+1]
-	dst[1*dstStride+1] = avg3(j, i, x)
-	dst[2*dstStride+3] = dst[1*dstStride+1]
-	dst[2*dstStride+1] = avg3(k, j, i)
-	dst[3*dstStride+3] = dst[2*dstStride+1]
-	dst[3*dstStride+1] = avg3(l, k, j)
+	r0[3] = avg3(a, b, c)
+	r0[2] = avg3(x, a, b)
+	r0[1] = avg3(i, x, a)
+	r1[3] = r0[1]
+	r1[1] = avg3(j, i, x)
+	r2[3] = r1[1]
+	r2[1] = avg3(k, j, i)
+	r3[3] = r2[1]
+	r3[1] = avg3(l, k, j)
 }
 
 func intra4x4HUPredictScalar(dst []byte, dstStride int, left []byte) {
-	i, j, k, l := left[0], left[1], left[2], left[3]
+	l4 := (*[4]byte)(left[:4])
+	r0 := (*[4]byte)(dst[0*dstStride : 0*dstStride+4])
+	r1 := (*[4]byte)(dst[1*dstStride : 1*dstStride+4])
+	r2 := (*[4]byte)(dst[2*dstStride : 2*dstStride+4])
+	r3 := (*[4]byte)(dst[3*dstStride : 3*dstStride+4])
+	i, j, k, l := l4[0], l4[1], l4[2], l4[3]
 
-	dst[0*dstStride+0] = avg2(i, j)
-	dst[0*dstStride+2] = avg2(j, k)
-	dst[1*dstStride+0] = dst[0*dstStride+2]
-	dst[1*dstStride+2] = avg2(k, l)
-	dst[2*dstStride+0] = dst[1*dstStride+2]
-	dst[0*dstStride+1] = avg3(i, j, k)
-	dst[0*dstStride+3] = avg3(j, k, l)
-	dst[1*dstStride+1] = dst[0*dstStride+3]
-	dst[1*dstStride+3] = avg3(k, l, l)
-	dst[2*dstStride+1] = dst[1*dstStride+3]
-	dst[2*dstStride+3] = l
-	dst[2*dstStride+2] = l
-	dst[3*dstStride+0] = l
-	dst[3*dstStride+1] = l
-	dst[3*dstStride+2] = l
-	dst[3*dstStride+3] = l
+	r0[0] = avg2(i, j)
+	r0[2] = avg2(j, k)
+	r1[0] = r0[2]
+	r1[2] = avg2(k, l)
+	r2[0] = r1[2]
+	r0[1] = avg3(i, j, k)
+	r0[3] = avg3(j, k, l)
+	r1[1] = r0[3]
+	r1[3] = avg3(k, l, l)
+	r2[1] = r1[3]
+	r2[3] = l
+	r2[2] = l
+	r3[0] = l
+	r3[1] = l
+	r3[2] = l
+	r3[3] = l
 }
 
 func avg2(a byte, b byte) byte {

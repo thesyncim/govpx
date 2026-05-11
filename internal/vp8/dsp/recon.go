@@ -20,12 +20,14 @@ func Copy16x16(src []byte, srcStride int, dst []byte, dstStride int) {
 
 func AddResidual4x4(dst []byte, dstStride int, residual *[16]int16) {
 	for y := range 4 {
-		row := y * dstStride
+		// Pinning the row to a [4]byte view drops the per-cell bounds
+		// check from each of the four writes.
+		row := (*[4]byte)(dst[y*dstStride : y*dstStride+4])
 		coeff := y * 4
-		dst[row+0] = ClipPixelAdd(dst[row+0], int(residual[coeff+0]))
-		dst[row+1] = ClipPixelAdd(dst[row+1], int(residual[coeff+1]))
-		dst[row+2] = ClipPixelAdd(dst[row+2], int(residual[coeff+2]))
-		dst[row+3] = ClipPixelAdd(dst[row+3], int(residual[coeff+3]))
+		row[0] = ClipPixelAdd(row[0], int(residual[coeff+0]))
+		row[1] = ClipPixelAdd(row[1], int(residual[coeff+1]))
+		row[2] = ClipPixelAdd(row[2], int(residual[coeff+2]))
+		row[3] = ClipPixelAdd(row[3], int(residual[coeff+3]))
 	}
 }
 

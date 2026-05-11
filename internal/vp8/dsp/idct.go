@@ -61,13 +61,15 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 	}
 
 	for y := range 4 {
-		predRow := y * predStride
-		dstRow := y * dstStride
+		// Reslice to a 4-element row so the four writes share a single
+		// bounds check instead of one per ClipPixel call.
+		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
+		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
 		outRow := y * 4
-		dst[dstRow+0] = ClipPixel(int(output[outRow+0]) + int(pred[predRow+0]))
-		dst[dstRow+1] = ClipPixel(int(output[outRow+1]) + int(pred[predRow+1]))
-		dst[dstRow+2] = ClipPixel(int(output[outRow+2]) + int(pred[predRow+2]))
-		dst[dstRow+3] = ClipPixel(int(output[outRow+3]) + int(pred[predRow+3]))
+		dstRow[0] = ClipPixel(int(output[outRow+0]) + int(predRow[0]))
+		dstRow[1] = ClipPixel(int(output[outRow+1]) + int(predRow[1]))
+		dstRow[2] = ClipPixel(int(output[outRow+2]) + int(predRow[2]))
+		dstRow[3] = ClipPixel(int(output[outRow+3]) + int(predRow[3]))
 	}
 }
 
@@ -76,11 +78,11 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 func dcOnlyIDCT4x4AddScalar(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	a1 := int((inputDC + 4) >> 3)
 	for y := range 4 {
-		predRow := y * predStride
-		dstRow := y * dstStride
-		dst[dstRow+0] = ClipPixel(a1 + int(pred[predRow+0]))
-		dst[dstRow+1] = ClipPixel(a1 + int(pred[predRow+1]))
-		dst[dstRow+2] = ClipPixel(a1 + int(pred[predRow+2]))
-		dst[dstRow+3] = ClipPixel(a1 + int(pred[predRow+3]))
+		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
+		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
+		dstRow[0] = ClipPixel(a1 + int(predRow[0]))
+		dstRow[1] = ClipPixel(a1 + int(predRow[1]))
+		dstRow[2] = ClipPixel(a1 + int(predRow[2]))
+		dstRow[3] = ClipPixel(a1 + int(predRow[3]))
 	}
 }
