@@ -7423,20 +7423,9 @@ func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height 
 }
 
 func gatherMacroblockYResiduals4x4Unchecked(src *byte, srcStride int, pred *byte, predStride int, baseX int, baseY int, out *int16) {
-	for by := range 4 {
-		for bx := range 4 {
-			blockOff := (by*4 + bx) * 16
-			srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
-			predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-			for r := range 4 {
-				gatherResidualRow4Unchecked(
-					(*byte)(unsafe.Add(unsafe.Pointer(src), srcOff+r*srcStride)),
-					(*byte)(unsafe.Add(unsafe.Pointer(pred), predOff+r*predStride)),
-					(*int16)(unsafe.Add(unsafe.Pointer(out), (blockOff+r*4)*2)),
-				)
-			}
-		}
-	}
+	srcBase := (*byte)(unsafe.Add(unsafe.Pointer(src), baseY*srcStride+baseX))
+	predBase := (*byte)(unsafe.Add(unsafe.Pointer(pred), baseY*predStride+baseX))
+	dsp.ResidualGather16x16PtrFast(srcBase, srcStride, predBase, predStride, out)
 }
 
 // gatherMacroblockUVResiduals4x4 writes the 4 chroma 4x4 residuals of
@@ -7460,27 +7449,9 @@ func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height
 }
 
 func gatherMacroblockUVResiduals4x4Unchecked(src *byte, srcStride int, pred *byte, predStride int, baseX int, baseY int, out *int16) {
-	for by := range 2 {
-		for bx := range 2 {
-			blockOff := (by*2 + bx) * 16
-			srcOff := (baseY+by*4)*srcStride + (baseX + bx*4)
-			predOff := (baseY+by*4)*predStride + (baseX + bx*4)
-			for r := range 4 {
-				gatherResidualRow4Unchecked(
-					(*byte)(unsafe.Add(unsafe.Pointer(src), srcOff+r*srcStride)),
-					(*byte)(unsafe.Add(unsafe.Pointer(pred), predOff+r*predStride)),
-					(*int16)(unsafe.Add(unsafe.Pointer(out), (blockOff+r*4)*2)),
-				)
-			}
-		}
-	}
-}
-
-func gatherResidualRow4Unchecked(src *byte, pred *byte, out *int16) {
-	*(*int16)(unsafe.Add(unsafe.Pointer(out), 0)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 0))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 0))))
-	*(*int16)(unsafe.Add(unsafe.Pointer(out), 2)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 1))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 1))))
-	*(*int16)(unsafe.Add(unsafe.Pointer(out), 4)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 2))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 2))))
-	*(*int16)(unsafe.Add(unsafe.Pointer(out), 6)) = int16(int(*(*byte)(unsafe.Add(unsafe.Pointer(src), 3))) - int(*(*byte)(unsafe.Add(unsafe.Pointer(pred), 3))))
+	srcBase := (*byte)(unsafe.Add(unsafe.Pointer(src), baseY*srcStride+baseX))
+	predBase := (*byte)(unsafe.Add(unsafe.Pointer(pred), baseY*predStride+baseX))
+	dsp.ResidualGather8x8PtrFast(srcBase, srcStride, predBase, predStride, out)
 }
 
 func macroblockCoefficientsEmpty(coeffs *vp8enc.MacroblockCoefficients, is4x4 bool) bool {
