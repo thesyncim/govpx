@@ -74,6 +74,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		extraArgs []string
 		// fastLF flips on FastLoopFilterPick.
 		fastLF bool
+		// tokenPartitions overrides EncoderOptions.TokenPartitions
+		// (0=1 partition, 1=2, 2=4, 3=8).
+		tokenPartitions int
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
@@ -112,6 +115,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// libvpx's full picker happened to pick the same level as the
 		// partial picker for that fixture).
 		{name: "realtime-cbr-cpu8-fastlf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, limit: -1, fastLF: true},
+		// Token partitions (libvpx --token-parts maps log2). 2 = 4 partitions
+		// is one of the WebRTC-relevant settings; pin parity here so the
+		// partitioned writer regressions surface.
+		{name: "realtime-cbr-cpu8-2partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu8-4partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu8-8partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 	}
 
 	for _, tc := range cases {
@@ -139,6 +148,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				ErrorResilientPartitions: tc.errorResilientPartitions,
 				Sharpness:                tc.sharpness,
 				FastLoopFilterPick:       tc.fastLF,
+				TokenPartitions:          tc.tokenPartitions,
 			}
 
 			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
