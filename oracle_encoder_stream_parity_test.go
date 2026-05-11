@@ -83,6 +83,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// minQ / maxQ override the default 4 / 56 quantizer band.
 		minQ int
 		maxQ int
+		// kfInterval overrides the keyframe interval (0 = use the
+		// test-wide default 999).
+		kfInterval int
+		// fpsOverride overrides the test FPS default.
+		fpsOverride int
 	}{
 		{name: "realtime-cbr-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning64},
 		{name: "realtime-cbr-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning64},
@@ -132,6 +137,23 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-bitrate2000", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		// Tight quantizer band.
 		{name: "realtime-cbr-cpu8-q10-30", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, minQ: 10, maxQ: 30},
+		// Forced keyframe every frame stresses the keyframe writer
+		// path; diverges today (keyframe Q selection differs in
+		// repeated-keyframe sequences).
+		{name: "realtime-cbr-cpu8-allkf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, kfInterval: 1, limit: -1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
+		// Different FPS.
+		{name: "realtime-cbr-cpu8-fps15", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu8-fps60", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// GoodQuality across cpu-used. cpu0/2 still have a residual
+		// RD divergence on the panning fixture; cpu4 byte-matches and
+		// cpu5 is already covered above. Pin cpu0/2 at limit=-1 until
+		// the RD gap closes.
+		{name: "good-quality-cbr-cpu0", deadline: DeadlineGoodQuality, cpuUsed: 0, fx: panning64, limit: -1},
+		{name: "good-quality-cbr-cpu2", deadline: DeadlineGoodQuality, cpuUsed: 2, fx: panning64, limit: -1},
+		{name: "good-quality-cbr-cpu4", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: panning64},
+		// BestQuality cpu0 on the panning fixture diverges in the
+		// trellis RD picker; pin until that closes.
+		{name: "best-quality-cbr-cpu0-panning", deadline: DeadlineBestQuality, cpuUsed: 0, fx: panning64, limit: -1},
 	}
 
 	for _, tc := range cases {
@@ -156,15 +178,23 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if tc.maxQ > 0 {
 				maxQ = tc.maxQ
 			}
+			kfInterval := 999
+			if tc.kfInterval > 0 {
+				kfInterval = tc.kfInterval
+			}
+			caseFPS := fps
+			if tc.fpsOverride > 0 {
+				caseFPS = tc.fpsOverride
+			}
 			opts := EncoderOptions{
 				Width:                    tc.fx.w,
 				Height:                   tc.fx.h,
-				FPS:                      fps,
+				FPS:                      caseFPS,
 				RateControlMode:          rcMode,
 				TargetBitrateKbps:        caseTargetKbps,
 				MinQuantizer:             minQ,
 				MaxQuantizer:             maxQ,
-				KeyFrameInterval:         999,
+				KeyFrameInterval:         kfInterval,
 				Deadline:                 tc.deadline,
 				CpuUsed:                  tc.cpuUsed,
 				ErrorResilient:           tc.errorResilient,
