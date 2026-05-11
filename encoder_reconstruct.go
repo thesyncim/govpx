@@ -6122,16 +6122,9 @@ func interMotionSearchCostLimitedSADPerBit(src vp8enc.SourceImage, ref *vp8commo
 
 // fullPelSearchCtx hoists the per-MB invariants for the diamond / n-step /
 // refine / hex / exhaustive full-pel search kernels out of the per-site inner
-// loop. The picker walks many candidate sites against the same source
-// macroblock and reference plane, so the source-row pointer, bounds limits,
-// and slice-header prologue are loop-invariant.
-//
-// fullPelCostLimited is the inner kernel: it folds the in-bounds predicate
-// to one `uint(x) <= uint(limit)` compare per axis (src-side bounds are
-// proven loop-invariant by construction: baseY/baseX are derived from a
-// valid mbRow/mbCol — and dropped from the per-site predicate altogether),
-// takes a precomputed source pointer, and short-circuits the slow /
-// out-of-bounds tail to the regular wrapper.
+// loop. Like libvpx's mcomp.c, candidate SAD reads from the bordered reference
+// plane (`base_pre + d->offset + row*stride + col`), so legal UMV edge
+// candidates stay on the same SIMD path as interior candidates.
 type fullPelSearchCtx struct {
 	src        vp8enc.SourceImage
 	ref        *vp8common.Image
@@ -6142,17 +6135,27 @@ type fullPelSearchCtx struct {
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX : ]
 	srcRowPtrP *byte  // = unsafe.SliceData(srcRowPtr) — hot SAD bypass
 	srcYStride int
-	refY       []byte
-	refYP      *byte // = unsafe.SliceData(ref.Y)
+	refYFullP  *byte
 	refYStride int
-	refRowH    uint // = uint(ref.CodedHeight - 16)
-	refRowW    uint // = uint(ref.CodedWidth - 16)
+	refYOrigin int
+	refYBorder int
+	refRowH    uint // = uint(ref.CodedHeight + 2*ref.YBorder - 16)
+	refRowW    uint // = uint(ref.CodedWidth + 2*ref.YBorder - 16)
 }
 
 func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) fullPelSearchCtx {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
 	srcRowPtr := src.Y[baseY*src.YStride+baseX:]
+	refYFull := ref.YFull
+	refYFullP := unsafe.SliceData(refYFull)
+	refRowH := uint(ref.CodedHeight + 2*ref.YBorder - 16)
+	refRowW := uint(ref.CodedWidth + 2*ref.YBorder - 16)
+	if !refFullPelBufferOK(ref, 16, 16) {
+		refYFullP = nil
+		refRowH = 0
+		refRowW = 0
+	}
 	return fullPelSearchCtx{
 		src:        src,
 		ref:        ref,
@@ -6163,23 +6166,15 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 		srcRowPtr:  srcRowPtr,
 		srcRowPtrP: unsafe.SliceData(srcRowPtr),
 		srcYStride: src.YStride,
-		refY:       ref.Y,
-		refYP:      unsafe.SliceData(ref.Y),
+		refYFullP:  refYFullP,
 		refYStride: ref.YStride,
-		refRowH:    uint(ref.CodedHeight - 16),
-		refRowW:    uint(ref.CodedWidth - 16),
+		refYOrigin: ref.YOrigin,
+		refYBorder: ref.YBorder,
+		refRowH:    refRowH,
+		refRowW:    refRowW,
 	}
 }
 
-// fullPelCostLimited is the hoisted-context per-site cost kernel. Returns
-// `dsp.SAD16x16Limit(...) + mvCost` on the in-bounds full-pel fast path
-// and falls back to the wrapper for the rare edge / out-of-bounds tail.
-//
-// Caller passes mvRow/mvCol pre-shifted to 1/8-pel (i.e. the candidate
-// row/col multiplied by 8 = interFrameMVFullPixelStep). refRow8/refCol8
-// are bestRefMV.Row>>3 and bestRefMV.Col>>3 respectively. The MV SAD
-// component table is pre-scaled by qIndex so the diamond loop avoids
-// repeating libvpx's per-candidate component-sum multiply.
 func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
 	return c.fullPelSADFull(row, col) + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
 }
@@ -6187,8 +6182,10 @@ func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol
 func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 	refBaseY := c.baseY + row
 	refBaseX := c.baseX + col
-	if uint(refBaseY) <= c.refRowH && uint(refBaseX) <= c.refRowW {
-		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY*c.refYStride+refBaseX))
+	if c.refYFullP != nil &&
+		uint(refBaseY+c.refYBorder) <= c.refRowH &&
+		uint(refBaseX+c.refYBorder) <= c.refRowW {
+		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
 		return dsp.SAD16x16PtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride)
 	}
 	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
@@ -6203,16 +6200,18 @@ func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 in
 	refBaseX2 := c.baseX + col2
 	refBaseY3 := c.baseY + row3
 	refBaseX3 := c.baseX + col3
-	if uint(refBaseY0) > c.refRowH || uint(refBaseX0) > c.refRowW ||
-		uint(refBaseY1) > c.refRowH || uint(refBaseX1) > c.refRowW ||
-		uint(refBaseY2) > c.refRowH || uint(refBaseX2) > c.refRowW ||
-		uint(refBaseY3) > c.refRowH || uint(refBaseX3) > c.refRowW {
+	if c.refYFullP == nil ||
+		uint(refBaseY0+c.refYBorder) > c.refRowH || uint(refBaseX0+c.refYBorder) > c.refRowW ||
+		uint(refBaseY1+c.refYBorder) > c.refRowH || uint(refBaseX1+c.refYBorder) > c.refRowW ||
+		uint(refBaseY2+c.refYBorder) > c.refRowH || uint(refBaseX2+c.refYBorder) > c.refRowW ||
+		uint(refBaseY3+c.refYBorder) > c.refRowH || uint(refBaseX3+c.refYBorder) > c.refRowW {
 		return false
 	}
-	refPtr0 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY0*c.refYStride+refBaseX0))
-	refPtr1 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY1*c.refYStride+refBaseX1))
-	refPtr2 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY2*c.refYStride+refBaseX2))
-	refPtr3 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY3*c.refYStride+refBaseX3))
+	base := unsafe.Pointer(c.refYFullP)
+	refPtr0 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY0*c.refYStride+refBaseX0))
+	refPtr1 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY1*c.refYStride+refBaseX1))
+	refPtr2 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY2*c.refYStride+refBaseX2))
+	refPtr3 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY3*c.refYStride+refBaseX3))
 	dsp.SAD16x16x4PtrFast(c.srcRowPtrP, c.srcYStride, refPtr0, refPtr1, refPtr2, refPtr3, c.refYStride, out)
 	return true
 }
@@ -6225,21 +6224,65 @@ func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, r
 	}
 	refBaseY := c.baseY + (mvRow >> 3)
 	refBaseX := c.baseX + (mvCol >> 3)
-	if uint(refBaseY) <= c.refRowH && uint(refBaseX) <= c.refRowW {
-		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY*c.refYStride+refBaseX))
+	if c.refYFullP != nil &&
+		uint(refBaseY+c.refYBorder) <= c.refRowH &&
+		uint(refBaseX+c.refYBorder) <= c.refRowW {
+		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
 		return dsp.SAD16x16LimitPtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride, sadLimit) + mvCost
 	}
 	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, sadLimit) + mvCost
 }
 
-// fullPelCostLimitedSlow handles the rare OOB / sub-pel / clamp tail. Split
-// off so the fast path stays small enough for the compiler to chase the
-// inner-loop's bounds-check folding more aggressively (the picker only
-// hits this body on frame-edge MBs).
-//
 //go:noinline
 func (c *fullPelSearchCtx) fullPelCostLimitedSlow(mvCol int, mvRow int, refBaseY int, refBaseX int, sadLimit int) int {
 	return macroblockSADLimitedSlow(c.src, c.ref, c.baseY, c.baseX, refBaseY, refBaseX, mvCol, mvRow, sadLimit)
+}
+
+func refFullPelBufferOK(ref *vp8common.Image, width int, height int) bool {
+	if ref == nil || width <= 0 || height <= 0 || len(ref.YFull) == 0 ||
+		ref.YOrigin < 0 || ref.YBorder < 0 ||
+		ref.CodedWidth+2*ref.YBorder < width ||
+		ref.CodedHeight+2*ref.YBorder < height ||
+		ref.YStride < ref.CodedWidth+2*ref.YBorder {
+		return false
+	}
+	if ref.YOrigin-ref.YBorder*ref.YStride-ref.YBorder < 0 {
+		return false
+	}
+	maxRow := ref.CodedHeight + ref.YBorder - 1
+	maxColEnd := ref.CodedWidth + ref.YBorder
+	return ref.YOrigin+maxRow*ref.YStride+maxColEnd <= len(ref.YFull)
+}
+
+func refFullPelYOffset(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int) (int, bool) {
+	if !refFullPelBufferOK(ref, width, height) {
+		return 0, false
+	}
+	if uint(refBaseY+ref.YBorder) > uint(ref.CodedHeight+2*ref.YBorder-height) ||
+		uint(refBaseX+ref.YBorder) > uint(ref.CodedWidth+2*ref.YBorder-width) {
+		return 0, false
+	}
+	off := ref.YOrigin + refBaseY*ref.YStride + refBaseX
+	if off < 0 || off+(height-1)*ref.YStride+width > len(ref.YFull) {
+		return 0, false
+	}
+	return off, true
+}
+
+func refFullPelYPtr(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int) (*byte, bool) {
+	off, ok := refFullPelYOffset(ref, refBaseY, refBaseX, width, height)
+	if !ok {
+		return nil, false
+	}
+	return (*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(ref.YFull)), off)), true
+}
+
+func refFullPelYSlice(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int) ([]byte, bool) {
+	off, ok := refFullPelYOffset(ref, refBaseY, refBaseX, width, height)
+	if !ok {
+		return nil, false
+	}
+	return ref.YFull[off:], true
 }
 
 func interMotionFullPixelSearchReturnCost(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
@@ -6598,9 +6641,10 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	refBaseY := baseY + (mvRow >> 3)
 	refBaseX := baseX + (mvCol >> 3)
 	if (mvCol|mvRow)&7 == 0 &&
-		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
-		uint(refBaseY) <= uint(ref.CodedHeight-16) && uint(refBaseX) <= uint(ref.CodedWidth-16) {
-		return dsp.SAD16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
+		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
+		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SAD16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		}
 	}
 	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, maxInt())
 }
@@ -6623,10 +6667,10 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 		}
 	}
 	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width &&
-		refBaseY >= 0 && refBaseX >= 0 &&
-		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
-		return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
+		baseY+16 <= src.Height && baseX+16 <= src.Width {
+		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		}
 	}
 
 	sse := 0
@@ -6661,14 +6705,11 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 		}
 	}
 	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width &&
-		refBaseY >= 0 && refBaseX >= 0 &&
-		refBaseY+16 <= ref.CodedHeight && refBaseX+16 <= ref.CodedWidth {
-		// R15-C SIMD bypass: skip the slice header + bounds-check on &src[0]
-		// by going through VarianceBlock16x16PtrFast directly. Reuses the
-		// same (sum, sse) reduction as R14-B's VarianceSSE16x16.
-		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride)
-		return sse - ((sum * sum) >> 8), sse
+		baseY+16 <= src.Height && baseX+16 <= src.Width {
+		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+			sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+			return sse - ((sum * sum) >> 8), sse
+		}
 	}
 
 	sum := 0
@@ -6688,12 +6729,8 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 }
 
 // macroblockSADLimited dispatches the limit-aware 16x16 SAD between the
-// aligned full-pel SIMD kernel, the sub-pel six-tap predict path, and the
-// out-of-bounds clamp scalar fallback. R14-B reshapes the function so the
-// hot full-pel branch stays as small as possible (the caller — the diamond
-// search inner loop — produces full-pel MVs by construction); the cold
-// sub-pel and clamp paths are factored into macroblockSADLimitedSlow so
-// they don't bloat the hot path's inline cost.
+// full-pel bordered-reference SIMD kernel, the sub-pel six-tap predict path,
+// and the scalar fallback for invalid buffers / non-UMV callers.
 func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mv vp8enc.MotionVector, limit int) int {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
@@ -6701,33 +6738,15 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	mvRow := int(mv.Row)
 	refBaseY := baseY + (mvRow >> 3)
 	refBaseX := baseX + (mvCol >> 3)
-	// Picker hot path: full-pel MV, source and reference 16x16 windows
-	// fully in-bounds. The cast-through-uint encoding folds (>=0 && <= cap-16)
-	// into one compare per axis — the diamond/exhaustive search drives this
-	// branch on the overwhelming majority of the 100-1000 calls per MB.
-	// Splitting the rare slow-path tail (subpel + edge-clamp) into a
-	// dedicated noinline helper drops macroblockSADLimited's compile cost
-	// from 530 to 252 so the compiler can chase the fast-path bounds
-	// checks aggressively even though the wrapper itself stays out of
-	// the inliner budget.
-	//
-	// R15-C: bypass dsp.SAD16x16Limit's 3-call dispatch chain
-	// (sadBlockLimit -> sadBlock16x16Limit -> int32(NEON kernel)) by
-	// taking the bounds-validated *byte and the already-non-negative
-	// limit straight to the SIMD kernel via SAD16x16LimitPtrFast.
 	if (mvCol|mvRow)&7 == 0 &&
-		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
-		uint(refBaseY) <= uint(ref.CodedHeight-16) && uint(refBaseX) <= uint(ref.CodedWidth-16) {
-		return dsp.SAD16x16LimitPtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[refBaseY*ref.YStride+refBaseX], ref.YStride, limit)
+		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
+		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SAD16x16LimitPtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride, limit)
+		}
 	}
 	return macroblockSADLimitedSlow(src, ref, baseY, baseX, refBaseY, refBaseX, mvCol, mvRow, limit)
 }
 
-// macroblockSADLimitedSlow handles the rare paths (subpel, partial out of
-// bounds, edge-clamp). Splitting it off keeps macroblockSADLimited small
-// enough for the compiler to chase the fast-path bounds checks more
-// aggressively (and the picker only hits this body on frame-edge MBs).
-//
 //go:noinline
 func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, mvCol int, mvRow int, limit int) int {
 	xOffset := mvCol & 7
@@ -6797,20 +6816,20 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 		}
 	}
 	if baseY >= 0 && baseX >= 0 &&
-		baseY+height <= src.Height && baseX+width <= src.Width &&
-		refBaseY >= 0 && refBaseX >= 0 &&
-		refBaseY+height <= ref.CodedHeight && refBaseX+width <= ref.CodedWidth {
+		baseY+height <= src.Height && baseX+width <= src.Width {
 		srcBlock := src.Y[baseY*src.YStride+baseX:]
-		refBlock := ref.Y[refBaseY*ref.YStride+refBaseX:]
-		switch {
-		case width == 16 && height == 8:
-			return dsp.SAD16x8(srcBlock, src.YStride, refBlock, ref.YStride)
-		case width == 8 && height == 16:
-			return dsp.SAD8x16(srcBlock, src.YStride, refBlock, ref.YStride)
-		case width == 8 && height == 8:
-			return dsp.SAD8x8(srcBlock, src.YStride, refBlock, ref.YStride)
-		case width == 4 && height == 4:
-			return dsp.SAD4x4(srcBlock, src.YStride, refBlock, ref.YStride)
+		refBlock, ok := refFullPelYSlice(ref, refBaseY, refBaseX, width, height)
+		if ok {
+			switch {
+			case width == 16 && height == 8:
+				return dsp.SAD16x8(srcBlock, src.YStride, refBlock, ref.YStride)
+			case width == 8 && height == 16:
+				return dsp.SAD8x16(srcBlock, src.YStride, refBlock, ref.YStride)
+			case width == 8 && height == 8:
+				return dsp.SAD8x8(srcBlock, src.YStride, refBlock, ref.YStride)
+			case width == 4 && height == 4:
+				return dsp.SAD4x4(srcBlock, src.YStride, refBlock, ref.YStride)
+			}
 		}
 	}
 

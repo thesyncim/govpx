@@ -1097,6 +1097,46 @@ func TestSelectInterFrameFullPixelMotionVectorDiamondKeepsFourSitePath(t *testin
 	}
 }
 
+func TestFullPelSADUsesBorderedReferencePlane(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 31, 90, 170)
+	ref := testVP8Frame(t, 16, 16, 200, 90, 170)
+
+	start := ref.Img.YOrigin - 16*ref.Img.YStride - 16
+	for row := range 19 {
+		for col := range 16 {
+			ref.Img.YFull[start+row*ref.Img.YStride+col] = 31
+		}
+	}
+
+	source := sourceImageFromPublic(src)
+	ctx := newFullPelSearchCtx(source, &ref.Img, 0, 0)
+	if got := ctx.fullPelSADFull(-16, -16); got != 0 {
+		t.Fatalf("bordered full-pel SAD = %d, want 0 from YFull border", got)
+	}
+
+	var sad4 [4]uint32
+	if ok := ctx.fullPelSADFull4(-16, -16, -15, -16, -14, -16, -13, -16, &sad4); !ok {
+		t.Fatalf("bordered x4 full-pel SAD returned ok=false")
+	}
+	for i, got := range sad4 {
+		if got != 0 {
+			t.Fatalf("bordered x4 SAD[%d] = %d, want 0 from YFull border", i, got)
+		}
+	}
+
+	mv := vp8enc.MotionVector{Row: -128, Col: -128}
+	if got := macroblockSAD(source, &ref.Img, 0, 0, mv); got != 0 {
+		t.Fatalf("macroblockSAD bordered full-pel = %d, want 0", got)
+	}
+	if got := macroblockSADLimited(source, &ref.Img, 0, 0, mv, maxInt()); got != 0 {
+		t.Fatalf("macroblockSADLimited bordered full-pel = %d, want 0", got)
+	}
+	if variance, sse := macroblockLumaMotionVarianceSSE(source, &ref.Img, 0, 0, mv); variance != 0 || sse != 0 {
+		t.Fatalf("bordered full-pel variance/sse = %d/%d, want 0/0", variance, sse)
+	}
+}
+
 func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 0, 90, 170)
