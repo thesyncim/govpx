@@ -88,9 +88,8 @@ func validSegmentationConfig(cfg SegmentationConfig) bool {
 
 func segmentationFeatureMagnitude(value int8, bits uint8) (uint32, bool) {
 	magnitude := int(value)
-	if magnitude < 0 {
-		magnitude = -magnitude
-	}
+	mask := magnitude >> intSignShift
+	magnitude = (magnitude ^ mask) - mask
 	return uint32(magnitude), magnitude < 1<<bits
 }
 
