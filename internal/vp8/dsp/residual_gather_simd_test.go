@@ -14,11 +14,11 @@ import (
 func scalarResidualGather(src []byte, srcStride int, pred []byte, predStride int, out []int16, w, h int) {
 	bw := w / 4
 	bh := h / 4
-	for by := 0; by < bh; by++ {
-		for bx := 0; bx < bw; bx++ {
+	for by := range bh {
+		for bx := range bw {
 			block := by*bw + bx
-			for r := 0; r < 4; r++ {
-				for c := 0; c < 4; c++ {
+			for r := range 4 {
+				for c := range 4 {
 					a := int(src[(by*4+r)*srcStride+bx*4+c])
 					b := int(pred[(by*4+r)*predStride+bx*4+c])
 					out[block*16+r*4+c] = int16(a - b)
@@ -58,8 +58,8 @@ func TestResidualGatherSIMDMatchesScalar(t *testing.T) {
 			nBlocks := (c.w / 4) * (c.h / 4)
 			outSimd := make([]int16, nBlocks*16)
 			outScalar := make([]int16, nBlocks*16)
-			for srcOff := 0; srcOff < 8; srcOff++ {
-				for predOff := 0; predOff < 8; predOff++ {
+			for srcOff := range 8 {
+				for predOff := range 8 {
 					srcSlice := src[srcOff*planeStride+srcOff:]
 					predSlice := pred[predOff*planeStride+predOff:]
 					for i := range outSimd {

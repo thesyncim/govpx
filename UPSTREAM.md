@@ -87,10 +87,9 @@ grant. This repository keeps libvpx license and patent notices in
   post-inter auto-key recode, and CQLevel constrained-quality are wired.
   One-pass CBR/CQ/VBR start frames from libvpx's bits-per-MB Q regulator and
   update KF/inter/GF correction factors from encoded frame size.
-- Open encoder gaps: full SPLITMV RD/mode-cost parity, exact
-  cyclic/background segment selection, exact constrained-quality / GF
-  bitrate heuristics, full libvpx rate-control heuristic parity, and the
-  128x128 inter-frame Q-regulation divergence documented in
-  [`docs/vp8_encoder_parity.md`](docs/vp8_encoder_parity.md). Encoder corpus
-  validation acts as a regression guard, not a parity proof.
+- Open encoder gaps: exact cyclic/background segment selection, exact
+  constrained-quality / GF bitrate heuristics, full libvpx rate-control
+  heuristic parity, and the remaining oracle-scoreboard deltas tracked by the
+  root oracle tests and `testdata/*_baseline.json`. Encoder corpus validation
+  acts as a regression guard, not a parity proof.
 - The package exposes a small Go API, not the libvpx C API.

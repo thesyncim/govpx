@@ -244,7 +244,7 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 }
 
 func (p *rowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
-	for spins := 0; spins < rowWorkerIdleSpinBudget; spins++ {
+	for spins := range rowWorkerIdleSpinBudget {
 		select {
 		case _, ok := <-start:
 			return ok

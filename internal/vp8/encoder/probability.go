@@ -85,7 +85,7 @@ func validateKeyFrameCoefficientGrid(rows int, cols int, modes []KeyFrameMacrobl
 	for col := range cols {
 		above[col] = TokenContextPlanes{}
 	}
-	for index := 0; index < required; index++ {
+	for index := range required {
 		if !validKeyFrameMacroblockMode(&modes[index]) {
 			return ErrInvalidPacketConfig
 		}

@@ -11,11 +11,11 @@ import (
 // `recordFullPelSAD` / `recordFullPelEarlyBreak` would otherwise add
 // inside the hot search loop.
 type fullPelLocalStats struct {
-	sadCalls       int
-	sadCandidates  int
-	batchCalls     int
-	boundsRejects  int
-	earlyBreaks    int
+	sadCalls      int
+	sadCandidates int
+	batchCalls    int
+	boundsRejects int
+	earlyBreaks   int
 }
 
 func (l *fullPelLocalStats) flush(stats *interFrameMotionSearchStats) {
@@ -148,7 +148,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 			local.batchCalls++
 			rows := [4]int{r0, r1, r2, r3}
 			cols := [4]int{c0, c1, c2, c3}
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				sad := int(sad4[i])
 				if sad < bestCost {
 					cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
@@ -164,7 +164,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 			// Edge of the bordered ref plane: fall through to the
 			// generic per-candidate path so the slow gather still
 			// covers the four candidates correctly.
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				row := bestRow + int(hexDR[i])
 				col := bestCol + int(hexDC[i])
 				local.sadCalls++
@@ -201,7 +201,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 	} else {
 		// Per-candidate path: at least one ring site may straddle the
 		// search bounds, so we keep the legacy guard order.
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			row := bestRow + int(hexDR[i])
 			col := bestCol + int(hexDC[i])
 			if !bounds.containsFullPel(row, col) {
@@ -234,7 +234,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 			nextCol = bestCol
 			chk := nextCheckpointIdx[k]
 			if boundsInteriorByPad(bounds, bestRow, bestCol, padRing, padRing) {
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 					idx := int(chk[i])
 					row := bestRow + int(hexDR[idx])
 					col := bestCol + int(hexDC[idx])
@@ -252,7 +252,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 					}
 				}
 			} else {
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 					idx := int(chk[i])
 					row := bestRow + int(hexDR[idx])
 					col := bestCol + int(hexDC[idx])
@@ -290,7 +290,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 	}
 
 	// --- 4-neighbour final refine ----------------------------------------
-	for iter := 0; iter < 8; iter++ {
+	for range 8 {
 		bestSite = -1
 		nextRow = bestRow
 		nextCol = bestCol
@@ -306,7 +306,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 				local.batchCalls++
 				rows := [4]int{r0, r1, r2, r3}
 				cols := [4]int{c0, c1, c2, c3}
-				for i := 0; i < 4; i++ {
+				for i := range 4 {
 					sad := int(sad4[i])
 					if sad < bestCost {
 						cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
@@ -319,7 +319,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 					}
 				}
 			} else {
-				for i := 0; i < 4; i++ {
+				for i := range 4 {
 					row := bestRow + int(neighborDR[i])
 					col := bestCol + int(neighborDC[i])
 					local.sadCalls++
@@ -337,7 +337,7 @@ func hexSuperKernel(s *fullPelMotionSearch, best vp8enc.MotionVector, bestCost i
 				}
 			}
 		} else {
-			for i := 0; i < 4; i++ {
+			for i := range 4 {
 				row := bestRow + int(neighborDR[i])
 				col := bestCol + int(neighborDC[i])
 				if !bounds.containsFullPel(row, col) {

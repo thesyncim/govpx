@@ -839,7 +839,7 @@ func copyFrameImageLuma(dst *vp8common.Image, src *vp8common.Image) {
 		copy(dst.Y[:height*dst.YStride], src.Y[:height*src.YStride])
 		return
 	}
-	for row := 0; row < height; row++ {
+	for row := range height {
 		copy(dst.Y[row*dst.YStride:row*dst.YStride+width], src.Y[row*src.YStride:row*src.YStride+width])
 	}
 }

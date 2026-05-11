@@ -27,10 +27,8 @@ muxing, and no libvpx C API clone.
 - Every safe point should end with `make verify-production` and
   `git status --short`.
 
-Status details live in [UPSTREAM.md](UPSTREAM.md). The detailed checklist for
-100% encoder decision parity lives in
-[docs/vp8_encoder_parity.md](docs/vp8_encoder_parity.md). Build/test wiring
-lives in [Makefile](Makefile).
+Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
+[Makefile](Makefile). Oracle scoreboard baselines live in [testdata](testdata).
 
 ## Current Status
 
@@ -40,10 +38,8 @@ lives in [Makefile](Makefile).
   lookahead, ARNR-style filtering, spatial/temporal denoising, first-pass stats,
   two-pass VBR targeting, pre-analysis scene-cut keyframe placement, and
   libvpx post-inter auto-key recode for opt-in one-pass non-realtime encodes.
-  Estimate ~74% overall, ~84% on the core one-pass quality path
-  (quality/rate-equivalence estimates, not bit-exactness percentages).
-  See [docs/vp8_encoder_parity.md](docs/vp8_encoder_parity.md) for the
-  per-area checklist.
+  Quality/rate parity is tracked by oracle tests and scoreboard baselines, not
+  by percentage claims.
 - Reconstruction byte-identity, 2026-05-08 (measured by capturing both
   oracle traces and diffing the projected-out
   `y_adler32`/`u_adler32`/`v_adler32`/`size_bytes` fields):
@@ -65,9 +61,9 @@ lives in [Makefile](Makefile).
     frame 1, identical q=16 and identical clamped seed); the chroma
     sixtap math itself is correct.
   - 1280x720 realtime CBR CpuUsed 8, R11-M token-rate audit
-    (2026-05-09, parity-close-r11-m-token-rate, see
-    `diag_r11_m_token_rate_test.go`): at matched Q (frames 1-19 of the
-    panning fixture, both encoders pin q_index=106 / public Q=56),
+    (2026-05-09, parity-close-r11-m-token-rate): at matched Q
+    (frames 1-19 of the panning fixture, both encoders pin q_index=106
+    / public Q=56),
     per-frame size_bytes ratio is 0.998..1.005 and per-MB EOB sums match
     exactly (frame 1: gov_eob_sum=lib_eob_sum=136595). The four
     R11-M hypotheses (band-zero-bit-cost lookup, coef-prob context
@@ -125,23 +121,19 @@ lives in [Makefile](Makefile).
     max_inter_size_pct_abs falls 1.42% -> 1.11%; per-MB predictor diff
     confirms the residual is right-edge chroma (cols 6-7) on MB rows
     1..5, not the LF picker. The LF picker per-trial-level eval order
-    now matches libvpx exactly on every frame
-    (TestOracleLFTrialDiag).
+    now matches libvpx exactly on every frame under the loop-filter
+    oracle checks.
 
   The remaining 96x96 / 128x128 chroma U/V residual lives in chroma
   subpel rounding on right-edge MBs at specific MVs; per-pixel
   `last_ref_window` bytes (including border extension) are
   byte-identical between encoders, so the divergence is downstream of
   the reference plane in the chroma predictor or in the per-MB mode
-  decisions for cols 6-7 from MB row 1+. Diagnostic harness lives in
-  [`oracle_chroma_subpel_predictor_diag_test.go`](oracle_chroma_subpel_predictor_diag_test.go)
-  (gate `GOVPX_DEBUG=1`, optional `GOVPX_DEBUG_ALL_ROWS=1`).
-- R11-J localizer (2026-05-08): a focused diag harness in
-  [`diag_r11_j_pre_lf_recon_test.go`](diag_r11_j_pre_lf_recon_test.go)
-  drives the chroma-subpel scoreboard's exact option set (no buffer
-  overrides -> libvpx defaults) for the 128x128 panning fixture and
-  walks per-MB mb / predictor / reconstructed rows on frame 1. Findings
-  for that config (q=14 on both sides, govpx LF=5 vs libvpx LF=10):
+  decisions for cols 6-7 from MB row 1+.
+- R11-J localizer (2026-05-08): the chroma-subpel scoreboard's exact
+  option set (no buffer overrides -> libvpx defaults) for the 128x128
+  panning fixture showed these frame-1 findings (q=14 on both sides,
+  govpx LF=5 vs libvpx LF=10):
   - **First divergent reconstructed MB: MB(2,7) Y pos 200** (16x16
     offset 12,8 = block 14 row 0); 4 divergent MBs total on frame 1,
     all col-7 B_PRED (MB(2,7), (3,7), (4,7), (5,7)) — Y/U/V all diverge

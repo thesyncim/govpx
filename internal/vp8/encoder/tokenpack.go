@@ -294,7 +294,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		extra := coefficientExtraBitEncodings[token]
 		extraLen := int(extra.len)
 		offset := mag - int(extra.baseVal)
-		for i := 0; i < extraLen; i++ {
+		for i := range extraLen {
 			shiftIndex := extraLen - 1 - i
 			bit := uint8((offset >> uint(shiftIndex)) & 1)
 			probability := extra.probs[i]
@@ -451,7 +451,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			extra := coefficientExtraBitEncodings[token]
 			extraLen := int(extra.len)
 			offset := mag - int(extra.baseVal)
-			for i := 0; i < extraLen; i++ {
+			for i := range extraLen {
 				shiftIndex := extraLen - 1 - i
 				bit := uint8((offset >> uint(shiftIndex)) & 1)
 				probability := extra.probs[i]

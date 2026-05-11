@@ -17,7 +17,7 @@ import (
 // across the realistic VP8 coefficient range.
 func libvpxFastQuantizeBReference(coeff *[16]int16, round *[16]int16, quantFast *[16]int16, dequant *[16]int16, qcoeff *[16]int16, dqcoeff *[16]int16) int {
 	eob := -1
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		rc := int(tables.DefaultZigZag1D[i])
 		z := int32(coeff[rc])
 		sz := z >> 31
@@ -376,7 +376,7 @@ func TestFastQuantizeBlockMatchesLibvpxC(t *testing.T) {
 			}
 
 			// Random fuzz: 64 cases at this Q+channel.
-			for iter := 0; iter < 64; iter++ {
+			for iter := range 64 {
 				var coeff [16]int16
 				for i := range coeff {
 					coeff[i] = int16(r.Intn(4096) - 2048)

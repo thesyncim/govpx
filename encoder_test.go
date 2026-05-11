@@ -1201,7 +1201,7 @@ func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 		t.Fatalf("skinMap[0] = %d, want libvpx skin classification", e.skinMap[0])
 	}
 	refreshed := 0
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if modes[i].SegmentID == staticSegmentID {
 			refreshed++
 		}
@@ -2748,7 +2748,7 @@ func TestCopyLoopFilterPartialLumaCopiesLibvpxTopContext(t *testing.T) {
 			t.Fatalf("top context row %d differs from libvpx top-row fill", y)
 		}
 	}
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		srcOff := src.Img.YOrigin + y*src.Img.YStride
 		dstOff := dst.Img.YOrigin + y*dst.Img.YStride
 		got := dst.Img.YFull[dstOff : dstOff+dst.Img.YStride]

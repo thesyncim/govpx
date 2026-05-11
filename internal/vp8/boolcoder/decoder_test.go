@@ -131,7 +131,7 @@ func TestReadCoefUpdateProbsIntoMatchesScalarLoop(t *testing.T) {
 	w.init()
 	wantUpdates := 0
 	wantNonDefault := false
-	for i := 0; i < total; i++ {
+	for i := range total {
 		w.writeBool(updateBits[i], updateProbs[i])
 		if updateBits[i] != 0 {
 			for k := 7; k >= 0; k-- {
@@ -154,7 +154,7 @@ func TestReadCoefUpdateProbsIntoMatchesScalarLoop(t *testing.T) {
 	{
 		var d Decoder
 		_ = d.Init(payload)
-		for i := 0; i < total; i++ {
+		for i := range total {
 			if d.ReadBool(updateProbs[i]) != 0 {
 				wantProbs[i] = uint8(d.ReadLiteral(8))
 			}

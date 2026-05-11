@@ -3,114 +3,157 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 encoder and decoder. No cgo. Parity-gated against libvpx v1.16.0.
+Pure-Go VP8 encoder and decoder.
 
-Use this if you need VP8 in a Go binary without dragging libvpx along (containers, cross-compiles, WASM, sandboxes). Don't use it if you need libvpx-grade throughput or VP9/AV1 — see [Status](#status).
+govpx is for Go programs that need VP8 without cgo or a libvpx runtime
+dependency. It is VP8-only: no VP9, no AV1, no WebM muxer, and no libvpx C API
+compatibility layer.
 
-## Install
+The implementation is tested against a pinned libvpx v1.16.0 oracle. The codec
+package exposes Go types and methods; libvpx naming is kept only where it
+identifies upstream behavior, parity tests, or oracle tooling.
+
+## Requirements
+
+Go 1.26 or newer.
 
 ```sh
 go get github.com/thesyncim/govpx
 ```
 
-Requires Go 1.26+.
-
-## Decode
+## Decode VP8
 
 ```go
 dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
-if err != nil { return err }
+if err != nil {
+	return err
+}
 defer dec.Close()
 
-if err := dec.Decode(packet); err != nil { return err }
+if err := dec.Decode(packet); err != nil {
+	return err
+}
 frame, ok := dec.NextFrame()
-// frame.Y / frame.U / frame.V are planar 8-bit 4:2:0; valid until the next
-// Decode/Reset/Close. Use DecodeInto to write into a caller-owned Image.
+if !ok {
+	return nil
+}
+_ = frame // I420: Y, U, V plus per-plane strides.
 ```
 
-## Encode
+`NextFrame` returns an image backed by decoder-owned storage. It is valid until
+the next decode, reset, or close. Use `DecodeInto` / `DecodeIntoWithPTS` when
+the caller owns the destination buffers.
+
+Decoder options include error concealment, postprocess flags, max dimensions,
+and resolution-change rejection.
+
+## Encode VP8
 
 ```go
 enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
-    Width: 640, Height: 480, FPS: 30,
-    RateControlMode:   govpx.RateControlCBR,
-    TargetBitrateKbps: 1500,
-    Deadline:          govpx.DeadlineRealtime,
+	Width:             640,
+	Height:            480,
+	FPS:               30,
+	RateControlMode:   govpx.RateControlCBR,
+	TargetBitrateKbps: 1500,
+	Deadline:          govpx.DeadlineRealtime,
 })
-if err != nil { return err }
+if err != nil {
+	return err
+}
+defer enc.Close()
 
 dst := make([]byte, 256*1024)
 for i, src := range frames {
-    res, err := enc.EncodeInto(dst, src, uint64(i), 1, 0)
-    if err != nil { return err }
-    if res.Dropped { continue }
-    write(res.Data) // res.Data is a sub-slice of dst — copy if you keep it
+	res, err := enc.EncodeInto(dst, src, uint64(i), 1, 0)
+	if err != nil {
+		return err
+	}
+	if res.Dropped {
+		continue
+	}
+	writePacket(res.Data) // res.Data aliases dst; copy it if it must outlive dst.
 }
 ```
 
-`Image` is planar I420 (`Y`, `U`, `V` byte slices + `*Stride`). `EncodeFlags` carries forced-keyframe and reference-buffer hints; see `EncoderOptions` godoc for the full knob set (q range, buffer model, lookahead, ARNR, temporal layers, two-pass VBR, etc).
+Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Encoded output is
+a raw VP8 frame payload, not IVF or WebM.
 
-## Status
+Encoder support includes CBR, CQ, one-pass and two-pass VBR controls, temporal
+layers, token partitions, adaptive keyframes, lookahead, automatic alt-ref,
+ARNR, denoise, screen-content mode, active maps, and realtime control methods
+such as `SetBitrateKbps`, `SetRateControl`, `SetRealtimeTarget`, `SetDeadline`,
+and `SetCPUUsed`.
 
-| | govpx | libvpx-vp8 |
-|---|---|---|
-| Implementation | pure Go, scalar | C + SIMD |
-| VP8 decode | ✅ parity vs libvpx 1.16.0 | reference |
-| VP8 encode | ✅ realtime CBR/CQ, 1-pass + 2-pass VBR | reference |
-| Postproc / error concealment | ✅ | reference |
-| Multi-thread decode | ❌ | ✅ |
-| VP9 / AV1 | ❌ | (n/a) |
+For lookahead or auto-alt-ref, `EncodeInto` can return `ErrFrameNotReady` while
+frames are queued. Call `FlushInto` at end of stream until it returns no more
+data.
 
-**Performance** (`govpx-bench`, single-thread, Apple Silicon, realtime CBR 1200 kbps, 120 frames):
+## Validation
 
-| Workload | govpx | libvpx | govpx PSNR delta |
-|---|---|---|---|
-| 320×240 encode | 2.15 ms/frame | 0.73 ms/frame (≈3× faster) | +1.1 dB |
-| 320×240 decode | 575 µs/frame | 305 µs/frame (≈1.9× faster) | — |
-
-Numbers are illustrative — run `cmd/govpx-bench` on your hardware. govpx is currently 2–3× slower than libvpx's SIMD path; quality (PSNR/SSIM/bitrate accuracy) tracks libvpx within parity gates. Decode benchmark times only the decode loop on both sides (the libvpx oracle reports its own loop time on stderr); subprocess startup is shown separately.
-
-## Scope
-
-In scope: VP8 decode, VP8 encode, postproc flags, error concealment, temporal layers, ARNR/spatial denoise, scene-cut keyframes, two-pass VBR, runtime control of token partitions / sharpness / static threshold / screen content.
-
-Out of scope: VP9, AV1, WebM/IVF muxing in the codec package, libvpx C-API compatibility, cgo. IVF parsing helpers live under `internal/testutil`. WebRTC integration lives in `examples/webrtc-vp8`.
-
-## Develop
+Fast local checks:
 
 ```sh
-make ci                  # gofmt + go test ./... (no oracle build)
-make verify-production   # build pinned libvpx 1.16.0 + run TestOracle* parity gate
+make ci
+go test ./... -count=1
+go vet ./...
 ```
 
-`verify-production` downloads the libvpx source, builds `govpx-vpx-oracle` / `vpxenc` / `vpxdec` under `internal/coracle/build/`, fetches the VP8 conformance corpus, and asserts byte-exact parity on decode + structured parity on encode. CI runs this on every push.
+Oracle checks:
+
+```sh
+make verify-production
+```
+
+`verify-production` builds the pinned libvpx oracle tools under
+`internal/coracle/build`, fetches VP8 conformance data, and runs decode plus
+encoder parity gates. The oracle trace harness is behind the
+`govpx_oracle_trace` build tag and is off in normal builds.
 
 ## Benchmark
 
 ```sh
-go run ./cmd/govpx-bench                              # encode bench, auto-includes libvpx if found
-go run ./cmd/govpx-bench -decode -frames=120          # decode bench
-go run ./cmd/govpx-bench -format=json                 # machine-readable
+go run ./cmd/govpx-bench
+go run ./cmd/govpx-bench -decode -frames=120
+go run ./cmd/govpx-bench -format=json
 ```
 
-By default it auto-locates `internal/coracle/build/{vpxenc,govpx-vpx-oracle}` (running `make oracle-tools` if missing) for an apples-to-apples reference. Pass `-libvpx-vpxenc=` / `-libvpx-oracle=` to point at custom binaries, or `-auto-libvpx=false` to skip. Output includes the `comparison_vs_reference` block (encode) or `relative_speed_vs_reference` (decode) plus subprocess overhead so you can see where the time is going.
+The benchmark can compare govpx with the pinned libvpx tools when they are
+available. By default it looks for `internal/coracle/build/vpxenc` and
+`internal/coracle/build/govpx-vpx-oracle`, building them with `make
+oracle-tools` if needed. Use `-auto-libvpx=false` for govpx-only runs.
 
-Realtime encode comparisons use the same wall-clock-driven autospeed flow as
-libvpx; there is no synthetic speed calibration path.
+Do not treat README numbers as performance data. Run the benchmark on the target
+machine, Go version, CPU, frame size, bitrate, deadline, and thread count that
+matter for your workload.
 
-## Layout
+## Repository Layout
 
+```text
+.                         public govpx package
+internal/vp8/common       VP8 shared state, headers, loop filter, quant tables
+internal/vp8/decoder      decoder internals
+internal/vp8/encoder      packet, token, transform, quant, and motion helpers
+internal/vp8/dsp          scalar and architecture-specific pixel kernels
+internal/coracle          pinned libvpx oracle build and comparison helpers
+cmd/govpx-bench           encode/decode benchmark CLI
+cmd/govpx-oracle          oracle wrapper command
+cmd/scoreboard-report     oracle scoreboard runner
+examples/webrtc-vp8       separate WebRTC example module
+testdata                  oracle scoreboard baselines
 ```
-.                       public VP8 API (encoder.go, decoder.go, image.go)
-internal/vp8            scalar VP8 port internals
-internal/testutil       IVF / checksum / corpus helpers
-internal/coracle        libvpx oracle build scripts and compare helpers
-cmd/govpx-bench         encode + decode benchmark
-cmd/govpx-oracle        wrapper for the checksum oracle
-examples/webrtc-vp8     separate module: browser playback example
-docs/performance.md     scalar perf notes
-```
+
+## Development Notes
+
+Production builds should not pay for diagnostics. Trace and oracle-only code is
+build-tagged out by default; opt-in phase timing only runs when
+`EncoderOptions.PhaseStats` is non-nil.
+
+Keep hot-path changes allocation-aware. The encoder is designed so steady-state
+`EncodeInto` can reuse caller and encoder-owned buffers instead of allocating
+per frame.
 
 ## License
 
-BSD-3-Clause. See `LICENSE`, `NOTICE`, `LICENSE.libvpx`, `PATENTS.libvpx`, `UPSTREAM.md` for govpx and upstream libvpx licensing.
+BSD-3-Clause. See `LICENSE`, `NOTICE`, `LICENSE.libvpx`, `PATENTS.libvpx`, and
+`UPSTREAM.md`.
