@@ -512,6 +512,12 @@ type VP8Encoder struct {
 
 	loopFilterPick      vp8common.FrameBuffer
 	loopFilterBest      vp8common.FrameBuffer
+	// loopFilterPickAlt is the second LF-trial scratch buffer used by the
+	// full picker when running filt_low/filt_high trials concurrently at
+	// Threads >= 2. Resized only when the row-worker pool exists; remains
+	// zero-sized on Threads=1 so the canonical serial path stays
+	// byte-identical with zero added cost.
+	loopFilterPickAlt   vp8common.FrameBuffer
 	loopFilterPickReady bool
 	loopFilterPickLevel uint8
 	loopFilterPickBest  bool
@@ -532,7 +538,13 @@ type VP8Encoder struct {
 	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCountsValid bool
 	loopInfo            vp8common.LoopFilterInfo
-	loopFilterLevel     uint8
+	// loopInfoAlt is the worker-private LoopFilterInfo for the
+	// parallel filt_low/filt_high trials run by pickFull at Threads >= 2.
+	// vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked mutates the
+	// passed *LoopFilterInfo (via InitLoopFilterFrame) so the parallel
+	// trial cannot share loopInfo with the calling goroutine's trial.
+	loopInfoAlt     vp8common.LoopFilterInfo
+	loopFilterLevel uint8
 	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
 	// vp8/encoder/bitstream.c pack_lf_deltas: the encoder signals the
 	// mode/ref loop-filter deltas with `update=1` on the very first packed
@@ -838,6 +850,15 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		mbRows := encoderMacroblockRows(e.opts.Height)
 		mbCols := encoderMacroblockCols(e.opts.Width)
 		e.rowWorkers = newRowWorkerPool(eff, mbRows, mbCols)
+		// loopFilterPickAlt is the second LF-trial scratch used only on
+		// the parallel filt_low/filt_high dispatch in pickFull. It is
+		// allocated only when a row-worker pool exists so Threads=1
+		// stays zero-cost (no extra ~921 KB at 720p).
+		if e.rowWorkers != nil {
+			if err := e.loopFilterPickAlt.Resize(normalized.Width, normalized.Height, 32, 32); err != nil {
+				return nil, ErrInvalidConfig
+			}
+		}
 	}
 	return e, nil
 }
@@ -3502,6 +3523,7 @@ func (e *VP8Encoder) Reset() {
 	e.interCoefTokenCountsValid = false
 	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
+	e.loopInfoAlt = vp8common.LoopFilterInfo{}
 	e.loopFilterLevel = 0
 	e.lfDeltasSignaledOnce = false
 	e.lastSignaledRefLFDeltas = [vp8common.MaxRefLFDeltas]int8{}
@@ -3587,6 +3609,7 @@ func (e *VP8Encoder) Reset() {
 	e.altRef.Reset()
 	e.loopFilterPick.Reset()
 	e.loopFilterBest.Reset()
+	e.loopFilterPickAlt.Reset()
 	e.loopFilterPickReady = false
 	e.loopFilterPickLevel = 0
 	e.loopFilterPickBest = false
@@ -3732,6 +3755,12 @@ func (e *VP8Encoder) initReferenceFrames(width int, height int) error {
 	if err := e.loopFilterBest.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
+	// loopFilterPickAlt is only ever read/written on the Threads >= 2
+	// parallel pickFull path; allocating it on Threads=1 would waste
+	// ~921 KB at 720p for no benefit and break the "Threads=1 zero
+	// added cost" contract. The Resize is done in NewVP8Encoder once
+	// the rowWorkers pool has been constructed (it is not yet wired
+	// up at the point initReferenceFrames runs).
 	return nil
 }
 
@@ -3999,22 +4028,76 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		filtHigh := min(filtMid+filterStep, maxLevel)
 		filtLow := max(filtMid-filterStep, minLevel)
 
-		if filtDirection <= 0 && filtLow != filtMid {
+		// Parallel filt_low / filt_high trials at Threads >= 2 when this
+		// iteration would otherwise run both serially (filtDirection == 0,
+		// both bracket levels distinct from filtMid, neither cached). The
+		// filt_low trial runs on the row-worker pool against the alt
+		// scratch (loopFilterPickAlt + loopInfoAlt); the filt_high trial
+		// runs inline on the calling goroutine against the resident
+		// scratch (loopFilterPick + loopInfo). After both finish the
+		// score-update conditionals are applied in the same serial order
+		// as the non-parallel branch, so bestErr / filtBest converge
+		// byte-identically to the serial run. residentLevel is set to
+		// filtHigh to match the post-iteration state of the serial code.
+		// loopFilterPick (resident scratch) holds the filtHigh-filtered
+		// luma; loopFilterPickAlt holds the filtLow-filtered luma. If
+		// filtLow becomes the new filtBest we patch loopFilterBest with
+		// the alt-scratch luma so the chroma post-pass reuse decision in
+		// applyReconstructionLoopFilter sees the correct preserved image
+		// (mirroring the serial preserveBestBeforeTrial-before-filtHigh
+		// copy that would have run had the trials been serial).
+		if filtDirection == 0 && filtLow != filtMid && filtHigh != filtMid &&
+			!ssSet[filtLow] && !ssSet[filtHigh] && e.canParallelLFTrials() {
 			preserveBestBeforeTrial(filtLow, filtBest)
-			filtErr := score(filtLow)
-			if filtErr-bias < bestErr {
-				if filtErr < bestErr {
-					bestErr = filtErr
+			filtErrLow, filtErrHigh := ctx.dispatchLFTrialPair(filtLow, filtHigh)
+			ssErr[filtLow] = filtErrLow
+			ssSet[filtLow] = true
+			ssErr[filtHigh] = filtErrHigh
+			ssSet[filtHigh] = true
+			if filtHigh != 0 {
+				residentLevel = filtHigh
+			}
+			e.emitOracleLFTrial("full", filtLow, filtErrLow)
+			e.emitOracleLFTrial("full", filtHigh, filtErrHigh)
+			if filtErrLow-bias < bestErr {
+				if filtErrLow < bestErr {
+					bestErr = filtErrLow
 				}
 				filtBest = filtLow
+				// Replicate the serial "preserveBestBeforeTrial(filtHigh,
+				// filtBest=filtLow)" copy that would have run between
+				// the two trials: residentLevel == filtBest == filtLow,
+				// so loopFilterPick (which would hold the filtLow-filtered
+				// luma in serial) gets copied to loopFilterBest. In
+				// parallel that filtLow-filtered luma is in
+				// loopFilterPickAlt instead, so we copy from there.
+				if filtBest > 0 && bestLumaLevel != filtBest {
+					copyFrameImageLuma(&e.loopFilterBest.Img, &e.loopFilterPickAlt.Img)
+					bestLumaLevel = filtBest
+				}
 			}
-		}
-		if filtDirection >= 0 && filtHigh != filtMid {
-			preserveBestBeforeTrial(filtHigh, filtBest)
-			filtErr := score(filtHigh)
-			if filtErr < bestErr-bias {
-				bestErr = filtErr
+			if filtErrHigh < bestErr-bias {
+				bestErr = filtErrHigh
 				filtBest = filtHigh
+			}
+		} else {
+			if filtDirection <= 0 && filtLow != filtMid {
+				preserveBestBeforeTrial(filtLow, filtBest)
+				filtErr := score(filtLow)
+				if filtErr-bias < bestErr {
+					if filtErr < bestErr {
+						bestErr = filtErr
+					}
+					filtBest = filtLow
+				}
+			}
+			if filtDirection >= 0 && filtHigh != filtMid {
+				preserveBestBeforeTrial(filtHigh, filtBest)
+				filtErr := score(filtHigh)
+				if filtErr < bestErr-bias {
+					bestErr = filtErr
+					filtBest = filtHigh
+				}
 			}
 		}
 		if filtBest == filtMid {
