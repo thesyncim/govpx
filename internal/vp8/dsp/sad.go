@@ -63,10 +63,8 @@ func sadBlockScalarFallback(src []byte, srcStride int, ref []byte, refStride int
 			a := int(*(*byte)(unsafe.Add(srcRow, x)))
 			b := int(*(*byte)(unsafe.Add(refRow, x)))
 			diff := a - b
-			if diff < 0 {
-				diff = -diff
-			}
-			sad += diff
+			mask := diff >> signShift
+			sad += (diff ^ mask) - mask
 		}
 	}
 	return sad
