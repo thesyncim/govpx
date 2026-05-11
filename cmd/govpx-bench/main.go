@@ -385,6 +385,13 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			formatDuration(stats.LoopFilterTrialFilterNS/stats.LoopFilterTrials),
 			formatDuration(stats.LoopFilterTrialSSENS/stats.LoopFilterTrials))
 	}
+	if stats.InterRDCoeffCacheRequests > 0 || stats.InterCoefTokenRecords > 0 {
+		fmt.Fprintf(b, "coeff pipeline  rd_cache=%d  dct_hits=%d  coeff_hits=%d  token_records=%d\n",
+			stats.InterRDCoeffCacheRequests,
+			stats.InterRDCoeffCacheDCTHits,
+			stats.InterRDCoeffCacheCoeffHits,
+			stats.InterCoefTokenRecords)
+	}
 	if stats.FullPelSADCalls > 0 || stats.SubpelCandidates > 0 {
 		fmt.Fprintf(b, "motion search   sad_calls=%d  sad_candidates=%d  sad4=%d  subpel=%d  variance=%d  cache_hits=%d\n",
 			stats.FullPelSADCalls,

@@ -541,6 +541,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					collectOracle: e.oracleTraceEnabled(),
 					coeffs:        &coeffs[index],
 					cacheIn:       cacheIn,
+					phaseStats:    e.opts.PhaseStats,
 				})
 				if is4x4 {
 					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
@@ -613,6 +614,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	// Lane D: cache is now fully populated for the consumer (packet writer).
 	e.interCoefTokenCountsValid = true
 	e.interCoefTokenRecordsValid = true
+	if stats := e.opts.PhaseStats; stats != nil {
+		stats.InterCoefTokenRecords += int64(len(e.interCoefTokenRecords.Records))
+	}
 	return totalRate, nil
 }
 
@@ -7260,6 +7264,9 @@ type predictedMacroblockCoefficientArgs struct {
 	// exactly once and remains valid for fall-back inspection until the
 	// caller resets it.
 	cacheIn *interRDCoeffCacheState
+	// phaseStats, when non-nil, receives opt-in accepted-path coefficient
+	// pipeline counters for govpx-bench phase reports.
+	phaseStats *EncoderPhaseStats
 }
 
 // interRDCoeffCacheState stages the picker's post-FDCT residual DCT
@@ -7428,7 +7435,13 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	if coefProbs == nil || pred == nil || quant == nil || coeffs == nil {
 		return stats
 	}
+	if args.cacheIn != nil && args.phaseStats != nil {
+		args.phaseStats.InterRDCoeffCacheRequests++
+	}
 	if interRDCacheCoefficientsReusable(args.cacheIn, args) {
+		if args.phaseStats != nil {
+			args.phaseStats.InterRDCoeffCacheCoeffHits++
+		}
 		*coeffs = args.cacheIn.coeffs
 		return stats
 	}
@@ -7462,6 +7475,9 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	// (before the per-block loop zeroes DCs). The stack-local buffer
 	// keeps the per-block quant loop hot in L1 for non-winning candidates.
 	cacheConsume := args.cacheIn != nil && interRDCacheReusable(args.cacheIn, args)
+	if cacheConsume && args.phaseStats != nil {
+		args.phaseStats.InterRDCoeffCacheDCTHits++
+	}
 	var yResiduals [16 * 16]int16
 	var yDctsLocal [16 * 16]int16
 	yDctsPtr := &yDctsLocal

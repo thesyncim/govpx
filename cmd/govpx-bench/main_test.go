@@ -179,9 +179,13 @@ func TestRunBenchmarkPhaseTiming(t *testing.T) {
 	if report.PhaseNS.FullPelSADCalls == 0 || report.PhaseNS.SubpelVarianceCalls == 0 {
 		t.Fatalf("motion-search topology stats = %+v, want SAD and subpel variance work counted", *report.PhaseNS)
 	}
+	if report.PhaseNS.InterCoefTokenRecords == 0 {
+		t.Fatalf("coefficient token records = 0, want accepted-MB token stream counted")
+	}
 	text := formatEncodeReport(report)
 	if !strings.Contains(text, "phase/frame") || !strings.Contains(text, "phase attempts") ||
-		!strings.Contains(text, "lf trials") || !strings.Contains(text, "motion search") {
+		!strings.Contains(text, "lf trials") || !strings.Contains(text, "coeff pipeline") ||
+		!strings.Contains(text, "motion search") {
 		t.Fatalf("formatted report missing phase timing:\n%s", text)
 	}
 }

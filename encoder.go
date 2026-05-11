@@ -72,6 +72,11 @@ type EncoderPhaseStats struct {
 	LoopFilterTrialFilterNS int64 `json:"loop_filter_trial_filter_ns"`
 	LoopFilterTrialSSENS    int64 `json:"loop_filter_trial_sse_ns"`
 
+	InterRDCoeffCacheRequests  int64 `json:"inter_rd_coeff_cache_requests"`
+	InterRDCoeffCacheDCTHits   int64 `json:"inter_rd_coeff_cache_dct_hits"`
+	InterRDCoeffCacheCoeffHits int64 `json:"inter_rd_coeff_cache_coeff_hits"`
+	InterCoefTokenRecords      int64 `json:"inter_coef_token_records"`
+
 	FullPelSADCalls      int64 `json:"fullpel_sad_calls"`
 	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
 	FullPelBatchCalls    int64 `json:"fullpel_batch_calls"`

@@ -296,6 +296,7 @@ func TestInterRDCoeffCacheReusesPreparedCoefficients(t *testing.T) {
 	cache.coeffs.QCoeff[24][0] = 3
 	cache.coeffs.SetBlockEOB(24, 1)
 	var out vp8enc.MacroblockCoefficients
+	var phaseStats EncoderPhaseStats
 
 	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
 		coefProbs:     &probs,
@@ -309,12 +310,16 @@ func TestInterRDCoeffCacheReusesPreparedCoefficients(t *testing.T) {
 		fastQuant:     true,
 		coeffs:        &out,
 		cacheIn:       &cache,
+		phaseStats:    &phaseStats,
 	})
 	if stats != (predictedMacroblockRDStats{}) {
 		t.Fatalf("stats = %+v, want zero for accepted-path coefficient reuse", stats)
 	}
 	if out != cache.coeffs {
 		t.Fatalf("reused coeffs = %+v, want cached %+v", out, cache.coeffs)
+	}
+	if phaseStats.InterRDCoeffCacheRequests != 1 || phaseStats.InterRDCoeffCacheCoeffHits != 1 || phaseStats.InterRDCoeffCacheDCTHits != 0 {
+		t.Fatalf("phase cache stats = %+v, want one coeff-cache hit", phaseStats)
 	}
 	if interRDCacheCoefficientsReusable(&cache, &predictedMacroblockCoefficientArgs{
 		mbRow:         2,
@@ -326,6 +331,49 @@ func TestInterRDCoeffCacheReusesPreparedCoefficients(t *testing.T) {
 		optimize:      true,
 	}) {
 		t.Fatalf("optimized accepted path must not reuse picker coefficients")
+	}
+}
+
+func TestInterRDCoeffCacheCountsDCTReuse(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
+	if err := vp8enc.InitSegmentMacroblockQuants(20, vp8common.QuantDeltas{}, vp8enc.SegmentationConfig{}, &quants); err != nil {
+		t.Fatalf("InitSegmentMacroblockQuants returned error: %v", err)
+	}
+	src := testImage(48, 48)
+	pred := testVP8Frame(t, 48, 48, 0, 90, 170)
+	cache := interRDCoeffCacheState{
+		valid:         true,
+		is4x4:         false,
+		intra:         false,
+		fastQuant:     true,
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		mbRow:         1,
+		mbCol:         1,
+	}
+	var out vp8enc.MacroblockCoefficients
+	var phaseStats EncoderPhaseStats
+
+	buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:     &probs,
+		src:           sourceImageFromPublic(src),
+		mbRow:         1,
+		mbCol:         1,
+		pred:          &pred.Img,
+		quant:         &quants[0],
+		qIndex:        20,
+		zbinOverQuant: 7,
+		zbinModeBoost: lastFrameZeroMVZbinBoost,
+		fastQuant:     true,
+		coeffs:        &out,
+		cacheIn:       &cache,
+		phaseStats:    &phaseStats,
+	})
+
+	if phaseStats.InterRDCoeffCacheRequests != 1 || phaseStats.InterRDCoeffCacheDCTHits != 1 || phaseStats.InterRDCoeffCacheCoeffHits != 0 {
+		t.Fatalf("phase cache stats = %+v, want one DCT-cache hit", phaseStats)
 	}
 }
 
