@@ -101,6 +101,28 @@ func BuildInterCoefficientProbabilityUpdates(rows int, cols int, modes []InterFr
 	return coefficientProbabilityUpdatesFromTokenCounts(base, &counts)
 }
 
+// BuildInterCoefficientProbabilityUpdatesFromPrebuiltCounts mirrors
+// BuildInterCoefficientProbabilityUpdates but reuses token counts already
+// accumulated by the encoder during accepted-MB reconstruction. The counts
+// must have been built using the same modes/coeffs/context-reset logic as
+// buildInterCoefficientTokenCounts (i.e. AccumulateInterMacroblockTokenCounts
+// for accepted MBs and ResetTokenContextPlanes for skipped MBs).
+func BuildInterCoefficientProbabilityUpdatesFromPrebuiltCounts(base *tables.CoefficientProbs, counts *InterCoefficientTokenCounts) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	if base == nil || counts == nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+	}
+	return coefficientProbabilityUpdatesFromTokenCounts(base, counts)
+}
+
+// BuildInterCoefficientProbabilityUpdatesIndependentFromPrebuiltCounts is the
+// independent-contexts variant for ErrorResilientPartitions frames.
+func BuildInterCoefficientProbabilityUpdatesIndependentFromPrebuiltCounts(base *tables.CoefficientProbs, counts *InterCoefficientTokenCounts, keyFrame bool) (tables.CoefficientProbs, CoefficientProbabilityUpdates, error) {
+	if base == nil || counts == nil {
+		return tables.CoefficientProbs{}, CoefficientProbabilityUpdates{}, ErrInvalidPacketConfig
+	}
+	return coefficientProbabilityUpdatesFromTokenCountsIndependent(base, counts, keyFrame)
+}
+
 // KeyFrameCoefficientEntropySavings ports the default_coef_context_savings
 // branch of libvpx's vp8_estimate_entropy_savings for key frames. The result
 // is whole bits, matching libvpx's prob_update_savings units.

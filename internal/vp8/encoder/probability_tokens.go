@@ -10,6 +10,33 @@ import (
 
 type coefficientTokenCounts [tables.BlockTypes][tables.CoefBands][tables.PrevCoefContexts][tables.MaxEntropyTokens]int
 
+// InterCoefficientTokenCounts is the public alias for the per-frame token
+// count accumulator used by inter-frame probability updates. The encoder
+// pre-builds this during accepted-MB reconstruction so InterFramePacket.Write
+// can skip its own count walk (Lane D consolidation).
+type InterCoefficientTokenCounts = coefficientTokenCounts
+
+// ResetInterCoefficientTokenCounts zeroes a token count accumulator before a
+// new accepted-MB reconstruction pass.
+func ResetInterCoefficientTokenCounts(counts *InterCoefficientTokenCounts) {
+	if counts == nil {
+		return
+	}
+	*counts = InterCoefficientTokenCounts{}
+}
+
+// AccumulateInterMacroblockTokenCounts adds the per-MB token counts derived
+// from the supplied coefficients to the accumulator, then updates above/left
+// context planes to mirror the count walk in buildInterCoefficientTokenCounts.
+// Used by accepted-MB reconstruction so the packet writer can reuse the
+// counts without re-walking the grid.
+func AccumulateInterMacroblockTokenCounts(counts *InterCoefficientTokenCounts, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
+	if counts == nil {
+		return ErrInvalidPacketConfig
+	}
+	return countCoefficientMacroblockTokens(is4x4, above, left, coeffs, counts)
+}
+
 func buildKeyFrameCoefficientTokenCounts(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, counts *coefficientTokenCounts) error {
 	if rows < 0 || cols < 0 {
 		return ErrModeBufferTooSmall

@@ -236,6 +236,14 @@ type InterFramePacket struct {
 	UVModeBase *[tables.UVModeProbCount]uint8
 	MVBase     *[2][tables.MVPCount]uint8
 	Scratch    *PartitionScratch
+
+	// PrebuiltCoefCounts, if non-nil, is consumed as the per-frame token
+	// count cache and replaces the count walk that would otherwise run
+	// inside Write. Callers must guarantee the counts were accumulated for
+	// the same Modes/Coeffs grid with the same context-reset rules as
+	// buildInterCoefficientTokenCounts. Lane D consolidation: the encoder
+	// builds these during accepted-MB reconstruction.
+	PrebuiltCoefCounts *InterCoefficientTokenCounts
 }
 
 type InterFramePacketResult struct {
@@ -289,9 +297,14 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 		coefUpdates    CoefficientProbabilityUpdates
 		err            error
 	)
-	if cfg.IndependentContexts {
+	switch {
+	case p.PrebuiltCoefCounts != nil && cfg.IndependentContexts:
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesIndependentFromPrebuiltCounts(coefBase, p.PrebuiltCoefCounts, false)
+	case p.PrebuiltCoefCounts != nil:
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesFromPrebuiltCounts(coefBase, p.PrebuiltCoefCounts)
+	case cfg.IndependentContexts:
 		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesIndependent(rows, cols, p.Modes, p.Coeffs, p.Above, coefBase, false)
-	} else {
+	default:
 		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdates(rows, cols, p.Modes, p.Coeffs, p.Above, coefBase)
 	}
 	if err != nil {

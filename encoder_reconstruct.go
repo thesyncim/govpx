@@ -316,6 +316,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
 	}
+	// Lane D: the threaded path does not populate the per-frame coefficient
+	// token count cache (workers visit MBs in non-row-major order across
+	// concurrent rows). Invalidate the cache so InterFramePacket.Write falls
+	// back to its own count walk for the threaded case.
+	e.interCoefTokenCountsValid = false
 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
@@ -383,6 +388,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	if len(modes) < required || len(coeffs) < required || len(e.reconstructModes) < required || len(e.reconstructTokens) < required {
 		return 0, ErrInvalidConfig
 	}
+	// Lane D: accumulate the per-frame coefficient token counts during this
+	// accepted-MB walk so InterFramePacket.Write can skip its own count pass.
+	// Reset both the accumulator and the validity flag so a partial failure
+	// downstream invalidates the cache.
+	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
+	e.interCoefTokenCountsValid = false
 
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	quantDeltas := libvpxFrameQuantDeltas(qIndex, e.opts.ScreenContentMode)
@@ -524,7 +535,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
-				updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
+				if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {
+					return 0, ErrInvalidConfig
+				}
 				// B_PRED reconstruction was already written to
 				// e.analysis.Img by buildReconstructingBPredMacroblockCoefficients
 				// above, so emit the reconstructed trace here too. Without
@@ -545,7 +558,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return 0, ErrInvalidConfig
 				}
 			}
-			updateInterAnalysisTokenContext(&aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index])
+			if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {
+				return 0, ErrInvalidConfig
+			}
 			// Capture the post-residual reconstruction so the predictor diff
 			// harness can pinpoint whether the gap originated in the
 			// predictor (matched libvpx already) or the residual stage.
@@ -558,6 +573,8 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	}
 	e.analysis.ExtendBorders()
 	e.framePredictionError = totalPredictionError
+	// Lane D: cache is now fully populated for the consumer (packet writer).
+	e.interCoefTokenCountsValid = true
 	return totalRate, nil
 }
 
@@ -567,6 +584,22 @@ func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8
 		return
 	}
 	vp8enc.UpdateTokenContextPlanesFromCoefficients(above, left, is4x4, coeffs)
+}
+
+// updateInterAnalysisTokenContextAndCount mirrors updateInterAnalysisTokenContext
+// but also accumulates per-MB coefficient token counts into the encoder's
+// Lane D cache so InterFramePacket.Write can skip its own count walk. The
+// context-plane updates produced by AccumulateInterMacroblockTokenCounts are
+// identical to UpdateTokenContextPlanesFromCoefficients for accepted MBs;
+// skipped MBs reset the planes the same way the count walk does. Returns an
+// error mirroring the count walk's validation so the caller can fail closed
+// (the same way buildInterCoefficientTokenCounts would).
+func updateInterAnalysisTokenContextAndCount(counts *vp8enc.InterCoefficientTokenCounts, above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) error {
+	if skipped {
+		vp8enc.ResetTokenContextPlanes(above, left, is4x4)
+		return nil
+	}
+	return vp8enc.AccumulateInterMacroblockTokenCounts(counts, is4x4, above, left, coeffs)
 }
 
 func applyOracleStaleY2Snapshot(coeffs *vp8enc.MacroblockCoefficients, snapshot staleY2Snapshot) {

@@ -521,6 +521,16 @@ type VP8Encoder struct {
 	dequantTables       vp8common.FrameDequantTables
 	dequants            [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch  vp8dec.IntraReconstructionScratch
+	// interCoefTokenCounts is the Lane D per-frame coefficient token count
+	// cache. Populated during single-threaded inter-frame accepted-MB
+	// reconstruction (buildReconstructingInterFrameCoefficientsWithSegmentation)
+	// and consumed by InterFramePacket.Write via PrebuiltCoefCounts so the
+	// packet writer skips its own count walk. Reset at the start of each
+	// reconstruction pass. interCoefTokenCountsValid gates consumption so
+	// threaded reconstruct paths (which do not populate the cache) fall back
+	// to recomputing during Write.
+	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
+	interCoefTokenCountsValid bool
 	loopInfo            vp8common.LoopFilterInfo
 	loopFilterLevel     uint8
 	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
@@ -1995,6 +2005,14 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		UVModeBase: &e.modeProbs.UVMode,
 		MVBase:     &e.modeProbs.MV,
 		Scratch:    &e.partScratch,
+	}
+	// Lane D: hand the pre-built coefficient token counts to the packet
+	// writer so it can skip its own count walk. The cache is only valid
+	// after a successful single-threaded reconstruction pass; threaded
+	// reconstructions do not populate it (see encoder_row_threaded.go) and
+	// the writer falls back to the original count walk in that case.
+	if e.interCoefTokenCountsValid {
+		packet.PrebuiltCoefCounts = &e.interCoefTokenCounts
 	}
 	packetResult, err := packet.Write()
 	if err != nil {
@@ -3480,6 +3498,8 @@ func (e *VP8Encoder) Reset() {
 	e.dequantTables = vp8common.FrameDequantTables{}
 	e.dequants = [vp8common.MaxMBSegments]vp8common.MacroblockDequant{}
 	e.reconstructScratch = vp8dec.IntraReconstructionScratch{}
+	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
+	e.interCoefTokenCountsValid = false
 	e.partScratch.Reset()
 	e.loopInfo = vp8common.LoopFilterInfo{}
 	e.loopFilterLevel = 0
