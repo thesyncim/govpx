@@ -220,3 +220,56 @@ func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
 		t.Fatalf("autospeed state changed on same-FPS target: speed:%d pick:%d encode:%d start:%d", e.autoSpeed, e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
 	}
 }
+
+func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
+	e := newTestEncoder(t)
+	e.rc.dropFrameAllowed = true
+	e.rc.dropFramesWaterMark = 75
+	e.opts.DropFrameAllowed = true
+	e.opts.DropFrameWaterMark = 75
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 900}); err != nil {
+		t.Fatalf("bitrate-only SetRealtimeTarget returned error: %v", err)
+	}
+	if !e.rc.dropFrameAllowed || e.rc.dropFramesWaterMark != 75 {
+		t.Fatalf("bitrate-only frame drop = allowed:%t mark:%d, want preserved true/75",
+			e.rc.dropFrameAllowed, e.rc.dropFramesWaterMark)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropDisabled}); err != nil {
+		t.Fatalf("disable frame drop returned error: %v", err)
+	}
+	if e.rc.dropFrameAllowed || e.opts.DropFrameAllowed || e.rc.dropFramesWaterMark != 0 {
+		t.Fatalf("disabled frame drop = rc:%t opts:%t mark:%d, want false/false/0",
+			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}); err != nil {
+		t.Fatalf("enable frame drop returned error: %v", err)
+	}
+	if !e.rc.dropFrameAllowed || !e.opts.DropFrameAllowed || e.rc.dropFramesWaterMark != 75 {
+		t.Fatalf("enabled frame drop = rc:%t opts:%t mark:%d, want true/true/75",
+			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropMode(99)}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid frame drop mode error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestSetFrameDropAllowed(t *testing.T) {
+	e := newTestEncoder(t)
+
+	if err := e.SetFrameDropAllowed(false); err != nil {
+		t.Fatalf("SetFrameDropAllowed(false) returned error: %v", err)
+	}
+	if e.rc.dropFrameAllowed || e.opts.DropFrameAllowed || e.rc.dropFramesWaterMark != 0 {
+		t.Fatalf("disabled frame drop = rc:%t opts:%t mark:%d, want false/false/0",
+			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
+	}
+	e.opts.DropFrameWaterMark = 0
+	if err := e.SetFrameDropAllowed(true); err != nil {
+		t.Fatalf("SetFrameDropAllowed(true) returned error: %v", err)
+	}
+	if !e.rc.dropFrameAllowed || !e.opts.DropFrameAllowed || e.rc.dropFramesWaterMark != defaultDropFramesWaterMark {
+		t.Fatalf("enabled frame drop = rc:%t opts:%t mark:%d, want true/true/%d",
+			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark, defaultDropFramesWaterMark)
+	}
+}

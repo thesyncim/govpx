@@ -94,6 +94,11 @@ PSNR/SSIM tuning, active maps, ROI maps, and realtime control methods such as
 `SetReferenceFrame` and `CopyReferenceFrame` can replace or inspect the
 encoder's LAST, GOLDEN, or ALTREF buffers.
 
+For WebRTC senders, start with realtime CBR, error resilience, frame dropping,
+and `RTCExternalRateControl`. Use `ForceKeyFrame` or `EncodeForceKeyFrame` for
+PLI/FIR, `SetRealtimeTarget` for bandwidth-estimation bitrate/FPS updates, and
+`RealtimeTarget.FrameDrop` only when the frame-drop mode should change.
+
 For lookahead or auto-alt-ref, `EncodeInto` can return `ErrFrameNotReady` while
 frames are queued. Call `FlushInto` at end of stream until it returns no more
 data.
@@ -121,8 +126,11 @@ make verify-production
 
 `verify-production` builds the pinned libvpx oracle tools under
 `internal/coracle/build`, fetches VP8 conformance data, and runs decode plus
-encoder parity gates. The oracle trace harness is behind the
-`govpx_oracle_trace` build tag and is off in normal builds.
+encoder parity gates. Encoder output parity is checked against libvpx by
+comparing libvpx-decoded frame checksums, key/show decisions, internal qindex,
+and packet size ratchets for the covered realtime/WebRTC settings. The oracle
+trace harness is behind the `govpx_oracle_trace` build tag and is off in normal
+builds.
 
 ## Benchmark
 
@@ -175,9 +183,9 @@ testdata                  oracle scoreboard baselines
 
 ## Development Notes
 
-Production builds should not pay for diagnostics. Trace and oracle-only code is
-build-tagged out by default; opt-in phase timing only runs when
-`EncoderOptions.PhaseStats` is non-nil.
+Production builds should not pay for oracle diagnostics. Oracle trace code is
+build-tagged out by default, and the regular libvpx parity loops live in
+`*_test.go` files.
 
 Keep hot-path changes allocation-aware. The encoder is designed so steady-state
 `EncodeInto` can reuse caller and encoder-owned buffers instead of allocating
