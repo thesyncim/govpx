@@ -50,19 +50,23 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 	for coeffPos := skipDC; coeffPos < eob; coeffPos++ {
 		zigZagPos := int(tables.DefaultZigZag1D[coeffPos])
 		coeff := int(qcoeff[zigZagPos])
-		token := tables.ZeroToken
-		mag := 0
+		// Inline of coeffToken: abs + LUT load vs the previous switch
+		// + function call (gcflags -m=2 reports coeffToken as too
+		// complex to inline). mag carries the absolute magnitude; sign
+		// is derived directly from the signed coeff. Index 0 of the
+		// LUT is tables.ZeroToken so the zero-coefficient branch falls
+		// through with no special case. Out-of-range magnitudes are
+		// rejected once with ErrInvalidPacketConfig.
+		mag := coeff
 		sign := uint8(0)
-		if coeff != 0 {
-			if coeff < 0 {
-				sign = 1
-			}
-			var ok bool
-			token, mag, ok = coeffToken(coeff)
-			if !ok {
-				return ErrInvalidPacketConfig
-			}
+		if coeff < 0 {
+			mag = -coeff
+			sign = 1
 		}
+		if mag > tables.DCTMaxValue {
+			return ErrInvalidPacketConfig
+		}
+		token := int(coeffAbsTokenLUT[mag])
 
 		p := &(*probs)[blockType][band][tokenCtx]
 		path := coefficientTokenBranchPaths[token]
