@@ -15,7 +15,8 @@ identifies upstream behavior, parity tests, or oracle tooling.
 
 ## Requirements
 
-Go 1.26 or newer.
+Go 1.26 or newer. The module pins the default toolchain to Go 1.26.3 so plain
+`go` commands use the same patch level as CI.
 
 ```sh
 go get github.com/thesyncim/govpx
@@ -133,6 +134,14 @@ command to build the pinned tools.
 Do not treat README numbers as performance data. Run the benchmark on the target
 machine, Go version, CPU, frame size, bitrate, deadline, and thread count that
 matter for your workload.
+
+`cmd/govpx-bench/default.pgo` is checked in intentionally. Go's default
+`-pgo=auto` mode uses that profile when building the benchmark command and its
+dependencies. Refresh it after material hot-path changes with:
+
+```sh
+make pgo-refresh
+```
 
 ## Repository Layout
 

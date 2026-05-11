@@ -5,7 +5,7 @@ GOFMT ?= gofmt
 GIT ?= git
 CURL ?= curl
 AWK ?= awk
-GOTOOLCHAIN ?= go1.26.1
+GOTOOLCHAIN ?= go1.26.3
 
 GOCACHE ?= $(CURDIR)/.gocache
 CORACLE_BUILD := internal/coracle/build
@@ -18,6 +18,7 @@ VPXDEC := $(CORACLE_BUILD)/vpxdec
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
+PGO_PROFILE := cmd/govpx-bench/default.pgo
 
 # The pinned libvpx manifest currently lists 62 non-invalid vp80*.ivf names;
 # four segmentation fixtures carry I420 IVF FourCCs, so the VP8 decoder
@@ -28,7 +29,7 @@ VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
-.PHONY: all ci fmtcheck test verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
+.PHONY: all ci fmtcheck test pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
 
 all: ci
 
@@ -49,6 +50,15 @@ verify-decoder-parity: ci decoder-oracle-test
 
 test:
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test ./... -count=1
+
+pgo-refresh:
+	mkdir -p .pgo
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -pgo=off -o .pgo/govpx-bench-pgo ./cmd/govpx-bench
+	./.pgo/govpx-bench-pgo -width=1920 -height=1080 -frames=180 -fps=30 -bitrate=4000 -mode=realtime -cpu-used=8 -encode-only -cpuprofile=.pgo/encode.pgo >/dev/null
+	./.pgo/govpx-bench-pgo -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -cpuprofile=.pgo/quality.pgo >/dev/null
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) tool pprof -proto .pgo/encode.pgo .pgo/quality.pgo > "$(PGO_PROFILE).tmp"
+	mv "$(PGO_PROFILE).tmp" "$(PGO_PROFILE)"
+	rm -rf .pgo
 
 oracle-test: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
