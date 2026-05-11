@@ -537,7 +537,18 @@ type VP8Encoder struct {
 	// to recomputing during Write.
 	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCountsValid bool
-	loopInfo            vp8common.LoopFilterInfo
+	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
+	// inputs across the picker → accepted-path boundary in
+	// selectRDInterFrameModeDecision /
+	// buildReconstructingInterFrameCoefficientsWithSegmentation. Two slots
+	// alternate: the picker writes each candidate's DCTs into the
+	// non-winner slot, and when a candidate becomes best the slot index
+	// flips (no data copy). The accepted-path reads from the winner slot
+	// to skip predict + residual gather + FDCT for the winning inter mode.
+	interRDCoeffCacheSlots         [2]interRDCoeffCacheState
+	interRDCoeffCacheWinner        uint8
+	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
+	loopInfo                       vp8common.LoopFilterInfo
 	// loopInfoAlt is the worker-private LoopFilterInfo for the
 	// parallel filt_low/filt_high trials run by pickFull at Threads >= 2.
 	// vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked mutates the

@@ -507,6 +507,17 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := interFrameModeUses4x4Tokens(modes[index].Mode)
+				// When the RD picker staged the winning candidate's
+				// post-FDCT DCT inputs in the winner cache slot,
+				// hand them in as cacheIn so the function skips
+				// predictor + residual gather + FDCT. Parity is
+				// validated by interRDCacheReusable inside
+				// buildPredictedMacroblockCoefficients (mbRow/mbCol/
+				// is4x4/intra/fastQuant/qIndex/zbin must all match).
+				// The cache is consumed at most once per accepted MB
+				// and invalidated by reset() before returning so the
+				// next MB's picker run starts fresh.
+				cacheIn := e.consumeInterRDCoeffCache()
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     &e.coefProbs,
 					src:           src,
@@ -525,6 +536,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					optimize:      e.libvpxOptimizeCoefficients(),
 					collectOracle: e.oracleTraceEnabled(),
 					coeffs:        &coeffs[index],
+					cacheIn:       cacheIn,
 				})
 				if is4x4 {
 					applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)
@@ -1780,6 +1792,20 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
+	// Stage the picker → accepted-path DCT cache. Both slots start
+	// invalid; each candidate that calls into
+	// buildPredictedMacroblockCoefficients writes into the scratch slot.
+	// When a candidate becomes best, we flip the winner index so the
+	// winning candidate's DCTs end up in the (new) winner slot without
+	// any data copy. The accepted-path consumer (in
+	// buildReconstructingInterFrameCoefficientsWithSegmentation) then
+	// reads slots[winner] and resets it.
+	e.interRDCoeffCacheSlots[0].reset()
+	e.interRDCoeffCacheSlots[1].reset()
+	e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
+	defer func() {
+		e.interRDCoeffCacheScratchTarget = nil
+	}()
 	traceEnabled := e.oracleTraceEnabled()
 	thresholds := e.interModeRDThresholdsForReferences(qIndex, refs, refCount)
 	bestSet := false
@@ -1814,6 +1840,11 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		if bestSet && bestScore <= threshold {
 			continue
 		}
+		// Reset the scratch DCT cache before each candidate evaluation so
+		// the cache's valid bit accurately reflects whether THIS candidate
+		// populated the slot. The slot remains the same target pointer
+		// across iterations; we only clear the valid bit.
+		e.interRDCoeffCacheScratchTarget.valid = false
 
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
 		if refSlot == 0 {
@@ -1890,6 +1921,18 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				if mode.Mode == vp8common.BPred {
 					best.staleY2 = lastStaleY2
 				}
+				// Flip the cache winner/scratch indices. The intra path
+				// did NOT populate the scratch slot
+				// (estimateInterIntraModeRDScore uses
+				// wholeBlockYTransformRD, not
+				// buildPredictedMacroblockCoefficientsRD), so the new
+				// winner slot's valid bit stays false and the accepted
+				// path falls back to the full coefficient build. The
+				// scratch pointer flips so subsequent inter candidates
+				// write into what used to be the winner slot, preserving
+				// the just-promoted candidate's cache if it had one.
+				e.interRDCoeffCacheWinner ^= 1
+				e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -2001,6 +2044,17 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			if mode.Mode == vp8common.SplitMV {
 				best.staleY2 = lastStaleY2
 			}
+			// Flip the cache winner/scratch indices so the just-evaluated
+			// inter candidate's DCTs become the winner slot. For inactiveMB
+			// or staticInterRDEncodeBreakoutDistortion winners,
+			// estimateInterResidualRDAccountingWithModeContext skipped
+			// buildPredictedMacroblockCoefficientsRD entirely so the new
+			// winner slot's valid bit stays false — the accepted path then
+			// falls back to the original full coefficient build (and most
+			// such winners hit breakoutSkip anyway, bypassing
+			// buildPredictedMacroblockCoefficients).
+			e.interRDCoeffCacheWinner ^= 1
+			e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}
@@ -4803,7 +4857,32 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(src vp8enc
 
 	var coeffs vp8enc.MacroblockCoefficients
 	is4x4 := interFrameModeUses4x4Tokens(mode.Mode)
-	stats := buildPredictedMacroblockCoefficientsRD(e.pickerCoefProbs(), src, mbRow, mbCol, &e.analysis.Img, aboveTok, leftTok, quant, qIndex, e.rc.currentZbinOverQuant, interZbinModeBoost(mode), is4x4, false, e.libvpxUseFastQuantForPick(), false, &coeffs)
+	// Plumb the encoder's scratch DCT cache (when an RD picker pass is
+	// active) through to buildPredictedMacroblockCoefficients so each
+	// candidate's post-FDCT DCT inputs are staged. The picker swaps the
+	// winner / scratch slot indices when becameBest fires, leaving the
+	// winning candidate's DCTs accessible to the accepted-mode coefficient
+	// build without re-running predict + residual gather + FDCT.
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:     e.pickerCoefProbs(),
+		src:           src,
+		mbRow:         mbRow,
+		mbCol:         mbCol,
+		pred:          &e.analysis.Img,
+		aboveTok:      aboveTok,
+		leftTok:       leftTok,
+		quant:         quant,
+		qIndex:        qIndex,
+		zbinOverQuant: e.rc.currentZbinOverQuant,
+		zbinModeBoost: interZbinModeBoost(mode),
+		is4x4:         is4x4,
+		intra:         false,
+		fastQuant:     e.libvpxUseFastQuantForPick(),
+		optimize:      false,
+		collectStats:  true,
+		coeffs:        &coeffs,
+		cacheOut:      e.interRDCoeffCacheScratchTarget,
+	})
 	rateUV := stats.rateUV
 	rate2 := modeRate + otherCost + stats.rateY + rateUV
 	distortion2 := stats.distortionY + stats.distortionUV
@@ -7108,6 +7187,108 @@ type predictedMacroblockCoefficientArgs struct {
 	collectOracle bool
 	collectStats  bool
 	coeffs        *vp8enc.MacroblockCoefficients
+	// cacheOut, when non-nil, requests the picker → accepted-path
+	// post-FDCT DCT cache to be populated. After the batched FDCT runs,
+	// the function copies yDcts / uvDcts into the cache and marks it
+	// valid. The accepted-path code can then pass cacheIn pointing at the
+	// same buffer to skip predictor + residual gather + FDCT.
+	cacheOut *interRDCoeffCacheState
+	// cacheIn, when non-nil and the cache's mbRow/mbCol/is4x4/intra/
+	// fastQuant/qIndex/zbin parameters match, requests the post-FDCT DCT
+	// inputs to be loaded from the cache rather than recomputed. The
+	// caller must verify cache validity (mbRow/mbCol/is4x4/intra/fastQuant/
+	// qIndex/zbin parity) before passing it in. The cache is consumed
+	// exactly once and remains valid for fall-back inspection until the
+	// caller resets it.
+	cacheIn *interRDCoeffCacheState
+}
+
+// interRDCoeffCacheState stages the picker's post-FDCT residual DCT
+// coefficients across the RD picker → accepted-path boundary in
+// selectRDInterFrameModeDecision /
+// buildReconstructingInterFrameCoefficientsWithSegmentation. The picker
+// calls buildPredictedMacroblockCoefficientsRD on every candidate; when
+// a candidate becomes the running best we swap it into the winner-cache
+// slot (no copy — pointer swap). The accepted path then re-uses the
+// cached yDcts/uvDcts arrays (16+8 = 24 4x4 DCT blocks of int16) so its
+// own buildPredictedMacroblockCoefficients call skips predictor + residual
+// gather + batched FDCT and re-runs only the per-block quantize (and
+// trellis when optimize=true) starting from the same DCT inputs. This is
+// byte-identical because the picker and accepted-path produce identical
+// FDCT inputs whenever the winning mode's prediction matches (which it
+// does — the accepted path replays the same mode via
+// reconstructInterAnalysisMacroblock right before this call). The quant
+// loop's per-block context evolution still runs end-to-end on top of the
+// cached DCTs so all token-context outputs stay byte-identical.
+type interRDCoeffCacheState struct {
+	valid         bool
+	is4x4         bool
+	intra         bool
+	fastQuant     bool
+	qIndex        int
+	zbinOverQuant int
+	zbinModeBoost int
+	mbRow         int
+	mbCol         int
+	// YDCTs holds the 16 4x4 luma DCTs in the same scan order as
+	// vp8enc.ForwardDCT4x4Batch writes them (block-major, 16 int16
+	// per block). The snapshot is taken AFTER FDCT but BEFORE the
+	// per-block quant loop zeroes dct[0] for non-4x4 luma blocks,
+	// so YDCTs preserves the original DCs for the consumer's Y2 pass.
+	YDCTs [16 * 16]int16
+	// UVDCTs holds the 8 chroma DCTs (U0..U3 then V0..V3).
+	UVDCTs [8 * 16]int16
+}
+
+func (c *interRDCoeffCacheState) reset() {
+	if c == nil {
+		return
+	}
+	c.valid = false
+}
+
+// consumeInterRDCoeffCache returns the winner cache slot if it is valid
+// and immediately invalidates it (single-use). Returns nil when the cache
+// is empty so the caller does not need to perform parity checks before
+// falling back to the full coefficient build. Parity validation against
+// the consumer's args is still performed inside buildPredictedMacroblock-
+// Coefficients via interRDCacheReusable, so a stale winner that survived
+// the loop without becoming the actual winner is safely rejected there.
+func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
+	if e == nil {
+		return nil
+	}
+	winner := &e.interRDCoeffCacheSlots[e.interRDCoeffCacheWinner]
+	if !winner.valid {
+		return nil
+	}
+	cache := winner
+	winner.valid = false
+	return cache
+}
+
+// interRDCacheReusable returns true when the picker → accepted-path DCT
+// cache matches every parameter that contributes to FDCT output. Probs and
+// optimize flags are NOT compared because they only affect post-quant
+// (trellis) state, which the consumer re-runs end-to-end on top of the
+// cached DCTs. fastQuant IS compared because it changes which quantize
+// kernel runs and the cache currently only short-circuits the FDCT stage
+// (not the quant stage) — but matching fastQuant is also a sanity guard
+// against catching a picker run on a non-matching MB. The MB-position
+// match guards against accidental cross-MB reuse if the picker scratch
+// outlives a frame.
+func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
+	if c == nil || !c.valid || args == nil {
+		return false
+	}
+	return c.mbRow == args.mbRow &&
+		c.mbCol == args.mbCol &&
+		c.is4x4 == args.is4x4 &&
+		c.intra == args.intra &&
+		c.fastQuant == args.fastQuant &&
+		c.qIndex == args.qIndex &&
+		c.zbinOverQuant == args.zbinOverQuant &&
+		c.zbinModeBoost == args.zbinModeBoost
 }
 
 func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArgs) {
@@ -7196,11 +7377,29 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	}
 
 	// Whole-MB Y residual gather + batched FDCT. Mirrors libvpx
-	// vp8_subtract_mby + vp8_transform_mb (16 fdct calls).
+	// vp8_subtract_mby + vp8_transform_mb (16 fdct calls). When cacheIn
+	// is valid for this MB, the per-block loop reads directly from
+	// args.cacheIn.YDCTs which already holds the pre-DC-zero FDCT output
+	// (the picker snapshot is taken before the loop runs). When cacheOut
+	// is set, the FDCT writes into a stack-local buffer and a single
+	// 512-byte snapshot is committed to args.cacheOut.YDCTs immediately
+	// (before the per-block loop zeroes DCs). The stack-local buffer
+	// keeps the per-block quant loop hot in L1 for non-winning candidates.
+	cacheConsume := args.cacheIn != nil && interRDCacheReusable(args.cacheIn, args)
 	var yResiduals [16 * 16]int16
-	var yDcts [16 * 16]int16
-	gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
-	vp8enc.ForwardDCT4x4Batch(yResiduals[:], yDcts[:], 16)
+	var yDctsLocal [16 * 16]int16
+	yDctsPtr := &yDctsLocal
+	if cacheConsume {
+		yDctsPtr = &args.cacheIn.YDCTs
+	}
+	if !cacheConsume {
+		gatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, yResiduals[:])
+		vp8enc.ForwardDCT4x4Batch(yResiduals[:], yDctsPtr[:], 16)
+	}
+	if args.cacheOut != nil {
+		args.cacheOut.YDCTs = *yDctsPtr
+	}
+	yDcts := yDctsPtr[:]
 
 	for block := range 16 {
 		dct := (*[16]int16)(yDcts[block*16 : block*16+16])
@@ -7302,13 +7501,38 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 
 	// Whole-MB UV residual gather + batched FDCT (8 blocks: U0..U3, V0..V3).
 	// Mirrors libvpx vp8_subtract_mbuv + vp8_transform_mbuv (8 fdct calls).
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
+	// Cache-consume short-circuit mirrors the Y path above; UV DCTs are
+	// never mutated by the per-block loop, so no DC snapshot is needed.
 	var uvResiduals [8 * 16]int16
-	var uvDcts [8 * 16]int16
-	gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
-	gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
-	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
+	var uvDctsLocal [8 * 16]int16
+	uvDctsPtr := &uvDctsLocal
+	if cacheConsume {
+		uvDctsPtr = &args.cacheIn.UVDCTs
+	} else if args.cacheOut != nil {
+		uvDctsPtr = &args.cacheOut.UVDCTs
+	}
+	if !cacheConsume {
+		uvWidth := (src.Width + 1) >> 1
+		uvHeight := (src.Height + 1) >> 1
+		gatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+		gatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+		vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDctsPtr[:], 8)
+	}
+	uvDcts := uvDctsPtr[:]
+	if args.cacheOut != nil {
+		// Cache stamping. Y/UV DCT buffers were written directly into the
+		// cache slot via the yDctsPtr/uvDctsPtr aliases; here we only
+		// commit metadata.
+		args.cacheOut.is4x4 = is4x4
+		args.cacheOut.intra = intra
+		args.cacheOut.fastQuant = fastQuant
+		args.cacheOut.qIndex = qIndex
+		args.cacheOut.zbinOverQuant = zbinOverQuant
+		args.cacheOut.zbinModeBoost = zbinModeBoost
+		args.cacheOut.mbRow = mbRow
+		args.cacheOut.mbCol = mbCol
+		args.cacheOut.valid = true
+	}
 
 	if fastQuant {
 		var uvDQ [8 * 16]int16
