@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
@@ -177,6 +178,7 @@ type rowWorkerPool struct {
 	job          rowWorkerJob
 	keyArgs      threadedKeyRowsArgs
 	args         threadedInterRowsArgs
+	lfChromaArgs threadedLFChromaArgs
 	workerCount  int
 	required     int
 	abort        atomic.Int32
@@ -224,6 +226,8 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 			switch p.job {
 			case rowWorkerJobKeyFrame:
 				p.runThreadedKeyFrameWorker(workerIndex)
+			case rowWorkerJobLFChroma:
+				p.runThreadedLFChromaWorker(workerIndex)
 			default:
 				p.runThreadedInterFrameWorker(workerIndex)
 			}
@@ -239,7 +243,43 @@ type rowWorkerJob uint8
 const (
 	rowWorkerJobInterFrame rowWorkerJob = iota
 	rowWorkerJobKeyFrame
+	rowWorkerJobLFChroma
 )
+
+// threadedLFChromaArgs carries the frame-immutable inputs for the
+// chroma-only final loop-filter apply run by the row worker pool. The
+// caller must initialize lfi (via the public Prepared-Init helper) on the
+// main goroutine before publishing this struct so worker goroutines see a
+// fully-built sharpness/level table. Workers only read lfi during their
+// per-row pass.
+type threadedLFChromaArgs struct {
+	img       *vp8common.Image
+	rows      int
+	cols      int
+	modes     []vp8dec.MacroblockMode
+	frameType vp8common.FrameType
+	lfi       *vp8common.LoopFilterInfo
+}
+
+func (p *rowWorkerPool) runThreadedLFChromaWorker(workerIndex int) {
+	workerCount := p.workerCount
+	if workerCount <= 0 {
+		return
+	}
+	args := &p.lfChromaArgs
+	var err error
+	for row := workerIndex; row < args.rows; row += workerCount {
+		if p.abort.Load() != 0 {
+			break
+		}
+		if rowErr := vp8dec.ApplyLoopFilterChromaOnlyPreparedRow(args.img, row, args.cols, args.modes, args.frameType, args.lfi); rowErr != nil {
+			err = rowErr
+			p.abort.Store(1)
+			break
+		}
+	}
+	p.workerErrors[workerIndex] = err
+}
 
 func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	workerCount := p.workerCount

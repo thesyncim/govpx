@@ -79,6 +79,21 @@ func ApplyLoopFilterFullLumaConfiguredUnchecked(img *common.Image, rows int, col
 // ApplyLoopFilterChromaOnlyPrepared skips sharpness-table rebuilds when the
 // caller already prepared lfi for header.SharpnessLevel.
 func ApplyLoopFilterChromaOnlyPrepared(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
+	if err := ApplyLoopFilterChromaOnlyPreparedInit(img, rows, cols, modes, frameType, header, segmentation, lfi); err != nil {
+		return err
+	}
+	if header.Level == 0 || header.Type == SimpleLoopFilter {
+		return nil
+	}
+	return applyNormalLoopFilterChromaOnlyGrid(img, rows, cols, modes, frameType, lfi)
+}
+
+// ApplyLoopFilterChromaOnlyPreparedInit validates the chroma-only LF inputs and
+// initializes lfi for the requested frame. Returns nil with no side effects
+// when the filter is disabled or the simple type is selected. Used by the
+// row-parallel encoder dispatch which performs upfront validation on the main
+// goroutine and then submits per-row work to the worker pool.
+func ApplyLoopFilterChromaOnlyPreparedInit(img *common.Image, rows int, cols int, modes []MacroblockMode, frameType common.FrameType, header LoopFilterHeader, segmentation SegmentationHeader, lfi *common.LoopFilterInfo) error {
 	if header.Level == 0 || header.Type == SimpleLoopFilter {
 		return nil
 	}
@@ -97,7 +112,17 @@ func ApplyLoopFilterChromaOnlyPrepared(img *common.Image, rows int, cols int, mo
 	}
 
 	common.InitLoopFilterFrame(lfi, int(header.Level), LoopFilterFrameConfig(header, segmentation))
-	return applyNormalLoopFilterChromaOnlyGrid(img, rows, cols, modes, frameType, lfi)
+	return nil
+}
+
+// ApplyLoopFilterChromaOnlyPreparedRow filters a single MB row's chroma planes
+// using a pre-initialized lfi. Each row's writes are disjoint from every other
+// row's writes (chroma horizontal edges at the MB boundary only touch 4 rows
+// above and 4 rows below the boundary, but the inner-edge writes for row R
+// stop at chroma row R*8+5, and row R+1's MB top edge starts reading at chroma
+// row (R+1)*8-2 = R*8+6, so per-row dispatch is safe without a wave-front).
+func ApplyLoopFilterChromaOnlyPreparedRow(img *common.Image, row int, cols int, modes []MacroblockMode, frameType common.FrameType, lfi *common.LoopFilterInfo) error {
+	return applyNormalLoopFilterChromaOnlyRow(img, row, cols, modes, frameType, lfi)
 }
 
 // ApplyLoopFilterPartialPreparedUnchecked is the encoder fast-picker hot path.
