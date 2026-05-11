@@ -495,7 +495,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index].SegmentID = segmentID
 				convertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				if modes[index].Mode == vp8common.BPred {
-					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+					zbinOverQuant := e.rc.currentZbinOverQuant
+					if e.activityMapValid {
+						zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+					}
+					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 					if oracleTraceBuild {
@@ -534,6 +538,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// and invalidated by reset() before returning so the
 				// next MB's picker run starts fresh.
 				cacheIn := e.consumeInterRDCoeffCache()
+				zbinOverQuant := e.rc.currentZbinOverQuant
+				if e.activityMapValid {
+					zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     &e.coefProbs,
 					src:           src,
@@ -544,7 +552,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					leftTok:       &leftTok,
 					quant:         quant,
 					qIndex:        segmentQIndex,
-					zbinOverQuant: e.rc.currentZbinOverQuant,
+					zbinOverQuant: zbinOverQuant,
 					zbinModeBoost: interZbinModeBoost(&modes[index]),
 					is4x4:         is4x4,
 					intra:         modes[index].RefFrame == vp8common.IntraFrame,

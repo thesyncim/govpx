@@ -11,18 +11,17 @@ Primary sources:
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_cx_iface.c`
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_dx_iface.c`
 
-This document tracks VP8-relevant libvpx controls that are not exposed by
-govpx yet, with an opinionated "sane to port" filter. It is not a plan to
+This document tracks VP8-relevant libvpx controls and the govpx surfaces that
+cover them, with an opinionated "sane to port" filter. It is not a plan to
 recreate the libvpx C ABI. The intended shape is still small Go APIs that map
 cleanly onto libvpx behavior where that behavior is useful.
 
 ## Summary
 
-The highest-value missing controls are:
-
-1. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
-2. Optional: spatial resampling / scale mode, output-partition packetization,
-   PSNR packets, and `VP8E_SET_RTC_EXTERNAL_RATECTRL`
+The high-value VP8 encoder controls are covered by Go APIs. Remaining uncovered
+items are optional or transport-shaped C API surfaces: spatial resampling /
+scale mode, output-partition packetization, PSNR packets,
+`VP8E_SET_RTC_EXTERNAL_RATECTRL`, and input-fragment decode plumbing.
 
 The controls that are probably not worth porting by default are encoder
 preview postproc, decryptor callbacks, VP8 nonzero profiles for encode,
@@ -35,6 +34,7 @@ does not actually wire into the VP8 encoder.
 | --- | --- | --- |
 | `VP8E_SET_CPUUSED` | `EncoderOptions.CpuUsed`, `SetCPUUsed` | Includes VP8 `-16..16` range and realtime auto-speed behavior. |
 | Encode deadline | `EncoderOptions.Deadline`, `SetDeadline` | Maps best/good/realtime behavior. |
+| `VP8E_SET_TUNING` | `EncoderOptions.Tuning`, `SetTuning` | Covers PSNR default and SSIM activity masking for encoder RD decisions. |
 | `VP8E_SET_ENABLEAUTOALTREF` | `EncoderOptions.AutoAltRef` | Hidden ARF scheduling exists behind lookahead. |
 | `VP8E_SET_NOISE_SENSITIVITY` | `EncoderOptions.NoiseSensitivity`, `SetNoiseSensitivity` | Denoiser state is present. |
 | `VP8E_SET_SHARPNESS` | `EncoderOptions.Sharpness`, `SetSharpness` | Runtime setter exists. |
@@ -153,7 +153,7 @@ Implemented notes:
 
 ### `VP8E_SET_TUNING`
 
-Status: missing. Priority: medium.
+Status: covered. Priority: medium.
 
 What libvpx exposes:
 
@@ -166,7 +166,7 @@ Why it is sane:
 - It affects RD behavior through activity masking and is visible in quality
   parity work.
 
-Suggested Go API:
+Current Go API:
 
 ```go
 type Tuning int
@@ -180,13 +180,16 @@ const (
 func (e *VP8Encoder) SetTuning(t Tuning) error
 ```
 
-Port notes:
+Implemented notes:
 
-- Default to PSNR to preserve existing behavior.
-- SSIM tuning requires the libvpx activity-masking path around inter/key mode
-  decision.
-- Add oracle trace coverage for RD multiplier/activity mask deltas before
-  broad quality gates.
+- `TunePSNR` is the default and does not allocate an activity map.
+- `TuneSSIM` builds a per-frame macroblock luma activity map and applies the
+  libvpx-style activity mask to RD multipliers and zbin-over-quant adjustments
+  used by inter-frame RD candidate scoring and accepted residual quantization.
+- `SetTuning` validates the enum and invalidates the cached activity map so
+  the next encode starts from the selected quality model.
+- Tests cover constructor and runtime validation, no-allocation PSNR setup,
+  SSIM activity-map construction, RD/zbin adjustment, and encode smoke.
 
 ### VPX_Q Constant-Quality Mode
 
@@ -328,7 +331,9 @@ decode.
 
 ## Suggested Port Order
 
-1. Add ROI map, using existing segmentation machinery and oracle tests.
-2. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
-3. Revisit spatial resampling only after deciding the coded-size/display-size
+1. Revisit spatial resampling only after deciding the coded-size/display-size
    API contract.
+2. Add output-partition packetization only if a caller needs partition packets
+   instead of contiguous frame payloads.
+3. Add PSNR packets or RTC external rate-control only with tests for their
+   exact libvpx-visible behavior.

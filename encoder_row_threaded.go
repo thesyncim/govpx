@@ -458,7 +458,11 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		args.modes[index].SegmentID = segmentID
 		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		if args.modes[index].Mode == vp8common.BPred {
-			if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, e.rc.currentZbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+			zbinOverQuant := e.rc.currentZbinOverQuant
+			if e.activityMapValid {
+				zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+			}
+			if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 				return 0, 0, ErrInvalidConfig
 			}
 		} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -486,6 +490,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// the per-encoder DCT cache slots are per-row-private — no cross-
 		// worker coordination needed.
 		cacheIn := e.consumeInterRDCoeffCache()
+		zbinOverQuant := e.rc.currentZbinOverQuant
+		if e.activityMapValid {
+			zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
+		}
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 			coefProbs:     &e.coefProbs,
 			src:           args.src,
@@ -496,7 +504,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			leftTok:       &rs.leftTok,
 			quant:         quant,
 			qIndex:        segmentQIndex,
-			zbinOverQuant: e.rc.currentZbinOverQuant,
+			zbinOverQuant: zbinOverQuant,
 			zbinModeBoost: interZbinModeBoost(&args.modes[index]),
 			is4x4:         is4x4,
 			intra:         args.modes[index].RefFrame == vp8common.IntraFrame,

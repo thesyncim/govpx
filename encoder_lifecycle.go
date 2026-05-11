@@ -265,6 +265,9 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.Deadline < DeadlineBestQuality || opts.Deadline > DeadlineRealtime {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
+	if opts.Tuning < TunePSNR || opts.Tuning > TuneSSIM {
+		return EncoderOptions{}, timingState{}, ErrInvalidConfig
+	}
 	if opts.CpuUsed < -16 || opts.CpuUsed > 16 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}

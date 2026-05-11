@@ -51,6 +51,11 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)
 	}
 
+	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, Tuning: Tuning(2)})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("tuning error = %v, want ErrInvalidConfig", err)
+	}
+
 	e, err := NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, NoiseSensitivity: 6, ARNRMaxFrames: 15})
 	if err != nil {
 		t.Fatalf("libvpx high denoise/ARNR bounds returned error: %v", err)

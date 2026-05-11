@@ -8,6 +8,9 @@ import (
 
 func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qIndex int, mbRow int, mbCol int, mbMode vp8common.MBPredictionMode, bestRD int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, staleY2Snapshot, bool) {
 	zbinOverQuant := e.rc.currentZbinOverQuant
+	if e.activityMapValid {
+		zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, mbRow, mbCol)
+	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	pickerProbs := e.pickerCoefProbs()
 	if mbMode == vp8common.BPred {
@@ -23,6 +26,10 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 		score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 		yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate, bDist)
+		if e.activityMapValid {
+			score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
+			yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate, bDist)
+		}
 		distortion := bDist + uvDist
 		return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: uvMode, BModes: bModes}, score, yrd, rate, distortion, staleY2Snapshot{}, true
 	}
@@ -42,6 +49,10 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	rate := yRate + uvRate + modeRate + e.interIntraMacroblockModeRate()
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
 	yrd := rdModeScoreWithZbin(qIndex, zbinOverQuant, yRate+modeRate, yDist)
+	if e.activityMapValid {
+		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(qIndex)
+		yrd = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, yRate+modeRate, yDist)
+	}
 	distortion := yDist + uvDist
 	var staleY2 staleY2Snapshot
 	if oracleTraceBuild {

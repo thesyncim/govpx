@@ -34,6 +34,16 @@ const (
 	DeadlineRealtime
 )
 
+// Tuning selects the encoder's visual quality model.
+type Tuning int
+
+const (
+	// TunePSNR selects the default PSNR-oriented rate-distortion model.
+	TunePSNR Tuning = iota
+	// TuneSSIM selects libvpx-style SSIM activity masking.
+	TuneSSIM
+)
+
 // EncodeFlags controls per-frame VP8 reference and packet behavior.
 type EncodeFlags uint32
 
@@ -238,6 +248,8 @@ type EncoderOptions struct {
 	Deadline Deadline
 	// CpuUsed selects the libvpx-style speed preset in [-16, 16].
 	CpuUsed int
+	// Tuning selects the PSNR or SSIM visual quality model.
+	Tuning Tuning
 
 	// KeyFrameInterval is the maximum GOP distance in frames. Zero disables
 	// interval-forced key frames.
@@ -448,6 +460,9 @@ type VP8Encoder struct {
 	activeMap        []uint8
 	activeMapEnabled bool
 	roi              roiMapState
+	activityMap      []uint32
+	activityAvg      uint32
+	activityMapValid bool
 
 	// libvpx dot-artifact suppression: count of MBs that have biased
 	// against ZEROMV-LAST this frame (capped at MBs/10), and the current

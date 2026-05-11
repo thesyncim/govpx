@@ -287,6 +287,19 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	return nil
 }
 
+// SetTuning changes the encoder visual quality model.
+func (e *VP8Encoder) SetTuning(tuning Tuning) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if tuning < TunePSNR || tuning > TuneSSIM {
+		return ErrInvalidConfig
+	}
+	e.opts.Tuning = tuning
+	e.activityMapValid = false
+	return nil
+}
+
 func (e *VP8Encoder) libvpxCPUUsed() int {
 	// libvpx encodeframe.c:685-691: realtime mode runs vp8_auto_select_speed
 	// which evolves cpi->Speed. Mirror that: for realtime+positive-cpu_used,
