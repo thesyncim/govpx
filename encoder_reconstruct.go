@@ -6180,18 +6180,8 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 // are bestRefMV.Row>>3 and bestRefMV.Col>>3 respectively. The MV SAD
 // component table is pre-scaled by qIndex so the diamond loop avoids
 // repeating libvpx's per-candidate component-sum multiply.
-func (c *fullPelSearchCtx) fullPelCost(mvRow int, mvCol int, refRow8 int, refCol8 int, qIndex int) int {
-	row := mvRow >> 3
-	col := mvCol >> 3
-	return c.fullPelCostFull(row, col, refRow8, refCol8, qIndex)
-}
-
 func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
 	return c.fullPelSADFull(row, col) + libvpxFullPelMVSADCost16FromDeltas(row, col, refRow8, refCol8, qIndex)
-}
-
-func (c *fullPelSearchCtx) fullPelSAD(mvRow int, mvCol int) int {
-	return c.fullPelSADFull(mvRow>>3, mvCol>>3)
 }
 
 func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
@@ -6202,6 +6192,29 @@ func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 		return dsp.SAD16x16PtrFast(c.srcRowPtrP, c.srcYStride, refPtr, c.refYStride)
 	}
 	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
+}
+
+func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 int, row2 int, col2 int, row3 int, col3 int, out *[4]uint32) bool {
+	refBaseY0 := c.baseY + row0
+	refBaseX0 := c.baseX + col0
+	refBaseY1 := c.baseY + row1
+	refBaseX1 := c.baseX + col1
+	refBaseY2 := c.baseY + row2
+	refBaseX2 := c.baseX + col2
+	refBaseY3 := c.baseY + row3
+	refBaseX3 := c.baseX + col3
+	if uint(refBaseY0) > c.refRowH || uint(refBaseX0) > c.refRowW ||
+		uint(refBaseY1) > c.refRowH || uint(refBaseX1) > c.refRowW ||
+		uint(refBaseY2) > c.refRowH || uint(refBaseX2) > c.refRowW ||
+		uint(refBaseY3) > c.refRowH || uint(refBaseX3) > c.refRowW {
+		return false
+	}
+	refPtr0 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY0*c.refYStride+refBaseX0))
+	refPtr1 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY1*c.refYStride+refBaseX1))
+	refPtr2 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY2*c.refYStride+refBaseX2))
+	refPtr3 := (*byte)(unsafe.Add(unsafe.Pointer(c.refYP), refBaseY3*c.refYStride+refBaseX3))
+	dsp.SAD16x16x4PtrFast(c.srcRowPtrP, c.srcYStride, refPtr0, refPtr1, refPtr2, refPtr3, c.refYStride, out)
+	return true
 }
 
 func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, refRow8 int, refCol8 int, qIndex int) int {

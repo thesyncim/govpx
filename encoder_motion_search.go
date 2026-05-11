@@ -119,11 +119,67 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 	refRow8 := s.refRow8
 	refCol8 := s.refCol8
 	qIndex := s.qIndex
+	var sad4 [4]uint32
 	for range totalSteps {
-		for range sitesPerStep {
+		for stepSite := 0; stepSite < sitesPerStep; {
 			siteIndex := startIndex + i
 			if siteIndex >= len(sites) {
 				break
+			}
+			if stepSite+4 <= sitesPerStep && siteIndex+3 < len(sites) {
+				site0 := sites[siteIndex]
+				site1 := sites[siteIndex+1]
+				site2 := sites[siteIndex+2]
+				site3 := sites[siteIndex+3]
+				row0 := bestRow + int(site0.Row)
+				col0 := bestCol + int(site0.Col)
+				row1 := bestRow + int(site1.Row)
+				col1 := bestCol + int(site1.Col)
+				row2 := bestRow + int(site2.Row)
+				col2 := bestCol + int(site2.Col)
+				row3 := bestRow + int(site3.Row)
+				col3 := bestCol + int(site3.Col)
+				if bounds.containsFullPelStrict(row0, col0) &&
+					bounds.containsFullPelStrict(row1, col1) &&
+					bounds.containsFullPelStrict(row2, col2) &&
+					bounds.containsFullPelStrict(row3, col3) &&
+					ctx.fullPelSADFull4(row0, col0, row1, col1, row2, col2, row3, col3, &sad4) {
+					sad := int(sad4[0])
+					if sad < bestWalkCost {
+						cost := sad + libvpxFullPelMVSADCost16FromDeltas(row0, col0, refRow8, refCol8, qIndex)
+						if cost < bestWalkCost {
+							bestWalkCost = cost
+							bestSite = i
+						}
+					}
+					sad = int(sad4[1])
+					if sad < bestWalkCost {
+						cost := sad + libvpxFullPelMVSADCost16FromDeltas(row1, col1, refRow8, refCol8, qIndex)
+						if cost < bestWalkCost {
+							bestWalkCost = cost
+							bestSite = i + 1
+						}
+					}
+					sad = int(sad4[2])
+					if sad < bestWalkCost {
+						cost := sad + libvpxFullPelMVSADCost16FromDeltas(row2, col2, refRow8, refCol8, qIndex)
+						if cost < bestWalkCost {
+							bestWalkCost = cost
+							bestSite = i + 2
+						}
+					}
+					sad = int(sad4[3])
+					if sad < bestWalkCost {
+						cost := sad + libvpxFullPelMVSADCost16FromDeltas(row3, col3, refRow8, refCol8, qIndex)
+						if cost < bestWalkCost {
+							bestWalkCost = cost
+							bestSite = i + 3
+						}
+					}
+					i += 4
+					stepSite += 4
+					continue
+				}
 			}
 			site := sites[siteIndex]
 			row := bestRow + int(site.Row)
@@ -139,6 +195,7 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 				}
 			}
 			i++
+			stepSite++
 		}
 		if bestSite != lastSite {
 			site := sites[startIndex+bestSite]

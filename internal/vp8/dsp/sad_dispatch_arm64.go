@@ -39,6 +39,13 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 	return int(sadBlock16x16LimitNEON(src, srcStride, ref, refStride, int32(limit)))
 }
 
+// SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d_neon entry: compare one
+// source 16x16 block against four in-bounds 16x16 reference blocks and write
+// four SADs in candidate order.
+func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
+	sadBlock16x16x4NEON(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	// The NEON kernel takes a 32-bit signed limit; the wrapper hands it a
 	// fast clamp so the dispatch stays inlineable. The hot motion-search

@@ -48,6 +48,16 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 	return int(sadBlock16x16LimitSSE2(src, srcStride, ref, refStride, int32(limit)))
 }
 
+// SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d interface. amd64 keeps
+// the existing scalar-dispatch semantics for now; the arm64 motion-search path
+// gets the fused NEON kernel first.
+func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
+	out[0] = uint32(SAD16x16PtrFast(src, srcStride, ref0, refStride))
+	out[1] = uint32(SAD16x16PtrFast(src, srcStride, ref1, refStride))
+	out[2] = uint32(SAD16x16PtrFast(src, srcStride, ref2, refStride))
+	out[3] = uint32(SAD16x16PtrFast(src, srcStride, ref3, refStride))
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	// The limit kernel returns the running sum at the row boundary
 	// where it exceeds the limit; mirroring that exactly under AVX2's

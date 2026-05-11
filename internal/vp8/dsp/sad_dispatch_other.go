@@ -23,6 +23,14 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 	return sadBlockLimitScalarPtr(src, srcStride, ref, refStride, 16, 16, limit)
 }
 
+// SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d interface.
+func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
+	out[0] = uint32(sadBlockScalarPtr(src, srcStride, ref0, refStride, 16, 16))
+	out[1] = uint32(sadBlockScalarPtr(src, srcStride, ref1, refStride, 16, 16))
+	out[2] = uint32(sadBlockScalarPtr(src, srcStride, ref2, refStride, 16, 16))
+	out[3] = uint32(sadBlockScalarPtr(src, srcStride, ref3, refStride, 16, 16))
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	return sadBlockLimitScalar(src, srcStride, ref, refStride, 16, 16, limit)
 }

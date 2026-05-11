@@ -49,6 +49,31 @@ func TestSAD16x16Limit(t *testing.T) {
 	}
 }
 
+func TestSAD16x16x4PtrFast(t *testing.T) {
+	const stride = 64
+	src := make([]byte, stride*32)
+	ref := make([]byte, stride*32)
+	for i := range src {
+		src[i] = byte(i*3 + 7)
+		ref[i] = byte(i*5 + 11)
+	}
+
+	var got [4]uint32
+	srcPtr := &src[3*stride+5]
+	ref0 := &ref[2*stride+7]
+	ref1 := &ref[3*stride+9]
+	ref2 := &ref[4*stride+11]
+	ref3 := &ref[5*stride+13]
+	SAD16x16x4PtrFast(srcPtr, stride, ref0, ref1, ref2, ref3, stride, &got)
+	refs := []*byte{ref0, ref1, ref2, ref3}
+	for i, refPtr := range refs {
+		want := SAD16x16PtrFast(srcPtr, stride, refPtr, stride)
+		if got[i] != uint32(want) {
+			t.Fatalf("SAD16x16x4PtrFast[%d] = %d, want %d", i, got[i], want)
+		}
+	}
+}
+
 func TestSADAllocatesZero(t *testing.T) {
 	src := make([]byte, 32*32)
 	ref := make([]byte, 32*32)
@@ -72,6 +97,27 @@ func BenchmarkSAD16x16(b *testing.B) {
 	b.SetBytes(16 * 16)
 	for i := 0; i < b.N; i++ {
 		_ = SAD16x16(src, 32, ref, 32)
+	}
+}
+
+func BenchmarkSAD16x16x4PtrFast(b *testing.B) {
+	const stride = 64
+	src := make([]byte, stride*32)
+	ref := make([]byte, stride*32)
+	for i := range src {
+		src[i] = byte(i*3 + 7)
+		ref[i] = byte(i*5 + 11)
+	}
+	var out [4]uint32
+	srcPtr := &src[3*stride+5]
+	ref0 := &ref[2*stride+7]
+	ref1 := &ref[3*stride+9]
+	ref2 := &ref[4*stride+11]
+	ref3 := &ref[5*stride+13]
+	b.ReportAllocs()
+	b.SetBytes(4 * 16 * 16)
+	for i := 0; i < b.N; i++ {
+		SAD16x16x4PtrFast(srcPtr, stride, ref0, ref1, ref2, ref3, stride, &out)
 	}
 }
 
