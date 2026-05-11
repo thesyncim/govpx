@@ -216,14 +216,18 @@ func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 	}
 }
 
+// signedCharClamp saturates v into [-128, 127] without conditional branches.
+// Called per-pixel from the loopfilter inner kernel.
 func signedCharClamp(v int) int8 {
-	if v < -128 {
-		return -128
-	}
-	if v > 127 {
-		return 127
-	}
-	return int8(v)
+	// (v + 128) maps the target window to [0, 255]; the unsigned compare
+	// catches both under- and overflow with one branch that the compiler
+	// turns into a cmov when it pays off.
+	u := v + 128
+	low := u >> signShift          // -1 if v < -128
+	high := (255 - u) >> signShift // -1 if v > 127
+	u = (u &^ low) | (0 & low)     // clamp low side
+	u = (u &^ high) | (255 & high) // clamp high side
+	return int8(u - 128)
 }
 
 func filterMask(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) int8 {
@@ -351,9 +355,11 @@ func unsignedPixel(v int8) byte {
 	return byte(v) ^ 0x80
 }
 
+// absByteDiff returns |a-b| without a conditional branch. The unsigned
+// subtraction wraps when a < b; XOR by the sign-extended top bit
+// reflects the value back into a positive byte.
 func absByteDiff(a byte, b byte) byte {
-	if a > b {
-		return a - b
-	}
-	return b - a
+	d := int(a) - int(b)
+	mask := d >> signShift // -1 when d < 0, 0 otherwise
+	return byte((d ^ mask) - mask)
 }
