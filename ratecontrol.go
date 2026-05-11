@@ -2,7 +2,7 @@ package govpx
 
 import "math"
 
-// RateControlMode selects the encoder bitrate control strategy.
+// RateControlMode selects the encoder bitrate-control strategy.
 type RateControlMode int
 
 const (
@@ -12,12 +12,14 @@ const (
 	RateControlCBR
 	// RateControlCQ selects constrained-quality mode.
 	RateControlCQ
+	// RateControlQ selects libvpx VPX_Q constant-quality mode.
+	RateControlQ
 )
 
 // RateControlConfig is the runtime-updatable subset of encoder rate-control
 // options.
 type RateControlConfig struct {
-	// Mode selects VBR, CBR, or constrained-quality behavior.
+	// Mode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
 	Mode RateControlMode
 
 	// TargetBitrateKbps is the total target bitrate.
@@ -30,7 +32,9 @@ type RateControlConfig struct {
 	// MinQuantizer and MaxQuantizer bound the public 0..63 quantizer range.
 	MinQuantizer int
 	MaxQuantizer int
-	// CQLevel is the constrained-quality public quantizer level.
+	// CQLevel is the public quantizer level for RateControlCQ and
+	// RateControlQ. RateControlCQ applies it as a floor; RateControlQ
+	// mirrors libvpx's VPX_Q validation without applying the CQ floor.
 	CQLevel int
 
 	// UndershootPct and OvershootPct cap libvpx-style rate adjustment.

@@ -139,6 +139,29 @@ func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
 	}
 }
 
+func TestSetRateControlQAcceptsCQLevelWithoutCQFloor(t *testing.T) {
+	e := newTestEncoder(t)
+	err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             28,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("SetRateControl returned error: %v", err)
+	}
+	if e.rc.mode != RateControlQ || e.rc.cqLevel != libvpxPublicQuantizerToQIndex(28) {
+		t.Fatalf("Q mode state = mode:%d cq:%d, want RateControlQ / qindex %d", e.rc.mode, e.rc.cqLevel, libvpxPublicQuantizerToQIndex(28))
+	}
+	if e.rc.currentQuantizer >= e.rc.cqLevel {
+		t.Fatalf("Q current quantizer = %d, want below CQ qindex %d to prove no CQ floor", e.rc.currentQuantizer, e.rc.cqLevel)
+	}
+}
+
 func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
@@ -175,6 +198,37 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	}
 	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != libvpxPublicQuantizerToQIndex(40) {
 		t.Fatalf("quantizer = result:%d packet:%d, want public CQ level 40 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), libvpxPublicQuantizerToQIndex(40))
+	}
+}
+
+func TestSetCQLevelValidationAppliesToRateControlQ(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             24,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetCQLevel(3); !errors.Is(err, ErrInvalidQuantizer) {
+		t.Fatalf("below-min Q SetCQLevel error = %v, want ErrInvalidQuantizer", err)
+	}
+	if err := e.SetCQLevel(40); err != nil {
+		t.Fatalf("Q SetCQLevel returned error: %v", err)
+	}
+	if e.rc.cqLevel != libvpxPublicQuantizerToQIndex(40) {
+		t.Fatalf("Q cqLevel = %d, want qindex %d", e.rc.cqLevel, libvpxPublicQuantizerToQIndex(40))
+	}
+	if e.rc.currentQuantizer >= e.rc.cqLevel {
+		t.Fatalf("Q current quantizer = %d, want no reset to CQ qindex %d", e.rc.currentQuantizer, e.rc.cqLevel)
 	}
 }
 

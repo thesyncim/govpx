@@ -30,7 +30,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	if macroblocks <= 0 {
 		return
 	}
-	if rc.mode != RateControlCBR && rc.mode != RateControlVBR && rc.mode != RateControlCQ {
+	if !rateControlModeUsesQuantizerRegulator(rc.mode) {
 		return
 	}
 	targetBits := rc.frameTargetBits

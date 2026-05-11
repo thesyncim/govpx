@@ -241,7 +241,7 @@ func normalizeEncoderOptions(opts EncoderOptions) (EncoderOptions, timingState, 
 	if opts.FPS == 0 && opts.TimebaseNum == 0 {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
-	if opts.RateControlMode < RateControlVBR || opts.RateControlMode > RateControlCQ {
+	if !validRateControlMode(opts.RateControlMode) {
 		return EncoderOptions{}, timingState{}, ErrInvalidConfig
 	}
 	if opts.TargetBitrateKbps <= 0 {

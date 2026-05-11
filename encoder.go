@@ -185,7 +185,7 @@ type EncoderOptions struct {
 	//   - A negative value is rejected with ErrInvalidConfig.
 	Threads int
 
-	// RateControlMode selects VBR, CBR, or constrained-quality behavior.
+	// RateControlMode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
 	RateControlMode RateControlMode
 	// TargetBitrateKbps is the total target bitrate.
 	TargetBitrateKbps int
@@ -198,8 +198,9 @@ type EncoderOptions struct {
 	MinQuantizer int
 	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
 	MaxQuantizer int
-	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. In RateControlCQ mode,
-	// zero uses libvpx's default level unless MinQuantizer is also zero.
+	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. RateControlCQ applies it
+	// as a floor; RateControlQ validates and stores it like libvpx VPX_Q.
+	// Zero uses libvpx's default level unless MinQuantizer is also zero.
 	CQLevel int
 
 	// UndershootPct caps libvpx-style downward rate adjustment.

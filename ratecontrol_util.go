@@ -151,8 +151,20 @@ func computeBitsPerFrame(targetBandwidthBits int, timing timingState) int {
 	return int(v)
 }
 
+func validRateControlMode(mode RateControlMode) bool {
+	return mode >= RateControlVBR && mode <= RateControlQ
+}
+
+func rateControlModeUsesCQLevel(mode RateControlMode) bool {
+	return mode == RateControlCQ || mode == RateControlQ
+}
+
+func rateControlModeUsesQuantizerRegulator(mode RateControlMode) bool {
+	return mode == RateControlCBR || mode == RateControlVBR || mode == RateControlCQ || mode == RateControlQ
+}
+
 func validateRateControlConfig(cfg RateControlConfig) error {
-	if cfg.Mode < RateControlVBR || cfg.Mode > RateControlCQ {
+	if !validRateControlMode(cfg.Mode) {
 		return ErrInvalidConfig
 	}
 	if cfg.TargetBitrateKbps <= 0 {
@@ -180,7 +192,7 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 		return ErrInvalidQuantizer
 	}
 	cqLevel := normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
-	if cfg.Mode == RateControlCQ && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
+	if rateControlModeUsesCQLevel(cfg.Mode) && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	if cfg.UndershootPct < 0 || cfg.OvershootPct < 0 {

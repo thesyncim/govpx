@@ -85,7 +85,7 @@ for i, src := range frames {
 Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Encoded output is
 a raw VP8 frame payload, not IVF or WebM.
 
-Encoder support includes CBR, CQ, one-pass and two-pass VBR controls, temporal
+Encoder support includes CBR, CQ, Q, one-pass and two-pass VBR controls, temporal
 layers, token partitions, adaptive keyframes, lookahead, automatic alt-ref,
 ARNR, denoise, screen-content mode, active maps, ROI maps, and realtime control
 methods such as `SetBitrateKbps`, `SetRateControl`, `SetRealtimeTarget`,

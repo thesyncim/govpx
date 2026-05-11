@@ -21,8 +21,7 @@ cleanly onto libvpx behavior where that behavior is useful.
 The highest-value missing controls are:
 
 1. `VP8E_SET_TUNING` for PSNR vs SSIM tuning
-2. VPX_Q constant-quality mode
-3. Optional: spatial resampling / scale mode, output-partition packetization,
+2. Optional: spatial resampling / scale mode, output-partition packetization,
    PSNR packets, and `VP8E_SET_RTC_EXTERNAL_RATECTRL`
 
 The controls that are probably not worth porting by default are encoder
@@ -55,7 +54,7 @@ does not actually wire into the VP8 encoder.
 | `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on decoder | `VP8Decoder.SetReferenceFrame`, `VP8Decoder.CopyReferenceFrame` | Requires a decoded key frame to establish dimensions. Reference selectors use the same LAST/GOLDEN/ALTREF values as `ReferenceFlags`. |
 | `VP8D_GET_LAST_REF_UPDATES`, `VP8D_GET_LAST_REF_USED`, `VPXD_GET_LAST_QUANTIZER`, `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.RefUpdates`, `FrameInfo.RefUsed`, `FrameInfo.InternalQuantizer`, `FrameInfo.Quantizer`, `FrameInfo.Corrupted`, `VP8Decoder.LastFrameInfo` | Ref flags use Go bit flags matching libvpx's LAST/GOLDEN/ALTREF bit values. `InternalQuantizer` is VP8 base qindex; `Quantizer` is govpx's public 0..63 mapping. |
 | `VP8E_GET_LAST_QUANTIZER`, `VP8E_GET_LAST_QUANTIZER_64` | `EncodeResult.InternalQuantizer`, `EncodeResult.Quantizer`, `VP8Encoder.LastQuantizer` | Exposes both libvpx's internal qindex and the public 0..63 mapping. |
-| Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
+| Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ/Q, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
 
 ## Detailed Control Notes
 
@@ -191,10 +190,11 @@ Port notes:
 
 ### VPX_Q Constant-Quality Mode
 
-Status: missing. Priority: low to medium.
+Status: covered. Priority: low to medium.
 
 libvpx has four rate-control modes: `VPX_VBR`, `VPX_CBR`, `VPX_CQ`, and
-`VPX_Q`. govpx currently exposes VBR, CBR, and CQ.
+`VPX_Q`. govpx exposes these as `RateControlVBR`, `RateControlCBR`,
+`RateControlCQ`, and `RateControlQ`.
 
 Why it is sane:
 
@@ -202,19 +202,24 @@ Why it is sane:
 - It may be useful for callers that want the closest libvpx-style
   constant-quality behavior rather than the current constrained-quality floor.
 
-Suggested Go API:
+Current Go API:
 
 ```go
 const RateControlQ RateControlMode = ...
 ```
 
-Port notes:
+Implemented notes:
 
-- First pin empirical behavior. libvpx maps `VPX_Q` to
-  `USAGE_CONSTANT_QUALITY`, but the public VP8 config path still initializes
-  `fixed_q` to `-1`, so do not assume this is a literal fixed-q mode without
-  oracle tests.
-- Make the relationship to `CQLevel`, min/max q, and target bitrate explicit.
+- `RateControlQ` is accepted by `EncoderOptions.RateControlMode`,
+  `RateControlConfig.Mode`, and `SetRateControl`.
+- Like libvpx, `RateControlQ` validates `CQLevel` against the active
+  min/max public quantizer range. The level is stored, but the mode does not
+  apply the constrained-quality floor used by `RateControlCQ`.
+- `RateControlQ` uses the normal public buffer settings rather than the
+  relaxed VPX_VBR local-playback buffer override.
+- Tests pin the non-CQ floor behavior for frame-start quantizer selection,
+  active quantizer bounds, frame-size bounds, runtime `SetCQLevel`, and
+  constructor/config validation.
 
 ## Maybe Sane, But Larger Or Niche
 
@@ -325,6 +330,5 @@ decode.
 
 1. Add ROI map, using existing segmentation machinery and oracle tests.
 2. Add `TuneSSIM` only after tracing the libvpx activity-masking path.
-3. Add `RateControlQ` if constant-quality callers need it.
-4. Revisit spatial resampling only after deciding the coded-size/display-size
+3. Revisit spatial resampling only after deciding the coded-size/display-size
    API contract.

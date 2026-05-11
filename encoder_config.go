@@ -57,7 +57,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	return nil
 }
 
-// SetCQLevel changes the constrained-quality public quantizer level.
+// SetCQLevel changes the CQ/Q public quantizer level.
 func (e *VP8Encoder) SetCQLevel(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -65,7 +65,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	if level < 0 || level > maxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if e.rc.mode == RateControlCQ && (level < e.opts.MinQuantizer || level > e.opts.MaxQuantizer) {
+	if rateControlModeUsesCQLevel(e.rc.mode) && (level < e.opts.MinQuantizer || level > e.opts.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	qIndex := libvpxPublicQuantizerToQIndex(level)
@@ -198,7 +198,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if nextMinQuantizer > nextMaxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if e.rc.mode == RateControlCQ && (e.opts.CQLevel < nextMinQuantizer || e.opts.CQLevel > nextMaxQuantizer) {
+	if rateControlModeUsesCQLevel(e.rc.mode) && (e.opts.CQLevel < nextMinQuantizer || e.opts.CQLevel > nextMaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	e.rc.minQuantizer = libvpxPublicQuantizerToQIndex(nextMinQuantizer)
