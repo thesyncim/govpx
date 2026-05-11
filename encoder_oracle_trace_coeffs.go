@@ -51,10 +51,8 @@ func libvpxY1DCWouldQuantizeNonzero(dct0 int16, quant *vp8enc.BlockQuant, zbinOv
 	if z == 0 {
 		return 0
 	}
-	x := z
-	if x < 0 {
-		x = -x
-	}
+	mask := z >> mvKernelSignShift
+	x := (z ^ mask) - mask
 	if fastQuant {
 		y := ((x + int(quant.Round[0])) * int(quant.QuantFast[0])) >> 16
 		if y != 0 {
