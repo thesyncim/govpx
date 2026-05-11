@@ -50,13 +50,40 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	}
 	var bestMode vp8enc.InterFrameMacroblockMode
 	var splitSeeds splitMotionSearchSeeds
+	search := e.interAnalysisSearchConfig()
+	compressor := e.interAnalysisCompressorSpeed()
+	zbinOverQuant := e.rc.currentZbinOverQuant
+	fastQuant := e.libvpxUseFastQuantForPick()
+	coefProbs := e.pickerCoefProbs()
 
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
-		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, ctx.aboveTok, ctx.leftTok, e.libvpxUseFastQuantForPick(), false)
+		labelRD.init(zbinOverQuant, ctx.aboveTok, ctx.leftTok, fastQuant, false)
 		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
-		overheadRD := rdModeScoreWithZbin(ctx.qIndex, e.rc.currentZbinOverQuant, overheadRate, 0)
-		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(ctx.src, ctx.ref.Img, ctx.ref.Frame, ctx.mbRow, ctx.mbCol, ctx.bestRefMV, ctx.qIndex, partition, ctx.left, ctx.above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, ctx.mvthresh, &labelRD, ctx.quant, e.pickerCoefProbs(), bestSegmentYRD, overheadRD)
+		overheadRD := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, overheadRate, 0)
+		shapeCtx := splitMotionShapeContext{
+			src:               ctx.src,
+			ref:               ctx.ref.Img,
+			refFrame:          ctx.ref.Frame,
+			mbRow:             ctx.mbRow,
+			mbCol:             ctx.mbCol,
+			bestRefMV:         ctx.bestRefMV,
+			qIndex:            ctx.qIndex,
+			partition:         partition,
+			left:              ctx.left,
+			above:             ctx.above,
+			search:            search,
+			compressor:        compressor,
+			seeds:             &splitSeeds,
+			mvProbs:           &e.modeProbs.MV,
+			mvthresh:          ctx.mvthresh,
+			labelRD:           &labelRD,
+			quant:             ctx.quant,
+			coefProbs:         coefProbs,
+			segmentYRDCap:     bestSegmentYRD,
+			segmentOverheadRD: overheadRD,
+		}
+		shape := shapeCtx.selectShape()
 		if !shape.OK {
 			return
 		}
@@ -69,7 +96,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 		}
 		mode := shape.Mode
 		mode.SegmentID = ctx.segmentID
-		if e.interAnalysisCompressorSpeed() != 0 && partition == 2 {
+		if compressor != 0 && partition == 2 {
 			splitSeeds = splitMotionSearchSeedsFrom8x8(&mode)
 		}
 		// libvpx:
@@ -84,7 +111,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 		}
 	}
 
-	if e.interAnalysisCompressorSpeed() != 0 {
+	if compressor != 0 {
 		tryPartition(2)
 		if bestSet {
 			tryPartition(1)

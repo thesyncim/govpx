@@ -5448,8 +5448,8 @@ func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Imag
 func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	if !initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false) {
-		t.Fatalf("initSplitMotionLabelRDEvaluator returned false")
+	if !ev.init(0, nil, nil, false, false) {
+		t.Fatalf("splitMotionLabelRDEvaluator.init returned false")
 	}
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv := vp8enc.MotionVector{Col: 8}
@@ -5474,7 +5474,7 @@ func TestSplitMotionLabelRDEvaluatorUsesTransformTokenRate(t *testing.T) {
 func TestSplitMotionLabelRDCommitsContextsBeforeNewGate(t *testing.T) {
 	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
 	var ev splitMotionLabelRDEvaluator
-	initSplitMotionLabelRDEvaluator(&ev, 0, nil, nil, false, false)
+	ev.init(0, nil, nil, false, false)
 	mode := vp8enc.InterFrameMacroblockMode{Mode: vp8common.SplitMV, Partition: 0}
 	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearchThresholdAndLabelRD(
 		src, ref, 0, 0, &mode, 0, 16, 8,

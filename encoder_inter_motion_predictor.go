@@ -46,16 +46,16 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	var slots [8]improvedInterFrameMVSlot
 	slotCount := 3
 	signBias := e.interFrameSignBias()
-	fillImprovedInterFrameCurrentMVSlot(&slots[0], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above, signBias)
-	fillImprovedInterFrameCurrentMVSlot(&slots[1], src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left, signBias)
-	fillImprovedInterFrameCurrentMVSlot(&slots[2], src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft, signBias)
+	slots[0].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above, signBias)
+	slots[1].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left, signBias)
+	slots[2].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft, signBias)
 	if e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols && mbRows > 0 && mbCols > 0 {
 		slotCount = 8
-		fillImprovedInterFrameLastMVSlot(&slots[3], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
-		fillImprovedInterFrameLastMVSlot(&slots[4], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
-		fillImprovedInterFrameLastMVSlot(&slots[5], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
-		fillImprovedInterFrameLastMVSlot(&slots[6], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
-		fillImprovedInterFrameLastMVSlot(&slots[7], src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		slots[3].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+		slots[4].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+		slots[5].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+		slots[6].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+		slots[7].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
 	}
 	biasImprovedInterFrameMVSlots(&slots, slotCount, refFrame, signBias, mbRow, mbCol, mbRows, mbCols)
 	order := improvedInterFrameMVSlotOrder(slots, slotCount)
@@ -73,7 +73,7 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	return interFrameSearchStart{mv: mv, sr: 0, nearSADIndex: -1, ok: true}
 }
 
-func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
+func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a nil
 	// pointer (border MB) corresponds to libvpx's calloc-zeroed mode_info
 	// sentinel row/column where ref_frame == INTRA_FRAME and mv == 0, and
@@ -95,7 +95,7 @@ func fillImprovedInterFrameCurrentMVSlot(slot *improvedInterFrameMVSlot, src vp8
 	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
-func fillImprovedInterFrameLastMVSlot(slot *improvedInterFrameMVSlot, src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the previous frame:
 	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
 	// sentinel rows (top/bottom) and columns (left/right) which are
