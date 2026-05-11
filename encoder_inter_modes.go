@@ -326,7 +326,33 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		var candidateStaleY2 staleY2Snapshot
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
-			mode, score, yrd, rate, distortion, rdLoopSkip, ok = e.selectInterFrameSplitModeRDScore(src, ref, mbRow, mbCol, mbCols, bestRefMV, modeMVs.counts, qIndex, segmentID, mvthresh, bestYRD, above, left, aboveLeft, aboveTok, leftTok, quant)
+			splitCtx := interSplitModeRDContext{
+				src:        src,
+				ref:        ref,
+				mbRow:      mbRow,
+				mbCol:      mbCol,
+				mbCols:     mbCols,
+				bestRefMV:  bestRefMV,
+				modeCounts: modeMVs.counts,
+				qIndex:     qIndex,
+				segmentID:  segmentID,
+				mvthresh:   mvthresh,
+				bestYRD:    bestYRD,
+				above:      above,
+				left:       left,
+				aboveLeft:  aboveLeft,
+				aboveTok:   aboveTok,
+				leftTok:    leftTok,
+				quant:      quant,
+			}
+			split, splitOK := e.selectInterFrameSplitModeRDScore(&splitCtx)
+			ok = splitOK
+			mode = split.mode
+			score = split.rd
+			yrd = split.yrd
+			rate = split.rate
+			distortion = split.distortion
+			rdLoopSkip = split.rdLoopSkip
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
@@ -341,7 +367,25 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					mbSkipCoeff = true
 					rdLoopSkip = true
 				} else {
-					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, &mode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeMVs.counts, bestRefMV)
+					rdCtx := interResidualRDContext{
+						src:        src,
+						ref:        ref.Img,
+						mbRow:      mbRow,
+						mbCol:      mbCol,
+						mode:       &mode,
+						above:      above,
+						left:       left,
+						aboveLeft:  aboveLeft,
+						aboveTok:   aboveTok,
+						leftTok:    leftTok,
+						quant:      quant,
+						qIndex:     qIndex,
+						segmentID:  segmentID,
+						refRate:    e.interReferenceFrameRateForReference(ref),
+						modeCounts: modeMVs.counts,
+						bestRefMV:  bestRefMV,
+					}
+					acct, acctOK := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
 					ok = acctOK
 					score = acct.rd
 					yrd = acct.yrd
@@ -431,21 +475,46 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	return best, true
 }
 
-func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
-	src vp8enc.SourceImage, ref interAnalysisReference,
-	mbRow int, mbCol int, mbCols int,
-	bestRefMV vp8enc.MotionVector, modeCounts vp8enc.InterModeCounts, qIndex int, segmentID uint8, mvthresh int, bestYRD int,
-	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
-	aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes,
-	quant *vp8enc.MacroblockQuant,
-) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool, bool) {
+type interSplitModeRDContext struct {
+	src        vp8enc.SourceImage
+	ref        interAnalysisReference
+	mbRow      int
+	mbCol      int
+	mbCols     int
+	bestRefMV  vp8enc.MotionVector
+	modeCounts vp8enc.InterModeCounts
+	qIndex     int
+	segmentID  uint8
+	mvthresh   int
+	bestYRD    int
+	above      *vp8enc.InterFrameMacroblockMode
+	left       *vp8enc.InterFrameMacroblockMode
+	aboveLeft  *vp8enc.InterFrameMacroblockMode
+	aboveTok   *vp8enc.TokenContextPlanes
+	leftTok    *vp8enc.TokenContextPlanes
+	quant      *vp8enc.MacroblockQuant
+}
+
+type interSplitModeRDResult struct {
+	mode       vp8enc.InterFrameMacroblockMode
+	rd         int
+	yrd        int
+	rate       int
+	distortion int
+	rdLoopSkip bool
+}
+
+func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDContext) (interSplitModeRDResult, bool) {
 	// libvpx: vp8_rd_pick_inter_mode SPLITMV branch picks
 	// x->rd_threshes[THR_NEW{1,2,3}] based on vp8_ref_frame_order[mode_index]
 	// (1=LAST, 2=GOLDEN, 3=ALTREF) and feeds it into
 	// vp8_rd_pick_best_mbsegmentation as bsi->mvthresh, which the per-label
 	// loop divides by label_count to gate NEW4X4 motion searches.
+	if ctx == nil {
+		return interSplitModeRDResult{}, false
+	}
 	bestSet := false
-	bestSegmentYRD := bestYRD
+	bestSegmentYRD := ctx.bestYRD
 	if bestSegmentYRD <= 0 {
 		bestSegmentYRD = maxInt()
 	}
@@ -454,10 +523,10 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
-		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, aboveTok, leftTok, e.libvpxUseFastQuantForPick(), false)
-		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, modeCounts)
-		overheadRD := rdModeScoreWithZbin(qIndex, e.rc.currentZbinOverQuant, overheadRate, 0)
-		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(src, ref.Img, ref.Frame, mbRow, mbCol, bestRefMV, qIndex, partition, left, above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, mvthresh, &labelRD, quant, e.pickerCoefProbs(), bestSegmentYRD, overheadRD)
+		initSplitMotionLabelRDEvaluator(&labelRD, e.rc.currentZbinOverQuant, ctx.aboveTok, ctx.leftTok, e.libvpxUseFastQuantForPick(), false)
+		overheadRate := mbSplitPartitionRate(uint8(partition)) + interPredictionModeRate(vp8common.SplitMV, ctx.modeCounts)
+		overheadRD := rdModeScoreWithZbin(ctx.qIndex, e.rc.currentZbinOverQuant, overheadRate, 0)
+		shape := selectInterFrameSplitMotionModeWithSegmentCutoff(ctx.src, ctx.ref.Img, ctx.ref.Frame, ctx.mbRow, ctx.mbCol, ctx.bestRefMV, ctx.qIndex, partition, ctx.left, ctx.above, e.interAnalysisSearchConfig(), e.interAnalysisCompressorSpeed(), &splitSeeds, &e.modeProbs.MV, ctx.mvthresh, &labelRD, ctx.quant, e.pickerCoefProbs(), bestSegmentYRD, overheadRD)
 		if !shape.OK {
 			return
 		}
@@ -469,7 +538,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 			return
 		}
 		mode := shape.Mode
-		mode.SegmentID = segmentID
+		mode.SegmentID = ctx.segmentID
 		if e.interAnalysisCompressorSpeed() != 0 && partition == 2 {
 			splitSeeds = splitMotionSearchSeedsFrom8x8(&mode)
 		}
@@ -500,13 +569,38 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(
 		}
 	}
 	if !bestSet {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
+		return interSplitModeRDResult{}, false
 	}
-	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(src, ref.Img, mbRow, mbCol, &bestMode, above, left, aboveLeft, aboveTok, leftTok, quant, qIndex, segmentID, e.interReferenceFrameRateForReference(ref), modeCounts, bestRefMV)
+	rdCtx := interResidualRDContext{
+		src:        ctx.src,
+		ref:        ctx.ref.Img,
+		mbRow:      ctx.mbRow,
+		mbCol:      ctx.mbCol,
+		mode:       &bestMode,
+		above:      ctx.above,
+		left:       ctx.left,
+		aboveLeft:  ctx.aboveLeft,
+		aboveTok:   ctx.aboveTok,
+		leftTok:    ctx.leftTok,
+		quant:      ctx.quant,
+		qIndex:     ctx.qIndex,
+		segmentID:  ctx.segmentID,
+		refRate:    e.interReferenceFrameRateForReference(ctx.ref),
+		modeCounts: ctx.modeCounts,
+		bestRefMV:  ctx.bestRefMV,
+	}
+	acct, ok := e.estimateInterResidualRDAccountingWithModeContext(&rdCtx)
 	if !ok {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false, false
+		return interSplitModeRDResult{}, false
 	}
-	return bestMode, acct.rd, acct.yrd, acct.rate2, acct.distortion2, acct.rdLoopSkip, true
+	return interSplitModeRDResult{
+		mode:       bestMode,
+		rd:         acct.rd,
+		yrd:        acct.yrd,
+		rate:       acct.rate2,
+		distortion: acct.distortion2,
+		rdLoopSkip: acct.rdLoopSkip,
+	}, true
 }
 
 func (e *VP8Encoder) splitMVSubsearchThresholdForSlot(qIndex int, refs []interAnalysisReference, refCount int, refSlot int) int {
