@@ -138,6 +138,15 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
 		t.Fatalf("screen-content mode 2 non-golden cyclic segmentation disabled, want enabled")
 	}
+
+	e.opts.RTCExternalRateControl = true
+	if cfg := e.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
+		t.Fatalf("RTC external rate-control cyclic segmentation = %+v, want disabled", cfg)
+	}
+	e.opts.RTCExternalRateControl = false
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("after disabling RTC external rate-control cyclic segmentation disabled, want enabled")
+	}
 }
 
 func TestEncodeIntoDefaultCBREnablesLibvpxCyclicRefreshSegmentation(t *testing.T) {

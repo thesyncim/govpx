@@ -65,6 +65,36 @@ func TestRateControlUpdatesLibvpxRateCorrectionFactor(t *testing.T) {
 	}
 }
 
+func TestRateControlRTCExternalAlwaysUpdatesCorrectionFactor(t *testing.T) {
+	rc := rateControlState{
+		mode:                   RateControlCBR,
+		minQuantizer:           4,
+		maxQuantizer:           56,
+		currentQuantizer:       24,
+		bitsPerFrame:           12000,
+		frameTargetBits:        12000,
+		bufferOptimalBits:      60000,
+		bufferLevelBits:        48000,
+		undershootPct:          defaultRateControlUndershootPct,
+		overshootPct:           defaultRateControlOvershootPct,
+		rateCorrectionFactor:   1.0,
+		goldenCorrectionFactor: 1.0,
+		activeWorstQChanged:    true,
+	}
+
+	rc.postEncodeFrameWithPacketContext(3000, rateControlPostEncodeContext{
+		macroblocks:        60,
+		showFrame:          true,
+		alwaysUpdateFactor: true,
+	})
+	if rc.rateCorrectionFactor != 1.25 {
+		t.Fatalf("RTC external rate correction factor = %g, want 1.25", rc.rateCorrectionFactor)
+	}
+	if rc.activeWorstQChanged {
+		t.Fatalf("activeWorstQChanged = true, want cleared after post-encode")
+	}
+}
+
 func TestRateControlUpdatesSeparateLibvpxCorrectionFactors(t *testing.T) {
 	rc := rateControlState{
 		mode:                     RateControlCBR,

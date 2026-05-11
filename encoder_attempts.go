@@ -253,8 +253,9 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 //
 // libvpx's call site (vp8/encoder/onyx_if.c:3970-3982) is gated on
 // `pass==0 AND end_usage==USAGE_STREAM_FROM_SERVER AND
-// rt_drop_recode_on_overshoot==1`. govpx invokes this only for non-key
-// inter frames in CBR mode (the libvpx-equivalent of one-pass CBR).
+// rt_drop_recode_on_overshoot==1`. VP8E_SET_RTC_EXTERNAL_RATECTRL clears
+// rt_drop_recode_on_overshoot in libvpx; govpx mirrors that with
+// EncoderOptions.RTCExternalRateControl.
 //
 // The inner drop test requires `pred_err_mb > thresh_pred_err_mb` and
 // `pred_err_mb > 2 * cpi->last_pred_err_mb`. govpx does not yet
@@ -273,11 +274,10 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 // is honored. Returns true when the caller must discard the frame.
 func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int, macroblocks int, keyFrame bool) bool {
 	// Only fires in one-pass CBR with the rt-drop-recode signal active.
-	// libvpx's `cpi->rt_drop_recode_on_overshoot` is enabled by default and
-	// only cleared when an external rate controller takes over (see
-	// vp8/vp8_cx_iface.c VP8E_SET_RTC_EXTERNAL_RATECTRL); govpx has no
-	// external RC concept so it stays equivalent to 1 here.
 	if e.rc.mode != RateControlCBR || e.twoPass.enabled() {
+		return false
+	}
+	if e.opts.RTCExternalRateControl {
 		return false
 	}
 	if keyFrame {

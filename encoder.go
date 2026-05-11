@@ -307,6 +307,10 @@ type EncoderOptions struct {
 	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
 	// 0=off, 1=on, 2=on with more aggressive rate control.
 	ScreenContentMode int
+	// RTCExternalRateControl mirrors libvpx's VP8E_SET_RTC_EXTERNAL_RATECTRL.
+	// For VP8 this disables cyclic refresh and post-encode overshoot recode
+	// while keeping rate-correction-factor updates active.
+	RTCExternalRateControl bool
 	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
 	// oxcf.encode_breakout for first-pass and inter-frame static skips.
 	StaticThreshold int

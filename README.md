@@ -85,11 +85,12 @@ for i, src := range frames {
 Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Encoded output is
 a raw VP8 frame payload, not IVF or WebM.
 
-Encoder support includes CBR, CQ, Q, one-pass and two-pass VBR controls, temporal
-layers, token partitions, adaptive keyframes, lookahead, automatic alt-ref,
-ARNR, denoise, screen-content mode, PSNR/SSIM tuning, active maps, ROI maps, and
-realtime control methods such as `SetBitrateKbps`, `SetRateControl`,
-`SetRealtimeTarget`, `SetDeadline`, `SetTuning`, and `SetCPUUsed`.
+Encoder support includes CBR, CQ, Q, one-pass and two-pass VBR controls,
+temporal layers, token partitions, adaptive keyframes, lookahead, automatic
+alt-ref, ARNR, denoise, screen-content mode, VP8 RTC external-rate-control mode,
+PSNR/SSIM tuning, active maps, ROI maps, and realtime control methods such as
+`SetBitrateKbps`, `SetRateControl`, `SetRealtimeTarget`, `SetDeadline`,
+`SetTuning`, `SetRTCExternalRateControl`, and `SetCPUUsed`.
 `SetReferenceFrame` and `CopyReferenceFrame` can replace or inspect the
 encoder's LAST, GOLDEN, or ALTREF buffers.
 

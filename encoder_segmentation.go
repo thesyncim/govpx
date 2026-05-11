@@ -76,6 +76,9 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 }
 
 func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
+	if e.opts.RTCExternalRateControl {
+		return false
+	}
 	if e.opts.ScreenContentMode == 2 && refreshGolden {
 		return false
 	}

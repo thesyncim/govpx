@@ -20,6 +20,7 @@ type rateControlPostEncodeContext struct {
 	macroblocks           int
 	showFrame             bool
 	skipPostPackOverspend bool
+	alwaysUpdateFactor    bool
 }
 
 func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx rateControlPostEncodeContext) {
@@ -29,7 +30,7 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 		targetBits = rc.bitsPerFrame
 	}
 	boostedReferenceFrame := ctx.goldenFrame || ctx.altRefFrame
-	if !rc.activeWorstQChanged {
+	if ctx.alwaysUpdateFactor || !rc.activeWorstQChanged {
 		rc.updateRateCorrectionFactor(actualBits, ctx.keyFrame, boostedReferenceFrame, ctx.macroblocks)
 	}
 	rc.activeWorstQChanged = false

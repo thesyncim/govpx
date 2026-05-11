@@ -153,6 +153,15 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	return nil
 }
 
+// SetRTCExternalRateControl changes the libvpx-style VP8 RTC external-rate-control mode.
+func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.RTCExternalRateControl = enabled
+	return nil
+}
+
 // SetRealtimeTarget applies a WebRTC-style runtime target update.
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {

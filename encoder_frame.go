@@ -450,6 +450,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				macroblocks:           required,
 				showFrame:             !invisible,
 				skipPostPackOverspend: e.twoPass.enabled(),
+				alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
 			})
 			if hiddenAltRefFrame {
 				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
@@ -583,6 +584,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		macroblocks:           required,
 		showFrame:             !invisible,
 		skipPostPackOverspend: e.twoPass.enabled(),
+		alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
 	})
 	if twoPassSceneCut {
 		e.twoPass.markKeyFrame(e.frameCount)

@@ -20,8 +20,8 @@ cleanly onto libvpx behavior where that behavior is useful.
 
 The high-value VP8 encoder controls are covered by Go APIs. Remaining uncovered
 items are optional or transport-shaped C API surfaces: spatial resampling /
-scale mode, output-partition packetization, PSNR packets,
-`VP8E_SET_RTC_EXTERNAL_RATECTRL`, and input-fragment decode plumbing.
+scale mode, output-partition packetization, PSNR packets, and input-fragment
+decode plumbing.
 
 The controls that are probably not worth porting by default are encoder
 preview postproc, decryptor callbacks, VP8 nonzero profiles for encode,
@@ -49,6 +49,7 @@ does not actually wire into the VP8 encoder.
 | `VP8E_SET_ACTIVEMAP` | `SetActiveMap` | Per-MB active/inactive map exists. |
 | `VP8E_SET_ROI_MAP` | `ROIMap`, `SetROIMap` | Per-MB VP8 segment map with public quantizer deltas, loop-filter deltas, and per-segment static thresholds. ROI disables cyclic refresh while active, matching libvpx. |
 | `VP8E_SET_SCREEN_CONTENT_MODE` | `EncoderOptions.ScreenContentMode`, `SetScreenContentMode` | Modes 0..2. |
+| `VP8E_SET_RTC_EXTERNAL_RATECTRL` | `EncoderOptions.RTCExternalRateControl`, `SetRTCExternalRateControl` | VP8 behavior: disables cyclic refresh and overshoot recode while always updating correction factors. |
 | `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on encoder | `VP8Encoder.SetReferenceFrame`, `VP8Encoder.CopyReferenceFrame` | Reference selectors use LAST/GOLDEN/ALTREF. Setting a reference extends borders and invalidates encoder state tied to old reference identity. |
 | `VP8_SET_POSTPROC` on decoder | `DecoderOptions.PostProcess*` | Decoder postproc is exposed as Go flags. |
 | `VP8_SET_REFERENCE`, `VP8_COPY_REFERENCE` on decoder | `VP8Decoder.SetReferenceFrame`, `VP8Decoder.CopyReferenceFrame` | Requires a decoded key frame to establish dimensions. Reference selectors use the same LAST/GOLDEN/ALTREF values as `ReferenceFlags`. |
@@ -224,6 +225,31 @@ Implemented notes:
   active quantizer bounds, frame-size bounds, runtime `SetCQLevel`, and
   constructor/config validation.
 
+### `VP8E_SET_RTC_EXTERNAL_RATECTRL`
+
+Status: covered. Priority: low to medium.
+
+libvpx uses this VP8 control to support RTC wrappers that drive external
+rate-control decisions. In VP8 itself, enabling the control disables cyclic
+refresh, keeps realtime correction-factor updates active, and disables
+post-encode overshoot recode/drop behavior.
+
+Current Go API:
+
+```go
+// EncoderOptions.RTCExternalRateControl bool
+func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error
+```
+
+Implemented notes:
+
+- Default false has no allocation and only adds checks at existing
+  cyclic-refresh, overshoot-drop, and post-encode rate-correction decision
+  points.
+- Tests pin cyclic-refresh disablement, correction-factor updates when
+  `activeWorstQChanged` is set, overshoot-drop disablement, runtime setter
+  validation, and zero-allocation runtime control behavior.
+
 ## Maybe Sane, But Larger Or Niche
 
 ### Spatial Resampling And `VP8E_SET_SCALEMODE`
@@ -288,24 +314,6 @@ govpx has `EncodeResult.PSNRHint`, but it is not equivalent to libvpx PSNR
 packets. This is useful for diagnostics, but applications can also compute
 PSNR externally from source and decoded output.
 
-### `VP8E_SET_RTC_EXTERNAL_RATECTRL`
-
-Status: missing. Priority: low unless matching libvpx RTC external rate-control
-behavior is a target.
-
-libvpx uses this to disable cyclic refresh and tweak realtime rate-control
-behavior so its VP8 RTC rate-control wrapper can drive the encoder.
-
-Potential API:
-
-```go
-// EncoderOptions.RTCExternalRateControl bool
-func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error
-```
-
-Only port with tests that pin cyclic-refresh disablement, correction-factor
-updates, and overshoot-drop behavior.
-
 ### Input Fragments
 
 Status: missing as a streaming decode mode. Priority: low.
@@ -335,5 +343,5 @@ decode.
    API contract.
 2. Add output-partition packetization only if a caller needs partition packets
    instead of contiguous frame payloads.
-3. Add PSNR packets or RTC external rate-control only with tests for their
-   exact libvpx-visible behavior.
+3. Add PSNR packets only if callers need libvpx-style per-frame diagnostic
+   packets rather than external PSNR tooling.

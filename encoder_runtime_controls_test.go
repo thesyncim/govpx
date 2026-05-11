@@ -339,6 +339,18 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	if err := e.SetScreenContentMode(1); err != nil {
 		t.Fatalf("SetScreenContentMode returned error: %v", err)
 	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true) returned error: %v", err)
+	}
+	if !e.opts.RTCExternalRateControl {
+		t.Fatalf("RTCExternalRateControl = false, want true")
+	}
+	if err := e.SetRTCExternalRateControl(false); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(false) returned error: %v", err)
+	}
+	if e.opts.RTCExternalRateControl {
+		t.Fatalf("RTCExternalRateControl = true, want false")
+	}
 	if err := e.SetAdaptiveKeyFrames(true); err != nil {
 		t.Fatalf("SetAdaptiveKeyFrames returned error: %v", err)
 	}

@@ -428,6 +428,22 @@ func TestDropEncodedFrameOvershootReadsCurrentPredictionError(t *testing.T) {
 	if e.lastPredErrorMB != 100 {
 		t.Fatalf("lastPredErrorMB changed inside drop helper to %d, want caller-owned value retained", e.lastPredErrorMB)
 	}
+
+	e = VP8Encoder{}
+	e.opts.ScreenContentMode = 2
+	e.opts.RTCExternalRateControl = true
+	e.rc.mode = RateControlCBR
+	e.rc.dropFrameAllowed = true
+	e.rc.currentQuantizer = 40
+	e.rc.maxQuantizer = vp8common.MaxQ
+	e.rc.bitsPerFrame = 8000
+	e.rc.bufferOptimalBits = 16000
+	e.rc.bufferLevelBits = 2000
+	e.framePredictionError = int64((200<<4)+1) * 10
+	e.lastPredErrorMB = 100
+	if e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, 4000, 10, false) {
+		t.Fatalf("RTC external rate-control overshoot drop = true, want disabled")
+	}
 }
 
 func TestCyclicRefreshSegmentTransitionsClearOnNonZeroLast(t *testing.T) {
