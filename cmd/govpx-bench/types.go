@@ -62,7 +62,7 @@ type measuredEncodePacket struct {
 
 // comparisonReport summarizes how govpx compared against the libvpx
 // reference encoder on the same input. It is populated only when a
-// libvpx vpxenc binary is explicitly configured so callers can read a
+// libvpx vpxenc binary is configured or auto-located so callers can read a
 // single "did we beat libvpx?" snapshot without diffing the full reference
 // block manually.
 type comparisonReport struct {

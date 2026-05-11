@@ -295,7 +295,7 @@ func TestRegisterBenchFlagsEncodeOnlyAliases(t *testing.T) {
 	}
 }
 
-func TestBenchCLIOptionsDefaultGovpxOnly(t *testing.T) {
+func TestBenchCLIOptionsDefaultAutoLibvpx(t *testing.T) {
 	t.Setenv("GOVPX_VPXENC", "/tmp/should-not-be-used")
 	t.Setenv("GOVPX_ORACLE", "/tmp/should-not-be-used")
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
@@ -305,8 +305,24 @@ func TestBenchCLIOptionsDefaultGovpxOnly(t *testing.T) {
 	if err := fs.Parse(nil); err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	if opts.autoCompare || opts.buildLibvpx || cfg.LibvpxVpxenc != "" || cfg.LibvpxOracle != "" {
-		t.Fatalf("defaults = opts:%+v cfg:%+v, want govpx-only without implicit libvpx/oracle", opts, cfg)
+	if !opts.autoCompare || opts.buildLibvpx || cfg.LibvpxVpxenc != "" || cfg.LibvpxOracle != "" {
+		t.Fatalf("defaults = opts:%+v cfg:%+v, want auto libvpx enabled without pre-resolved paths", opts, cfg)
+	}
+}
+
+func TestResolveLibvpxDefaultsDoesNotSelectOracleForEncode(t *testing.T) {
+	cfg := benchConfig{}
+	resolveLibvpxDefaults(&cfg, false)
+	if cfg.LibvpxOracle != "" {
+		t.Fatalf("LibvpxOracle = %q, want empty for encode mode", cfg.LibvpxOracle)
+	}
+}
+
+func TestResolveLibvpxDefaultsDoesNotSelectVpxencForDecode(t *testing.T) {
+	cfg := benchConfig{Decode: true}
+	resolveLibvpxDefaults(&cfg, false)
+	if cfg.LibvpxVpxenc != "" {
+		t.Fatalf("LibvpxVpxenc = %q, want empty for decode mode", cfg.LibvpxVpxenc)
 	}
 }
 

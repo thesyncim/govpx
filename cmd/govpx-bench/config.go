@@ -26,7 +26,8 @@ type benchCLIOptions struct {
 
 func defaultBenchCLIOptions() benchCLIOptions {
 	return benchCLIOptions{
-		format: "text",
+		format:      "text",
+		autoCompare: true,
 	}
 }
 
@@ -46,7 +47,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for reference comparison")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", "", "optional libvpx checksum oracle path for decoder reference timing")
-	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc/oracle (and PATH vpxenc) when -libvpx-vpxenc/-libvpx-oracle are unset")
+	fs.BoolVar(&opts.autoCompare, "auto-libvpx", opts.autoCompare, "auto-locate the project's makefile-built vpxenc (and PATH vpxenc) for encode comparison; decoder mode also locates the oracle")
 	fs.BoolVar(&opts.buildLibvpx, "build-libvpx", opts.buildLibvpx, "if -auto-libvpx finds no built binaries, run `make oracle-tools` to build them")
 	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
 	fs.StringVar(&opts.memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
@@ -61,8 +62,8 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 		repoOracle = filepath.Join(root, "internal", "coracle", "build", "govpx-vpx-oracle")
 	}
 
-	needVpxenc := cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
-	needOracle := cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
+	needVpxenc := !cfg.Decode && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
+	needOracle := cfg.Decode && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
 	if buildIfMissing && haveRoot && (needVpxenc || needOracle) {
 		fmt.Fprintln(os.Stderr, "govpx-bench: building libvpx oracle tools (make oracle-tools)")
 		makeCmd := exec.Command("make", "oracle-tools")
@@ -74,14 +75,14 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 		}
 	}
 
-	if cfg.LibvpxVpxenc == "" {
+	if !cfg.Decode && cfg.LibvpxVpxenc == "" {
 		if isExecutable(repoVpxenc) {
 			cfg.LibvpxVpxenc = repoVpxenc
 		} else if path, err := exec.LookPath("vpxenc"); err == nil {
 			cfg.LibvpxVpxenc = path
 		}
 	}
-	if cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
+	if cfg.Decode && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
 		cfg.LibvpxOracle = repoOracle
 	}
 }

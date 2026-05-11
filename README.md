@@ -130,11 +130,12 @@ go run ./cmd/govpx-bench -decode -frames=120
 go run ./cmd/govpx-bench -format=json
 ```
 
-Benchmark runs are govpx-only by default. For an explicit libvpx comparison,
-pass `-libvpx-vpxenc=/path/to/vpxenc` or enable `-auto-libvpx=true`; decoder
-reference timing requires an explicit `-libvpx-oracle=/path/to/govpx-vpx-oracle`
-or `-auto-libvpx=true`. Use `-build-libvpx=true` only when you want the bench
-command to build the pinned tools.
+Benchmark runs compare encode results against libvpx by default when
+`cmd/govpx-bench` can find `internal/coracle/build/vpxenc` or `vpxenc` on
+`PATH`. Pass `-libvpx-vpxenc=/path/to/vpxenc` to force a binary or
+`-auto-libvpx=false` for a govpx-only run. Decoder reference timing only uses
+`govpx-vpx-oracle` in `-decode` mode. Use `-build-libvpx=true` only when you
+want the bench command to build the pinned tools.
 
 Do not treat README numbers as performance data. Run the benchmark on the target
 machine, Go version, CPU, frame size, bitrate, deadline, and thread count that
