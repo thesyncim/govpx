@@ -90,7 +90,6 @@ func (w *BoolWriter) WriteBool(bit uint8, probability uint8) {
 	w.count = count
 }
 
-//go:noinline
 func (w *BoolWriter) writeBoolFlush(low uint32, rng uint32, count int, shift int) {
 	offset := shift - count
 	if ((low << uint(offset-1)) & 0x80000000) != 0 {

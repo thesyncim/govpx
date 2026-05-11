@@ -987,14 +987,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 // the trace plumbing for the fast picker hot loop. Splitting them off keeps
 // the picker's stack frame small (the oracleTraceInterCandidateSummary
 // literal is otherwise materialised twice in selectFastInterFrameModeDecision
-// and reserves stack space whether or not OracleTraceWriter is set), and
-// the marker keeps the compiler from re-inlining the literal back into the
-// caller. The trace path runs on the order of a few times per minute under
-// the diagnostics harness, so a dedicated frame and an extra call there
-// costs nothing while the clean hot-path stack frame trims morestack
-// growth on the regular bench (~8% morestack/gopreempt time on 720p RT).
-//
-//go:noinline
+// and reserves stack space whether or not OracleTraceWriter is set). The calls
+// stay behind oracleTraceEnabled so normal encodes do not build trace rows.
 func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, modeIndex int, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
 	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 		Picker:          "fast",
@@ -1024,7 +1018,6 @@ func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, mod
 	})
 }
 
-//go:noinline
 func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, modeIndex int, refSlot int, refFrame vp8common.MVReferenceFrame, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, breakoutSkip bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
 	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 		Picker:          "fast",

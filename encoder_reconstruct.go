@@ -290,12 +290,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficients(src vp8enc.Source
 	return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
 }
 
-//go:noinline
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsMaybeThreaded(src vp8enc.SourceImage, qIndex int, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) (int, error) {
 	return e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(src, qIndex, vp8enc.SegmentationConfig{}, false, modes, coeffs, rows, cols, flags)
 }
 
-//go:noinline
 func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(src vp8enc.SourceImage, qIndex int, segmentation vp8enc.SegmentationConfig, preserveSegmentID bool, modes []vp8enc.InterFrameMacroblockMode, coeffs []vp8enc.MacroblockCoefficients, rows int, cols int, flags EncodeFlags) (int, error) {
 	if !e.useThreadedInterFrameRows(rows, cols) {
 		return e.buildReconstructingInterFrameCoefficientsWithSegmentation(src, qIndex, segmentation, preserveSegmentID, modes, coeffs, rows, cols, flags)

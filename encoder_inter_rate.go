@@ -429,7 +429,6 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	return macroblockSADLimitedSlow(src, ref, baseY, baseX, refBaseY, refBaseX, mvCol, mvRow, limit)
 }
 
-//go:noinline
 func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, mvCol int, mvRow int, limit int) int {
 	xOffset := mvCol & 7
 	yOffset := mvRow & 7

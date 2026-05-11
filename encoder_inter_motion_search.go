@@ -1350,7 +1350,6 @@ func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, r
 	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, sadLimit) + mvCost
 }
 
-//go:noinline
 func (c *fullPelSearchCtx) fullPelCostLimitedSlow(mvCol int, mvRow int, refBaseY int, refBaseX int, sadLimit int) int {
 	return macroblockSADLimitedSlow(c.src, c.ref, c.baseY, c.baseX, refBaseY, refBaseX, mvCol, mvRow, sadLimit)
 }
