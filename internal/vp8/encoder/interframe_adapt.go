@@ -151,14 +151,9 @@ func interFrameSkipFalseProbability(counts [2]int, fallback uint8) uint8 {
 		}
 		return fallback
 	}
-	prob := counts[0] * 256 / total
-	if prob <= 1 {
-		return 1
-	}
-	if prob > 255 {
-		return 255
-	}
-	return uint8(prob)
+	// Saturate prob into [1, 255] without branching; the hot adaptation
+	// loop calls this once per skip-context.
+	return uint8(min(max(counts[0]*256/total, 1), 255))
 }
 
 func interFrameRefProbability(counts [2]int, fallback uint8) uint8 {
@@ -169,14 +164,7 @@ func interFrameRefProbability(counts [2]int, fallback uint8) uint8 {
 		}
 		return fallback
 	}
-	prob := counts[0] * 255 / total
-	if prob <= 0 {
-		return 1
-	}
-	if prob > 255 {
-		return 255
-	}
-	return uint8(prob)
+	return uint8(min(max(counts[0]*255/total, 1), 255))
 }
 
 func adaptInterFrameMVProbabilities(counts *[2][tables.MVPCount][2]int, cfg *InterFrameStateConfig) {
@@ -223,11 +211,7 @@ func motionVectorProbabilityFromBranchCount(counts [2]int) uint8 {
 	if total <= 0 {
 		return 128
 	}
-	prob := (counts[0] * 255 / total) &^ 1
-	if prob == 0 {
-		return 1
-	}
-	return uint8(prob)
+	return uint8(max((counts[0]*255/total)&^1, 1))
 }
 
 func motionVectorProbabilityUpdateSavings(counts [2]int, oldProb uint8, newProb uint8, updateProb uint8) int {
