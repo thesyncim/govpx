@@ -139,13 +139,7 @@ func clampMotionVectorToModeEdges(mv MotionVector, mbRow int, mbCol int, mbRows 
 }
 
 func clampModeMVComponent(v int, lowEdge int, highEdge int) int {
-	if v < lowEdge-(16<<3) {
-		return lowEdge - (16 << 3)
-	}
-	if v > highEdge+(16<<3) {
-		return highEdge + (16 << 3)
-	}
-	return v
+	return min(max(v, lowEdge-(16<<3)), highEdge+(16<<3))
 }
 
 func splitModeCount(mode *MacroblockMode) uint8 {
