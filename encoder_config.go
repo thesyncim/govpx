@@ -691,4 +691,3 @@ func (e *VP8Encoder) ForceKeyFrame() {
 	}
 	e.forceKeyFrame = true
 }
-
