@@ -484,28 +484,12 @@ func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x
 	if stride <= 0 || width <= 0 || height <= 0 || len(plane) == 0 {
 		return 0
 	}
-	if y < 0 {
-		y = 0
-	}
-	if x < 0 {
-		x = 0
-	}
-	if y >= height {
-		y = height - 1
-	}
-	if x >= width {
-		x = width - 1
-	}
+	y = min(max(y, 0), height-1)
+	x = min(max(x, 0), width-1)
 	y1 := y
-	y2 := y
-	if y+1 < height {
-		y2 = y + 1
-	}
+	y2 := min(y+1, height-1)
 	x1 := x
-	x2 := x
-	if x+1 < width {
-		x2 = x + 1
-	}
+	x2 := min(x+1, width-1)
 	if y1*stride+x1 >= len(plane) || y1*stride+x2 >= len(plane) || y2*stride+x1 >= len(plane) || y2*stride+x2 >= len(plane) {
 		return 0
 	}
