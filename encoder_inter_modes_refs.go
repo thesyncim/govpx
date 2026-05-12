@@ -22,11 +22,15 @@ func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]i
 }
 
 func interReferenceBySearchSlot(refs []interAnalysisReference, searchOrder [4]int, refSlot int) (interAnalysisReference, int, bool) {
-	if refSlot <= 0 || refSlot >= len(searchOrder) {
+	// uint(refSlot-1) folds (refSlot <= 0) and (refSlot >= len) into one
+	// branch: refSlot=0 → -1 wraps to huge, refSlot=len → len-1 >= len-1
+	// (false on the upper bound for the original test); use len-1 as
+	// inclusive max instead.
+	if uint(refSlot-1) >= uint(len(searchOrder)-1) {
 		return interAnalysisReference{}, 0, false
 	}
 	refIndex := searchOrder[refSlot]
-	if refIndex < 0 || refIndex >= len(refs) || refs[refIndex].Img == nil {
+	if uint(refIndex) >= uint(len(refs)) || refs[refIndex].Img == nil {
 		return interAnalysisReference{}, 0, false
 	}
 	return refs[refIndex], refIndex, true
@@ -47,11 +51,11 @@ func interModeSignBiasSlot(bias bool) int {
 }
 
 func interModeSignBiasSlotForReference(refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool) int {
-	slot := 0
-	if refFrame >= 0 && int(refFrame) < len(signBias) {
-		slot = interModeSignBiasSlot(signBias[refFrame])
+	// Single uint range check folds the refFrame >= 0 and < len guards.
+	if uint(refFrame) >= uint(len(signBias)) {
+		return 0
 	}
-	return slot
+	return interModeSignBiasSlot(signBias[refFrame])
 }
 
 func (e *VP8Encoder) interModeMVSlots(
