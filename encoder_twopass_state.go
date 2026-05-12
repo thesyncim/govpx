@@ -502,7 +502,8 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 // from the configured frame dimensions when available.
 func (t *twoPassState) kfIntraErrMinForFrame() float64 {
 	const kfMBIntraMin = 300 // libvpx KF_MB_INTRA_MIN
-	if t.frameWidth <= 0 || t.frameHeight <= 0 {
+	// min(a, b) <= 0 collapses (a <= 0 || b <= 0) into one compare.
+	if min(t.frameWidth, t.frameHeight) <= 0 {
 		return 0
 	}
 	mbCols := (t.frameWidth + 15) / 16

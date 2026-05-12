@@ -12,7 +12,7 @@ import (
 
 func oracleTraceHexEncodePlane(plane []byte, width int, height int, stride int) string {
 	const hex = "0123456789abcdef"
-	if width <= 0 || height <= 0 || stride <= 0 {
+	if min(min(width, height), stride) <= 0 {
 		return ""
 	}
 	out := make([]byte, 0, 2*width*height)
