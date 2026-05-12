@@ -664,6 +664,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// cpu-3 / cpu-8 segmented-64x64 q-range + bitrate-extreme probes.
+		// The base segmented-64x64 fixture byte-matches at fps=30 default
+		// Q; crosses the segment-aware quantizer/loopfilter offset path
+		// with the rate-control trajectory.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
