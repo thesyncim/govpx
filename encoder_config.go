@@ -2,7 +2,10 @@ package govpx
 
 import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 
-// SetBitrateKbps changes the total encoder target bitrate.
+// SetBitrateKbps changes the total encoder target bitrate, in kbps. The
+// new value is clamped to [MinBitrateKbps, MaxBitrateKbps] when those
+// bounds are non-zero. Temporal-layer per-layer bitrates rescale
+// proportionally. Returns [ErrInvalidBitrate] if kbps is not positive.
 func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -22,7 +25,11 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	return nil
 }
 
-// SetRateControl replaces the encoder's rate-control configuration.
+// SetRateControl replaces the encoder's runtime-updatable rate-control
+// configuration in a single atomic update. Validation is all-or-nothing:
+// when any field is out of range no state changes and the error is
+// returned. Use this instead of multiple Set* calls when several fields
+// change together (mode + bitrate, quantizer bounds, buffer model).
 func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -57,7 +64,11 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	return nil
 }
 
-// SetCQLevel changes the CQ/Q public quantizer level.
+// SetCQLevel changes the public 0..63 CQ/Q quantizer level. Under
+// [RateControlCQ] the level is applied as a quantizer floor; under
+// [RateControlQ] it pins the target quantizer like libvpx VPX_Q. Levels
+// outside [MinQuantizer, MaxQuantizer] are rejected with
+// [ErrInvalidQuantizer] when the active mode consumes the level.
 func (e *VP8Encoder) SetCQLevel(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -79,7 +90,9 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	return nil
 }
 
-// SetMaxIntraBitratePct changes the key-frame bitrate cap percentage.
+// SetMaxIntraBitratePct caps key-frame size as a percentage of the
+// per-frame target. Zero disables the cap. See
+// EncoderOptions.MaxIntraBitratePct.
 func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -92,7 +105,9 @@ func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	return nil
 }
 
-// SetGFCBRBoostPct changes the golden-frame boost percentage in CBR mode.
+// SetGFCBRBoostPct changes the golden-frame boost percentage applied in
+// CBR mode. Non-negative percentages are accepted. See
+// EncoderOptions.GFCBRBoostPct.
 func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -105,7 +120,9 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	return nil
 }
 
-// SetTokenPartitions changes the VP8 token partition count selector.
+// SetTokenPartitions changes the VP8 token-partition selector:
+// 0 = one partition, 1 = two, 2 = four, 3 = eight. See
+// EncoderOptions.TokenPartitions.
 func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -117,7 +134,8 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 	return nil
 }
 
-// SetSharpness changes the VP8 loop-filter sharpness level in [0, 7].
+// SetSharpness changes the VP8 loop-filter sharpness level. Valid range
+// is [0, 7]. See EncoderOptions.Sharpness.
 func (e *VP8Encoder) SetSharpness(sharpness int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -129,7 +147,9 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 	return nil
 }
 
-// SetStaticThreshold changes the static macroblock breakout threshold.
+// SetStaticThreshold changes the static-macroblock breakout threshold.
+// Non-negative values are accepted; zero disables the breakout.
+// See EncoderOptions.StaticThreshold.
 func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -141,7 +161,9 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 	return nil
 }
 
-// SetScreenContentMode changes the libvpx-style screen-content mode.
+// SetScreenContentMode changes the libvpx-style screen-content mode:
+// 0 = off, 1 = on, 2 = on with more aggressive rate control. See
+// EncoderOptions.ScreenContentMode.
 func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -153,7 +175,10 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	return nil
 }
 
-// SetRTCExternalRateControl changes the libvpx-style VP8 RTC external-rate-control mode.
+// SetRTCExternalRateControl enables or disables libvpx's VP8 RTC
+// external-rate-control mode. Enabling it disables cyclic refresh and
+// post-encode overshoot recode while keeping rate-correction-factor
+// updates active. See EncoderOptions.RTCExternalRateControl.
 func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -162,7 +187,9 @@ func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	return nil
 }
 
-// SetFrameDropAllowed changes realtime frame dropping without touching bitrate.
+// SetFrameDropAllowed enables or disables realtime rate-control frame
+// dropping without touching bitrate. When enabling, the drop watermark
+// defaults to EncoderOptions.DropFrameWaterMark or 60 if that is zero.
 func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -189,6 +216,21 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 }
 
 // SetRealtimeTarget applies a WebRTC-style runtime target update.
+// Zero-valued fields keep their current setting, which makes bandwidth
+// estimator updates safe to send as bitrate-only deltas.
+//
+// Width and Height, if set, must equal the encoder's existing dimensions:
+// govpx does not yet support runtime resolution change on the encoder
+// side. To switch resolutions, drain the encoder with FlushInto, call
+// Close, and build a new [VP8Encoder] at the target size. The decoder
+// does support resolution change on a key frame; see
+// [DecoderOptions.RejectResolutionChange].
+//
+// Returns [ErrInvalidConfig] for negative numeric fields, an out-of-range
+// FrameDrop selector, or a Width/Height that does not match the encoder.
+// Returns [ErrInvalidQuantizer] when MinQuantizer or MaxQuantizer is out
+// of [0, 63] or when both are non-zero and MinQuantizer > MaxQuantizer.
+// On error the encoder's state is unchanged.
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -287,7 +329,10 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	return nil
 }
 
-// SetTemporalScalability reconfigures automatic temporal-layer scheduling.
+// SetTemporalScalability replaces the active temporal scheduling
+// configuration. Set TemporalScalabilityConfig.Enabled = false (the zero
+// value) to disable temporal layering. The per-layer bitrate vector must
+// be cumulative across layers, matching libvpx's ts_target_bitrate[].
 func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -301,7 +346,10 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	return nil
 }
 
-// SetTemporalLayerID overrides the temporal layer for the next encoded frame.
+// SetTemporalLayerID overrides the temporal layer assigned by the
+// configured scheduling pattern. The override is sticky and applies to
+// every subsequent frame until it is changed or the pattern is replaced
+// by SetTemporalScalability. layerID must be in [0, TemporalLayerCount).
 func (e *VP8Encoder) SetTemporalLayerID(layerID int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -309,7 +357,10 @@ func (e *VP8Encoder) SetTemporalLayerID(layerID int) error {
 	return e.temporal.setLayerID(layerID)
 }
 
-// SetDeadline changes the encoder speed/quality operating mode.
+// SetDeadline changes the encoder speed/quality operating mode. It also
+// re-derives the effective CPU-used preset from the current
+// EncoderOptions.CpuUsed, since the realtime path interprets that value
+// differently than good/best quality.
 func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -322,7 +373,10 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	return nil
 }
 
-// SetCPUUsed changes the libvpx-style speed preset in [-16, 16].
+// SetCPUUsed changes the libvpx-style speed preset. Valid range is
+// [-16, 16]. The interpretation depends on the active [Deadline]: under
+// realtime, positive values trigger libvpx's auto-speed selector;
+// negative values pin a speed. See EncoderOptions.CpuUsed.
 func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -334,7 +388,9 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 	return nil
 }
 
-// SetTuning changes the encoder visual quality model.
+// SetTuning changes the encoder's visual quality model. [TuneSSIM]
+// rebuilds the activity-mask cache on the next encode; [TunePSNR]
+// releases it. See EncoderOptions.Tuning.
 func (e *VP8Encoder) SetTuning(tuning Tuning) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -520,7 +576,8 @@ func (e *VP8Encoder) resetAutoSpeedTiming() {
 }
 
 // SetKeyFrameInterval changes the maximum GOP distance in frames. Zero
-// disables interval-forced key frames.
+// disables interval-forced key frames; content-driven and explicitly
+// forced key frames are unaffected. See EncoderOptions.KeyFrameInterval.
 func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -535,6 +592,8 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 }
 
 // SetAdaptiveKeyFrames enables or disables one-pass scene-cut key frames.
+// See EncoderOptions.AdaptiveKeyFrames for the libvpx-compatible
+// promotion behavior this controls.
 func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -576,7 +635,10 @@ func (e *VP8Encoder) SetActiveMap(activeMap []uint8, rows int, cols int) error {
 	return nil
 }
 
-// SetNoiseSensitivity changes the VP8 denoiser level in [0, 6].
+// SetNoiseSensitivity changes the VP8 denoiser level. Valid range is
+// [0, 6]: 0 disables and tears down the denoiser; 1 denoises luma only;
+// 2..6 denoise luma and chroma with increasing aggressiveness. See
+// EncoderOptions.NoiseSensitivity.
 func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -591,7 +653,10 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	return nil
 }
 
-// SetARNR changes automatic alt-ref noise-reduction controls.
+// SetARNR changes alt-ref noise-reduction controls at runtime. maxFrames
+// is the temporal filter window length (0 disables ARNR); strength is the
+// filter strength in [0, 6]; filterType selects 1=backward, 2=forward, or
+// 3=centered. See EncoderOptions.ARNRMaxFrames, ARNRStrength, ARNRType.
 func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -605,8 +670,11 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	return nil
 }
 
-// SetTwoPassStats replaces the finalized first-pass stats used for second
-// pass planning.
+// SetTwoPassStats replaces the finalized first-pass stats used for
+// second-pass VBR planning. Pass the slice produced by
+// [FinalizeFirstPassStats] after collecting per-frame records with
+// [VP8Encoder.CollectFirstPassStats]. Passing nil or an empty slice
+// disables two-pass planning on subsequent EncodeInto calls.
 func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -617,25 +685,15 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	return nil
 }
 
-// ForceKeyFrame requests that the next encodable input become a key frame.
+// ForceKeyFrame requests that the next frame committed by EncodeInto or
+// FlushInto be a key frame. The request is sticky until satisfied: with
+// lookahead enabled the next visible output is forced; hidden alt-ref
+// emissions in between do not consume it. Use the EncodeForceKeyFrame flag
+// on EncodeInto when only that single call must be a key frame. Calls on a
+// nil or closed encoder are no-ops.
 func (e *VP8Encoder) ForceKeyFrame() {
 	if e == nil || e.closed {
 		return
 	}
 	e.forceKeyFrame = true
 }
-
-// Reset returns the encoder to a NewVP8Encoder-equivalent cold-start state
-// without re-allocating the per-MB scratch buffers. This is what bench
-// harnesses use to run a warmup encode followed by a measured one without
-// repeating the allocation cost.
-//
-// R15-E note: previously Reset cleared a hand-curated subset of state, which
-// meant fields touched only by the encode loop (rc.kfOverspendBits, the
-// inter-RD threshold snapshots, the per-reference probabilities, etc.) leaked
-// values from the warmup pass into the measured pass. At 320x240 that drove a
-// 7% kbps undershoot vs stock libvpx (govpx 1017 kbps vs libvpx 1089 kbps
-// against the same target) because rate-correction state was warmed-up before
-// the measured run started. The fix: zero the rateControlState struct,
-// re-apply applyConfig, and explicitly reset every encoder-level field that
-// NewVP8Encoder seeds.

@@ -2,60 +2,74 @@ package govpx
 
 const (
 	// MaxTemporalLayers is the largest VP8 temporal-layer count exposed by
-	// govpx.
+	// govpx. It bounds [TemporalScalabilityConfig.LayerTargetBitrateKbps]
+	// and the per-layer counters on [EncodeResult].
 	MaxTemporalLayers     = 5
 	maxTemporalPeriodSize = 16
 )
 
 // TemporalLayeringMode selects a built-in temporal scalability pattern.
+// Values mirror libvpx's VP8E_TEMPORAL_LAYERING_MODE_* enum; the
+// underlying frame-by-frame layer IDs and reference flags follow the
+// corresponding libvpx VP8 patterns.
 type TemporalLayeringMode int
 
 const (
-	// TemporalLayeringOneLayer disables temporal layering.
+	// TemporalLayeringOneLayer disables temporal layering. The encoder
+	// produces a single base-layer stream.
 	TemporalLayeringOneLayer TemporalLayeringMode = iota
-	// TemporalLayeringTwoLayers selects the common two-layer pattern.
+	// TemporalLayeringTwoLayers selects libvpx's two-layer 2-frame pattern.
 	TemporalLayeringTwoLayers
-	// TemporalLayeringTwoLayersThreeFrame selects a three-frame two-layer
+	// TemporalLayeringTwoLayersThreeFrame selects libvpx's two-layer 3-frame
 	// pattern.
 	TemporalLayeringTwoLayersThreeFrame
-	// TemporalLayeringThreeLayersSixFrame selects a six-frame three-layer
-	// pattern.
+	// TemporalLayeringThreeLayersSixFrame selects libvpx's three-layer
+	// 6-frame pattern.
 	TemporalLayeringThreeLayersSixFrame
-	// TemporalLayeringThreeLayersNoInterLayerPrediction disables inter-layer
-	// prediction in the three-layer pattern.
+	// TemporalLayeringThreeLayersNoInterLayerPrediction selects a three-layer
+	// pattern with no inter-layer prediction.
 	TemporalLayeringThreeLayersNoInterLayerPrediction
-	// TemporalLayeringThreeLayersLayerOnePrediction allows layer-one
-	// prediction in the three-layer pattern.
+	// TemporalLayeringThreeLayersLayerOnePrediction selects a three-layer
+	// pattern that allows prediction from layer one.
 	TemporalLayeringThreeLayersLayerOnePrediction
-	// TemporalLayeringThreeLayers selects the default three-layer pattern.
+	// TemporalLayeringThreeLayers selects libvpx's default three-layer
+	// 4-frame pattern.
 	TemporalLayeringThreeLayers
-	// TemporalLayeringFiveLayers selects a five-layer pattern.
-	TemporalLayeringFiveLayers
-	// TemporalLayeringTwoLayersWithSync selects two layers with sync frames.
-	TemporalLayeringTwoLayersWithSync
-	// TemporalLayeringThreeLayersWithSync selects three layers with sync
-	// frames.
-	TemporalLayeringThreeLayersWithSync
-	// TemporalLayeringThreeLayersAltRefWithSync selects three layers with
-	// alt-ref-backed sync frames.
-	TemporalLayeringThreeLayersAltRefWithSync
-	// TemporalLayeringThreeLayersOneReference selects a three-layer one-ref
+	// TemporalLayeringFiveLayers selects libvpx's five-layer 16-frame
 	// pattern.
+	TemporalLayeringFiveLayers
+	// TemporalLayeringTwoLayersWithSync selects a two-layer pattern that
+	// emits libvpx-style temporal sync frames.
+	TemporalLayeringTwoLayersWithSync
+	// TemporalLayeringThreeLayersWithSync selects a three-layer pattern that
+	// emits libvpx-style temporal sync frames.
+	TemporalLayeringThreeLayersWithSync
+	// TemporalLayeringThreeLayersAltRefWithSync selects a three-layer
+	// pattern with alt-ref-backed sync frames.
+	TemporalLayeringThreeLayersAltRefWithSync
+	// TemporalLayeringThreeLayersOneReference selects a three-layer pattern
+	// that uses a single reference across layers.
 	TemporalLayeringThreeLayersOneReference
-	// TemporalLayeringThreeLayersNoSync selects a three-layer pattern without
-	// sync signaling.
+	// TemporalLayeringThreeLayersNoSync selects a three-layer pattern that
+	// omits sync signaling.
 	TemporalLayeringThreeLayersNoSync
 )
 
-// TemporalScalabilityConfig configures automatic temporal-layer scheduling.
+// TemporalScalabilityConfig configures automatic temporal-layer
+// scheduling. The zero value disables temporal layering.
 type TemporalScalabilityConfig struct {
-	// Enabled turns on temporal layering.
+	// Enabled turns on temporal layering when true.
 	Enabled bool
 	// Mode selects the built-in layer pattern.
 	Mode TemporalLayeringMode
 
-	// LayerTargetBitrateKbps is cumulative by temporal layer, matching
-	// libvpx's ts_target_bitrate[] contract.
+	// LayerTargetBitrateKbps holds per-layer target bitrates in cumulative
+	// form, matching libvpx's ts_target_bitrate[]: entry i is the sum of
+	// the bitrate budgeted to layers 0..i. Unused trailing entries must
+	// be zero. The last non-zero entry should equal
+	// [EncoderOptions.TargetBitrateKbps]. An all-zero array auto-derives
+	// a default 60/40 split (two layers) or 40/20/40 split (three
+	// layers) from TargetBitrateKbps.
 	LayerTargetBitrateKbps [MaxTemporalLayers]int
 }
 

@@ -2,8 +2,11 @@ package govpx
 
 // Image is an I420/YV12-style planar 8-bit 4:2:0 image.
 //
-// Plane slices may include stride padding. Width and Height define the visible
-// image size, and callers must honor the per-plane strides.
+// Plane slices may include stride padding. Width and Height define the
+// visible image size, and callers must honor the per-plane strides. The
+// zero value is not a usable image: Width, Height, the three plane slices,
+// and the three strides must all be set before passing the value to
+// EncodeInto or DecodeInto.
 type Image struct {
 	// Width and Height are the visible luma dimensions in pixels.
 	Width  int

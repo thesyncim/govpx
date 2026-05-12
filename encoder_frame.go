@@ -5,8 +5,24 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// EncodeInto encodes one input frame into dst. The returned Data slice aliases
-// dst and is invalidated by caller reuse of that buffer.
+// EncodeInto encodes one input frame into dst and returns one encoded
+// packet. The returned EncodeResult.Data aliases dst; copy it if it must
+// outlive the next call that reuses dst.
+//
+// pts and duration are passed through unchanged and echoed in
+// EncodeResult.PTS / EncodeResult.Duration. flags selects per-frame
+// reference and packet behavior; pass 0 for the default policy.
+//
+// When lookahead, auto-alt-ref, or two-pass planning is buffering frames
+// EncodeInto returns [ErrFrameNotReady]; drain the buffer with FlushInto
+// at end of stream. If rate control drops the frame the call succeeds
+// with EncodeResult.Dropped set and no encoded payload.
+//
+// Returns [ErrClosed] on a nil or closed encoder, [ErrInvalidConfig] if
+// src does not match the encoder's configured dimensions or strides,
+// [ErrBufferTooSmall] if dst is empty, and [ErrInvalidConfig] if flags
+// combine mutually exclusive bits (for example EncodeForceGoldenFrame
+// with EncodeNoUpdateGolden).
 func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint64, flags EncodeFlags) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed
@@ -30,8 +46,11 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
 }
 
-// FlushInto drains a lookahead encoder at end of stream. It returns
-// ErrFrameNotReady when no queued frame can be emitted.
+// FlushInto drains queued frames at end of stream and emits the next
+// pending packet into dst. Call repeatedly until it returns
+// [ErrFrameNotReady] to flush all lookahead, auto-alt-ref, and two-pass
+// state. Returns [ErrClosed] on a nil or closed encoder and
+// [ErrBufferTooSmall] if dst is empty.
 func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed

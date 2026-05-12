@@ -69,7 +69,7 @@ type FirstPassFrameStats struct {
 	// cpi->twopass.total_stats: a running aggregate of every per-frame
 	// FIRSTPASS_STATS produced by vp8_first_pass via accumulate_stats.
 	// When set, the entry is the last element of a finalized stats slice
-	// and is consumed by the second-pass setup (see normalizeTwoPassStats).
+	// and is consumed by the second-pass setup driven by SetTwoPassStats.
 	IsTotal bool
 }
 
@@ -127,18 +127,15 @@ func accumulateFirstPassStats(section *FirstPassFrameStats, frame FirstPassFrame
 	section.Duration += frame.Duration
 }
 
-// FinalizeFirstPassStats appends the libvpx "terminal" total-stats
-// packet to a slice of per-frame FirstPassFrameStats records. The
-// total mirrors libvpx's `output_stats(cpi->output_pkt_list,
-// &cpi->twopass.total_stats)` call from vp8_end_first_pass: each
-// per-frame entry is folded into the running aggregate via
-// accumulateFirstPassStats and the resulting record is appended with
-// IsTotal=true so downstream consumers (e.g. SetTwoPassStats /
-// normalizeTwoPassStats) can recover the sequence-wide totals
-// libvpx's second pass reads from `cpi->twopass.stats_in_end`.
+// FinalizeFirstPassStats appends the libvpx-style terminal total-stats
+// record to a slice of per-frame [FirstPassFrameStats] records produced
+// by [VP8Encoder.CollectFirstPassStats]. Each per-frame entry is folded
+// into a running aggregate, which is appended with IsTotal=true so
+// [VP8Encoder.SetTwoPassStats] can recover the sequence-wide totals
+// libvpx's second pass expects.
 //
-// If the input already ends with an IsTotal entry the slice is
-// returned unchanged. Empty input is returned unchanged.
+// If the input already ends with an IsTotal entry, or is empty, the
+// slice is returned unchanged.
 func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
 	if len(stats) == 0 {
 		return stats
@@ -162,8 +159,17 @@ func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
 	return out
 }
 
-// CollectFirstPassStats analyzes one source frame for two-pass VBR planning.
-// It updates the encoder's first-pass reference state but does not emit VP8.
+// CollectFirstPassStats runs libvpx-style first-pass analysis on one
+// source frame for two-pass VBR planning. The returned [FirstPassFrameStats]
+// should be accumulated in a slice across all input frames and then
+// passed through [FinalizeFirstPassStats] before being handed to a
+// second-pass encoder via EncoderOptions.TwoPassStats or
+// [VP8Encoder.SetTwoPassStats].
+//
+// First-pass analysis updates internal reference state but emits no VP8
+// bitstream. pts is currently accepted for API symmetry but is not
+// consumed; duration is recorded in the returned stats. flags accepts
+// the same EncodeFlags as EncodeInto for validation.
 func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint64, flags EncodeFlags) (FirstPassFrameStats, error) {
 	if e == nil || e.closed {
 		return FirstPassFrameStats{}, ErrClosed

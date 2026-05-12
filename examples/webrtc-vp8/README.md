@@ -5,7 +5,8 @@ End-to-end demo: synthetic frames generated in Go, encoded to VP8 by
 native VP8 decoder.
 
 This is a separate Go module (its own `go.mod`) so the `pion/webrtc`
-dependency tree stays out of the core `govpx` module.
+dependency tree stays out of the core `govpx` module. It requires the
+same Go 1.26+ toolchain as govpx itself.
 
 ## Run
 

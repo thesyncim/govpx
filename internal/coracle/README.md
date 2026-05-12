@@ -46,18 +46,21 @@ Output is newline-delimited JSON:
 {"frame":0,"width":16,"height":16,"keyframe":true,"show_frame":true,"y_md5":"...","u_md5":"...","v_md5":"...","full_md5":"..."}
 ```
 
-Run the govpx encoder benchmark with the optional libvpx comparison:
+Run the govpx encoder benchmark with the optional libvpx comparison
+(the bench auto-locates `internal/coracle/build/vpxenc`; pass
+`-libvpx-vpxenc=...` to pin a specific binary):
 
 ```sh
 make oracle-tools
-GOVPX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/govpx-bench
+go run ./cmd/govpx-bench
 ```
 
 ## Encoder oracle trace comparator
 
-The govpx encoder emits a per-frame + per-MB JSON Lines oracle trace through
-`EncoderOptions.OracleTraceWriter` (off by default; nil writer means zero
-overhead). See `../../encoder_oracle_trace.go` for the full schema.
+The govpx encoder emits a per-frame + per-MB JSON Lines oracle trace
+through `(*VP8Encoder).SetOracleTraceWriter`. The method is compiled in
+only under the `govpx_oracle_trace` build tag; normal builds omit it
+entirely. See `../../encoder_oracle_trace.go` for the full schema.
 
 To compare a govpx trace against an equivalent libvpx trace, build the
 patched libvpx vpxenc:

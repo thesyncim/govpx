@@ -8,8 +8,14 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// Reset returns the encoder to its cold-start state while retaining allocated
-// buffers and validated configuration.
+// Reset returns the encoder to its cold-start state while retaining
+// allocated buffers and the validated [EncoderOptions]. Rate-control,
+// reference, lookahead, ARNR, denoiser, two-pass, and temporal-layer
+// state are all cleared; queued lookahead frames are discarded; the
+// next [VP8Encoder.EncodeInto] starts as if from [NewVP8Encoder]
+// without re-running its allocations. [VP8Encoder.LastQuantizer]
+// reports ok=false again until the next committed frame. Calls on a
+// nil encoder are no-ops.
 func (e *VP8Encoder) Reset() {
 	if e == nil {
 		return
@@ -200,8 +206,9 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
 }
 
-// Close releases encoder state. Further method calls return ErrClosed or no
-// output.
+// Close releases encoder state and shuts down any row-worker pool. After
+// Close, every method on this encoder returns [ErrClosed]. Calling Close
+// on a nil or already-closed encoder also returns [ErrClosed].
 func (e *VP8Encoder) Close() error {
 	if e == nil || e.closed {
 		return ErrClosed

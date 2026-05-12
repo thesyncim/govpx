@@ -44,7 +44,11 @@ const (
 	TuneSSIM
 )
 
-// EncodeFlags controls per-frame VP8 reference and packet behavior.
+// EncodeFlags controls per-frame VP8 reference and packet behavior on a
+// single [VP8Encoder.EncodeInto] call. The zero value asks the encoder
+// to use its configured defaults. Flag bits mirror libvpx's
+// VPX_EFLAG_FORCE_* / VP8_EFLAG_NO_REF_* / VP8_EFLAG_NO_UPD_* /
+// VP8_EFLAG_NO_UPD_ENTROPY / VP8_EFLAG_FORCE_GF / VP8_EFLAG_FORCE_ARF.
 type EncodeFlags uint32
 
 const (
@@ -80,8 +84,13 @@ const (
 )
 
 // EncoderPhaseStats accumulates opt-in coarse encoder phase timing in
-// nanoseconds. The encoder updates the caller-owned value only when
-// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the clock.
+// nanoseconds and counters for the SAD/subpel search hot path. The
+// encoder updates the caller-owned value only when
+// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the
+// clock or atomically update these counters. The caller owns the value,
+// may [EncoderPhaseStats.Reset] it between warmup and measurement, and
+// may sample it concurrently with EncodeInto only under its own
+// synchronization.
 type EncoderPhaseStats struct {
 	// InterReconstructNS is time spent rebuilding inter-frame prediction and
 	// residual planes.
@@ -172,71 +181,77 @@ type EncoderOptions struct {
 	TimebaseDen int
 
 	// Threads selects the worker-goroutine count for the inter-frame
-	// row-threaded macroblock pipeline. Mirrors libvpx's `--threads`
-	// vpxenc flag and the `cpi->oxcf.multi_threaded` knob in
-	// vp8/encoder/onyx_if.c / ethreading.c.
+	// row-threaded macroblock pipeline.
 	//
-	// Semantics:
-	//   - 0 (default in zero-initialized opts) is treated as 1: a single
-	//     goroutine drives the macroblock loop, byte-identical to the
-	//     historical govpx encoder.
-	//   - 1 is the pinned single-threaded reference path. No row pool is
-	//     allocated, no worker goroutine is spawned, and the reconstruction
-	//     hot path does not execute atomics or channel operations introduced
-	//     for threading.
-	//   - Values >1 allocate a persistent row-worker pool and enable the
-	//     libvpx-style wave-front inter-frame encode when the frame is large
-	//     enough and oracle tracing is disabled. Per-worker encoder shadows
-	//     hold adaptive RD and scratch state; fixed thread counts are
-	//     deterministic but may produce a different bitstream than Threads=1,
-	//     matching libvpx's threaded behavior.
-	//   - A negative value is rejected with ErrInvalidConfig.
+	//   - 0 is treated as 1.
+	//   - 1 uses the serial reference path: no row-worker pool, no
+	//     atomics or channel work in the reconstruction hot path.
+	//   - Values >1 allocate a persistent row-worker pool and enable
+	//     the libvpx-style wave-front inter-frame encode when the
+	//     frame is large enough and oracle tracing is disabled.
+	//     Thread counts are deterministic but produce a bitstream
+	//     that may differ from Threads=1, matching libvpx.
+	//   - Negative values return [ErrInvalidConfig].
+	//
+	// Mirrors libvpx's --threads / cpi->oxcf.multi_threaded.
 	Threads int
 
 	// RateControlMode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
 	RateControlMode RateControlMode
-	// TargetBitrateKbps is the total target bitrate.
+	// TargetBitrateKbps is the total target bitrate in kbps. Required.
 	TargetBitrateKbps int
-	// MinBitrateKbps optionally bounds runtime bitrate updates.
+	// MinBitrateKbps optionally bounds runtime bitrate updates from below.
+	// Zero means no lower bound.
 	MinBitrateKbps int
-	// MaxBitrateKbps optionally bounds runtime bitrate updates.
+	// MaxBitrateKbps optionally bounds runtime bitrate updates from above.
+	// Zero means no upper bound.
 	MaxBitrateKbps int
 
 	// MinQuantizer is the lowest public 0..63 quantizer the encoder may use.
+	// Zero is treated as 0 (no floor above the codec minimum).
 	MinQuantizer int
 	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
+	// Zero is treated as 63 (no ceiling below the codec maximum).
 	MaxQuantizer int
-	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. RateControlCQ applies it
-	// as a floor; RateControlQ validates and stores it like libvpx VPX_Q.
-	// Zero uses libvpx's default level unless MinQuantizer is also zero.
+	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. [RateControlCQ] applies
+	// it as a floor; [RateControlQ] validates and stores it like libvpx
+	// VPX_Q. Zero uses libvpx's default level after MinQuantizer
+	// resolution (a zero MinQuantizer is itself promoted to 4 first).
 	CQLevel int
 
-	// UndershootPct caps libvpx-style downward rate adjustment.
+	// UndershootPct caps libvpx-style downward rate adjustment as a percentage
+	// of the target frame size; valid range is [0, 100]. Zero uses the libvpx
+	// default.
 	UndershootPct int
-	// OvershootPct caps libvpx-style upward rate adjustment.
+	// OvershootPct caps libvpx-style upward rate adjustment as a percentage of
+	// the target frame size; valid range is [0, 1000]. Zero uses the libvpx
+	// default.
 	OvershootPct int
 
 	// BufferSizeMs is the virtual rate-control buffer size in milliseconds.
+	// Zero selects libvpx's default sizing.
 	BufferSizeMs int
 	// BufferInitialSizeMs is the initial virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
 	BufferInitialSizeMs int
 	// BufferOptimalSizeMs is the target virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
 	BufferOptimalSizeMs int
-	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of the
+	// per-frame target. Zero disables the cap; valid range is non-negative.
 	MaxIntraBitratePct int
-	// GFCBRBoostPct controls golden-frame boost in CBR mode.
+	// GFCBRBoostPct controls golden-frame boost in CBR mode as a percentage of
+	// the per-frame target. Zero uses libvpx's default; valid range is
+	// non-negative.
 	GFCBRBoostPct int
 
 	// DropFrameAllowed enables rate-control frame dropping.
 	DropFrameAllowed bool
-	// DropFrameWaterMark mirrors libvpx's rc_dropframe_thresh / oxcf
-	// drop_frames_water_mark (vpx_codec_enc_cfg_t). It is the
-	// percentage of optimal_buffer_level at which the libvpx decimation
-	// drop branch (vp8_check_drop_buffer in vp8/encoder/onyx_if.c)
-	// starts engaging the 1->2->3 decimation factor ladder. When
-	// DropFrameAllowed is true and this is zero, govpx defaults to 60
-	// (the typical realtime CBR knob). When DropFrameAllowed is false,
-	// no decimation ever fires.
+	// DropFrameWaterMark is the percentage of optimal_buffer_level at
+	// which rate control begins dropping frames. When DropFrameAllowed
+	// is true this defaults to 60 if left zero; when DropFrameAllowed
+	// is false no frame drops fire regardless of this value. Mirrors
+	// libvpx's rc_dropframe_thresh / oxcf.drop_frames_water_mark.
 	DropFrameWaterMark int
 
 	// TemporalScalability configures automatic temporal-layer scheduling.
@@ -256,11 +271,11 @@ type EncoderOptions struct {
 	// queues input frames and returns ErrFrameNotReady until enough future
 	// frames are available; FlushInto drains the queue at end of stream.
 	LookaheadFrames int
-	// AutoAltRef gates the automatic alternate-reference scheduling driver
-	// (libvpx vp8/encoder/onyx_if.c oxcf.play_alternate). When true and the
-	// encoder is configured with LookaheadFrames > 1 and !ErrorResilient, the
-	// driver inserts hidden alt-ref frames pulled from the lookahead window
-	// and flips the alt-ref sign bias on the matching deferred show frame.
+	// AutoAltRef gates automatic alternate-reference scheduling. When true,
+	// LookaheadFrames > 1, and ErrorResilient is false, the driver inserts
+	// hidden alt-ref frames from the lookahead window and flips the
+	// alt-ref sign bias on the matching deferred show frame. Mirrors
+	// libvpx's oxcf.play_alternate.
 	AutoAltRef bool
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
@@ -283,28 +298,28 @@ type EncoderOptions struct {
 	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
-	// FastLoopFilterPick lowers the loop-filter fast-pick gate to the
-	// partial-frame trial picker whenever the encoder's speed value is
-	// >= 4 (vs libvpx's default > 4). This is a deliberate, opt-in
-	// departure from libvpx parity that recovers ~20-30% of EncodeInto
-	// wall time at cold-start realtime+positive-cpu_used because the
-	// libvpx auto-speed selector sits at speed=4 indefinitely on short
-	// corpora and otherwise burns the loop-filter level pick on five
-	// full-frame trials per frame. Off by default; turn on when you
-	// have already verified that the loop-filter level drift produced
-	// by the partial picker is acceptable for the target use case.
+	// FastLoopFilterPick switches the loop-filter fast-pick gate to the
+	// partial-frame trial picker whenever speed >= 4 (libvpx uses > 4).
+	// Off by default. Opt-in departure from libvpx parity that recovers
+	// ~20-30% of EncodeInto wall time at cold-start
+	// realtime+positive-cpu_used. Turn on only after verifying the
+	// resulting loop-filter level drift is acceptable for the use case.
 	FastLoopFilterPick bool
 	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
 	Sharpness int
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
 	// 1=Y denoise, 2=YUV denoise, 3..6=more aggressive YUV denoise.
 	NoiseSensitivity int
-	// ARNRMaxFrames/ARNRStrength/ARNRType mirror libvpx's ARNR controls.
-	// ARNRType is 1=backward, 2=forward, 3=centered; zero-valued
-	// EncoderOptions default to libvpx's centered filter.
+	// ARNRMaxFrames is the alt-ref noise reduction temporal window in frames.
+	// Mirrors libvpx's VP8E_SET_ARNR_MAXFRAMES. Zero disables ARNR.
 	ARNRMaxFrames int
-	ARNRStrength  int
-	ARNRType      int
+	// ARNRStrength is the alt-ref noise reduction filter strength in [0, 6].
+	// Mirrors libvpx's VP8E_SET_ARNR_STRENGTH.
+	ARNRStrength int
+	// ARNRType selects the alt-ref filter direction: 1=backward, 2=forward,
+	// 3=centered. Mirrors libvpx's VP8E_SET_ARNR_TYPE. Zero defaults to 3
+	// (centered), matching libvpx.
+	ARNRType int
 	// TwoPassStats enables second-pass VBR planning when non-empty.
 	TwoPassStats []FirstPassFrameStats
 	// TwoPassVBRBiasPct controls second-pass VBR bias when stats are present.
@@ -325,12 +340,20 @@ type EncoderOptions struct {
 	StaticThreshold int
 
 	// PhaseStats, when non-nil, receives coarse per-attempt encoder phase
-	// timings. The caller owns the pointed-to value and may Reset it between
-	// warmup and measured passes.
+	// timings and SAD/subpel hot-path counters during EncodeInto. The
+	// caller owns the pointed-to value and may [EncoderPhaseStats.Reset]
+	// it between warmup and measured passes. Leave nil in normal builds
+	// to skip all clock reads and counter updates.
 	PhaseStats *EncoderPhaseStats
 }
 
-// EncodeResult describes one encoder output packet.
+// EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
+// [VP8Encoder.FlushInto] for one call. Data is empty when the call
+// produced no output (frame dropped by rate control or buffered by
+// lookahead). PTS and Duration echo the caller-supplied values; the
+// rate-control and temporal-layer accounting fields are populated even
+// when Data is empty so callers can drive feedback loops on dropped
+// frames.
 type EncodeResult struct {
 	// Data aliases the caller-provided output buffer passed to EncodeInto or
 	// FlushInto. Copy it if it must outlive that buffer.
@@ -407,12 +430,15 @@ type EncodeResult struct {
 	// TemporalLayerEncodedBits accumulates layer output bits.
 	TemporalLayerEncodedBits int
 
-	// PSNRHint is a cheap distortion-derived quality hint, not a full PSNR
-	// measurement.
+	// PSNRHint is reserved for a future per-frame quality hint. It is
+	// not currently populated and always reads as zero.
 	PSNRHint float64
 }
 
-// VP8Encoder encodes caller-provided I420 images into raw VP8 frame payloads.
+// VP8Encoder encodes caller-provided I420 images into raw VP8 frame
+// payloads. A VP8Encoder is not safe for concurrent use by multiple
+// goroutines; the optional worker pool selected by EncoderOptions.Threads
+// is internal to a single encode call.
 type VP8Encoder struct {
 	opts EncoderOptions
 
@@ -950,8 +976,15 @@ type interFrameEncodeAttempt struct {
 	CyclicRefreshNextIndex int
 }
 
-// NewVP8Encoder creates a VP8 encoder with validated options and persistent
-// frame buffers sized for EncoderOptions.Width and EncoderOptions.Height.
+// NewVP8Encoder creates a VP8 encoder with validated options. Allocations
+// happen here, not on the hot path: per-frame buffers, the row-worker
+// pool when EncoderOptions.Threads > 1, and rate-control state are sized
+// for EncoderOptions.Width and EncoderOptions.Height.
+//
+// opts is validated up front; invalid combinations return
+// [ErrInvalidConfig], [ErrInvalidBitrate], or [ErrInvalidQuantizer]
+// without allocating any encoder state. Width, Height, FPS (or
+// TimebaseNum/Den), and TargetBitrateKbps are required.
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	normalized, timing, err := normalizeEncoderOptions(opts)
 	if err != nil {

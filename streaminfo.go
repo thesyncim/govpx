@@ -2,14 +2,17 @@ package govpx
 
 import vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 
-// StreamInfo describes the VP8 frame-header fields that can be read without
-// fully decoding a packet.
+// StreamInfo describes the VP8 frame-header fields that can be read
+// without fully decoding a packet. It is returned by [PeekVP8StreamInfo]
+// and is suitable for routing decisions before a decoder is constructed.
 type StreamInfo struct {
 	// Width and Height are the visible coded dimensions carried by key frames.
 	// Inter frames reuse the current stream dimensions.
 	Width  int
 	Height int
-	// Profile is the VP8 bitstream profile number.
+	// Profile is the VP8 version_number field from the frame tag. The
+	// VP8 spec defines values 0..3; govpx accepts 4..7 for compatibility
+	// with libvpx but treats them as version 0.
 	Profile int
 
 	// KeyFrame reports whether the packet is a VP8 key frame.
@@ -22,7 +25,9 @@ type StreamInfo struct {
 	FirstPartitionSize int
 }
 
-// ReferenceFlags is a bit mask of VP8 reference buffers.
+// ReferenceFlags is a bit mask of VP8 reference buffers. It is used on
+// [FrameInfo.RefUpdates] and [FrameInfo.RefUsed] to report which buffers a
+// decoded frame refreshed or read.
 type ReferenceFlags uint8
 
 const (
@@ -34,7 +39,10 @@ const (
 	ReferenceFlagAltRef
 )
 
-// ReferenceFrame selects one VP8 reference buffer for set/copy controls.
+// ReferenceFrame selects one VP8 reference buffer for the set/copy
+// controls on [VP8Encoder] and [VP8Decoder]. Unlike [ReferenceFlags], it
+// is not a bit mask: it must be exactly one of [ReferenceLast],
+// [ReferenceGolden], or [ReferenceAltRef].
 type ReferenceFrame ReferenceFlags
 
 const (
@@ -46,7 +54,8 @@ const (
 	ReferenceAltRef ReferenceFrame = ReferenceFrame(ReferenceFlagAltRef)
 )
 
-// FrameInfo describes the result of decoding or encoding a VP8 frame.
+// FrameInfo describes the most recently decoded VP8 frame. It is
+// returned by [VP8Decoder.LastFrameInfo] and the DecodeInto family.
 type FrameInfo struct {
 	// Width and Height are the visible output dimensions.
 	Width  int
@@ -59,10 +68,11 @@ type FrameInfo struct {
 	// Corrupted reports decoder corruption or concealment state.
 	Corrupted bool
 
-	// Quantizer is the public 0..63 quantizer corresponding to
-	// InternalQuantizer. InternalQuantizer is the VP8 base qindex reported by
-	// libvpx's VPXD_GET_LAST_QUANTIZER control.
-	Quantizer         int
+	// Quantizer is the public 0..63 quantizer mapped from
+	// InternalQuantizer.
+	Quantizer int
+	// InternalQuantizer is the raw VP8 base qindex (libvpx's
+	// VPXD_GET_LAST_QUANTIZER).
 	InternalQuantizer int
 	// RefUpdates reports reference buffers refreshed by the frame.
 	RefUpdates ReferenceFlags
@@ -74,7 +84,8 @@ type FrameInfo struct {
 }
 
 // PeekVP8StreamInfo parses VP8 frame-header metadata without decoding the
-// frame.
+// frame. It allocates nothing and is safe to call on every received
+// packet. Returns [ErrInvalidData] when the frame tag is malformed.
 func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 	header, err := vp8dec.ParseFrameHeader(packet)
 	if err != nil {
