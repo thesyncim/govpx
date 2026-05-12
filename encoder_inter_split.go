@@ -672,7 +672,7 @@ type interSplitMVRDDecision struct {
 // LumaEOB returns the per-4x4-block luma EOB stored after the chosen SPLITMV
 // partition's transform/quantize pass. block must be 0..15.
 func (d *interSplitMVRDDecision) LumaEOB(block int) int {
-	if d == nil || block < 0 || block > 15 {
+	if d == nil || uint(block) > 15 {
 		return 0
 	}
 	return d.Coeffs.BlockEOB(block, 0)

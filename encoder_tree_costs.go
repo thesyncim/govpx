@@ -55,7 +55,7 @@ func buildTreeTokenPath(tree []int16, token int) treeTokenPath {
 		}
 		bit := uint8((encoded.Value >> uint(bitIndex)) & 1)
 		probIdx := nodeIdx >> 1
-		if probIdx < 0 || probIdx > 255 {
+		if uint(probIdx) > 255 {
 			return out
 		}
 		out.steps[int(encoded.Len)-1-bitIndex] = treeTokenPathStep{
