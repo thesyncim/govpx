@@ -195,7 +195,11 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		band := int((raw >> coefficientTokenRecordBandShift) & coefficientTokenRecordBandMask)
 		ctx := int((raw >> coefficientTokenRecordContextShift) & coefficientTokenRecordTwoBitMask)
 
-		p := &(*probs)[blockType][band][ctx]
+		// blockType and band were packed via the 2-bit/3-bit masks above,
+		// so their values are bounded by [0,3] and [0,7]. AND-masking with
+		// the corresponding power-of-two limits lets BlockTypes(=4) and
+		// CoefBands(=8) bounds checks elide on the (*probs) load.
+		p := &(*probs)[blockType&3][band&7][ctx]
 		// Take a pointer instead of copying the 15-byte path struct on each
 		// record; the table never moves so the indirection has no aliasing
 		// concern in this hot per-token loop.
@@ -333,7 +337,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 		return w.err
 	}
 	if eob <= skipDC {
-		w.WriteBool(0, (*probs)[blockType][skipDC][ctx][0])
+		w.WriteBool(0, (*probs)[blockType&3][skipDC&7][ctx][0])
 		return w.Err()
 	}
 	if eob > 16 {
@@ -375,15 +379,31 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 		}
 		token := int(coeffAbsTokenLUT[mag])
 
-		p := &(*probs)[blockType][band][tokenCtx]
-		path := coefficientTokenBranchPaths[token]
-		start := uint8(0)
+		// blockType and band are bounded by [0,3] and [0,7] by the
+		// caller (blockType validated at the caller boundary; band is
+		// either skipDC ∈ {0,1} or a CoefBandsTable lookup ∈ [0,7]).
+		// AND-masking with the corresponding power-of-two limits lets
+		// BlockTypes(=4) and CoefBands(=8) bounds checks elide.
+		p := &(*probs)[blockType&3][band&7][tokenCtx]
+		// Take a pointer to the path entry to avoid copying the 15-byte
+		// struct on each coefficient; the table is read-only so there is
+		// no aliasing concern.
+		path := &coefficientTokenBranchPaths[token]
+		// Branchless start index: skipEOBNode is a 0/1-valued bool, so the
+		// compiler emits cset/csel rather than a compare-and-branch.
+		var start uint8
 		if skipEOBNode {
 			start = 1
 		}
-		for i := start; i < path.len; i++ {
-			bit := path.bits[i]
-			probability := p[path.nodes[i]]
+		// path.len is bounded by len(coefficientTokenBranchPath.bits) = 7
+		// at build time; clamp here so the per-iter bounds check on
+		// pathBits[i]/pathNodes[i] folds away.
+		pathLen := min(path.len, 7)
+		pathBits := &path.bits
+		pathNodes := &path.nodes
+		for i := start; i < pathLen; i++ {
+			bit := pathBits[i]
+			probability := p[pathNodes[i]]
 			split := uint32(1 + (((rng - 1) * uint32(probability)) >> 8))
 			// Branchless interval selection: mask is all-ones when bit
 			// is set, zero otherwise. The bit==0 arm keeps rng = split
