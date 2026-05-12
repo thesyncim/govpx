@@ -326,9 +326,9 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	var mode vp8enc.KeyFrameMacroblockMode
 	var projectedRate int
 	if e.libvpxUseFastIntraPick() {
-		mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(args.src, segmentQIndex, row, col, above, left, &args.quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(args.src, segmentQIndex, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
 	} else {
-		mode, projectedRate, ok = predictBestKeyFrameIntraMode(args.src, segmentQIndex, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+		mode, projectedRate, ok = predictBestKeyFrameIntraMode(args.src, segmentQIndex, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
 	}
 	if !ok {
 		return 0, ErrInvalidConfig
@@ -337,7 +337,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	args.modes[index] = mode
 	convertKeyFrameMode(&args.modes[index], &e.reconstructModes[index])
 	if args.modes[index].YMode == vp8common.BPred {
-		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 			return 0, ErrInvalidConfig
 		}
 		convertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
@@ -356,7 +356,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		pred:          &e.analysis.Img,
 		aboveTok:      &args.aboveTok[col],
 		leftTok:       &rs.leftTok,
-		quant:         &args.quants[segmentID],
+		quant:         &args.quants[segmentID&3],
 		qIndex:        segmentQIndex,
 		is4x4:         is4x4,
 		intra:         true,
@@ -366,7 +366,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		coeffs:        &args.coeffs[index],
 	})
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
-	if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+	if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 		return 0, ErrInvalidConfig
 	}
 	vp8enc.UpdateTokenContextPlanesFromCoefficients(&args.aboveTok[col], &rs.leftTok, is4x4, &args.coeffs[index])
@@ -436,7 +436,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		args.qIndex, args.segmentation, segmentID,
 		above, left, aboveLeft,
 		&args.aboveTok[col], &rs.leftTok,
-		&args.quants[segmentID],
+		&args.quants[segmentID&3],
 		args.sourceAltRefZeroMVOnly,
 	)
 	if !ok {
@@ -452,7 +452,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	}
 
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)
-	quant := &args.quants[segmentID]
+	quant := &args.quants[segmentID&3]
 	if decision.useIntra {
 		args.modes[index] = decision.intraMode
 		args.modes[index].SegmentID = segmentID
@@ -473,7 +473,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		convertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		predMode := e.reconstructModes[index]
 		predMode.MBSkipCoeff = true
-		if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+		if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 			return 0, 0, ErrInvalidConfig
 		}
 	}
@@ -533,10 +533,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		return decision.projectedRate, int64(decision.predictionError), nil
 	}
 	if args.modes[index].RefFrame == vp8common.IntraFrame {
-		if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+		if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 			return 0, 0, ErrInvalidConfig
 		}
-	} else if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID], &e.reconstructScratch) {
+	} else if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 		return 0, 0, ErrInvalidConfig
 	}
 	updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
