@@ -647,7 +647,7 @@ func (e *VP8Encoder) checkDotArtifactCandidate(src vp8enc.SourceImage, lastRef *
 		return false
 	}
 	index := mbRow*mbCols + mbCol
-	if index < 0 || index >= len(e.consecZeroLastMVBias) {
+	if uint(index) >= uint(len(e.consecZeroLastMVBias)) {
 		return false
 	}
 	threshold := dotArtifactConsecZeroLastBase

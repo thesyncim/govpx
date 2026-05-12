@@ -146,7 +146,7 @@ func (e *VP8Encoder) activityAt(mbRow int, mbCol int) (uint32, bool) {
 	}
 	cols := encoderMacroblockCols(e.opts.Width)
 	index := mbRow*cols + mbCol
-	if index < 0 || index >= len(e.activityMap) {
+	if uint(index) >= uint(len(e.activityMap)) {
 		return 0, false
 	}
 	return e.activityMap[index], true

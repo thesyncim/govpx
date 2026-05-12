@@ -475,14 +475,14 @@ func (e *VP8Encoder) interRDModeTestAllowedFast(modeIndex int) bool {
 }
 
 func (e *VP8Encoder) recordInterRDModeTest(modeIndex int) {
-	if !e.interRDFrameActive || modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if !e.interRDFrameActive || uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return
 	}
 	e.interModeTestHitCounts[modeIndex]++
 }
 
 func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
-	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return
 	}
 	if e.interRDThreshMult[modeIndex] >= libvpxMinThreshMult+2 {
@@ -494,7 +494,7 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 }
 
 func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
-	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return
 	}
 	e.interRDThreshMult[modeIndex] += 4
@@ -505,7 +505,7 @@ func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 }
 
 func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
-	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return
 	}
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 2
@@ -518,7 +518,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 }
 
 func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
-	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return
 	}
 	bestAdjustment := e.interRDThreshMult[modeIndex] >> 3
