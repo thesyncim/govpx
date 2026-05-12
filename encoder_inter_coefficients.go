@@ -113,7 +113,10 @@ func (c *interRDCoeffCacheState) reset() {
 // rejected there. The next picker invocation resets both slots, so keeping the
 // valid bit set for this consumer does not leak across macroblocks.
 func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
-	winner := &e.interRDCoeffCacheSlots[e.interRDCoeffCacheWinner]
+	// interRDCoeffCacheWinner is toggled with ^= 1, so it is always 0 or
+	// 1; AND-mask with 1 (pow2-1) elides the bounds check on the
+	// [2]interRDCoeffCacheState array.
+	winner := &e.interRDCoeffCacheSlots[e.interRDCoeffCacheWinner&1]
 	if !winner.valid {
 		return nil
 	}

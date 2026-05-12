@@ -44,7 +44,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	// reads slots[winner] and resets it.
 	e.interRDCoeffCacheSlots[0].reset()
 	e.interRDCoeffCacheSlots[1].reset()
-	e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
+	e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[(1-e.interRDCoeffCacheWinner)&1]
 	defer func() {
 		e.interRDCoeffCacheScratchTarget = nil
 	}()
@@ -174,7 +174,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				// write into what used to be the winner slot, preserving
 				// the just-promoted candidate's cache if it had one.
 				e.interRDCoeffCacheWinner ^= 1
-				e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
+				e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[(1-e.interRDCoeffCacheWinner)&1]
 			} else {
 				e.raiseInterRDThreshold(modeIndex)
 			}
@@ -186,7 +186,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			continue
 		}
 		refBiasSlot := interModeSignBiasSlotForReference(ref.Frame, signBias)
-		bestRefMV := modeMVs.best[refBiasSlot]
+		// refBiasSlot is 0 or 1 by construction; AND-mask with 1 elides
+		// the bounds check on the [2]MotionVector slot array.
+		bestRefMV := modeMVs.best[refBiasSlot&1]
 		if !e.interRDModeTestAllowed(modeIndex) {
 			continue
 		}
@@ -340,7 +342,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			// such winners hit breakoutSkip anyway, bypassing
 			// buildPredictedMacroblockCoefficients).
 			e.interRDCoeffCacheWinner ^= 1
-			e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[1-e.interRDCoeffCacheWinner]
+			e.interRDCoeffCacheScratchTarget = &e.interRDCoeffCacheSlots[(1-e.interRDCoeffCacheWinner)&1]
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}
