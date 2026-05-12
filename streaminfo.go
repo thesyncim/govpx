@@ -2,8 +2,9 @@ package govpx
 
 import vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 
-// StreamInfo describes the VP8 frame-header fields that can be read without
-// fully decoding a packet.
+// StreamInfo describes the VP8 frame-header fields that can be read
+// without fully decoding a packet. It is returned by [PeekVP8StreamInfo]
+// and is suitable for routing decisions before a decoder is constructed.
 type StreamInfo struct {
 	// Width and Height are the visible coded dimensions carried by key frames.
 	// Inter frames reuse the current stream dimensions.
@@ -46,7 +47,8 @@ const (
 	ReferenceAltRef ReferenceFrame = ReferenceFrame(ReferenceFlagAltRef)
 )
 
-// FrameInfo describes the result of decoding or encoding a VP8 frame.
+// FrameInfo describes the most recently decoded VP8 frame. It is
+// returned by [VP8Decoder.LastFrameInfo] and the DecodeInto family.
 type FrameInfo struct {
 	// Width and Height are the visible output dimensions.
 	Width  int
@@ -74,7 +76,8 @@ type FrameInfo struct {
 }
 
 // PeekVP8StreamInfo parses VP8 frame-header metadata without decoding the
-// frame.
+// frame. It allocates nothing and is safe to call on every received
+// packet. Returns [ErrInvalidData] when the frame tag is malformed.
 func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 	header, err := vp8dec.ParseFrameHeader(packet)
 	if err != nil {

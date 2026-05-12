@@ -109,7 +109,9 @@ type VP8Decoder struct {
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
-// NewVP8Decoder creates a VP8 decoder with validated options.
+// NewVP8Decoder creates a VP8 decoder with validated options. The zero
+// value of opts is valid: it produces a single-threaded decoder with no
+// postprocessing, no error concealment, and no dimension caps.
 func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	if err := validateDecoderOptions(opts); err != nil {
 		return nil, err
@@ -125,14 +127,17 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	return d, nil
 }
 
-// Decode decodes one raw VP8 frame payload and queues visible output for
-// NextFrame.
+// Decode decodes one raw VP8 frame payload. If the packet is a visible
+// frame, its output is queued for the next call to NextFrame. Hidden
+// frames (such as alt-refs) update reference buffers but produce no
+// NextFrame output. The first packet supplied to a fresh or reset decoder
+// must be a key frame; otherwise [ErrNeedKeyFrame] is returned.
 func (d *VP8Decoder) Decode(packet []byte) error {
 	return d.DecodeWithPTS(packet, 0)
 }
 
-// DecodeWithPTS decodes one raw VP8 frame payload and records pts in the
-// resulting FrameInfo.
+// DecodeWithPTS is Decode with an explicit presentation timestamp. pts is
+// echoed back through [VP8Decoder.LastFrameInfo].
 func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -212,7 +217,9 @@ func (d *VP8Decoder) NextFrame() (Image, bool) {
 	return d.lastFrame, true
 }
 
-// LastFrameInfo returns metadata for the most recently decoded frame.
+// LastFrameInfo returns metadata for the most recently decoded frame. ok
+// is false on a nil or closed decoder, and before the first successful
+// Decode/DecodeInto call.
 func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	if d == nil || d.closed || !d.lastInfoValid {
 		return FrameInfo{}, false
@@ -220,8 +227,12 @@ func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	return d.lastInfo, true
 }
 
-// SetReferenceFrame replaces an initialized decoder reference buffer with src.
-// The source image must match the current stream dimensions.
+// SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
+// ReferenceGolden, or ReferenceAltRef; src must match the stream dimensions
+// established by the most recently decoded key frame and provide valid
+// I420 strides. Returns [ErrInvalidConfig] when no key frame has been
+// decoded yet or when dimensions or strides do not match. The decoder
+// extends reference borders after copying.
 func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -238,8 +249,11 @@ func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	return nil
 }
 
-// CopyReferenceFrame copies an initialized decoder reference buffer into dst.
-// The destination image must match the current stream dimensions.
+// CopyReferenceFrame copies ref into dst. ref must be ReferenceLast,
+// ReferenceGolden, or ReferenceAltRef; dst must match the stream dimensions
+// established by the most recently decoded key frame and provide valid
+// I420 strides. Returns [ErrInvalidConfig] when no key frame has been
+// decoded yet or when dimensions or strides do not match.
 func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -258,14 +272,17 @@ func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	return nil
 }
 
-// DecodeInto decodes one raw VP8 frame payload into caller-owned output
-// storage when the packet is visible.
+// DecodeInto decodes one raw VP8 frame payload. If the packet is a visible
+// frame its decoded pixels are written into the caller-owned planes of
+// dst; for hidden frames dst is left untouched. dst must be non-nil and
+// match the stream dimensions established by the first decoded key frame
+// (or by the packet itself, when it is a key frame).
 func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
 	return d.DecodeIntoWithPTS(packet, dst, 0)
 }
 
-// DecodeIntoWithPTS decodes one raw VP8 frame payload into caller-owned output
-// storage and records pts in the returned FrameInfo.
+// DecodeIntoWithPTS is DecodeInto with an explicit presentation timestamp.
+// pts is echoed back in the returned FrameInfo.
 func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (FrameInfo, error) {
 	if d == nil || d.closed {
 		return FrameInfo{}, ErrClosed
@@ -335,8 +352,10 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	return frameInfo, nil
 }
 
-// Reset returns the decoder to its cold-start state while retaining allocated
-// buffers for reuse.
+// Reset returns the decoder to its cold-start state while retaining
+// allocated buffers and validated DecoderOptions for reuse. The next
+// Decode must be a key frame; reference buffers, postprocess state, and
+// queued NextFrame output are cleared.
 func (d *VP8Decoder) Reset() {
 	if d == nil {
 		return

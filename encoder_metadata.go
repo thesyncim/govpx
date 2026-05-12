@@ -1,7 +1,9 @@
 package govpx
 
-// LastQuantizer returns the public 0..63 quantizer and internal VP8 qindex for
-// the most recently committed encoded frame.
+// LastQuantizer returns the public 0..63 quantizer and the internal VP8
+// qindex for the most recently committed encoded frame. ok is false on a
+// nil or closed encoder, and before any frame has been committed (which
+// includes dropped or buffered-by-lookahead inputs).
 func (e *VP8Encoder) LastQuantizer() (public int, internal int, ok bool) {
 	if e == nil || e.closed || !e.lastQuantizerValid {
 		return 0, 0, false

@@ -55,8 +55,9 @@ GOVPX_VPXENC=internal/coracle/build/vpxenc go run ./cmd/govpx-bench
 
 ## Encoder oracle trace comparator
 
-The govpx encoder emits a per-frame + per-MB JSON Lines oracle trace through
-`EncoderOptions.OracleTraceWriter` (off by default; nil writer means zero
+The govpx encoder emits a per-frame + per-MB JSON Lines oracle trace
+through `(*VP8Encoder).SetOracleTraceWriter`, available only under the
+`govpx_oracle_trace` build tag (off by default; nil writer means zero
 overhead). See `../../encoder_oracle_trace.go` for the full schema.
 
 To compare a govpx trace against an equivalent libvpx trace, build the

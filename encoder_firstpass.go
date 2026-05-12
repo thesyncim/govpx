@@ -162,8 +162,17 @@ func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
 	return out
 }
 
-// CollectFirstPassStats analyzes one source frame for two-pass VBR planning.
-// It updates the encoder's first-pass reference state but does not emit VP8.
+// CollectFirstPassStats runs libvpx-style first-pass analysis on one
+// source frame for two-pass VBR planning. The returned [FirstPassFrameStats]
+// should be accumulated in a slice across all input frames and then
+// passed through [FinalizeFirstPassStats] before being handed to a
+// second-pass encoder via EncoderOptions.TwoPassStats or
+// [VP8Encoder.SetTwoPassStats].
+//
+// First-pass analysis updates internal reference state but emits no VP8
+// bitstream. pts is currently accepted for API symmetry but is not
+// consumed; duration is recorded in the returned stats. flags accepts
+// the same EncodeFlags as EncodeInto for validation.
 func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint64, flags EncodeFlags) (FirstPassFrameStats, error) {
 	if e == nil || e.closed {
 		return FirstPassFrameStats{}, ErrClosed

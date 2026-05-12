@@ -98,9 +98,10 @@ type RealtimeTarget struct {
 	// current setting unchanged, which is the right default for bitrate-only
 	// WebRTC bandwidth-estimation updates.
 	FrameDrop RealtimeFrameDropMode
-	// AllowFrameDrop enables realtime frame dropping when true. It is kept for
-	// source compatibility with older callers; use FrameDrop when disabling or
-	// when the update must be explicit.
+	// AllowFrameDrop is a legacy fallback used only when FrameDrop is
+	// [RealtimeFrameDropUnchanged]; if true, it enables realtime frame
+	// dropping. Prefer FrameDrop in new code — it can disable dropping and
+	// makes the intent explicit. Kept for source compatibility.
 	AllowFrameDrop bool
 }
 

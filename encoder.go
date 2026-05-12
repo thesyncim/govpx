@@ -80,8 +80,13 @@ const (
 )
 
 // EncoderPhaseStats accumulates opt-in coarse encoder phase timing in
-// nanoseconds. The encoder updates the caller-owned value only when
-// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the clock.
+// nanoseconds and counters for the SAD/subpel search hot path. The
+// encoder updates the caller-owned value only when
+// EncoderOptions.PhaseStats is non-nil; normal encodes do not read the
+// clock or atomically update these counters. The caller owns the value,
+// may [EncoderPhaseStats.Reset] it between warmup and measurement, and
+// may sample it concurrently with EncodeInto only under its own
+// synchronization.
 type EncoderPhaseStats struct {
 	// InterReconstructNS is time spent rebuilding inter-frame prediction and
 	// residual planes.
@@ -195,36 +200,50 @@ type EncoderOptions struct {
 
 	// RateControlMode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
 	RateControlMode RateControlMode
-	// TargetBitrateKbps is the total target bitrate.
+	// TargetBitrateKbps is the total target bitrate in kbps. Required.
 	TargetBitrateKbps int
-	// MinBitrateKbps optionally bounds runtime bitrate updates.
+	// MinBitrateKbps optionally bounds runtime bitrate updates from below.
+	// Zero means no lower bound.
 	MinBitrateKbps int
-	// MaxBitrateKbps optionally bounds runtime bitrate updates.
+	// MaxBitrateKbps optionally bounds runtime bitrate updates from above.
+	// Zero means no upper bound.
 	MaxBitrateKbps int
 
 	// MinQuantizer is the lowest public 0..63 quantizer the encoder may use.
+	// Zero is treated as 0 (no floor above the codec minimum).
 	MinQuantizer int
 	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
+	// Zero is treated as 63 (no ceiling below the codec maximum).
 	MaxQuantizer int
 	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. RateControlCQ applies it
 	// as a floor; RateControlQ validates and stores it like libvpx VPX_Q.
 	// Zero uses libvpx's default level unless MinQuantizer is also zero.
 	CQLevel int
 
-	// UndershootPct caps libvpx-style downward rate adjustment.
+	// UndershootPct caps libvpx-style downward rate adjustment as a percentage
+	// of the target frame size; valid range is [0, 100]. Zero uses the libvpx
+	// default.
 	UndershootPct int
-	// OvershootPct caps libvpx-style upward rate adjustment.
+	// OvershootPct caps libvpx-style upward rate adjustment as a percentage of
+	// the target frame size; valid range is [0, 1000]. Zero uses the libvpx
+	// default.
 	OvershootPct int
 
 	// BufferSizeMs is the virtual rate-control buffer size in milliseconds.
+	// Zero selects libvpx's default sizing.
 	BufferSizeMs int
 	// BufferInitialSizeMs is the initial virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
 	BufferInitialSizeMs int
 	// BufferOptimalSizeMs is the target virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
 	BufferOptimalSizeMs int
-	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of the
+	// per-frame target. Zero disables the cap; valid range is non-negative.
 	MaxIntraBitratePct int
-	// GFCBRBoostPct controls golden-frame boost in CBR mode.
+	// GFCBRBoostPct controls golden-frame boost in CBR mode as a percentage of
+	// the per-frame target. Zero uses libvpx's default; valid range is
+	// non-negative.
 	GFCBRBoostPct int
 
 	// DropFrameAllowed enables rate-control frame dropping.
@@ -299,12 +318,16 @@ type EncoderOptions struct {
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
 	// 1=Y denoise, 2=YUV denoise, 3..6=more aggressive YUV denoise.
 	NoiseSensitivity int
-	// ARNRMaxFrames/ARNRStrength/ARNRType mirror libvpx's ARNR controls.
-	// ARNRType is 1=backward, 2=forward, 3=centered; zero-valued
-	// EncoderOptions default to libvpx's centered filter.
+	// ARNRMaxFrames is the alt-ref noise reduction temporal window in frames.
+	// Mirrors libvpx's VP8E_SET_ARNR_MAXFRAMES. Zero disables ARNR.
 	ARNRMaxFrames int
-	ARNRStrength  int
-	ARNRType      int
+	// ARNRStrength is the alt-ref noise reduction filter strength in [0, 6].
+	// Mirrors libvpx's VP8E_SET_ARNR_STRENGTH.
+	ARNRStrength int
+	// ARNRType selects the alt-ref filter direction: 1=backward, 2=forward,
+	// 3=centered. Mirrors libvpx's VP8E_SET_ARNR_TYPE. Zero defaults to 3
+	// (centered), matching libvpx.
+	ARNRType int
 	// TwoPassStats enables second-pass VBR planning when non-empty.
 	TwoPassStats []FirstPassFrameStats
 	// TwoPassVBRBiasPct controls second-pass VBR bias when stats are present.
@@ -950,8 +973,15 @@ type interFrameEncodeAttempt struct {
 	CyclicRefreshNextIndex int
 }
 
-// NewVP8Encoder creates a VP8 encoder with validated options and persistent
-// frame buffers sized for EncoderOptions.Width and EncoderOptions.Height.
+// NewVP8Encoder creates a VP8 encoder with validated options. Allocations
+// happen here, not on the hot path: per-frame buffers, the row-worker
+// pool when EncoderOptions.Threads > 1, and rate-control state are sized
+// for EncoderOptions.Width and EncoderOptions.Height.
+//
+// opts is validated up front; invalid combinations return
+// [ErrInvalidConfig], [ErrInvalidBitrate], or [ErrInvalidQuantizer]
+// without allocating any encoder state. Width, Height, FPS (or
+// TimebaseNum/Den), and TargetBitrateKbps are required.
 func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	normalized, timing, err := normalizeEncoderOptions(opts)
 	if err != nil {
