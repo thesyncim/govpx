@@ -636,7 +636,7 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 
 	rows := encoderMacroblockRows(32)
 	cols := encoderMacroblockCols(32)
-	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, false, false)
+	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, false, false, e.rc.currentQuantizer)
 	if err != nil {
 		t.Fatalf("encodeKeyFrameAttempt returned error: %v", err)
 	}
@@ -672,7 +672,7 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 	e.probSkipFalse = 91
 	rows := encoderMacroblockRows(32)
 	cols := encoderMacroblockCols(32)
-	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true, false, true)
+	attempt, err := e.encodeInterFrameAttempt(make([]byte, 16384), sourceImageFromImage(second), rows, cols, rows*cols, 0, false, false, true, false, e.rc.currentQuantizer, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt returned error: %v", err)
 	}
@@ -683,6 +683,28 @@ func TestEncodeInterFrameAttemptDefersSkipFalseCommit(t *testing.T) {
 	e.commitInterFrameAttempt(attempt)
 	if e.probSkipFalse != attempt.Config.ProbSkipFalse {
 		t.Fatalf("committed probSkipFalse = %d, want accepted attempt probability %d", e.probSkipFalse, attempt.Config.ProbSkipFalse)
+	}
+}
+
+func TestRefFrameProbsFromUsageMirrorsLibvpxClamp(t *testing.T) {
+	if _, _, _, ok := refFrameProbsFromUsage(0, 0, 0, 0); ok {
+		t.Fatalf("empty ref usage returned ok=true, want false")
+	}
+
+	probIntra, probLast, probGolden, ok := refFrameProbsFromUsage(0, 0, 0, 4)
+	if !ok {
+		t.Fatalf("alt-only ref usage returned ok=false")
+	}
+	if probIntra != 1 || probLast != 1 || probGolden != 1 {
+		t.Fatalf("alt-only probs = %d/%d/%d, want clamped 1/1/1", probIntra, probLast, probGolden)
+	}
+
+	probIntra, probLast, probGolden, ok = refFrameProbsFromUsage(1, 2, 1, 1)
+	if !ok {
+		t.Fatalf("mixed ref usage returned ok=false")
+	}
+	if probIntra != 51 || probLast != 127 || probGolden != 127 {
+		t.Fatalf("mixed probs = %d/%d/%d, want 51/127/127", probIntra, probLast, probGolden)
 	}
 }
 

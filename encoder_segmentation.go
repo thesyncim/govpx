@@ -15,6 +15,10 @@ import (
 const staticSegmentID = 1
 
 func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.SegmentationConfig {
+	return e.cyclicRefreshSegmentationConfigForQuantizer(refreshGolden, e.rc.currentQuantizer)
+}
+
+func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizer(refreshGolden bool, q int) vp8enc.SegmentationConfig {
 	if !e.cyclicRefreshModeEnabled(refreshGolden) {
 		return vp8enc.SegmentationConfig{}
 	}
@@ -23,7 +27,7 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.
 		UpdateMap:  true,
 		UpdateData: true,
 	}
-	if e.aggressiveDenoiseSegmentationActive() {
+	if e.aggressiveDenoiseSegmentationActiveForQuantizer(q) {
 		// libvpx onyx_if.c cyclic_background_refresh: under aggressive
 		// denoising, drop the cyclic Q delta and instead ship an alt-LF
 		// delta of -40 so segment 1 macroblocks (steady ZEROMV-LAST) get
@@ -32,7 +36,7 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfig(refreshGolden bool) vp8enc.
 		cfg.FeatureData[vp8common.MBLvlAltLF][staticSegmentID] = aggressiveDenoiseAltLFDelta
 		return cfg
 	}
-	if delta := e.cyclicRefreshQuantizerDelta(); delta != 0 {
+	if delta := cyclicRefreshQuantizerDeltaForQuantizer(q); delta != 0 {
 		cfg.FeatureEnabled[vp8common.MBLvlAltQ][staticSegmentID] = true
 		cfg.FeatureData[vp8common.MBLvlAltQ][staticSegmentID] = delta
 	}
@@ -114,6 +118,10 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 // current Q is below qp_thresh, and the frame is far enough past the last
 // key frame (frames_since_key > 2 * consec_zerolast).
 func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
+	return e.aggressiveDenoiseSegmentationActiveForQuantizer(e.rc.currentQuantizer)
+}
+
+func (e *VP8Encoder) aggressiveDenoiseSegmentationActiveForQuantizer(q int) bool {
 	if e.opts.NoiseSensitivity < 3 {
 		return false
 	}
@@ -122,7 +130,7 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
 		return false
 	}
 	_, params := denoiserSetParameters(mode)
-	if e.rc.currentQuantizer >= params.qpThresh {
+	if q >= params.qpThresh {
 		return false
 	}
 	if e.rc.framesSinceKeyframe <= 2*params.consecZeroLast {
@@ -132,7 +140,10 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
 }
 
 func (e *VP8Encoder) cyclicRefreshQuantizerDelta() int8 {
-	q := e.rc.currentQuantizer
+	return cyclicRefreshQuantizerDeltaForQuantizer(e.rc.currentQuantizer)
+}
+
+func cyclicRefreshQuantizerDeltaForQuantizer(q int) int8 {
 	return int8(q/2 - q)
 }
 
@@ -248,12 +259,16 @@ func assignInterFrameStaticSegmentsWithMap(rows int, cols int, start int, refres
 }
 
 func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode) int {
+	return e.assignInterFrameStaticSegmentsForQuantizer(src, rows, cols, modes, e.rc.currentQuantizer)
+}
+
+func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.SourceImage, rows int, cols int, modes []vp8enc.InterFrameMacroblockMode, q int) int {
 	count := rows * cols
 	if count <= 0 {
 		return 0
 	}
 	if len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count {
-		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), nil, modes)
+		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), nil, modes)
 	}
 	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
 	// libvpx computes skin_map independently and only consumes it in the
@@ -263,7 +278,7 @@ func (e *VP8Encoder) assignInterFrameStaticSegments(src vp8enc.SourceImage, rows
 	if e.opts.StaticThreshold > 0 && e.opts.ScreenContentMode == 0 && len(e.skinMap) >= count {
 		computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
 	}
-	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrame(rows, cols), e.cyclicRefreshAttemptMap[:count], modes)
+	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), e.cyclicRefreshAttemptMap[:count], modes)
 }
 
 func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, modes []vp8enc.InterFrameMacroblockMode) {
@@ -363,11 +378,15 @@ func clearUint8Map(values []uint8) {
 }
 
 func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
+	return e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, e.rc.currentQuantizer)
+}
+
+func (e *VP8Encoder) cyclicRefreshMaxMBsPerFrameForQuantizer(rows int, cols int, q int) int {
 	layers := 1
 	if e.temporal.enabled {
 		layers = e.temporal.pattern.Layers
 	}
-	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, e.opts.ScreenContentMode, e.rc.currentQuantizer, e.rc.framesSinceKeyframe, e.lastInterSkipCount)
+	return cyclicRefreshMaxMBsPerFrameForConfig(rows, cols, layers, e.opts.ScreenContentMode, q, e.rc.framesSinceKeyframe, e.lastInterSkipCount)
 }
 
 func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {

@@ -1,7 +1,6 @@
 package govpx
 
 import (
-	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -107,45 +106,41 @@ func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAtte
 	if !libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef) {
 		return
 	}
-	var rfct [4]int
-	for i := range e.interFrameModes {
-		switch e.interFrameModes[i].RefFrame {
-		case vp8common.IntraFrame:
-			rfct[0]++
-		case vp8common.LastFrame:
-			rfct[1]++
-		case vp8common.GoldenFrame:
-			rfct[2]++
-		case vp8common.AltRefFrame:
-			rfct[3]++
-		}
-	}
-	rfIntra := rfct[0]
-	rfInter := rfct[1] + rfct[2] + rfct[3]
-	if rfIntra+rfInter == 0 {
+	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes)
+	probIntra, probLast, probGolden, ok := refFrameProbsFromUsage(intra, last, golden, alt)
+	if !ok {
 		return
 	}
-	newIntra := rfIntra * 255 / (rfIntra + rfInter)
+	e.refProbIntra = probIntra
+	e.refProbLast = probLast
+	e.refProbGolden = probGolden
+}
+
+func refFrameProbsFromUsage(intra int, last int, golden int, alt int) (probIntra uint8, probLast uint8, probGolden uint8, ok bool) {
+	rfInter := last + golden + alt
+	total := intra + rfInter
+	if total == 0 {
+		return 0, 0, 0, false
+	}
+	newIntra := intra * 255 / total
 	if newIntra == 0 {
 		newIntra = 1
 	}
 	newLast := 128
 	if rfInter > 0 {
-		newLast = rfct[1] * 255 / rfInter
+		newLast = last * 255 / rfInter
 		if newLast == 0 {
 			newLast = 1
 		}
 	}
 	newGarf := 128
-	if rfct[2]+rfct[3] > 0 {
-		newGarf = rfct[2] * 255 / (rfct[2] + rfct[3])
+	if golden+alt > 0 {
+		newGarf = golden * 255 / (golden + alt)
 		if newGarf == 0 {
 			newGarf = 1
 		}
 	}
-	e.refProbIntra = uint8(newIntra)
-	e.refProbLast = uint8(newLast)
-	e.refProbGolden = uint8(newGarf)
+	return uint8(newIntra), uint8(newLast), uint8(newGarf), true
 }
 
 func (e *VP8Encoder) resetRefFrameProbsToDefaultInterRD() {

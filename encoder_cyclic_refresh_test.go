@@ -191,6 +191,39 @@ func TestEncodeIntoDefaultCBREnablesLibvpxCyclicRefreshSegmentation(t *testing.T
 	}
 }
 
+func TestCyclicRefreshSegmentationUsesPreRecodeQuantizer(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             128,
+		Height:            128,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           -3,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	var result EncodeResult
+	for frame := range 3 {
+		result, err = e.EncodeInto(dst, encoderValidationPanningFrame(128, 128, frame), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", frame, err)
+		}
+	}
+	state := packetState(t, result.Data)
+	if got := state.Quant.BaseQIndex; got != 4 {
+		t.Fatalf("frame 2 base Q = %d, want recoded final Q 4", got)
+	}
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != -7 {
+		t.Fatalf("frame 2 cyclic alt-q = %d, want pre-recode Q/2-Q delta -7", got)
+	}
+}
+
 func TestEncodeIntoScreenContentMode2DisablesGoldenRefreshCyclicSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,

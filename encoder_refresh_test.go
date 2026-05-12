@@ -80,7 +80,7 @@ func TestEncodeInterFrameAttemptSuppressesAltRefCopyBufferOnHiddenARF(t *testing
 
 	// Hidden ARF: invisible frame that forces an ARF refresh.
 	flags := EncodeForceAltRefFrame | EncodeInvisibleFrame
-	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, flags, false, false, false, false, true)
+	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, flags, false, false, false, false, e.rc.currentQuantizer, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt(hidden ARF) returned error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestEncodeInterFrameAttemptClearsCopyBuffersOnDeferredShowFrame(t *testing.
 	// Drive a CBR golden refresh on the deferred show frame so that the
 	// pre-existing CopyBufferToAltRef=2 path would normally fire. The
 	// is_src_frame_alt_ref edge case must override it.
-	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, 0, false, true, false, false, true)
+	attempt, err := e.encodeInterFrameAttempt(dst, sourceImageFromImage(testImage(e.opts.Width, e.opts.Height)), rows, cols, required, 0, false, true, false, false, e.rc.currentQuantizer, true, false)
 	if err != nil {
 		t.Fatalf("encodeInterFrameAttempt(deferred show) returned error: %v", err)
 	}

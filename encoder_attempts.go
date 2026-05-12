@@ -18,11 +18,12 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	if traceEnabled {
 		e.resetOracleTraceRecode()
 	}
+	cyclicRefreshQ := e.rc.currentQuantizer
 	for attempt := 0; ; attempt++ {
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
 		}
-		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
+		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed, cyclicRefreshQ)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
@@ -71,7 +72,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	}
 }
 
-func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool, cyclicRefreshQ int) (keyFrameEncodeAttempt, error) {
 	e.phaseCountAttempt(true)
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return keyFrameEncodeAttempt{}, ErrInvalidConfig
@@ -82,7 +83,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if roiSegmentation.Enabled {
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfig(true)
+		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(true, cyclicRefreshQ)
 	}
 	var err error
 	projectedRate := 0
@@ -178,12 +179,14 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 	// constrained bitrates. See libvpx vp8/encoder/onyx_if.c
 	// `recode_loop_test` and `set_speed_features` case 1/2/3.
 	allowRecode := e.libvpxInterRecodeLoopActive(boostedReferenceFrame)
+	rdRefProbsPreconfigured := false
+	cyclicRefreshQ := e.rc.currentQuantizer
 	for attempt := 0; ; attempt++ {
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
 		}
 		needProjectedSize := allowRecode || traceEnabled
-		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, needProjectedSize)
+		result, err := e.encodeInterFrameAttempt(dst, source, rows, cols, required, flags, temporalActive, goldenCBRRefresh, staticSegmentationAllowed, sourceIsAltRef, cyclicRefreshQ, needProjectedSize, rdRefProbsPreconfigured)
 		if err != nil {
 			return interFrameEncodeAttempt{}, err
 		}
@@ -193,8 +196,25 @@ func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp
 		if traceEnabled {
 			e.setOracleTraceRecodeReason("size_recode")
 		}
+		nextRefIntra, nextRefLast, nextRefGolden := e.refProbIntra, e.refProbLast, e.refProbGolden
+		if libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), result.Config.RefreshGolden, result.Config.RefreshAltRef) {
+			intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+			if probIntra, probLast, probGolden, ok := refFrameProbsFromUsage(intra, last, golden, alt); ok {
+				nextRefIntra, nextRefLast, nextRefGolden = probIntra, probLast, probGolden
+			}
+		}
 		// Recode accepted: restore the pre-loop snapshot before re-encoding.
+		// libvpx's coding-context restore does not include
+		// prob_intra_coded / prob_last_coded / prob_gf_coded; when
+		// vp8_encode_frame converted the rejected attempt's ref counts,
+		// those converted probabilities intentionally feed the next recode
+		// iteration's ref_frame_cost table.
 		e.restoreCodingContext()
+		e.refProbIntra = nextRefIntra
+		e.refProbLast = nextRefLast
+		e.refProbGolden = nextRefGolden
+		e.refProbUseDefaultOnNextInterRD = false
+		rdRefProbsPreconfigured = true
 	}
 }
 
@@ -375,7 +395,7 @@ func (e *VP8Encoder) currentPredictionErrorMB(macroblocks int) int {
 	return int(e.framePredictionError / int64(macroblocks))
 }
 
-func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, needProjectedSize bool) (interFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, staticSegmentationAllowed bool, sourceIsAltRef bool, cyclicRefreshQ int, needProjectedSize bool, rdRefProbsPreconfigured bool) (interFrameEncodeAttempt, error) {
 	e.phaseCountAttempt(false)
 	e.framePredictionError = 0
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
@@ -422,7 +442,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if roiSegmentation.Enabled {
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfig(cfg.RefreshGolden)
+		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(cfg.RefreshGolden, cyclicRefreshQ)
 		cyclicRefreshEnabled = segmentation.Enabled
 	}
 	if segmentation.Enabled {
@@ -454,20 +474,22 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// return so commitInterFrameAttempt's updateRefFrameProbsFromAttempt
 	// recomputes them from this frame's mb_ref_frame counts (the equivalent
 	// of vp8_convert_rfct_to_prob at packet write time).
-	previousRefProbIntra := e.refProbIntra
-	previousRefProbLast := e.refProbLast
-	previousRefProbGolden := e.refProbGolden
-	if e.refProbUseDefaultOnNextInterRD {
-		e.resetRefFrameProbsToDefaultInterRD()
+	if !rdRefProbsPreconfigured {
+		previousRefProbIntra := e.refProbIntra
+		previousRefProbLast := e.refProbLast
+		previousRefProbGolden := e.refProbGolden
+		if e.refProbUseDefaultOnNextInterRD {
+			e.resetRefFrameProbsToDefaultInterRD()
+		}
+		if !e.opts.TemporalScalability.Enabled {
+			e.applyLibvpxRdRefFrameProbRefreshAdjustments(cfg.RefreshAltRef)
+		}
+		defer func() {
+			e.refProbIntra = previousRefProbIntra
+			e.refProbLast = previousRefProbLast
+			e.refProbGolden = previousRefProbGolden
+		}()
 	}
-	if !e.opts.TemporalScalability.Enabled {
-		e.applyLibvpxRdRefFrameProbRefreshAdjustments(cfg.RefreshAltRef)
-	}
-	defer func() {
-		e.refProbIntra = previousRefProbIntra
-		e.refProbLast = previousRefProbLast
-		e.refProbGolden = previousRefProbGolden
-	}()
 	var err error
 	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
@@ -497,7 +519,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 				return interFrameEncodeAttempt{}, ErrInvalidConfig
 			}
 		} else {
-			cyclicRefreshNextIndex = e.assignInterFrameStaticSegments(source, rows, cols, e.interFrameModes[:required])
+			cyclicRefreshNextIndex = e.assignInterFrameStaticSegmentsForQuantizer(source, rows, cols, e.interFrameModes[:required], cyclicRefreshQ)
 		}
 		if e.rowWorkers != nil {
 			projectedRate, err = e.buildReconstructingInterFrameCoefficientsWithSegmentationMaybeThreaded(source, e.rc.currentQuantizer, segmentation, true, e.interFrameModes[:required], e.keyFrameCoeffs[:required], rows, cols, flags)
