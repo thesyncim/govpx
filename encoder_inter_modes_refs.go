@@ -8,7 +8,9 @@ import (
 func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]int {
 	order := [4]int{-1, -1, -1, -1}
 	searchSlot := 1
-	for refIndex := 0; refIndex < refCount && refIndex < len(refs) && searchSlot < len(order); refIndex++ {
+	// Hoist the min(refCount, len(refs)) bound out of the loop condition.
+	refLimit := min(refCount, len(refs))
+	for refIndex := 0; refIndex < refLimit && searchSlot < len(order); refIndex++ {
 		if refs[refIndex].Img == nil {
 			continue
 		}
