@@ -162,12 +162,7 @@ func (s *fullPelMotionSearch) diamond(center vp8enc.MotionVector, centerWalkCost
 }
 
 func (s *fullPelMotionSearch) steppedDiamond(center vp8enc.MotionVector, centerWalkCost int, search interAnalysisSearchConfig, sites []vp8enc.MotionVector, sitesPerStep int) (vp8enc.MotionVector, int) {
-	stepParam := search.fullPixelSearchParam
-	if stepParam < 0 {
-		stepParam = 0
-	} else if stepParam >= interFrameMaxMVSearchSteps {
-		stepParam = interFrameMaxMVSearchSteps - 1
-	}
+	stepParam := min(max(search.fullPixelSearchParam, 0), interFrameMaxMVSearchSteps-1)
 
 	result := s.searchSites(center, centerWalkCost, sites, sitesPerStep, stepParam)
 	best := result.mv
@@ -204,11 +199,7 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 	if sitesPerStep <= 0 || len(sites) < 1+sitesPerStep {
 		return interFrameNstepSearchResult{mv: center, cost: s.cost(center)}
 	}
-	if searchParam < 0 {
-		searchParam = 0
-	} else if searchParam >= interFrameMaxMVSearchSteps {
-		searchParam = interFrameMaxMVSearchSteps - 1
-	}
+	searchParam = min(max(searchParam, 0), interFrameMaxMVSearchSteps-1)
 	bestRow := int(center.Row) >> 3
 	bestCol := int(center.Col) >> 3
 	bestWalkCost := centerWalkCost

@@ -27,11 +27,7 @@ func selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(src vp8enc
 }
 
 func nstepInterFrameSplitBlockFullPixelMotionVector(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, center vp8enc.MotionVector, centerWalkCost int, bestRefMV vp8enc.MotionVector, qIndex int, bounds interFrameFullPixelBounds, stepParam int) (vp8enc.MotionVector, int) {
-	if stepParam < 0 {
-		stepParam = 0
-	} else if stepParam >= interFrameMaxMVSearchSteps {
-		stepParam = interFrameMaxMVSearchSteps - 1
-	}
+	stepParam = min(max(stepParam, 0), interFrameMaxMVSearchSteps-1)
 	furtherSteps := (interFrameMaxMVSearchSteps - 1) - stepParam
 	result := diamondNstepInterFrameSplitBlockFullPixelMotionVector(src, ref, mbRow, mbCol, block, width, height, center, centerWalkCost, bestRefMV, qIndex, bounds, stepParam)
 	best := result.mv
