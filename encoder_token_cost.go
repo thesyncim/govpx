@@ -109,7 +109,7 @@ func coefficientTokenCost(probs [vp8tables.EntropyNodes]uint8, token int, blockT
 }
 
 func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
-	if token < 0 || token >= len(coefTokenPaths) {
+	if uint(token) >= uint(len(coefTokenPaths)) {
 		return maxInt() / 4
 	}
 	cost := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
