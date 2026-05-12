@@ -266,7 +266,10 @@ func writeMVComponent(w *BoolWriter, probs []uint8, component int) bool {
 }
 
 func writeLargeMVComponent(w *BoolWriter, probs []uint8, component int, negative bool) bool {
-	if len(probs) < tables.MVPCount || component < 8 || component > 0x7ff {
+	// uint(component-8) > uint(0x7ff-8) folds (component < 8) and
+	// (component > 0x7ff) into one branch — both fail end up wrapped
+	// above the new threshold.
+	if len(probs) < tables.MVPCount || uint(component-8) > uint(0x7ff-8) {
 		return false
 	}
 	w.WriteBool(1, probs[mvProbIsShort])
