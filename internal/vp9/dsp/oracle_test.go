@@ -61,6 +61,12 @@ const (
 
 	convSrcDim    = 80
 	convSrcOffset = 16
+
+	// Loop filter records start at 500.
+	kLfBase    = 500
+	kLfHoriz4  = 500
+	kLfVert4   = 501
+	lfPlaneDim = 32
 )
 
 const (
@@ -177,6 +183,40 @@ func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride
 	_, _ = io.ReadFull(r, dst)
 	consumed := len(b) - r.Len()
 	return kernelID, txSize, above, left, stride, dst, consumed
+}
+
+// readLfRecord decodes one loop-filter record (kernel_id in [500, 501]).
+func readLfRecord(b []byte) (kernelID, blimit, limit, thresh, pitch, cursor int,
+	planePre, planePost []byte, n int) {
+	r := bytes.NewReader(b)
+	read32 := func() uint32 {
+		var v uint32
+		_ = binary.Read(r, binary.LittleEndian, &v)
+		return v
+	}
+	kernelID = int(read32())
+	blimit = int(read32())
+	limit = int(read32())
+	thresh = int(read32())
+	pitch = int(read32())
+	cursor = int(read32())
+	planePre = make([]byte, lfPlaneDim*lfPlaneDim)
+	_, _ = io.ReadFull(r, planePre)
+	planePost = make([]byte, lfPlaneDim*lfPlaneDim)
+	_, _ = io.ReadFull(r, planePost)
+	consumed := len(b) - r.Len()
+	return kernelID, blimit, limit, thresh, pitch, cursor, planePre, planePost, consumed
+}
+
+// callLf dispatches a loop-filter record to the matching Go kernel.
+func callLf(kernelID, blimit, limit, thresh, pitch, cursor int, plane []byte) {
+	bl, li, th := uint8(blimit), uint8(limit), uint8(thresh)
+	switch kernelID {
+	case kLfHoriz4:
+		VpxLpfHorizontal4(plane, cursor, pitch, bl, li, th)
+	case kLfVert4:
+		VpxLpfVertical4(plane, cursor, pitch, bl, li, th)
+	}
 }
 
 // readConvRecord decodes one convolve record (kernel_id in [400, 405]).
@@ -421,10 +461,30 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
 	counts := make(map[int]int)
-	var nCases, nIntra, nConv int
+	var nCases, nIntra, nConv, nLf int
 
 	for len(blob) > 0 {
 		id := peekKernelID(blob)
+		if id >= kLfBase {
+			kernel, bl, li, th, pitch, cursor, pre, post, consumed := readLfRecord(blob)
+			blob = blob[consumed:]
+			nCases++
+			nLf++
+			counts[kernel]++
+			got := make([]byte, len(pre))
+			copy(got, pre)
+			callLf(kernel, bl, li, th, pitch, cursor, got)
+			if !bytes.Equal(got, post) {
+				diff := 0
+				for i := range got {
+					if got[i] != post[i] {
+						diff++
+					}
+				}
+				t.Fatalf("lf kernel=%d blimit=%d limit=%d thresh=%d: %d bytes differ", kernel, bl, li, th, diff)
+			}
+			continue
+		}
 		if id >= kConvBase {
 			kernel, filterIdx, x0Q4, y0Q4, w, h, src, dstPre, dstPost, consumed := readConvRecord(blob)
 			blob = blob[consumed:]
@@ -541,8 +601,9 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	if nCases == 0 {
 		t.Fatal("oracle blob contained no records")
 	}
-	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
-		nCases, nCases-nIntra-nConv, nIntra, nConv,
+	_ = nLf
+	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d, lf=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
+		nCases, nCases-nIntra-nConv-nLf, nIntra, nConv, nLf,
 		counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
 		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],

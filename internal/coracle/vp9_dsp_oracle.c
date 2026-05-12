@@ -130,6 +130,11 @@ void vpx_convolve_avg_c(const uint8_t *src, ptrdiff_t src_stride,
 
 // Filter banks exported by vp9_filter.c via vp9_filter_kernels.
 extern const InterpKernel *vp9_filter_kernels[5];
+
+void vpx_lpf_horizontal_4_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                            const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_vertical_4_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                          const uint8_t *limit, const uint8_t *thresh);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -322,6 +327,43 @@ static void run_convolve(int kind, int filter_idx, int x0_q4, int y0_q4,
 	emit_bytes(src, (size_t)(CONV_SRC_DIM * CONV_SRC_DIM));
 	emit_bytes(dst_pre, (size_t)(w * h));
 	emit_bytes(dst_post, (size_t)(w * h));
+}
+
+// Loop filter oracle record format (little-endian):
+//   u32 kernel_id  (500 = horiz4, 501 = vert4)
+//   u32 blimit
+//   u32 limit
+//   u32 thresh
+//   u32 pitch (32)
+//   u32 cursor_offset (16*32 + 16)
+//   32*32 = 1024 bytes  plane_pre
+//   32*32 = 1024 bytes  plane_post (after libvpx call)
+#define LF_PLANE_DIM 32
+#define LF_CURSOR_OFFSET (16 * LF_PLANE_DIM + 16)
+static void run_lf(int kind, int blimit, int limit, int thresh) {
+	static uint8_t plane_pre[LF_PLANE_DIM * LF_PLANE_DIM];
+	static uint8_t plane_post[LF_PLANE_DIM * LF_PLANE_DIM];
+
+	for (int i = 0; i < LF_PLANE_DIM * LF_PLANE_DIM; i++) plane_pre[i] = prng_pixel();
+	memcpy(plane_post, plane_pre, sizeof plane_pre);
+
+	uint8_t bl = (uint8_t)blimit, li = (uint8_t)limit, th = (uint8_t)thresh;
+	uint8_t *s = plane_post + LF_CURSOR_OFFSET;
+
+	switch (kind) {
+		case 500: vpx_lpf_horizontal_4_c(s, LF_PLANE_DIM, &bl, &li, &th); break;
+		case 501: vpx_lpf_vertical_4_c(s,   LF_PLANE_DIM, &bl, &li, &th); break;
+		default: return;
+	}
+
+	emit_u32((uint32_t)kind);
+	emit_u32((uint32_t)blimit);
+	emit_u32((uint32_t)limit);
+	emit_u32((uint32_t)thresh);
+	emit_u32((uint32_t)LF_PLANE_DIM);
+	emit_u32((uint32_t)LF_CURSOR_OFFSET);
+	emit_bytes(plane_pre, sizeof plane_pre);
+	emit_bytes(plane_post, sizeof plane_post);
 }
 
 static void run_dir4(int kind) {
@@ -600,6 +642,22 @@ int main(void) {
 			int w = widths[wi];
 			run_convolve(404, 0, 0, 0, w, w);
 			run_convolve(405, 0, 0, 0, w, w);
+		}
+	}
+
+	// Loop filter — sweep blimit/limit/thresh across a few configurations
+	// so the filter_mask / hev_mask / filter4 dispatch is exercised:
+	//   - thresh dominant (forces hev = 1)
+	//   - tight limit (forces filter_mask = 0, no-op)
+	//   - balanced typical levels
+	{
+		int blimits[] = { 4, 8, 12, 24, 48 };
+		int limits[]  = { 2, 4, 8, 16, 32 };
+		int thresh[]  = { 0, 2, 4, 8, 16 };
+		for (int k = 500; k <= 501; k++) {
+			for (int i = 0; i < 5; i++) {
+				run_lf(k, blimits[i], limits[i], thresh[i]);
+			}
 		}
 	}
 
