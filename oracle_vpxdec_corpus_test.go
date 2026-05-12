@@ -148,7 +148,7 @@ func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generat
 
 func writeDeterministicI420(t *testing.T, path string, width int, height int, frames int) {
 	t.Helper()
-	if width <= 0 || height <= 0 || frames <= 0 || width%2 != 0 || height%2 != 0 {
+	if min(min(width, height), frames) <= 0 || width%2 != 0 || height%2 != 0 {
 		t.Fatalf("invalid I420 corpus dimensions %dx%d frames=%d", width, height, frames)
 	}
 	uvWidth := width / 2

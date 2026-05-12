@@ -152,7 +152,7 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 // when `bits_in_section >> 7 > allocation_chunks` to retain precision
 // without overflow. Both branches are mirrored here.
 func libvpxGoldenFrameTargetBits(boost int, framesTillGFUpdateDue int, interFrameTarget int) int {
-	if boost <= 0 || framesTillGFUpdateDue < 0 || interFrameTarget <= 0 {
+	if min(boost, interFrameTarget) <= 0 || framesTillGFUpdateDue < 0 {
 		return 0
 	}
 	framesInSection := framesTillGFUpdateDue + 1
