@@ -315,11 +315,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.currentQuantizer = e.rc.maxQuantizer
 		e.rc.currentZbinOverQuant = 0
 	}
-	// libvpx vp8/encoder/firstpass.c estimate_max_q applies a CQ floor
-	// (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
-	// AFTER the second-pass Q regulation. Re-assert it here so the
-	// regulated quantizer never falls below the configured CQ target.
-	e.rc.applyCQFloor()
+	// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass CQ
+	// (USAGE_CONSTRAINED_QUALITY) the cq_target_quality floor is only
+	// applied to inter non-refresh frames. KF/GF/ARF stay at
+	// best_quality (==minQuantizer) so reference frames retain quality
+	// independent of the cq_level target.
+	if !keyFrame && !boostedReferenceFrame {
+		e.rc.applyCQFloor()
+	}
 
 	result := EncodeResult{
 		KeyFrame:                           keyFrame,
@@ -453,7 +456,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				e.rc.currentQuantizer = e.rc.maxQuantizer
 				e.rc.currentZbinOverQuant = 0
 			}
-			e.rc.applyCQFloor()
+			// Scene-cut promotion path: forced KF, so do not apply the
+			// CQ floor here either (matches the keyFrame branch in the
+			// primary path above).
 			result.KeyFrame = true
 			result.SceneCut = true
 			result.TwoPassFrameTargetBits = twoPassTargetBits

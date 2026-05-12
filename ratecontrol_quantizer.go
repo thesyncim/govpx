@@ -45,7 +45,16 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, gfOrArf)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, goldenFrame, altRefFrame)
 	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, altRefFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
-	if rc.mode == RateControlCQ {
+	if rc.mode == RateControlCQ && !keyFrame && !gfOrArf {
+		// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass
+		// CQ (USAGE_CONSTRAINED_QUALITY) on the ni_frames<=150 branch,
+		// active_best_quality stays at cpi->best_quality for KF/GF/ARF
+		// frames and is only floored to cq_target_quality for inter
+		// non-refresh frames. govpx mirrors that floor through
+		// libvpxActiveQuantizerBoundsForFrame; do not re-apply the
+		// cq_level clamp here for KF/GF/ARF or those reference frames
+		// get over-quantized relative to libvpx (oracle parity gap on
+		// realtime-cq-cpu0-16x16-cq20).
 		rc.currentQuantizer = rc.clampedCQQuantizerValue(rc.currentQuantizer)
 		if rc.currentQuantizer < vp8MaxQIndex {
 			rc.currentZbinOverQuant = 0
