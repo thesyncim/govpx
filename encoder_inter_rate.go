@@ -268,29 +268,33 @@ func mbSplitPartitionRate(partition uint8) int {
 }
 
 func analysisSplitLeftMV(cur *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {
+	// BlockMV is [16]MotionVector. The guards keep every indexed access
+	// in [0,16); AND-mask with 15 elides the bounds checks.
 	if block&3 == 0 {
 		if left == nil {
 			return vp8enc.MotionVector{}
 		}
 		if left.Mode == vp8common.SplitMV {
-			return left.BlockMV[block+3]
+			return left.BlockMV[(block+3)&15]
 		}
 		return left.MV
 	}
-	return cur.BlockMV[block-1]
+	return cur.BlockMV[(block-1)&15]
 }
 
 func analysisSplitAboveMV(cur *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, block int) vp8enc.MotionVector {
+	// BlockMV is [16]MotionVector. The guards keep every indexed access
+	// in [0,16); AND-mask with 15 elides the bounds checks.
 	if block>>2 == 0 {
 		if above == nil {
 			return vp8enc.MotionVector{}
 		}
 		if above.Mode == vp8common.SplitMV {
-			return above.BlockMV[block+12]
+			return above.BlockMV[(block+12)&15]
 		}
 		return above.MV
 	}
-	return cur.BlockMV[block-4]
+	return cur.BlockMV[(block-4)&15]
 }
 
 func interNewMVVectorCost(mv vp8enc.MotionVector, best vp8enc.MotionVector, mvProbs *[2][vp8tables.MVPCount]uint8, weight int) int {
