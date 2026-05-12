@@ -728,6 +728,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-128x128-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-128x128-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-128x128-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// GoodQuality cpu-3 16x16 splitmv + segmented fixture probes —
+		// the single-MB GQ fixture is parity-stable; cross-fixture probes
+		// pin segment-aware quantizer/loopfilter and SPLITMV partitioning
+		// at the same GQ deadline + cpu-3 anchor.
+		{name: "good-quality-cbr-cpu-3-16x16-splitmv", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "splitmv-16x16", w: 16, h: 16, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "good-quality-cbr-cpu-3-16x16-segmented", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
