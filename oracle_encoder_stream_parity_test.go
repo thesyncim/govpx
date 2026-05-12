@@ -203,6 +203,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Realtime cpu8 on 128x64 splitmv to expand SPLITMV coverage.
 		// Same splitmv state-drift at frame 2+ as 64x64; pin limit=2.
 		{name: "realtime-cbr-cpu8-128x64-splitmv", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "splitmv-128x64", w: 128, h: 64, source: encoderValidationSplitMVQuadrantFrame}, limit: 2},
+		// Larger panning configs at cpu0/cpu4.
+		{name: "realtime-cbr-cpu0-160x96", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning160x96},
+		{name: "realtime-cbr-cpu4-160x96", deadline: DeadlineRealtime, cpuUsed: 4, fx: panning160x96},
+		// Realtime cpu0/cpu4 on splitmv64.
+		{name: "realtime-cbr-cpu0-splitmv", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 2},
+		{name: "realtime-cbr-cpu4-splitmv", deadline: DeadlineRealtime, cpuUsed: 4, fx: splitmv64, limit: 2},
 	}
 
 	for _, tc := range cases {
