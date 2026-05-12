@@ -43,9 +43,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 		if z == 0 {
 			qcoeff[rc] = 0
 			dqcoeff[rc] = 0
-			if zeroRun < len(quant.ZbinBoost)-1 {
-				zeroRun++
-			}
+			zeroRun = min(zeroRun+1, 15)
 			continue
 		}
 
@@ -58,9 +56,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 		if x < zbin {
 			qcoeff[rc] = 0
 			dqcoeff[rc] = 0
-			if zeroRun < len(quant.ZbinBoost)-1 {
-				zeroRun++
-			}
+			zeroRun = min(zeroRun+1, 15)
 			continue
 		}
 
@@ -73,8 +69,8 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 		if y != 0 {
 			eob = pos
 			zeroRun = 0
-		} else if zeroRun < len(quant.ZbinBoost)-1 {
-			zeroRun++
+		} else {
+			zeroRun = min(zeroRun+1, 15)
 		}
 	}
 	return eob + 1
