@@ -137,12 +137,21 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// is VPX_ERROR_RESILIENT_PARTITIONS, which is what
 		// EncoderOptions.ErrorResilientPartitions maps to.
 		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
+		// ErrorResilient=true takes the normal error-resilient bitmask
+		// path, distinct from independent partition contexts above. It
+		// exposes a remaining frame-0 byte gap, so keep it visible without
+		// asserting parity yet.
+		{name: "realtime-cbr-cpu0-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		{name: "realtime-cbr-cpu0-16x16-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
 		// High-value VP8 controls with direct vpxenc flags.
 		{name: "realtime-cbr-cpu0-32x32-static-thresh1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, staticThreshold: 1, extraArgs: []string{"--static-thresh=1"}},
 		{name: "realtime-cbr-cpu0-32x32-tune-ssim", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
 		{name: "realtime-q-cpu0-32x32-q20", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		// CQ mode currently diverges from the oracle at frame 0; track it
+		// as a control gap until CQ quantizer setup is byte-aligned.
+		{name: "realtime-cq-cpu0-16x16-cq20", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
 		{name: "realtime-cbr-cpu0-32x32-undershoot50-overshoot50", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, undershootPct: 50, overshootPct: 50, extraArgs: []string{"--undershoot-pct=50", "--overshoot-pct=50"}},
 		{name: "realtime-cbr-cpu0-32x32-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
 		{name: "realtime-cbr-cpu0-32x32-drop-frame60", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, dropFrameAllowed: true, dropFrameWaterMark: 60, extraArgs: []string{"--drop-frame=60"}},
@@ -457,12 +466,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu_used to [-5, 5] before dispatch (libvpxEffectiveCPUUsed),
 		// so cpu-3/-5 don't bypass the auto-select trajectory the way
 		// realtime cpu-8 does. The smallest single-MB frame (16x16),
-		// 32x32, and 48x48 byte-match fully; 128x128 reaches frame 1
-		// before the first drift at frame 2.
+		// 32x32, and 48x48 byte-match fully; 128x128 reaches frame 12
+		// before the first remaining drift at frame 13.
 		{name: "good-quality-cbr-cpu-3-16x16", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu-3-32x32", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu-3-48x48", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
-		{name: "good-quality-cbr-cpu-3-128x128", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 3},
+		{name: "good-quality-cbr-cpu-3-128x128", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 13},
 		{name: "good-quality-cbr-cpu-5-32x32", deadline: DeadlineGoodQuality, cpuUsed: -5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		// cpu-3 / cpu-8 token-partitions probes. Negative cpu_used bypasses
 		// autoSpeed evolution and gives the cleanest parity surface. The
