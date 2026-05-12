@@ -19,9 +19,13 @@ const (
 // VP9 cospi / sinpi constants from vpx_dsp/txfm_common.h. Used by the
 // 4-point and 8-point inverse DCT / ADST kernels.
 const (
+	cospi4_64  = 16069
 	cospi8_64  = 15137
+	cospi12_64 = 13623
 	cospi16_64 = 11585
+	cospi20_64 = 9102
 	cospi24_64 = 6270
+	cospi28_64 = 3196
 
 	sinpi1_9 = 5283
 	sinpi2_9 = 9929
