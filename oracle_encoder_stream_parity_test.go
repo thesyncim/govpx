@@ -515,6 +515,20 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-128x128-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-128x128-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-128x128-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// cpu-8 panning at the smallest sizes. cpu-3 already byte-matches
+		// every one of these; cpu-8 covers the alternate static-Speed
+		// branch on the same fixtures and locks in parity across both
+		// ends of the negative-cpu range.
+		{name: "realtime-cbr-cpu-8-16x16", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-32x32", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-48x48", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-64x32", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-64x48", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-64x64", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64},
+		{name: "realtime-cbr-cpu-8-64x128", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
+		// cpu-3 panning at 80x80 — cpu-3's 80x80 isn't probed; cpu-8's
+		// nearest neighbour at this size is 96x96 which byte-matches.
+		{name: "realtime-cbr-cpu-8-80x80", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
