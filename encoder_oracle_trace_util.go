@@ -61,7 +61,7 @@ func oracleTraceReferenceChecksums(img *vp8common.Image) (uint32, uint32, uint32
 }
 
 func planeAdler32(plane []byte, width int, height int, stride int) uint32 {
-	if width <= 0 || height <= 0 || stride <= 0 {
+	if min(min(width, height), stride) <= 0 {
 		return 0
 	}
 	h := adler32.New()

@@ -124,7 +124,7 @@ func referenceChromaPlane(visible []byte, full []byte, origin int) ([]byte, int)
 }
 
 func referencePlaneBlockOffset(plane []byte, stride int, origin int, y int, x int, width int, height int, subpel bool) (int, bool) {
-	if len(plane) == 0 || stride <= 0 || width <= 0 || height <= 0 {
+	if len(plane) == 0 || min(min(stride, width), height) <= 0 {
 		return 0, false
 	}
 	if subpel {
