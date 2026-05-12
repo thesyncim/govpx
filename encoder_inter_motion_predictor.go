@@ -187,14 +187,19 @@ func improvedInterFrameMVMedian(slots [8]improvedInterFrameMVSlot, count int) vp
 	}
 	var rows [8]int
 	var cols [8]int
+	// limit ∈ [0, 8] by construction (min with array length); using
+	// limit instead of count for both the sort range and the median
+	// index avoids a per-call IsSliceInBounds on rows[:count]/
+	// cols[:count] (count is unbounded from the compiler's view) and
+	// also closes a latent panic when count > 8.
 	limit := min(count, len(slots))
 	for i := 0; i < limit; i++ {
 		rows[i] = int(slots[i].mv.Row)
 		cols[i] = int(slots[i].mv.Col)
 	}
-	insertionSortInts(rows[:count])
-	insertionSortInts(cols[:count])
-	return vp8enc.MotionVector{Row: int16(rows[count/2]), Col: int16(cols[count/2])}
+	insertionSortInts(rows[:limit])
+	insertionSortInts(cols[:limit])
+	return vp8enc.MotionVector{Row: int16(rows[limit/2]), Col: int16(cols[limit/2])}
 }
 
 func insertionSortInts(values []int) {
