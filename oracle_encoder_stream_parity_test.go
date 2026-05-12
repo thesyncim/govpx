@@ -500,6 +500,21 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// cpu-3 / cpu-8 quantizer-range probes at small frames. q ranges
+		// drive a different rate-control surface; pinning them on the
+		// parity-stable negative-cpu speeds catches any quantizer
+		// trajectory regressions independent of speed evolution.
+		{name: "realtime-cbr-cpu-3-128x128-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-128x128-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-128x128-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-128x128-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		// cpu-3 / cpu-8 bitrate-extreme probes — low (200kbps) and high
+		// (2000kbps) on a 128x128 fixture stress the buffer-fullness
+		// path that diverges on larger sizes.
+		{name: "realtime-cbr-cpu-3-128x128-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-128x128-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-128x128-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-128x128-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
