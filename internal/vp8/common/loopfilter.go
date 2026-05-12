@@ -136,21 +136,9 @@ func initLoopFilterLUT(lfi *LoopFilterInfo) {
 }
 
 func clampLoopFilterLevel(level int) int {
-	if level < 0 {
-		return 0
-	}
-	if level > MaxLoopFilter {
-		return MaxLoopFilter
-	}
-	return level
+	return min(max(level, 0), MaxLoopFilter)
 }
 
 func clampInt(v int, low int, high int) int {
-	if v < low {
-		return low
-	}
-	if v > high {
-		return high
-	}
-	return v
+	return min(max(v, low), high)
 }
