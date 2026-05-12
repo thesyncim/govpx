@@ -119,35 +119,49 @@ func nonZeroCoeffTokenRate(probs [vp8tables.EntropyNodes]uint8, token int) int {
 	return cost - nonEOBRate
 }
 
+// coefficientTokenLUT maps |coefficient| in [1, DCTMaxValue] to its libvpx
+// token classification. Index 0 is unused (caller separately reports
+// (0, 0, false) for coeff==0). Replaces the if-else ladder so the per-
+// coefficient lookup is a single bounded array load.
+var coefficientTokenLUT = buildCoefficientTokenLUT()
+
+func buildCoefficientTokenLUT() [vp8tables.DCTMaxValue + 1]uint8 {
+	var lut [vp8tables.DCTMaxValue + 1]uint8
+	lut[1] = vp8tables.OneToken
+	lut[2] = vp8tables.TwoToken
+	lut[3] = vp8tables.ThreeToken
+	lut[4] = vp8tables.FourToken
+	for i := 5; i <= 6; i++ {
+		lut[i] = vp8tables.DCTValCategory1
+	}
+	for i := 7; i <= 10; i++ {
+		lut[i] = vp8tables.DCTValCategory2
+	}
+	for i := 11; i <= 18; i++ {
+		lut[i] = vp8tables.DCTValCategory3
+	}
+	for i := 19; i <= 34; i++ {
+		lut[i] = vp8tables.DCTValCategory4
+	}
+	for i := 35; i <= 66; i++ {
+		lut[i] = vp8tables.DCTValCategory5
+	}
+	for i := 67; i <= vp8tables.DCTMaxValue; i++ {
+		lut[i] = vp8tables.DCTValCategory6
+	}
+	return lut
+}
+
 func coefficientTokenMagnitude(coeff int) (int, int, bool) {
 	mask := coeff >> mvKernelSignShift
 	coeff = (coeff ^ mask) - mask
-	switch {
-	case coeff <= 0:
-		return 0, 0, false
-	case coeff == 1:
-		return vp8tables.OneToken, coeff, true
-	case coeff == 2:
-		return vp8tables.TwoToken, coeff, true
-	case coeff == 3:
-		return vp8tables.ThreeToken, coeff, true
-	case coeff == 4:
-		return vp8tables.FourToken, coeff, true
-	case coeff <= 6:
-		return vp8tables.DCTValCategory1, coeff, true
-	case coeff <= 10:
-		return vp8tables.DCTValCategory2, coeff, true
-	case coeff <= 18:
-		return vp8tables.DCTValCategory3, coeff, true
-	case coeff <= 34:
-		return vp8tables.DCTValCategory4, coeff, true
-	case coeff <= 66:
-		return vp8tables.DCTValCategory5, coeff, true
-	case coeff <= vp8tables.DCTMaxValue:
-		return vp8tables.DCTValCategory6, coeff, true
-	default:
+	// uint cast collapses (coeff <= 0) and (coeff > DCTMaxValue) into one
+	// out-of-range check: coeff==0 wraps to ^uint(0); negative coeff cannot
+	// arise post-abs but would also wrap.
+	if uint(coeff-1) >= uint(vp8tables.DCTMaxValue) {
 		return 0, 0, false
 	}
+	return int(coefficientTokenLUT[coeff]), coeff, true
 }
 
 func coefficientExtraBitsRate(token int, mag int) int {
