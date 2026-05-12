@@ -17,6 +17,12 @@ import (
 // EncodeInto returns [ErrFrameNotReady]; drain the buffer with FlushInto
 // at end of stream. If rate control drops the frame the call succeeds
 // with EncodeResult.Dropped set and no encoded payload.
+//
+// Returns [ErrClosed] on a nil or closed encoder, [ErrInvalidConfig] if
+// src does not match the encoder's configured dimensions or strides,
+// [ErrBufferTooSmall] if dst is empty, and [ErrInvalidConfig] if flags
+// combine mutually exclusive bits (for example EncodeForceGoldenFrame
+// with EncodeNoUpdateGolden).
 func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint64, flags EncodeFlags) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed
@@ -43,7 +49,8 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 // FlushInto drains queued frames at end of stream and emits the next
 // pending packet into dst. Call repeatedly until it returns
 // [ErrFrameNotReady] to flush all lookahead, auto-alt-ref, and two-pass
-// state.
+// state. Returns [ErrClosed] on a nil or closed encoder and
+// [ErrBufferTooSmall] if dst is empty.
 func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if e == nil || e.closed {
 		return EncodeResult{}, ErrClosed

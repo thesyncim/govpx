@@ -26,8 +26,10 @@ const (
 
 // DecoderOptions configures a VP8 decoder.
 type DecoderOptions struct {
-	// Threads selects decoder worker count. Values greater than one enable the
-	// row pipeline where supported; zero uses the serial path.
+	// Threads selects the decoder worker count. 0 and 1 use the serial
+	// path; values >=2 enable the two-stage row pipeline when the frame
+	// has more than one macroblock row. Negative values are rejected
+	// with [ErrInvalidConfig].
 	Threads int
 
 	// ErrorConcealment enables libvpx-style concealment for corrupt interframes
@@ -35,8 +37,9 @@ type DecoderOptions struct {
 	ErrorConcealment bool
 	// ErrorResilient is kept as a compatibility alias for ErrorConcealment.
 	ErrorResilient bool
-	// PostProcess enables the legacy libvpx-style postprocess chain:
-	// deblock, demacroblock, and MFQE. Prefer PostProcessFlags for new code.
+	// PostProcess enables the legacy libvpx-style postprocess chain
+	// (Deblock | Demacroblock | MFQE, plus AddNoise when
+	// PostProcessNoiseLevel > 0). Prefer PostProcessFlags for new code.
 	PostProcess bool
 	// PostProcessFlags selects individual libvpx-style postprocess filters.
 	// Zero disables postprocessing unless PostProcess is set.
@@ -51,9 +54,10 @@ type DecoderOptions struct {
 	MaxWidth  int
 	MaxHeight int
 
-	// If true, Decode returns an explicit error when resolution changes.
-	// If false, decoder may reallocate internal frame buffers on keyframe
-	// resolution change.
+	// RejectResolutionChange, when true, makes Decode return
+	// [ErrFrameRejected] on a key frame whose dimensions differ from the
+	// active stream. When false (the default) the decoder reallocates
+	// its internal frame buffers on the resolution-change key frame.
 	RejectResolutionChange bool
 }
 
@@ -127,11 +131,13 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	return d, nil
 }
 
-// Decode decodes one raw VP8 frame payload. If the packet is a visible
-// frame, its output is queued for the next call to NextFrame. Hidden
+// Decode decodes one raw VP8 frame payload. The first packet supplied to
+// a fresh or reset decoder must be a key frame; otherwise
+// [ErrNeedKeyFrame] is returned.
+//
+// Visible frames are queued for the next call to NextFrame. Hidden
 // frames (such as alt-refs) update reference buffers but produce no
-// NextFrame output. The first packet supplied to a fresh or reset decoder
-// must be a key frame; otherwise [ErrNeedKeyFrame] is returned.
+// NextFrame output.
 func (d *VP8Decoder) Decode(packet []byte) error {
 	return d.DecodeWithPTS(packet, 0)
 }
@@ -275,8 +281,8 @@ func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 // DecodeInto decodes one raw VP8 frame payload. If the packet is a visible
 // frame its decoded pixels are written into the caller-owned planes of
 // dst; for hidden frames dst is left untouched. dst must be non-nil and
-// match the stream dimensions established by the first decoded key frame
-// (or by the packet itself, when it is a key frame).
+// match the dimensions of the most recently decoded key frame (or of
+// the packet itself, when it is a key frame).
 func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
 	return d.DecodeIntoWithPTS(packet, dst, 0)
 }
@@ -396,9 +402,10 @@ func (d *VP8Decoder) Reset() {
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
 }
 
-// Close releases decoder state. After Close, every method on this decoder
-// returns [ErrClosed]. Calling Close on a nil or already-closed decoder
-// also returns [ErrClosed].
+// Close releases decoder state. After Close, methods that return an
+// error return [ErrClosed]; [VP8Decoder.NextFrame] and
+// [VP8Decoder.LastFrameInfo] report not-ready instead. Calling Close on
+// a nil or already-closed decoder returns [ErrClosed].
 func (d *VP8Decoder) Close() error {
 	if d == nil || d.closed {
 		return ErrClosed

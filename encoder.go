@@ -181,25 +181,19 @@ type EncoderOptions struct {
 	TimebaseDen int
 
 	// Threads selects the worker-goroutine count for the inter-frame
-	// row-threaded macroblock pipeline. Mirrors libvpx's `--threads`
-	// vpxenc flag and the `cpi->oxcf.multi_threaded` knob in
-	// vp8/encoder/onyx_if.c / ethreading.c.
+	// row-threaded macroblock pipeline.
 	//
-	// Semantics:
-	//   - 0 (default in zero-initialized opts) is treated as 1: a single
-	//     goroutine drives the macroblock loop, byte-identical to the
-	//     historical govpx encoder.
-	//   - 1 is the pinned single-threaded reference path. No row pool is
-	//     allocated, no worker goroutine is spawned, and the reconstruction
-	//     hot path does not execute atomics or channel operations introduced
-	//     for threading.
-	//   - Values >1 allocate a persistent row-worker pool and enable the
-	//     libvpx-style wave-front inter-frame encode when the frame is large
-	//     enough and oracle tracing is disabled. Per-worker encoder shadows
-	//     hold adaptive RD and scratch state; fixed thread counts are
-	//     deterministic but may produce a different bitstream than Threads=1,
-	//     matching libvpx's threaded behavior.
-	//   - A negative value is rejected with ErrInvalidConfig.
+	//   - 0 is treated as 1.
+	//   - 1 uses the serial reference path: no row-worker pool, no
+	//     atomics or channel work in the reconstruction hot path.
+	//   - Values >1 allocate a persistent row-worker pool and enable
+	//     the libvpx-style wave-front inter-frame encode when the
+	//     frame is large enough and oracle tracing is disabled.
+	//     Thread counts are deterministic but produce a bitstream
+	//     that may differ from Threads=1, matching libvpx.
+	//   - Negative values return [ErrInvalidConfig].
+	//
+	// Mirrors libvpx's --threads / cpi->oxcf.multi_threaded.
 	Threads int
 
 	// RateControlMode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
@@ -219,9 +213,10 @@ type EncoderOptions struct {
 	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
 	// Zero is treated as 63 (no ceiling below the codec maximum).
 	MaxQuantizer int
-	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. RateControlCQ applies it
-	// as a floor; RateControlQ validates and stores it like libvpx VPX_Q.
-	// Zero uses libvpx's default level unless MinQuantizer is also zero.
+	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. [RateControlCQ] applies
+	// it as a floor; [RateControlQ] validates and stores it like libvpx
+	// VPX_Q. Zero uses libvpx's default level after MinQuantizer
+	// resolution (a zero MinQuantizer is itself promoted to 4 first).
 	CQLevel int
 
 	// UndershootPct caps libvpx-style downward rate adjustment as a percentage
@@ -252,14 +247,11 @@ type EncoderOptions struct {
 
 	// DropFrameAllowed enables rate-control frame dropping.
 	DropFrameAllowed bool
-	// DropFrameWaterMark mirrors libvpx's rc_dropframe_thresh / oxcf
-	// drop_frames_water_mark (vpx_codec_enc_cfg_t). It is the
-	// percentage of optimal_buffer_level at which the libvpx decimation
-	// drop branch (vp8_check_drop_buffer in vp8/encoder/onyx_if.c)
-	// starts engaging the 1->2->3 decimation factor ladder. When
-	// DropFrameAllowed is true and this is zero, govpx defaults to 60
-	// (the typical realtime CBR knob). When DropFrameAllowed is false,
-	// no decimation ever fires.
+	// DropFrameWaterMark is the percentage of optimal_buffer_level at
+	// which rate control begins dropping frames. When DropFrameAllowed
+	// is true this defaults to 60 if left zero; when DropFrameAllowed
+	// is false no frame drops fire regardless of this value. Mirrors
+	// libvpx's rc_dropframe_thresh / oxcf.drop_frames_water_mark.
 	DropFrameWaterMark int
 
 	// TemporalScalability configures automatic temporal-layer scheduling.
@@ -279,11 +271,11 @@ type EncoderOptions struct {
 	// queues input frames and returns ErrFrameNotReady until enough future
 	// frames are available; FlushInto drains the queue at end of stream.
 	LookaheadFrames int
-	// AutoAltRef gates the automatic alternate-reference scheduling driver
-	// (libvpx vp8/encoder/onyx_if.c oxcf.play_alternate). When true and the
-	// encoder is configured with LookaheadFrames > 1 and !ErrorResilient, the
-	// driver inserts hidden alt-ref frames pulled from the lookahead window
-	// and flips the alt-ref sign bias on the matching deferred show frame.
+	// AutoAltRef gates automatic alternate-reference scheduling. When true,
+	// LookaheadFrames > 1, and ErrorResilient is false, the driver inserts
+	// hidden alt-ref frames from the lookahead window and flips the
+	// alt-ref sign bias on the matching deferred show frame. Mirrors
+	// libvpx's oxcf.play_alternate.
 	AutoAltRef bool
 	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
 	// source/reference error shift is detected, the frame is promoted to a
@@ -306,16 +298,12 @@ type EncoderOptions struct {
 	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
 	TokenPartitions int
 
-	// FastLoopFilterPick lowers the loop-filter fast-pick gate to the
-	// partial-frame trial picker whenever the encoder's speed value is
-	// >= 4 (vs libvpx's default > 4). This is a deliberate, opt-in
-	// departure from libvpx parity that recovers ~20-30% of EncodeInto
-	// wall time at cold-start realtime+positive-cpu_used because the
-	// libvpx auto-speed selector sits at speed=4 indefinitely on short
-	// corpora and otherwise burns the loop-filter level pick on five
-	// full-frame trials per frame. Off by default; turn on when you
-	// have already verified that the loop-filter level drift produced
-	// by the partial picker is acceptable for the target use case.
+	// FastLoopFilterPick switches the loop-filter fast-pick gate to the
+	// partial-frame trial picker whenever speed >= 4 (libvpx uses > 4).
+	// Off by default. Opt-in departure from libvpx parity that recovers
+	// ~20-30% of EncodeInto wall time at cold-start
+	// realtime+positive-cpu_used. Turn on only after verifying the
+	// resulting loop-filter level drift is acceptable for the use case.
 	FastLoopFilterPick bool
 	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
 	Sharpness int
@@ -362,7 +350,10 @@ type EncoderOptions struct {
 // EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
 // [VP8Encoder.FlushInto] for one call. Data is empty when the call
 // produced no output (frame dropped by rate control or buffered by
-// lookahead). PTS and Duration echo the caller-supplied values.
+// lookahead). PTS and Duration echo the caller-supplied values; the
+// rate-control and temporal-layer accounting fields are populated even
+// when Data is empty so callers can drive feedback loops on dropped
+// frames.
 type EncodeResult struct {
 	// Data aliases the caller-provided output buffer passed to EncodeInto or
 	// FlushInto. Copy it if it must outlive that buffer.
@@ -439,13 +430,15 @@ type EncodeResult struct {
 	// TemporalLayerEncodedBits accumulates layer output bits.
 	TemporalLayerEncodedBits int
 
-	// PSNRHint is a cheap distortion-derived quality hint in decibels.
-	// It is not a full PSNR measurement; do not rely on it for absolute
-	// comparisons against libvpx's PSNR packets.
+	// PSNRHint is reserved for a future per-frame quality hint. It is
+	// not currently populated and always reads as zero.
 	PSNRHint float64
 }
 
-// VP8Encoder encodes caller-provided I420 images into raw VP8 frame payloads.
+// VP8Encoder encodes caller-provided I420 images into raw VP8 frame
+// payloads. A VP8Encoder is not safe for concurrent use by multiple
+// goroutines; the optional worker pool selected by EncoderOptions.Threads
+// is internal to a single encode call.
 type VP8Encoder struct {
 	opts EncoderOptions
 

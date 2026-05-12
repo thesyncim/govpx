@@ -108,7 +108,7 @@ returns no more data.
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
 | Toggle frame dropping only | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
 | Runtime rate-control replacement | `SetRateControl` |
-| Two-pass encode | `CollectFirstPassStats`, `FinalizeFirstPassStats`, `SetTwoPassStats` |
+| Two-pass encode | `CollectFirstPassStats`, `govpx.FinalizeFirstPassStats`, `SetTwoPassStats` |
 | Reference buffer control | `SetReferenceFrame`, `CopyReferenceFrame` |
 | Last decoded/encoded metadata | `LastFrameInfo`, `LastQuantizer`, `EncodeResult` |
 
@@ -161,17 +161,19 @@ go test -tags purego ./... -count=1
 go vet ./...
 ```
 
-Production parity gate:
+Parity gates:
 
 ```sh
-make verify-production
+make verify-decoder-parity   # cheaper: decoder-only oracle proof
+make verify-production       # full encoder + decoder oracle gate
 ```
 
 `verify-production` builds the pinned libvpx tools under
 `internal/coracle/build`, fetches VP8 conformance data, and runs decoder
 plus encoder oracle tests. Encoder parity compares libvpx-decoded frame
 checksums, key/show decisions, internal qindex, and packet-size ratchets
-for the covered realtime/WebRTC settings.
+for the covered realtime/WebRTC settings. Use
+`make verify-decoder-parity` when only decoder changes need re-checking.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
 build tag or in `*_test.go` files, so it is not linked into normal

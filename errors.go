@@ -5,8 +5,11 @@ import "errors"
 var (
 	// ErrInvalidData reports malformed or unsupported VP8 bitstream data.
 	ErrInvalidData = errors.New("govpx: invalid VP8 data")
-	// ErrUnsupportedFeature reports a valid VP8 feature that govpx does not
-	// implement yet.
+	// ErrUnsupportedFeature is reserved for future use to report a valid
+	// VP8 feature that govpx does not implement. No public API path
+	// currently returns it; it is retained as a stable sentinel so future
+	// support can be added without breaking callers that compare with
+	// errors.Is.
 	ErrUnsupportedFeature = errors.New("govpx: unsupported VP8 feature")
 	// ErrNeedKeyFrame reports an inter frame before reference state has been
 	// initialized by a key frame.

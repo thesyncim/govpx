@@ -65,9 +65,11 @@ type TemporalScalabilityConfig struct {
 
 	// LayerTargetBitrateKbps holds per-layer target bitrates in cumulative
 	// form, matching libvpx's ts_target_bitrate[]: entry i is the sum of
-	// the bitrate budgeted to layers 0..i. Unused trailing entries must be
-	// zero. The last non-zero entry should equal
-	// [EncoderOptions.TargetBitrateKbps].
+	// the bitrate budgeted to layers 0..i. Unused trailing entries must
+	// be zero. The last non-zero entry should equal
+	// [EncoderOptions.TargetBitrateKbps]. An all-zero array auto-derives
+	// a default 60/40 split (two layers) or 40/20/40 split (three
+	// layers) from TargetBitrateKbps.
 	LayerTargetBitrateKbps [MaxTemporalLayers]int
 }
 

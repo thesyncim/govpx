@@ -61,15 +61,12 @@ type RateControlConfig struct {
 
 	// DropFrameAllowed enables rate-control frame dropping.
 	DropFrameAllowed bool
-	// DropFrameWaterMark mirrors libvpx's oxcf.drop_frames_water_mark
-	// (driven by the public --drop-frame=N CLI knob and
-	// rc_dropframe_thresh in vpx_codec_enc_cfg_t). It is the buffer-level
-	// percentage threshold at which the decimation drop branch in
-	// vp8_check_drop_buffer (vp8/encoder/onyx_if.c) starts dropping
-	// frames; values from 1..100 are valid. Zero is treated as "use 60"
-	// when DropFrameAllowed is true so the historical govpx behavior
-	// (buffer-underrun-only) does not regress for callers that toggle
-	// DropFrameAllowed without setting an explicit threshold.
+	// DropFrameWaterMark is the buffer-level percentage at which rate
+	// control begins dropping frames. Values >100 are clamped to 100.
+	// When DropFrameAllowed is true and this is zero it defaults to
+	// 60 (libvpx's typical realtime CBR knob). When DropFrameAllowed
+	// is false, no drops fire regardless of this value. Mirrors
+	// libvpx's oxcf.drop_frames_water_mark / rc_dropframe_thresh.
 	DropFrameWaterMark int
 
 	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.

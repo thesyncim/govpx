@@ -10,7 +10,9 @@ type StreamInfo struct {
 	// Inter frames reuse the current stream dimensions.
 	Width  int
 	Height int
-	// Profile is the VP8 bitstream profile number.
+	// Profile is the VP8 version_number field from the frame tag. The
+	// VP8 spec defines values 0..3; govpx accepts 4..7 for compatibility
+	// with libvpx but treats them as version 0.
 	Profile int
 
 	// KeyFrame reports whether the packet is a VP8 key frame.
@@ -66,10 +68,11 @@ type FrameInfo struct {
 	// Corrupted reports decoder corruption or concealment state.
 	Corrupted bool
 
-	// Quantizer is the public 0..63 quantizer corresponding to
-	// InternalQuantizer. InternalQuantizer is the VP8 base qindex reported by
-	// libvpx's VPXD_GET_LAST_QUANTIZER control.
-	Quantizer         int
+	// Quantizer is the public 0..63 quantizer mapped from
+	// InternalQuantizer.
+	Quantizer int
+	// InternalQuantizer is the raw VP8 base qindex (libvpx's
+	// VPXD_GET_LAST_QUANTIZER).
 	InternalQuantizer int
 	// RefUpdates reports reference buffers refreshed by the frame.
 	RefUpdates ReferenceFlags

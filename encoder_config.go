@@ -225,6 +225,12 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 // Close, and build a new [VP8Encoder] at the target size. The decoder
 // does support resolution change on a key frame; see
 // [DecoderOptions.RejectResolutionChange].
+//
+// Returns [ErrInvalidConfig] for negative numeric fields, an out-of-range
+// FrameDrop selector, or a Width/Height that does not match the encoder.
+// Returns [ErrInvalidQuantizer] when MinQuantizer or MaxQuantizer is out
+// of [0, 63] or when both are non-zero and MinQuantizer > MaxQuantizer.
+// On error the encoder's state is unchanged.
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed

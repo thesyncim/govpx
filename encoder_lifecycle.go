@@ -11,8 +11,10 @@ import (
 // Reset returns the encoder to its cold-start state while retaining
 // allocated buffers and the validated [EncoderOptions]. Rate-control,
 // reference, lookahead, ARNR, denoiser, two-pass, and temporal-layer
-// state are all cleared; the next [VP8Encoder.EncodeInto] starts as if
-// from [NewVP8Encoder] without re-running its allocations. Calls on a
+// state are all cleared; queued lookahead frames are discarded; the
+// next [VP8Encoder.EncodeInto] starts as if from [NewVP8Encoder]
+// without re-running its allocations. [VP8Encoder.LastQuantizer]
+// reports ok=false again until the next committed frame. Calls on a
 // nil encoder are no-ops.
 func (e *VP8Encoder) Reset() {
 	if e == nil {

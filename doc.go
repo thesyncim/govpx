@@ -68,7 +68,8 @@
 // Sentinel errors live in this package: [ErrInvalidData], [ErrNeedKeyFrame],
 // [ErrFrameNotReady], [ErrBufferTooSmall], [ErrFrameRejected],
 // [ErrInvalidConfig], [ErrInvalidBitrate], [ErrInvalidQuantizer], and
-// [ErrClosed]. Compare with errors.Is.
+// [ErrClosed]. Compare with errors.Is. [ErrUnsupportedFeature] is
+// reserved for future use and is not currently returned by any path.
 //
 // The zero value of [EncoderOptions] is not a valid configuration: Width,
 // Height, FPS (or TimebaseNum/Den), and TargetBitrateKbps must be set. The

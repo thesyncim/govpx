@@ -2,11 +2,15 @@ package govpx
 
 import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 
-// SetReferenceFrame replaces ref with src. Ref must be ReferenceLast,
-// ReferenceGolden, or ReferenceAltRef; src must match the encoder dimensions
-// and provide valid I420 strides. The encoder pads coded edges, extends
-// borders, and invalidates cached inter-prediction state tied to the previous
-// reference identity.
+// SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
+// ReferenceGolden, or ReferenceAltRef; src must match the encoder
+// dimensions and provide valid I420 strides. The encoder pads coded
+// edges, extends borders, and invalidates cached inter-prediction state
+// tied to the previous reference identity.
+//
+// Returns [ErrClosed] on a nil or closed encoder, or [ErrInvalidConfig]
+// when ref is not a single valid selector or src does not match the
+// encoder's shape or strides.
 func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -23,9 +27,13 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	return nil
 }
 
-// CopyReferenceFrame copies ref into dst. Ref must be ReferenceLast,
-// ReferenceGolden, or ReferenceAltRef; dst must match the encoder dimensions
-// and provide valid I420 strides.
+// CopyReferenceFrame copies ref into dst. ref must be ReferenceLast,
+// ReferenceGolden, or ReferenceAltRef; dst must be non-nil, match the
+// encoder dimensions, and provide valid I420 strides.
+//
+// Returns [ErrClosed] on a nil or closed encoder, or [ErrInvalidConfig]
+// when dst is nil, ref is not a single valid selector, or dst does not
+// match the encoder's shape or strides.
 func (e *VP8Encoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	if e == nil || e.closed {
 		return ErrClosed
