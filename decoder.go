@@ -438,7 +438,7 @@ func validateDecoderOptions(opts DecoderOptions) error {
 	if opts.PostProcessFlags&^allPostProcessFlags != 0 {
 		return ErrInvalidConfig
 	}
-	if opts.MaxWidth < 0 || opts.MaxHeight < 0 {
+	if min(opts.MaxWidth, opts.MaxHeight) < 0 {
 		return ErrInvalidConfig
 	}
 	if uint(opts.PostProcessNoiseLevel) > 16 {

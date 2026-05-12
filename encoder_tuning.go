@@ -141,7 +141,9 @@ func (e *VP8Encoder) tunedZbinOverQuant(zbinOverQuant int, mbRow int, mbCol int)
 
 // activityAt returns the cached macroblock activity value for TuneSSIM.
 func (e *VP8Encoder) activityAt(mbRow int, mbCol int) (uint32, bool) {
-	if mbRow < 0 || mbCol < 0 || !e.activityMapValid {
+	// Single 'min < 0' folds the two negative-bounds checks; the cache-
+	// valid bool is independent and stays separate.
+	if min(mbRow, mbCol) < 0 || !e.activityMapValid {
 		return 0, false
 	}
 	cols := encoderMacroblockCols(e.opts.Width)

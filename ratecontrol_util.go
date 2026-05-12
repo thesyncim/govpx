@@ -156,7 +156,7 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if cfg.TargetBitrateKbps <= 0 {
 		return ErrInvalidBitrate
 	}
-	if cfg.MinBitrateKbps < 0 || cfg.MaxBitrateKbps < 0 {
+	if min(cfg.MinBitrateKbps, cfg.MaxBitrateKbps) < 0 {
 		return ErrInvalidBitrate
 	}
 	if cfg.MinBitrateKbps > 0 && cfg.MaxBitrateKbps > 0 && cfg.MinBitrateKbps > cfg.MaxBitrateKbps {
@@ -181,10 +181,10 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if rateControlModeUsesCQLevel(cfg.Mode) && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
 		return ErrInvalidQuantizer
 	}
-	if cfg.UndershootPct < 0 || cfg.OvershootPct < 0 {
+	if min(cfg.UndershootPct, cfg.OvershootPct) < 0 {
 		return ErrInvalidConfig
 	}
-	if cfg.BufferSizeMs <= 0 || cfg.BufferInitialSizeMs < 0 || cfg.BufferOptimalSizeMs < 0 {
+	if cfg.BufferSizeMs <= 0 || min(cfg.BufferInitialSizeMs, cfg.BufferOptimalSizeMs) < 0 {
 		return ErrInvalidConfig
 	}
 	if cfg.MaxIntraBitratePct < 0 {
@@ -294,7 +294,7 @@ func percentOf(value int, pct int) int {
 }
 
 func checkedMul(a int, b int) (int, bool) {
-	if a < 0 || b < 0 {
+	if min(a, b) < 0 {
 		return 0, false
 	}
 	if a == 0 || b == 0 {
