@@ -346,7 +346,9 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 			break
 		}
 	}
-	slot := &slots[victim]
+	// victim is 0 or a loop index in [0, interRDThreshBaselineSlotCount=4),
+	// so AND-mask with 3 elides the bounds check on the [4]slot array.
+	slot := &slots[victim&3]
 	slot.valid = true
 	slot.gen = gen
 	slot.qIndex = q32
