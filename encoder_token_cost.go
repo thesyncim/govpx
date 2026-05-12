@@ -9,15 +9,15 @@ import (
 )
 
 func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
-	if probs == nil || qcoeff == nil || blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
+	// Three uint range checks fold the (x < 0 || x >= max) pairs into
+	// one branch each; nil/dual-bound guard is one short-circuit OR away.
+	if probs == nil || qcoeff == nil ||
+		uint(blockType) >= uint(vp8tables.BlockTypes) ||
+		uint(ctx) >= uint(vp8tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
 		return maxInt() / 4
 	}
-	if eob < skipDC {
-		eob = skipDC
-	}
-	if eob > 16 {
-		eob = 16
-	}
+	eob = min(max(eob, skipDC), 16)
 
 	pt := ctx
 	cost := 0
