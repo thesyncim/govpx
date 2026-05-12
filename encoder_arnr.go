@@ -124,7 +124,9 @@ func arnrViewFromSource(src vp8enc.SourceImage) arnrFrameView {
 func (e *VP8Encoder) iterateTemporalFilter(center vp8enc.SourceImage, strength int, useBack bool, forward int, doChroma bool) {
 	mbCols := (center.Width + 15) >> 4
 	mbRows := (center.Height + 15) >> 4
-	if mbCols == 0 || mbRows == 0 {
+	// Bitwise OR is zero iff both are zero (mbCols/mbRows are non-
+	// negative by construction). One compare instead of two.
+	if mbCols|mbRows == 0 {
 		return
 	}
 
