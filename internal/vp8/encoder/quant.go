@@ -98,7 +98,9 @@ func invertRegularQuant(dequant int, quant *int16, shift *int16) {
 }
 
 func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segmentation SegmentationConfig, out *[common.MaxMBSegments]MacroblockQuant) error {
-	if baseQIndex < common.MinQ || baseQIndex > common.MaxQ || out == nil || !validSegmentationConfig(segmentation) {
+	// uint range check: common.MinQ==0, so (baseQIndex < 0 || > MaxQ)
+	// collapses to uint(baseQIndex) > uint(MaxQ).
+	if uint(baseQIndex) > uint(common.MaxQ) || out == nil || !validSegmentationConfig(segmentation) {
 		return ErrInvalidPacketConfig
 	}
 	var tables common.FrameDequantTables

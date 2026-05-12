@@ -362,7 +362,9 @@ func splitSubMotionLabelMatchesMV(mode common.BPredictionMode, target MotionVect
 }
 
 func validInterIntraMacroblockMode(mode *InterFrameMacroblockMode) bool {
-	if mode.RefFrame != common.IntraFrame || !isInterIntraMacroblockMode(mode.Mode) || mode.UVMode < common.DCPred || mode.UVMode > common.TMPred {
+	// uint range check: DCPred=0, TMPred=3, so (UVMode < DCPred ||
+	// > TMPred) collapses to uint(UVMode) > uint(TMPred).
+	if mode.RefFrame != common.IntraFrame || !isInterIntraMacroblockMode(mode.Mode) || uint(mode.UVMode) > uint(common.TMPred) {
 		return false
 	}
 	if mode.Mode != common.BPred {
