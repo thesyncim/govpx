@@ -59,14 +59,18 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	}
 	biasImprovedInterFrameMVSlots(&slots, slotCount, refFrame, signBias, mbRow, mbCol, mbRows, mbCols)
 	order := improvedInterFrameMVSlotOrder(slots, slotCount)
+	// Both slots and order are length 8 (pow2). rank is bounded by
+	// slotCount ≤ 8 and each order[rank] cell is [0,8) by construction
+	// (the insertion sort writes only [0, slotCount) indices). Mask
+	// with 7 to elide bounds checks on both indexed loads.
 	for rank := 0; rank < slotCount; rank++ {
-		slot := slots[order[rank]]
+		slot := slots[order[rank&7]&7]
 		if slot.refFrame == refFrame {
 			sr := 2
 			if rank < 3 {
 				sr = 3
 			}
-			return interFrameSearchStart{mv: slot.mv, sr: sr, nearSADIndex: order[rank], ok: true}
+			return interFrameSearchStart{mv: slot.mv, sr: sr, nearSADIndex: order[rank&7], ok: true}
 		}
 	}
 	mv := improvedInterFrameMVMedian(slots, slotCount)
