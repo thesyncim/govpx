@@ -754,6 +754,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-64x32-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-64x32", w: 64, h: 32, source: encoderValidationSplitMVQuadrantFrame}},
 		{name: "realtime-cbr-cpu-8-64x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-64x48", w: 64, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
 		{name: "realtime-cbr-cpu-8-80x80-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-80x80", w: 80, h: 80, source: encoderValidationSplitMVQuadrantFrame}},
+		// cpu-3 / cpu-8 panning fps15/fps60 mid extension to 32x32 and
+		// 48x48 — smaller end of the fps-extension matrix; base default-
+		// fps probes byte-match.
+		{name: "realtime-cbr-cpu-3-32x32-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-32x32-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-32x32-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-32x32-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-48x48-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-48x48-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-48x48-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-48x48-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 	}
 
 	for _, tc := range cases {
