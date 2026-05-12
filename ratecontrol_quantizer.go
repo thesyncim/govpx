@@ -215,22 +215,7 @@ func (rc *rateControlState) clampBuffer() {
 }
 
 func (rc *rateControlState) clampQuantizer() {
-	if rc.currentQuantizer < rc.minQuantizer {
-		rc.currentQuantizer = rc.minQuantizer
-	}
-	if rc.currentQuantizer > rc.maxQuantizer {
-		rc.currentQuantizer = rc.maxQuantizer
-	}
-	if rc.lastQuantizer < rc.minQuantizer {
-		rc.lastQuantizer = rc.minQuantizer
-	}
-	if rc.lastQuantizer > rc.maxQuantizer {
-		rc.lastQuantizer = rc.maxQuantizer
-	}
-	if rc.lastInterQuantizer < rc.minQuantizer {
-		rc.lastInterQuantizer = rc.minQuantizer
-	}
-	if rc.lastInterQuantizer > rc.maxQuantizer {
-		rc.lastInterQuantizer = rc.maxQuantizer
-	}
+	rc.currentQuantizer = min(max(rc.currentQuantizer, rc.minQuantizer), rc.maxQuantizer)
+	rc.lastQuantizer = min(max(rc.lastQuantizer, rc.minQuantizer), rc.maxQuantizer)
+	rc.lastInterQuantizer = min(max(rc.lastInterQuantizer, rc.minQuantizer), rc.maxQuantizer)
 }
