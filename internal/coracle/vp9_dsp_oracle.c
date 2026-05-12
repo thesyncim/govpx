@@ -41,6 +41,10 @@ void vpx_idct16x16_10_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct16x16_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vp9_iht4x4_16_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
 void vp9_iht8x8_64_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
+void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct32x32_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 
 // xorshift32 PRNG: deterministic, identical on every build.
 static uint32_t prng_state;
@@ -110,13 +114,17 @@ enum {
 	K_IHT8_ADST_DCT  = 15,
 	K_IHT8_DCT_ADST  = 16,
 	K_IHT8_ADST_ADST = 17,
+	K_IDCT32_1024 = 18,
+	K_IDCT32_135  = 19,
+	K_IDCT32_34   = 20,
+	K_IDCT32_1    = 21,
 };
 
 static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
                      int sparse_top_left) {
-	int16_t input[256];
-	uint8_t dest_in[256];
-	uint8_t dest_out[256];
+	int16_t input[1024];
+	uint8_t dest_in[1024];
+	uint8_t dest_out[1024];
 	int stride = tx_size;
 
 	for (int i = 0; i < n_coefs; i++) {
@@ -152,6 +160,9 @@ static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
 		case K_IHT8_ADST_DCT:  vp9_iht8x8_64_add_c(input, dest_out, stride, 1); break;
 		case K_IHT8_DCT_ADST:  vp9_iht8x8_64_add_c(input, dest_out, stride, 2); break;
 		case K_IHT8_ADST_ADST: vp9_iht8x8_64_add_c(input, dest_out, stride, 3); break;
+		case K_IDCT32_1024:    vpx_idct32x32_1024_add_c(input, dest_out, stride); break;
+		case K_IDCT32_135:     vpx_idct32x32_135_add_c(input, dest_out, stride);  break;
+		case K_IDCT32_34:      vpx_idct32x32_34_add_c(input, dest_out, stride);   break;
 		default: return;
 	}
 
@@ -165,18 +176,19 @@ static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
 }
 
 static void run_dc_only(int kernel_id, int tx_size, int range) {
-	int16_t input[256];
-	uint8_t dest_in[256], dest_out[256];
+	int16_t input[1024];
+	uint8_t dest_in[1024], dest_out[1024];
 	int n = tx_size * tx_size;
 	memset(input, 0, sizeof(input));
 	input[0] = prng_coef(range);
 	for (int j = 0; j < n; j++) dest_in[j] = prng_pixel();
 	memcpy(dest_out, dest_in, (size_t)n);
 	switch (kernel_id) {
-		case K_IDCT4_1:  vpx_idct4x4_1_add_c(input, dest_out, tx_size);  break;
-		case K_IWHT4_1:  vpx_iwht4x4_1_add_c(input, dest_out, tx_size);  break;
-		case K_IDCT8_1:  vpx_idct8x8_1_add_c(input, dest_out, tx_size);  break;
-		case K_IDCT16_1: vpx_idct16x16_1_add_c(input, dest_out, tx_size); break;
+		case K_IDCT4_1:   vpx_idct4x4_1_add_c(input, dest_out, tx_size);   break;
+		case K_IWHT4_1:   vpx_iwht4x4_1_add_c(input, dest_out, tx_size);   break;
+		case K_IDCT8_1:   vpx_idct8x8_1_add_c(input, dest_out, tx_size);   break;
+		case K_IDCT16_1:  vpx_idct16x16_1_add_c(input, dest_out, tx_size); break;
+		case K_IDCT32_1:  vpx_idct32x32_1_add_c(input, dest_out, tx_size); break;
 		default: return;
 	}
 	emit_u32((uint32_t)kernel_id);
@@ -240,6 +252,12 @@ int main(void) {
 	for (int i = 0; i < 30; i++) run_case(K_IHT8_ADST_DCT,  8, 64, 1 + i*30, 0);
 	for (int i = 0; i < 30; i++) run_case(K_IHT8_DCT_ADST,  8, 64, 1 + i*30, 0);
 	for (int i = 0; i < 30; i++) run_case(K_IHT8_ADST_ADST, 8, 64, 1 + i*30, 0);
+
+	// IDCT 32x32 — 30 dense + 15 sparse-16x16 + 10 sparse-8x8 + 10 DC.
+	for (int i = 0; i < 30; i++) run_case(K_IDCT32_1024, 32, 1024, 1 + i*15, 0);
+	for (int i = 0; i < 15; i++) run_case(K_IDCT32_135,  32, 1024, 1 + i*20, 16);
+	for (int i = 0; i < 10; i++) run_case(K_IDCT32_34,   32, 1024, 1 + i*25, 8);
+	for (int i = 0; i < 10; i++) run_dc_only(K_IDCT32_1, 32, 2000);
 
 	return 0;
 }
