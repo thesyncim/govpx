@@ -88,7 +88,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	bestRefMV := vp8enc.MotionVector{}
 	if baseRefIndex := refSearchOrder[1]; uint(baseRefIndex) < uint(len(refs)) {
 		activeSignBiasSlot = interModeSignBiasSlotForReference(refs[baseRefIndex].Frame, loopCtx.signBias)
-		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot]
+		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot&1]
 		loopCtx.bestRefMV = bestRefMV
 	}
 	// Hoist the rd_threshes throttle gate out of the per-mode loop. Once
@@ -169,7 +169,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		refBiasSlot := interModeSignBiasSlotForReference(ref.Frame, loopCtx.signBias)
 		if activeSignBiasSlot != refBiasSlot {
 			activeSignBiasSlot = refBiasSlot
-			bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot]
+			bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot&1]
 			loopCtx.bestRefMV = bestRefMV
 		}
 		if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
@@ -195,9 +195,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		switch mbMode {
 		case vp8common.ZeroMV:
 		case vp8common.NearestMV, vp8common.NearMV:
-			mv := loopCtx.modeMVs.nearest[activeSignBiasSlot]
+			mv := loopCtx.modeMVs.nearest[activeSignBiasSlot&1]
 			if mbMode == vp8common.NearMV {
-				mv = loopCtx.modeMVs.near[activeSignBiasSlot]
+				mv = loopCtx.modeMVs.near[activeSignBiasSlot&1]
 			}
 			if mv.IsZero() {
 				continue

@@ -75,10 +75,13 @@ func (e *VP8Encoder) interModeMVSlots(
 	nearest, near := interAnalysisReferenceMotionPredictorsWithSignBias(baseRef.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, signBias)
 	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, baseRef.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 	state.counts = vp8enc.InterFrameModeCounts(above, left, aboveLeft, baseRef.Frame, signBias)
-	state.nearest[slot] = nearest
-	state.near[slot] = near
-	state.best[slot] = best
-	opp := 1 - slot
+	// slot from interModeSignBiasSlotForReference is 0 or 1; AND-mask
+	// with 1 elides the bounds check on the [2]MotionVector slot arrays
+	// for both the active slot and its opposite.
+	state.nearest[slot&1] = nearest
+	state.near[slot&1] = near
+	state.best[slot&1] = best
+	opp := (1 - slot) & 1
 	state.nearest[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -nearest.Row, Col: -nearest.Col}, mbRow, mbCol, mbRows, mbCols)
 	state.near[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -near.Row, Col: -near.Col}, mbRow, mbCol, mbRows, mbCols)
 	state.best[opp] = clampInterFrameModeMotionVector(vp8enc.MotionVector{Row: -best.Row, Col: -best.Col}, mbRow, mbCol, mbRows, mbCols)
