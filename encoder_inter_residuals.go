@@ -7,7 +7,10 @@ import (
 )
 
 func gatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
-	if baseY >= 0 && baseX >= 0 && baseY+16 <= height && baseX+16 <= width {
+	// Uint range collapses (base >= 0) + (base+16 <= dim) into one
+	// compare per dimension when dim >= 16; smaller dims fall through
+	// to the scalar gather path.
+	if uint(baseY) <= uint(height-16) && uint(baseX) <= uint(width-16) {
 		srcEnd := (baseY+15)*srcStride + baseX + 15
 		predEnd := (baseY+15)*predStride + baseX + 15
 		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 16*16 {

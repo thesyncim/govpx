@@ -492,7 +492,10 @@ func arnrInBounds(col, row, colMin, colMax, rowMin, rowMax int) bool {
 func arnrSADAt(src []byte, srcStride int, ref arnrFrameView, mbX, mbY, mvX, mvY int) int {
 	x := mbX + mvX
 	y := mbY + mvY
-	if x >= 0 && y >= 0 && x+16 <= ref.width && y+16 <= ref.height {
+	// Uint range collapses (x/y >= 0) + (x/y+16 <= dim) into one compare
+	// per dimension; smaller dims fall through to the border-extending
+	// gatherBlock path.
+	if uint(x) <= uint(ref.width-16) && uint(y) <= uint(ref.height-16) {
 		return dsp.SAD16x16(src, srcStride, ref.y[y*ref.yStride+x:], ref.yStride)
 	}
 	var pred [256]byte
