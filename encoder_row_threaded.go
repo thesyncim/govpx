@@ -325,10 +325,14 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	}
 	var mode vp8enc.KeyFrameMacroblockMode
 	var projectedRate int
+	// See encoder_reconstruct.go: libvpx's use_fastquant_for_pick only
+	// swaps x->quantize_b in the inter macroblock path; KF intra picking
+	// uses the speed-feature default (regular when improved_quant==1).
+	// Match that here with libvpxUseFastQuant.
 	if e.libvpxUseFastIntraPick() {
-		mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(args.src, segmentQIndex, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+		mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(args.src, segmentQIndex, row, col, above, left, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
 	} else {
-		mode, projectedRate, ok = predictBestKeyFrameIntraMode(args.src, segmentQIndex, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+		mode, projectedRate, ok = predictBestKeyFrameIntraMode(args.src, segmentQIndex, row, col, above, left, &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
 	}
 	if !ok {
 		return 0, ErrInvalidConfig

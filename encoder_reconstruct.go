@@ -237,10 +237,22 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			}
 			var mode vp8enc.KeyFrameMacroblockMode
 			var projectedRate int
+			// libvpx vp8/encoder/encodeframe.c lines 1161-1180: the
+			// `use_fastquant_for_pick` swap of x->quantize_b fires only in
+			// vp8cx_encode_inter_macroblock; vp8cx_encode_intra_macroblock
+			// leaves x->quantize_b at the speed-feature default (regular
+			// when improved_quant==1, fast when improved_quant==0). So the
+			// KF intra picker must use libvpxUseFastQuant (the encode-time
+			// flag mirroring libvpx's default x->quantize_b), not
+			// libvpxUseFastQuantForPick. Without this, good-quality
+			// cpu_used >= 1 KFs pick coefficients with the fast quantizer
+			// where libvpx still uses regular, causing single-MB mode
+			// flips and a 1-byte first-partition drift on
+			// good-quality-cbr-cpu2.
 			if e.libvpxUseFastIntraPick() {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(src, segmentQIndex, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(src, segmentQIndex, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+				mode, projectedRate, ok = predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant())
 			}
 			if !ok {
 				return 0, ErrInvalidConfig
