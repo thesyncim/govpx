@@ -299,6 +299,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu4-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu4-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
+		// Negative cpu_used + segmented on 16x16/48x48.
+		{name: "realtime-cbr-cpu-3-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-5-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		// cpu1, cpu2, cpu3 on segmented-32x32.
+		{name: "realtime-cbr-cpu1-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 1, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu2-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 2, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu3-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 3, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		// GoodQuality on small frames + segmented.
+		{name: "good-quality-cbr-cpu4-32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-32x32", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-32x32-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
