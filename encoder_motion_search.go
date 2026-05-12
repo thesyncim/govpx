@@ -224,10 +224,14 @@ func (s *fullPelMotionSearch) searchSites(center vp8enc.MotionVector, centerWalk
 				break
 			}
 			if stepSite+4 <= sitesPerStep && siteIndex+3 < len(sites) {
-				site0 := sites[siteIndex]
-				site1 := sites[siteIndex+1]
-				site2 := sites[siteIndex+2]
-				site3 := sites[siteIndex+3]
+				// Re-slice to a fixed-len 4 chunk so the compiler can
+				// prove chunk[0..3] is in bounds without four separate
+				// IsInBounds checks.
+				chunk := sites[siteIndex : siteIndex+4 : siteIndex+4]
+				site0 := chunk[0]
+				site1 := chunk[1]
+				site2 := chunk[2]
+				site3 := chunk[3]
 				row0 := bestRow + int(site0.Row)
 				col0 := bestCol + int(site0.Col)
 				row1 := bestRow + int(site1.Row)
@@ -371,8 +375,12 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 				s.stats.recordFullPelEarlyBreak()
 				break
 			}
-			bestRow += int(neighbors[bestSite].Row)
-			bestCol += int(neighbors[bestSite].Col)
+			// neighbors has fixed len 4 (power of 2). bestSite is in
+			// [0,3] after the `if bestSite < 0 { break }` guard above,
+			// so `& 3` is a no-op functionally but lets the compiler
+			// elide the bounds check on neighbors[bestSite].
+			bestRow += int(neighbors[bestSite&3].Row)
+			bestCol += int(neighbors[bestSite&3].Col)
 			continue
 		}
 		for j, step := range neighbors {
@@ -396,8 +404,11 @@ func (s *fullPelMotionSearch) refine(start vp8enc.MotionVector, searchRange int)
 			s.stats.recordFullPelEarlyBreak()
 			break
 		}
-		bestRow += int(neighbors[bestSite].Row)
-		bestCol += int(neighbors[bestSite].Col)
+		// neighbors has fixed len 4 (power of 2); bestSite is in [0,3]
+		// after the negative-bestSite break above, so `& 3` elides the
+		// bounds check on neighbors[bestSite].
+		bestRow += int(neighbors[bestSite&3].Row)
+		bestCol += int(neighbors[bestSite&3].Col)
 	}
 	best := vp8enc.MotionVector{Row: int16(bestRow * interFrameMVFullPixelStep), Col: int16(bestCol * interFrameMVFullPixelStep)}
 	return best, s.cost(best)
