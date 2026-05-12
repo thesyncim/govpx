@@ -199,7 +199,7 @@ type rowWorkerPool struct {
 // the caller (NewVP8Encoder) treats that as the zero-cost serial path
 // and never instantiates a pool.
 func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
-	if threads < 2 || mbRows <= 0 || mbCols <= 0 {
+	if threads < 2 || min(mbRows, mbCols) <= 0 {
 		return nil
 	}
 	pool := &rowWorkerPool{

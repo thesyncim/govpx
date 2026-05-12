@@ -229,7 +229,7 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 		return 0
 	}
 	modErr := t.modifiedError(t.stats[frame])
-	if modErr <= 0 || t.errorLeft <= 0 || t.bitsLeft <= 0 {
+	if min(modErr, t.errorLeft) <= 0 || t.bitsLeft <= 0 {
 		return defaultTargetBits
 	}
 	var target int64

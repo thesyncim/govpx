@@ -153,7 +153,7 @@ func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int
 // estimate_max_q). Returns the lowest Q whose bits_per_mb_at_q is at
 // or below the target.
 func libvpxEstimateQ(numMBs int, sectionTargetBandwidth int, errPerMB float64, speedCorrection float64, estMaxQCorrection float64) int {
-	if numMBs <= 0 || sectionTargetBandwidth <= 0 {
+	if min(numMBs, sectionTargetBandwidth) <= 0 {
 		return vp8MaxQIndex
 	}
 	var targetNormBitsPerMB int

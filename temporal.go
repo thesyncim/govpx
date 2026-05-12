@@ -329,7 +329,7 @@ func (t *temporalState) temporalLayerFrameTargetBits(layerID int, timing timingS
 		return 0
 	}
 	layerBitrateBits := t.temporalLayerBitrateKbps(layerID) * 1000
-	if layerBitrateBits <= 0 || timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+	if layerBitrateBits <= 0 || min(min(timing.timebaseNum, timing.timebaseDen), timing.frameDuration) <= 0 {
 		return 0
 	}
 	if layerID == 0 {
