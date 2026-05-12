@@ -133,6 +133,7 @@ func (rc *rateControlState) frameSizeRecodeQuantizerWithContextBits(actualBits i
 	if next < vp8MaxQIndex {
 		recode.zbinOverQuant = 0
 	}
+	rc.setRateCorrectionFactorForFrame(keyFrame, goldenFrame, recode.correctionFactor)
 	return rc.clampedFrameQuantizerValue(next), true
 }
 

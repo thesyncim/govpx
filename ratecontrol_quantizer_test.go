@@ -99,6 +99,9 @@ func TestRateControlFrameSizeRecodeQuantizerUsesLibvpxBounds(t *testing.T) {
 	if !ok || got <= 20 || recode.qLow != 21 || recode.qHigh != 56 || recode.correctionFactor == 1.0 || !recode.overshootSeen {
 		t.Fatalf("oversized recode = q:%d ok:%t state:%+v, want q above current, q_low raised to 21, and local correction factor updated", got, ok, recode)
 	}
+	if rc.rateCorrectionFactor != recode.correctionFactor {
+		t.Fatalf("oversized recode correction factor = %.9f, want persisted %.9f", rc.rateCorrectionFactor, recode.correctionFactor)
+	}
 
 	rc.currentQuantizer = 20
 	recode = rc.newFrameSizeRecodeState(false, false)
