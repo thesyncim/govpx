@@ -119,12 +119,15 @@ func TestOracleLibvpxChecksumMatchesEncodeIntoCQLevel(t *testing.T) {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
 	}
 	keyPacket := make([]byte, 8192)
+	// libvpx vp8/encoder/onyx_if.c lines 3727-3739: CQ mode does not floor
+	// keyframe Q to cq_target_quality; only inter non-refresh frames take
+	// the floor. Assert the floor on the inter frame below.
 	key, err := e.EncodeInto(keyPacket, rateControlTestFrame(32, 16, 0), 0, 1, 0)
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if key.Quantizer != 36 || packetBaseQIndex(t, key.Data) != libvpxPublicQuantizerToQIndex(36) {
-		t.Fatalf("key quantizer = result:%d packet:%d, want public CQ level 36 / qindex %d", key.Quantizer, packetBaseQIndex(t, key.Data), libvpxPublicQuantizerToQIndex(36))
+	if key.Quantizer >= 36 {
+		t.Fatalf("key quantizer = %d, want below CQ level 36 (libvpx allows KF below cq_target_quality)", key.Quantizer)
 	}
 	interPacket := make([]byte, 8192)
 	inter, err := e.EncodeInto(interPacket, rateControlTestFrame(32, 16, 1), 1, 1, 0)
