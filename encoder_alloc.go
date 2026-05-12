@@ -40,11 +40,14 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 		e.opts.Width = prevWidth
 		e.opts.Height = prevHeight
 		// Restore prior allocations so encode state is coherent at the
-		// previous size. reallocateForDimensions never returns after a
-		// partial in-place grow that would have mutated capacity, so
-		// re-running it at the prior dimensions is a no-op when slices
-		// already satisfy the prior MB count.
+		// previous size. Reference pixels and per-MB scratch may have
+		// been overwritten by the partial attempt, so also invalidate
+		// references and force the next frame to be a key frame at the
+		// previous size to keep parity with the libvpx "resize failed"
+		// recovery contract.
 		_ = e.reallocateForDimensions(prevWidth, prevHeight)
+		e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
+		e.forceKeyFrame = true
 		return err
 	}
 	if err := e.ensureRowWorkerPool(width, height); err != nil {
@@ -52,6 +55,8 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 		e.opts.Height = prevHeight
 		_ = e.reallocateForDimensions(prevWidth, prevHeight)
 		_ = e.ensureRowWorkerPool(prevWidth, prevHeight)
+		e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
+		e.forceKeyFrame = true
 		return err
 	}
 
