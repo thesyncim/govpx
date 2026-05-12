@@ -156,9 +156,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64},
 		{name: "realtime-cbr-cpu-5", deadline: DeadlineRealtime, cpuUsed: -5, fx: panning64},
 		{name: "realtime-cbr-cpu-8", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64},
-		// SPLITMV under realtime: frames 0-1 byte-match; frame 2+ drifts
-		// in the inter mode/MV decision.
-		{name: "realtime-cbr-cpu8-splitmv", deadline: DeadlineRealtime, cpuUsed: 8, fx: splitmv64, limit: 2},
+		// SPLITMV under realtime byte-matches at auto-selected cpu8.
+		{name: "realtime-cbr-cpu8-splitmv", deadline: DeadlineRealtime, cpuUsed: 8, fx: splitmv64},
 		// 640x480 panning: keyframe matches; inter frames diverge. Pin
 		// limit=1 until the larger-frame inter divergence closes.
 		{name: "realtime-cbr-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
