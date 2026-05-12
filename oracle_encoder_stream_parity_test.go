@@ -273,6 +273,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-16x16-bitrate2000", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		// q10-30 on 16x16.
 		{name: "realtime-cbr-cpu0-16x16-q10-30", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		// Error-resilient partitions on small frames. Probes the
+		// independent-coefficient-context branch on the simpler MB grids.
+		{name: "realtime-cbr-cpu0-16x16-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=2"}},
+		{name: "realtime-cbr-cpu0-32x32-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=2"}},
+		{name: "realtime-cbr-cpu0-48x48-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, errorResilientPartitions: true, limit: -1, extraArgs: []string{"--error-resilient=2"}},
+		// Sharpness=4 on small frames.
+		{name: "realtime-cbr-cpu0-16x16-sharpness4", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness4", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
+		{name: "realtime-cbr-cpu0-48x48-sharpness4", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, sharpness: 4, limit: -1, extraArgs: []string{"--sharpness=4"}},
+		// VBR + small frames.
+		{name: "realtime-vbr-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
+		{name: "realtime-vbr-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
 	}
 
 	for _, tc := range cases {
