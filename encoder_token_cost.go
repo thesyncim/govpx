@@ -179,7 +179,9 @@ func coefficientExtraBitsRate(token int, mag int) int {
 
 func treeTokenCost(tree []int16, probs []uint8, token int) int {
 	if paths := lookupTreeTokenPaths(tree); paths != nil {
-		if token < 0 || token >= len(paths) {
+		// Single uint compare folds the (token < 0) and (token >= len)
+		// range check into one branch.
+		if uint(token) >= uint(len(paths)) {
 			return maxInt() / 4
 		}
 		return treeTokenCostFromPath(&paths[token], probs)
