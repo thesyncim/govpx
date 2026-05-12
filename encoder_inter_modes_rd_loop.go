@@ -29,7 +29,9 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			state = e.interModeMVSlots([]interAnalysisReference{ref}, [4]int{-1, 0, -1, -1}, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols)
 		}
 		slot := interModeSignBiasSlotForReference(ref.Frame, signBias)
-		nearest, near := state.nearest[slot], state.near[slot]
+		// slot is 0 or 1 by construction; AND-mask with 1 elides BC on
+		// the [2]MotionVector slot arrays.
+		nearest, near := state.nearest[slot&1], state.near[slot&1]
 		mv := nearest
 		if mbMode == vp8common.NearMV {
 			mv = near
@@ -51,7 +53,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			signBias := e.interFrameSignBias()
 			bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 			if modeMVs != nil {
-				bestRefMV = modeMVs.best[interModeSignBiasSlotForReference(ref.Frame, signBias)]
+				bestRefMV = modeMVs.best[interModeSignBiasSlotForReference(ref.Frame, signBias)&1]
 			}
 			search := e.interAnalysisSearchConfig()
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)

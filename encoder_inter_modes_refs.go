@@ -16,7 +16,9 @@ func interReferenceSearchOrder(refs []interAnalysisReference, refCount int) [4]i
 		}
 		switch refs[refIndex].Frame {
 		case vp8common.LastFrame, vp8common.GoldenFrame, vp8common.AltRefFrame:
-			order[searchSlot] = refIndex
+			// searchSlot is in [1,4) by the loop condition above; AND-mask
+			// with 3 elides the bounds check on the [4]int order array.
+			order[searchSlot&3] = refIndex
 			searchSlot++
 		}
 	}
