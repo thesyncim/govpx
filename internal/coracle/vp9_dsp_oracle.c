@@ -96,6 +96,40 @@ void vpx_d135_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *abo
 void vpx_d153_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_he_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_ve_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+
+// Convolve helpers — declarations match vpx_dsp/vpx_convolve.h. We use a
+// pointer to int16_t[8] array of 16 entries as `filter` (the InterpKernel
+// signature in libvpx aliases to const int16_t (*)[8]).
+typedef int16_t InterpKernel[8];
+void vpx_convolve8_horiz_c(const uint8_t *src, ptrdiff_t src_stride,
+                           uint8_t *dst, ptrdiff_t dst_stride,
+                           const InterpKernel *filter, int x0_q4, int x_step_q4,
+                           int y0_q4, int y_step_q4, int w, int h);
+void vpx_convolve8_vert_c(const uint8_t *src, ptrdiff_t src_stride,
+                          uint8_t *dst, ptrdiff_t dst_stride,
+                          const InterpKernel *filter, int x0_q4, int x_step_q4,
+                          int y0_q4, int y_step_q4, int w, int h);
+void vpx_convolve8_avg_horiz_c(const uint8_t *src, ptrdiff_t src_stride,
+                               uint8_t *dst, ptrdiff_t dst_stride,
+                               const InterpKernel *filter, int x0_q4,
+                               int x_step_q4, int y0_q4, int y_step_q4, int w,
+                               int h);
+void vpx_convolve8_avg_vert_c(const uint8_t *src, ptrdiff_t src_stride,
+                              uint8_t *dst, ptrdiff_t dst_stride,
+                              const InterpKernel *filter, int x0_q4,
+                              int x_step_q4, int y0_q4, int y_step_q4, int w,
+                              int h);
+void vpx_convolve_copy_c(const uint8_t *src, ptrdiff_t src_stride,
+                         uint8_t *dst, ptrdiff_t dst_stride,
+                         const InterpKernel *filter, int x0_q4,
+                         int x_step_q4, int y0_q4, int y_step_q4, int w, int h);
+void vpx_convolve_avg_c(const uint8_t *src, ptrdiff_t src_stride,
+                        uint8_t *dst, ptrdiff_t dst_stride,
+                        const InterpKernel *filter, int x0_q4, int x_step_q4,
+                        int y0_q4, int y_step_q4, int w, int h);
+
+// Filter banks exported by vp9_filter.c via vp9_filter_kernels.
+extern const InterpKernel *vp9_filter_kernels[5];
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -221,6 +255,74 @@ static intra_fn *const dir4_table[10] = {
 	vpx_d63e_predictor_4x4_c,  // 8
 	vpx_d45e_predictor_4x4_c,  // 9
 };
+
+// Convolve oracle record format (little-endian):
+//   u32 kernel_id  (400 = horiz, 401 = vert, 402 = avg_horiz,
+//                   403 = avg_vert, 404 = copy, 405 = avg)
+//   u32 filter_idx (0..3 — EIGHTTAP, EIGHTTAP_SMOOTH, EIGHTTAP_SHARP,
+//                   BILINEAR)
+//   u32 x0_q4
+//   u32 y0_q4
+//   u32 w
+//   u32 h
+//   80*80 = 6400 bytes  src (fixed window)
+//   w*h bytes           dst_pre  (the dst buffer before the kernel call)
+//   w*h bytes           dst_post (the libvpx output)
+#define CONV_SRC_DIM 80
+#define CONV_SRC_OFFSET 16     /* kernel-center pixel inside src */
+static void run_convolve(int kind, int filter_idx, int x0_q4, int y0_q4,
+                         int w, int h) {
+	static uint8_t src[CONV_SRC_DIM * CONV_SRC_DIM];
+	static uint8_t dst_pre[32 * 32];
+	static uint8_t dst_post[32 * 32];
+
+	for (int i = 0; i < CONV_SRC_DIM * CONV_SRC_DIM; i++) src[i] = prng_pixel();
+	for (int i = 0; i < w * h; i++) dst_pre[i] = prng_pixel();
+	memcpy(dst_post, dst_pre, (size_t)(w * h));
+
+	const InterpKernel *filter = vp9_filter_kernels[filter_idx];
+	const uint8_t *src_kc = src + CONV_SRC_OFFSET * CONV_SRC_DIM + CONV_SRC_OFFSET;
+	int dst_stride = w;
+	int x_step_q4 = 16, y_step_q4 = 16;
+
+	switch (kind) {
+		case 400:
+			vpx_convolve8_horiz_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                      filter, x0_q4, x_step_q4, y0_q4, y_step_q4, w, h);
+			break;
+		case 401:
+			vpx_convolve8_vert_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                     filter, x0_q4, x_step_q4, y0_q4, y_step_q4, w, h);
+			break;
+		case 402:
+			vpx_convolve8_avg_horiz_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                          filter, x0_q4, x_step_q4, y0_q4, y_step_q4, w, h);
+			break;
+		case 403:
+			vpx_convolve8_avg_vert_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                         filter, x0_q4, x_step_q4, y0_q4, y_step_q4, w, h);
+			break;
+		case 404:
+			vpx_convolve_copy_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                    NULL, 0, 0, 0, 0, w, h);
+			break;
+		case 405:
+			vpx_convolve_avg_c(src_kc, CONV_SRC_DIM, dst_post, dst_stride,
+			                   NULL, 0, 0, 0, 0, w, h);
+			break;
+		default: return;
+	}
+
+	emit_u32((uint32_t)kind);
+	emit_u32((uint32_t)filter_idx);
+	emit_u32((uint32_t)x0_q4);
+	emit_u32((uint32_t)y0_q4);
+	emit_u32((uint32_t)w);
+	emit_u32((uint32_t)h);
+	emit_bytes(src, (size_t)(CONV_SRC_DIM * CONV_SRC_DIM));
+	emit_bytes(dst_pre, (size_t)(w * h));
+	emit_bytes(dst_post, (size_t)(w * h));
+}
 
 static void run_dir4(int kind) {
 	int bs = 4;
@@ -467,6 +569,38 @@ int main(void) {
 	// 10 4x4 hand-coded predictors — 8 cases each.
 	for (int kind = 0; kind < 10; kind++) {
 		for (int i = 0; i < 8; i++) run_dir4(kind);
+	}
+
+	// Convolve kernels — 1 case per (kernel, filter, w, x0_q4 selection).
+	// We exercise 4 block widths covering 4..32 and 16 subpel positions
+	// across the 4 filter banks. Total ~256 records for the horiz/vert
+	// variants plus 32 for copy/avg.
+	{
+		int widths[] = {4, 8, 16, 32};
+		for (int k = 400; k <= 401; k++) {            // horiz, vert
+			for (int f = 0; f < 4; f++) {              // 4 filter banks
+				for (int wi = 0; wi < 4; wi++) {        // 4 widths
+					int w = widths[wi];
+					int h = w;
+					for (int p = 0; p < 16; p += 4) {   // 4 subpel positions
+						run_convolve(k, f, p, p, w, h);
+					}
+				}
+			}
+		}
+		for (int k = 402; k <= 403; k++) {            // avg horiz, avg vert
+			for (int f = 0; f < 4; f++) {
+				for (int wi = 0; wi < 4; wi++) {
+					int w = widths[wi];
+					run_convolve(k, f, 4, 4, w, w);
+				}
+			}
+		}
+		for (int wi = 0; wi < 4; wi++) {              // copy + avg pass-through
+			int w = widths[wi];
+			run_convolve(404, 0, 0, 0, w, w);
+			run_convolve(405, 0, 0, 0, w, w);
+		}
 	}
 
 	return 0;

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // The kernel IDs in the testdata blob mirror the enum in
@@ -47,6 +49,18 @@ const (
 	kDirBase = 200
 	// 4x4 hand-coded predictor records start at 300; one id per kernel.
 	kDir4Base = 300
+
+	// Convolve records start at 400.
+	kConvBase     = 400
+	kConvHoriz    = 400
+	kConvVert     = 401
+	kConvAvgHoriz = 402
+	kConvAvgVert  = 403
+	kConvCopy     = 404
+	kConvAvg      = 405
+
+	convSrcDim    = 80
+	convSrcOffset = 16
 )
 
 const (
@@ -163,6 +177,66 @@ func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride
 	_, _ = io.ReadFull(r, dst)
 	consumed := len(b) - r.Len()
 	return kernelID, txSize, above, left, stride, dst, consumed
+}
+
+// readConvRecord decodes one convolve record (kernel_id in [400, 405]).
+func readConvRecord(b []byte) (kernelID, filterIdx, x0Q4, y0Q4, w, h int,
+	src []byte, dstPre, dstPost []byte, n int) {
+	r := bytes.NewReader(b)
+	read32 := func() uint32 {
+		var v uint32
+		_ = binary.Read(r, binary.LittleEndian, &v)
+		return v
+	}
+	kernelID = int(read32())
+	filterIdx = int(read32())
+	x0Q4 = int(read32())
+	y0Q4 = int(read32())
+	w = int(read32())
+	h = int(read32())
+	src = make([]byte, convSrcDim*convSrcDim)
+	_, _ = io.ReadFull(r, src)
+	dstPre = make([]byte, w*h)
+	_, _ = io.ReadFull(r, dstPre)
+	dstPost = make([]byte, w*h)
+	_, _ = io.ReadFull(r, dstPost)
+	consumed := len(b) - r.Len()
+	return kernelID, filterIdx, x0Q4, y0Q4, w, h, src, dstPre, dstPost, consumed
+}
+
+// callConvolve dispatches a convolve record to the matching Go kernel.
+// The src kernel-center pixel is at convSrcOffset/convSrcOffset within
+// the src buffer, mirroring how the C oracle constructs the src_kc
+// pointer.
+func callConvolve(kernelID, filterIdx, x0Q4, y0Q4, w, h int,
+	src []byte, dst []byte) {
+	srcOffset := convSrcOffset*convSrcDim + convSrcOffset
+	const xStep, yStep = 16, 16
+	var filter *[tables.SubpelShifts][tables.SubpelTaps]int16
+	switch filterIdx {
+	case 0:
+		filter = &tables.SubPelFilters8
+	case 1:
+		filter = &tables.SubPelFilters8lp
+	case 2:
+		filter = &tables.SubPelFilters8s
+	case 3:
+		filter = &tables.BilinearFilters
+	}
+	switch kernelID {
+	case kConvHoriz:
+		VpxConvolve8Horiz(src, convSrcDim, dst, w, filter, x0Q4, xStep, y0Q4, yStep, w, h, srcOffset)
+	case kConvVert:
+		VpxConvolve8Vert(src, convSrcDim, dst, w, filter, x0Q4, xStep, y0Q4, yStep, w, h, srcOffset)
+	case kConvAvgHoriz:
+		VpxConvolve8AvgHoriz(src, convSrcDim, dst, w, filter, x0Q4, xStep, y0Q4, yStep, w, h, srcOffset)
+	case kConvAvgVert:
+		VpxConvolve8AvgVert(src, convSrcDim, dst, w, filter, x0Q4, xStep, y0Q4, yStep, w, h, srcOffset)
+	case kConvCopy:
+		VpxConvolveCopy(src, convSrcDim, dst, w, w, h, srcOffset)
+	case kConvAvg:
+		VpxConvolveAvg(src, convSrcDim, dst, w, w, h, srcOffset)
+	}
 }
 
 // callDir4 dispatches a 4x4 hand-coded directional predictor record to
@@ -347,10 +421,31 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
 	counts := make(map[int]int)
-	var nCases, nIntra int
+	var nCases, nIntra, nConv int
 
 	for len(blob) > 0 {
-		if id := peekKernelID(blob); id >= kIntraBase {
+		id := peekKernelID(blob)
+		if id >= kConvBase {
+			kernel, filterIdx, x0Q4, y0Q4, w, h, src, dstPre, dstPost, consumed := readConvRecord(blob)
+			blob = blob[consumed:]
+			nCases++
+			nConv++
+			counts[kernel]++
+
+			got := make([]byte, len(dstPost))
+			copy(got, dstPre)
+			callConvolve(kernel, filterIdx, x0Q4, y0Q4, w, h, src, got)
+			if !bytes.Equal(got, dstPost) {
+				lim := 16
+				if lim > len(got) {
+					lim = len(got)
+				}
+				t.Fatalf("convolve kernel=%d filter=%d x0=%d y0=%d w=%d h=%d: byte mismatch\n  got[:%d]=%v\n want[:%d]=%v",
+					kernel, filterIdx, x0Q4, y0Q4, w, h, lim, got[:lim], lim, dstPost[:lim])
+			}
+			continue
+		}
+		if id >= kIntraBase {
 			kernel, txSize, above, left, stride, want, consumed := readIntraRecord(blob)
 			blob = blob[consumed:]
 			nCases++
@@ -446,13 +541,15 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	if nCases == 0 {
 		t.Fatal("oracle blob contained no records")
 	}
-	t.Logf("verified %d records (transforms=%d, intra=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d",
-		nCases, nCases-nIntra, nIntra,
+	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
+		nCases, nCases-nIntra-nConv, nIntra, nConv,
 		counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
 		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],
 		counts[kIht4AdstDct], counts[kIht4DctAdst], counts[kIht4AdstAdst],
 		counts[kIht8AdstDct], counts[kIht8DctAdst], counts[kIht8AdstAdst],
 		counts[kIht16AdstDct], counts[kIht16DctAdst], counts[kIht16AdstAdst],
-		counts[kIdct32_1024], counts[kIdct32_135], counts[kIdct32_34], counts[kIdct32_1])
+		counts[kIdct32_1024], counts[kIdct32_135], counts[kIdct32_34], counts[kIdct32_1],
+		counts[kConvHoriz], counts[kConvVert], counts[kConvAvgHoriz], counts[kConvAvgVert],
+		counts[kConvCopy], counts[kConvAvg])
 }
