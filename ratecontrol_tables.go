@@ -262,7 +262,7 @@ func libvpxZbinOverQuantHighAltRef(keyFrame bool, goldenFrame bool, altRefFrame 
 }
 
 func libvpxEstimatedBitsAtQuantizer(frameType int, q int, macroblocks int, correctionFactor float64) int {
-	if frameType < 0 || frameType >= len(libvpxBitsPerMB) || q < 0 || q >= len(libvpxBitsPerMB[frameType]) || macroblocks <= 0 {
+	if uint(frameType) >= uint(len(libvpxBitsPerMB)) || uint(q) >= uint(len(libvpxBitsPerMB[frameType])) || macroblocks <= 0 {
 		return 0
 	}
 	if correctionFactor <= 0 {
