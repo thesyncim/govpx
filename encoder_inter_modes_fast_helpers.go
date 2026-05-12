@@ -77,12 +77,13 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 //  4. RDCOST(rdmult, rddiv, rate, distortion); pick min.
 //  5. After the per-block winner is chosen, run vp8_encode_intra4x4block
 //     equivalent: DCT residual, quantize/dequant, IDCT-add into the analysis
-//     Y plane so subsequent sub-blocks read reconstructed pixels (not raw
-//     predictor) for their above-/left-within-MB neighbors. libvpx's
-//     pick_intra4x4block tail call mirrors the same path.
+//     Y plane so subsequent sub-blocks read reconstructed pixels for their
+//     above-/left-within-MB neighbors. libvpx's pick_intra4x4block tail call
+//     mirrors the same path.
 //  6. After all 16 sub-blocks: MB-level variance against e_mbd.predictor
-//     (here the analysis Y plane post-reconstruction) is the "distortion2"
-//     libvpx feeds into the outer RDCOST in vp8_pick_inter_mode.
+//     (the saved raw predictor blocks, not the reconstructed analysis plane)
+//     is the "distortion2" libvpx feeds into the outer RDCOST in
+//     vp8_pick_inter_mode.
 func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
 	if quant == nil {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
@@ -114,6 +115,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	}
 	quantY1 := &quant.Y1
 	var modes [16]vp8common.BPredictionMode
+	var predictor [256]byte
 	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
 	for block := range 16 {
@@ -139,6 +141,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			}
 		}
 		modes[block] = bestMode
+		copyBPredBlock(bestPred[:], predictor[:], 16, block)
 
 		// Mirror libvpx vp8_encode_intra4x4block: re-predict, residual,
 		// DCT, quantize/dequant, IDCT-add into the analysis Y plane so the
@@ -166,6 +169,23 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 		}
 	}
-	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
+	variance, sse := macroblockLumaVarianceSSEFromPredictor(src, mbRow, mbCol, &predictor)
 	return vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.BPred, UVMode: vp8common.DCPred, BModes: modes}, libvpxRDCost(rdMult, rdDiv, rate, variance), variance, sse, rate, true
+}
+
+func macroblockLumaVarianceSSEFromPredictor(src vp8enc.SourceImage, mbRow int, mbCol int, pred *[256]byte) (int, int) {
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	sum := 0
+	sse := 0
+	for row := range 16 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range 16 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(pred[row*16+col])
+			sum += diff
+			sse += diff * diff
+		}
+	}
+	return sse - ((sum * sum) >> 8), sse
 }

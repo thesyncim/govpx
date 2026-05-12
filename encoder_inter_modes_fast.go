@@ -131,6 +131,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			bestSSEBefore := bestSSE
 			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
 			if !ok {
+				e.raiseInterRDThreshold(modeIndex)
 				continue
 			}
 			mode.SegmentID = segmentID
