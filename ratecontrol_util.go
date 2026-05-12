@@ -264,13 +264,7 @@ func normalizedCQLevel(level int, minQuantizer int) int {
 }
 
 func libvpxPublicQuantizerToQIndex(q int) int {
-	if q < 0 {
-		return 0
-	}
-	if q > maxQuantizer {
-		return libvpxQuantizerTranslation[maxQuantizer]
-	}
-	return libvpxQuantizerTranslation[q]
+	return libvpxQuantizerTranslation[min(max(q, 0), maxQuantizer)]
 }
 
 func libvpxQIndexToPublicQuantizer(qIndex int) int {
