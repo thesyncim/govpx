@@ -418,6 +418,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-32x32-sharpness1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 1, limit: -1, extraArgs: []string{"--sharpness=1"}},
 		{name: "realtime-cbr-cpu0-32x32-sharpness2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 2, limit: -1, extraArgs: []string{"--sharpness=2"}},
 		{name: "realtime-cbr-cpu0-32x32-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, limit: -1, extraArgs: []string{"--sharpness=7"}},
+		// cpu-3 + axes on large clean-grid sizes — confirms parity holds
+		// across bitrate/Q axes on 256x144 (4 strict matches) and 640x480
+		// + q10-30. 640x480 + bitrate200 hits a low-bitrate rate-control
+		// drift at frame 2.
+		{name: "realtime-cbr-cpu-3-256x144-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-256x144-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-3-256x144-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-640x480-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 2, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-640x480-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
 	}
 
 	for _, tc := range cases {
