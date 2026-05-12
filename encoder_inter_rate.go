@@ -176,26 +176,36 @@ func interReferenceFrameRateWithProbs(refFrame vp8common.MVReferenceFrame, probL
 
 func interPredictionModeRate(mode vp8common.MBPredictionMode, counts vp8enc.InterModeCounts) int {
 	probs := vp8tables.InterModeContexts
+	// Clamp the four context counts to [0, InterModeContextCount-1=5]
+	// once at function entry. counts in practice never exceed this
+	// (counts accumulate at most a few units per MB context), so the
+	// min() is a no-op functionally but lets the compiler elide the
+	// per-branch bounds check on the [6][4]uint8 InterModeContexts load.
+	const maxCtx = vp8tables.InterModeContextCount - 1
+	intra := min(int(counts.Intra), maxCtx)
+	nearest := min(int(counts.Nearest), maxCtx)
+	near := min(int(counts.Near), maxCtx)
+	split := min(int(counts.Split), maxCtx)
 	switch mode {
 	case vp8common.ZeroMV:
-		return boolBitCost(probs[counts.Intra][0], 0)
+		return boolBitCost(probs[intra][0], 0)
 	case vp8common.NearestMV:
-		return boolBitCost(probs[counts.Intra][0], 1) +
-			boolBitCost(probs[counts.Nearest][1], 0)
+		return boolBitCost(probs[intra][0], 1) +
+			boolBitCost(probs[nearest][1], 0)
 	case vp8common.NearMV:
-		return boolBitCost(probs[counts.Intra][0], 1) +
-			boolBitCost(probs[counts.Nearest][1], 1) +
-			boolBitCost(probs[counts.Near][2], 0)
+		return boolBitCost(probs[intra][0], 1) +
+			boolBitCost(probs[nearest][1], 1) +
+			boolBitCost(probs[near][2], 0)
 	case vp8common.NewMV:
-		return boolBitCost(probs[counts.Intra][0], 1) +
-			boolBitCost(probs[counts.Nearest][1], 1) +
-			boolBitCost(probs[counts.Near][2], 1) +
-			boolBitCost(probs[counts.Split][3], 0)
+		return boolBitCost(probs[intra][0], 1) +
+			boolBitCost(probs[nearest][1], 1) +
+			boolBitCost(probs[near][2], 1) +
+			boolBitCost(probs[split][3], 0)
 	case vp8common.SplitMV:
-		return boolBitCost(probs[counts.Intra][0], 1) +
-			boolBitCost(probs[counts.Nearest][1], 1) +
-			boolBitCost(probs[counts.Near][2], 1) +
-			boolBitCost(probs[counts.Split][3], 1)
+		return boolBitCost(probs[intra][0], 1) +
+			boolBitCost(probs[nearest][1], 1) +
+			boolBitCost(probs[near][2], 1) +
+			boolBitCost(probs[split][3], 1)
 	default:
 		return 1 << 30
 	}
