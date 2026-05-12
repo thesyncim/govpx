@@ -435,6 +435,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-5-128x128", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 2},
 		{name: "realtime-cbr-cpu-8-256x144", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-8-128x128", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
+		// cpu-8 at HD/SD sizes. 96x96 and 160x96 byte-match fully; sizes
+		// 320x180+ diverge from frame 1+ (cpu-8 enables aggressive
+		// per-frame heuristics that drift differently from libvpx at
+		// scale, even though smaller sizes still match).
+		{name: "realtime-cbr-cpu-8-640x480", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-8-1280x720", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-1280x720", w: 1280, h: 720, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-8-96x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-160x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-320x180", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
