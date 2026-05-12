@@ -72,10 +72,32 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		errorResilientPartitions bool
 		// sharpness overrides the loop-filter sharpness level.
 		sharpness int
+		// tuning overrides the RD tuning mode; tuningSet distinguishes
+		// explicit TunePSNR from the default zero value.
+		tuning    Tuning
+		tuningSet bool
 		// extraArgs is appended to the libvpx vpxenc-oracle command.
 		extraArgs []string
 		// fastLF flips on FastLoopFilterPick.
 		fastLF bool
+		// staticThreshold overrides EncoderOptions.StaticThreshold.
+		staticThreshold int
+		// screenContentMode overrides EncoderOptions.ScreenContentMode.
+		screenContentMode int
+		// maxIntraBitratePct overrides EncoderOptions.MaxIntraBitratePct.
+		maxIntraBitratePct int
+		// gfCBRBoostPct overrides EncoderOptions.GFCBRBoostPct.
+		gfCBRBoostPct int
+		// undershootPct / overshootPct override rate-control drift limits.
+		undershootPct int
+		overshootPct  int
+		// buffer*Ms override the virtual rate-control buffer model.
+		bufferSizeMs        int
+		bufferInitialSizeMs int
+		bufferOptimalSizeMs int
+		// dropFrameAllowed/dropFrameWaterMark mirror libvpx --drop-frame.
+		dropFrameAllowed   bool
+		dropFrameWaterMark int
 		// tokenPartitions overrides EncoderOptions.TokenPartitions
 		// (0=1 partition, 1=2, 2=4, 3=8).
 		tokenPartitions int
@@ -85,6 +107,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// minQ / maxQ override the default 4 / 56 quantizer band.
 		minQ int
 		maxQ int
+		// cqLevel overrides EncoderOptions.CQLevel for CQ/Q mode.
+		cqLevel int
 		// kfInterval overrides the keyframe interval (0 = use the
 		// test-wide default 999).
 		kfInterval int
@@ -115,6 +139,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		// High-value VP8 controls with direct vpxenc flags.
+		{name: "realtime-cbr-cpu0-32x32-static-thresh1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, staticThreshold: 1, extraArgs: []string{"--static-thresh=1"}},
+		{name: "realtime-cbr-cpu0-32x32-tune-ssim", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
+		{name: "realtime-q-cpu0-32x32-q20", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		{name: "realtime-cbr-cpu0-32x32-undershoot50-overshoot50", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, undershootPct: 50, overshootPct: 50, extraArgs: []string{"--undershoot-pct=50", "--overshoot-pct=50"}},
+		{name: "realtime-cbr-cpu0-32x32-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		{name: "realtime-cbr-cpu0-32x32-drop-frame60", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, dropFrameAllowed: true, dropFrameWaterMark: 60, extraArgs: []string{"--drop-frame=60"}},
+		{name: "realtime-cbr-cpu0-32x32-max-intra-rate100", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, maxIntraBitratePct: 100, extraArgs: []string{"--max-intra-rate=100"}},
+		{name: "realtime-cbr-cpu0-32x32-gf-cbr-boost50", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, gfCBRBoostPct: 50, extraArgs: []string{"--gf-cbr-boost=50"}},
+		{name: "realtime-cbr-cpu0-32x32-screen-content1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		// FastLoopFilterPick=true is a deliberate parity-breaking opt-in
 		// that swaps the full-frame loop-filter trial picker for the
 		// partial-frame variant whenever speed >= 4. Pin the divergence
@@ -761,6 +795,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if tc.maxQ > 0 {
 				maxQ = tc.maxQ
 			}
+			cqLevel := 0
+			if tc.cqLevel > 0 {
+				cqLevel = tc.cqLevel
+			}
 			kfInterval := 999
 			if tc.kfInterval > 0 {
 				kfInterval = tc.kfInterval
@@ -768,6 +806,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			caseFPS := fps
 			if tc.fpsOverride > 0 {
 				caseFPS = tc.fpsOverride
+			}
+			tuning := TunePSNR
+			if tc.tuningSet {
+				tuning = tc.tuning
 			}
 			opts := EncoderOptions{
 				Width:                    tc.fx.w,
@@ -777,13 +819,26 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				TargetBitrateKbps:        caseTargetKbps,
 				MinQuantizer:             minQ,
 				MaxQuantizer:             maxQ,
+				CQLevel:                  cqLevel,
 				KeyFrameInterval:         kfInterval,
 				Deadline:                 tc.deadline,
 				CpuUsed:                  tc.cpuUsed,
+				Tuning:                   tuning,
 				ErrorResilient:           tc.errorResilient,
 				ErrorResilientPartitions: tc.errorResilientPartitions,
 				Sharpness:                tc.sharpness,
 				FastLoopFilterPick:       tc.fastLF,
+				StaticThreshold:          tc.staticThreshold,
+				ScreenContentMode:        tc.screenContentMode,
+				MaxIntraBitratePct:       tc.maxIntraBitratePct,
+				GFCBRBoostPct:            tc.gfCBRBoostPct,
+				UndershootPct:            tc.undershootPct,
+				OvershootPct:             tc.overshootPct,
+				BufferSizeMs:             tc.bufferSizeMs,
+				BufferInitialSizeMs:      tc.bufferInitialSizeMs,
+				BufferOptimalSizeMs:      tc.bufferOptimalSizeMs,
+				DropFrameAllowed:         tc.dropFrameAllowed,
+				DropFrameWaterMark:       tc.dropFrameWaterMark,
 				TokenPartitions:          tc.tokenPartitions,
 			}
 
