@@ -38,6 +38,22 @@ const (
 	kIht16AdstDct  = 22
 	kIht16DctAdst  = 23
 	kIht16AdstAdst = 24
+
+	// Intra prediction records use a contiguous id range starting at 100.
+	// id = 100 + kind*4 + (size_log2 - 2)
+	kIntraBase = 100
+)
+
+// Intra prediction kernel-kind values mirroring the C oracle's
+// intra_table row order: dc, dc_left, dc_top, dc_128, v, h, tm.
+const (
+	intraKindDc     = 0
+	intraKindDcLeft = 1
+	intraKindDcTop  = 2
+	intraKindDc128  = 3
+	intraKindV      = 4
+	intraKindH      = 5
+	intraKindTm     = 6
 )
 
 const oracleMagic = 0x76503944 // "D9Pv" little-endian == "vP9D"
@@ -66,9 +82,17 @@ func loadOracle(t *testing.T) []byte {
 	return raw[8:]
 }
 
-// readRecord decodes one record from the oracle blob. Returns
-// (input, dest_in, dest_out, kernel_id, tx_size, stride) and the
-// consumed byte count. Inputs are int16 — matching libvpx's
+// peekKernelID reads the kernel id at the start of a record without
+// advancing past it. Records up to kernelID = 99 are transform records
+// (input, dest_in, dest_out); kernel_id >= kIntraBase are intra
+// prediction records (above, left, dst).
+func peekKernelID(b []byte) int {
+	return int(binary.LittleEndian.Uint32(b[:4]))
+}
+
+// readRecord decodes one transform record from the oracle blob.
+// Returns (input, dest_in, dest_out, kernel_id, tx_size, stride) and
+// the consumed byte count. Inputs are int16 — matching libvpx's
 // tran_low_t in the 8-bit non-highbitdepth configuration.
 func readRecord(b []byte) (input []int16, destIn, destOut []byte, kernelID, txSize, stride int, n int) {
 	r := bytes.NewReader(b)
@@ -99,6 +123,119 @@ func readRecord(b []byte) (input []int16, destIn, destOut []byte, kernelID, txSi
 	return input, destIn, destOut, kernelID, txSize, stride, consumed
 }
 
+// readIntraRecord decodes one intra-prediction record from the oracle
+// blob. Returns (kernel_id, tx_size, above, left, stride, dst) and the
+// consumed byte count. above is sized 1+2*tx_size (the +1 prefix byte
+// is the [-1] top-left corner libvpx reads). dst contains the libvpx
+// output the Go kernel must reproduce.
+func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride int, dst []byte, n int) {
+	r := bytes.NewReader(b)
+	read32 := func() uint32 {
+		var v uint32
+		_ = binary.Read(r, binary.LittleEndian, &v)
+		return v
+	}
+	kernelID = int(read32())
+	txSize = int(read32())
+	nAbove := int(read32())
+	above = make([]byte, nAbove)
+	_, _ = io.ReadFull(r, above)
+	nLeft := int(read32())
+	left = make([]byte, nLeft)
+	_, _ = io.ReadFull(r, left)
+	stride = int(read32())
+	nDst := int(read32())
+	dst = make([]byte, nDst)
+	_, _ = io.ReadFull(r, dst)
+	consumed := len(b) - r.Len()
+	return kernelID, txSize, above, left, stride, dst, consumed
+}
+
+// callIntra dispatches an intra-prediction record to the matching Go
+// kernel. above is passed as-is so above[0] is the [-1] corner.
+func callIntra(kernelID, txSize int, above, left []byte, stride int, dst []byte) {
+	kind := (kernelID - kIntraBase) / 4
+	switch kind {
+	case intraKindDc:
+		switch txSize {
+		case 4:
+			VpxDcPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxDcPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxDcPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxDcPredictor32x32(dst, stride, above, left)
+		}
+	case intraKindDcLeft:
+		switch txSize {
+		case 4:
+			VpxDcLeftPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxDcLeftPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxDcLeftPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxDcLeftPredictor32x32(dst, stride, above, left)
+		}
+	case intraKindDcTop:
+		switch txSize {
+		case 4:
+			VpxDcTopPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxDcTopPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxDcTopPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxDcTopPredictor32x32(dst, stride, above, left)
+		}
+	case intraKindDc128:
+		switch txSize {
+		case 4:
+			VpxDc128Predictor4x4(dst, stride, above, left)
+		case 8:
+			VpxDc128Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxDc128Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxDc128Predictor32x32(dst, stride, above, left)
+		}
+	case intraKindV:
+		switch txSize {
+		case 4:
+			VpxVPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxVPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxVPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxVPredictor32x32(dst, stride, above, left)
+		}
+	case intraKindH:
+		switch txSize {
+		case 4:
+			VpxHPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxHPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxHPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxHPredictor32x32(dst, stride, above, left)
+		}
+	case intraKindTm:
+		switch txSize {
+		case 4:
+			VpxTmPredictor4x4(dst, stride, above, left)
+		case 8:
+			VpxTmPredictor8x8(dst, stride, above, left)
+		case 16:
+			VpxTmPredictor16x16(dst, stride, above, left)
+		case 32:
+			VpxTmPredictor32x32(dst, stride, above, left)
+		}
+	}
+}
+
 // TestDSPMatchesLibvpx replays every record in the oracle blob against
 // the matching Go kernel and checks the output is byte-identical to
 // what libvpx produced for the same input. This is the parity gate for
@@ -107,9 +244,38 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
 	counts := make(map[int]int)
-	var nCases int
+	var nCases, nIntra int
 
 	for len(blob) > 0 {
+		if peekKernelID(blob) >= kIntraBase {
+			kernel, txSize, above, left, stride, want, consumed := readIntraRecord(blob)
+			blob = blob[consumed:]
+			nCases++
+			nIntra++
+			counts[kernel]++
+
+			got := make([]byte, len(want))
+			// dst before the libvpx call is part of the record's stored
+			// state — the predictor writes into uninitialized pixels but
+			// many libvpx predictors only touch a subset of the plane,
+			// so we seed got with the pre-call state. The oracle records
+			// the post-call state (== libvpx's written output) here, so
+			// we just need to match it.
+			//
+			// For these write-all-pixels kernels we can start `got` from
+			// any state; using `want` ensures unrelated bytes match.
+			copy(got, want)
+			// Zero out so we exercise the kernel's write coverage.
+			for i := range got {
+				got[i] = 0
+			}
+			callIntra(kernel, txSize, above, left, stride, got)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("intra kernel=%d tx=%d: byte mismatch\n  above=%v\n  left=%v\n  got=%v\n  want=%v",
+					kernel, txSize, above, left, got, want)
+			}
+			continue
+		}
 		input, destIn, destOut, kernel, txSize, stride, consumed := readRecord(blob)
 		blob = blob[consumed:]
 		nCases++
@@ -180,8 +346,9 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	if nCases == 0 {
 		t.Fatal("oracle blob contained no records")
 	}
-	t.Logf("verified %d records: idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d",
-		nCases, counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
+	t.Logf("verified %d records (transforms=%d, intra=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d",
+		nCases, nCases-nIntra, nIntra,
+		counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
 		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],
 		counts[kIht4AdstDct], counts[kIht4DctAdst], counts[kIht4AdstAdst],

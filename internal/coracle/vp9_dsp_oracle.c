@@ -12,6 +12,7 @@
 // (The build tag keeps `go build` from trying to compile this C file.
 // It is built by build_libvpx_vp9.sh.)
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,35 @@ void vpx_idct16x16_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vp9_iht4x4_16_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
 void vp9_iht8x8_64_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
 void vp9_iht16x16_256_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
+
+void vpx_dc_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_left_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_left_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_left_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_left_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_top_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_top_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_top_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_top_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_128_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_128_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_128_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_dc_128_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_v_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_v_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_v_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_v_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_h_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_h_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_h_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_h_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_tm_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_tm_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_tm_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_tm_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -122,7 +152,54 @@ enum {
 	K_IHT16_ADST_DCT  = 22,
 	K_IHT16_DCT_ADST  = 23,
 	K_IHT16_ADST_ADST = 24,
+	// Intra prediction kernels follow. Records encode tx_size and an
+	// extra "intra_kind" byte tucked into the kernel_id high nibble:
+	//   100 + (kind*4) + log2(tx_size)-2 for sizes 4..32
+	// kind values:
+	//   0 = dc, 1 = dc_left, 2 = dc_top, 3 = dc_128,
+	//   4 = v,  5 = h,       6 = tm
+	K_INTRA_BASE = 100,
 };
+
+typedef void intra_fn(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+static intra_fn *const intra_table[7][4] = {
+	{ vpx_dc_predictor_4x4_c,      vpx_dc_predictor_8x8_c,      vpx_dc_predictor_16x16_c,      vpx_dc_predictor_32x32_c      },
+	{ vpx_dc_left_predictor_4x4_c, vpx_dc_left_predictor_8x8_c, vpx_dc_left_predictor_16x16_c, vpx_dc_left_predictor_32x32_c },
+	{ vpx_dc_top_predictor_4x4_c,  vpx_dc_top_predictor_8x8_c,  vpx_dc_top_predictor_16x16_c,  vpx_dc_top_predictor_32x32_c  },
+	{ vpx_dc_128_predictor_4x4_c,  vpx_dc_128_predictor_8x8_c,  vpx_dc_128_predictor_16x16_c,  vpx_dc_128_predictor_32x32_c  },
+	{ vpx_v_predictor_4x4_c,       vpx_v_predictor_8x8_c,       vpx_v_predictor_16x16_c,       vpx_v_predictor_32x32_c       },
+	{ vpx_h_predictor_4x4_c,       vpx_h_predictor_8x8_c,       vpx_h_predictor_16x16_c,       vpx_h_predictor_32x32_c       },
+	{ vpx_tm_predictor_4x4_c,      vpx_tm_predictor_8x8_c,      vpx_tm_predictor_16x16_c,      vpx_tm_predictor_32x32_c      },
+};
+
+static void run_intra(int kind, int size_log2) {
+	int bs = 1 << size_log2;
+	uint8_t dst[32 * 32];
+	// Pad above with 1 byte on the left for the [-1] (top-left) access and
+	// 2*bs bytes beyond for the directional predictors (unused here but
+	// future-proofs the record layout).
+	uint8_t above_buf[1 + 64];
+	uint8_t left_buf[32];
+
+	for (int i = 0; i < 1 + 2*bs; i++) above_buf[i] = prng_pixel();
+	for (int i = 0; i < bs; i++) left_buf[i] = prng_pixel();
+	for (int i = 0; i < bs * bs; i++) dst[i] = prng_pixel();
+
+	// Call the libvpx kernel with above pointer at the post-[-1] entry,
+	// just like libvpx callers do.
+	intra_table[kind][size_log2 - 2](dst, bs, above_buf + 1, left_buf);
+
+	int kid = K_INTRA_BASE + kind*4 + (size_log2 - 2);
+	emit_u32((uint32_t)kid);
+	emit_u32((uint32_t)bs);          // tx_size
+	emit_u32((uint32_t)(1 + 2*bs));  // n_above
+	emit_bytes(above_buf, (size_t)(1 + 2*bs));
+	emit_u32((uint32_t)bs);          // n_left
+	emit_bytes(left_buf, (size_t)bs);
+	emit_u32((uint32_t)bs);          // stride
+	emit_u32((uint32_t)(bs * bs));   // n_dst
+	emit_bytes(dst, (size_t)(bs * bs));
+}
 
 static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
                      int sparse_top_left) {
@@ -270,6 +347,14 @@ int main(void) {
 	for (int i = 0; i < 20; i++) run_case(K_IHT16_ADST_DCT,  16, 256, 1 + i*25, 0);
 	for (int i = 0; i < 20; i++) run_case(K_IHT16_DCT_ADST,  16, 256, 1 + i*25, 0);
 	for (int i = 0; i < 20; i++) run_case(K_IHT16_ADST_ADST, 16, 256, 1 + i*25, 0);
+
+	// Intra prediction kernels — 5 fresh randomized cases each across
+	// the 7 modes × 4 sizes (DC, DC_LEFT, DC_TOP, DC_128, V, H, TM).
+	for (int kind = 0; kind < 7; kind++) {
+		for (int log2 = 2; log2 <= 5; log2++) {
+			for (int i = 0; i < 5; i++) run_intra(kind, log2);
+		}
+	}
 
 	return 0;
 }
