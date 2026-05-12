@@ -1,9 +1,101 @@
 package govpx
 
 import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
+
+// applyResolutionChange rebuilds the encoder's size-dependent state for
+// new visible dimensions and arranges for the next encoded frame to be
+// a key frame at that size. Validation runs before any mutation so a
+// rejected request leaves the encoder usable at its current dimensions.
+//
+// Mirrors libvpx's `vpx_codec_enc_config_set` with a new width/height:
+// references must be invalidated (any prior LAST/GOLDEN/ALTREF pixels
+// cannot be used as prediction at the new size) and the next frame is
+// promoted to a key frame.
+//
+// Resize is refused while lookahead is non-empty or while a hidden
+// alt-ref input is staged, because draining those queues at the old
+// dimensions and pushing new frames at the new dimensions would mix
+// resolutions inside a single buffered window.
+func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
+	if !validDimension(width) || !validDimension(height) {
+		return ErrInvalidConfig
+	}
+	if e.lookaheadEnabled() && e.lookaheadCount > 0 {
+		return ErrInvalidConfig
+	}
+	if e.autoAltRefStashValid {
+		return ErrInvalidConfig
+	}
+	// Roll back to a pre-mutation snapshot if anything below fails, so
+	// the encoder remains usable at the previous dimensions.
+	prevWidth := e.opts.Width
+	prevHeight := e.opts.Height
+	e.opts.Width = width
+	e.opts.Height = height
+	if err := e.reallocateForDimensions(width, height); err != nil {
+		e.opts.Width = prevWidth
+		e.opts.Height = prevHeight
+		// Restore prior allocations so encode state is coherent at the
+		// previous size. reallocateForDimensions never returns after a
+		// partial in-place grow that would have mutated capacity, so
+		// re-running it at the prior dimensions is a no-op when slices
+		// already satisfy the prior MB count.
+		_ = e.reallocateForDimensions(prevWidth, prevHeight)
+		return err
+	}
+	if err := e.ensureRowWorkerPool(width, height); err != nil {
+		e.opts.Width = prevWidth
+		e.opts.Height = prevHeight
+		_ = e.reallocateForDimensions(prevWidth, prevHeight)
+		_ = e.ensureRowWorkerPool(prevWidth, prevHeight)
+		return err
+	}
+
+	// Invalidate all three references: their pixel content is at the
+	// previous coded dimensions and cannot legally predict an inter
+	// frame at the new size. Clearing the reference-frame numbers also
+	// makes anyInterReferenceAvailable() return false, which in turn
+	// guarantees the next encode is a key frame even if the caller
+	// forgets to set forceKeyFrame.
+	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
+	e.goldenRefAliasesLast = false
+	e.altRefAliasesLast = false
+	e.goldenRefAliasesAlt = false
+	e.lastFrameInterModesValid = false
+	e.lastInterZeroMVCount = 0
+	e.lastInterSkipCount = 0
+
+	// Denoiser running-average buffers were sized for the old picture;
+	// the next inter frame's ensureAllocated call will reallocate to
+	// match. Reset clears the per-MB FILTER/COPY/NoFilter state map.
+	e.denoiser.reset()
+
+	// Activity map / ROI segment slice / active map are sized by MB
+	// count; the active map already got resized in
+	// reallocateForDimensions, the activity map is rebuilt lazily on
+	// the next inter frame, and ROI is disabled because the supplied
+	// segmentID grid no longer matches the new MB grid.
+	e.activityMapValid = false
+	if e.roi.enabled {
+		e.roi.disable()
+	}
+
+	// Two-pass per-frame budgets depend on MB count.
+	e.twoPass.configureFrameDims(width, height)
+
+	// Force the next frame to be a key frame at the new size. The
+	// encode path also treats "no references available" as a
+	// keyframe trigger via shouldEncodeKeyFrame, but setting the
+	// flag explicitly mirrors how libvpx's resize path drives the
+	// next frame.
+	e.forceKeyFrame = true
+
+	return nil
+}
 
 // reallocateForDimensions sizes every dimension-dependent encoder buffer
 // for the given width/height. It is the single source of truth for the

@@ -215,22 +215,30 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 	e.opts.DropFrameAllowed = enabled
 }
 
-// SetRealtimeTarget applies a WebRTC-style runtime target update.
-// Zero-valued fields keep their current setting, which makes bandwidth
-// estimator updates safe to send as bitrate-only deltas.
 //
-// Width and Height, if set, must equal the encoder's existing dimensions:
-// govpx does not yet support runtime resolution change on the encoder
-// side. To switch resolutions, drain the encoder with FlushInto, call
-// Close, and build a new [VP8Encoder] at the target size. The decoder
-// does support resolution change on a key frame; see
-// [DecoderOptions.RejectResolutionChange].
+// Zero-valued fields keep their current setting, so bandwidth-estimator
+// updates are safe to send as bitrate-only deltas. Width and Height,
+// when both positive and different from the encoder's current
+// dimensions, trigger a runtime resolution change: every size-dependent
+// buffer is re-sized (reusing capacity where possible), all reference
+// frames are invalidated, and the next encoded frame is forced to be a
+// key frame at the new size. Mirrors libvpx's `vpx_codec_enc_config_set`
+// with a new width / height. The libvpx spatial resampler
+// ([VP8E_SET_SCALEMODE], `rc_resize_*`) is not implemented; callers
+// drive the coded size directly. The decoder also handles key-frame
+// resolution change; see [DecoderOptions.RejectResolutionChange].
 //
-// Returns [ErrInvalidConfig] for negative numeric fields, an out-of-range
-// FrameDrop selector, or a Width/Height that does not match the encoder.
-// Returns [ErrInvalidQuantizer] when MinQuantizer or MaxQuantizer is out
-// of [0, 63] or when both are non-zero and MinQuantizer > MaxQuantizer.
-// On error the encoder's state is unchanged.
+// Returns [ErrInvalidConfig] for negative numeric fields, an
+// out-of-range FrameDrop selector, or a Width / Height pair that does
+// not satisfy [VP8 dimension limits]. Resize is also rejected with
+// [ErrInvalidConfig] when the lookahead queue is non-empty or a hidden
+// alt-ref input is staged; drain the encoder with [VP8Encoder.FlushInto]
+// before resizing in those modes. Returns [ErrInvalidQuantizer] when
+// MinQuantizer or MaxQuantizer is outside [0, 63] or when both are
+// non-zero and MinQuantizer > MaxQuantizer. On any validation failure
+// the encoder state is left untouched at the previous configuration.
+//
+// [VP8 dimension limits]: https://datatracker.ietf.org/doc/html/rfc6386#section-9.1
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -252,10 +260,16 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			return ErrInvalidConfig
 		}
 		if target.Width != e.opts.Width || target.Height != e.opts.Height {
-			return ErrInvalidConfig
+			if err := e.applyResolutionChange(target.Width, target.Height); err != nil {
+				return err
+			}
+		} else {
+			// Same-size shortcut: keep the existing behavior of accepting
+			// a no-op resolution echo so bitrate-only BWE updates still
+			// validate cleanly.
+			e.opts.Width = target.Width
+			e.opts.Height = target.Height
 		}
-		e.opts.Width = target.Width
-		e.opts.Height = target.Height
 	}
 	if target.FPS > 0 {
 		fpsChanged := target.FPS != e.opts.FPS
