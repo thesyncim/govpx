@@ -1,14 +1,16 @@
-// Package govpx is a pure-Go VP8 encoder and decoder.
+// Package govpx is a pure-Go VP8 and VP9 encoder and decoder.
 //
-// The package is VP8-only by design. There is no VP9, no AV1, no WebM muxer,
+// The package scope is the libvpx codec surface only: no AV1, no WebM muxer,
 // no RTP packetizer, and no libvpx C API compatibility layer. It produces and
-// consumes raw VP8 frame payloads — one frame per packet — and leaves
+// consumes raw VP8 or VP9 frame payloads — one frame per packet — and leaves
 // transport framing to the caller.
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go
 // dependency. Behavior is validated against a pinned libvpx v1.16.0 oracle;
-// see [UpstreamLibvpxVersion].
+// see [UpstreamLibvpxVersion]. The parity bar is 100% byte parity with
+// libvpx on the supported configurations: bit-identical encoded packets and
+// bit-identical decoded pixels.
 //
 // # Decoding
 //
@@ -80,7 +82,8 @@
 //
 //   - The default build links the native architecture's pixel kernels.
 //   - The "purego" build tag forces scalar Go fallbacks across
-//     internal/vp8/dsp and internal/vp8/encoder.
+//     internal/vp8/dsp, internal/vp8/encoder, internal/vp9/dsp, and
+//     internal/vp9/encoder.
 //   - The "govpx_oracle_trace" build tag links the encoder oracle trace
 //     hooks; normal builds leave them out.
 //

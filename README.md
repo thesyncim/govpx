@@ -3,16 +3,19 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 encoder and decoder for raw VP8 frame payloads.
+Pure-Go VP8 and VP9 encoder and decoder for raw VPx frame payloads.
 
-govpx is for Go programs that need VP8 without cgo and without a libvpx
-runtime dependency. It is intentionally VP8-only: no VP9, no AV1, no WebM
-muxer, no RTP packetizer, no libvpx C API compatibility layer. Transport
-framing is the caller's responsibility.
+govpx is for Go programs that need VP8 or VP9 without cgo and without a
+libvpx runtime dependency. The package scope is the libvpx codec surface
+only: no AV1, no WebM muxer, no RTP packetizer, no libvpx C API
+compatibility layer. Transport framing is the caller's responsibility.
 
-Behavior is validated against a pinned libvpx v1.16.0 oracle. The public
-API uses Go types and methods; libvpx names appear only when they identify
-upstream behavior, controls, or validation tooling.
+Behavior is validated against a pinned libvpx v1.16.0 oracle with 100%
+byte parity required on the supported configurations — bit-identical
+encoded packets for the encoder, bit-identical decoded pixels for the
+decoder. The public API uses Go types and methods; libvpx names appear
+only when they identify upstream behavior, controls, or validation
+tooling.
 
 ## Install
 
@@ -25,7 +28,8 @@ go get github.com/thesyncim/govpx
 
 Build with `-tags purego` for a scalar build. The tag excludes govpx's
 architecture-specific assembly and selects the Go fallbacks under
-`internal/vp8/dsp` and `internal/vp8/encoder`.
+`internal/vp8/dsp`, `internal/vp8/encoder`, `internal/vp9/dsp`, and
+`internal/vp9/encoder`.
 
 ## Decode
 
@@ -231,9 +235,15 @@ make pgo-refresh
 ```text
 .                         public govpx package
 internal/vp8/common       VP8 shared state, headers, loop filter, quant tables
-internal/vp8/decoder      decoder internals
-internal/vp8/encoder      packet, token, transform, quant, motion helpers
-internal/vp8/dsp          scalar and architecture-specific pixel kernels
+internal/vp8/decoder      VP8 decoder internals
+internal/vp8/encoder      VP8 packet, token, transform, quant, motion helpers
+internal/vp8/dsp          VP8 scalar and architecture-specific pixel kernels
+internal/vp9/bitstream    VP9 boolean range coder (reader + writer)
+internal/vp9/common       VP9 shared state, headers, partition tree, references
+internal/vp9/decoder      VP9 decoder internals
+internal/vp9/encoder      VP9 RD, motion search, transform/quant, bitstream pack
+internal/vp9/dsp          VP9 scalar and architecture-specific pixel kernels
+internal/vp9/tables       VP9 entropy / scan / quant / probability constants
 internal/coracle          pinned libvpx oracle build and comparison helpers
 cmd/govpx-bench           encode/decode benchmark CLI
 cmd/govpx-oracle          oracle wrapper command

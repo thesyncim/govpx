@@ -11,11 +11,14 @@ govpx is pinned to libvpx v1.16.0.
 
 ## Included Scope
 
-The intended VP8-only porting scope is:
+The intended porting scope is both VP8 and VP9 from libvpx:
 
 - `vp8/common/`
 - `vp8/decoder/`
 - `vp8/encoder/`
+- `vp9/common/`
+- `vp9/decoder/`
+- `vp9/encoder/`
 - `vpx/`
 - `vpx_dsp/`
 - `vpx_mem/`
@@ -23,13 +26,16 @@ The intended VP8-only porting scope is:
 - `vpx_scale/`
 - `vpx_util/`
 
-The current repository contains public API scaffolding, upstream metadata,
-internal parser/state ports, scalar VP8 decoder paths, encoder packet writers,
-and initial encoder analysis paths.
+The current repository contains a complete VP8 port and an in-progress VP9
+port; VP9 status is tracked separately below.
+
+The parity bar for both codecs is 100% byte parity with libvpx on the
+supported configurations: bit-identical encoded packets out of the
+encoder, bit-identical decoded pixels out of the decoder, validated by
+the oracle harness against the pinned libvpx v1.16.0 build.
 
 ## Excluded Scope
 
-- `vp9/` is explicitly excluded.
 - `av1/` is explicitly excluded.
 - `examples/` and `tools/` are excluded except as optional references.
 - WebM mux/demux code is excluded from the codec package.
@@ -93,3 +99,34 @@ grant. This repository keeps libvpx license and patent notices in
   root oracle tests and `testdata/*_baseline.json`. Encoder corpus validation
   acts as a regression guard, not a parity proof.
 - The package exposes a small Go API, not the libvpx C API.
+
+## VP9 Subsystem Status
+
+The VP9 port is in progress on the `vp9-port` branch. Tracking layout:
+
+| Subsystem | Status |
+| --- | --- |
+| Public API (VP9Decoder / VP9Encoder) | not started |
+| Module scaffolding | in progress (`internal/vp9/{bitstream,common,decoder,dsp,encoder,mem,tables}`) |
+| Bitstream (range coder reader + writer) | not started |
+| Common tables (entropy / scan / quant / MV / pred) | not started |
+| DSP (idct, intra pred, inter convolve, loop filter, SAD, variance) | not started |
+| Decoder (uncompressed + compressed header, tile, detok, recon) | not started |
+| Encoder | not started |
+| Oracle harness (vp90 IVF corpus + vpxenc/vpxdec gates) | not started |
+| Byte parity gate | not started |
+| Hot-path allocation guards | not started |
+| SIMD/assembly | not started |
+
+The VP9 port follows the same philosophy as the VP8 port:
+
+- 100% byte parity with libvpx on supported configurations is the gate.
+- Hot paths must be zero-allocation after init; allocation tests guard
+  steady-state `Decode`/`Encode` paths.
+- Inner kernels must remain leaf-callable and inlinable; the public API
+  takes caller-owned buffers and aliases into them where libvpx aliases
+  into caller-provided storage.
+- Stack-only data on hot paths. Heap allocations live in setup / Reset
+  only, not in steady-state per-frame work.
+- Doc comments name libvpx call sites for any non-obvious code so the
+  upstream behavior is traceable.
