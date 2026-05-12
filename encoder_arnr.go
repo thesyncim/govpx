@@ -201,9 +201,12 @@ type arnrMV struct {
 // reference can seed at the prior MV.
 func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32, mvHistory []arnrMV) {
 	// Caller passes 384-element arrays for both accumulator and count.
-	// Bound count to len(accumulator) once so the per-iter count[i]=0
-	// write loses its IsInBounds check.
-	count = count[:len(accumulator)]
+	// Pin both to len 384 with full cap so subsequent sub-slice exprs
+	// (accumulator[:256], accumulator[256:320], accumulator[320:384]
+	// and the same for count) elide their IsSliceInBounds, and the
+	// per-iter count[i]=0 write also loses its IsInBounds check.
+	accumulator = accumulator[:384:384]
+	count = count[:384:384]
 	for i := range accumulator {
 		accumulator[i] = 0
 		count[i] = 0
