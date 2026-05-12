@@ -449,7 +449,7 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 					e.autoSpeed = 16
 				}
 			}
-			if e.autoSpeed >= 0 && e.autoSpeed < len(libvpxAutoSpeedThresh) &&
+			if uint(e.autoSpeed) < uint(len(libvpxAutoSpeedThresh)) &&
 				msForCompress*100 > e.avgEncodeTime*libvpxAutoSpeedThresh[e.autoSpeed] {
 				e.autoSpeed--
 				e.avgPickModeTime = 0
