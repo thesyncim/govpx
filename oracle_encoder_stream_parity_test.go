@@ -607,6 +607,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-64x64-segmented-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// cpu-3 / cpu-8 splitmv 96x96 and 128x128 fps variants — the
+		// base fps=30 probes byte-match, locking the SPLITMV parity
+		// surface on the fps-sensitive rate-control path across mid sizes.
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-96x96-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-96x96-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-128x128-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 	}
 
 	for _, tc := range cases {
