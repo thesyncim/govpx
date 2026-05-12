@@ -359,10 +359,13 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 			!ssSet[filtLow&63] && !ssSet[filtHigh&63] && e.canParallelLFTrials() {
 			preserveBestBeforeTrial(filtLow, filtBest)
 			filtErrLow, filtErrHigh := ctx.dispatchLFTrialPair(filtLow, filtHigh)
-			ssErr[filtLow] = filtErrLow
-			ssSet[filtLow] = true
-			ssErr[filtHigh] = filtErrHigh
-			ssSet[filtHigh] = true
+			// ssErr/ssSet are [MaxLoopFilter+1=64]; mask with 63 to elide
+			// the bounds check on the indexed writes (matches the read
+			// path above).
+			ssErr[filtLow&63] = filtErrLow
+			ssSet[filtLow&63] = true
+			ssErr[filtHigh&63] = filtErrHigh
+			ssSet[filtHigh&63] = true
 			if filtHigh != 0 {
 				residentLevel = filtHigh
 			}
