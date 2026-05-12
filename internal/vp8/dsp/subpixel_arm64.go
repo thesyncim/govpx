@@ -38,7 +38,7 @@ func sixTapPredict4x4NEON(dst *byte, dstStride int, src *byte, srcStride int,
 
 func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
@@ -53,7 +53,7 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 
 func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
@@ -68,7 +68,7 @@ func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 
 func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
@@ -83,7 +83,7 @@ func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 
 func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
@@ -103,7 +103,7 @@ func sixTapPredict8x8PairMaybe(
 	dst0 []byte, dst0Stride int,
 	dst1 []byte, dst1Stride int,
 ) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if src0Stride <= 0 || src1Stride <= 0 || dst0Stride <= 0 || dst1Stride <= 0 {
@@ -119,7 +119,7 @@ func sixTapPredict8x8PairMaybe(
 
 func sixTapPredict8x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
@@ -134,7 +134,7 @@ func sixTapPredict8x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 
 func sixTapPredict4x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	if xoffset < 0 || xoffset >= 8 || yoffset < 0 || yoffset >= 8 {
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
 	if srcStride <= 0 || dstStride <= 0 {
