@@ -352,8 +352,11 @@ func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8
 		// applyReconstructionLoopFilter sees the correct preserved image
 		// (mirroring the serial preserveBestBeforeTrial-before-filtHigh
 		// copy that would have run had the trials been serial).
+		// ssSet is [MaxLoopFilter+1=64]bool (pow2); LF trial levels are
+		// clamped to [0, MaxLoopFilter]. AND-mask with 63 elides the
+		// per-iter bounds check on both lookups.
 		if filtDirection == 0 && filtLow != filtMid && filtHigh != filtMid &&
-			!ssSet[filtLow] && !ssSet[filtHigh] && e.canParallelLFTrials() {
+			!ssSet[filtLow&63] && !ssSet[filtHigh&63] && e.canParallelLFTrials() {
 			preserveBestBeforeTrial(filtLow, filtBest)
 			filtErrLow, filtErrHigh := ctx.dispatchLFTrialPair(filtLow, filtHigh)
 			ssErr[filtLow] = filtErrLow
