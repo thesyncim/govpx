@@ -68,7 +68,7 @@ func (e *VP8Encoder) emitOracleLastRefWindow(ref *vp8common.Image) {
 	yStart := ref.YOrigin - border*ref.YStride - border
 	uStart := ref.UOrigin - uvBorder*ref.UStride - uvBorder
 	vStart := ref.VOrigin - uvBorder*ref.VStride - uvBorder
-	if yStart < 0 || uStart < 0 || vStart < 0 {
+	if min(min(yStart, uStart), vStart) < 0 {
 		return
 	}
 	emitOracleTraceRow(w, &oracleTraceLastRefWindowRow{
