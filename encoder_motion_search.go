@@ -190,7 +190,11 @@ func (s *fullPelMotionSearch) steppedDiamond(center vp8enc.MotionVector, centerW
 		}
 	}
 	if doRefine {
-		best, bestCost = s.refine(best, 8)
+		refined, refinedCost := s.refine(best, 8)
+		if refinedCost < bestCost {
+			best = refined
+			bestCost = refinedCost
+		}
 	}
 	return best, bestCost
 }

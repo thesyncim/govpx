@@ -162,11 +162,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// limit=1 until the larger-frame inter divergence closes.
 		{name: "realtime-cbr-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
 		// Sub-MB-aligned dimensions (w / h % 16 != 0) exercise the
-		// MB padding / coded-vs-visible width handling. Keyframe
-		// byte-matches; inter frames diverge in the per-MB inter
-		// mode decision on partial-coded-width macroblocks after frame 2.
-		{name: "realtime-cbr-cpu8-72x40", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 3},
-		{name: "realtime-cbr-cpu8-100x100", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}, limit: 1},
+		// MB padding / coded-vs-visible width handling.
+		{name: "realtime-cbr-cpu8-72x40", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-100x100", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}},
 		// 16x16 minimum frame size — single-MB encode is byte-identical
 		// to libvpx end-to-end.
 		{name: "realtime-cbr-cpu8-16x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
@@ -174,12 +172,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-32x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x16", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-32x32", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-48x48", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
-		// Common 16:9 standard frame sizes. 256x144 byte-matches frames
-		// 0-8 (longest inter run on a 16:9 fixture); 192x108 / 320x180
-		// only the keyframe.
-		{name: "realtime-cbr-cpu8-256x144", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, limit: 9},
-		{name: "realtime-cbr-cpu8-192x108", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}, limit: 1},
-		{name: "realtime-cbr-cpu8-320x180", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
+		// Common 16:9 standard frame sizes.
+		{name: "realtime-cbr-cpu8-256x144", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-192x108", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-320x180", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}},
 		// BestQuality across more cpu_used. cpu5 panning matches the
 		// keyframe; splitmv matches frames 0-3 like cpu0-splitmv.
 		{name: "best-quality-cbr-cpu5-panning", deadline: DeadlineBestQuality, cpuUsed: 5, fx: panning64, limit: 1},
@@ -211,10 +207,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// speed evolution stays at the cold-start seed in both runs,
 		// which makes these the strongest byte-parity probes for any
 		// per-MB encode logic. 16x16 / 32x32 / 48x48 byte-match the
-		// full 16-frame sequence; 72x40 now matches frames 0-2 before
-		// the remaining partial-coded-width inter drift.
-		{name: "realtime-cbr-cpu0-72x40", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 3},
-		{name: "realtime-cbr-cpu4-72x40", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 3},
+		// full 16-frame sequence, including 72x40.
+		{name: "realtime-cbr-cpu0-72x40", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu4-72x40", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu4-32x32", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu0-48x48", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
@@ -361,35 +356,31 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-5-80x80", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}, limit: 1},
 		// Negative-cpu at the realtime-divergent panning sizes — the
-		// autoSpeed bypass at cpu_used < 0 restores full parity for
-		// clean MB-grid sizes (128x64, 256x144) but not partial-coded-
-		// width sizes (72x40, 100x100, 192x108), confirming those
-		// remaining divergences are independent of autoSpeed evolution.
+		// autoSpeed bypass at cpu_used < 0 restores full parity across
+		// the small and mid-size partial-coded dimensions.
 		{name: "realtime-cbr-cpu-3-72x40", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}},
-		{name: "realtime-cbr-cpu-3-100x100", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-3-100x100", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-128x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x64", w: 128, h: 64, source: encoderValidationPanningFrame}},
-		{name: "realtime-cbr-cpu-3-192x108", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-3-192x108", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-256x144", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
 		// More clean-MB-grid sizes at cpu-3 chart the upper parity
 		// boundary. All MB-aligned sizes (96x96, 128x128, 160x96,
 		// 64x128, 640x480) hit full byte parity at cpu-3 — bypassing
 		// the realtime auto-select-speed cliff extends parity all the
-		// way to the standard SD resolution. 320x180 still diverges
-		// at frame 1 because 180 is not a multiple of 16 (partial-
-		// coded-height).
+		// way to the standard SD resolution. 320x180 now reaches frame
+		// 11 before a later rate/probability-state drift.
 		{name: "realtime-cbr-cpu-3-160x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-128x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-96x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-64x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
-		{name: "realtime-cbr-cpu-3-320x180", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-3-320x180", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 12},
 		{name: "realtime-cbr-cpu-3-640x480", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}},
 		// HD resolutions at cpu-3 chart where the upper parity boundary
 		// hits. 1280x720 is MB-aligned but frame 2+ diverges (likely
 		// a different rate-control or per-frame heuristic that activates
-		// at larger MB counts); 1920x1080 has partial-coded-height
-		// (1080/16=67.5) so it shares the partial-coded-height drift.
+		// at larger MB counts); 1920x1080 now byte-matches end to end.
 		{name: "realtime-cbr-cpu-3-1280x720", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1280x720", w: 1280, h: 720, source: encoderValidationPanningFrame}, limit: 3},
-		{name: "realtime-cbr-cpu-3-1920x1080", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1920x1080", w: 1920, h: 1080, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-3-1920x1080", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1920x1080", w: 1920, h: 1080, source: encoderValidationPanningFrame}},
 		// GoodQuality at clean-MB-grid larger sizes. cpu4 byte-matches
 		// 64x32 / 64x48 / 96x96 / 128x128 / 160x96 fully; 640x480 hits
 		// a different per-frame heuristic at scale that diverges at
@@ -427,20 +418,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu-5 / cpu-8 at clean large sizes — cpu-8 (most aggressive
 		// static-Speed) byte-matches more cleanly than cpu-5 because it
 		// disables more rate-control heuristics that introduce drift.
-		{name: "realtime-cbr-cpu-5-256x144", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, limit: 9},
+		{name: "realtime-cbr-cpu-5-256x144", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-5-640x480", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
 		{name: "realtime-cbr-cpu-5-128x128", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 13},
 		{name: "realtime-cbr-cpu-8-256x144", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-8-128x128", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
 		// cpu-8 at HD/SD sizes. 96x96 and 160x96 byte-match fully; sizes
-		// 320x180+ diverge from frame 1+ (cpu-8 enables aggressive
-		// per-frame heuristics that drift differently from libvpx at
-		// scale, even though smaller sizes still match).
+		// 320x180+ still diverge after the early inter-frame run.
 		{name: "realtime-cbr-cpu-8-640x480", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 14},
 		{name: "realtime-cbr-cpu-8-1280x720", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-1280x720", w: 1280, h: 720, source: encoderValidationPanningFrame}, limit: 3},
 		{name: "realtime-cbr-cpu-8-96x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-8-160x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
-		{name: "realtime-cbr-cpu-8-320x180", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-8-320x180", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 4},
 		// cpu-3 splitmv probe — bypassing autoSpeed lets splitmv match
 		// at 64x64 (where positive cpu_used drifts at frame 2+).
 		{name: "realtime-cbr-cpu-3-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64},

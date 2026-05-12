@@ -357,6 +357,12 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 			if sse, ok := macroblockSubpixelSSE(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
 				return sse
 			}
+		} else {
+			var srcScratch [16 * 16]byte
+			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			if sse, ok := macroblockSubpixelSSEBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16); ok {
+				return sse
+			}
 		}
 	}
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
@@ -391,6 +397,12 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 	if xOffset|yOffset != 0 {
 		if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
 			if variance, sse, ok := macroblockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
+				return variance, sse
+			}
+		} else {
+			var srcScratch [16 * 16]byte
+			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			if variance, sse, ok := macroblockSubpixelVarianceBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16); ok {
 				return variance, sse
 			}
 		}
@@ -444,9 +456,17 @@ func macroblockSADLimitedSlow(src vp8enc.SourceImage, ref *vp8common.Image, base
 	yOffset := mvRow & 7
 	srcInBounds := baseY >= 0 && baseX >= 0 &&
 		baseY+16 <= src.Height && baseX+16 <= src.Width
-	if xOffset|yOffset != 0 && srcInBounds {
-		if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset, limit); ok {
-			return sad
+	if xOffset|yOffset != 0 {
+		if srcInBounds {
+			if sad, ok := macroblockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset, limit); ok {
+				return sad
+			}
+		} else {
+			var srcScratch [16 * 16]byte
+			gatherClampedLumaBlock(src, baseY, baseX, 16, 16, srcScratch[:], 16)
+			if sad, ok := macroblockSubpixelSADBlock(ref, refBaseY, refBaseX, xOffset, yOffset, srcScratch[:], 16, limit); ok {
+				return sad
+			}
 		}
 	}
 	if srcInBounds &&
@@ -501,6 +521,12 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 			if sad, ok := splitBlockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset); ok {
 				return sad
 			}
+		} else {
+			var srcScratch [16 * 16]byte
+			gatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
+			if sad, ok := splitBlockSubpixelSADBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, srcScratch[:], 16); ok {
+				return sad
+			}
 		}
 	}
 	if uint(baseY) <= uint(src.Height-height) && uint(baseX) <= uint(src.Width-width) {
@@ -536,6 +562,10 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 }
 
 func splitBlockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, width int, height int, xOffset int, yOffset int) (int, bool) {
+	return splitBlockSubpixelSADBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride)
+}
+
+func splitBlockSubpixelSADBlock(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int, xOffset int, yOffset int, srcBlock []byte, srcStride int) (int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, false
 	}
@@ -552,22 +582,26 @@ func splitBlockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY i
 	switch {
 	case width == 16 && height == 8:
 		dsp.SixTapPredict16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
-		return dsp.SAD16x8(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16), true
+		return dsp.SAD16x8(srcBlock, srcStride, pred[:], 16), true
 	case width == 8 && height == 16:
 		dsp.SixTapPredict8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
-		return dsp.SAD8x16(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 8), true
+		return dsp.SAD8x16(srcBlock, srcStride, pred[:], 8), true
 	case width == 8 && height == 8:
 		dsp.SixTapPredict8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
-		return dsp.SAD8x8(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 8), true
+		return dsp.SAD8x8(srcBlock, srcStride, pred[:], 8), true
 	case width == 4 && height == 4:
 		dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 4)
-		return dsp.SAD4x4(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 4), true
+		return dsp.SAD4x4(srcBlock, srcStride, pred[:], 4), true
 	default:
 		return 0, false
 	}
 }
 
 func macroblockSubpixelSSE(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int) (int, bool) {
+	return macroblockSubpixelSSEBlock(ref, refBaseY, refBaseX, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride)
+}
+
+func macroblockSubpixelSSEBlock(ref *vp8common.Image, refBaseY int, refBaseX int, xOffset int, yOffset int, srcBlock []byte, srcStride int) (int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, false
 	}
@@ -582,10 +616,14 @@ func macroblockSubpixelSSE(src vp8enc.SourceImage, ref *vp8common.Image, baseY i
 	}
 	var pred [16 * 16]byte
 	dsp.SixTapPredict16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
-	return dsp.SSE16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16), true
+	return dsp.SSE16x16(srcBlock, srcStride, pred[:], 16), true
 }
 
 func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int, limit int) (int, bool) {
+	return macroblockSubpixelSADBlock(ref, refBaseY, refBaseX, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride, limit)
+}
+
+func macroblockSubpixelSADBlock(ref *vp8common.Image, refBaseY int, refBaseX int, xOffset int, yOffset int, srcBlock []byte, srcStride int, limit int) (int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YBorder < 2 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, false
 	}
@@ -600,10 +638,14 @@ func macroblockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY i
 	}
 	var pred [16 * 16]byte
 	dsp.SixTapPredict16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
-	return dsp.SAD16x16Limit(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16, limit), true
+	return dsp.SAD16x16Limit(srcBlock, srcStride, pred[:], 16, limit), true
 }
 
 func splitBlockSubpixelVariance(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, width int, height int, xOffset int, yOffset int) (int, int, bool) {
+	return splitBlockSubpixelVarianceBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride)
+}
+
+func splitBlockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int, xOffset int, yOffset int, srcBlock []byte, srcStride int) (int, int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, 0, false
 	}
@@ -616,19 +658,18 @@ func splitBlockSubpixelVariance(src vp8enc.SourceImage, ref *vp8common.Image, ba
 	if start < 0 || start+height*ref.YStride+width+1 > len(ref.YFull) {
 		return 0, 0, false
 	}
-	srcBlock := src.Y[baseY*src.YStride+baseX:]
 	switch {
 	case width == 16 && height == 8:
-		variance, sse := dsp.SubpelVariance16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, src.YStride)
+		variance, sse := dsp.SubpelVariance16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 8 && height == 16:
-		variance, sse := dsp.SubpelVariance8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, src.YStride)
+		variance, sse := dsp.SubpelVariance8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 8 && height == 8:
-		variance, sse := dsp.SubpelVariance8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, src.YStride)
+		variance, sse := dsp.SubpelVariance8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 4 && height == 4:
-		variance, sse := dsp.SubpelVariance4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, src.YStride)
+		variance, sse := dsp.SubpelVariance4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	default:
 		return 0, 0, false
@@ -636,6 +677,10 @@ func splitBlockSubpixelVariance(src vp8enc.SourceImage, ref *vp8common.Image, ba
 }
 
 func macroblockSubpixelVariance(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, xOffset int, yOffset int) (int, int, bool) {
+	return macroblockSubpixelVarianceBlock(ref, refBaseY, refBaseX, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride)
+}
+
+func macroblockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBaseX int, xOffset int, yOffset int, srcBlock []byte, srcStride int) (int, int, bool) {
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return 0, 0, false
 	}
@@ -648,8 +693,20 @@ func macroblockSubpixelVariance(src vp8enc.SourceImage, ref *vp8common.Image, ba
 	if start < 0 || start+16*ref.YStride+17 > len(ref.YFull) {
 		return 0, 0, false
 	}
-	variance, sse := dsp.SubpelVariance16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, src.Y[baseY*src.YStride+baseX:], src.YStride)
+	variance, sse := dsp.SubpelVariance16x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 	return variance, sse, true
+}
+
+func gatherClampedLumaBlock(src vp8enc.SourceImage, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
+	for row := range height {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		dstRow := row * dstStride
+		srcRow := srcY * src.YStride
+		for col := range width {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			dst[dstRow+col] = src.Y[srcRow+srcX]
+		}
+	}
 }
 
 func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) int {

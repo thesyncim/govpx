@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -364,6 +365,69 @@ func TestSubpelSearchClampsPartialSourceMacroblock(t *testing.T) {
 	}
 }
 
+func TestMacroblockLumaMotionVarianceSSEClampsPartialSourceSubpel(t *testing.T) {
+	src := testImage(72, 40)
+	fillImage(src, 0, 90, 170)
+	for row := range src.Height {
+		for col := range src.Width {
+			src.Y[row*src.YStride+col] = byte((row*29 + col*17 + row*col*3) & 0xff)
+		}
+	}
+	ref := testVP8Frame(t, 72, 40, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((13 + row*7 + col*23 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+
+	mbRow, mbCol := 2, 4
+	mv := vp8enc.MotionVector{Row: 8, Col: 18}
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	refBaseY := baseY + (int(mv.Row) >> 3)
+	refBaseX := baseX + (int(mv.Col) >> 3)
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	var srcScratch [16 * 16]byte
+	for row := range 16 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range 16 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
+		}
+	}
+	refStart := ref.Img.YOrigin + refBaseY*ref.Img.YStride + refBaseX
+	wantVariance, wantSSE := dsp.SubpelVariance16x16(ref.Img.YFull[refStart:], ref.Img.YStride, xOffset, yOffset, srcScratch[:], 16)
+
+	gotVariance, gotSSE := macroblockLumaMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, mv)
+	if gotVariance != wantVariance || gotSSE != wantSSE {
+		t.Fatalf("partial-source subpel variance/sse = %d/%d, want %d/%d", gotVariance, gotSSE, wantVariance, wantSSE)
+	}
+
+	fallbackVariance, fallbackSSE := scalarFullPelClampedMotionVarianceSSE(sourceImageFromPublic(src), &ref.Img, baseY, baseX, refBaseY, refBaseX)
+	if fallbackVariance == wantVariance && fallbackSSE == wantSSE {
+		t.Fatalf("test setup full-pel fallback unexpectedly matches subpel oracle: %d/%d", fallbackVariance, fallbackSSE)
+	}
+}
+
+func scalarFullPelClampedMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int) (int, int) {
+	sum := 0
+	sse := 0
+	for row := range 16 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		for col := range 16 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
+			sum += diff
+			sse += diff * diff
+		}
+	}
+	return sse - ((sum * sum) >> 8), sse
+}
+
 func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 0, 90, 170)
@@ -393,6 +457,57 @@ func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T)
 	}
 	if refined == unrefined {
 		t.Fatalf("refined nstep MV = unrefined %+v, want final refine to move the candidate", refined)
+	}
+}
+
+func TestFullPixelFinalRefineKeepsBetterReturnCost(t *testing.T) {
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+
+	ref := testVP8Frame(t, 32, 32, 0, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			ref.Img.Y[row*ref.Img.YStride+col] = 126
+		}
+	}
+	for col := range 16 {
+		ref.Img.Y[16*ref.Img.YStride+col] = 128
+	}
+	ref.ExtendBorders()
+
+	source := sourceImageFromPublic(src)
+	bestRefMV := vp8enc.MotionVector{Row: 8}
+	searcher := newFullPelMotionSearch(
+		source,
+		&ref.Img,
+		0,
+		0,
+		bestRefMV,
+		0,
+		interFrameFullPixelBounds{rowMin: -4, rowMax: 4, colMin: -4, colMax: 4},
+		nil,
+		&interFrameMotionSearchStats{},
+	)
+	center := vp8enc.MotionVector{}
+	centerCost := searcher.cost(center)
+
+	refined, refinedCost := searcher.refine(center, 8)
+	if refined != (vp8enc.MotionVector{Row: 8}) {
+		t.Fatalf("test setup refine MV = %+v, want row +8", refined)
+	}
+	if refinedCost <= centerCost {
+		t.Fatalf("test setup refine cost = %d, want worse than center cost %d", refinedCost, centerCost)
+	}
+
+	got, gotCost := searcher.steppedDiamond(
+		center,
+		searcher.walkCost(center, maxInt()),
+		interAnalysisSearchConfig{fullPixelFinalRefine: true},
+		[]vp8enc.MotionVector{{}},
+		4,
+	)
+	if got != center || gotCost != centerCost {
+		t.Fatalf("final refine selected %+v/%d, want original %+v/%d when refine return cost is worse", got, gotCost, center, centerCost)
 	}
 }
 

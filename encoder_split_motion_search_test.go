@@ -441,6 +441,53 @@ func TestMacroblockSubpixelSADHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestSplitBlockSADClampsPartialSourceSubpel(t *testing.T) {
+	src := testImage(72, 40)
+	fillImage(src, 0, 90, 170)
+	for row := range src.Height {
+		for col := range src.Width {
+			src.Y[row*src.YStride+col] = byte((5 + row*31 + col*11 + row*col*7) & 0xff)
+		}
+	}
+	ref := testVP8Frame(t, 72, 40, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((19 + row*13 + col*29 + row*col*3) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+
+	mbRow, mbCol, block := 2, 4, 5
+	width, height := 8, 8
+	mv := vp8enc.MotionVector{Row: 2, Col: 2}
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	refBaseY := baseY + (int(mv.Row) >> 3)
+	refBaseX := baseX + (int(mv.Col) >> 3)
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+
+	var srcScratch [16 * 16]byte
+	for row := range height {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range width {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
+		}
+	}
+	var pred [16 * 16]byte
+	refStart := ref.Img.YOrigin + (refBaseY-2)*ref.Img.YStride + refBaseX - 2
+	dsp.SixTapPredict8x8(ref.Img.YFull[refStart:], ref.Img.YStride, xOffset, yOffset, pred[:], 8)
+	want := dsp.SAD8x8(srcScratch[:], 16, pred[:], 8)
+
+	if got := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, block, width, height, mv); got != want {
+		t.Fatalf("partial-source split subpel SAD = %d, want %d", got, want)
+	}
+	if fallback := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, block, width, height, vp8enc.MotionVector{}); fallback == want {
+		t.Fatalf("test setup full-pel fallback unexpectedly matches subpel SAD %d", fallback)
+	}
+}
+
 func TestMacroblockSubpixelVarianceMatchesBilinearPredictor(t *testing.T) {
 	src := testImage(32, 32)
 	fillImage(src, 0, 90, 170)
