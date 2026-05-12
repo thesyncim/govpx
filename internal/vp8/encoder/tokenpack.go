@@ -200,10 +200,10 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		// record; the table never moves so the indirection has no aliasing
 		// concern in this hot per-token loop.
 		path := &coefficientTokenBranchPaths[token]
-		start := uint8(0)
-		if (raw>>coefficientTokenRecordSkipEOBNodeShift)&1 != 0 {
-			start = 1
-		}
+		// Branchless skipEOBNode flag → loop start index. The shift+mask
+		// extracts the bit directly as 0/1, replacing the per-record
+		// if-then on the same bit.
+		start := uint8((raw >> coefficientTokenRecordSkipEOBNodeShift) & 1)
 		// path.len is bounded by len(coefficientTokenBranchPath.bits) = 7
 		// at build time; clamp here so the per-iter bounds check on
 		// pathBits[i]/pathNodes[i] folds away.
