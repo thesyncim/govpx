@@ -292,6 +292,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu0-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu0-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
+		// Segmented fixture across more cpu_used variants — all five hit
+		// full 16-frame byte parity.
+		{name: "realtime-cbr-cpu4-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu8-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu4-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu4-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
