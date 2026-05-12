@@ -62,7 +62,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if level < 0 || level > maxQuantizer {
+	if uint(level) > uint(maxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	if rateControlModeUsesCQLevel(e.rc.mode) && (level < e.opts.MinQuantizer || level > e.opts.MaxQuantizer) {
@@ -122,7 +122,7 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if sharpness < 0 || sharpness > 7 {
+	if uint(sharpness) > 7 {
 		return ErrInvalidConfig
 	}
 	e.opts.Sharpness = sharpness
@@ -146,7 +146,7 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if mode < 0 || mode > 2 {
+	if uint(mode) > 2 {
 		return ErrInvalidConfig
 	}
 	e.opts.ScreenContentMode = mode
@@ -581,7 +581,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if level < 0 || level > 6 {
+	if uint(level) > 6 {
 		return ErrInvalidConfig
 	}
 	e.opts.NoiseSensitivity = level
