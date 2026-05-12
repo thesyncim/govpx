@@ -344,24 +344,15 @@ func buildLibvpxFullPelMVSADComponentCost16() [vp8common.QIndexRange][256]int {
 }
 
 func libvpxFullPelMVSADCost16FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, qIndex int) int {
+	// Clamp-to-[-255,255] then abs collapses to abs-then-clamp-to-255:
+	// the original sign of the delta has no effect on the cost table
+	// lookup (costs are symmetric in delta sign).
 	rowDelta := mvRow8 - refRow8
-	if rowDelta > 255 {
-		rowDelta = 255
-	} else if rowDelta < -255 {
-		rowDelta = -255
-	}
-	if rowDelta < 0 {
-		rowDelta = -rowDelta
-	}
+	rowMask := rowDelta >> mvKernelSignShift
+	rowDelta = min((rowDelta^rowMask)-rowMask, 255)
 	colDelta := mvCol8 - refCol8
-	if colDelta > 255 {
-		colDelta = 255
-	} else if colDelta < -255 {
-		colDelta = -255
-	}
-	if colDelta < 0 {
-		colDelta = -colDelta
-	}
+	colMask := colDelta >> mvKernelSignShift
+	colDelta = min((colDelta^colMask)-colMask, 255)
 	costs := &libvpxFullPelMVSADComponentCost16[vp8common.ClampQIndex(qIndex)]
 	return (costs[rowDelta] + costs[colDelta] + 128) >> 8
 }
