@@ -317,6 +317,53 @@ func TestFullPelSADUsesBorderedReferencePlane(t *testing.T) {
 	}
 }
 
+func TestFullPelSADClampsPartialSourceMacroblock(t *testing.T) {
+	src := testImage(17, 16)
+	fillImage(src, 3, 90, 170)
+	for row := range 16 {
+		src.Y[row*src.YStride+16] = 77
+	}
+	ref := testVP8Frame(t, 17, 16, 0, 90, 170)
+	for row := range 16 {
+		for col := 16; col < 32; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = 77
+		}
+	}
+
+	source := sourceImageFromPublic(src)
+	ctx := newFullPelSearchCtx(source, &ref.Img, 0, 1)
+	if got := ctx.fullPelSADFull(0, 0); got != 0 {
+		t.Fatalf("partial-source full-pel SAD = %d, want 0 from visible-edge clamp", got)
+	}
+}
+
+func TestSubpelSearchClampsPartialSourceMacroblock(t *testing.T) {
+	src := testImage(17, 16)
+	fillImage(src, 3, 90, 170)
+	for row := range 16 {
+		src.Y[row*src.YStride+16] = 77
+	}
+	ref := testVP8Frame(t, 17, 16, 0, 90, 170)
+	for row := range 16 {
+		for col := 16; col < 32; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = 77
+		}
+	}
+
+	source := sourceImageFromPublic(src)
+	ctx, ok := newSubpelSearchCtx(source, &ref.Img, 0, 1)
+	if !ok {
+		t.Fatalf("partial-source subpel ctx returned ok=false")
+	}
+	variance, sse, ok := ctx.subpelVarianceForQuarterMV(0, 0)
+	if !ok {
+		t.Fatalf("partial-source subpel variance returned ok=false")
+	}
+	if variance != 0 || sse != 0 {
+		t.Fatalf("partial-source subpel variance/sse = %d/%d, want 0/0", variance, sse)
+	}
+}
+
 func TestSelectInterFrameFullPixelMotionVectorRDRefinesNstepResult(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 0, 90, 170)

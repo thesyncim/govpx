@@ -125,10 +125,19 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// so we defer the calcGFParams call until pickGoldenFrameBoost
 	// runs below — populating last_boost early would feed the small
 	// +/- branch with this frame's boost instead of the prior GF's.
+	gfBaselineInterval := e.rc.framesTillGFUpdateDue
+	gfMaxInterval := e.rc.framesTillGFUpdateDue
 	if goldenCBRRefresh {
-		gfInterval := e.goldenFrameCBRInterval(rows, cols)
-		e.rc.framesTillGFUpdateDue = gfInterval
-		e.rc.currentGFInterval = gfInterval
+		if e.rc.mode == RateControlCBR {
+			gfInterval := e.goldenFrameCBRInterval(rows, cols)
+			e.rc.framesTillGFUpdateDue = gfInterval
+			e.rc.currentGFInterval = gfInterval
+			gfBaselineInterval = gfInterval
+			gfMaxInterval = gfInterval
+		} else {
+			gfBaselineInterval = libvpxDefaultGFInterval
+			gfMaxInterval = libvpxDefaultGFInterval
+		}
 	}
 	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer adjusts
 	// cpi->decimation_factor from the post-encode buffer level of the
@@ -241,8 +250,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			GFActiveCount:         e.rc.gfActiveCount,
 			Macroblocks:           required,
 			ThisFramePercentIntra: e.rc.thisFramePercentIntra,
-			BaselineGFInterval:    e.rc.framesTillGFUpdateDue,
-			MaxGFInterval:         e.rc.framesTillGFUpdateDue,
+			BaselineGFInterval:    gfBaselineInterval,
+			MaxGFInterval:         gfMaxInterval,
 		})
 		e.rc.lastBoost = gfOut.Boost
 		if e.rc.mode == RateControlCBR {

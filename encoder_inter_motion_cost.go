@@ -32,6 +32,7 @@ type fullPelSearchCtx struct {
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX : ]
 	srcRowPtrP *byte  // = unsafe.SliceData(srcRowPtr) — hot SAD bypass
 	srcYStride int
+	srcFull    bool
 	refYFullP  *byte
 	refYStride int
 	refYOrigin int
@@ -44,6 +45,7 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	baseY := mbRow * 16
 	baseX := mbCol * 16
 	srcRowPtr := src.Y[baseY*src.YStride+baseX:]
+	srcFull := uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16)
 	refYFull := ref.YFull
 	refYFullP := unsafe.SliceData(refYFull)
 	refRowH := uint(ref.CodedHeight + 2*ref.YBorder - 16)
@@ -63,6 +65,7 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 		srcRowPtr:  srcRowPtr,
 		srcRowPtrP: unsafe.SliceData(srcRowPtr),
 		srcYStride: src.YStride,
+		srcFull:    srcFull,
 		refYFullP:  refYFullP,
 		refYStride: ref.YStride,
 		refYOrigin: ref.YOrigin,
@@ -79,7 +82,7 @@ func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol
 func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 	refBaseY := c.baseY + row
 	refBaseX := c.baseX + col
-	if c.refYFullP != nil &&
+	if c.srcFull && c.refYFullP != nil &&
 		uint(refBaseY+c.refYBorder) <= c.refRowH &&
 		uint(refBaseX+c.refYBorder) <= c.refRowW {
 		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
@@ -97,7 +100,7 @@ func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 in
 	refBaseX2 := c.baseX + col2
 	refBaseY3 := c.baseY + row3
 	refBaseX3 := c.baseX + col3
-	if c.refYFullP == nil ||
+	if !c.srcFull || c.refYFullP == nil ||
 		uint(refBaseY0+c.refYBorder) > c.refRowH || uint(refBaseX0+c.refYBorder) > c.refRowW ||
 		uint(refBaseY1+c.refYBorder) > c.refRowH || uint(refBaseX1+c.refYBorder) > c.refRowW ||
 		uint(refBaseY2+c.refYBorder) > c.refRowH || uint(refBaseX2+c.refYBorder) > c.refRowW ||
@@ -121,7 +124,7 @@ func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, r
 	}
 	refBaseY := c.baseY + (mvRow >> 3)
 	refBaseX := c.baseX + (mvCol >> 3)
-	if c.refYFullP != nil &&
+	if c.srcFull && c.refYFullP != nil &&
 		uint(refBaseY+c.refYBorder) <= c.refRowH &&
 		uint(refBaseX+c.refYBorder) <= c.refRowW {
 		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))

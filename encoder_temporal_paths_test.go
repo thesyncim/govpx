@@ -412,6 +412,35 @@ func TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoErrorResilientPartitionsRefreshesKeyEntropyOnly(t *testing.T) {
+	e := newEntropyRefreshTestEncoder(t, false)
+	e.opts.ErrorResilientPartitions = true
+	src := testImage(16, 16)
+	fillImage(src, 180, 90, 170)
+	dst := make([]byte, 8192)
+
+	key, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	keyState := packetState(t, key.Data)
+	if !keyState.Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient-partitions key refresh entropy = false, want libvpx forced true")
+	}
+	committedKeyProbs := e.coefProbs
+
+	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 2), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	if packetState(t, inter.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient-partitions inter refresh entropy = true, want false")
+	}
+	if e.coefProbs != committedKeyProbs {
+		t.Fatalf("error-resilient-partitions inter committed transient coefficient probabilities")
+	}
+}
+
 func TestCoefficientEntropySavingsUsesIndependentContextWhenErrorResilient(t *testing.T) {
 	// The independent-context coefficient entropy-savings path mirrors
 	// libvpx's VPX_ERROR_RESILIENT_PARTITIONS branch (bit 0x2). The plain

@@ -79,25 +79,31 @@ func (e *VP8Encoder) encoderUsesSimpleLoopFilter() bool {
 //
 // libvpx's `mode_ref_lf_delta_update` flag is set once at init in
 // set_default_lf_deltas and cleared after every packed frame (see
-// vp8/encoder/onyx_if.c). In effect, libvpx writes `update=1` on the very
-// first packed frame (when last_*_lf_deltas are still the all-zero memset
-// from setup_features) and `update=0` thereafter, since the default deltas
-// never change at runtime. We mirror that by also re-emitting `update=1`
-// when the encoder's chosen deltas drift away from the last-signaled values
-// or in error-resilient mode. The "signaled once" gate covers the keyframe
-// invariant: until we have packed a frame at all, the deltas have not been
-// communicated to the decoder.
-func (e *VP8Encoder) computeLFDeltaUpdateBit(deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) bool {
+// vp8/encoder/onyx_if.c). Every keyframe also calls setup_features before
+// encoding, resetting last_*_lf_deltas to zero and setting the update flag
+// again; the decoder similarly resets its loop-filter deltas on keyframes.
+// Inter frames then write `update=0` until the defaults change, except in
+// error-resilient mode where libvpx forces the update path. libvpx stores
+// error-resilient mode as a bitmask, so VPX_ERROR_RESILIENT_PARTITIONS also
+// forces the update path.
+func (e *VP8Encoder) computeLFDeltaUpdateBit(frameType vp8common.FrameType, deltaEnabled bool, refDeltas [vp8common.MaxRefLFDeltas]int8, modeDeltas [vp8common.MaxModeLFDeltas]int8) bool {
 	if !deltaEnabled {
 		return false
 	}
-	if e.opts.ErrorResilient {
+	if e.forceLFDeltaUpdates() {
+		return true
+	}
+	if frameType == vp8common.KeyFrame {
 		return true
 	}
 	if !e.lfDeltasSignaledOnce {
 		return true
 	}
 	return refDeltas != e.lastSignaledRefLFDeltas || modeDeltas != e.lastSignaledModeLFDeltas
+}
+
+func (e *VP8Encoder) forceLFDeltaUpdates() bool {
+	return e.opts.ErrorResilient || e.opts.ErrorResilientPartitions
 }
 
 // updateLastSignaledLFDeltas commits the per-frame loop-filter delta

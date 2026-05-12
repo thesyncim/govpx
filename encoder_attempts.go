@@ -122,20 +122,21 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 
 	cfg := vp8enc.KeyFrameStateConfig{
-		InvisibleFrame:      invisible,
-		SimpleLoopFilter:    lfHeader.Type == vp8dec.SimpleLoopFilter,
-		TokenPartition:      vp8common.TokenPartition(e.opts.TokenPartitions),
-		BaseQIndex:          uint8(e.rc.currentQuantizer),
-		QuantDeltas:         quantDeltas,
-		LoopFilterLevel:     lfLevel,
-		SharpnessLevel:      lfSharpness,
-		LFDeltaEnabled:      lfHeader.DeltaEnabled,
-		LFDeltaUpdate:       e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas),
-		RefLFDeltas:         lfHeader.RefDeltas,
-		ModeLFDeltas:        lfHeader.ModeDeltas,
-		Segmentation:        segmentation,
-		RefreshEntropyProbs: true,
-		IndependentContexts: e.opts.ErrorResilientPartitions,
+		InvisibleFrame:        invisible,
+		SimpleLoopFilter:      lfHeader.Type == vp8dec.SimpleLoopFilter,
+		TokenPartition:        vp8common.TokenPartition(e.opts.TokenPartitions),
+		BaseQIndex:            uint8(e.rc.currentQuantizer),
+		QuantDeltas:           quantDeltas,
+		LoopFilterLevel:       lfLevel,
+		SharpnessLevel:        lfSharpness,
+		LFDeltaEnabled:        lfHeader.DeltaEnabled,
+		LFDeltaUpdate:         e.computeLFDeltaUpdateBit(vp8common.KeyFrame, lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas),
+		LFDeltaForceUpdateAll: e.forceLFDeltaUpdates(),
+		RefLFDeltas:           lfHeader.RefDeltas,
+		ModeLFDeltas:          lfHeader.ModeDeltas,
+		Segmentation:          segmentation,
+		RefreshEntropyProbs:   true,
+		IndependentContexts:   e.opts.ErrorResilientPartitions,
 		// libvpx initializes pc->mb_no_coeff_skip = 1 for every frame
 		// (alloccommon.c), so the keyframe header always carries the
 		// mb_no_coeff_skip bit and the 8-bit prob_skip_false literal.
@@ -383,7 +384,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
 	cfg.SimpleLoopFilter = e.encoderUsesSimpleLoopFilter()
-	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
+	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient && !e.opts.ErrorResilientPartitions
 	cfg.IndependentContexts = e.opts.ErrorResilientPartitions
 	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
@@ -527,7 +528,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled
-	cfg.LFDeltaUpdate = e.computeLFDeltaUpdateBit(lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas)
+	cfg.LFDeltaUpdate = e.computeLFDeltaUpdateBit(vp8common.InterFrame, lfHeader.DeltaEnabled, lfHeader.RefDeltas, lfHeader.ModeDeltas)
+	cfg.LFDeltaForceUpdateAll = e.forceLFDeltaUpdates()
 	cfg.RefLFDeltas = lfHeader.RefDeltas
 	cfg.ModeLFDeltas = lfHeader.ModeDeltas
 	if cfg.RefreshLast || cfg.RefreshGolden || cfg.RefreshAltRef {

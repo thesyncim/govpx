@@ -267,6 +267,23 @@ func TestEncoderLoopFilterHeaderMirrorsLibvpxDefaultDeltasAcrossQualities(t *tes
 	}
 }
 
+func TestComputeLFDeltaUpdateBitResignalsEveryKeyFrame(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime}}
+	header := e.encoderLoopFilterHeader(17, 0)
+
+	if !e.computeLFDeltaUpdateBit(vp8common.KeyFrame, header.DeltaEnabled, header.RefDeltas, header.ModeDeltas) {
+		t.Fatalf("first keyframe LF delta update = false, want true")
+	}
+	e.updateLastSignaledLFDeltas(header.DeltaEnabled, header.RefDeltas, header.ModeDeltas)
+
+	if !e.computeLFDeltaUpdateBit(vp8common.KeyFrame, header.DeltaEnabled, header.RefDeltas, header.ModeDeltas) {
+		t.Fatalf("repeated keyframe LF delta update = false, want true")
+	}
+	if e.computeLFDeltaUpdateBit(vp8common.InterFrame, header.DeltaEnabled, header.RefDeltas, header.ModeDeltas) {
+		t.Fatalf("unchanged inter-frame LF delta update = true, want false")
+	}
+}
+
 func TestEncoderLoopFilterHeaderUsesRealtimeSimpleFilterAtHighSpeed(t *testing.T) {
 	tests := []struct {
 		name     string

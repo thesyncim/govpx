@@ -83,7 +83,12 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 		return
 	}
 	rc.framesSinceKeyframe++
-	if ctx.goldenFrame || ctx.altRefFrame {
+	if ctx.goldenFrame {
+		rc.framesSinceGolden = 0
+		if rc.framesTillGFUpdateDue > 0 {
+			rc.framesTillGFUpdateDue--
+		}
+	} else if ctx.altRefFrame {
 		rc.framesSinceGolden = 0
 	} else {
 		rc.framesSinceGolden++

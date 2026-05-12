@@ -219,6 +219,48 @@ func TestEncodeIntoOnePassVBRDoesNotRefreshGoldenImmediatelyAfterKey(t *testing.
 	}
 }
 
+func TestEncodeIntoOnePassVBRRefreshesGoldenOnDefaultInterval(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 64*64*3)
+	for frame := range 15 {
+		result, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", frame, err)
+		}
+		if frame == 0 {
+			continue
+		}
+		state := packetState(t, result.Data)
+		switch frame {
+		case libvpxDefaultGFInterval, 2 * libvpxDefaultGFInterval:
+			if !state.Refresh.RefreshGolden {
+				t.Fatalf("frame %d VBR refresh_golden = false, want true on default GF interval", frame)
+			}
+			if state.Refresh.CopyBufferToAltRef != 2 {
+				t.Fatalf("frame %d copy-to-alt = %d, want old-GF-to-ARF copy", frame, state.Refresh.CopyBufferToAltRef)
+			}
+		default:
+			if state.Refresh.RefreshGolden {
+				t.Fatalf("frame %d VBR refresh_golden = true, want false between default GF intervals", frame)
+			}
+		}
+	}
+}
+
 func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,

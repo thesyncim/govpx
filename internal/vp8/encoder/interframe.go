@@ -9,15 +9,16 @@ import (
 // and simple LAST/ZEROMV mode packing.
 
 type InterFrameStateConfig struct {
-	InvisibleFrame   bool
-	Segmentation     SegmentationConfig
-	SimpleLoopFilter bool
-	LoopFilterLevel  uint8
-	SharpnessLevel   uint8
-	LFDeltaEnabled   bool
-	LFDeltaUpdate    bool
-	RefLFDeltas      [common.MaxRefLFDeltas]int8
-	ModeLFDeltas     [common.MaxModeLFDeltas]int8
+	InvisibleFrame        bool
+	Segmentation          SegmentationConfig
+	SimpleLoopFilter      bool
+	LoopFilterLevel       uint8
+	SharpnessLevel        uint8
+	LFDeltaEnabled        bool
+	LFDeltaUpdate         bool
+	LFDeltaForceUpdateAll bool
+	RefLFDeltas           [common.MaxRefLFDeltas]int8
+	ModeLFDeltas          [common.MaxModeLFDeltas]int8
 
 	TokenPartition common.TokenPartition
 	BaseQIndex     uint8
@@ -110,7 +111,7 @@ func WriteInterFrameStateHeader(w *BoolWriter, cfg *InterFrameStateConfig) error
 	}
 	w.WriteLiteral(uint32(cfg.LoopFilterLevel), 6)
 	w.WriteLiteral(uint32(cfg.SharpnessLevel), 3)
-	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	writeLoopFilterDeltas(w, cfg.LFDeltaEnabled, cfg.LFDeltaUpdate, cfg.LFDeltaForceUpdateAll, cfg.RefLFDeltas, cfg.ModeLFDeltas)
 	w.WriteLiteral(uint32(cfg.TokenPartition), 2)
 	w.WriteLiteral(uint32(cfg.BaseQIndex), 7)
 	writeQuantDeltas(w, cfg.QuantDeltas)

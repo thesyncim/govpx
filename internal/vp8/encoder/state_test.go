@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
@@ -102,6 +103,33 @@ func TestWriteKeyFrameStateHeaderParsesLoopFilterDeltas(t *testing.T) {
 	}
 	if state.LoopFilter.RefDeltas != cfg.RefLFDeltas || state.LoopFilter.ModeDeltas != cfg.ModeLFDeltas {
 		t.Fatalf("loop filter deltas = %v/%v, want %v/%v", state.LoopFilter.RefDeltas, state.LoopFilter.ModeDeltas, cfg.RefLFDeltas, cfg.ModeLFDeltas)
+	}
+}
+
+func TestWriteLoopFilterDeltasCanForceZeroDeltaUpdates(t *testing.T) {
+	refDeltas := [common.MaxRefLFDeltas]int8{2, 0, -2, -2}
+	modeDeltas := [common.MaxModeLFDeltas]int8{4, -12, 2, 4}
+	var w BoolWriter
+	buf := make([]byte, 64)
+	w.Init(buf)
+	writeLoopFilterDeltas(&w, true, true, true, refDeltas, modeDeltas)
+	w.Finish()
+	if err := w.Err(); err != nil {
+		t.Fatalf("BoolWriter error = %v, want nil", err)
+	}
+
+	var d boolcoder.Decoder
+	if err := d.Init(w.Bytes()); err != nil {
+		t.Fatalf("Decoder Init returned error: %v", err)
+	}
+	if d.ReadBit() != 1 || d.ReadBit() != 1 {
+		t.Fatalf("loop-filter enable/update bits did not decode to 1/1")
+	}
+	if d.ReadBit() != 1 || d.ReadLiteral(6) != 2 || d.ReadBit() != 0 {
+		t.Fatalf("positive ref delta did not decode as update/value/sign 1/2/0")
+	}
+	if d.ReadBit() != 1 || d.ReadLiteral(6) != 0 || d.ReadBit() != 1 {
+		t.Fatalf("forced zero ref delta did not decode as update/value/sign 1/0/1")
 	}
 }
 

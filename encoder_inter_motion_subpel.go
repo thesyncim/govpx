@@ -208,6 +208,8 @@ func (b interFrameSubpelSearchBounds) contains(row int, col int) bool {
 type subpelSearchCtx struct {
 	srcRowPtr  []byte // = src.Y[baseY*src.YStride+baseX:]
 	srcYStride int
+	srcScratch [16 * 16]byte
+	srcPartial bool
 	refYFull   []byte
 	refYStride int
 	refYOrigin int
@@ -221,15 +223,13 @@ type subpelSearchCtx struct {
 func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (subpelSearchCtx, bool) {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
-	if baseY < 0 || baseX < 0 || baseY+16 > src.Height || baseX+16 > src.Width {
+	if src.Width <= 0 || src.Height <= 0 || baseY < 0 || baseX < 0 {
 		return subpelSearchCtx{}, false
 	}
 	if ref == nil || len(ref.YFull) == 0 || ref.YOrigin < 0 || ref.YStride < ref.CodedWidth+2*ref.YBorder {
 		return subpelSearchCtx{}, false
 	}
-	return subpelSearchCtx{
-		srcRowPtr:  src.Y[baseY*src.YStride+baseX:],
-		srcYStride: src.YStride,
+	ctx := subpelSearchCtx{
 		refYFull:   ref.YFull,
 		refYStride: ref.YStride,
 		refYOrigin: ref.YOrigin,
@@ -238,7 +238,22 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 		refCodedW:  ref.CodedWidth,
 		baseY:      baseY,
 		baseX:      baseX,
-	}, true
+	}
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
+		ctx.srcRowPtr = src.Y[baseY*src.YStride+baseX:]
+		ctx.srcYStride = src.YStride
+		return ctx, true
+	}
+	for row := range 16 {
+		srcY := clampEncodeCoord(baseY+row, src.Height)
+		for col := range 16 {
+			srcX := clampEncodeCoord(baseX+col, src.Width)
+			ctx.srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
+		}
+	}
+	ctx.srcYStride = 16
+	ctx.srcPartial = true
+	return ctx, true
 }
 
 // subpelVarianceForQuarterMV computes the picker's quarter-pel variance
@@ -261,7 +276,11 @@ func (c *subpelSearchCtx) subpelVarianceForQuarterMV(row int, col int) (int, int
 	}
 	xOffset := (col & 3) << 1
 	yOffset := (row & 3) << 1
-	variance, sse := dsp.SubpelVariance16x16(c.refYFull[start:], c.refYStride, xOffset, yOffset, c.srcRowPtr, c.srcYStride)
+	srcRowPtr := c.srcRowPtr
+	if c.srcPartial {
+		srcRowPtr = c.srcScratch[:]
+	}
+	variance, sse := dsp.SubpelVariance16x16(c.refYFull[start:], c.refYStride, xOffset, yOffset, srcRowPtr, c.srcYStride)
 	return variance, sse, true
 }
 
