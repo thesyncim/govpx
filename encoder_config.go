@@ -215,6 +215,7 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 	e.opts.DropFrameAllowed = enabled
 }
 
+// SetRealtimeTarget applies a WebRTC-style runtime target update.
 //
 // Zero-valued fields keep their current setting, so bandwidth-estimator
 // updates are safe to send as bitrate-only deltas. Width and Height,
