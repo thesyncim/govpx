@@ -455,6 +455,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu-5 has more active heuristics and drifts at frame 2.
 		{name: "realtime-cbr-cpu-5-splitmv", deadline: DeadlineRealtime, cpuUsed: -5, fx: splitmv64, limit: 2},
 		{name: "realtime-cbr-cpu-8-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64},
+		// GoodQuality cpu-3 / cpu-5 at small frames. GoodQuality clamps
+		// cpu_used to [-5, 5] before dispatch (libvpxEffectiveCPUUsed),
+		// so cpu-3/-5 don't bypass the auto-select trajectory the way
+		// realtime cpu-8 does. Only the smallest single-MB frame
+		// (16x16) matches fully; larger sizes drift at frame 1-2.
+		{name: "good-quality-cbr-cpu-3-16x16", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu-3-32x32", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "good-quality-cbr-cpu-3-48x48", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "good-quality-cbr-cpu-3-128x128", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "good-quality-cbr-cpu-5-32x32", deadline: DeadlineGoodQuality, cpuUsed: -5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, limit: 2},
 	}
 
 	for _, tc := range cases {
