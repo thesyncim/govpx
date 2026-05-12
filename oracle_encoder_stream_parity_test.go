@@ -628,6 +628,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-32x32-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
 		{name: "realtime-cbr-cpu-8-48x48-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
 		{name: "realtime-cbr-cpu-8-48x48-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		// cpu-3 / cpu-8 panning-96x96 quantizer-range probes — fills the
+		// q-range coverage gap between 64x64 and 128x128 on the mid size
+		// where the base default-Q probe byte-matches.
+		{name: "realtime-cbr-cpu-3-96x96-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-96x96-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-96x96-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-96x96-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		// cpu-3 / cpu-8 panning-96x96 bitrate-extreme probes — same
+		// rationale, completing the bitrate matrix on the 96x96 size.
+		{name: "realtime-cbr-cpu-3-96x96-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-96x96-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-96x96-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-96x96-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
