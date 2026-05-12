@@ -386,6 +386,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-320x180", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
 		{name: "realtime-cbr-cpu-3-640x480", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}},
+		// HD resolutions at cpu-3 chart where the upper parity boundary
+		// hits. 1280x720 is MB-aligned but frame 2+ diverges (likely
+		// a different rate-control or per-frame heuristic that activates
+		// at larger MB counts); 1920x1080 has partial-coded-height
+		// (1080/16=67.5) so it shares the partial-coded-height drift.
+		{name: "realtime-cbr-cpu-3-1280x720", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1280x720", w: 1280, h: 720, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-3-1920x1080", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1920x1080", w: 1920, h: 1080, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
