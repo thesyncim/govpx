@@ -342,12 +342,26 @@ func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, s
 // writeARNRBlock writes the (size x size) accumulated/count pair back into
 // the destination plane, clipping to the visible area.
 func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, accumulator []uint32, count []uint32) {
+	// Bound count/accumulator to size*size once: caller passes 384-entry
+	// scratch sliced down to the active block ([:256] for luma, [256:320]
+	// / [320:384] for chroma) so this matches the active range.
+	n := size * size
+	if len(count) < n || len(accumulator) < n {
+		return
+	}
+	count = count[:n:n]
+	accumulator = accumulator[:n:n]
 	for j := range size {
 		yy := dstY + j
 		if uint(yy) >= uint(dstH) {
 			continue
 		}
-		row := dst[yy*dstStride:]
+		// Bound row to dstW so row[xx] with xx < dstW elides.
+		end := yy*dstStride + dstW
+		if end > len(dst) {
+			continue
+		}
+		row := dst[yy*dstStride : end : end]
 		for i := range size {
 			xx := dstX + i
 			if uint(xx) >= uint(dstW) {
