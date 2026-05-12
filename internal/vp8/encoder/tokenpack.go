@@ -296,13 +296,13 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			low <<= uint(shift)
 		}
 
+		// Branchless sign-bit interval selection mirroring the inner
+		// tree-edge loop: mask is all-ones when the sign bit is set so
+		// the bit==1 arm folds in (rng - split) - split = rng - 2*split.
 		split := (rng + 1) >> 1
-		if (raw>>coefficientTokenRecordSignShift)&1 != 0 {
-			low += split
-			rng -= split
-		} else {
-			rng = split
-		}
+		mask := -uint32((raw >> coefficientTokenRecordSignShift) & 1)
+		low += split & mask
+		rng = split + ((rng - 2*split) & mask)
 		rng <<= 1
 		if (low & 0x80000000) != 0 {
 			w.pos = pos
