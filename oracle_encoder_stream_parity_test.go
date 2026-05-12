@@ -311,6 +311,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu4-32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu5-32x32", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu4-32x32-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		// GoodQuality + small-frame x axis variations.
+		{name: "good-quality-cbr-cpu4-32x32-bitrate200", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "good-quality-cbr-cpu4-32x32-bitrate2000", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "good-quality-cbr-cpu4-32x32-q10-30", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "good-quality-cbr-cpu4-32x32-fps15", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "good-quality-cbr-cpu4-32x32-fps60", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// GoodQuality on 16x16 and 48x48 panning.
+		{name: "good-quality-cbr-cpu4-16x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-48x48", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-16x16", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-48x48", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
