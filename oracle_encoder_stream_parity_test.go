@@ -688,6 +688,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-96x96-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-96x96-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// cpu-3 / cpu-8 segmented-96x96 q-range + bitrate-extreme probes
+		// — extends segmented RC matrix from 64x64 up to 96x96.
+		{name: "realtime-cbr-cpu-3-96x96-segmented-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-96x96-segmented-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-96x96-segmented-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-96x96-segmented-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-96x96-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-96x96-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-96x96-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-96x96-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
