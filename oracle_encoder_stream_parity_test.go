@@ -209,6 +209,21 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Realtime cpu0/cpu4 on splitmv64.
 		{name: "realtime-cbr-cpu0-splitmv", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 2},
 		{name: "realtime-cbr-cpu4-splitmv", deadline: DeadlineRealtime, cpuUsed: 4, fx: splitmv64, limit: 2},
+		// Small-resolution cpu0/cpu4 variants. Small frames sit well
+		// below the realtime-deadline budget so the libvpx auto-select-
+		// speed evolution stays at the cold-start seed in both runs,
+		// which makes these the strongest byte-parity probes for any
+		// per-MB encode logic. 16x16 / 32x32 / 48x48 byte-match the
+		// full 16-frame sequence; 72x40 still diverges at frame 1
+		// (same partial-coded-width sub-MB drift as cpu8-72x40).
+		{name: "realtime-cbr-cpu0-72x40", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu4-72x40", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu4-32x32", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu0-48x48", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu4-48x48", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu4-16x16", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
