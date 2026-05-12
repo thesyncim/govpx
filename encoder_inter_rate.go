@@ -389,15 +389,15 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 	xOffset := int(mv.Col) & 7
 	yOffset := int(mv.Row) & 7
 	if xOffset|yOffset != 0 {
-		if baseY >= 0 && baseX >= 0 &&
-			baseY+16 <= src.Height && baseX+16 <= src.Width {
+		if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
 			if variance, sse, ok := macroblockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
 				return variance, sse
 			}
 		}
 	}
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width {
+	// Uint range collapses (baseY/X >= 0) and (baseY/X+16 <= dim) into
+	// one compare each, matching the pattern in macroblockLumaSSE.
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
 		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
 			sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
 			return sse - ((sum * sum) >> 8), sse
