@@ -83,7 +83,10 @@ func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *v
 		return
 	}
 	slot.refFrame = convertInterFrameReference(mode)
-	if slot.refFrame > vp8common.IntraFrame && slot.refFrame < vp8common.MaxRefFrames {
+	// uint range check folds (refFrame > IntraFrame && < MaxRefFrames)
+	// into one compare since IntraFrame==0 and MaxRefFrames is a small
+	// positive constant.
+	if uint(slot.refFrame)-1 < uint(vp8common.MaxRefFrames-1) {
 		slot.signBias = signBias[slot.refFrame]
 	}
 	if slot.refFrame == vp8common.IntraFrame {
@@ -102,11 +105,11 @@ func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8c
 	// calloc-zeroed and therefore report INTRA_FRAME with mv == 0, while
 	// vp8_cal_sad sets the matching near_sad entry to INT_MAX.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
-	if refMbRow < 0 || refMbCol < 0 || refMbRow >= mbRows || refMbCol >= mbCols {
+	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
 		return
 	}
 	index := refMbRow*mbCols + refMbCol
-	if index < 0 || index >= len(modes) {
+	if uint(index) >= uint(len(modes)) {
 		return
 	}
 	mode := &modes[index]
