@@ -361,26 +361,33 @@ func dctValueToken(x int) int {
 	return token
 }
 
+// dctValueBaseCostLUT precomputes libvpx's dct_value_cost table for every
+// |coefficient| in [0, DCTMaxValue]: sign bit cost (always boolBitCost(128, 0))
+// plus the extra-bits subtree cost for the value's token category. The
+// per-coefficient hot-path lookup is then a single bounded array load,
+// replacing a token-category resolve + a per-bit loop over extra.Len.
+var dctValueBaseCostLUT = buildDCTValueBaseCostLUT()
+
+func buildDCTValueBaseCostLUT() [vp8tables.DCTMaxValue + 1]int32 {
+	var lut [vp8tables.DCTMaxValue + 1]int32
+	signCost := boolBitCost(128, 0)
+	for abs := 1; abs <= vp8tables.DCTMaxValue; abs++ {
+		token := int(coefficientTokenLUT[abs])
+		lut[abs] = int32(signCost + coefficientExtraBitsRate(token, abs))
+	}
+	return lut
+}
+
 // dctValueBaseCost mirrors libvpx's dct_value_cost table: extra bits cost plus
 // sign bit cost for value x. The token-tree cost is added separately by the
 // trellis using band/context-specific token costs.
 func dctValueBaseCost(x int) int {
-	if x == 0 {
-		return 0
-	}
 	mask := x >> mvKernelSignShift
 	abs := (x ^ mask) - mask
-	token, _, ok := coefficientTokenMagnitude(abs)
-	if !ok {
+	if uint(abs) > uint(vp8tables.DCTMaxValue) {
 		return maxInt() / 4
 	}
-	// Sign bit cost: prob 128 means equal cost for bit=0 and bit=1; the
-	// branch on x<0 was a no-op other than to pick which mvKernelSignShift
-	// bit to write — keep the branch-free version by always paying the
-	// equiprobable cost.
-	cost := boolBitCost(128, 0) // == boolBitCost(128, 1) at prob 128
-	cost += coefficientExtraBitsRate(token, abs)
-	return cost
+	return int(dctValueBaseCostLUT[abs])
 }
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodemb.c
