@@ -366,18 +366,9 @@ func (e *VP8Encoder) libvpxCPUUsed() int {
 }
 
 func libvpxEffectiveCPUUsed(deadline Deadline, cpuUsed int) int {
-	if cpuUsed < -16 {
-		cpuUsed = -16
-	} else if cpuUsed > 16 {
-		cpuUsed = 16
-	}
+	cpuUsed = min(max(cpuUsed, -16), 16)
 	if deadline == DeadlineGoodQuality {
-		if cpuUsed < -5 {
-			return -5
-		}
-		if cpuUsed > 5 {
-			return 5
-		}
+		return min(max(cpuUsed, -5), 5)
 	}
 	return cpuUsed
 }
