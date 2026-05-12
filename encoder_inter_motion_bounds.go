@@ -46,7 +46,7 @@ func interFrameUMVFullPixelInRange(mv vp8enc.MotionVector, mbRow int, mbCol int,
 }
 
 func clampInterMotionVectorToModeEdges(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) vp8enc.MotionVector {
-	if mbRows <= 0 || mbCols <= 0 {
+	if min(mbRows, mbCols) <= 0 {
 		return mv
 	}
 	top := -(mbRow * 16) << 3

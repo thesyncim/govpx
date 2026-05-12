@@ -375,7 +375,7 @@ func cyclicRefreshMaxMBsPerFrame(rows int, cols int) int {
 }
 
 func cyclicRefreshMaxMBsPerFrameForConfig(rows int, cols int, layers int, screenContentMode int, q int, framesSinceKey int, lastSkipCount int) int {
-	if rows <= 0 || cols <= 0 {
+	if min(rows, cols) <= 0 {
 		return 0
 	}
 	count := rows * cols
@@ -396,7 +396,7 @@ func cyclicRefreshMaxMBsPerFrameForConfig(rows int, cols int, layers int, screen
 }
 
 func cyclicRefreshMaxMBsPerFrameForLayers(rows int, cols int, layers int) int {
-	if rows <= 0 || cols <= 0 {
+	if min(rows, cols) <= 0 {
 		return 0
 	}
 	count := rows * cols

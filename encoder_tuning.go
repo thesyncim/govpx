@@ -120,7 +120,7 @@ func (e *VP8Encoder) tunedZbinOverQuant(zbinOverQuant int, mbRow int, mbCol int)
 	act := int64(activity)
 	a := act + 4*avg
 	b := 4*act + avg
-	if a <= 0 || b <= 0 {
+	if min(a, b) <= 0 {
 		return zbinOverQuant
 	}
 	adjustment := 0

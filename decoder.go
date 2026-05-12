@@ -486,7 +486,7 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 	if !info.KeyFrame {
 		return nil
 	}
-	if info.Width <= 0 || info.Height <= 0 {
+	if min(info.Width, info.Height) <= 0 {
 		return ErrInvalidData
 	}
 	if d.opts.MaxWidth > 0 && info.Width > d.opts.MaxWidth {
@@ -976,7 +976,7 @@ func copyFrameImageLuma(dst *vp8common.Image, src *vp8common.Image) {
 	}
 	width := min(dst.CodedWidth, src.CodedWidth)
 	height := min(dst.CodedHeight, src.CodedHeight)
-	if width <= 0 || height <= 0 {
+	if min(width, height) <= 0 {
 		return
 	}
 	if dst.YStride == src.YStride && width == dst.YStride {

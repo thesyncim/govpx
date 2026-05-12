@@ -568,7 +568,7 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 			codedError += t.stats[i].CodedError
 		}
 	}
-	if codedError <= 0 || count <= 0 {
+	if min(codedError, count) <= 0 {
 		return
 	}
 	sectionErr := codedError / count
