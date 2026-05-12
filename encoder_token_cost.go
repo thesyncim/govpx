@@ -36,9 +36,14 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 		vp8tables.ProbCost[255-128],
 	}
 	for pos < eob {
-		band := int(vp8tables.CoefBandsTable[pos])
-		p := (*probs)[blockType][band][pt]
-		rc := int(vp8tables.DefaultZigZag1D[pos])
+		// pos ∈ [skipDC, 16) (eob is clamped above); CoefBandsTable and
+		// DefaultZigZag1D are [16]-sized. blockType is in [0, 4) and
+		// the CoefBandsTable cells are in [0, 8); mask both with their
+		// pow2-1 to elide the bounds checks on the (*probs) load and
+		// the per-coefficient table lookups.
+		band := int(vp8tables.CoefBandsTable[pos&15])
+		p := (*probs)[blockType&3][band&7][pt]
+		rc := int(vp8tables.DefaultZigZag1D[pos&15]) & 15
 		coeff := int(qcoeff[rc])
 		if coeff == 0 {
 			// ZeroToken sits two edges deep in CoefTree (root, then the
@@ -68,8 +73,9 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 		pos++
 	}
 	if pos < 16 {
-		band := int(vp8tables.CoefBandsTable[pos])
-		p := (*probs)[blockType][band][pt]
+		// Same pow2 AND-mask pattern as the main loop body.
+		band := int(vp8tables.CoefBandsTable[pos&15])
+		p := (*probs)[blockType&3][band&7][pt]
 		cost += coefEOBTokenCost(&p)
 	}
 	return cost
