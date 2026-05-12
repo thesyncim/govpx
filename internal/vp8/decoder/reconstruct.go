@@ -635,7 +635,7 @@ func extendIntraRightEdgeRows(full []byte, origin int, stride int, width int, he
 	}
 	for i := range count {
 		row := startRow + i
-		if row < 0 || row >= height {
+		if uint(row) >= uint(height) {
 			continue
 		}
 		start := origin + row*stride + width

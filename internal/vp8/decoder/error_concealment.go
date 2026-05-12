@@ -114,7 +114,7 @@ func calculateErrorConcealmentOverlaps(overlaps []errorConcealmentMacroblockOver
 		for relCol := 0; relCol < endCol; relCol++ {
 			mbRow := overlapMBRow + relRow
 			mbCol := overlapMBCol + relCol
-			if mbRow < 0 || mbCol < 0 || mbRow >= rows || mbCol >= cols {
+			if uint(mbRow) >= uint(rows) || uint(mbCol) >= uint(cols) {
 				continue
 			}
 			mb := &overlaps[mbRow*cols+mbCol]
@@ -127,7 +127,7 @@ func calculateErrorConcealmentOverlapsMB(mb *errorConcealmentMacroblockOverlap, 
 	relBlockRow := firstBlockRow - mbRow*4
 	relBlockCol := firstBlockCol - mbCol*4
 	blockIndex := maxInt(relBlockRow, 0)*4 + maxInt(relBlockCol, 0)
-	if blockIndex < 0 || blockIndex >= len(mb.blocks) {
+	if uint(blockIndex) >= uint(len(mb.blocks)) {
 		return
 	}
 
@@ -149,7 +149,7 @@ func calculateErrorConcealmentOverlapsMB(mb *errorConcealmentMacroblockOverlap, 
 	for row := 0; row < endRow; row++ {
 		for col := 0; col < endCol; col++ {
 			target := blockIndex + row*4 + col
-			if target < 0 || target >= len(mb.blocks) {
+			if uint(target) >= uint(len(mb.blocks)) {
 				continue
 			}
 			overlap := errorConcealmentBlockOverlapArea(
