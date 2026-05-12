@@ -188,27 +188,18 @@ func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
 }
 
 func (coeffs *MacroblockCoefficients) SetBlockEOB(block int, eob int) {
-	if coeffs == nil || block < 0 || block >= len(coeffs.EOB) {
+	if coeffs == nil || uint(block) >= uint(len(coeffs.EOB)) {
 		return
 	}
-	if eob < 0 {
-		eob = 0
-	}
-	if eob > 16 {
-		eob = 16
-	}
+	eob = min(max(eob, 0), 16)
 	coeffs.EOB[block] = uint8(eob)
 }
 
 func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
-	if coeffs == nil || block < 0 || block >= len(coeffs.EOB) {
+	if coeffs == nil || uint(block) >= uint(len(coeffs.EOB)) {
 		return skipDC
 	}
-	eob := int(coeffs.EOB[block])
-	if eob < skipDC {
-		return skipDC
-	}
-	return eob
+	return max(int(coeffs.EOB[block]), skipDC)
 }
 
 // coeffAbsTokenLUT maps abs(coeff) in [0, DCTMaxValue] to the VP8 entropy
