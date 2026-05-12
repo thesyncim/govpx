@@ -336,7 +336,12 @@ func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, 
 }
 
 func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, records *InterCoefficientTokenRecords, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
-	if counts == nil || qcoeff == nil || blockType < 0 || blockType >= tables.BlockTypes || ctx < 0 || ctx >= tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
+	// Uint range checks collapse the (x < 0 || x >= max) dual-bound
+	// pairs into one branch each. Hot per-block validation.
+	if counts == nil || qcoeff == nil ||
+		uint(blockType) >= uint(tables.BlockTypes) ||
+		uint(ctx) >= uint(tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
 		return ErrInvalidPacketConfig
 	}
 	if eob <= skipDC {
