@@ -188,7 +188,7 @@ func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mo
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
-		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		block := int(tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]

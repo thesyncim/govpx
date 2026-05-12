@@ -211,7 +211,7 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 	cost := mbSplitPartitionRate(mode.Partition)
 	partitions := int(vp8tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
-		block := int(vp8tables.MBSplitOffset[mode.Partition][subset])
+		block := int(vp8tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := analysisSplitLeftMV(mode, left, block)
 		aboveMV := analysisSplitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]

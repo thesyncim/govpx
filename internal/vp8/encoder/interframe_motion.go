@@ -182,7 +182,7 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	fillCount := int(tables.MBSplitFillCount[mode.Partition])
 	for subset := range partitions {
-		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		block := int(tables.MBSplitOffset[mode.Partition&3][subset&15])
 		mv := mode.BlockMV[block]
 		if mv.Row&1 != 0 || mv.Col&1 != 0 {
 			return false
@@ -206,7 +206,7 @@ func validSplitMVModeWithContext(mode *InterFrameMacroblockMode, left *InterFram
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
-		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		block := int(tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		if !splitSubMotionLabelMatchesMV(mode.BModes[block], mode.BlockMV[block], leftMV, aboveMV) {
@@ -302,7 +302,7 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
-		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		block := int(tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]
@@ -327,7 +327,7 @@ func countSplitMotionVectorEvents(events *motionVectorEventCounts, mode *InterFr
 	}
 	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
-		block := int(tables.MBSplitOffset[mode.Partition][subset])
+		block := int(tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := splitLeftMV(mode, left, block)
 		aboveMV := splitAboveMV(mode, above, block)
 		target := mode.BlockMV[block]

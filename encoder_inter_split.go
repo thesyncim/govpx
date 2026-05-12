@@ -287,7 +287,10 @@ type splitMotionSubsetContext struct {
 // chose, so the per-shape caller can accumulate this_segment_rd and apply the
 // inter-shape early cutoff.
 func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8common.BPredictionMode, int) {
-	block := int(vp8tables.MBSplitOffset[ctx.mode.Partition][ctx.subset])
+	// MBSplitOffset is [4][16]uint8: ctx.mode.Partition ∈ [0,4) and
+	// ctx.subset ∈ [0,16) by upstream validation. Pow2 AND-masks
+	// elide both bounds checks on this hot per-subset load.
+	block := int(vp8tables.MBSplitOffset[ctx.mode.Partition&3][ctx.subset&15])
 	leftMV := analysisSplitLeftMV(ctx.mode, ctx.left, block)
 	aboveMV := analysisSplitAboveMV(ctx.mode, ctx.above, block)
 	bestMV := leftMV
