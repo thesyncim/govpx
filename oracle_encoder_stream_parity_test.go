@@ -343,6 +343,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Segmented at asymmetric sizes.
 		{name: "realtime-cbr-cpu0-32x16-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-32x16", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu0-16x32-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-16x32", w: 16, h: 32, source: encoderValidationSegmentedFrame}},
+		// Mid-small sizes: 64x32, 64x48, 80x32 byte-match fully;
+		// 80x80, 96x64 are at the boundary where the per-frame budget
+		// starts crossing measured encode time so auto-select-speed
+		// trajectories diverge (frame 0 always matches, frame 1+ drifts).
+		{name: "realtime-cbr-cpu0-64x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu0-64x48", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu0-80x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-80x32", w: 80, h: 32, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu0-80x80", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu0-96x64", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-96x64", w: 96, h: 64, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
