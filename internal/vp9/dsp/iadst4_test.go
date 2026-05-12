@@ -5,8 +5,8 @@ import "testing"
 // TestIadst4ZeroInputZeroOutput is the libvpx fast-path invariant — all
 // zeros into iadst4_c must give all zeros out.
 func TestIadst4ZeroInputZeroOutput(t *testing.T) {
-	var input, output [4]int32
-	output[0] = 0xdead
+	var input, output [4]int16
+	output[0] = 0x1234
 	Iadst4(input[:], output[:])
 	for i, v := range output {
 		if v != 0 {
@@ -19,7 +19,7 @@ func TestIadst4ZeroInputZeroOutput(t *testing.T) {
 // DCT_DCT txType produces the same pixels as the dedicated
 // Idct4x4_16Add fast path — the contract the detokenizer relies on.
 func TestIht4x4DispatchMatchesIdct4x4(t *testing.T) {
-	input := [16]int32{
+	input := [16]int16{
 		64, -32, 16, -8,
 		-16, 8, -4, 2,
 		8, -4, 2, -1,
@@ -44,7 +44,7 @@ func TestIht4x4DispatchMatchesIdct4x4(t *testing.T) {
 // TestIht4x4ZeroInputIdentity checks every TxType is a no-op on a
 // zero-coefficient block — same invariant as the DCT-only case.
 func TestIht4x4ZeroInputIdentity(t *testing.T) {
-	var input [16]int32
+	var input [16]int16
 	want := [16]uint8{
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 	}
@@ -60,7 +60,7 @@ func TestIht4x4ZeroInputIdentity(t *testing.T) {
 // TestIdct8x8ZeroInputIdentity is the 8x8 version of the zero-residual
 // no-op invariant.
 func TestIdct8x8ZeroInputIdentity(t *testing.T) {
-	var input [64]int32
+	var input [64]int16
 	var dest [64]uint8
 	for i := range dest {
 		dest[i] = uint8(i & 0xff)
@@ -85,8 +85,8 @@ func TestIdct8x8ZeroInputIdentity(t *testing.T) {
 // TestIdct8x8DcOnlyMatchesFullPath checks the fast-path produces the
 // same output as the full-path when only the DC coefficient is set.
 func TestIdct8x8DcOnlyMatchesFullPath(t *testing.T) {
-	for _, dc := range []int32{-128, -16, -1, 1, 16, 128, 512} {
-		input := [64]int32{}
+	for _, dc := range []int16{-128, -16, -1, 1, 16, 128, 512} {
+		input := [64]int16{}
 		input[0] = dc
 
 		destFull := [64]uint8{}
@@ -108,9 +108,9 @@ func TestIdct8x8DcOnlyMatchesFullPath(t *testing.T) {
 // TestIdct8x8Alloc enforces zero-allocation steady state for the 8x8
 // path — every coefficient flows through caller-owned scratch.
 func TestIdct8x8Alloc(t *testing.T) {
-	var input [64]int32
+	var input [64]int16
 	for i := range input {
-		input[i] = int32((i * 13) - 200)
+		input[i] = int16((i * 13) - 200)
 	}
 	dest := make([]uint8, 64)
 

@@ -6,7 +6,7 @@ import "testing"
 // no-op on dest — the most common path through the decoder for blocks
 // that detokenize to all zeros.
 func TestIdct4x4ZeroInputIdentity(t *testing.T) {
-	var input [16]int32
+	var input [16]int16
 	dest := [16]uint8{
 		10, 20, 30, 40,
 		50, 60, 70, 80,
@@ -31,8 +31,8 @@ func TestIdct4x4ZeroInputIdentity(t *testing.T) {
 // the same pixels as the full 16-coefficient path when only input[0] is
 // non-zero. This is the libvpx fast-path invariant.
 func TestIdct4x4DcOnlyMatchesFullPath(t *testing.T) {
-	for _, dc := range []int32{-64, -8, -1, 1, 8, 64, 128, 256} {
-		input := [16]int32{}
+	for _, dc := range []int16{-64, -8, -1, 1, 8, 64, 128, 256} {
+		input := [16]int16{}
 		input[0] = dc
 
 		destFull := [16]uint8{
@@ -62,7 +62,7 @@ func TestIdct4x4Stride(t *testing.T) {
 	}
 	want := append([]uint8(nil), dest...)
 
-	var input [16]int32
+	var input [16]int16
 	Idct4x4_16Add(input[:], dest, stride)
 	for i := range dest {
 		if dest[i] != want[i] {
@@ -74,7 +74,7 @@ func TestIdct4x4Stride(t *testing.T) {
 // TestIwht4x4ZeroInputIdentity is the lossless-mode equivalent of the
 // IDCT zero-input check.
 func TestIwht4x4ZeroInputIdentity(t *testing.T) {
-	var input [16]int32
+	var input [16]int16
 	dest := [16]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 	want := dest
 
@@ -86,9 +86,9 @@ func TestIwht4x4ZeroInputIdentity(t *testing.T) {
 
 // TestIdct4x4Alloc verifies the kernel runs without allocations.
 func TestIdct4x4Alloc(t *testing.T) {
-	var input [16]int32
+	var input [16]int16
 	for i := range input {
-		input[i] = int32((i * 17) - 64)
+		input[i] = int16((i * 17) - 64)
 	}
 	dest := make([]uint8, 16)
 
