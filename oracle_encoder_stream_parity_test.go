@@ -373,6 +373,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-128x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x64", w: 128, h: 64, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-192x108", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}, limit: 2},
 		{name: "realtime-cbr-cpu-3-256x144", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
+		// More clean-MB-grid sizes at cpu-3 chart the upper parity
+		// boundary. All MB-aligned sizes (96x96, 128x128, 160x96,
+		// 64x128, 640x480) hit full byte parity at cpu-3 — bypassing
+		// the realtime auto-select-speed cliff extends parity all the
+		// way to the standard SD resolution. 320x180 still diverges
+		// at frame 1 because 180 is not a multiple of 16 (partial-
+		// coded-height).
+		{name: "realtime-cbr-cpu-3-160x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-128x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-96x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-64x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-320x180", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-3-640x480", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
