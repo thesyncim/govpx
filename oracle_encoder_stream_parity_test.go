@@ -363,6 +363,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-64x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-5-80x80", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}, limit: 1},
+		// Negative-cpu at the realtime-divergent panning sizes — the
+		// autoSpeed bypass at cpu_used < 0 restores full parity for
+		// clean MB-grid sizes (128x64, 256x144) but not partial-coded-
+		// width sizes (72x40, 100x100, 192x108), confirming those
+		// remaining divergences are independent of autoSpeed evolution.
+		{name: "realtime-cbr-cpu-3-72x40", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-3-100x100", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-3-128x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x64", w: 128, h: 64, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-192x108", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-3-256x144", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
