@@ -575,7 +575,7 @@ func libvpxHalfFrameRate(timing timingState) float64 {
 }
 
 func outputFrameRate(timing timingState) float64 {
-	if timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+	if min(min(timing.timebaseNum, timing.timebaseDen), timing.frameDuration) <= 0 {
 		return 0
 	}
 	return float64(timing.timebaseDen) / (float64(timing.timebaseNum) * float64(timing.frameDuration))

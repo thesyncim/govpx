@@ -32,7 +32,7 @@ func interFrameFullPixelSearchBounds(bestRefMV vp8enc.MotionVector, mbRow int, m
 }
 
 func interFrameUMVFullPixelInRange(mv vp8enc.MotionVector, mbRow int, mbCol int, mbRows int, mbCols int) bool {
-	if mbRows <= 0 || mbCols <= 0 {
+	if min(mbRows, mbCols) <= 0 {
 		return true
 	}
 	umv := interFrameUMVBorderPixels - 16

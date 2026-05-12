@@ -201,7 +201,7 @@ func saturatingAddInt(a int, b int) int {
 // label-MV threshold of zero, which never trips the NEW4X4 short-circuit and
 // preserves the legacy unconditional NEW search.
 func splitMotionLabelMVThreshold(mvthresh int, labelCount int) int {
-	if mvthresh <= 0 || labelCount <= 0 {
+	if min(mvthresh, labelCount) <= 0 {
 		return 0
 	}
 	return mvthresh / labelCount
@@ -408,7 +408,7 @@ func (ev *splitMotionLabelRDEvaluator) setRDConstants(rdMult int, rdDiv int) {
 // score prices a SPLITMV label candidate, falling back to the standard zbin
 // RD path when no macroblock-specific constants were installed.
 func (ev *splitMotionLabelRDEvaluator) score(qIndex int, rate int, distortion int) int {
-	if ev == nil || ev.rdMult <= 0 || ev.rdDiv <= 0 {
+	if ev == nil || min(ev.rdMult, ev.rdDiv) <= 0 {
 		zbinOverQuant := 0
 		if ev != nil {
 			zbinOverQuant = ev.zbinOverQuant
