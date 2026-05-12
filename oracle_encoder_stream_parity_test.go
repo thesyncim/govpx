@@ -187,6 +187,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// keyframe; splitmv matches frames 0-3 like cpu0-splitmv.
 		{name: "best-quality-cbr-cpu5-panning", deadline: DeadlineBestQuality, cpuUsed: 5, fx: panning64, limit: 1},
 		{name: "best-quality-cbr-cpu5-splitmv", deadline: DeadlineBestQuality, cpuUsed: 5, fx: splitmv64, limit: 4},
+		// Wide / tall asymmetric frames.
+		{name: "realtime-cbr-cpu8-128x64", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-128x64", w: 128, h: 64, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-64x128", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
+		// SplitMV under good-quality + various cpu_used. Match the
+		// realtime-cpu8 pattern: frames 0-1 byte-match, frame 2+ drifts
+		// in the inter mode/MV decision on the SPLITMV fixture.
+		{name: "good-quality-cbr-cpu5-splitmv", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: splitmv64, limit: 2},
+		{name: "good-quality-cbr-cpu4-splitmv", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: splitmv64, limit: 2},
 	}
 
 	for _, tc := range cases {
