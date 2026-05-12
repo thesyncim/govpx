@@ -166,7 +166,7 @@ func (t *twoPassState) enabled() bool {
 // kf_boost adjustment and by `defineGFGroup` to derive
 // `gf_intra_err_min` (libvpx GF_MB_INTRA_MIN * MBs).
 func (t *twoPassState) configureFrameDims(width int, height int) {
-	if width > 0 && height > 0 {
+	if min(width, height) > 0 {
 		t.frameWidth = width
 		t.frameHeight = height
 		const gfMBIntraMin = 200 // libvpx GF_MB_INTRA_MIN
@@ -426,7 +426,7 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 	// is the "last" YUV buffer's size, which equals encoder
 	// dimensions. govpx exposes the dimensions via t.frameWidth /
 	// t.frameHeight (set by the encoder at configure time).
-	if t.frameWidth > 0 && t.frameHeight > 0 {
+	if min(t.frameWidth, t.frameHeight) > 0 {
 		size := t.frameWidth * t.frameHeight
 		if size > 320*240 {
 			kfBoost += 2 * size / (320 * 240)

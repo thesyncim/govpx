@@ -106,7 +106,7 @@ func interAnalysisValidReferenceCount(refs []interAnalysisReference, refCount in
 }
 
 func (e *VP8Encoder) interAnalysisMacroblockCount() int {
-	if e.opts.Width > 0 && e.opts.Height > 0 {
+	if min(e.opts.Width, e.opts.Height) > 0 {
 		return encoderMacroblockCount(e.opts.Width, e.opts.Height)
 	}
 	return len(e.interFrameModes)
