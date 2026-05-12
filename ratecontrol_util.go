@@ -48,12 +48,7 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 			}
 			percentLow = int((100 * int64(-rc.bufferLevelBits)) / rc.totalActualBits)
 		}
-		if percentLow > rc.undershootPct {
-			percentLow = rc.undershootPct
-		}
-		if percentLow < 0 {
-			percentLow = 0
-		}
+		percentLow = min(max(percentLow, 0), rc.undershootPct)
 		target -= target * int64(percentLow) / 200
 	case rc.bufferLevelBits > rc.bufferOptimalBits:
 		var percentHigh int
@@ -64,12 +59,7 @@ func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
 		} else {
 			percentHigh = rc.overshootPct
 		}
-		if percentHigh > rc.overshootPct {
-			percentHigh = rc.overshootPct
-		}
-		if percentHigh < 0 {
-			percentHigh = 0
-		}
+		percentHigh = min(max(percentHigh, 0), rc.overshootPct)
 		target += target * int64(percentHigh) / 200
 	default:
 		return targetBits
