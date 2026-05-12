@@ -427,6 +427,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-256x144-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
 		{name: "realtime-cbr-cpu-3-640x480-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 2, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-3-640x480-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		// cpu-5 / cpu-8 at clean large sizes — cpu-8 (most aggressive
+		// static-Speed) byte-matches more cleanly than cpu-5 because it
+		// disables more rate-control heuristics that introduce drift.
+		{name: "realtime-cbr-cpu-5-256x144", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-5-640x480", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu-5-128x128", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 2},
+		{name: "realtime-cbr-cpu-8-256x144", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-128x128", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
