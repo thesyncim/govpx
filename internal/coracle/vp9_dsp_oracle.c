@@ -41,6 +41,7 @@ void vpx_idct16x16_10_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct16x16_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vp9_iht4x4_16_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
 void vp9_iht8x8_64_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
+void vp9_iht16x16_256_add_c(const tran_low_t *input, uint8_t *dest, int stride, int tx_type);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -118,6 +119,9 @@ enum {
 	K_IDCT32_135  = 19,
 	K_IDCT32_34   = 20,
 	K_IDCT32_1    = 21,
+	K_IHT16_ADST_DCT  = 22,
+	K_IHT16_DCT_ADST  = 23,
+	K_IHT16_ADST_ADST = 24,
 };
 
 static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
@@ -160,9 +164,12 @@ static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
 		case K_IHT8_ADST_DCT:  vp9_iht8x8_64_add_c(input, dest_out, stride, 1); break;
 		case K_IHT8_DCT_ADST:  vp9_iht8x8_64_add_c(input, dest_out, stride, 2); break;
 		case K_IHT8_ADST_ADST: vp9_iht8x8_64_add_c(input, dest_out, stride, 3); break;
-		case K_IDCT32_1024:    vpx_idct32x32_1024_add_c(input, dest_out, stride); break;
-		case K_IDCT32_135:     vpx_idct32x32_135_add_c(input, dest_out, stride);  break;
-		case K_IDCT32_34:      vpx_idct32x32_34_add_c(input, dest_out, stride);   break;
+		case K_IDCT32_1024:     vpx_idct32x32_1024_add_c(input, dest_out, stride); break;
+		case K_IDCT32_135:      vpx_idct32x32_135_add_c(input, dest_out, stride);  break;
+		case K_IDCT32_34:       vpx_idct32x32_34_add_c(input, dest_out, stride);   break;
+		case K_IHT16_ADST_DCT:  vp9_iht16x16_256_add_c(input, dest_out, stride, 1); break;
+		case K_IHT16_DCT_ADST:  vp9_iht16x16_256_add_c(input, dest_out, stride, 2); break;
+		case K_IHT16_ADST_ADST: vp9_iht16x16_256_add_c(input, dest_out, stride, 3); break;
 		default: return;
 	}
 
@@ -258,6 +265,11 @@ int main(void) {
 	for (int i = 0; i < 15; i++) run_case(K_IDCT32_135,  32, 1024, 1 + i*20, 16);
 	for (int i = 0; i < 10; i++) run_case(K_IDCT32_34,   32, 1024, 1 + i*25, 8);
 	for (int i = 0; i < 10; i++) run_dc_only(K_IDCT32_1, 32, 2000);
+
+	// IHT 16x16 — 20 cases per non-DCT_DCT TxType.
+	for (int i = 0; i < 20; i++) run_case(K_IHT16_ADST_DCT,  16, 256, 1 + i*25, 0);
+	for (int i = 0; i < 20; i++) run_case(K_IHT16_DCT_ADST,  16, 256, 1 + i*25, 0);
+	for (int i = 0; i < 20; i++) run_case(K_IHT16_ADST_ADST, 16, 256, 1 + i*25, 0);
 
 	return 0;
 }
