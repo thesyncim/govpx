@@ -404,8 +404,11 @@ func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[
 	if quant.Dequant[0] >= 35 && quant.Dequant[1] >= 35 {
 		return eob
 	}
+	// Hoist min(eob, 16) outside the loops so each iteration only has
+	// one compare instead of two.
+	limit := min(eob, 16)
 	sum := 0
-	for pos := 0; pos < eob && pos < 16; pos++ {
+	for pos := 0; pos < limit; pos++ {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		coef := int(qcoeff[rc]) * int(quant.Dequant[rc])
 		// Branchless |coef| via sign-mask XOR.
@@ -416,7 +419,7 @@ func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[
 			return eob
 		}
 	}
-	for pos := 0; pos < eob && pos < 16; pos++ {
+	for pos := 0; pos < limit; pos++ {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		qcoeff[rc] = 0
 		if dqcoeff != nil {
