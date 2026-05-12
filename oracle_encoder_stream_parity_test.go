@@ -254,6 +254,25 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu1-16x16", deadline: DeadlineRealtime, cpuUsed: 1, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu2-16x16", deadline: DeadlineRealtime, cpuUsed: 2, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-16x16", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		// allkf (kfInterval=1) on small frames — every frame is a key
+		// frame, exercises the keyframe writer path repeatedly.
+		{name: "realtime-cbr-cpu0-16x16-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, limit: -1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
+		{name: "realtime-cbr-cpu0-32x32-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, limit: -1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
+		{name: "realtime-cbr-cpu0-48x48-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, kfInterval: 1, limit: -1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
+		// 16x16 / 48x48 with token partitions to widen the partitioned-
+		// writer coverage beyond the existing 32x32 site.
+		{name: "realtime-cbr-cpu0-16x16-2partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu0-48x48-2partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu0-32x32-8partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// fps60 on 16x16 and 48x48.
+		{name: "realtime-cbr-cpu0-16x16-fps60", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu0-48x48-fps60", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// bitrate sweeps on 16x16.
+		{name: "realtime-cbr-cpu0-16x16-bitrate200", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu0-16x16-bitrate2000", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// q10-30 on 16x16.
+		{name: "realtime-cbr-cpu0-16x16-q10-30", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
 	}
 
 	for _, tc := range cases {
