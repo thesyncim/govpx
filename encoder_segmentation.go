@@ -417,7 +417,7 @@ const skinDetectionMaxSmallFrame = 352 * 288
 
 func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast []uint8, skinMap []uint8) {
 	count := rows * cols
-	if count <= 0 || len(skinMap) < count || src.Width <= 0 || src.Height <= 0 {
+	if count <= 0 || len(skinMap) < count || min(src.Width, src.Height) <= 0 {
 		return
 	}
 	uvWidth := (src.Width + 1) >> 1
@@ -481,7 +481,7 @@ func computeSkin8x8Block(src vp8enc.SourceImage, uvWidth int, uvHeight int, mbRo
 }
 
 func average2x2Clamped(plane []byte, stride int, width int, height int, y int, x int) int {
-	if stride <= 0 || width <= 0 || height <= 0 || len(plane) == 0 {
+	if min(min(stride, width), height) <= 0 || len(plane) == 0 {
 		return 0
 	}
 	y = min(max(y, 0), height-1)

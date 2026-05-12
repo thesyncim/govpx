@@ -437,7 +437,7 @@ func libvpxAssignStdFrameBits(modifiedErr float64, gfGroupErrorLeft float64, gfG
 // EncoderOptions.TwoPassMaxPct). Returns 0 when the budget would be
 // negative.
 func libvpxFrameMaxBitsCBR(avPerFrameBandwidth int, vbrMaxSection int, bufferLevel int, optimalBufferLevel int) int {
-	if avPerFrameBandwidth <= 0 || vbrMaxSection <= 0 {
+	if min(avPerFrameBandwidth, vbrMaxSection) <= 0 {
 		return 0
 	}
 	maxBits := avPerFrameBandwidth * vbrMaxSection / 100
@@ -462,7 +462,7 @@ func libvpxFrameMaxBitsCBR(avPerFrameBandwidth int, vbrMaxSection int, bufferLev
 //
 // Returns 0 when bits_left or frames_left are non-positive.
 func libvpxFrameMaxBitsVBR(bitsLeft int64, framesLeft int64, vbrMaxSection int) int {
-	if bitsLeft <= 0 || framesLeft <= 0 || vbrMaxSection <= 0 {
+	if min(bitsLeft, framesLeft) <= 0 || vbrMaxSection <= 0 {
 		return 0
 	}
 	bitsPerFrame := float64(bitsLeft) / float64(framesLeft)
@@ -515,7 +515,7 @@ func libvpxGFGroupBits(kfGroupBits int64, gfGroupErr float64, kfGroupErrorLeft f
 // gfqAdjustment is `vp8_gf_boost_qadjustment[Q]`. interval is
 // `baseline_gf_interval`.
 func libvpxGFBitsAllocation(isARF bool, gfuBoost int, gfqAdjustment int, gfGroupBits int64, baselineGFInterval int) int {
-	if gfGroupBits <= 0 || baselineGFInterval <= 0 {
+	if gfGroupBits <= 0 || baselineGFInterval <= 0 { // gfGroupBits is int64; baselineGFInterval is int
 		return 0
 	}
 	var boost, allocationChunks int

@@ -135,8 +135,8 @@ func (c *fullPelSearchCtx) fullPelCostLimitedSlow(mvCol int, mvRow int, refBaseY
 }
 
 func refFullPelBufferOK(ref *vp8common.Image, width int, height int) bool {
-	if ref == nil || width <= 0 || height <= 0 || len(ref.YFull) == 0 ||
-		ref.YOrigin < 0 || ref.YBorder < 0 ||
+	if ref == nil || min(width, height) <= 0 || len(ref.YFull) == 0 ||
+		min(ref.YOrigin, ref.YBorder) < 0 ||
 		ref.CodedWidth+2*ref.YBorder < width ||
 		ref.CodedHeight+2*ref.YBorder < height ||
 		ref.YStride < ref.CodedWidth+2*ref.YBorder {
