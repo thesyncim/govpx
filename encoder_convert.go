@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"unsafe"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -29,9 +31,11 @@ func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.Mac
 		MBSkipCoeff: src.MBSkipCoeff,
 		Partition:   src.Partition,
 	}
-	for i := range src.BlockMV {
-		dst.BlockMV[i] = vp8dec.MotionVector{Row: src.BlockMV[i].Row, Col: src.BlockMV[i].Col}
-	}
+	// vp8enc.MotionVector and vp8dec.MotionVector are identical struct
+	// types (Row int16, Col int16), so the [16]MotionVector arrays are
+	// memcpy-compatible. Replace the per-element field-by-field copy with
+	// a single 64-byte struct assignment.
+	dst.BlockMV = *(*[16]vp8dec.MotionVector)(unsafe.Pointer(&src.BlockMV))
 }
 
 func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common.MVReferenceFrame {
