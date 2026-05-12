@@ -42,6 +42,18 @@ const (
 	// Intra prediction records use a contiguous id range starting at 100.
 	// id = 100 + kind*4 + (size_log2 - 2)
 	kIntraBase = 100
+	// Directional predictor records start at 200.
+	// id = 200 + kind*4 + (size_log2 - 3)  for sizes 8/16/32
+	kDirBase = 200
+)
+
+const (
+	dirKindD207 = 0
+	dirKindD63  = 1
+	dirKindD45  = 2
+	dirKindD117 = 3
+	dirKindD135 = 4
+	dirKindD153 = 5
 )
 
 // Intra prediction kernel-kind values mirroring the C oracle's
@@ -151,6 +163,68 @@ func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride
 	return kernelID, txSize, above, left, stride, dst, consumed
 }
 
+// callDir dispatches a directional-predictor record to the matching Go
+// kernel.
+func callDir(kernelID, txSize int, above, left []byte, stride int, dst []byte) {
+	kind := (kernelID - kDirBase) / 4
+	switch kind {
+	case dirKindD207:
+		switch txSize {
+		case 8:
+			VpxD207Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD207Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD207Predictor32x32(dst, stride, above, left)
+		}
+	case dirKindD63:
+		switch txSize {
+		case 8:
+			VpxD63Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD63Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD63Predictor32x32(dst, stride, above, left)
+		}
+	case dirKindD45:
+		switch txSize {
+		case 8:
+			VpxD45Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD45Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD45Predictor32x32(dst, stride, above, left)
+		}
+	case dirKindD117:
+		switch txSize {
+		case 8:
+			VpxD117Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD117Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD117Predictor32x32(dst, stride, above, left)
+		}
+	case dirKindD135:
+		switch txSize {
+		case 8:
+			VpxD135Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD135Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD135Predictor32x32(dst, stride, above, left)
+		}
+	case dirKindD153:
+		switch txSize {
+		case 8:
+			VpxD153Predictor8x8(dst, stride, above, left)
+		case 16:
+			VpxD153Predictor16x16(dst, stride, above, left)
+		case 32:
+			VpxD153Predictor32x32(dst, stride, above, left)
+		}
+	}
+}
+
 // callIntra dispatches an intra-prediction record to the matching Go
 // kernel. above is passed as-is so above[0] is the [-1] corner.
 func callIntra(kernelID, txSize int, above, left []byte, stride int, dst []byte) {
@@ -247,7 +321,7 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	var nCases, nIntra int
 
 	for len(blob) > 0 {
-		if peekKernelID(blob) >= kIntraBase {
+		if id := peekKernelID(blob); id >= kIntraBase {
 			kernel, txSize, above, left, stride, want, consumed := readIntraRecord(blob)
 			blob = blob[consumed:]
 			nCases++
@@ -255,24 +329,18 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 			counts[kernel]++
 
 			got := make([]byte, len(want))
-			// dst before the libvpx call is part of the record's stored
-			// state — the predictor writes into uninitialized pixels but
-			// many libvpx predictors only touch a subset of the plane,
-			// so we seed got with the pre-call state. The oracle records
-			// the post-call state (== libvpx's written output) here, so
-			// we just need to match it.
-			//
-			// For these write-all-pixels kernels we can start `got` from
-			// any state; using `want` ensures unrelated bytes match.
-			copy(got, want)
-			// Zero out so we exercise the kernel's write coverage.
-			for i := range got {
-				got[i] = 0
+			if id >= kDirBase {
+				callDir(kernel, txSize, above, left, stride, got)
+			} else {
+				callIntra(kernel, txSize, above, left, stride, got)
 			}
-			callIntra(kernel, txSize, above, left, stride, got)
 			if !bytes.Equal(got, want) {
-				t.Fatalf("intra kernel=%d tx=%d: byte mismatch\n  above=%v\n  left=%v\n  got=%v\n  want=%v",
-					kernel, txSize, above, left, got, want)
+				what := "intra"
+				if kernel >= kDirBase {
+					what = "dir"
+				}
+				t.Fatalf("%s kernel=%d tx=%d: byte mismatch\n  above=%v\n  left=%v\n  got=%v\n  want=%v",
+					what, kernel, txSize, above, left, got, want)
 			}
 			continue
 		}

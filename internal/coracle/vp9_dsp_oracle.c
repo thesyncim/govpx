@@ -72,6 +72,18 @@ void vpx_tm_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above
 void vpx_tm_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_tm_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_tm_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+
+#define DECL_DIR(NAME) \
+	void vpx_##NAME##_predictor_8x8_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left); \
+	void vpx_##NAME##_predictor_16x16_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left); \
+	void vpx_##NAME##_predictor_32x32_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+DECL_DIR(d207)
+DECL_DIR(d63)
+DECL_DIR(d45)
+DECL_DIR(d117)
+DECL_DIR(d135)
+DECL_DIR(d153)
+#undef DECL_DIR
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -171,6 +183,43 @@ static intra_fn *const intra_table[7][4] = {
 	{ vpx_h_predictor_4x4_c,       vpx_h_predictor_8x8_c,       vpx_h_predictor_16x16_c,       vpx_h_predictor_32x32_c       },
 	{ vpx_tm_predictor_4x4_c,      vpx_tm_predictor_8x8_c,      vpx_tm_predictor_16x16_c,      vpx_tm_predictor_32x32_c      },
 };
+
+// Directional predictor table — sized 8x8, 16x16, 32x32 only. The 4x4
+// path uses dedicated hand-coded functions and is not exercised here.
+static intra_fn *const dir_table[6][3] = {
+	{ vpx_d207_predictor_8x8_c, vpx_d207_predictor_16x16_c, vpx_d207_predictor_32x32_c },
+	{ vpx_d63_predictor_8x8_c,  vpx_d63_predictor_16x16_c,  vpx_d63_predictor_32x32_c  },
+	{ vpx_d45_predictor_8x8_c,  vpx_d45_predictor_16x16_c,  vpx_d45_predictor_32x32_c  },
+	{ vpx_d117_predictor_8x8_c, vpx_d117_predictor_16x16_c, vpx_d117_predictor_32x32_c },
+	{ vpx_d135_predictor_8x8_c, vpx_d135_predictor_16x16_c, vpx_d135_predictor_32x32_c },
+	{ vpx_d153_predictor_8x8_c, vpx_d153_predictor_16x16_c, vpx_d153_predictor_32x32_c },
+};
+
+static void run_dir(int kind, int size_log2) {
+	int bs = 1 << size_log2;
+	uint8_t dst[32 * 32];
+	uint8_t above_buf[1 + 64];
+	uint8_t left_buf[32];
+
+	for (int i = 0; i < 1 + 2*bs; i++) above_buf[i] = prng_pixel();
+	for (int i = 0; i < bs; i++) left_buf[i] = prng_pixel();
+	for (int i = 0; i < bs * bs; i++) dst[i] = prng_pixel();
+
+	dir_table[kind][size_log2 - 3](dst, bs, above_buf + 1, left_buf);
+
+	// Directional kernel ids start at 200 so the Go side can branch
+	// cleanly: id = 200 + kind*4 + (size_log2 - 3)
+	int kid = 200 + kind*4 + (size_log2 - 3);
+	emit_u32((uint32_t)kid);
+	emit_u32((uint32_t)bs);
+	emit_u32((uint32_t)(1 + 2*bs));
+	emit_bytes(above_buf, (size_t)(1 + 2*bs));
+	emit_u32((uint32_t)bs);
+	emit_bytes(left_buf, (size_t)bs);
+	emit_u32((uint32_t)bs);
+	emit_u32((uint32_t)(bs * bs));
+	emit_bytes(dst, (size_t)(bs * bs));
+}
 
 static void run_intra(int kind, int size_log2) {
 	int bs = 1 << size_log2;
@@ -353,6 +402,15 @@ int main(void) {
 	for (int kind = 0; kind < 7; kind++) {
 		for (int log2 = 2; log2 <= 5; log2++) {
 			for (int i = 0; i < 5; i++) run_intra(kind, log2);
+		}
+	}
+
+	// Directional predictors — 5 cases each across the 6 directions ×
+	// 3 sizes (8/16/32). 4x4 directional predictors use hand-coded
+	// functions in libvpx and are not exercised here.
+	for (int kind = 0; kind < 6; kind++) {
+		for (int log2 = 3; log2 <= 5; log2++) {
+			for (int i = 0; i < 5; i++) run_dir(kind, log2);
 		}
 	}
 
