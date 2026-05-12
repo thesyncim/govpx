@@ -84,6 +84,18 @@ DECL_DIR(d117)
 DECL_DIR(d135)
 DECL_DIR(d153)
 #undef DECL_DIR
+
+// 4x4 hand-coded predictors (separate from the parametric *_8x8/16/32 set).
+void vpx_d207_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d63_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d63e_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d45_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d45e_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d117_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d135_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_d153_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_he_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
+void vpx_ve_predictor_4x4_c(uint8_t *dst, ptrdiff_t stride, const uint8_t *above, const uint8_t *left);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -185,7 +197,7 @@ static intra_fn *const intra_table[7][4] = {
 };
 
 // Directional predictor table — sized 8x8, 16x16, 32x32 only. The 4x4
-// path uses dedicated hand-coded functions and is not exercised here.
+// directional path uses dedicated hand-coded functions; see dir4_table.
 static intra_fn *const dir_table[6][3] = {
 	{ vpx_d207_predictor_8x8_c, vpx_d207_predictor_16x16_c, vpx_d207_predictor_32x32_c },
 	{ vpx_d63_predictor_8x8_c,  vpx_d63_predictor_16x16_c,  vpx_d63_predictor_32x32_c  },
@@ -194,6 +206,46 @@ static intra_fn *const dir_table[6][3] = {
 	{ vpx_d135_predictor_8x8_c, vpx_d135_predictor_16x16_c, vpx_d135_predictor_32x32_c },
 	{ vpx_d153_predictor_8x8_c, vpx_d153_predictor_16x16_c, vpx_d153_predictor_32x32_c },
 };
+
+// 4x4 hand-coded predictor table. Indices line up with the dir4_kind
+// enum on the Go side (0..9).
+static intra_fn *const dir4_table[10] = {
+	vpx_d207_predictor_4x4_c,  // 0
+	vpx_d63_predictor_4x4_c,   // 1
+	vpx_d45_predictor_4x4_c,   // 2
+	vpx_d117_predictor_4x4_c,  // 3
+	vpx_d135_predictor_4x4_c,  // 4
+	vpx_d153_predictor_4x4_c,  // 5
+	vpx_he_predictor_4x4_c,    // 6
+	vpx_ve_predictor_4x4_c,    // 7
+	vpx_d63e_predictor_4x4_c,  // 8
+	vpx_d45e_predictor_4x4_c,  // 9
+};
+
+static void run_dir4(int kind) {
+	int bs = 4;
+	uint8_t dst[16];
+	uint8_t above_buf[1 + 8];
+	uint8_t left_buf[4];
+
+	for (int i = 0; i < 1 + 2*bs; i++) above_buf[i] = prng_pixel();
+	for (int i = 0; i < bs; i++) left_buf[i] = prng_pixel();
+	for (int i = 0; i < bs * bs; i++) dst[i] = prng_pixel();
+
+	dir4_table[kind](dst, bs, above_buf + 1, left_buf);
+
+	// Kernel ids 300..309 cover the 10 hand-coded 4x4 predictors.
+	int kid = 300 + kind;
+	emit_u32((uint32_t)kid);
+	emit_u32((uint32_t)bs);
+	emit_u32((uint32_t)(1 + 2*bs));
+	emit_bytes(above_buf, (size_t)(1 + 2*bs));
+	emit_u32((uint32_t)bs);
+	emit_bytes(left_buf, (size_t)bs);
+	emit_u32((uint32_t)bs);
+	emit_u32((uint32_t)(bs * bs));
+	emit_bytes(dst, (size_t)(bs * bs));
+}
 
 static void run_dir(int kind, int size_log2) {
 	int bs = 1 << size_log2;
@@ -406,12 +458,15 @@ int main(void) {
 	}
 
 	// Directional predictors — 5 cases each across the 6 directions ×
-	// 3 sizes (8/16/32). 4x4 directional predictors use hand-coded
-	// functions in libvpx and are not exercised here.
+	// 3 sizes (8/16/32).
 	for (int kind = 0; kind < 6; kind++) {
 		for (int log2 = 3; log2 <= 5; log2++) {
 			for (int i = 0; i < 5; i++) run_dir(kind, log2);
 		}
+	}
+	// 10 4x4 hand-coded predictors — 8 cases each.
+	for (int kind = 0; kind < 10; kind++) {
+		for (int i = 0; i < 8; i++) run_dir4(kind);
 	}
 
 	return 0;

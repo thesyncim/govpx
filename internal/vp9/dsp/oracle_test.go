@@ -45,6 +45,8 @@ const (
 	// Directional predictor records start at 200.
 	// id = 200 + kind*4 + (size_log2 - 3)  for sizes 8/16/32
 	kDirBase = 200
+	// 4x4 hand-coded predictor records start at 300; one id per kernel.
+	kDir4Base = 300
 )
 
 const (
@@ -161,6 +163,33 @@ func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride
 	_, _ = io.ReadFull(r, dst)
 	consumed := len(b) - r.Len()
 	return kernelID, txSize, above, left, stride, dst, consumed
+}
+
+// callDir4 dispatches a 4x4 hand-coded directional predictor record to
+// the matching Go kernel. Kernel id is in [300, 309] inclusive.
+func callDir4(kernelID int, above, left []byte, stride int, dst []byte) {
+	switch kernelID - kDir4Base {
+	case 0:
+		VpxD207Predictor4x4(dst, stride, above, left)
+	case 1:
+		VpxD63Predictor4x4(dst, stride, above, left)
+	case 2:
+		VpxD45Predictor4x4(dst, stride, above, left)
+	case 3:
+		VpxD117Predictor4x4(dst, stride, above, left)
+	case 4:
+		VpxD135Predictor4x4(dst, stride, above, left)
+	case 5:
+		VpxD153Predictor4x4(dst, stride, above, left)
+	case 6:
+		VpxHePredictor4x4(dst, stride, above, left)
+	case 7:
+		VpxVePredictor4x4(dst, stride, above, left)
+	case 8:
+		VpxD63ePredictor4x4(dst, stride, above, left)
+	case 9:
+		VpxD45ePredictor4x4(dst, stride, above, left)
+	}
 }
 
 // callDir dispatches a directional-predictor record to the matching Go
@@ -329,9 +358,12 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 			counts[kernel]++
 
 			got := make([]byte, len(want))
-			if id >= kDirBase {
+			switch {
+			case id >= kDir4Base:
+				callDir4(kernel, above, left, stride, got)
+			case id >= kDirBase:
 				callDir(kernel, txSize, above, left, stride, got)
-			} else {
+			default:
 				callIntra(kernel, txSize, above, left, stride, got)
 			}
 			if !bytes.Equal(got, want) {
