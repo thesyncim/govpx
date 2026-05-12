@@ -29,7 +29,10 @@ VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 
-.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update
+VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
+VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
+
+.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -47,6 +50,15 @@ verify: ci
 verify-production: ci oracle-test
 
 verify-decoder-parity: ci decoder-oracle-test
+
+# vp9-dsp-oracle rebuilds the VP9-decoder-only libvpx variant + the
+# DSP oracle binary, then regenerates the committed testdata corpus.
+# Run this when libvpx is updated or vp9_dsp_oracle.c changes.
+vp9-dsp-oracle:
+	internal/coracle/build_libvpx_vp9.sh >/dev/null
+	"$(VP9_DSP_ORACLE_BIN)" > "$(VP9_DSP_TESTDATA).tmp"
+	mv "$(VP9_DSP_TESTDATA).tmp" "$(VP9_DSP_TESTDATA)"
+	printf 'wrote %s\n' "$(VP9_DSP_TESTDATA)"
 
 test:
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) test ./... -count=1

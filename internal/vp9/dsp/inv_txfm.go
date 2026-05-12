@@ -16,16 +16,42 @@ const (
 	dctConstRounding = 1 << (dctConstBits - 1)
 )
 
-// VP9 cospi / sinpi constants from vpx_dsp/txfm_common.h. Used by the
-// 4-point and 8-point inverse DCT / ADST kernels.
+// VP9 cospi / sinpi constants from vpx_dsp/txfm_common.h. The cospi_K_64
+// values are 16-bit fixed-point cos((K * pi) / 64) * 2^14 (rounded). They
+// appear in every VP9 inverse-transform butterfly; their exact integer
+// values are wire-stable so the porting must match upstream byte-for-byte.
 const (
+	cospi1_64  = 16364
+	cospi2_64  = 16305
+	cospi3_64  = 16207
 	cospi4_64  = 16069
+	cospi5_64  = 15893
+	cospi6_64  = 15679
+	cospi7_64  = 15426
 	cospi8_64  = 15137
+	cospi9_64  = 14811
+	cospi10_64 = 14449
+	cospi11_64 = 14053
 	cospi12_64 = 13623
+	cospi13_64 = 13160
+	cospi14_64 = 12665
+	cospi15_64 = 12140
 	cospi16_64 = 11585
+	cospi17_64 = 11003
+	cospi18_64 = 10394
+	cospi19_64 = 9760
 	cospi20_64 = 9102
+	cospi21_64 = 8423
+	cospi22_64 = 7723
+	cospi23_64 = 7005
 	cospi24_64 = 6270
+	cospi25_64 = 5520
+	cospi26_64 = 4756
+	cospi27_64 = 3981
 	cospi28_64 = 3196
+	cospi29_64 = 2404
+	cospi30_64 = 1606
+	cospi31_64 = 804
 
 	sinpi1_9 = 5283
 	sinpi2_9 = 9929

@@ -35,6 +35,10 @@ void vpx_iwht4x4_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct8x8_64_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct8x8_12_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct8x8_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct16x16_256_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct16x16_38_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct16x16_10_add_c(const tran_low_t *input, uint8_t *dest, int stride);
+void vpx_idct16x16_1_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 
 // xorshift32 PRNG: deterministic, identical on every build.
 static uint32_t prng_state;
@@ -83,29 +87,34 @@ static void emit_bytes(const void *p, size_t n) {
 //   tx_size*tx_size bytes dest_out
 
 enum {
-	K_IDCT4_16 = 1,
-	K_IDCT4_1  = 2,
-	K_IWHT4_16 = 3,
-	K_IWHT4_1  = 4,
-	K_IDCT8_64 = 5,
-	K_IDCT8_12 = 6,
-	K_IDCT8_1  = 7,
+	K_IDCT4_16  = 1,
+	K_IDCT4_1   = 2,
+	K_IWHT4_16  = 3,
+	K_IWHT4_1   = 4,
+	K_IDCT8_64  = 5,
+	K_IDCT8_12  = 6,
+	K_IDCT8_1   = 7,
+	K_IDCT16_256 = 8,
+	K_IDCT16_38  = 9,
+	K_IDCT16_10  = 10,
+	K_IDCT16_1   = 11,
 };
 
 static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
                      int sparse_top_left) {
-	int16_t input[64];
-	uint8_t dest_in[64];
-	uint8_t dest_out[64];
+	int16_t input[256];
+	uint8_t dest_in[256];
+	uint8_t dest_out[256];
 	int stride = tx_size;
 
 	for (int i = 0; i < n_coefs; i++) {
 		input[i] = prng_coef(coef_range);
 	}
 	if (sparse_top_left) {
+		int top_left = sparse_top_left;
 		for (int r = 0; r < tx_size; r++) {
 			for (int c = 0; c < tx_size; c++) {
-				if (r >= 4 || c >= 4) input[r * tx_size + c] = 0;
+				if (r >= top_left || c >= top_left) input[r * tx_size + c] = 0;
 			}
 		}
 	}
@@ -115,13 +124,16 @@ static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
 	memcpy(dest_out, dest_in, (size_t)(tx_size * tx_size));
 
 	switch (kernel_id) {
-		case K_IDCT4_16: vpx_idct4x4_16_add_c(input, dest_out, stride); break;
-		case K_IDCT4_1:  vpx_idct4x4_1_add_c(input, dest_out, stride);  break;
-		case K_IWHT4_16: vpx_iwht4x4_16_add_c(input, dest_out, stride); break;
-		case K_IWHT4_1:  vpx_iwht4x4_1_add_c(input, dest_out, stride);  break;
-		case K_IDCT8_64: vpx_idct8x8_64_add_c(input, dest_out, stride); break;
-		case K_IDCT8_12: vpx_idct8x8_12_add_c(input, dest_out, stride); break;
-		case K_IDCT8_1:  vpx_idct8x8_1_add_c(input, dest_out, stride);  break;
+		case K_IDCT4_16:   vpx_idct4x4_16_add_c(input, dest_out, stride);   break;
+		case K_IDCT4_1:    vpx_idct4x4_1_add_c(input, dest_out, stride);    break;
+		case K_IWHT4_16:   vpx_iwht4x4_16_add_c(input, dest_out, stride);   break;
+		case K_IWHT4_1:    vpx_iwht4x4_1_add_c(input, dest_out, stride);    break;
+		case K_IDCT8_64:   vpx_idct8x8_64_add_c(input, dest_out, stride);   break;
+		case K_IDCT8_12:   vpx_idct8x8_12_add_c(input, dest_out, stride);   break;
+		case K_IDCT8_1:    vpx_idct8x8_1_add_c(input, dest_out, stride);    break;
+		case K_IDCT16_256: vpx_idct16x16_256_add_c(input, dest_out, stride); break;
+		case K_IDCT16_38:  vpx_idct16x16_38_add_c(input, dest_out, stride);  break;
+		case K_IDCT16_10:  vpx_idct16x16_10_add_c(input, dest_out, stride);  break;
 		default: return;
 	}
 
@@ -135,17 +147,18 @@ static void run_case(int kernel_id, int tx_size, int n_coefs, int coef_range,
 }
 
 static void run_dc_only(int kernel_id, int tx_size, int range) {
-	int16_t input[64];
-	uint8_t dest_in[64], dest_out[64];
+	int16_t input[256];
+	uint8_t dest_in[256], dest_out[256];
 	int n = tx_size * tx_size;
 	memset(input, 0, sizeof(input));
 	input[0] = prng_coef(range);
 	for (int j = 0; j < n; j++) dest_in[j] = prng_pixel();
 	memcpy(dest_out, dest_in, (size_t)n);
 	switch (kernel_id) {
-		case K_IDCT4_1: vpx_idct4x4_1_add_c(input, dest_out, tx_size); break;
-		case K_IWHT4_1: vpx_iwht4x4_1_add_c(input, dest_out, tx_size); break;
-		case K_IDCT8_1: vpx_idct8x8_1_add_c(input, dest_out, tx_size); break;
+		case K_IDCT4_1:  vpx_idct4x4_1_add_c(input, dest_out, tx_size);  break;
+		case K_IWHT4_1:  vpx_iwht4x4_1_add_c(input, dest_out, tx_size);  break;
+		case K_IDCT8_1:  vpx_idct8x8_1_add_c(input, dest_out, tx_size);  break;
+		case K_IDCT16_1: vpx_idct16x16_1_add_c(input, dest_out, tx_size); break;
 		default: return;
 	}
 	emit_u32((uint32_t)kernel_id);
@@ -182,10 +195,23 @@ int main(void) {
 	}
 	for (int i = 0; i < 50; i++) {
 		int range = 1 + (i * 40);
-		run_case(K_IDCT8_12, 8, 64, range, 1);
+		run_case(K_IDCT8_12, 8, 64, range, 4);
 	}
 	for (int i = 0; i < 30; i++) {
 		run_dc_only(K_IDCT8_1, 8, 2000);
+	}
+	for (int i = 0; i < 60; i++) {
+		int range = 1 + (i * 20);
+		run_case(K_IDCT16_256, 16, 256, range, 0);
+	}
+	for (int i = 0; i < 30; i++) {
+		run_case(K_IDCT16_38, 16, 256, 1 + i*30, 8);
+	}
+	for (int i = 0; i < 20; i++) {
+		run_case(K_IDCT16_10, 16, 256, 1 + i*40, 4);
+	}
+	for (int i = 0; i < 20; i++) {
+		run_dc_only(K_IDCT16_1, 16, 2000);
 	}
 
 	return 0;

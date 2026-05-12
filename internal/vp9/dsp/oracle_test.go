@@ -12,13 +12,17 @@ import (
 // The kernel IDs in the testdata blob mirror the enum in
 // internal/coracle/vp9_dsp_oracle.c. Keep both in sync.
 const (
-	kIdct4_16 = 1
-	kIdct4_1  = 2
-	kIwht4_16 = 3
-	kIwht4_1  = 4
-	kIdct8_64 = 5
-	kIdct8_12 = 6
-	kIdct8_1  = 7
+	kIdct4_16   = 1
+	kIdct4_1    = 2
+	kIwht4_16   = 3
+	kIwht4_1    = 4
+	kIdct8_64   = 5
+	kIdct8_12   = 6
+	kIdct8_1    = 7
+	kIdct16_256 = 8
+	kIdct16_38  = 9
+	kIdct16_10  = 10
+	kIdct16_1   = 11
 )
 
 const oracleMagic = 0x76503944 // "D9Pv" little-endian == "vP9D"
@@ -87,12 +91,14 @@ func readRecord(b []byte) (input []int16, destIn, destOut []byte, kernelID, txSi
 func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
-	var nCases, kIdctFull, kIdctDC, kIwhtFull, kIwhtDC, k8x8Full, k8x812, k8x81 int
+	counts := make(map[int]int)
+	var nCases int
 
 	for len(blob) > 0 {
 		input, destIn, destOut, kernel, txSize, stride, consumed := readRecord(blob)
 		blob = blob[consumed:]
 		nCases++
+		counts[kernel]++
 
 		got := make([]byte, len(destIn))
 		copy(got, destIn)
@@ -100,25 +106,26 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 		switch kernel {
 		case kIdct4_16:
 			Idct4x4_16Add(input, got, stride)
-			kIdctFull++
 		case kIdct4_1:
 			Idct4x4_1Add(input, got, stride)
-			kIdctDC++
 		case kIwht4_16:
 			Iwht4x4_16Add(input, got, stride)
-			kIwhtFull++
 		case kIwht4_1:
 			Iwht4x4_1Add(input, got, stride)
-			kIwhtDC++
 		case kIdct8_64:
 			Idct8x8_64Add(input, got, stride)
-			k8x8Full++
 		case kIdct8_12:
 			Idct8x8_12Add(input, got, stride)
-			k8x812++
 		case kIdct8_1:
 			Idct8x8_1Add(input, got, stride)
-			k8x81++
+		case kIdct16_256:
+			Idct16x16_256Add(input, got, stride)
+		case kIdct16_38:
+			Idct16x16_38Add(input, got, stride)
+		case kIdct16_10:
+			Idct16x16_10Add(input, got, stride)
+		case kIdct16_1:
+			Idct16x16_1Add(input, got, stride)
 		default:
 			t.Fatalf("unknown kernel id %d", kernel)
 		}
@@ -132,6 +139,8 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	if nCases == 0 {
 		t.Fatal("oracle blob contained no records")
 	}
-	t.Logf("verified %d records: idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d",
-		nCases, kIdctFull, kIdctDC, kIwhtFull, kIwhtDC, k8x8Full, k8x812, k8x81)
+	t.Logf("verified %d records: idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d",
+		nCases, counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
+		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
+		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1])
 }
