@@ -444,6 +444,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-96x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-8-160x96", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-8-320x180", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
+		// cpu-3 splitmv probe — bypassing autoSpeed lets splitmv match
+		// at 64x64 (where positive cpu_used drifts at frame 2+).
+		{name: "realtime-cbr-cpu-3-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64},
+		{name: "realtime-cbr-cpu-3-128x64-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x64", w: 128, h: 64, source: encoderValidationSplitMVQuadrantFrame}, limit: 1},
+		// cpu-8 segmented at clean sizes — both byte-match the full sequence.
+		{name: "realtime-cbr-cpu-8-128x128-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-128x128", w: 128, h: 128, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-96x96-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
