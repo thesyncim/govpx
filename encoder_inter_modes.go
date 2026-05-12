@@ -22,7 +22,11 @@ func selectInterFrameReferenceMotionVectorWithSearch(src vp8enc.SourceImage, ref
 	if bestCost == 0 {
 		return bestRef, best
 	}
-	for refIndex := 1; refIndex < refCount; refIndex++ {
+	// Hoist the min(refCount, len(refs)) bound out of the loop condition
+	// so the compiler can prove refs[refIndex] in range without re-doing
+	// the len(refs) check inside the loop.
+	refLimit := min(refCount, len(refs))
+	for refIndex := 1; refIndex < refLimit; refIndex++ {
 		ref := refs[refIndex]
 		refMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 		mv, cost := selectInterFrameMotionVectorWithSearch(src, ref.Img, mbRow, mbCol, mbRows, mbCols, refMV, qIndex, search, mvProbs)
