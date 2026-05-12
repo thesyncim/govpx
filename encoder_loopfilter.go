@@ -659,12 +659,7 @@ func loopFilterPartialFrameWindow(rows int) (int, int) {
 	}
 	start := rows / 2
 	count := rows / vp8common.PartialFrameFraction
-	if count == 0 {
-		count = 1
-	}
-	if start+count > rows {
-		count = rows - start
-	}
+	count = min(max(count, 1), rows-start)
 	return start, count
 }
 
