@@ -286,6 +286,16 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			}
 		}
 		if !ok {
+			// libvpx's SPLITMV branch still falls through to the
+			// post-candidate threshold mutation when
+			// vp8_rd_pick_best_mbsegmentation returns tmp_rd >= best_yrd:
+			// it sets this_rd=INT_MAX and raises rd_thresh_mult. govpx's
+			// split scorer reports that same dropout as ok=false after the
+			// mode has been tested. Other ok=false paths here are pre-RD
+			// gates (near-zero/UMV/etc.) and must not mutate thresholds.
+			if mbMode == vp8common.SplitMV {
+				e.raiseInterRDThreshold(modeIndex)
+			}
 			continue
 		}
 		if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
