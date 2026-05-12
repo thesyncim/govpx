@@ -217,9 +217,14 @@ func (e *VP8Encoder) setFrameDropAllowed(enabled bool) {
 
 // SetRealtimeTarget applies a WebRTC-style runtime target update.
 // Zero-valued fields keep their current setting, which makes bandwidth
-// estimator updates safe to send as bitrate-only deltas. Width and Height,
-// if set, must match the current encoder dimensions; resolution changes
-// must go through a new encoder.
+// estimator updates safe to send as bitrate-only deltas.
+//
+// Width and Height, if set, must equal the encoder's existing dimensions:
+// govpx does not yet support runtime resolution change on the encoder
+// side. To switch resolutions, drain the encoder with FlushInto, call
+// Close, and build a new [VP8Encoder] at the target size. The decoder
+// does support resolution change on a key frame; see
+// [DecoderOptions.RejectResolutionChange].
 func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -687,17 +692,3 @@ func (e *VP8Encoder) ForceKeyFrame() {
 	e.forceKeyFrame = true
 }
 
-// Reset returns the encoder to a NewVP8Encoder-equivalent cold-start state
-// without re-allocating the per-MB scratch buffers. This is what bench
-// harnesses use to run a warmup encode followed by a measured one without
-// repeating the allocation cost.
-//
-// R15-E note: previously Reset cleared a hand-curated subset of state, which
-// meant fields touched only by the encode loop (rc.kfOverspendBits, the
-// inter-RD threshold snapshots, the per-reference probabilities, etc.) leaked
-// values from the warmup pass into the measured pass. At 320x240 that drove a
-// 7% kbps undershoot vs stock libvpx (govpx 1017 kbps vs libvpx 1089 kbps
-// against the same target) because rate-correction state was warmed-up before
-// the measured run started. The fix: zero the rateControlState struct,
-// re-apply applyConfig, and explicitly reset every encoder-level field that
-// NewVP8Encoder seeds.

@@ -85,7 +85,9 @@ type RealtimeTarget struct {
 	// FPS changes the timebase to 1/FPS when non-zero.
 	FPS int
 
-	// Width and Height must match the encoder dimensions when set.
+	// Width and Height, when set, must match the encoder's existing
+	// dimensions. Runtime resolution change is not yet supported on the
+	// encoder side; build a new [VP8Encoder] at the target size instead.
 	Width  int
 	Height int
 

@@ -142,6 +142,10 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.
+- Encoder resolution change is not yet supported. To switch sizes,
+  `FlushInto` and `Close` the current encoder and build a new
+  `VP8Encoder` at the new dimensions. (The decoder does handle
+  key-frame resolution change; see `DecoderOptions.RejectResolutionChange`.)
 
 See `examples/webrtc-vp8` for a separate-module demo that streams govpx
 VP8 through pion/webrtc to a browser.

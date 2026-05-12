@@ -2,7 +2,8 @@ package govpx
 
 const (
 	// MaxTemporalLayers is the largest VP8 temporal-layer count exposed by
-	// govpx.
+	// govpx. It bounds [TemporalScalabilityConfig.LayerTargetBitrateKbps]
+	// and the per-layer counters on [EncodeResult].
 	MaxTemporalLayers     = 5
 	maxTemporalPeriodSize = 16
 )
@@ -54,15 +55,19 @@ const (
 	TemporalLayeringThreeLayersNoSync
 )
 
-// TemporalScalabilityConfig configures automatic temporal-layer scheduling.
+// TemporalScalabilityConfig configures automatic temporal-layer
+// scheduling. The zero value disables temporal layering.
 type TemporalScalabilityConfig struct {
-	// Enabled turns on temporal layering.
+	// Enabled turns on temporal layering when true.
 	Enabled bool
 	// Mode selects the built-in layer pattern.
 	Mode TemporalLayeringMode
 
-	// LayerTargetBitrateKbps is cumulative by temporal layer, matching
-	// libvpx's ts_target_bitrate[] contract.
+	// LayerTargetBitrateKbps holds per-layer target bitrates in cumulative
+	// form, matching libvpx's ts_target_bitrate[]: entry i is the sum of
+	// the bitrate budgeted to layers 0..i. Unused trailing entries must be
+	// zero. The last non-zero entry should equal
+	// [EncoderOptions.TargetBitrateKbps].
 	LayerTargetBitrateKbps [MaxTemporalLayers]int
 }
 

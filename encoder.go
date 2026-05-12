@@ -44,7 +44,11 @@ const (
 	TuneSSIM
 )
 
-// EncodeFlags controls per-frame VP8 reference and packet behavior.
+// EncodeFlags controls per-frame VP8 reference and packet behavior on a
+// single [VP8Encoder.EncodeInto] call. The zero value asks the encoder
+// to use its configured defaults. Flag bits mirror libvpx's
+// VPX_EFLAG_FORCE_* / VP8_EFLAG_NO_REF_* / VP8_EFLAG_NO_UPD_* /
+// VP8_EFLAG_NO_UPD_ENTROPY / VP8_EFLAG_FORCE_GF / VP8_EFLAG_FORCE_ARF.
 type EncodeFlags uint32
 
 const (
@@ -348,12 +352,17 @@ type EncoderOptions struct {
 	StaticThreshold int
 
 	// PhaseStats, when non-nil, receives coarse per-attempt encoder phase
-	// timings. The caller owns the pointed-to value and may Reset it between
-	// warmup and measured passes.
+	// timings and SAD/subpel hot-path counters during EncodeInto. The
+	// caller owns the pointed-to value and may [EncoderPhaseStats.Reset]
+	// it between warmup and measured passes. Leave nil in normal builds
+	// to skip all clock reads and counter updates.
 	PhaseStats *EncoderPhaseStats
 }
 
-// EncodeResult describes one encoder output packet.
+// EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
+// [VP8Encoder.FlushInto] for one call. Data is empty when the call
+// produced no output (frame dropped by rate control or buffered by
+// lookahead). PTS and Duration echo the caller-supplied values.
 type EncodeResult struct {
 	// Data aliases the caller-provided output buffer passed to EncodeInto or
 	// FlushInto. Copy it if it must outlive that buffer.
@@ -430,8 +439,9 @@ type EncodeResult struct {
 	// TemporalLayerEncodedBits accumulates layer output bits.
 	TemporalLayerEncodedBits int
 
-	// PSNRHint is a cheap distortion-derived quality hint, not a full PSNR
-	// measurement.
+	// PSNRHint is a cheap distortion-derived quality hint in decibels.
+	// It is not a full PSNR measurement; do not rely on it for absolute
+	// comparisons against libvpx's PSNR packets.
 	PSNRHint float64
 }
 

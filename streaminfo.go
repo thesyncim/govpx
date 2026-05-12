@@ -23,7 +23,9 @@ type StreamInfo struct {
 	FirstPartitionSize int
 }
 
-// ReferenceFlags is a bit mask of VP8 reference buffers.
+// ReferenceFlags is a bit mask of VP8 reference buffers. It is used on
+// [FrameInfo.RefUpdates] and [FrameInfo.RefUsed] to report which buffers a
+// decoded frame refreshed or read.
 type ReferenceFlags uint8
 
 const (
@@ -35,7 +37,10 @@ const (
 	ReferenceFlagAltRef
 )
 
-// ReferenceFrame selects one VP8 reference buffer for set/copy controls.
+// ReferenceFrame selects one VP8 reference buffer for the set/copy
+// controls on [VP8Encoder] and [VP8Decoder]. Unlike [ReferenceFlags], it
+// is not a bit mask: it must be exactly one of [ReferenceLast],
+// [ReferenceGolden], or [ReferenceAltRef].
 type ReferenceFrame ReferenceFlags
 
 const (
