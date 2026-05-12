@@ -303,17 +303,10 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, tempor
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 	interval := 10
-	refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols)
-	if refreshCount > 0 {
+	if refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols); refreshCount > 0 {
 		interval = (2 * rows * cols) / refreshCount
 	}
-	if interval < 6 {
-		return 6
-	}
-	if interval > 40 {
-		return 40
-	}
-	return interval
+	return min(max(interval, 6), 40)
 }
 
 // libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame
