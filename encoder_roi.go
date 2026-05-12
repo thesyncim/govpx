@@ -150,8 +150,12 @@ func (e *VP8Encoder) assignKeyFrameROISegments(rows int, cols int, modes []vp8en
 	if !e.roi.enabled || e.roi.rows != rows || e.roi.cols != cols || len(e.roi.segmentID) < count || len(modes) < count {
 		return false
 	}
+	// Sub-slice both inputs to len count so the compiler can elide the
+	// per-iter IsInBounds on segs[i] and m[i].
+	segs := e.roi.segmentID[:count:count]
+	m := modes[:count:count]
 	for i := range count {
-		modes[i].SegmentID = e.roi.segmentID[i]
+		m[i].SegmentID = segs[i]
 	}
 	return true
 }
@@ -161,8 +165,10 @@ func (e *VP8Encoder) assignInterFrameROISegments(rows int, cols int, modes []vp8
 	if !e.roi.enabled || e.roi.rows != rows || e.roi.cols != cols || len(e.roi.segmentID) < count || len(modes) < count {
 		return false
 	}
+	segs := e.roi.segmentID[:count:count]
+	m := modes[:count:count]
 	for i := range count {
-		modes[i].SegmentID = e.roi.segmentID[i]
+		m[i].SegmentID = segs[i]
 	}
 	return true
 }
