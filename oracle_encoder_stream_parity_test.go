@@ -542,6 +542,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-128x128-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-128x128-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-128x128-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// cpu-3 / cpu-8 splitmv at additional sizes. The splitmv quadrant
+		// fixture exercises the SPLITMV-eligible MV partitioning path
+		// which has historically been the parity-cliff at positive
+		// cpu_used; locking small/mid sizes on the parity-stable
+		// negative-cpu speeds catches partitioning regressions.
+		{name: "realtime-cbr-cpu-3-32x32-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-32x32", w: 32, h: 16, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-3-48x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-48x48", w: 48, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-3-128x128-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-32x32-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-32x32", w: 32, h: 16, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-48x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-48x48", w: 48, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-96x96-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}},
 	}
 
 	for _, tc := range cases {
