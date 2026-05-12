@@ -734,6 +734,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// at the same GQ deadline + cpu-3 anchor.
 		{name: "good-quality-cbr-cpu-3-16x16-splitmv", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "splitmv-16x16", w: 16, h: 16, source: encoderValidationSplitMVQuadrantFrame}},
 		{name: "good-quality-cbr-cpu-3-16x16-segmented", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
+		// cpu-8 panning-128x64 + splitmv-128x64 probes — closes the
+		// rectangular-frame gap at cpu-8. cpu-3 already covers both
+		// fixtures (panning byte-matches every frame, splitmv at limit=1);
+		// cpu-8 takes the other static-Speed branch.
+		{name: "realtime-cbr-cpu-8-128x64", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x64", w: 128, h: 64, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-8-128x64-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x64", w: 128, h: 64, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-128x64-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-128x64", w: 128, h: 64, source: encoderValidationSegmentedFrame}},
+		// cpu-3 segmented-128x64 to complete the cross-fixture matrix at
+		// the rectangular size.
+		{name: "realtime-cbr-cpu-3-128x64-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-128x64", w: 128, h: 64, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
