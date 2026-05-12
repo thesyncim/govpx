@@ -23,6 +23,14 @@ const (
 	kIdct16_38  = 9
 	kIdct16_10  = 10
 	kIdct16_1   = 11
+	// IHT 4x4 / 8x8 with the non-DCT_DCT tx types. DCT_DCT (tx_type=0)
+	// matches the dedicated idct kernels above so we don't re-test it.
+	kIht4AdstDct  = 12
+	kIht4DctAdst  = 13
+	kIht4AdstAdst = 14
+	kIht8AdstDct  = 15
+	kIht8DctAdst  = 16
+	kIht8AdstAdst = 17
 )
 
 const oracleMagic = 0x76503944 // "D9Pv" little-endian == "vP9D"
@@ -126,6 +134,18 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 			Idct16x16_10Add(input, got, stride)
 		case kIdct16_1:
 			Idct16x16_1Add(input, got, stride)
+		case kIht4AdstDct:
+			Iht4x4_16Add(input, got, stride, 1)
+		case kIht4DctAdst:
+			Iht4x4_16Add(input, got, stride, 2)
+		case kIht4AdstAdst:
+			Iht4x4_16Add(input, got, stride, 3)
+		case kIht8AdstDct:
+			Iht8x8_64Add(input, got, stride, 1)
+		case kIht8DctAdst:
+			Iht8x8_64Add(input, got, stride, 2)
+		case kIht8AdstAdst:
+			Iht8x8_64Add(input, got, stride, 3)
 		default:
 			t.Fatalf("unknown kernel id %d", kernel)
 		}
@@ -139,8 +159,10 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	if nCases == 0 {
 		t.Fatal("oracle blob contained no records")
 	}
-	t.Logf("verified %d records: idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d",
+	t.Logf("verified %d records: idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d",
 		nCases, counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
-		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1])
+		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],
+		counts[kIht4AdstDct], counts[kIht4DctAdst], counts[kIht4AdstAdst],
+		counts[kIht8AdstDct], counts[kIht8DctAdst], counts[kIht8AdstAdst])
 }
