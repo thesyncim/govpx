@@ -408,9 +408,9 @@ func resetLibvpxSmallSecondOrderCoefficients(quant *vp8enc.BlockQuant, qcoeff *[
 	for pos := 0; pos < eob && pos < 16; pos++ {
 		rc := int(vp8tables.DefaultZigZag1D[pos])
 		coef := int(qcoeff[rc]) * int(quant.Dequant[rc])
-		if coef < 0 {
-			coef = -coef
-		}
+		// Branchless |coef| via sign-mask XOR.
+		mask := coef >> mvKernelSignShift
+		coef = (coef ^ mask) - mask
 		sum += coef
 		if sum >= 35 {
 			return eob
