@@ -540,7 +540,10 @@ func copyLoopFilterPartialLuma(dst *vp8common.Image, src *vp8common.Image, start
 			lineCount--
 		}
 		n := lineCount * src.YStride
-		if lineCount > 0 && srcOff >= 0 && dstOff >= 0 && srcOff+n <= len(src.YFull) && dstOff+n <= len(dst.YFull) {
+		// Uint range collapses (srcOff/dstOff >= 0) + (srcOff/dstOff+n <= len)
+		// into one compare each on the two buffer dimensions. n is
+		// guaranteed >= 0 by the lineCount > 0 guard and YStride > 0.
+		if lineCount > 0 && uint(srcOff) <= uint(len(src.YFull)-n) && uint(dstOff) <= uint(len(dst.YFull)-n) {
 			copy(dst.YFull[dstOff:dstOff+n], src.YFull[srcOff:srcOff+n])
 		}
 		return

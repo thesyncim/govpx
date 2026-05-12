@@ -21,10 +21,8 @@ func macroblockImageBlockSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMb
 	baseX := srcMbCol * 16
 	refBaseY := refMbRow * 16
 	refBaseX := refMbCol * 16
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width &&
-		refBaseY >= 0 && refBaseX >= 0 &&
-		refBaseY+16 <= img.CodedHeight && refBaseX+16 <= img.CodedWidth {
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
+		uint(refBaseY) <= uint(img.CodedHeight-16) && uint(refBaseX) <= uint(img.CodedWidth-16) {
 		return dsp.SAD16x16(src.Y[baseY*src.YStride+baseX:], src.YStride, img.Y[refBaseY*img.YStride+refBaseX:], img.YStride)
 	}
 
