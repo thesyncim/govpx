@@ -140,6 +140,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// ErrorResilient=true takes the normal error-resilient bitmask
 		// path, distinct from independent partition contexts above.
 		{name: "realtime-cbr-cpu0-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		{name: "realtime-cbr-cpu0-32x32-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		{name: "realtime-cbr-cpu0-48x48-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
 		{name: "realtime-cbr-cpu0-16x16-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
@@ -394,6 +396,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// 11 before a later rate/probability-state drift.
 		{name: "realtime-cbr-cpu-3-160x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-128x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
+		// cpu-3 128x128 is a parity-stable mid-size anchor; exercise a
+		// larger buffer-model control beyond the tiny cpu0 probe.
+		{name: "realtime-cbr-cpu-3-128x128-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		// Static-thresh on segmented content hits skip/breakout decisions
+		// that the small panning-only control does not stress.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-static-thresh1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, staticThreshold: 1, extraArgs: []string{"--static-thresh=1"}},
 		{name: "realtime-cbr-cpu-3-96x96", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-64x128", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x128", w: 64, h: 128, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-3-320x180", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 12},

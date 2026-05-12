@@ -288,6 +288,7 @@ func TestLibvpxRDConstantsMatchSinglePassInitializeRDConsts(t *testing.T) {
 		{qIndex: 0, rdMult: 44, rdDiv: 100, errBit: 1},
 		{qIndex: 4, rdMult: 179, rdDiv: 100, errBit: 1},
 		{qIndex: 40, rdMult: 38, rdDiv: 1, errBit: 34},
+		{qIndex: 56, rdMult: 72, rdDiv: 1, errBit: 66},
 		{qIndex: 127, rdMult: 690, rdDiv: 1, errBit: 627},
 	}
 	for _, tt := range tests {
