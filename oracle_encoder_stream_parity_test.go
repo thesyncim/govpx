@@ -177,6 +177,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-32x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x16", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-32x32", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-48x48", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
+		// Common 16:9 standard frame sizes. 256x144 byte-matches frames
+		// 0-8 (longest inter run on a 16:9 fixture); 192x108 / 320x180
+		// only the keyframe.
+		{name: "realtime-cbr-cpu8-256x144", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-256x144", w: 256, h: 144, source: encoderValidationPanningFrame}, limit: 9},
+		{name: "realtime-cbr-cpu8-192x108", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-192x108", w: 192, h: 108, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu8-320x180", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-320x180", w: 320, h: 180, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
