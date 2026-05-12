@@ -38,7 +38,12 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 	eob := -1
 	zeroRun := 0
 	for pos := range 16 {
-		rc := int(vp8tables.DefaultZigZag1D[pos])
+		// DefaultZigZag1D is [16]uint8 with values 0..15; coeff/qcoeff/
+		// dqcoeff/quant.Zbin/ZbinBoost are all [16]-sized. Mask rc and
+		// zeroRun with 15 (pow2-1) so the compiler can elide the per-iter
+		// bounds checks on the indexed loads/stores. zeroRun is clamped
+		// to ≤ 15 by min(zeroRun+1, 15) below so the mask is a no-op.
+		rc := int(vp8tables.DefaultZigZag1D[pos]) & 15
 		z := int(coeff[rc])
 		if z == 0 {
 			qcoeff[rc] = 0
@@ -51,7 +56,7 @@ func quantizeBlockWithZbin(coeff *[16]int16, quant *vp8enc.BlockQuant, zbinOverQ
 		sign := z >> mvKernelSignShift
 		x := (z ^ sign) - sign
 		zbin := int(quant.Zbin[rc])
-		zbin += int(quant.ZbinBoost[zeroRun])
+		zbin += int(quant.ZbinBoost[zeroRun&15])
 		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost)) >> 7
 		if x < zbin {
 			qcoeff[rc] = 0
