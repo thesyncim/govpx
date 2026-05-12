@@ -128,9 +128,12 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 
 	var colSum [16]int
 	for r := range 16 {
-		mcRow := mcRunningAvg[r*mcStride:]
-		sigRow := sig[r*sigStride:]
-		avgRow := runningAvg[r*avgStride:]
+		// Sub-slice each row to len 16 (with full cap) so the inner
+		// loop's mcRow[c]/sigRow[c]/avgRow[c] accesses are statically
+		// bounded by len(slice) = 16 and the per-iter BCE elides.
+		mcRow := mcRunningAvg[r*mcStride : r*mcStride+16 : r*mcStride+16]
+		sigRow := sig[r*sigStride : r*sigStride+16 : r*sigStride+16]
+		avgRow := runningAvg[r*avgStride : r*avgStride+16 : r*avgStride+16]
 		for c := range 16 {
 			diff := int(mcRow[c]) - int(sigRow[c])
 			diffMask := diff >> mvKernelSignShift
