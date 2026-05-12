@@ -205,6 +205,101 @@ func extractScanArray(src, name string) []int {
 	return out
 }
 
+// extractBracedArray finds a brace-delimited initializer for an array
+// declared with `name[...]`. Unlike extractScanArray, it walks brace
+// depth so nested `{ ... }` initializers (2-D arrays) are kept intact.
+func extractBracedArray(src, name string) []int {
+	needle := name + "["
+	idx := strings.Index(src, needle)
+	if idx < 0 {
+		return nil
+	}
+	open := strings.Index(src[idx:], "{")
+	if open < 0 {
+		return nil
+	}
+	open += idx
+	depth := 0
+	end := -1
+	for i := open; i < len(src); i++ {
+		switch src[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				end = i
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
+		return nil
+	}
+	body := src[open+1 : end]
+	tokens := regexp.MustCompile(`-?\d+`).FindAllString(body, -1)
+	out := make([]int, 0, len(tokens))
+	for _, t := range tokens {
+		v, err := strconv.Atoi(t)
+		if err != nil {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// TestFilterTablesMatchLibvpxSource validates the 5 VP9 subpel filter
+// tables against libvpx's vp9_filter.c byte-for-byte.
+func TestFilterTablesMatchLibvpxSource(t *testing.T) {
+	srcPath := findLibvpxSource("vp9/common/vp9_filter.c")
+	if srcPath == "" {
+		t.Skip("libvpx checkout not present under internal/coracle/build")
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read libvpx source: %v", err)
+	}
+	src := string(raw)
+
+	flatten := func(name string, t2 *[SubpelShifts][SubpelTaps]int16) []int16 {
+		out := make([]int16, 0, SubpelShifts*SubpelTaps)
+		for _, row := range t2 {
+			out = append(out, row[:]...)
+		}
+		return out
+	}
+
+	cases := []struct {
+		marker string
+		got    []int16
+	}{
+		{"bilinear_filters", flatten("bilinear", &BilinearFilters)},
+		{"sub_pel_filters_8", flatten("8", &SubPelFilters8)},
+		{"sub_pel_filters_8s", flatten("8s", &SubPelFilters8s)},
+		{"sub_pel_filters_8lp", flatten("8lp", &SubPelFilters8lp)},
+		{"sub_pel_filters_4", flatten("4", &SubPelFilters4)},
+	}
+	for _, tc := range cases {
+		want := extractBracedArray(src, tc.marker)
+		if want == nil {
+			t.Errorf("%s: marker not found in libvpx source", tc.marker)
+			continue
+		}
+		if len(want) != len(tc.got) {
+			t.Errorf("%s: got %d entries, want %d", tc.marker, len(tc.got), len(want))
+			continue
+		}
+		for i := range tc.got {
+			if int(tc.got[i]) != want[i] {
+				t.Errorf("%s[%d] = %d, libvpx says %d", tc.marker, i, tc.got[i], want[i])
+			}
+		}
+	}
+}
+
 // TestVpxNormMatchesLibvpxSource is the same oracle check for the
 // boolean coder's normalization table.
 func TestVpxNormMatchesLibvpxSource(t *testing.T) {
