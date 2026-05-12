@@ -393,6 +393,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// (1080/16=67.5) so it shares the partial-coded-height drift.
 		{name: "realtime-cbr-cpu-3-1280x720", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1280x720", w: 1280, h: 720, source: encoderValidationPanningFrame}, limit: 2},
 		{name: "realtime-cbr-cpu-3-1920x1080", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-1920x1080", w: 1920, h: 1080, source: encoderValidationPanningFrame}, limit: 1},
+		// GoodQuality at clean-MB-grid larger sizes. cpu4 byte-matches
+		// 64x32 / 64x48 / 96x96 / 128x128 / 160x96 fully; 640x480 hits
+		// a different per-frame heuristic at scale that diverges at
+		// frame 1.
+		{name: "good-quality-cbr-cpu4-64x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-64x48", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-96x96", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-128x128", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-160x96", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu4-640x480", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
