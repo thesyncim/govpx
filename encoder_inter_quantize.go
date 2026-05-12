@@ -174,7 +174,10 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 	next := eob
 
 	for i := eob - 1; i >= skipDC; i-- {
-		rc := int(vp8tables.DefaultZigZag1D[i])
+		// DefaultZigZag1D is [16]uint8 with cells in [0,16); qcoeff is
+		// [16]int16. Mask rc with 15 (pow2-1) to elide the per-iter
+		// bounds checks on both indexed loads.
+		rc := int(vp8tables.DefaultZigZag1D[i&15]) & 15
 		x := int(qcoeff[rc])
 		if x != 0 {
 			error0 := tokens[next][0].error
@@ -184,9 +187,12 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 			t0 := dctValueToken(x)
 
 			if next < 16 {
-				band := int(vp8tables.CoefBandsTable[i+1])
+				// i+1 ∈ [1, 16) given i ≤ 14 from the loop range and
+				// next < 16 guard. CoefBandsTable cells are ≤ 7;
+				// (*coefProbs) outer dim is [4]. Pow2 masks elide BCE.
+				band := int(vp8tables.CoefBandsTable[(i+1)&15])
 				pt := int(vp8tables.PrevTokenClass[t0])
-				p := (*coefProbs)[blockType][band][pt]
+				p := (*coefProbs)[blockType&3][band&7][pt]
 				rate0 += coefficientTokenCost(p, int(tokens[next][0].token), blockType, band, pt)
 				rate1 += coefficientTokenCost(p, int(tokens[next][1].token), blockType, band, pt)
 			}
