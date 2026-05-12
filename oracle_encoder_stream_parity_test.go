@@ -593,6 +593,20 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-64x64-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-64x64-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// cpu-3 / cpu-8 panning fps15+fps60 mid-extension to 96x96 — the
+		// 64x64 and 128x128 variants already byte-match, so 96x96 sits
+		// in the parity-stable region between them.
+		{name: "realtime-cbr-cpu-3-96x96-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-96x96-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-96x96-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-96x96-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		// cpu-3 / cpu-8 segmented fps variants at 64x64 — segmented
+		// 64x64 byte-matches at fps=30 (added earlier), so fps15+fps60
+		// pin segmented parity on the fps-sensitive rate-control path.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 	}
 
 	for _, tc := range cases {
