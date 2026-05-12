@@ -205,7 +205,7 @@ func normalizeTwoPassStats(stats []FirstPassFrameStats) ([]FirstPassFrameStats, 
 }
 
 func (t *twoPassState) modifiedError(stats FirstPassFrameStats) float64 {
-	if t.totalStats.Count > 0 && t.totalStats.SSIMWeightedPredErr > 0 && stats.SSIMWeightedPredErr > 0 {
+	if min(min(t.totalStats.Count, t.totalStats.SSIMWeightedPredErr), stats.SSIMWeightedPredErr) > 0 {
 		if err := libvpxCalculateModifiedErr(stats.SSIMWeightedPredErr, t.totalStats.SSIMWeightedPredErr, t.totalStats.Count, t.vbrBiasPct); err > 0 {
 			return err
 		}
