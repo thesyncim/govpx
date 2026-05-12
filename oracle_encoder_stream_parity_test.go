@@ -480,6 +480,26 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// fixture that byte-matches every frame at both cpu values).
 		{name: "realtime-cbr-cpu-3-128x128-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu-8-128x128-4partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		// cpu-8 segmented at the smallest sizes — same fixture used at
+		// cpu-3, but cpu-8 takes a more aggressive static-Speed path
+		// that disables more heuristics; pinning these locks in parity
+		// across both ends of the negative-cpu range.
+		{name: "realtime-cbr-cpu-8-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
+		// cpu-3 segmented at 96x96/128x128 — cpu-8 already byte-matches
+		// these; cpu-3 covers the alternate static-Speed branch.
+		{name: "realtime-cbr-cpu-3-96x96-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-128x128-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-128x128", w: 128, h: 128, source: encoderValidationSegmentedFrame}},
+		// cpu-3 / cpu-8 splitmv64 at fps 15 and 60. The encoder's per-
+		// frame budget path is fps-dependent so this exercises a
+		// different rate-control trajectory on the parity-stable
+		// negative-cpu speeds. Bitrate scaled to keep targetKbps roughly
+		// proportional.
+		{name: "realtime-cbr-cpu-3-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 	}
 
 	for _, tc := range cases {
