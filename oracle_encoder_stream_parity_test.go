@@ -529,6 +529,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu-3 panning at 80x80 — cpu-3's 80x80 isn't probed; cpu-8's
 		// nearest neighbour at this size is 96x96 which byte-matches.
 		{name: "realtime-cbr-cpu-8-80x80", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}},
+		// cpu-3 / cpu-8 panning fps15 + fps60 variants at the small
+		// sizes where the base fps=30 probe byte-matches. fps changes
+		// the per-frame budget trajectory; pinning these locks the
+		// rate-control parity surface on the stable speeds without
+		// going through splitmv (already covered).
+		{name: "realtime-cbr-cpu-3-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-128x128-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-128x128-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-128x128-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-8-128x128-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 	}
 
 	for _, tc := range cases {
