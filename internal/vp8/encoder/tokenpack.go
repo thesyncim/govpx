@@ -350,7 +350,10 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 	band := skipDC
 	skipEOBNode := false
 	for coeffPos := skipDC; coeffPos < eob; coeffPos++ {
-		zigZagPos := int(tables.DefaultZigZag1D[coeffPos])
+		// DefaultZigZag1D returns a permutation of 0..15. Mask the uint8
+		// lookup so the compiler can elide the bounds check on
+		// qcoeff[zigZagPos] (qcoeff is *[16]int16).
+		zigZagPos := tables.DefaultZigZag1D[coeffPos] & 0xF
 		coeff := int(qcoeff[zigZagPos])
 		// Inline coefficient classification: abs + LUT load instead of
 		// a range-comparison switch. mag carries the absolute magnitude;
@@ -364,7 +367,10 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 		signMask := coeff >> intSignShift
 		mag := (coeff ^ signMask) - signMask
 		sign := uint8(signMask & 1)
-		if mag > tables.DCTMaxValue {
+		// Uint range check folds the (mag < 0) guard the int comparison
+		// could not eliminate (signed-overflow possibility) and yields a
+		// proven [0, DCTMaxValue] for the LUT load below.
+		if uint(mag) > uint(tables.DCTMaxValue) {
 			return ErrInvalidPacketConfig
 		}
 		token := int(coeffAbsTokenLUT[mag])

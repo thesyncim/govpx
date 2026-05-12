@@ -357,18 +357,27 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 	tokenCtx := ctx
 	skipEOBNode := false
 	for pos := skipDC; pos < eob; pos++ {
-		rc := int(tables.DefaultZigZag1D[pos])
+		// DefaultZigZag1D returns a permutation of 0..15. Mask the uint8
+		// lookup result so the compiler can elide the bounds check on
+		// qcoeff[rc] (qcoeff is *[16]int16).
+		rc := tables.DefaultZigZag1D[pos] & 0xF
 		coeff := int(qcoeff[rc])
 		// Branchless |coeff| split into magnitude and sign nibble: signMask
 		// is -1 when coeff is negative, 0 otherwise.
 		signMask := coeff >> intSignShift
 		mag := (coeff ^ signMask) - signMask
 		sign := uint8(signMask & 1)
-		if mag > tables.DCTMaxValue {
+		// Uint range check folds the (mag < 0) guard the int comparison
+		// could not eliminate (signed-overflow possibility) and yields a
+		// proven [0, DCTMaxValue] for the LUT load below.
+		if uint(mag) > uint(tables.DCTMaxValue) {
 			return ErrInvalidPacketConfig
 		}
 		token := int(coeffAbsTokenLUT[mag])
-		(*counts)[blockType][band][tokenCtx][token]++
+		// blockType and band were validated to [0,3] and the LUT yields
+		// 0..7 for band. AND-mask both so BlockTypes(=4) and
+		// CoefBands(=8) bounds checks elide (both are powers of two).
+		(*counts)[blockType&3][band&7][tokenCtx][token]++
 		// Validation hoisted to the function entry, so the per-coeff
 		// pack-and-append skips the redundant range checks.
 		records.appendTokenUnchecked(blockType, band, tokenCtx, token, mag, sign, skipEOBNode)
@@ -379,7 +388,7 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 		}
 	}
 	if eob < 16 {
-		(*counts)[blockType][band][tokenCtx][tables.DCTEOBToken]++
+		(*counts)[blockType&3][band&7][tokenCtx][tables.DCTEOBToken]++
 		records.appendTokenUnchecked(blockType, band, tokenCtx, tables.DCTEOBToken, 0, 0, false)
 	}
 	return nil
