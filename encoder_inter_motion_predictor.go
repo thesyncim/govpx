@@ -170,13 +170,18 @@ func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int)
 		order[i] = i
 	}
 	for i := 1; i < limit; i++ {
-		idx := order[i]
-		sad := slots[idx].sad
+		// Every order[k] index is bounded to [0, limit) ⊂ [0, 8) by the
+		// init loop above. j is bounded to [0, i) ⊂ [0, 8) and j+1 ≤ i
+		// ≤ 8, so j+1 ∈ [1, 8]. AND-mask with 7 elides bounds checks
+		// on the per-iter slots/order accesses without changing
+		// semantics.
+		idx := order[i&7]
+		sad := slots[idx&7].sad
 		j := i - 1
-		for ; j >= 0 && sad < slots[order[j]].sad; j-- {
-			order[j+1] = order[j]
+		for ; j >= 0 && sad < slots[order[j&7]&7].sad; j-- {
+			order[(j+1)&7] = order[j&7]
 		}
-		order[j+1] = idx
+		order[(j+1)&7] = idx
 	}
 	return order
 }
