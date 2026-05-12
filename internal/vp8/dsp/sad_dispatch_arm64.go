@@ -58,13 +58,9 @@ func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, li
 // sadLimitClamp32 narrows the caller-supplied limit to the NEON kernel's
 // int32 range. Split out so the SAD dispatch entry stays inlineable.
 func sadLimitClamp32(limit int) int32 {
-	if uint(limit) <= 0x7fffffff {
-		return int32(limit)
-	}
-	if limit < 0 {
-		return 0
-	}
-	return 0x7fffffff
+	// Branchless clamp to int32 [0, MaxInt32]: min(max(limit, 0), 0x7fffffff).
+	// Same three-way result as the original branch ladder without compares.
+	return int32(min(max(limit, 0), 0x7fffffff))
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
