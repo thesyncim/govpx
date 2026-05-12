@@ -173,6 +173,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// 16x16 minimum frame size — single-MB encode is byte-identical
 		// to libvpx end-to-end.
 		{name: "realtime-cbr-cpu8-16x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
+		// 32-aligned small frames.
+		{name: "realtime-cbr-cpu8-32x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x16", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-32x32", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu8-48x48", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
