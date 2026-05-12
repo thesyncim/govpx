@@ -187,13 +187,7 @@ func updateSegmentationTreeProbs(cfg *vp8enc.SegmentationConfig, counts [vp8comm
 }
 
 func nonZeroSegmentTreeProb(prob int) uint8 {
-	if prob <= 0 {
-		return 1
-	}
-	if prob >= 255 {
-		return 255
-	}
-	return uint8(prob)
+	return uint8(min(max(prob, 1), 255))
 }
 
 func assignKeyFrameStaticSegments(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode) {
