@@ -62,7 +62,9 @@ func buildNeutralPredictorKeyFrameCoefficients(src SourceImage, qIndex int, delt
 				}
 			}
 			modes[index] = KeyFrameMacroblockMode{SegmentID: segmentID, YMode: common.DCPred, UVMode: common.DCPred}
-			buildNeutralPredictorMacroblockCoefficients(src, row, col, &quants[segmentID], &coeffs[index])
+			// MaxMBSegments=4 (pow2) and segmentID was just bounded to
+			// [0,4); AND-mask with 3 elides the bounds check on quants.
+			buildNeutralPredictorMacroblockCoefficients(src, row, col, &quants[segmentID&3], &coeffs[index])
 		}
 	}
 	return nil

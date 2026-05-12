@@ -238,9 +238,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			var mode vp8enc.KeyFrameMacroblockMode
 			var projectedRate int
 			if e.libvpxUseFastIntraPick() {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(src, segmentQIndex, row, col, above, left, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeFast(src, segmentQIndex, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
+				mode, projectedRate, ok = predictBestKeyFrameIntraMode(src, segmentQIndex, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuantForPick())
 			}
 			if !ok {
 				return 0, ErrInvalidConfig
@@ -250,7 +250,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			modes[index] = mode
 			convertKeyFrameMode(&modes[index], &e.reconstructModes[index])
 			if modes[index].YMode == vp8common.BPred {
-				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
@@ -272,7 +272,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				pred:          &e.analysis.Img,
 				aboveTok:      &aboveTok[col],
 				leftTok:       &leftTok,
-				quant:         &quants[segmentID],
+				quant:         &quants[segmentID&3],
 				qIndex:        segmentQIndex,
 				is4x4:         is4x4,
 				intra:         true,
@@ -471,7 +471,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				qIndex, segmentation, segmentID,
 				above, left, aboveLeft,
 				&aboveTok[col], &leftTok,
-				&quants[segmentID],
+				&quants[segmentID&3],
 				sourceAltRefZeroMVOnly,
 			)
 			if !ok {
@@ -488,7 +488,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			totalRate = addProjectedMacroblockRate(totalRate, decision.projectedRate)
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
-			quant := &quants[segmentID]
+			quant := &quants[segmentID&3]
 
 			if decision.useIntra {
 				modes[index] = decision.intraMode
