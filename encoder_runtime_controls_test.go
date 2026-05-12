@@ -533,17 +533,25 @@ func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
 	}
 }
 
-func TestSetRealtimeTargetRejectsResolutionChange(t *testing.T) {
+func TestSetRealtimeTargetValidatesResolutionChange(t *testing.T) {
 	e := newTestEncoder(t)
 
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("larger resolution error = %v, want ErrInvalidConfig", err)
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: -1, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("negative width error = %v, want ErrInvalidConfig", err)
 	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 8, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("smaller resolution error = %v, want ErrInvalidConfig", err)
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 16, Height: -1}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("negative height error = %v, want ErrInvalidConfig", err)
 	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: maxVP8Dimension + 1, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("overflowing width error = %v, want ErrInvalidConfig", err)
+	}
+	// Same-size echo must still be accepted so bitrate-only BWE updates that
+	// happen to carry the current dimensions validate cleanly.
 	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 16, Height: 16}); err != nil {
 		t.Fatalf("same resolution returned error: %v", err)
+	}
+	if e.opts.Width != 16 || e.opts.Height != 16 {
+		t.Fatalf("dims after no-op = %dx%d, want 16x16", e.opts.Width, e.opts.Height)
 	}
 }
 

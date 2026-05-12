@@ -19,9 +19,10 @@ cleanly onto libvpx behavior where that behavior is useful.
 ## Summary
 
 The high-value VP8 encoder controls are covered by Go APIs. Remaining uncovered
-items are optional or transport-shaped C API surfaces: spatial resampling /
-scale mode, output-partition packetization, PSNR packets, and input-fragment
-decode plumbing.
+items are optional or transport-shaped C API surfaces: spatial-resampler
+scale mode (the caller-driven resolution change side of
+`vpx_codec_enc_config_set` is covered), output-partition packetization, PSNR
+packets, and input-fragment decode plumbing.
 
 The controls that are probably not worth porting by default are encoder
 preview postproc, decryptor callbacks, VP8 nonzero profiles for encode,
@@ -56,6 +57,7 @@ does not actually wire into the VP8 encoder.
 | `VP8D_GET_LAST_REF_UPDATES`, `VP8D_GET_LAST_REF_USED`, `VPXD_GET_LAST_QUANTIZER`, `VP8D_GET_FRAME_CORRUPTED` | `FrameInfo.RefUpdates`, `FrameInfo.RefUsed`, `FrameInfo.InternalQuantizer`, `FrameInfo.Quantizer`, `FrameInfo.Corrupted`, `VP8Decoder.LastFrameInfo` | Ref flags use Go bit flags matching libvpx's LAST/GOLDEN/ALTREF bit values. `InternalQuantizer` is VP8 base qindex; `Quantizer` is govpx's public 0..63 mapping. |
 | `VP8E_GET_LAST_QUANTIZER`, `VP8E_GET_LAST_QUANTIZER_64` | `EncodeResult.InternalQuantizer`, `EncodeResult.Quantizer`, `VP8Encoder.LastQuantizer` | Exposes both libvpx's internal qindex and the public 0..63 mapping. |
 | Encoder common config: width, height, timebase, threads, bitrate, VBR/CBR/CQ/Q, q range, buffer model, frame drop, lag/lookahead, two-pass, keyframe interval, temporal layers, error resilience | `EncoderOptions`, `RateControlConfig`, `TemporalScalabilityConfig` | Mostly covered with Go-style names. |
+| `vpx_codec_enc_config_set` with new width / height (caller-driven runtime resolution change) | `VP8Encoder.SetRealtimeTarget` with `Width` / `Height` set | Rebuilds size-dependent buffers in place, invalidates references, and forces the next frame to be a key frame at the new size. The spatial-resampler side (`VP8E_SET_SCALEMODE`, `rc_resize_*`) is still tracked under "Spatial Resampling And `VP8E_SET_SCALEMODE`". |
 
 ## Detailed Control Notes
 
@@ -254,29 +256,39 @@ Implemented notes:
 
 ### Spatial Resampling And `VP8E_SET_SCALEMODE`
 
-Status: missing. Priority: low to medium.
+Status: partially covered. Priority: low to medium.
 
 libvpx surfaces this through:
 
-- `VP8E_SET_SCALEMODE`
-- `rc_resize_allowed`
-- `rc_resize_up_thresh`
-- `rc_resize_down_thresh`
+- `vpx_codec_enc_config_set` with a new width / height (caller-driven) —
+  **covered** by `VP8Encoder.SetRealtimeTarget` with `Width` / `Height`.
+  The encoder rebuilds size-dependent state in place, invalidates the
+  LAST / GOLDEN / ALTREF references, and forces the next frame to be a
+  key frame at the new size.
+- `VP8E_SET_SCALEMODE` — **missing**.
+- `rc_resize_allowed` — **missing**.
+- `rc_resize_up_thresh` — **missing**.
+- `rc_resize_down_thresh` — **missing**.
 
-Why it may be sane:
+Why the remaining (spatial-resampler) part may still be sane:
 
 - It is useful for low-bitrate realtime streams.
 - It is a real VP8/libvpx behavior, not VP9-only scaffolding.
 
-Why it is not a first pass:
+Why the spatial-resampler side is not a first pass:
 
-- It changes coded dimensions and keyframe scale bits.
+- It would scale the source inside the encoder, separate display size
+  from coded size, and change keyframe scale bits in the bitstream
+  header.
 - It requires source scaling, reference scaling, reconstructed-frame
-  bookkeeping, and decoder-output expectations.
-- The current public `Image` and `EncodeResult` API assumes a stable encode
-  size.
+  bookkeeping, and decoder-output expectations beyond the caller-driven
+  resize already covered.
+- The current public `Image` and `EncodeResult` API assumes the caller
+  drives the coded size, which is the contract the implemented
+  resolution-change path keeps.
 
-Port only after deciding the Go API for coded size vs display size.
+Port the spatial resampler only after deciding the Go API for coded
+size vs display size.
 
 ### Output Partition Packets
 

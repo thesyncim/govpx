@@ -75,32 +75,65 @@ type RateControlConfig struct {
 	GFCBRBoostPct int
 }
 
-// RealtimeTarget describes a low-latency runtime target update.
+// RealtimeTarget describes a low-latency runtime target update applied
+// by [VP8Encoder.SetRealtimeTarget].
+//
+// Each field uses its zero value as "leave the current setting alone",
+// so a bandwidth-estimator update is safe to send as a sparse delta
+// (typically only BitrateKbps). All non-zero fields are validated
+// before any mutation, and a validation failure leaves the encoder
+// fully usable at its previous configuration.
+//
+// Mirrors libvpx's `vpx_codec_enc_config_set` for the fields a WebRTC
+// sender typically updates per BWE step.
 type RealtimeTarget struct {
 	// BitrateKbps changes the total target bitrate when non-zero.
+	// Equivalent to [VP8Encoder.SetBitrateKbps].
 	BitrateKbps int
-	// FPS changes the timebase to 1/FPS when non-zero.
+	// FPS changes the timebase to 1/FPS when non-zero. The realtime
+	// adaptive-Speed timing window is reset so the auto-speed selector
+	// recomputes from cold start against the new frame budget.
 	FPS int
 
-	// Width and Height, when set, must match the encoder's existing
-	// dimensions. Runtime resolution change is not yet supported on the
-	// encoder side; build a new [VP8Encoder] at the target size instead.
+	// Width and Height drive caller-driven runtime resolution change
+	// when both are positive. Setting them to the encoder's current
+	// dimensions is a no-op (accepted for sparse BWE deltas that echo
+	// the active size). Setting them to a new W x H pair resizes every
+	// size-dependent encoder buffer in place (capacity is reused),
+	// invalidates the LAST / GOLDEN / ALTREF references, and forces
+	// the next encoded frame to be a key frame at the new dimensions.
+	//
+	// Mirrors libvpx's `vpx_codec_enc_config_set` with a new width /
+	// height. The libvpx spatial resampler ([VP8E_SET_SCALEMODE],
+	// `rc_resize_*`) is not implemented; callers drive the coded size
+	// directly. The decoder also handles key-frame resolution change;
+	// see [DecoderOptions.RejectResolutionChange].
+	//
+	// Resize is refused with [ErrInvalidConfig] when the lookahead
+	// queue is non-empty or a hidden alt-ref input is staged; drain the
+	// encoder with [VP8Encoder.FlushInto] before resizing in those
+	// modes. Invalid dimensions (zero, negative, or larger than the
+	// VP8 maximum) are likewise refused without mutating encoder
+	// state.
 	Width  int
 	Height int
 
-	// MinQuantizer and MaxQuantizer update the public quantizer range when
-	// non-zero.
+	// MinQuantizer and MaxQuantizer update the public 0..63 quantizer
+	// range when non-zero. Mirrors the runtime side of
+	// [EncoderOptions.MinQuantizer] / [EncoderOptions.MaxQuantizer].
 	MinQuantizer int
 	MaxQuantizer int
 
-	// FrameDrop changes realtime frame dropping. The zero value leaves the
-	// current setting unchanged, which is the right default for bitrate-only
-	// WebRTC bandwidth-estimation updates.
+	// FrameDrop changes realtime frame dropping. The zero value
+	// ([RealtimeFrameDropUnchanged]) leaves the current setting
+	// unchanged, which is the right default for bitrate-only WebRTC
+	// bandwidth-estimation updates that should not accidentally
+	// disable dropping.
 	FrameDrop RealtimeFrameDropMode
 	// AllowFrameDrop is a legacy fallback used only when FrameDrop is
 	// [RealtimeFrameDropUnchanged]; if true, it enables realtime frame
-	// dropping. Prefer FrameDrop in new code — it can disable dropping and
-	// makes the intent explicit. Kept for source compatibility.
+	// dropping. Prefer FrameDrop in new code — it can disable dropping
+	// and makes the intent explicit. Kept for source compatibility.
 	AllowFrameDrop bool
 }
 
