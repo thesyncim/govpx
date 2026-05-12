@@ -12,7 +12,10 @@ func WriteReferenceFrameZeroMVModeGrid(w *BoolWriter, rows int, cols int, cfg *I
 	if w == nil || cfg == nil || rows <= 0 || cols <= 0 || !cfg.MBNoCoeffSkip || !validSegmentationConfig(cfg.Segmentation) {
 		return ErrInvalidPacketConfig
 	}
-	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
+	// LastFrame=1, AltRefFrame=3: refFrame must be in [Last, AltRef].
+	// uint(refFrame - LastFrame) > uint(AltRefFrame - LastFrame) covers
+	// IntraFrame (0) wrapping huge and any value above AltRefFrame.
+	if uint(refFrame-common.LastFrame) > uint(common.AltRefFrame-common.LastFrame) {
 		return ErrInvalidPacketConfig
 	}
 	writeSegmentID := cfg.Segmentation.Enabled && cfg.Segmentation.UpdateMap
