@@ -181,9 +181,12 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 		}
 		// Apply weaker fallback temporal filter.
 		for r := range 16 {
-			mcRow := mcRunningAvg[r*mcStride:]
-			sigRow := sig[r*sigStride:]
-			avgRow := runningAvg[r*avgStride:]
+			// Bound rows to len 16 (full-cap) so the inner-loop indexed
+			// accesses are statically bounded and the per-pixel BCE
+			// elides, matching the primary 16x16 loop above.
+			mcRow := mcRunningAvg[r*mcStride : r*mcStride+16 : r*mcStride+16]
+			sigRow := sig[r*sigStride : r*sigStride+16 : r*sigStride+16]
+			avgRow := runningAvg[r*avgStride : r*avgStride+16 : r*avgStride+16]
 			for c := range 16 {
 				diff := int(mcRow[c]) - int(sigRow[c])
 				dMask := diff >> mvKernelSignShift
