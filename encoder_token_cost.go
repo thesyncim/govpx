@@ -24,12 +24,9 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 	pos := skipDC
 	// elidedThreshold mirrors libvpx's skip_eob_node firing condition: in
 	// the type==0 (Y after Y2) plane the first encoded band is index 1, in
-	// every other plane it is index 0. Hoisted out of the inner loop so the
-	// per-position elision check is a single int compare.
-	elidedThreshold := 0
-	if blockType == 0 {
-		elidedThreshold = 1
-	}
+	// every other plane it is index 0. Read from the shared lookup table so
+	// the per-block setup is a single branchless load.
+	elidedThreshold := coefElisionBandThreshold[blockType&3]
 	// signCostLookup[0] is the cost when coeff >= 0 (sign bit = 0),
 	// signCostLookup[1] when coeff < 0 (sign bit = 1). Indexed off the
 	// arithmetic-shift sign bit so the per-coefficient sign cost lookup
@@ -84,15 +81,13 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 // plane's first encoded band, the EOB-vs-not bit is elided and only the
 // non-EOB subtree cost is charged. Otherwise the full tree cost is charged.
 func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
-	if token < 0 || token >= len(coefTokenPaths) {
+	// Single uint range check folds (token < 0) and (token >= len) so the
+	// per-coefficient hot path only does one compare-and-branch.
+	if uint(token) >= uint(len(coefTokenPaths)) {
 		return maxInt() / 4
 	}
-	threshold := 0
-	if blockType == 0 {
-		threshold = 1
-	}
 	full := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
-	if pt == 0 && band > threshold {
+	if pt == 0 && band > coefElisionBandThreshold[blockType&3] {
 		// nonEOB == boolBitCost(probs[0], 1) == ProbCost[255-probs[0]].
 		nonEOB := vp8tables.ProbCost[255-int(probs[0])]
 		if full <= nonEOB {
@@ -102,6 +97,12 @@ func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockTy
 	}
 	return full
 }
+
+// coefElisionBandThreshold maps blockType -> the first band that participates
+// in libvpx's skip_eob_node elision. blockType 0 (Y-after-Y2 plane) starts
+// elision at band > 1; every other plane starts at band > 0. Replaces a
+// per-coefficient `if blockType == 0` branch with a bounded array load.
+var coefElisionBandThreshold = [4]int{1, 0, 0, 0}
 
 func coefficientTokenCost(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
 	return coefTokenCostElided(probs, token, blockType, band, pt)
