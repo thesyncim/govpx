@@ -182,12 +182,10 @@ func coefTokenCostFromPath(path *treeTokenPath, probs *[vp8tables.EntropyNodes]u
 	probArr := probs
 	for i := range length {
 		step := path.steps[i]
-		prob := probArr[step.probIndex]
-		if step.bit == 0 {
-			cost += vp8tables.ProbCost[prob]
-		} else {
-			cost += vp8tables.ProbCost[255-int(prob)]
-		}
+		// Branchless: XOR prob with -bit (0x00 when bit=0, 0xFF when
+		// bit=1) flips prob to 255-prob in the bit=1 arm without a
+		// branch in the per-token-tree-edge loop.
+		cost += vp8tables.ProbCost[probArr[step.probIndex]^uint8(-int(step.bit))]
 	}
 	return cost
 }
