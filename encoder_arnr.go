@@ -200,6 +200,10 @@ type arnrMV struct {
 // reference at this (mbRow, mbCol), so the hex search for the next
 // reference can seed at the prior MV.
 func processARNRMacroblock(dst *arnrFrameView, refs []arnrFrameView, centerIdx int, mbRow int, mbCol int, mbRows int, mbCols int, mbX, mbY, strength int, doChroma bool, accumulator []uint32, count []uint32, mvHistory []arnrMV) {
+	// Caller passes 384-element arrays for both accumulator and count.
+	// Bound count to len(accumulator) once so the per-iter count[i]=0
+	// write loses its IsInBounds check.
+	count = count[:len(accumulator)]
 	for i := range accumulator {
 		accumulator[i] = 0
 		count[i] = 0
