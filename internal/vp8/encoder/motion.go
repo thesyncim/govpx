@@ -160,11 +160,10 @@ func motionVectorComponentCost(component int, probs []uint8) int {
 	if len(probs) < tables.MVPCount {
 		return 1 << 30
 	}
-	negative := component < 0
-	x := component
-	if negative {
-		x = -x
-	}
+	// Branchless abs + sign bit: mask is -1 when component<0, 0 otherwise.
+	mask := component >> intSignShift
+	x := (component ^ mask) - mask
+	signBit := int(mask & 1)
 
 	cost := 0
 	if x < mvNumShort {
@@ -186,11 +185,7 @@ func motionVectorComponentCost(component int, probs []uint8) int {
 		}
 	}
 
-	if negative {
-		cost += mvBoolCost(probs[mvProbSign], 1)
-	} else {
-		cost += mvBoolCost(probs[mvProbSign], 0)
-	}
+	cost += mvBoolCost(probs[mvProbSign], signBit)
 	return cost
 }
 
