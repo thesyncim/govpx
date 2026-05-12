@@ -154,7 +154,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 		is4x4 = mode.Mode == vp8common.BPred
 	}
 	segID := int(mode.SegmentID)
-	if segID >= 0 && segID < len(e.dequants) {
+	if uint(segID) < uint(len(e.dequants)) {
 		applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
 	}
 	if is4x4 && coeffs.OracleStaleY2Set {
@@ -211,7 +211,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 	}
 	is4x4 := mode.YMode == vp8common.BPred
 	segID := int(mode.SegmentID)
-	if segID >= 0 && segID < len(e.dequants) {
+	if uint(segID) < uint(len(e.dequants)) {
 		applyOracleEOBAdjust(coeffs, &e.dequants[segID].Y2, is4x4, &row.EOB)
 	}
 	if is4x4 && coeffs.OracleStaleY2Set {

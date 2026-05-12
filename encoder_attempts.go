@@ -342,7 +342,7 @@ func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int,
 		}
 		// Bump rate_correction_factor toward the target/worst-quality
 		// ratio, clamped at min(2*current, MAX_BPB_FACTOR).
-		if macroblocks > 0 && e.rc.maxQuantizer >= 0 && e.rc.maxQuantizer < len(libvpxBitsPerMB[1]) {
+		if macroblocks > 0 && uint(e.rc.maxQuantizer) < uint(len(libvpxBitsPerMB[1])) {
 			targetBitsPerMB := libvpxTargetBitsPerMB(e.rc.bitsPerFrame, macroblocks)
 			worstBitsPerMB := libvpxBitsPerMB[1][e.rc.maxQuantizer]
 			if worstBitsPerMB > 0 {

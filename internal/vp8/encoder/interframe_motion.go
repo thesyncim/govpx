@@ -133,8 +133,8 @@ func findNearInterMotionVectors(above *InterFrameMacroblockMode, left *InterFram
 }
 
 func signBiasMotionVector(mv MotionVector, srcRefFrame common.MVReferenceFrame, targetRefFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) MotionVector {
-	if srcRefFrame >= 0 && int(srcRefFrame) < len(signBias) &&
-		targetRefFrame >= 0 && int(targetRefFrame) < len(signBias) &&
+	if uint(srcRefFrame) < uint(len(signBias)) &&
+		uint(targetRefFrame) < uint(len(signBias)) &&
 		signBias[srcRefFrame] != signBias[targetRefFrame] {
 		return MotionVector{Row: -mv.Row, Col: -mv.Col}
 	}
