@@ -224,8 +224,11 @@ func splitMotionModeVectorCost(mode *vp8enc.InterFrameMacroblockMode, left *vp8e
 		block := int(vp8tables.MBSplitOffset[mode.Partition&3][subset&15])
 		leftMV := analysisSplitLeftMV(mode, left, block)
 		aboveMV := analysisSplitAboveMV(mode, above, block)
-		target := mode.BlockMV[block]
-		bMode := mode.BModes[block]
+		// block is read from MBSplitOffset whose cells are uint8 in
+		// [0,16); mode.BlockMV and mode.BModes are both [16]-sized. The
+		// AND-mask is a no-op functionally but elides the bounds check.
+		target := mode.BlockMV[block&15]
+		bMode := mode.BModes[block&15]
 		if !splitSubMotionLabelMatchesMV(bMode, target, leftMV, aboveMV) {
 			return maxInt() / 4
 		}
@@ -346,16 +349,17 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 	refBaseX := baseX + mvX
 	xOffset := int(mv.Col) & 7
 	yOffset := int(mv.Row) & 7
+	// Uint range collapses (base >= 0) and (base+16 <= dim) into one
+	// compare per dimension (works when dim >= 16; smaller dims fall
+	// through to the per-pixel clamped path).
 	if xOffset|yOffset != 0 {
-		if baseY >= 0 && baseX >= 0 &&
-			baseY+16 <= src.Height && baseX+16 <= src.Width {
+		if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
 			if sse, ok := macroblockSubpixelSSE(src, ref, baseY, baseX, refBaseY, refBaseX, xOffset, yOffset); ok {
 				return sse
 			}
 		}
 	}
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width {
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
 		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
 			return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
 		}
