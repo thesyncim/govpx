@@ -125,7 +125,7 @@ type splitMotionShapeContext struct {
 // used by their unit tests and by callers that have not yet routed an
 // inter-shape cap.
 func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
-	if ctx == nil || ctx.ref == nil || ctx.refFrame == vp8common.IntraFrame || ctx.partition < 0 || ctx.partition >= vp8tables.NumMBSplits {
+	if ctx == nil || ctx.ref == nil || ctx.refFrame == vp8common.IntraFrame || uint(ctx.partition) >= uint(vp8tables.NumMBSplits) {
 		return splitMotionShapeResult{}
 	}
 	mode := vp8enc.InterFrameMacroblockMode{
@@ -539,7 +539,7 @@ func splitMotionSearchSeedsFrom8x8(mode *vp8enc.InterFrameMacroblockMode) splitM
 }
 
 func splitMotionSubsetSearchCenter(partition int, subset int, mode *vp8enc.InterFrameMacroblockMode, bestRefMV vp8enc.MotionVector, compressorSpeed int, seeds *splitMotionSearchSeeds) vp8enc.MotionVector {
-	if compressorSpeed == 0 || mode == nil || partition < 0 || partition >= vp8tables.NumMBSplits || subset < 0 || subset >= int(vp8tables.MBSplitCount[uint8(partition)]) {
+	if compressorSpeed == 0 || mode == nil || uint(partition) >= uint(vp8tables.NumMBSplits) || uint(subset) >= uint(vp8tables.MBSplitCount[uint8(partition)]) {
 		return bestRefMV
 	}
 	if seeds != nil && seeds.valid {

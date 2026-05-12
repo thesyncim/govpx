@@ -43,7 +43,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 		}
 		return vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode, MV: mv}, true
 	case vp8common.NewMV:
-		if refIndex < 0 || refIndex >= len(newMVCandidates) {
+		if uint(refIndex) >= uint(len(newMVCandidates)) {
 			return vp8enc.InterFrameMacroblockMode{}, false
 		}
 		candidate := &newMVCandidates[refIndex]

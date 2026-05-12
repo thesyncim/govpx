@@ -453,7 +453,7 @@ func (e *VP8Encoder) interRDModeTestAllowed(modeIndex int) bool {
 	if !e.interRDFrameActive {
 		return true
 	}
-	if modeIndex < 0 || modeIndex >= libvpxInterModeCount {
+	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return true
 	}
 	return e.interRDModeTestAllowedFast(modeIndex)

@@ -134,7 +134,11 @@ func optimizeQuantizedBlock(coefProbs *vp8tables.CoefficientProbs, qIndex int, b
 	if coeff == nil || quant == nil || qcoeff == nil || eob <= skipDC {
 		return eob
 	}
-	if blockType < 0 || blockType >= vp8tables.BlockTypes || ctx < 0 || ctx >= vp8tables.PrevCoefContexts || skipDC < 0 || skipDC > 1 {
+	// Three uint range checks fold the (x < 0 || x >= max) pairs into
+	// one branch each; matches the form in coefficientBlockTokenRate.
+	if uint(blockType) >= uint(vp8tables.BlockTypes) ||
+		uint(ctx) >= uint(vp8tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
 		return eob
 	}
 	if coefProbs == nil {
