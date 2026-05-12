@@ -427,7 +427,9 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 	rate := labelRate
 	distortion := 0
 	for block := range 16 {
-		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
+		// MBSplits is [4][16]uint8 indexed by validated Partition ∈ [0,4)
+		// and block ∈ [0,16). Pow2 masks elide both bounds checks.
+		if int(vp8tables.MBSplits[mode.Partition&3][block&15]) != subset {
 			continue
 		}
 		var pred [16]byte
@@ -799,17 +801,23 @@ func fillInterFrameSplitSubsetWithMode(mode *vp8enc.InterFrameMacroblockMode, su
 		return
 	}
 	for block := range 16 {
-		if int(vp8tables.MBSplits[mode.Partition][block]) != subset {
+		// MBSplits is [4][16]uint8 indexed by validated Partition ∈ [0,4)
+		// and block ∈ [0,16). Pow2 masks elide both bounds checks.
+		if int(vp8tables.MBSplits[mode.Partition&3][block&15]) != subset {
 			continue
 		}
 		bMode := firstMode
-		if block&3 != 0 && int(vp8tables.MBSplits[mode.Partition][block-1]) == subset {
+		// block-1 ∈ [0,15) and block-4 ∈ [-4,12); the guards above
+		// (block&3 != 0, block>>2 != 0) ensure block-1 ≥ 0 and
+		// block-4 ≥ 0 respectively. AND-mask with 15 elides bounds
+		// checks on the [16]uint8 inner array.
+		if block&3 != 0 && int(vp8tables.MBSplits[mode.Partition&3][(block-1)&15]) == subset {
 			bMode = vp8common.Left4x4
-		} else if block>>2 != 0 && int(vp8tables.MBSplits[mode.Partition][block-4]) == subset {
+		} else if block>>2 != 0 && int(vp8tables.MBSplits[mode.Partition&3][(block-4)&15]) == subset {
 			bMode = vp8common.Above4x4
 		}
-		mode.BlockMV[block] = mv
-		mode.BModes[block] = bMode
+		mode.BlockMV[block&15] = mv
+		mode.BModes[block&15] = bMode
 	}
 }
 
