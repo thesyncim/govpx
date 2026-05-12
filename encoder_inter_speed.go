@@ -540,7 +540,10 @@ func (e *VP8Encoder) recordFastInterModeErrorBin(distortion int) {
 	if bin >= len(e.interModeErrorBins) {
 		bin = len(e.interModeErrorBins) - 1
 	}
-	e.interModeErrorBins[bin]++
+	// interModeErrorBins is [1024]uint32 (pow2); bin is in [0, 1024) by
+	// the guards above. AND-mask with 1023 elides the bounds check on
+	// the indexed increment.
+	e.interModeErrorBins[bin&1023]++
 }
 
 func libvpxInterModeRDThresholds(qIndex int, zbinOverQuant int, deadline Deadline, speed int) [libvpxInterModeCount]int {
