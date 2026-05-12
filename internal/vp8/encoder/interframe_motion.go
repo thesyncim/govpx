@@ -379,7 +379,8 @@ func validInterIntraMacroblockMode(mode *InterFrameMacroblockMode) bool {
 }
 
 func isInterIntraMacroblockMode(mode common.MBPredictionMode) bool {
-	return mode >= common.DCPred && mode <= common.BPred
+	// DCPred==0, BPred==4; single uint compare covers the dual bound.
+	return uint(mode) <= uint(common.BPred)
 }
 
 func initInterFrameYModeTokens() [common.VP8YModes]TreeToken {

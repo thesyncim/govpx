@@ -39,7 +39,8 @@ func convertInterFrameMode(src *vp8enc.InterFrameMacroblockMode, dst *vp8dec.Mac
 }
 
 func convertInterFrameReference(mode *vp8enc.InterFrameMacroblockMode) vp8common.MVReferenceFrame {
-	if mode.Mode >= vp8common.DCPred && mode.Mode <= vp8common.BPred {
+	// DCPred==0, BPred==4; single uint compare folds the dual-bound test.
+	if uint(mode.Mode) <= uint(vp8common.BPred) {
 		return vp8common.IntraFrame
 	}
 	if mode.RefFrame == vp8common.IntraFrame {
