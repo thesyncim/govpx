@@ -227,7 +227,7 @@ func (rc *rateControlState) resetRecentRefFrameUsage(macroblocks int) {
 //
 // pct == 0 disables the minimum (returns 0).
 func vbrMinFrameBandwidthBits(perFrameBandwidth int, pct int) int {
-	if perFrameBandwidth <= 0 || pct <= 0 {
+	if min(perFrameBandwidth, pct) <= 0 {
 		return 0
 	}
 	v := int64(perFrameBandwidth) * int64(pct) / 100

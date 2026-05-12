@@ -430,7 +430,7 @@ func computeLayerBitsPerFrame(targetBandwidthBits int, timing timingState, frame
 }
 
 func roundedInt(num int64, den int64) int {
-	if num <= 0 || den <= 0 {
+	if min(num, den) <= 0 {
 		return 0
 	}
 	v := (num + den/2) / den
