@@ -84,14 +84,14 @@ func ResetInterCoefficientTokenRecords(records *InterCoefficientTokenRecords, ro
 }
 
 func MarkInterCoefficientTokenRecordRowStart(records *InterCoefficientTokenRecords, row int) {
-	if records == nil || row < 0 || row >= len(records.RowStarts)-1 {
+	if records == nil || uint(row) >= uint(len(records.RowStarts)-1) {
 		return
 	}
 	records.RowStarts[row] = len(records.Records)
 }
 
 func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords, row int) {
-	if records == nil || row < 0 || row >= len(records.RowStarts)-1 {
+	if records == nil || uint(row) >= uint(len(records.RowStarts)-1) {
 		return
 	}
 	records.RowStarts[row+1] = len(records.Records)
