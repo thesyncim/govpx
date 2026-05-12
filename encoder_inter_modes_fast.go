@@ -86,7 +86,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	loopCtx.mvCosts = e.currentMotionVectorCostTables()
 	activeSignBiasSlot := 0
 	bestRefMV := vp8enc.MotionVector{}
-	if baseRefIndex := refSearchOrder[1]; baseRefIndex >= 0 && baseRefIndex < len(refs) {
+	if baseRefIndex := refSearchOrder[1]; uint(baseRefIndex) < uint(len(refs)) {
 		activeSignBiasSlot = interModeSignBiasSlotForReference(refs[baseRefIndex].Frame, loopCtx.signBias)
 		bestRefMV = loopCtx.modeMVs.best[activeSignBiasSlot]
 		loopCtx.bestRefMV = bestRefMV

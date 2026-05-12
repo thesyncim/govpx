@@ -584,11 +584,11 @@ func splitMotionSubsetSearchStepParam(partition int, subset int, compressorSpeed
 	if seeds != nil && seeds.valid {
 		switch partition {
 		case 0:
-			if subset >= 0 && subset < len(seeds.step16x8) {
+			if uint(subset) < uint(len(seeds.step16x8)) {
 				return seeds.step16x8[subset]
 			}
 		case 1:
-			if subset >= 0 && subset < len(seeds.step8x16) {
+			if uint(subset) < uint(len(seeds.step8x16)) {
 				return seeds.step8x16[subset]
 			}
 		}

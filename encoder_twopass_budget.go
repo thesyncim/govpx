@@ -128,7 +128,7 @@ func libvpxEstimateMaxQ(numMBs int, sectionTargetBandwidth int, overheadBits int
 	for Q := maxqMinLimit; Q < maxqMaxLimit; Q++ {
 		errCorrection := libvpxCalcCorrectionFactor(errPerMB, 150.0, 0.40, 0.90, Q)
 		baseBitsPerMB := 0
-		if Q >= 0 && Q < len(libvpxBitsPerMB[1]) {
+		if uint(Q) < uint(len(libvpxBitsPerMB[1])) {
 			baseBitsPerMB = libvpxBitsPerMB[1][Q]
 		}
 		baseBitsPerMB += overheadBitsPerMB
