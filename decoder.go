@@ -195,9 +195,15 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	return nil
 }
 
-// NextFrame returns the most recent visible decoded frame, if one is queued.
-// The returned image aliases decoder-owned storage until the next Decode,
-// Reset, or Close.
+// NextFrame returns the most recent visible decoded frame and consumes it.
+// Subsequent calls return false until the next visible frame is decoded.
+// The returned image aliases decoder-owned storage; that storage stays
+// valid until the next Decode, Reset, or Close call. Copy the planes if
+// they must outlive that boundary.
+//
+// Hidden VP8 frames (ShowFrame == false, including alt-refs) do not
+// produce a NextFrame result; only their reference-buffer updates take
+// effect.
 func (d *VP8Decoder) NextFrame() (Image, bool) {
 	if d == nil || d.closed || !d.frameReady {
 		return Image{}, false
@@ -371,8 +377,9 @@ func (d *VP8Decoder) Reset() {
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
 }
 
-// Close releases decoder state. Further method calls return ErrClosed or no
-// output.
+// Close releases decoder state. After Close, every method on this decoder
+// returns [ErrClosed]. Calling Close on a nil or already-closed decoder
+// also returns [ErrClosed].
 func (d *VP8Decoder) Close() error {
 	if d == nil || d.closed {
 		return ErrClosed

@@ -200,8 +200,9 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
 }
 
-// Close releases encoder state. Further method calls return ErrClosed or no
-// output.
+// Close releases encoder state and shuts down any row-worker pool. After
+// Close, every method on this encoder returns [ErrClosed]. Calling Close
+// on a nil or already-closed encoder also returns [ErrClosed].
 func (e *VP8Encoder) Close() error {
 	if e == nil || e.closed {
 		return ErrClosed
