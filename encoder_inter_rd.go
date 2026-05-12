@@ -87,7 +87,10 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	convertInterFrameMode(ctx.mode, &decMode)
 	predMode := decMode
 	predMode.MBSkipCoeff = true
-	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref, ctx.mbRow, ctx.mbCol, &predMode, nil, &e.dequants[ctx.segmentID], &e.reconstructScratch) {
+	// segmentID is validated to [0, MaxMBSegments=4) at the caller
+	// boundary; AND-mask with 3 (pow2 - 1) elides the bounds check on
+	// e.dequants without changing semantics.
+	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref, ctx.mbRow, ctx.mbCol, &predMode, nil, &e.dequants[ctx.segmentID&3], &e.reconstructScratch) {
 		return interResidualRDAccounting{}, false
 	}
 
