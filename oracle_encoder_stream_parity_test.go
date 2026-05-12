@@ -164,6 +164,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// 640x480 panning: keyframe matches; inter frames diverge. Pin
 		// limit=1 until the larger-frame inter divergence closes.
 		{name: "realtime-cbr-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
+		// Sub-MB-aligned dimensions (w / h % 16 != 0) exercise the
+		// MB padding / coded-vs-visible width handling. Keyframe
+		// byte-matches; inter frames diverge in the per-MB inter
+		// mode decision on partial-coded-width macroblocks.
+		{name: "realtime-cbr-cpu8-72x40", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}, limit: 1},
+		{name: "realtime-cbr-cpu8-100x100", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}, limit: 1},
+		// 16x16 minimum frame size — single-MB encode is byte-identical
+		// to libvpx end-to-end.
+		{name: "realtime-cbr-cpu8-16x16", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 	}
 
 	for _, tc := range cases {
