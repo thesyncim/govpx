@@ -237,7 +237,9 @@ func splitSubMotionLabelRate(mode vp8common.BPredictionMode) int {
 }
 
 func splitSubMotionLabelCostWithProbs(mode vp8common.BPredictionMode, probs [3]uint8) int {
-	if mode < vp8common.Left4x4 || mode > vp8common.New4x4 {
+	// Single unsigned-range check; the prior two-branch form left the
+	// function 2 cost-points over the inliner budget.
+	if uint(mode-vp8common.Left4x4) > uint(vp8common.New4x4-vp8common.Left4x4) {
 		return maxInt() / 4
 	}
 	return treeTokenCost(vp8tables.SubMVRefTree[:], probs[:], int(mode))
