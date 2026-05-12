@@ -289,4 +289,3 @@ func resizeReconstructTokensSlice(s []vp8dec.MacroblockTokens, n int) []vp8dec.M
 	}
 	return make([]vp8dec.MacroblockTokens, n)
 }
-
