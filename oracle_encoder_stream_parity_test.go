@@ -413,6 +413,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// for cpu4 at 128x128 / 160x96.
 		{name: "good-quality-cbr-cpu4-128x128-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-128x128", w: 128, h: 128, source: encoderValidationSegmentedFrame}, limit: 2},
 		{name: "good-quality-cbr-cpu4-160x96-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-160x96", w: 160, h: 96, source: encoderValidationSegmentedFrame}, limit: 2},
+		// Sharpness=1/2/7 at the 32x32 baseline (sharpness=4 already
+		// covered at 16x16/32x32/48x48 above).
+		{name: "realtime-cbr-cpu0-32x32-sharpness1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 1, limit: -1, extraArgs: []string{"--sharpness=1"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 2, limit: -1, extraArgs: []string{"--sharpness=2"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, limit: -1, extraArgs: []string{"--sharpness=7"}},
 	}
 
 	for _, tc := range cases {
