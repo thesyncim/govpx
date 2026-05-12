@@ -253,8 +253,9 @@ func libvpxErrorPerBit(qIndex int) int {
 }
 
 func libvpxErrorPerBitWithZbin(qIndex int, zbinOverQuant int) int {
-	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
-	errorPerBit := rdMult * 100 / (110 * rdDiv)
+	// vp8_initialize_rd_consts sets x->errorperbit from the raw RDMULT before
+	// large multipliers are divided by 100 and paired with RDDIV=1.
+	errorPerBit := libvpxRawRDMultiplierWithZbin(qIndex, zbinOverQuant) / 110
 	if errorPerBit == 0 {
 		return 1
 	}
@@ -278,14 +279,18 @@ func libvpxRDConstants(qIndex int) (int, int) {
 	return libvpxRDConstantsWithZbin(qIndex, 0)
 }
 
-func libvpxRDConstantsWithZbin(qIndex int, zbinOverQuant int) (int, int) {
+func libvpxRawRDMultiplierWithZbin(qIndex int, zbinOverQuant int) int {
 	qValue := min(vp8common.DCQuant(qIndex, 0), 160)
 	// zbinOverQuant=0 collapses oqFactor to 1.0 and modq to qValue, so
 	// the no-zbin path produces the same rdMult as the modq formula.
 	// Single straight-line computation drops the function below the
 	// inliner budget.
 	modq := int(float64(qValue) * (1.0 + 0.0015625*float64(zbinOverQuant)))
-	rdMult := int(2.80 * float64(modq*modq))
+	return int(2.80 * float64(modq*modq))
+}
+
+func libvpxRDConstantsWithZbin(qIndex int, zbinOverQuant int) (int, int) {
+	rdMult := libvpxRawRDMultiplierWithZbin(qIndex, zbinOverQuant)
 	rdDiv := 100
 	if rdMult > 1000 {
 		rdDiv = 1
