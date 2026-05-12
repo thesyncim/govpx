@@ -352,6 +352,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-80x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-80x32", w: 80, h: 32, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu0-80x80", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}, limit: 1},
 		{name: "realtime-cbr-cpu0-96x64", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-96x64", w: 96, h: 64, source: encoderValidationPanningFrame}, limit: 1},
+		// Negative-cpu_used (bypasses realtime auto-select-speed) on
+		// larger sizes — confirms parity baseline extends past the
+		// small-frame window when autoSpeed stays at the static seed.
+		// cpu-3 byte-matches at 80x80 and 96x64 even though cpu0 only
+		// matches the keyframe; cpu-5 at 80x80 hits a different drift
+		// at frame 1.
+		{name: "realtime-cbr-cpu-3-80x80", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-96x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-96x64", w: 96, h: 64, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-64x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-3-64x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-64x48", w: 64, h: 48, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu-5-80x80", deadline: DeadlineRealtime, cpuUsed: -5, fx: fixture{name: "panning-80x80", w: 80, h: 80, source: encoderValidationPanningFrame}, limit: 1},
 	}
 
 	for _, tc := range cases {
