@@ -451,6 +451,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu-8 segmented at clean sizes — both byte-match the full sequence.
 		{name: "realtime-cbr-cpu-8-128x128-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-128x128", w: 128, h: 128, source: encoderValidationSegmentedFrame}},
 		{name: "realtime-cbr-cpu-8-96x96-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-96x96", w: 96, h: 96, source: encoderValidationSegmentedFrame}},
+		// cpu-5/-8 splitmv64. cpu-8 byte-matches the full sequence;
+		// cpu-5 has more active heuristics and drifts at frame 2.
+		{name: "realtime-cbr-cpu-5-splitmv", deadline: DeadlineRealtime, cpuUsed: -5, fx: splitmv64, limit: 2},
+		{name: "realtime-cbr-cpu-8-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64},
 	}
 
 	for _, tc := range cases {
