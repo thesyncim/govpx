@@ -115,12 +115,6 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
-	coeffDst := &coeffs
-	if e.interRDCoeffCacheScratchTarget != nil {
-		e.interRDCoeffCacheScratchTarget.coeffs = vp8enc.MacroblockCoefficients{}
-		e.interRDCoeffCacheScratchTarget.coeffsValid = false
-		coeffDst = &e.interRDCoeffCacheScratchTarget.coeffs
-	}
 	is4x4 := interFrameModeUses4x4Tokens(ctx.mode.Mode)
 	// Plumb the encoder's scratch DCT cache (when an RD picker pass is
 	// active) through to buildPredictedMacroblockCoefficients so each
@@ -145,7 +139,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		fastQuant:     e.libvpxUseFastQuantForPick(),
 		optimize:      false,
 		collectStats:  true,
-		coeffs:        coeffDst,
+		coeffs:        &coeffs,
 		cacheOut:      e.interRDCoeffCacheScratchTarget,
 	})
 	rateUV := stats.rateUV
@@ -154,7 +148,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	mbSkipCoeff := stats.tteob == 0
 	var staleY2 staleY2Snapshot
 	if oracleTraceBuild && !is4x4 {
-		staleY2 = makeOracleStaleY2Snapshot(coeffDst.EOB[24], coeffDst.QCoeff[24])
+		staleY2 = makeOracleStaleY2Snapshot(coeffs.EOB[24], coeffs.QCoeff[24])
 	}
 	if mbSkipCoeff {
 		rate2 -= stats.rateY + stats.rateUV

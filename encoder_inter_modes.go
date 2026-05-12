@@ -77,7 +77,6 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 	quant *vp8enc.MacroblockQuant,
 	sourceAltRefZeroMVOnly bool,
 ) (interFrameModeDecision, bool) {
-	segmentQIndex := encoderSegmentQIndex(baseQIndex, segmentation, segmentID)
 	if !e.interAnalysisUsesRDModeDecision() {
 		// Libvpx encodeframe.c resets x->rdmult/x->rddiv from the
 		// frame-level cpi->RDMULT/RDDIV before vp8cx_mb_init_quantizer()
@@ -94,10 +93,14 @@ func (e *VP8Encoder) selectInterFrameModeDecision(
 			sourceAltRefZeroMVOnly,
 		)
 	}
+	// The RD picker has the same frame-level RD-constant rule as the fast
+	// picker above. Segment Q still feeds residual quantization through quant,
+	// but candidate scoring, thresholds, motion costs, and intra penalties use
+	// cm->base_qindex via cpi->RDMULT/RDDIV.
 	return e.selectRDInterFrameModeDecision(
 		src, refs, refCount,
 		mbRow, mbCol, mbRows, mbCols,
-		segmentQIndex, segmentID,
+		baseQIndex, segmentID,
 		above, left, aboveLeft,
 		aboveTok, leftTok,
 		quant,

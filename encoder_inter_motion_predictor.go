@@ -136,7 +136,7 @@ func biasImprovedInterFrameMVSlots(slots *[8]improvedInterFrameMVSlot, count int
 	}
 	targetBias := signBias[refFrame]
 	limit := min(count, len(slots))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		slot := &slots[i]
 		if slot.refFrame == vp8common.IntraFrame {
 			continue
@@ -170,7 +170,7 @@ func clampInterFrameModeMotionVectorComponent(v int, lowEdge int, highEdge int) 
 func improvedInterFrameMVSlotOrder(slots [8]improvedInterFrameMVSlot, count int) [8]int {
 	var order [8]int
 	limit := min(count, len(order))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		order[i] = i
 	}
 	for i := 1; i < limit; i++ {
@@ -202,7 +202,7 @@ func improvedInterFrameMVMedian(slots [8]improvedInterFrameMVSlot, count int) vp
 	// cols[:count] (count is unbounded from the compiler's view) and
 	// also closes a latent panic when count > 8.
 	limit := min(count, len(slots))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		rows[i] = int(slots[i].mv.Row)
 		cols[i] = int(slots[i].mv.Col)
 	}

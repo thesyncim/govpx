@@ -165,6 +165,31 @@ func TestMotionVectorCostTablesSubpelSearchCostMatchesLibvpxMVC(t *testing.T) {
 	}
 }
 
+func TestMotionVectorCostTablesErrorCostMatchesLibvpxMCompCenter(t *testing.T) {
+	probs := tables.DefaultMVContext
+	probs[0][mvProbIsShort] = 99
+	probs[1][mvProbSign] = 111
+	var costs MotionVectorCostTables
+	costs.Build(&probs)
+
+	tests := []struct {
+		mv  MotionVector
+		ref MotionVector
+	}{
+		{MotionVector{}, MotionVector{}},
+		{MotionVector{Row: 8, Col: 0}, MotionVector{Row: 14, Col: 2}},
+		{MotionVector{Row: 14, Col: -6}, MotionVector{Row: 8, Col: -8}},
+		{MotionVector{Row: -16, Col: 24}, MotionVector{Row: 4, Col: -2}},
+	}
+	for _, tt := range tests {
+		got := costs.ErrorCostFromEighthDeltas(int(tt.mv.Row), int(tt.mv.Col), int(tt.ref.Row), int(tt.ref.Col), 34)
+		want := MotionVectorErrorCost(tt.mv, tt.ref, &probs, 34)
+		if got != want {
+			t.Fatalf("mv=%+v ref=%+v table error cost = %d, want %d", tt.mv, tt.ref, got, want)
+		}
+	}
+}
+
 func TestWriteMotionVectorAllocatesZero(t *testing.T) {
 	buf := make([]byte, 64)
 	probs := tables.DefaultMVContext

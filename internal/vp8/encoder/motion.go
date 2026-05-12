@@ -132,6 +132,19 @@ func (t *MotionVectorCostTables) SubpelSearchCostFromQuarterDeltas(mvRow4 int, m
 	return (cost*errorPerBit + 128) >> 8
 }
 
+// ErrorCostFromEighthDeltas mirrors libvpx mv_err_cost for the central
+// sub-pel search point. Unlike the MVC macro used for neighbouring candidates,
+// mv_err_cost computes (mv-ref)>>1 and clamps negative deltas to zero.
+func (t *MotionVectorCostTables) ErrorCostFromEighthDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, errorPerBit int) int {
+	if t == nil {
+		return 0
+	}
+	row := clampMVMCompCostInput((mvRow8 - refRow8) >> 1)
+	col := clampMVMCompCostInput((mvCol8 - refCol8) >> 1)
+	cost := int(t.Component[0][row+mvComponentMax]) + int(t.Component[1][col+mvComponentMax])
+	return (cost*errorPerBit + 128) >> 8
+}
+
 // MotionVectorSADCost mirrors libvpx mvsad_err_cost (mcomp.c). libvpx
 // pre-shifts both operands to full-pel before subtracting:
 //

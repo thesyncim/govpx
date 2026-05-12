@@ -73,7 +73,6 @@ type predictedMacroblockCoefficientArgs struct {
 // cached DCTs so all token-context outputs stay byte-identical.
 type interRDCoeffCacheState struct {
 	valid         bool
-	coeffsValid   bool
 	is4x4         bool
 	intra         bool
 	fastQuant     bool
@@ -90,10 +89,6 @@ type interRDCoeffCacheState struct {
 	YDCTs [16 * 16]int16
 	// UVDCTs holds the 8 chroma DCTs (U0..U3 then V0..V3).
 	UVDCTs [8 * 16]int16
-	// coeffs holds the post-quantized coefficient package for picker
-	// candidates whose quantizer output is reusable by the accepted path
-	// (same quant identity, no trellis/optimizer dependency).
-	coeffs vp8enc.MacroblockCoefficients
 }
 
 func (c *interRDCoeffCacheState) reset() {
@@ -101,7 +96,6 @@ func (c *interRDCoeffCacheState) reset() {
 		return
 	}
 	c.valid = false
-	c.coeffsValid = false
 }
 
 // consumeInterRDCoeffCache returns the winner cache slot if it is valid.
@@ -145,14 +139,6 @@ func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCo
 		c.qIndex == args.qIndex &&
 		c.zbinOverQuant == args.zbinOverQuant &&
 		c.zbinModeBoost == args.zbinModeBoost
-}
-
-func interRDCacheCoefficientsReusable(c *interRDCoeffCacheState, args *predictedMacroblockCoefficientArgs) bool {
-	return interRDCacheReusable(c, args) &&
-		c.coeffsValid &&
-		!args.collectStats &&
-		(!oracleTraceBuild || !args.collectOracle) &&
-		!args.optimize
 }
 
 func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArgs) {
@@ -203,13 +189,6 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	}
 	if args.cacheIn != nil && args.phaseStats != nil {
 		args.phaseStats.InterRDCoeffCacheRequests++
-	}
-	if interRDCacheCoefficientsReusable(args.cacheIn, args) {
-		if args.phaseStats != nil {
-			args.phaseStats.InterRDCoeffCacheCoeffHits++
-		}
-		*args.coeffs = args.cacheIn.coeffs
-		return stats
 	}
 	return buildPredictedMacroblockCoefficientsWork(args)
 }
@@ -525,7 +504,6 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 		if collectStats {
 			stats.distortionUV >>= 2
 		}
-		storeInterRDCacheCoefficients(args)
 		return stats
 	}
 
@@ -577,22 +555,7 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	if collectStats {
 		stats.distortionUV >>= 2
 	}
-	storeInterRDCacheCoefficients(args)
 	return stats
-}
-
-func storeInterRDCacheCoefficients(args *predictedMacroblockCoefficientArgs) {
-	if args.cacheOut == nil {
-		return
-	}
-	args.cacheOut.coeffsValid = false
-	if args.optimize || (oracleTraceBuild && args.collectOracle) {
-		return
-	}
-	if args.coeffs != &args.cacheOut.coeffs {
-		args.cacheOut.coeffs = *args.coeffs
-	}
-	args.cacheOut.coeffsValid = true
 }
 
 // gatherMacroblockYResiduals4x4 writes the 16 luma 4x4 residuals of

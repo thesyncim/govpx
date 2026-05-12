@@ -114,8 +114,6 @@ type EncoderPhaseStats struct {
 	InterRDCoeffCacheRequests int64 `json:"inter_rd_coeff_cache_requests"`
 	// InterRDCoeffCacheDCTHits counts cached DCT/residual reuse hits.
 	InterRDCoeffCacheDCTHits int64 `json:"inter_rd_coeff_cache_dct_hits"`
-	// InterRDCoeffCacheCoeffHits counts cached quantized-coefficient reuse hits.
-	InterRDCoeffCacheCoeffHits int64 `json:"inter_rd_coeff_cache_coeff_hits"`
 	// InterCoefTokenRecords counts token-rate records produced during inter RD.
 	InterCoefTokenRecords int64 `json:"inter_coef_token_records"`
 

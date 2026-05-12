@@ -870,7 +870,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 	// Hoist the min(refCount, len(refs)) bound out of the loop condition
 	// so each iteration only does one compare instead of two.
 	refLimit := min(refCount, len(refs))
-	for refIndex := 0; refIndex < refLimit; refIndex++ {
+	for refIndex := range refLimit {
 		ref := refs[refIndex]
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, vp8enc.MotionVector{})
 		nearest, near := interAnalysisReferenceMotionPredictorsWithSignBias(ref.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, signBias)

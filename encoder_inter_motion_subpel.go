@@ -54,7 +54,7 @@ func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int,
 	errorPerBit := libvpxErrorPerBit(s.qIndex)
 	refRow4 := int(s.bestRefMV.Row) >> 1
 	refCol4 := int(s.bestRefMV.Col) >> 1
-	bestEval := s.candidateEval(&subCtx, bestRow, bestCol, refRow4, refCol4, errorPerBit)
+	bestEval := s.centerEval(&subCtx, bestRow, bestCol, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
@@ -110,11 +110,39 @@ func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row in
 	}
 }
 
+func (s *interFrameSubpixelSearch) centerEval(subCtx *subpelSearchCtx, row int, col int, errorPerBit int) subpelCandidateEval {
+	s.stats.recordSubpelCandidate()
+	dist, sse, ok := subCtx.subpelVarianceForQuarterMV(row, col)
+	if !ok {
+		s.stats.recordSubpelBoundsReject()
+		return subpelCandidateEval{cost: maxInt()}
+	}
+	s.stats.recordSubpelVariance()
+	return subpelCandidateEval{
+		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
+		variance: dist,
+		sse:      sse,
+		ok:       true,
+	}
+}
+
 func (s *interFrameSubpixelSearch) motionCost(row int, col int, refRow4 int, refCol4 int, errorPerBit int) int {
 	if s.mvProbs == nil || s.mvCosts == nil {
 		return 0
 	}
 	return s.mvCosts.SubpelSearchCostFromQuarterDeltas(row, col, refRow4, refCol4, errorPerBit)
+}
+
+func (s *interFrameSubpixelSearch) centerMotionCost(row int, col int, errorPerBit int) int {
+	if s.mvProbs == nil {
+		return 0
+	}
+	mvRow8 := row * 2
+	mvCol8 := col * 2
+	if s.mvCosts != nil {
+		return s.mvCosts.ErrorCostFromEighthDeltas(mvRow8, mvCol8, int(s.bestRefMV.Row), int(s.bestRefMV.Col), errorPerBit)
+	}
+	return vp8enc.MotionVectorErrorCost(vp8enc.MotionVector{Row: int16(mvRow8), Col: int16(mvCol8)}, s.bestRefMV, s.mvProbs, errorPerBit)
 }
 
 func interFrameSubpixelMotionVectorInRange(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector) bool {
@@ -290,9 +318,15 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 		}
 		return eval
 	}
-	bestEval := cand(br, bc)
+	bestEval := s.centerEval(&subCtx, br, bc, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
+	}
+	if cachedCount < len(cachedRows) {
+		cachedRows[cachedCount] = br
+		cachedCols[cachedCount] = bc
+		cachedEval[cachedCount] = bestEval
+		cachedCount++
 	}
 
 	for range 3 {

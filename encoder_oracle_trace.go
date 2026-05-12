@@ -360,6 +360,12 @@ type oracleTraceInterCandidateSummary struct {
 	MV              vp8enc.MotionVector
 	ModeTrace       vp8enc.InterFrameMacroblockMode
 	HasModeTrace    bool
+
+	ImprovedMVStart        bool
+	ImprovedMVNearSADIndex int
+	ImprovedMVRow          int16
+	ImprovedMVCol          int16
+	ImprovedMVSR           int
 }
 
 const oracleTraceInterCandidateUnknown = -1

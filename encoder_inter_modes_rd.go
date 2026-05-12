@@ -293,6 +293,10 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
 		if traceEnabled {
+			improvedStart := interFrameSearchStart{}
+			if mbMode == vp8common.NewMV && uint(refIndex) < uint(len(newMVCandidates)) {
+				improvedStart = newMVCandidates[refIndex].start
+			}
 			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 				Picker:          "rd",
 				MBRow:           mbRow,
@@ -319,6 +323,12 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				Skip:            mbSkipCoeff || mode.MBSkipCoeff,
 				ModeTrace:       mode,
 				HasModeTrace:    true,
+
+				ImprovedMVStart:        improvedStart.ok,
+				ImprovedMVNearSADIndex: improvedStart.nearSADIndex,
+				ImprovedMVRow:          improvedStart.mv.Row,
+				ImprovedMVCol:          improvedStart.mv.Col,
+				ImprovedMVSR:           improvedStart.sr,
 			})
 		}
 		if becameBest {

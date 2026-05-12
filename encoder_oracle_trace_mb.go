@@ -83,8 +83,15 @@ func (e *VP8Encoder) emitOracleInterCandidateTrace(summary oracleTraceInterCandi
 		MVRow: mv.Row,
 		MVCol: mv.Col,
 
-		ImprovedMVNearSADIndex: oracleTraceInterCandidateUnknown,
-		ImprovedMVSR:           oracleTraceInterCandidateUnknown,
+		ImprovedMVStart:        summary.ImprovedMVStart,
+		ImprovedMVNearSADIndex: summary.ImprovedMVNearSADIndex,
+		ImprovedMVRow:          summary.ImprovedMVRow,
+		ImprovedMVCol:          summary.ImprovedMVCol,
+		ImprovedMVSR:           summary.ImprovedMVSR,
+	}
+	if !summary.ImprovedMVStart {
+		row.ImprovedMVNearSADIndex = oracleTraceInterCandidateUnknown
+		row.ImprovedMVSR = oracleTraceInterCandidateUnknown
 	}
 	state := e.oracleTraceState()
 	state.interCandidateBuffer = append(state.interCandidateBuffer, row)
