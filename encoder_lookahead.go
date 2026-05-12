@@ -135,7 +135,7 @@ func (e *VP8Encoder) peekLookahead(index int, forward bool) *lookaheadEntry {
 		return nil
 	}
 	if forward {
-		if index < 0 || index >= e.lookaheadCount {
+		if uint(index) >= uint(e.lookaheadCount) {
 			return nil
 		}
 		// libvpx: assert(index < ctx->max_sz - 1).

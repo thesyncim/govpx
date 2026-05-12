@@ -371,7 +371,7 @@ func buildCoefficientTokenBranchPaths() [tables.MaxEntropyTokens]coefficientToke
 		for bitIndex := int(encoding.Len) - 1; bitIndex >= 0; bitIndex-- {
 			bit := int((encoding.Value >> uint(bitIndex)) & 1)
 			probIndex := int(node >> 1)
-			if probIndex < 0 || probIndex >= tables.EntropyNodes || int(node)+bit >= len(tables.CoefTree) {
+			if uint(probIndex) >= uint(tables.EntropyNodes) || int(node)+bit >= len(tables.CoefTree) {
 				panic("govpx: invalid VP8 coefficient token tree")
 			}
 			path := &paths[token]

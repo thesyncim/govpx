@@ -526,7 +526,7 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 	if ctx.forcedKeyFrame {
 		q = rc.avgFrameQuantizer
 	}
-	if q < 0 || q >= len(libvpxKeyFrameBoostQAdjustment) {
+	if uint(q) >= uint(len(libvpxKeyFrameBoostQAdjustment)) {
 		q = rc.clampedQuantizerValue(rc.maxQuantizer)
 	}
 

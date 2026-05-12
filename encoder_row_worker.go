@@ -397,7 +397,7 @@ func (p *rowWorkerPool) reset(mbRows int) {
 // vpx_atomic_store_release(current_mb_col, mb_col - 1) at every
 // nsync columns.
 func (p *rowWorkerPool) publishRowColumn(r int, col int) {
-	if p == nil || r < 0 || r >= len(p.rowProgress) {
+	if p == nil || uint(r) >= uint(len(p.rowProgress)) {
 		return
 	}
 	p.rowProgress[r].value.Store(int64(col))
