@@ -555,6 +555,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-48x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-48x48", w: 48, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
 		{name: "realtime-cbr-cpu-8-96x96-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}},
 		{name: "realtime-cbr-cpu-8-128x128-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}},
+		// cpu-3 / cpu-8 segmented at 64x* mid sizes. The segmented fixture
+		// exercises per-macroblock segment-ID assignment + segment-aware
+		// quantizer/loopfilter offsets. cpu-3/-8 already byte-match the
+		// 16/32/48 small and 96/128 mid sizes; closing the gap between
+		// those locks segmented parity across the contiguous size range.
+		{name: "realtime-cbr-cpu-3-64x32-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x32", w: 64, h: 32, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-64x48-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x48", w: 64, h: 48, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-3-80x80-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-80x80", w: 80, h: 80, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-64x32-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x32", w: 64, h: 32, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-64x48-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x48", w: 64, h: 48, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-64x64-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu-8-80x80-segmented", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-80x80", w: 80, h: 80, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
