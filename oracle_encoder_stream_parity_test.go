@@ -285,6 +285,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// VBR + small frames.
 		{name: "realtime-vbr-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
 		{name: "realtime-vbr-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, limit: -1, extraArgs: []string{"--end-usage=vbr"}},
+		// Segmented fixture (checkerboard MB pattern) on small frames —
+		// probes the per-MB encode logic with a different source signal
+		// than the panning gradient. All three byte-match the full
+		// 16-frame sequence.
+		{name: "realtime-cbr-cpu0-32x32-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu0-48x48-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-48x48", w: 48, h: 48, source: encoderValidationSegmentedFrame}},
+		{name: "realtime-cbr-cpu0-16x16-segmented", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "segmented-16x16", w: 16, h: 16, source: encoderValidationSegmentedFrame}},
 	}
 
 	for _, tc := range cases {
