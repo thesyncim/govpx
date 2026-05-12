@@ -332,10 +332,52 @@ func countCoefficientMacroblockTokensAndRecords(is4x4 bool, above *TokenContextP
 }
 
 func countBlockCoefficientTokens(counts *coefficientTokenCounts, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
-	return countBlockCoefficientTokensAndRecords(counts, nil, blockType, ctx, skipDC, qcoeff, eob)
+	// Uint range checks collapse the (x < 0 || x >= max) dual-bound
+	// pairs into one branch each. Hot per-block validation.
+	if counts == nil || qcoeff == nil ||
+		uint(blockType) >= uint(tables.BlockTypes) ||
+		uint(ctx) >= uint(tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
+		return ErrInvalidPacketConfig
+	}
+	if eob <= skipDC {
+		(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
+		return nil
+	}
+	if eob > 16 {
+		return ErrInvalidPacketConfig
+	}
+
+	band := skipDC
+	tokenCtx := ctx
+	for pos := skipDC; pos < eob; pos++ {
+		rc := tables.DefaultZigZag1D[pos] & 0xF
+		coeff := int(qcoeff[rc])
+		signMask := coeff >> intSignShift
+		mag := (coeff ^ signMask) - signMask
+		if uint(mag) > uint(tables.DCTMaxValue) {
+			return ErrInvalidPacketConfig
+		}
+		token := int(coeffAbsTokenLUT[mag])
+		(*counts)[blockType&3][band&7][tokenCtx][token]++
+		if pos+1 < 16 {
+			band = int(tables.CoefBandsTable[pos+1])
+			tokenCtx = int(tables.PrevTokenClass[token])
+		}
+	}
+	if eob < 16 {
+		(*counts)[blockType&3][band&7][tokenCtx][tables.DCTEOBToken]++
+	}
+	return nil
 }
 
 func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, records *InterCoefficientTokenRecords, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
+	// Records-nil callers (e.g. probability-only update passes) re-enter
+	// the cheaper count-only path; the per-coefficient nil check that
+	// previously sat inside appendTokenUnchecked is hoisted once here.
+	if records == nil {
+		return countBlockCoefficientTokens(counts, blockType, ctx, skipDC, qcoeff, eob)
+	}
 	// Uint range checks collapse the (x < 0 || x >= max) dual-bound
 	// pairs into one branch each. Hot per-block validation.
 	if counts == nil || qcoeff == nil ||
@@ -378,8 +420,9 @@ func countBlockCoefficientTokensAndRecords(counts *coefficientTokenCounts, recor
 		// 0..7 for band. AND-mask both so BlockTypes(=4) and
 		// CoefBands(=8) bounds checks elide (both are powers of two).
 		(*counts)[blockType&3][band&7][tokenCtx][token]++
-		// Validation hoisted to the function entry, so the per-coeff
-		// pack-and-append skips the redundant range checks.
+		// records guaranteed non-nil by the entry branch above, so the
+		// per-coefficient nil check inside appendTokenUnchecked has been
+		// dropped (it is the hot-path unchecked variant by contract).
 		records.appendTokenUnchecked(blockType, band, tokenCtx, token, mag, sign, skipEOBNode)
 		if pos+1 < 16 {
 			band = int(tables.CoefBandsTable[pos+1])

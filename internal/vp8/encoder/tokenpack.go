@@ -102,10 +102,12 @@ func MarkInterCoefficientTokenRecordRowEnd(records *InterCoefficientTokenRecords
 // countBlockCoefficientTokensAndRecords) validate at function entry,
 // so the per-coefficient cost of re-validating showed up as ~10% extra
 // time in the entropy walk under pprof.
+//
+// Records MUST be non-nil; the variant with the nil-tolerant entry is
+// appendTokenIfNotNil. Hoisting the nil check out of the per-coefficient
+// loop avoids the per-iter compare+branch the inlined nil check
+// otherwise emits.
 func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) {
-	if records == nil {
-		return
-	}
 	value := uint32(token) << coefficientTokenRecordTokenShift
 	value |= uint32(blockType) << coefficientTokenRecordBlockTypeShift
 	value |= uint32(band) << coefficientTokenRecordBandShift
