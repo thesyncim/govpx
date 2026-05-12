@@ -465,6 +465,21 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu-3-48x48", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, limit: 1},
 		{name: "good-quality-cbr-cpu-3-128x128", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, limit: 1},
 		{name: "good-quality-cbr-cpu-5-32x32", deadline: DeadlineGoodQuality, cpuUsed: -5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, limit: 2},
+		// cpu-3 / cpu-8 token-partitions probes. Negative cpu_used bypasses
+		// autoSpeed evolution and gives the cleanest parity surface. The
+		// partitioned bitstream layout exercises a separate write/pack
+		// path (writePreparedInterCoefficientTokenGridPartitioned) that
+		// isn't covered by positive-cpu probes for the same sizes.
+		{name: "realtime-cbr-cpu-3-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu-3-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu-3-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		{name: "realtime-cbr-cpu-8-2partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu-8-4partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu-8-8partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// cpu-3 / cpu-8 mid-frame token-partitions at 128x128 (the largest
+		// fixture that byte-matches every frame at both cpu values).
+		{name: "realtime-cbr-cpu-3-128x128-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu-8-128x128-4partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 	}
 
 	for _, tc := range cases {
