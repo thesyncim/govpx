@@ -112,6 +112,99 @@ func TestQuantTablesMatchLibvpxSource(t *testing.T) {
 	}
 }
 
+// TestScanTablesMatchLibvpxSource validates every scan-order, inverse
+// scan, and neighbor table in scan.go against libvpx's vp9_scan.c. This
+// guards against accidental hand-edits to the generated file and against
+// regressions in gen_scan.go itself.
+func TestScanTablesMatchLibvpxSource(t *testing.T) {
+	srcPath := findLibvpxSource("vp9/common/vp9_scan.c")
+	if srcPath == "" {
+		t.Skip("libvpx checkout not present under internal/coracle/build")
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read libvpx source: %v", err)
+	}
+	src := string(raw)
+
+	cases := []struct {
+		name string
+		got  []int16
+	}{
+		{"default_scan_4x4", DefaultScan4x4[:]},
+		{"default_scan_8x8", DefaultScan8x8[:]},
+		{"default_scan_16x16", DefaultScan16x16[:]},
+		{"default_scan_32x32", DefaultScan32x32[:]},
+		{"col_scan_4x4", ColScan4x4[:]},
+		{"col_scan_8x8", ColScan8x8[:]},
+		{"col_scan_16x16", ColScan16x16[:]},
+		{"row_scan_4x4", RowScan4x4[:]},
+		{"row_scan_8x8", RowScan8x8[:]},
+		{"row_scan_16x16", RowScan16x16[:]},
+		{"vp9_default_iscan_4x4", DefaultIScan4x4[:]},
+		{"vp9_default_iscan_8x8", DefaultIScan8x8[:]},
+		{"vp9_default_iscan_16x16", DefaultIScan16x16[:]},
+		{"vp9_default_iscan_32x32", DefaultIScan32x32[:]},
+		{"vp9_col_iscan_4x4", ColIScan4x4[:]},
+		{"vp9_col_iscan_8x8", ColIScan8x8[:]},
+		{"vp9_col_iscan_16x16", ColIScan16x16[:]},
+		{"vp9_row_iscan_4x4", RowIScan4x4[:]},
+		{"vp9_row_iscan_8x8", RowIScan8x8[:]},
+		{"vp9_row_iscan_16x16", RowIScan16x16[:]},
+		{"default_scan_4x4_neighbors", DefaultScan4x4Neighbors[:]},
+		{"default_scan_8x8_neighbors", DefaultScan8x8Neighbors[:]},
+		{"default_scan_16x16_neighbors", DefaultScan16x16Neighbors[:]},
+		{"default_scan_32x32_neighbors", DefaultScan32x32Neighbors[:]},
+		{"col_scan_4x4_neighbors", ColScan4x4Neighbors[:]},
+		{"col_scan_8x8_neighbors", ColScan8x8Neighbors[:]},
+		{"col_scan_16x16_neighbors", ColScan16x16Neighbors[:]},
+		{"row_scan_4x4_neighbors", RowScan4x4Neighbors[:]},
+		{"row_scan_8x8_neighbors", RowScan8x8Neighbors[:]},
+		{"row_scan_16x16_neighbors", RowScan16x16Neighbors[:]},
+	}
+	for _, tc := range cases {
+		want := extractScanArray(src, tc.name)
+		if want == nil {
+			t.Errorf("%s: marker not found in libvpx source", tc.name)
+			continue
+		}
+		compareTable(t, tc.name, tc.got, want)
+	}
+}
+
+// extractScanArray finds a single DECLARE_ALIGNED int16_t table by name
+// regardless of whether the declared length is a literal or an
+// expression. extractCArray's "name[N]" marker form doesn't work for the
+// scan tables because they use "name[N * MAX_NEIGHBORS]" forms.
+func extractScanArray(src, name string) []int {
+	needle := name + "["
+	idx := strings.Index(src, needle)
+	if idx < 0 {
+		return nil
+	}
+	open := strings.Index(src[idx:], "{")
+	if open < 0 {
+		return nil
+	}
+	open += idx
+	close := strings.Index(src[open:], "}")
+	if close < 0 {
+		return nil
+	}
+	close += open
+	body := src[open+1 : close]
+	tokens := regexp.MustCompile(`-?\d+`).FindAllString(body, -1)
+	out := make([]int, 0, len(tokens))
+	for _, t := range tokens {
+		v, err := strconv.Atoi(t)
+		if err != nil {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 // TestVpxNormMatchesLibvpxSource is the same oracle check for the
 // boolean coder's normalization table.
 func TestVpxNormMatchesLibvpxSource(t *testing.T) {
