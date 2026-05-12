@@ -572,14 +572,20 @@ func splitMotionSubsetSearchCenter(partition int, subset int, mode *vp8enc.Inter
 	if partition != 3 || subset == 0 {
 		return bestRefMV
 	}
-	block := int(vp8tables.MBSplitOffset[uint8(partition)][subset])
+	// MBSplitOffset is [4][16]uint8; partition is validated to [0,4)
+	// at caller boundaries and subset comes from MBSplitCount[partition]
+	// (≤16). Pow2 masks elide both per-call bounds checks.
+	block := int(vp8tables.MBSplitOffset[uint8(partition)&3][subset&15])
+	// block is in [0,15] by the table's contents (uint8 cells holding
+	// 0..15). mode.BlockMV is [16]MotionVector; AND-mask with 15 elides
+	// the bounds checks on both indexed loads here.
 	if block&3 == 0 {
 		if block >= 4 {
-			return mode.BlockMV[block-4]
+			return mode.BlockMV[(block-4)&15]
 		}
 		return bestRefMV
 	}
-	return mode.BlockMV[block-1]
+	return mode.BlockMV[(block-1)&15]
 }
 
 func splitMotionSubsetSearchStepParam(partition int, subset int, compressorSpeed int, seeds *splitMotionSearchSeeds) int {
