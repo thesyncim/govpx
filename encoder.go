@@ -993,25 +993,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 
 	cfg := defaultRateControlConfig(normalized)
 	e := &VP8Encoder{
-		opts:                    normalized,
-		timing:                  timing,
-		cyclicRefreshMap:        make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		cyclicRefreshAttemptMap: make([]int8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		skinMap:                 make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		consecZeroLast:          make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		consecZeroLastMVBias:    make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		dotArtifactChecked:      make([]bool, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		activeMap:               make([]uint8, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		keyFrameModes:           make([]vp8enc.KeyFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		interFrameModes:         make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		lastFrameInterModes:     make([]vp8enc.InterFrameMacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		lastFrameInterModeBias:  make([]bool, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		keyFrameCoeffs:          make([]vp8enc.MacroblockCoefficients, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		tokenAbove:              make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
-		reconstructAboveTok:     make([]vp8enc.TokenContextPlanes, encoderMacroblockCols(normalized.Width)),
-
-		reconstructModes:   make([]vp8dec.MacroblockMode, encoderMacroblockCount(normalized.Width, normalized.Height)),
-		reconstructTokens:  make([]vp8dec.MacroblockTokens, encoderMacroblockCount(normalized.Width, normalized.Height)),
+		opts:               normalized,
+		timing:             timing,
 		coefProbs:          vp8tables.DefaultCoefProbs,
 		refProbIntra:       63,
 		refProbLast:        128,
@@ -1019,15 +1002,11 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		probSkipFalse:      128,
 		baseSkipFalseProbs: libvpxBaseSkipFalseProbs,
 	}
-	vp8enc.ResetInterCoefficientTokenRecords(&e.interCoefTokenRecords, encoderMacroblockRows(normalized.Height), encoderMacroblockCount(normalized.Width, normalized.Height))
+	if err := e.reallocateForDimensions(normalized.Width, normalized.Height); err != nil {
+		return nil, err
+	}
 	e.resetInterRDThresholdMultipliers()
 	vp8dec.ResetModeProbs(&e.modeProbs)
-	if err := e.initReferenceFrames(normalized.Width, normalized.Height); err != nil {
-		return nil, err
-	}
-	if err := e.initPreprocessFrames(normalized.Width, normalized.Height); err != nil {
-		return nil, err
-	}
 	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
 		return nil, err
 	}
@@ -1069,24 +1048,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.opts.TemporalScalability = e.temporal.config
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
-	// Allocate the row-parallel worker pool only when Threads >= 2.
-	// Threads=1 stays byte-identical and zero-cost: no pool, no
-	// goroutines, no atomic ops, no per-row scratch allocation.
-	// Mirrors libvpx vp8cx_create_encoder_threads early return when
-	// cpi->oxcf.multi_threaded < 2.
-	if eff := e.effectiveThreadCount(); eff >= 2 {
-		mbRows := encoderMacroblockRows(e.opts.Height)
-		mbCols := encoderMacroblockCols(e.opts.Width)
-		e.rowWorkers = newRowWorkerPool(eff, mbRows, mbCols)
-		// loopFilterPickAlt is the second LF-trial scratch used only on
-		// the parallel filt_low/filt_high dispatch in pickFull. It is
-		// allocated only when a row-worker pool exists so Threads=1
-		// stays zero-cost (no extra ~921 KB at 720p).
-		if e.rowWorkers != nil {
-			if err := e.loopFilterPickAlt.Resize(normalized.Width, normalized.Height, 32, 32); err != nil {
-				return nil, ErrInvalidConfig
-			}
-		}
+	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {
+		return nil, err
 	}
 	return e, nil
 }
