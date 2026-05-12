@@ -581,6 +581,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-96x96-8partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 		{name: "realtime-cbr-cpu-8-128x128-2partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-8-128x128-8partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// cpu-3 / cpu-8 panning-64x64 quantizer-range and bitrate-extreme
+		// probes. 64x64 byte-matches at both speeds; varying the
+		// quantizer floor/ceiling and bitrate exercises the rate-control
+		// trajectory on a parity-stable small frame.
+		{name: "realtime-cbr-cpu-3-64x64-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-64x64-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-64x64-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-64x64-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-64x64-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-64x64-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-64x64-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-64x64-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
