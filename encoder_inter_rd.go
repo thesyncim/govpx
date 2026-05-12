@@ -265,7 +265,9 @@ func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
 		return false
 	}
 	index := mbRow*mbCols + mbCol
-	if index < 0 || index >= len(e.skinMap) {
+	// Uint range check folds the (index < 0) and (index >= len) guards
+	// into one branch and elides the bounds check on e.skinMap[index].
+	if uint(index) >= uint(len(e.skinMap)) {
 		return false
 	}
 	return e.skinMap[index] != 0

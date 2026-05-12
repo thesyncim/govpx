@@ -269,7 +269,7 @@ func (rc *rateControlState) updateRateCorrectionFactor(actualBits int, keyFrame 
 	if keyFrame {
 		frameType = 0
 	}
-	if q < 0 || q >= len(libvpxBitsPerMB[frameType]) {
+	if uint(q) >= uint(len(libvpxBitsPerMB[frameType])) {
 		return
 	}
 	rateCorrectionFactor := rc.rateCorrectionFactorForFrame(keyFrame, goldenFrame)

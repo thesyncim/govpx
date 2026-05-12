@@ -236,7 +236,7 @@ func (rc *rateControlState) rateCorrectionFactorAfterFrameSize(actualBits int, k
 	if keyFrame {
 		frameType = 0
 	}
-	if q < 0 || q >= len(libvpxBitsPerMB[frameType]) {
+	if uint(q) >= uint(len(libvpxBitsPerMB[frameType])) {
 		return rateCorrectionFactor
 	}
 	rateCorrectionFactor = normalizedRateCorrectionFactor(rateCorrectionFactor)
