@@ -475,9 +475,9 @@ func buildInterFrameNstepSearchSites() [1 + interFrameMaxMVSearchSteps*8]vp8enc.
 		count++
 		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(-length)}
 		count++
-		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(-length)}
-		count++
 		sites[count] = vp8enc.MotionVector{Row: int16(-length), Col: int16(length)}
+		count++
+		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(-length)}
 		count++
 		sites[count] = vp8enc.MotionVector{Row: int16(length), Col: int16(length)}
 		count++
