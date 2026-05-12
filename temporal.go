@@ -235,7 +235,7 @@ func (t *temporalState) finishDroppedFrame(meta temporalFrame, buffers temporalB
 func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, showFrame bool, encodedBits int, buffers temporalBufferConfig) {
 	t.updateLayerBufferConfig(buffers)
 	t.accountInputFrame(meta)
-	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+	if uint(meta.LayerID) >= uint(t.pattern.Layers) {
 		return
 	}
 	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
@@ -250,14 +250,14 @@ func (t *temporalState) accountEncodedFrame(meta temporalFrame, keyFrame bool, s
 }
 
 func (t *temporalState) accountInputFrame(meta temporalFrame) {
-	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+	if uint(meta.LayerID) >= uint(t.pattern.Layers) {
 		return
 	}
 	t.accounting[meta.LayerID].InputFrames++
 }
 
 func (t *temporalState) accountDroppedFrameBuffer(meta temporalFrame) {
-	if meta.LayerID < 0 || meta.LayerID >= t.pattern.Layers {
+	if uint(meta.LayerID) >= uint(t.pattern.Layers) {
 		return
 	}
 	for layer := meta.LayerID; layer < t.pattern.Layers; layer++ {
@@ -314,7 +314,7 @@ func (t *temporalState) layerSync(meta temporalFrame) bool {
 }
 
 func (t *temporalState) temporalLayerBitrateKbps(layerID int) int {
-	if layerID < 0 || layerID >= t.pattern.Layers {
+	if uint(layerID) >= uint(t.pattern.Layers) {
 		return 0
 	}
 	current := t.config.LayerTargetBitrateKbps[layerID]
@@ -325,7 +325,7 @@ func (t *temporalState) temporalLayerBitrateKbps(layerID int) int {
 }
 
 func (t *temporalState) temporalLayerFrameTargetBits(layerID int, timing timingState) int {
-	if layerID < 0 || layerID >= t.pattern.Layers {
+	if uint(layerID) >= uint(t.pattern.Layers) {
 		return 0
 	}
 	layerBitrateBits := t.temporalLayerBitrateKbps(layerID) * 1000
@@ -397,7 +397,7 @@ func (t *temporalState) setLayerID(layerID int) error {
 	if t.enabled {
 		layers = t.pattern.Layers
 	}
-	if layerID < 0 || layerID >= layers {
+	if uint(layerID) >= uint(layers) {
 		return ErrInvalidConfig
 	}
 	if t.enabled {
