@@ -921,11 +921,17 @@ func interAnalysisReferenceMotionPredictorsWithSignBias(refFrame vp8common.MVRef
 }
 
 func appendInterAnalysisMotionCandidate(candidates *[interFrameMotionCandidateMax]interAnalysisMotionCandidate, count int, ref interAnalysisReference, mv vp8enc.MotionVector) int {
-	if candidates == nil || count >= len(candidates) {
+	// uint range collapses (count<0)+(count>=len) and proves count is in
+	// [0, len) for subsequent indexing.
+	if candidates == nil || uint(count) >= uint(len(candidates)) {
 		return count
 	}
-	for i := range count {
-		if candidates[i].Ref.Frame == ref.Frame && candidates[i].Ref.Img == ref.Img && candidates[i].MV == mv {
+	// Sub-slice to [0, count] so the linear-scan loop body indexes a
+	// statically-bounded slice instead of doing a per-iter bounds check
+	// against the full array.
+	existing := candidates[:count]
+	for i := range existing {
+		if existing[i].Ref.Frame == ref.Frame && existing[i].Ref.Img == ref.Img && existing[i].MV == mv {
 			return count
 		}
 	}
