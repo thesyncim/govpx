@@ -134,7 +134,9 @@ func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
 		Partition: uint8(ctx.partition),
 	}
 	width, height := splitMotionPartitionBlockSize(ctx.partition)
-	labelCount := int(vp8tables.MBSplitCount[mode.Partition])
+	// NumMBSplits=4 (pow2) and ctx.partition was just validated to
+	// [0,4); mask with 3 elides the bounds check on MBSplitCount.
+	labelCount := int(vp8tables.MBSplitCount[mode.Partition&3])
 	labelMVThresh := splitMotionLabelMVThreshold(ctx.mvthresh, labelCount)
 	// libvpx rd_check_segment seeds this_segment_rd with
 	// RDCOST(mbsplit_tree + cost_mv_ref(SPLITMV), 0), then adds each label's

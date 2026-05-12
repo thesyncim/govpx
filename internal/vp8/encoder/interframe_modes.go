@@ -186,7 +186,7 @@ func WriteSplitMotionVectors(w *BoolWriter, probs *[2][tables.MVPCount]uint8, mo
 	if !writeMBSplit(w, int(mode.Partition)) {
 		return ErrInvalidPacketConfig
 	}
-	partitions := int(tables.MBSplitCount[mode.Partition])
+	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)

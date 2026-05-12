@@ -179,7 +179,7 @@ func validSplitMVMode(mode *InterFrameMacroblockMode) bool {
 	if mode == nil || mode.Mode != common.SplitMV || mode.Partition >= tables.NumMBSplits {
 		return false
 	}
-	partitions := int(tables.MBSplitCount[mode.Partition])
+	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	fillCount := int(tables.MBSplitFillCount[mode.Partition])
 	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
@@ -204,7 +204,7 @@ func validSplitMVModeWithContext(mode *InterFrameMacroblockMode, left *InterFram
 	if !validSplitMVMode(mode) {
 		return false
 	}
-	partitions := int(tables.MBSplitCount[mode.Partition])
+	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
@@ -300,7 +300,7 @@ func countSplitMotionVectorBranches(counts *[2][tables.MVPCount][2]int, mode *In
 	if counts == nil || !validSplitMVModeWithContext(mode, left, above) {
 		return ErrInvalidPacketConfig
 	}
-	partitions := int(tables.MBSplitCount[mode.Partition])
+	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
@@ -325,7 +325,7 @@ func countSplitMotionVectorEvents(events *motionVectorEventCounts, mode *InterFr
 	if events == nil || !validSplitMVModeWithContext(mode, left, above) {
 		return ErrInvalidPacketConfig
 	}
-	partitions := int(tables.MBSplitCount[mode.Partition])
+	partitions := int(tables.MBSplitCount[mode.Partition&3])
 	for subset := range partitions {
 		block := int(tables.MBSplitOffset[mode.Partition][subset])
 		leftMV := splitLeftMV(mode, left, block)
