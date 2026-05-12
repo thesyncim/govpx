@@ -270,3 +270,79 @@ func TestImprovedInterFrameSearchStartIgnoresStaleMVOnIntraNeighbor(t *testing.T
 		t.Fatalf("median fallback mv = %+v, want zero (libvpx zeros intra slots before median)", start.mv)
 	}
 }
+
+func TestImprovedInterFrameSearchStartIntraSlotsAffectSADRank(t *testing.T) {
+	const mbRows, mbCols = 4, 4
+	width, height := mbCols*16, mbRows*16
+	src := testImage(width, height)
+	fillImage(src, 32, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			src.Y[(16+row)*src.YStride+16+col] = byte(33 + ((row*17 + col*29 + row*col*3) & 127))
+		}
+	}
+
+	analysis := testVP8Frame(t, width, height, 220, 90, 170)
+	copyCurrentToAnalysis := func(dstMBRow, dstMBCol int) {
+		for row := range 16 {
+			srcOff := (16+row)*src.YStride + 16
+			dstOff := (dstMBRow*16+row)*analysis.Img.YStride + dstMBCol*16
+			copy(analysis.Img.Y[dstOff:dstOff+16], src.Y[srcOff:srcOff+16])
+		}
+	}
+	copyCurrentToAnalysis(0, 1) // current-frame above slot 0: intra, low SAD.
+	copyCurrentToAnalysis(0, 0) // current-frame above-left slot 2: intra, low SAD.
+
+	last := testVP8Frame(t, width, height, 220, 90, 170)
+	for row := range 16 {
+		srcOff := (16+row)*src.YStride + 16
+		dstOff := (16+row)*last.Img.YStride + 16
+		copy(last.Img.Y[dstOff:dstOff+16], src.Y[srcOff:srcOff+16])
+	}
+	prevModes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
+	for i := range prevModes {
+		prevModes[i] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV}
+	}
+	prevModes[1*mbCols+1] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred}
+
+	e := &VP8Encoder{
+		analysis:                 analysis,
+		lastRef:                  last,
+		lastFrameInterModes:      prevModes,
+		lastFrameInterModesValid: true,
+	}
+	above := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.IntraFrame,
+		Mode:     vp8common.DCPred,
+		MV:       vp8enc.MotionVector{Row: 1200, Col: -1200},
+	}
+	left := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.LastFrame,
+		Mode:     vp8common.NewMV,
+		MV:       vp8enc.MotionVector{Row: 16, Col: -256},
+	}
+	aboveLeft := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.IntraFrame,
+		Mode:     vp8common.DCPred,
+		MV:       vp8enc.MotionVector{Row: -900, Col: 900},
+	}
+
+	start := e.improvedInterFrameSearchStart(
+		sourceImageFromPublic(src), vp8common.LastFrame,
+		1, 1, mbRows, mbCols,
+		&above, &left, &aboveLeft,
+		interAnalysisSearchConfig{improvedMVPrediction: true},
+	)
+	if !start.ok {
+		t.Fatalf("predictor returned not-ok")
+	}
+	if start.mv != left.MV {
+		t.Fatalf("mv = %+v, want current-frame left MV %+v", start.mv, left.MV)
+	}
+	if start.nearSADIndex != 1 {
+		t.Fatalf("near_sadidx = %d, want current-frame left slot 1", start.nearSADIndex)
+	}
+	if start.sr != 2 {
+		t.Fatalf("sr = %d, want 2 because lower-SAD intra slots keep their SAD rank", start.sr)
+	}
+}

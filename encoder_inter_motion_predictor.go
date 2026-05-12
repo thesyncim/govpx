@@ -78,10 +78,13 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 }
 
 func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
-	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a nil
-	// pointer (border MB) corresponds to libvpx's calloc-zeroed mode_info
-	// sentinel row/column where ref_frame == INTRA_FRAME and mv == 0, and
-	// vp8_cal_sad sets the matching near_sad entry to INT_MAX.
+	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a
+	// nil pointer (border MB) corresponds to libvpx's calloc-zeroed
+	// mode_info sentinel row/column where ref_frame == INTRA_FRAME and
+	// mv == 0, and vp8_cal_sad sets the matching near_sad entry to INT_MAX.
+	// In-frame intra neighbors still receive a real near_sad value; they are
+	// skipped later by the ref-frame match but still affect the matched
+	// neighbor's SAD rank and therefore the search range.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if mode == nil || refMbRow < 0 || refMbCol < 0 {
 		return
@@ -96,6 +99,7 @@ func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *v
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero when the neighbor is intra; do
 		// the same here regardless of any stale MV field on the mode entry.
+		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 		return
 	}
 	slot.mv = mode.MV
@@ -107,7 +111,9 @@ func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8c
 	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
 	// sentinel rows (top/bottom) and columns (left/right) which are
 	// calloc-zeroed and therefore report INTRA_FRAME with mv == 0, while
-	// vp8_cal_sad sets the matching near_sad entry to INT_MAX.
+	// vp8_cal_sad sets the matching near_sad entry to INT_MAX. In-frame
+	// previous-frame intra slots still get their real last-frame SAD and can
+	// change the matched slot's rank.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
 		return
@@ -124,6 +130,7 @@ func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8c
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero for intra last-frame slots even
 		// though it still increments vcnt; mirror that exactly.
+		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 		return
 	}
 	slot.mv = mode.MV
