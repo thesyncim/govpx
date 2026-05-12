@@ -52,15 +52,13 @@ func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int,
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
 	errorPerBit := libvpxErrorPerBit(s.qIndex)
-	refRow4 := int(s.bestRefMV.Row) >> 1
-	refCol4 := int(s.bestRefMV.Col) >> 1
 	bestEval := s.centerEval(&subCtx, bestRow, bestCol, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
-	bestEval, bestRow, bestCol = s.directionalStep(&subCtx, bestRow, bestCol, 2, bestEval, refRow4, refCol4, errorPerBit)
+	bestEval, bestRow, bestCol = s.directionalStep(&subCtx, bestRow, bestCol, 2, bestEval, errorPerBit)
 	if quarter {
-		bestEval, bestRow, bestCol = s.directionalStep(&subCtx, bestRow, bestCol, 1, bestEval, refRow4, refCol4, errorPerBit)
+		bestEval, bestRow, bestCol = s.directionalStep(&subCtx, bestRow, bestCol, 1, bestEval, errorPerBit)
 	}
 	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
 	if !interFrameSubpixelMotionVectorInRange(finalMV, s.bestRefMV) {
@@ -69,13 +67,13 @@ func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int,
 	return finalMV, bestEval.cost, bestEval.variance, bestEval.sse, true
 }
 
-func (s *interFrameSubpixelSearch) directionalStep(subCtx *subpelSearchCtx, startRow int, startCol int, step int, bestEval subpelCandidateEval, refRow4 int, refCol4 int, errorPerBit int) (subpelCandidateEval, int, int) {
+func (s *interFrameSubpixelSearch) directionalStep(subCtx *subpelSearchCtx, startRow int, startCol int, step int, bestEval subpelCandidateEval, errorPerBit int) (subpelCandidateEval, int, int) {
 	bestRow := startRow
 	bestCol := startCol
-	leftEval := s.candidateEval(subCtx, startRow, startCol-step, refRow4, refCol4, errorPerBit)
-	rightEval := s.candidateEval(subCtx, startRow, startCol+step, refRow4, refCol4, errorPerBit)
-	upEval := s.candidateEval(subCtx, startRow-step, startCol, refRow4, refCol4, errorPerBit)
-	downEval := s.candidateEval(subCtx, startRow+step, startCol, refRow4, refCol4, errorPerBit)
+	leftEval := s.stepCandidateEval(subCtx, startRow, startCol-step, errorPerBit)
+	rightEval := s.stepCandidateEval(subCtx, startRow, startCol+step, errorPerBit)
+	upEval := s.stepCandidateEval(subCtx, startRow-step, startCol, errorPerBit)
+	downEval := s.stepCandidateEval(subCtx, startRow+step, startCol, errorPerBit)
 	bestEval, bestRow, bestCol = updateSubpixelSearchBestEval(bestEval, bestRow, bestCol, leftEval, startRow, startCol-step)
 	bestEval, bestRow, bestCol = updateSubpixelSearchBestEval(bestEval, bestRow, bestCol, rightEval, startRow, startCol+step)
 	bestEval, bestRow, bestCol = updateSubpixelSearchBestEval(bestEval, bestRow, bestCol, upEval, startRow-step, startCol)
@@ -89,9 +87,25 @@ func (s *interFrameSubpixelSearch) directionalStep(subCtx *subpelSearchCtx, star
 	if leftEval.cost >= rightEval.cost {
 		diagCol = startCol + step
 	}
-	diagEval := s.candidateEval(subCtx, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+	diagEval := s.stepCandidateEval(subCtx, diagRow, diagCol, errorPerBit)
 	bestEval, bestRow, bestCol = updateSubpixelSearchBestEval(bestEval, bestRow, bestCol, diagEval, diagRow, diagCol)
 	return bestEval, bestRow, bestCol
+}
+
+func (s *interFrameSubpixelSearch) stepCandidateEval(subCtx *subpelSearchCtx, row int, col int, errorPerBit int) subpelCandidateEval {
+	s.stats.recordSubpelCandidate()
+	dist, sse, ok := subCtx.subpelVarianceForQuarterMV(row, col)
+	if !ok {
+		s.stats.recordSubpelBoundsReject()
+		return subpelCandidateEval{cost: maxInt()}
+	}
+	s.stats.recordSubpelVariance()
+	return subpelCandidateEval{
+		cost:     dist + s.centerMotionCost(row, col, errorPerBit),
+		variance: dist,
+		sse:      sse,
+		ok:       true,
+	}
 }
 
 func (s *interFrameSubpixelSearch) candidateEval(subCtx *subpelSearchCtx, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {

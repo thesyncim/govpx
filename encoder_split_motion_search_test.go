@@ -95,7 +95,7 @@ func TestSelectInterFrameSplitSubsetMotionModeRefinesNew4x4Subpixel(t *testing.T
 	}
 	width, height := splitMotionPartitionBlockSize(int(mode.Partition))
 
-	mv, bMode := selectInterFrameSplitSubsetMotionMode(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height, vp8enc.MotionVector{}, testInterSearchQIndex, nil, nil)
+	mv, bMode := selectInterFrameSplitSubsetMotionModeWithSearch(sourceImageFromPublic(src), &ref.Img, 0, 0, &mode, 0, width, height, vp8enc.MotionVector{}, vp8enc.MotionVector{Row: 16, Col: 16}, 7, false, testInterSearchQIndex, nil, nil, defaultInterAnalysisSearchConfig(), &vp8tables.DefaultMVContext)
 
 	if bMode != vp8common.New4x4 || (int(mv.Row)&7 == 0 && int(mv.Col)&7 == 0) {
 		t.Fatalf("subset candidate = %+v/%v, want NEW4X4 subpixel MV", mv, bMode)
@@ -180,8 +180,8 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesSearchCenter(t *test
 
 	bestRefMV := vp8enc.MotionVector{}
 	reusedCenter := vp8enc.MotionVector{Col: 64}
-	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0, 5, false)
-	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0, 5, false)
+	mv, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, reusedCenter, bestRefMV, 0, 5, false, &vp8tables.DefaultMVContext)
+	noReuseMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0, 5, false, &vp8tables.DefaultMVContext)
 	bestQualityMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenter(sourceImageFromPublic(src), &ref.Img, 0, 0, 1, 4, 4, bestRefMV, bestRefMV, 0)
 
 	if mv != (vp8enc.MotionVector{Col: 96}) {
@@ -206,14 +206,43 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorUsesStepParam(t *testing
 	ref.ExtendBorders()
 
 	source := sourceImageFromPublic(src)
-	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6, false)
-	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7, false)
+	stepTwoMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 6, false, &vp8tables.DefaultMVContext)
+	stepOneMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, vp8enc.MotionVector{}, 0, 7, false, &vp8tables.DefaultMVContext)
 
 	if stepTwoMV != (vp8enc.MotionVector{Col: 16}) {
 		t.Fatalf("step_param 6 MV = %+v, want col +16", stepTwoMV)
 	}
 	if stepOneMV == stepTwoMV {
 		t.Fatalf("step_param 7 reached %+v; want smaller diamond window than step_param 6", stepOneMV)
+	}
+}
+
+func TestSelectInterFrameSplitBlockFullPixelMotionVectorReturnsMVErrorCost(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*83 + col*41 + row*col*23 + row*row*3) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 4, 4, 2, 1)
+	ref.ExtendBorders()
+
+	source := sourceImageFromPublic(src)
+	bestRefMV := vp8enc.MotionVector{Row: -10, Col: 6}
+	mv, gotCost := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(source, &ref.Img, 0, 0, 0, 4, 4, vp8enc.MotionVector{}, bestRefMV, testInterSearchQIndex, 6, false, &vp8tables.DefaultMVContext)
+
+	if int(mv.Row)&7 != 0 || int(mv.Col)&7 != 0 {
+		t.Fatalf("split full-pel MV = %+v, want full-pel aligned", mv)
+	}
+	wantCost, ok := interMotionSplitBlockFullPixelReturnCost(source, &ref.Img, 0, 0, 0, 4, 4, mv, bestRefMV, testInterSearchQIndex, &vp8tables.DefaultMVContext)
+	if !ok {
+		t.Fatalf("interMotionSplitBlockFullPixelReturnCost returned ok=false")
+	}
+	if gotCost != wantCost {
+		t.Fatalf("split full-pel return cost = %d, want variance+mv_err_cost %d", gotCost, wantCost)
+	}
+	if walkCost := interMotionSplitBlockSearchCost(source, &ref.Img, 0, 0, 0, 4, 4, mv, bestRefMV, testInterSearchQIndex); gotCost == walkCost {
+		t.Fatalf("test setup did not distinguish return cost from SAD walk cost: %d", gotCost)
 	}
 }
 

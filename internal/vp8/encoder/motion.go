@@ -80,8 +80,8 @@ func MotionVectorErrorCost(mv MotionVector, ref MotionVector, probs *[2][tables.
 }
 
 // MotionVectorSubpelSearchCost mirrors libvpx's MVC macro inside
-// vp8_find_best_sub_pixel_step_iteratively / vp8_find_best_sub_pixel_step in
-// mcomp.c. CHECK_BETTER and the half/quarter-pel candidate cost calculation
+// vp8_find_best_sub_pixel_step_iteratively in mcomp.c. CHECK_BETTER and the
+// iterative half/quarter-pel neighboring candidate cost calculation
 // look up mvcost with a signed 1/4-pel index computed as
 //
 //	idx = r - (ref->row >> 1)
@@ -133,7 +133,8 @@ func (t *MotionVectorCostTables) SubpelSearchCostFromQuarterDeltas(mvRow4 int, m
 }
 
 // ErrorCostFromEighthDeltas mirrors libvpx mv_err_cost for the central
-// sub-pel search point. Unlike the MVC macro used for neighbouring candidates,
+// iterative sub-pel search point and for vp8_find_best_sub_pixel_step
+// candidates. Unlike the MVC macro used for iterative neighbouring candidates,
 // mv_err_cost computes (mv-ref)>>1 and clamps negative deltas to zero.
 func (t *MotionVectorCostTables) ErrorCostFromEighthDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, errorPerBit int) int {
 	if t == nil {

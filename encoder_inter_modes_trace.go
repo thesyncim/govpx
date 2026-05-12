@@ -36,7 +36,7 @@ func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(mbRow int, mbCol int, mod
 	})
 }
 
-func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, modeIndex int, refSlot int, refFrame vp8common.MVReferenceFrame, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, breakoutSkip bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode) {
+func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, modeIndex int, refSlot int, refFrame vp8common.MVReferenceFrame, threshold int, bestScoreBefore int, bestSSEBefore int, becameBest bool, breakoutSkip bool, score int, rate int, distortion int, sse int, mode *vp8enc.InterFrameMacroblockMode, improvedStart interFrameSearchStart) {
 	e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 		Picker:          "fast",
 		MBRow:           mbRow,
@@ -63,5 +63,11 @@ func (e *VP8Encoder) emitFastPickerInterCandidateTrace(mbRow int, mbCol int, mod
 		Skip:            breakoutSkip,
 		ModeTrace:       *mode,
 		HasModeTrace:    true,
+
+		ImprovedMVStart:        improvedStart.ok,
+		ImprovedMVNearSADIndex: improvedStart.nearSADIndex,
+		ImprovedMVRow:          improvedStart.mv.Row,
+		ImprovedMVCol:          improvedStart.mv.Col,
+		ImprovedMVSR:           improvedStart.sr,
 	})
 }

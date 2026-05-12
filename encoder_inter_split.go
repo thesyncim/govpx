@@ -329,7 +329,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		return bestMV, bestMode, bestRD
 	}
 
-	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, ctx.stepParam, ctx.fullSearchFallback)
+	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs)
 	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVector(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, ctx.search, ctx.mvProbs); ok {
 		newMV = refinedMV
 	}

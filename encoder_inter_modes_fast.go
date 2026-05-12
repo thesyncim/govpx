@@ -195,6 +195,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		bestScoreBefore := bestScore
 		bestSSEBefore := bestSSE
 		mode := vp8enc.InterFrameMacroblockMode{RefFrame: ref.Frame, Mode: mbMode}
+		improvedStart := interFrameSearchStart{}
 		switch mbMode {
 		case vp8common.ZeroMV:
 		case vp8common.NearestMV, vp8common.NearMV:
@@ -209,6 +210,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		case vp8common.NewMV:
 			search := loopCtx.searchConfig(e)
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			if traceEnabled {
+				improvedStart = start
+			}
 			mvCosts := loopCtx.mvCosts
 			if mvCosts == nil {
 				mvCosts = e.currentMotionVectorCostTables()
@@ -254,7 +258,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			mode.MBSkipCoeff = true
 			rate := e.interMotionModeRateWithReferenceRateAndModeContext(&mode, left, above, e.interReferenceFrameRateForReference(ref), loopCtx.modeMVs.counts, bestRefMV, libvpxFastNewMVBitCostWeight)
 			if traceEnabled {
-				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode)
+				e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScore, bestSSE, true, true, maxInt(), rate, 0, 0, &mode, improvedStart)
 			}
 			e.lowerInterRDThresholdForImprovement(modeIndex)
 			bestSet = true
@@ -275,7 +279,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		becameBest := breakoutSkip || !bestSet || score < bestScore
 		if traceEnabled {
-			e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScoreBefore, bestSSEBefore, becameBest, breakoutSkip, score, rate, distortion, sse, &mode)
+			e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScoreBefore, bestSSEBefore, becameBest, breakoutSkip, score, rate, distortion, sse, &mode, improvedStart)
 		}
 		if becameBest {
 			e.lowerInterRDThresholdForImprovement(modeIndex)

@@ -89,7 +89,7 @@ func (e *VP8Encoder) emitOracleInterCandidateTrace(oracleTraceInterCandidateSumm
 func (e *VP8Encoder) emitFastPickerIntraCandidateTrace(int, int, int, int, int, int, bool, int, int, int, int, *vp8enc.InterFrameMacroblockMode) {
 }
 
-func (e *VP8Encoder) emitFastPickerInterCandidateTrace(int, int, int, int, vp8common.MVReferenceFrame, int, int, int, bool, bool, int, int, int, int, *vp8enc.InterFrameMacroblockMode) {
+func (e *VP8Encoder) emitFastPickerInterCandidateTrace(int, int, int, int, vp8common.MVReferenceFrame, int, int, int, bool, bool, int, int, int, int, *vp8enc.InterFrameMacroblockMode, interFrameSearchStart) {
 }
 
 func (e *VP8Encoder) emitOracleMBTrace(int, int, *vp8enc.InterFrameMacroblockMode, *vp8enc.MacroblockCoefficients, int, int) {
