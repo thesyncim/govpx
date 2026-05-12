@@ -168,13 +168,13 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 	if cfg.MaxBitrateKbps > 0 && cfg.TargetBitrateKbps > cfg.MaxBitrateKbps {
 		return ErrInvalidBitrate
 	}
-	if cfg.MinQuantizer < 0 || cfg.MaxQuantizer < 0 || cfg.MinQuantizer > maxQuantizer || cfg.MaxQuantizer > maxQuantizer {
+	if uint(cfg.MinQuantizer) > uint(maxQuantizer) || uint(cfg.MaxQuantizer) > uint(maxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	if cfg.MinQuantizer > cfg.MaxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if cfg.CQLevel < 0 || cfg.CQLevel > maxQuantizer {
+	if uint(cfg.CQLevel) > uint(maxQuantizer) {
 		return ErrInvalidQuantizer
 	}
 	cqLevel := normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
