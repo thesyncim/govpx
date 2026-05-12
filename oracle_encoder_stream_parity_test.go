@@ -651,6 +651,19 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-48x48-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-48x48-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-48x48-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// cpu-3 / cpu-8 splitmv-64x64 q-range and bitrate-extreme probes.
+		// The base splitmv-64x64 fixture byte-matches at both cpu values
+		// at fps=30 default Q; varying the RC trajectory stresses the
+		// SPLITMV partitioning + RC path together on the parity-stable
+		// speeds.
+		{name: "realtime-cbr-cpu-3-splitmv-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-splitmv-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-splitmv-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-splitmv-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: splitmv64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
