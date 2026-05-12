@@ -450,7 +450,7 @@ func countTreeTokenBranches(counts []([2]int), tree []int16, token TreeToken) bo
 	node := int16(0)
 	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= len(counts) || int(node)+1 >= len(tree) {
+		if uint(probIndex) >= uint(len(counts)) || int(node)+1 >= len(tree) {
 			return false
 		}
 		bit := int((token.Value >> uint(bitIndex)) & 1)
@@ -474,7 +474,7 @@ func countTreeTokenBranchesWeighted(counts []([2]int), tree []int16, token TreeT
 	node := int16(0)
 	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= len(counts) || int(node)+1 >= len(tree) {
+		if uint(probIndex) >= uint(len(counts)) || int(node)+1 >= len(tree) {
 			return false
 		}
 		bit := int((token.Value >> uint(bitIndex)) & 1)

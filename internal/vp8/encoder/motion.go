@@ -227,7 +227,7 @@ func mvTreeTokenCost(tree []int16, probs []uint8, token TreeToken) int {
 	for bitIndex := int(token.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
 		nodeIdx := int(node)
-		if probIndex < 0 || probIndex >= probsLen || nodeIdx+1 >= treeLen {
+		if uint(probIndex) >= uint(probsLen) || nodeIdx+1 >= treeLen {
 			return 1 << 30
 		}
 		bit := int((value >> uint(bitIndex)) & 1)
