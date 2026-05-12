@@ -16,8 +16,5 @@ package encoder
 // (dct_batch_arm64.go, dct_batch_amd64.go), and other platforms fall
 // through to the scalar reference in dct_batch_other.go.
 func ForwardDCT4x4Batch(input []int16, output []int16, count int) {
-	if count <= 0 {
-		return
-	}
 	forwardDCT4x4BatchSIMD(input, output, count)
 }
