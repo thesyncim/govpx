@@ -201,7 +201,9 @@ func treeTokenCostSlow(tree []int16, probs []uint8, token int) int {
 	cost := 0
 	for bitIndex := int(encoded.Len) - 1; bitIndex >= 0; bitIndex-- {
 		probIndex := int(node >> 1)
-		if probIndex < 0 || probIndex >= len(probs) || int(node)+1 >= len(tree) {
+		// uint range folds the (probIndex < 0) and (>= len) bounds into
+		// one compare; the tree bound is independent so kept separate.
+		if uint(probIndex) >= uint(len(probs)) || int(node)+1 >= len(tree) {
 			return maxInt() / 4
 		}
 		prob := probs[probIndex]

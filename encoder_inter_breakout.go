@@ -133,7 +133,10 @@ func referencePlaneBlockOffset(plane []byte, stride int, origin int, y int, x in
 	}
 	off := origin + y*stride + x
 	last := off + (height-1)*stride + width - 1
-	if off < 0 || last < off || last >= len(plane) {
+	// Uint range collapses (off<0)+(off>=len) and (last<0)+(last>=len) into
+	// one compare each. The implicit last<off "overflow" case is also
+	// covered because a wrapped-negative last has uint() >= uint(len).
+	if uint(off) >= uint(len(plane)) || uint(last) >= uint(len(plane)) {
 		return 0, false
 	}
 	return off, true
