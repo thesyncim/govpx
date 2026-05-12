@@ -185,15 +185,15 @@ func denoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgSt
 				diff := int(mcRow[c]) - int(sigRow[c])
 				dMask := diff >> mvKernelSignShift
 				adjustment := min((diff^dMask)-dMask, delta)
-				if diff > 0 {
-					val := max(int(avgRow[c])-adjustment, 0)
-					avgRow[c] = byte(val)
-					colSum[c] -= adjustment
-				} else if diff < 0 {
-					val := min(int(avgRow[c])+adjustment, 255)
-					avgRow[c] = byte(val)
-					colSum[c] += adjustment
-				}
+				// Branchless sign-aware delta: when dMask=0 (diff>=0)
+				// signedDelta=-adjustment, when dMask=-1 signedDelta=+adjustment.
+				// diff==0 collapses to adjustment=0 → signedDelta=0, leaving
+				// avgRow and colSum unchanged just like the original
+				// else-if-skip branch.
+				signedDelta := (adjustment&dMask)<<1 - adjustment
+				val := min(max(int(avgRow[c])+signedDelta, 0), 255)
+				avgRow[c] = byte(val)
+				colSum[c] += signedDelta
 			}
 		}
 		sumDiff = 0
@@ -298,15 +298,13 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 				diff := int(mcRow[c]) - int(sigRow[c])
 				dMask := diff >> mvKernelSignShift
 				adjustment := min((diff^dMask)-dMask, delta)
-				if diff > 0 {
-					val := max(int(avgRow[c])-adjustment, 0)
-					avgRow[c] = byte(val)
-					sumDiff -= adjustment
-				} else if diff < 0 {
-					val := min(int(avgRow[c])+adjustment, 255)
-					avgRow[c] = byte(val)
-					sumDiff += adjustment
-				}
+				// Same branchless sign-aware delta as the 16-wide luma loop:
+				// signedDelta is -adjustment for diff>=0 and +adjustment for
+				// diff<0, collapsing the diff==0 case via adjustment==0.
+				signedDelta := (adjustment&dMask)<<1 - adjustment
+				val := min(max(int(avgRow[c])+signedDelta, 0), 255)
+				avgRow[c] = byte(val)
+				sumDiff += signedDelta
 			}
 		}
 		absMask = sumDiff >> mvKernelSignShift
