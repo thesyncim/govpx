@@ -744,6 +744,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// cpu-3 segmented-128x64 to complete the cross-fixture matrix at
 		// the rectangular size.
 		{name: "realtime-cbr-cpu-3-128x64-segmented", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-128x64", w: 128, h: 64, source: encoderValidationSegmentedFrame}},
+		// cpu-3 / cpu-8 splitmv at small mid sizes — segmented already
+		// has 64x32/64x48/64x64/80x80 covered; mirror the same matrix
+		// for splitmv to lock SPLITMV partitioning parity across the
+		// full contiguous size range.
+		{name: "realtime-cbr-cpu-3-64x32-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-64x32", w: 64, h: 32, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-3-64x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-64x48", w: 64, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-3-80x80-splitmv", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-80x80", w: 80, h: 80, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-64x32-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-64x32", w: 64, h: 32, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-64x48-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-64x48", w: 64, h: 48, source: encoderValidationSplitMVQuadrantFrame}},
+		{name: "realtime-cbr-cpu-8-80x80-splitmv", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-80x80", w: 80, h: 80, source: encoderValidationSplitMVQuadrantFrame}},
 	}
 
 	for _, tc := range cases {
