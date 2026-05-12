@@ -716,6 +716,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu-3-16x16-2partitions", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "good-quality-cbr-cpu-3-16x16-4partitions", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "good-quality-cbr-cpu-3-16x16-8partitions", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// cpu-3 / cpu-8 splitmv-128x128 q-range + bitrate-extreme probes
+		// — extends the SPLITMV + RC cross-product up to 128x128, the
+		// largest SPLITMV fixture that byte-matches at fps=30 default Q
+		// on cpu-3 / cpu-8.
+		{name: "realtime-cbr-cpu-3-128x128-splitmv-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-128x128-splitmv-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-128x128-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-3-128x128-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
+		{name: "realtime-cbr-cpu-8-128x128-splitmv-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 	}
 
 	for _, tc := range cases {
