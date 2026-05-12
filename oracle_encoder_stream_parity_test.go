@@ -616,6 +616,18 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-96x96-splitmv-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-128x128-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-128x128-splitmv-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "splitmv-128x128", w: 128, h: 128, source: encoderValidationSplitMVQuadrantFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
+		// cpu-3 / cpu-8 panning-32x32 and panning-48x48 q-range probes.
+		// Both base fixtures byte-match at fps=30 default Q on cpu-3/-8;
+		// q10-30 and q40-60 stress the quantizer trajectory on the
+		// smallest parity-stable frames.
+		{name: "realtime-cbr-cpu-3-32x32-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-32x32-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-3-48x48-q10-30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-48x48-q40-60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-32x32-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-32x32-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
+		{name: "realtime-cbr-cpu-8-48x48-q10-30", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-8-48x48-q40-60", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, minQ: 40, maxQ: 60},
 	}
 
 	for _, tc := range cases {
