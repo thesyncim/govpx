@@ -156,7 +156,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		// 1..3 by construction here): the helper does the same lookup but
 		// the loop touches it on every iteration so inlining avoids the
 		// extra bounds checks against searchOrder/refs.
-		refIndex := refSearchOrder[refSlot]
+		// refSearchOrder is [4]int and refSlot ∈ [0,3]; AND-mask with 3
+		// elides the bounds check.
+		refIndex := refSearchOrder[refSlot&3]
 		// Single uint range check folds the (refIndex < 0) and
 		// (refIndex >= len) guards.
 		if uint(refIndex) >= uint(len(refs)) {
