@@ -741,23 +741,16 @@ func macroblockCornerGradient(plane []byte, stride int, offRow int, offCol int, 
 	y2 := int(plane[offRow*stride+offCol+sgnCol])
 	y3 := int(plane[(offRow+sgnRow)*stride+offCol])
 	y4 := int(plane[(offRow+sgnRow)*stride+offCol+sgnCol])
+	// Branchless |delta| via sign-mask XOR plus max() to fold the
+	// per-neighbor d{1,2,3} max ladder into builtin calls.
 	d1 := y1 - y2
-	if d1 < 0 {
-		d1 = -d1
-	}
+	m1 := d1 >> mvKernelSignShift
+	d1 = (d1 ^ m1) - m1
 	d2 := y1 - y3
-	if d2 < 0 {
-		d2 = -d2
-	}
+	m2 := d2 >> mvKernelSignShift
+	d2 = (d2 ^ m2) - m2
 	d3 := y1 - y4
-	if d3 < 0 {
-		d3 = -d3
-	}
-	if d2 > d1 {
-		d1 = d2
-	}
-	if d3 > d1 {
-		d1 = d3
-	}
-	return d1
+	m3 := d3 >> mvKernelSignShift
+	d3 = (d3 ^ m3) - m3
+	return max(max(d1, d2), d3)
 }
