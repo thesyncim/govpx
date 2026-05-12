@@ -335,13 +335,13 @@ func gatherBlock(dst []byte, dstStride int, src []byte, srcStride, srcX, srcY, s
 func writeARNRBlock(dst []byte, dstStride, dstX, dstY, dstW, dstH, size int, accumulator []uint32, count []uint32) {
 	for j := range size {
 		yy := dstY + j
-		if yy < 0 || yy >= dstH {
+		if uint(yy) >= uint(dstH) {
 			continue
 		}
 		row := dst[yy*dstStride:]
 		for i := range size {
 			xx := dstX + i
-			if xx < 0 || xx >= dstW {
+			if uint(xx) >= uint(dstW) {
 				continue
 			}
 			k := j*size + i

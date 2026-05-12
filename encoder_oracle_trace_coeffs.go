@@ -28,7 +28,7 @@ func applyOracleStaleY2Snapshot(coeffs *vp8enc.MacroblockCoefficients, snapshot 
 }
 
 func recordOracleY1DCEOB1(coeffs *vp8enc.MacroblockCoefficients, block int, value uint8) {
-	if coeffs == nil || block < 0 || block >= len(coeffs.OracleY1DCEOB1) {
+	if coeffs == nil || uint(block) >= uint(len(coeffs.OracleY1DCEOB1)) {
 		return
 	}
 	coeffs.OracleY1DCEOB1[block] = value
