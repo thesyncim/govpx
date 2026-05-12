@@ -403,6 +403,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu4-128x128", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu4-160x96", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu4-640x480", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}, limit: 1},
+		// GoodQuality cpu5 at clean larger sizes — all 4 hit full byte parity.
+		{name: "good-quality-cbr-cpu5-64x32", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-64x32", w: 64, h: 32, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-96x96", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-96x96", w: 96, h: 96, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-128x128", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}},
+		{name: "good-quality-cbr-cpu5-160x96", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-160x96", w: 160, h: 96, source: encoderValidationPanningFrame}},
+		// GoodQuality + segmented at larger sizes — frames 0-1 byte-match
+		// then diverge at frame 2 in the segmented-fixture inter-mode path
+		// for cpu4 at 128x128 / 160x96.
+		{name: "good-quality-cbr-cpu4-128x128-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-128x128", w: 128, h: 128, source: encoderValidationSegmentedFrame}, limit: 2},
+		{name: "good-quality-cbr-cpu4-160x96-segmented", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "segmented-160x96", w: 160, h: 96, source: encoderValidationSegmentedFrame}, limit: 2},
 	}
 
 	for _, tc := range cases {
