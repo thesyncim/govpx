@@ -29,17 +29,17 @@ import (
 // oracleTraceFrameRow is the per-frame oracle trace row.
 //
 // RefreshEntropyProbs mirrors libvpx's `cm->refresh_entropy_probs` after the
-// `vp8_pack_bitstream` error-resilient override (bitstream.c around line
-// 1226): when error_resilient_mode includes VPX_ERROR_RESILIENT_PARTITIONS,
-// libvpx forces refresh_entropy_probs=1 on key frames and refresh_entropy_probs=0
-// on inter frames regardless of the encoder's earlier choice. govpx tracks
-// the same per-attempt flag through `keyFrameEncodeAttempt.RefreshEntropyProbs`
-// / `interFrameEncodeAttempt.Config.RefreshEntropyProbs`.
+// `vp8_pack_bitstream` / encode loop error-resilient overrides: plain
+// error-resilient mode forces refresh_entropy_probs=0, while
+// VPX_ERROR_RESILIENT_PARTITIONS forces refresh_entropy_probs=1 on key frames
+// and refresh_entropy_probs=0 on inter frames. govpx tracks the same
+// per-attempt flag through `keyFrameEncodeAttempt.RefreshEntropyProbs` /
+// `interFrameEncodeAttempt.Config.RefreshEntropyProbs`.
 //
 // DefaultCoefReset mirrors libvpx's "force-default coef probs/counts" gate:
-// when error_resilient_mode is VPX_ERROR_RESILIENT_PARTITIONS AND the frame
-// is a key frame, libvpx resets `cm->fc.coef_probs` and `mb->coef_counts` to
-// their defaults via vp8_setup_key_frame -> vp8_default_coef_probs and the
+// when error_resilient_mode includes VPX_ERROR_RESILIENT_PARTITIONS AND the
+// frame is a key frame, libvpx resets `cm->fc.coef_probs` and `mb->coef_counts`
+// to their defaults via vp8_setup_key_frame -> vp8_default_coef_probs and the
 // on-the-fly bitpacking branch in `vp8_update_coef_context`. The flag is the
 // gate, not the side-effect, so parity tests can confirm both encoders took
 // the same branch even when the underlying tables already matched.
@@ -382,10 +382,10 @@ func (e *VP8Encoder) oracleTraceEnabled() bool {
 // pass to emitOracleFrameTrace. It exists so the call site does not depend on
 // the exact attempt struct shape. The frame row's `refresh_entropy_probs`
 // and `default_coef_reset` fields are derived inside emitOracleFrameTrace
-// from `summary.FrameType` and `e.opts.ErrorResilient`, mirroring libvpx's
-// `vp8_pack_bitstream` error-resilient override and the
-// `error_resilient && key-frame` default-coef gate respectively, so callers
-// do not need to thread those values through the summary struct.
+// from `summary.FrameType` and the error-resilient options, mirroring libvpx's
+// `vp8_pack_bitstream` error-resilient overrides and the
+// `VPX_ERROR_RESILIENT_PARTITIONS && key-frame` default-coef gate respectively,
+// so callers do not need to thread those values through the summary struct.
 //
 // SharpnessLevel mirrors libvpx's `cm->sharpness_level`. RefLFDeltas /
 // ModeLFDeltas / ModeRefLFDeltaEnable / ModeRefLFDeltaUpdate mirror
@@ -423,25 +423,17 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 		return
 	}
 	keyFrame := summary.FrameType == vp8common.KeyFrame
-	// Mirror libvpx vp8/encoder/bitstream.c around line 1226: when
-	// error_resilient_mode == VPX_ERROR_RESILIENT_PARTITIONS the encoder
-	// forces refresh_entropy_probs to 1 on key frames and to 0 on inter
-	// frames, regardless of the per-attempt choice. Outside the
-	// error-resilient mode govpx's keyframe path always sets
-	// RefreshEntropyProbs=true (see encoder.go: WriteCoefficientKeyFrame
-	// configuration), and the inter path sets true unless the caller
-	// passed EncodeNoUpdateEntropy. The trace approximates the typical
-	// case (no NoUpdateEntropy flag) so libvpx and govpx match in the
-	// common configuration; a future hook can override this when the
-	// per-attempt flag becomes part of the summary.
+	// Mirror libvpx's error-resilient refresh-entropy overrides: plain
+	// error-resilient mode forces false for key and inter frames; partitions
+	// mode forces true only for key frames. Outside error-resilient modes,
+	// this trace covers the normal no-NoUpdateEntropy path.
 	refreshEntropyProbs := true
-	if e.opts.ErrorResilient && !keyFrame {
-		refreshEntropyProbs = false
+	if e.opts.ErrorResilient || e.opts.ErrorResilientPartitions {
+		refreshEntropyProbs = keyFrame && e.opts.ErrorResilientPartitions
 	}
-	// Mirror libvpx vp8/encoder/bitstream.c default-coef gate exposed by
-	// the oracle TU: error_resilient_mode is set AND frame is a key
-	// frame. govpx uses `e.opts.ErrorResilient && keyframe` to match.
-	defaultCoefReset := e.opts.ErrorResilient && keyFrame
+	// Mirror libvpx's default-coef gate: only the independent-partitions bit
+	// takes the keyframe reset branch.
+	defaultCoefReset := e.opts.ErrorResilientPartitions && keyFrame
 	row := oracleTraceFrameRow{
 		Type:                 "frame",
 		FrameIndex:           e.frameCount,

@@ -378,7 +378,7 @@ func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly(t *testing.T) {
+func TestEncodeIntoErrorResilientUsesTransientEntropyUpdates(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, true)
 	src := testImage(16, 16)
 	fillImage(src, 180, 90, 170)
@@ -389,15 +389,15 @@ func TestEncodeIntoErrorResilientRefreshesKeyEntropyOnly(t *testing.T) {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	keyState := packetState(t, key.Data)
-	if !keyState.Refresh.RefreshEntropyProbs {
-		t.Fatalf("error-resilient key refresh entropy = false, want libvpx forced true")
+	if keyState.Refresh.RefreshEntropyProbs {
+		t.Fatalf("error-resilient key refresh entropy = true, want libvpx forced false")
 	}
 	if keyState.Probability.UpdateCount == 0 {
-		t.Fatalf("error-resilient key coefficient updates = 0, want independent-context updates")
+		t.Fatalf("error-resilient key coefficient updates = 0, want transient updates")
 	}
 	committedKeyProbs := e.coefProbs
-	if committedKeyProbs == vp8tables.DefaultCoefProbs {
-		t.Fatalf("error-resilient key did not commit coefficient probabilities")
+	if committedKeyProbs != vp8tables.DefaultCoefProbs {
+		t.Fatalf("error-resilient key committed coefficient probabilities, want default snapshot")
 	}
 
 	inter, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 2), 1, 1, 0)

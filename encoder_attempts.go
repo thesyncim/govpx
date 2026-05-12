@@ -136,7 +136,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefLFDeltas:           lfHeader.RefDeltas,
 		ModeLFDeltas:          lfHeader.ModeDeltas,
 		Segmentation:          segmentation,
-		RefreshEntropyProbs:   true,
+		RefreshEntropyProbs:   !e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
 		IndependentContexts:   e.opts.ErrorResilientPartitions,
 		// libvpx initializes pc->mb_no_coeff_skip = 1 for every frame
 		// (alloccommon.c), so the keyframe header always carries the

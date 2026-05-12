@@ -138,10 +138,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// EncoderOptions.ErrorResilientPartitions maps to.
 		{name: "realtime-cbr-cpu8-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
 		// ErrorResilient=true takes the normal error-resilient bitmask
-		// path, distinct from independent partition contexts above. It
-		// exposes a remaining frame-0 byte gap, so keep it visible without
-		// asserting parity yet.
-		{name: "realtime-cbr-cpu0-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		// path, distinct from independent partition contexts above.
+		{name: "realtime-cbr-cpu0-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		// Sharpness != 0 exercises the loop-filter header literal width.
 		{name: "realtime-cbr-cpu8-sharpness4", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
 		{name: "realtime-cbr-cpu0-16x16-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
