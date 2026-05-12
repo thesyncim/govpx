@@ -36,7 +36,7 @@ func gatherMacroblockYResiduals4x4Unchecked(src *byte, srcStride int, pred *byte
 // 16 int16 per block in scan order). Same fast/slow split as the Y
 // gatherer.
 func gatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
-	if baseY >= 0 && baseX >= 0 && baseY+8 <= height && baseX+8 <= width {
+	if uint(baseY) <= uint(height-8) && uint(baseX) <= uint(width-8) {
 		srcEnd := (baseY+7)*srcStride + baseX + 7
 		predEnd := (baseY+7)*predStride + baseX + 7
 		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 4*16 {

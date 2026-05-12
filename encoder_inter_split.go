@@ -473,7 +473,7 @@ func predictSplitMotionBlock4x4(ref *vp8common.Image, mbRow int, mbCol int, bloc
 	if xOffset|yOffset != 0 {
 		return predictSplitMotionSubpixelBlock4x4(ref, refBaseY, refBaseX, xOffset, yOffset, out)
 	}
-	if refBaseY >= 0 && refBaseX >= 0 && refBaseY+4 <= ref.CodedHeight && refBaseX+4 <= ref.CodedWidth {
+	if uint(refBaseY) <= uint(ref.CodedHeight-4) && uint(refBaseX) <= uint(ref.CodedWidth-4) {
 		for row := range 4 {
 			copy(out[row*4:row*4+4], ref.Y[(refBaseY+row)*ref.YStride+refBaseX:])
 		}

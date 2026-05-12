@@ -497,15 +497,13 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	xOffset := int(mv.Col) & 7
 	yOffset := int(mv.Row) & 7
 	if xOffset|yOffset != 0 {
-		if baseY >= 0 && baseX >= 0 &&
-			baseY+height <= src.Height && baseX+width <= src.Width {
+		if uint(baseY) <= uint(src.Height-height) && uint(baseX) <= uint(src.Width-width) {
 			if sad, ok := splitBlockSubpixelSAD(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset); ok {
 				return sad
 			}
 		}
 	}
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+height <= src.Height && baseX+width <= src.Width {
+	if uint(baseY) <= uint(src.Height-height) && uint(baseX) <= uint(src.Width-width) {
 		srcBlock := src.Y[baseY*src.YStride+baseX:]
 		refBlock, ok := refFullPelYSlice(ref, refBaseY, refBaseX, width, height)
 		if ok {
@@ -661,9 +659,11 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	uvHeight := (src.Height + 1) >> 1
 	refUVWidth := (ref.CodedWidth + 1) >> 1
 	refUVHeight := (ref.CodedHeight + 1) >> 1
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+8 <= uvHeight && baseX+8 <= uvWidth &&
-		baseY+8 <= refUVHeight && baseX+8 <= refUVWidth {
+	// Uint-range collapse on each chroma dimension; the 4 src-dim and
+	// ref-dim guards become 4 single compares (was 6 in the original
+	// boolean chain).
+	if uint(baseY) <= uint(uvHeight-8) && uint(baseX) <= uint(uvWidth-8) &&
+		uint(baseY) <= uint(refUVHeight-8) && uint(baseX) <= uint(refUVWidth-8) {
 		srcUOffset := baseY*src.UStride + baseX
 		refUOffset := baseY*ref.UStride + baseX
 		srcVOffset := baseY*src.VStride + baseX
@@ -690,9 +690,8 @@ func macroblockChromaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 func macroblockLumaVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) (int, int) {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
-	if baseY >= 0 && baseX >= 0 &&
-		baseY+16 <= src.Height && baseX+16 <= src.Width &&
-		baseY+16 <= ref.CodedHeight && baseX+16 <= ref.CodedWidth {
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) &&
+		uint(baseY) <= uint(ref.CodedHeight-16) && uint(baseX) <= uint(ref.CodedWidth-16) {
 		// R15-C: fused (sum, sse) read collapses Variance16x16 + SSE16x16
 		// into one SIMD pass (variance = sse - sum*sum/256).
 		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[baseY*ref.YStride+baseX], ref.YStride)
