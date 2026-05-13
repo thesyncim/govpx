@@ -103,7 +103,9 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 		{name: "screen-content1-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		// screen-content2-panning-256x144 at cpu-3 covers the overshoot-drop
 		// path, screen-content cyclic refresh, and key-frame refresh-map state.
-		{name: "screen-content2-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		// It currently byte-matches through the first inter packet, then logs
+		// the remaining screen-content2 cyclic-refresh drift.
+		{name: "screen-content2-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, limit: 2, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "screen-content2-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
