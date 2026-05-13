@@ -60,24 +60,35 @@ type rowEncoderState struct {
 	// rows finish so the hot picker does not share a write-heavy bool slice.
 	dotArtifactChecked []bool
 
+	keyFrameCoefTokenCounts vp8enc.InterCoefficientTokenCounts
+	interCoefTokenCounts    vp8enc.InterCoefficientTokenCounts
+
 	totalRate            int
 	totalPredictionError int64
 }
 
-// reset re-initializes the per-row worker state for a fresh frame
-// dispatch. Called by the row pool before handing the worker its
-// next row index.
-func (rs *rowEncoderState) reset(e *VP8Encoder, required int) {
+// reset re-initializes the per-row worker state for a fresh frame dispatch.
+// Called by the row pool before handing the worker its next row index.
+func (rs *rowEncoderState) reset(e *VP8Encoder, required int, preserveInterModeTestHits bool) {
 	if rs == nil {
 		return
 	}
+	preservedModeTestHits := rs.enc.interModeTestHitCounts
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rs.totalRate = 0
 	rs.totalPredictionError = 0
+	vp8enc.ResetInterCoefficientTokenCounts(&rs.keyFrameCoefTokenCounts)
+	vp8enc.ResetInterCoefficientTokenCounts(&rs.interCoefTokenCounts)
 	if e == nil {
 		return
 	}
 	rs.enc = *e
+	if preserveInterModeTestHits {
+		// setup_mbby_copy does not copy or clear mode_test_hit_counts for
+		// helper workers. They persist across frames while mbs_tested_so_far
+		// is reset by vp8cx_init_mbrthread_data.
+		rs.enc.interModeTestHitCounts = preservedModeTestHits
+	}
 	rs.enc.rowWorkers = nil
 	rs.enc.threadedRowsActive = true
 	rs.enc.threadedDotArtifactBudget = e.threadedDotArtifactBudget
@@ -332,7 +343,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 		return
 	}
 	worker := &p.workers[workerIndex]
-	worker.reset(p.encoder, p.required)
+	worker.reset(p.encoder, p.required, workerIndex > 0)
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.args.rows; row += workerCount {
@@ -356,7 +367,7 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 		return
 	}
 	worker := &p.workers[workerIndex]
-	worker.reset(p.encoder, p.required)
+	worker.reset(p.encoder, p.required, workerIndex > 0)
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.keyArgs.rows; row += workerCount {

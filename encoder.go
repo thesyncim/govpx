@@ -712,6 +712,12 @@ type VP8Encoder struct {
 	dequantTables       vp8common.FrameDequantTables
 	dequants            [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch  vp8dec.IntraReconstructionScratch
+	// keyFrameCoefTokenCounts is populated by the threaded key-frame
+	// reconstruction pass with the same per-thread count accumulation libvpx
+	// later sums for vp8_update_coef_probs. Packet write consumes it only
+	// when valid; serial keyframes keep the established row-major count walk.
+	keyFrameCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
+	keyFrameCoefTokenCountsValid bool
 	// interCoefTokenCounts is the Lane D per-frame coefficient token count
 	// cache. Populated during single-threaded inter-frame accepted-MB
 	// reconstruction (buildReconstructingInterFrameCoefficientsWithSegmentation)

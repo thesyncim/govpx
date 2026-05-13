@@ -114,6 +114,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 	}
 
 	pool.mergeThreadedInterFrameState(e, workerCount, required)
+	pool.mergeThreadedInterFrameCoefCounts(e, workerCount)
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for workerIndex := range workerCount {
@@ -184,6 +185,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsThreaded(args thread
 	for workerIndex := range workerCount {
 		totalRate = addProjectedMacroblockRate(totalRate, pool.workers[workerIndex].totalRate)
 	}
+	pool.mergeThreadedKeyFrameCoefCounts(e, workerCount)
 	pool.encoder = nil
 	pool.job = rowWorkerJobInterFrame
 	pool.keyArgs = threadedKeyRowsArgs{}
@@ -274,7 +276,6 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 	rs.rowIndex = row
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
-	lastCol := args.cols - 1
 	// Mirrors libvpx vp8/encoder/ethreading.c: publish at trigger
 	// `(mb_col-1)%nsync == 0` (col ∈ {1, 1+nsync, 1+2*nsync, ...})
 	// with value `mb_col-1`, and wait at trigger `mb_col%nsync == 0`
@@ -287,8 +288,7 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 			pool.publishRowColumn(row, col-1)
 		}
 		if col%pool.syncRange == 0 {
-			target := min(col+pool.syncRange, lastCol)
-			if !pool.waitForAboveColumnAbort(row, target, abort) {
+			if !pool.waitForAboveColumnAbort(row, col+pool.syncRange, abort) {
 				return rowRate, nil
 			}
 		}
@@ -299,11 +299,11 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameRow(pool *rowWorkerPool, args *
 		rowRate = addProjectedMacroblockRate(rowRate, rate)
 	}
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
-	// Post-row store at `cols - 1 + nsync` so the last syncRange MBs of
+	// Post-row store at `cols + nsync` so the last syncRange MBs of
 	// the row below see a value beyond any in-row target. Matches
 	// libvpx's `vpx_atomic_store_release(current_mb_col, mb_col + nsync)`
 	// at end-of-row.
-	pool.publishRowColumn(row, lastCol+pool.syncRange)
+	pool.publishRowColumn(row, args.cols+pool.syncRange)
 	return rowRate, nil
 }
 
@@ -344,6 +344,9 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 			return 0, ErrInvalidConfig
 		}
+		if err := rs.accumulateThreadedKeyFrameCoefCounts(true, &args.aboveTok[col], &rs.leftTok, &args.coeffs[index]); err != nil {
+			return 0, err
+		}
 		convertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
 		vp8enc.UpdateTokenContextPlanesFromCoefficients(&args.aboveTok[col], &rs.leftTok, true, &args.coeffs[index])
 		return projectedRate, nil
@@ -369,6 +372,9 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		collectOracle: false,
 		coeffs:        &args.coeffs[index],
 	})
+	if err := rs.accumulateThreadedKeyFrameCoefCounts(is4x4, &args.aboveTok[col], &rs.leftTok, &args.coeffs[index]); err != nil {
+		return 0, err
+	}
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 		return 0, ErrInvalidConfig
@@ -377,19 +383,23 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 	return projectedRate, nil
 }
 
+func (rs *rowEncoderState) accumulateThreadedKeyFrameCoefCounts(is4x4 bool, above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, coeffs *vp8enc.MacroblockCoefficients) error {
+	aboveCopy := *above
+	leftCopy := *left
+	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(&rs.keyFrameCoefTokenCounts, nil, is4x4, &aboveCopy, &leftCopy, coeffs)
+}
+
 func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args *threadedInterRowsArgs, row int, abort *atomic.Int32) (int, error) {
 	rs.rowIndex = row
 	rs.leftTok = vp8enc.TokenContextPlanes{}
 	rowRate := 0
 	rowPredictionError := int64(0)
-	lastCol := args.cols - 1
 	for col := range args.cols {
 		if col > 0 && (col-1)%pool.syncRange == 0 {
 			pool.publishRowColumn(row, col-1)
 		}
 		if col%pool.syncRange == 0 {
-			target := min(col+pool.syncRange, lastCol)
-			if !pool.waitForAboveColumnAbort(row, target, abort) {
+			if !pool.waitForAboveColumnAbort(row, col+pool.syncRange, abort) {
 				return rowRate, nil
 			}
 		}
@@ -402,7 +412,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args
 	}
 	rs.totalPredictionError += rowPredictionError
 	vp8dec.ExtendIntraRightEdgeForRow(&rs.enc.analysis.Img, row)
-	pool.publishRowColumn(row, lastCol+pool.syncRange)
+	pool.publishRowColumn(row, args.cols+pool.syncRange)
 	return rowRate, nil
 }
 
@@ -533,7 +543,9 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
 	if args.modes[index].RefFrame == vp8common.IntraFrame && args.modes[index].Mode == vp8common.BPred {
-		updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
+		if err := rs.updateThreadedInterFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
+			return 0, 0, err
+		}
 		return decision.projectedRate, int64(decision.predictionError), nil
 	}
 	if args.modes[index].RefFrame == vp8common.IntraFrame {
@@ -543,8 +555,73 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	} else if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 		return 0, 0, ErrInvalidConfig
 	}
-	updateInterAnalysisTokenContext(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index])
+	if err := rs.updateThreadedInterFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, is4x4, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
+		return 0, 0, err
+	}
 	return decision.projectedRate, int64(decision.predictionError), nil
+}
+
+func (rs *rowEncoderState) updateThreadedInterFrameTokenContextAndCount(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) error {
+	if skipped {
+		vp8enc.ResetTokenContextPlanes(above, left, is4x4)
+		return nil
+	}
+	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(&rs.interCoefTokenCounts, nil, is4x4, above, left, coeffs)
+}
+
+func (p *rowWorkerPool) mergeThreadedKeyFrameCoefCounts(e *VP8Encoder, workerCount int) {
+	if p == nil || e == nil || workerCount <= 0 {
+		return
+	}
+	vp8enc.ResetInterCoefficientTokenCounts(&e.keyFrameCoefTokenCounts)
+	for workerIndex := range workerCount {
+		counts := &p.workers[workerIndex].keyFrameCoefTokenCounts
+		tokenLimit := vp8tables.MaxEntropyTokens
+		if workerIndex > 0 {
+			// libvpx's threaded sum_coef_counts loop is bounded by
+			// ENTROPY_NODES, not MAX_ENTROPY_TOKENS. That intentionally
+			// preserves the helper-thread DCT_EOB_TOKEN omission for byte
+			// parity with VP8 row threading.
+			tokenLimit = vp8tables.EntropyNodes
+		}
+		for block := range e.keyFrameCoefTokenCounts {
+			for band := range e.keyFrameCoefTokenCounts[block] {
+				for ctx := range e.keyFrameCoefTokenCounts[block][band] {
+					for token := range tokenLimit {
+						e.keyFrameCoefTokenCounts[block][band][ctx][token] += (*counts)[block][band][ctx][token]
+					}
+				}
+			}
+		}
+	}
+	e.keyFrameCoefTokenCountsValid = true
+}
+
+func (p *rowWorkerPool) mergeThreadedInterFrameCoefCounts(e *VP8Encoder, workerCount int) {
+	if p == nil || e == nil || workerCount <= 0 {
+		return
+	}
+	vp8enc.ResetInterCoefficientTokenCounts(&e.interCoefTokenCounts)
+	for workerIndex := range workerCount {
+		counts := &p.workers[workerIndex].interCoefTokenCounts
+		tokenLimit := vp8tables.MaxEntropyTokens
+		if workerIndex > 0 {
+			// Match libvpx threaded sum_coef_counts: helper rows omit
+			// DCT_EOB_TOKEN from the merged probability-update counts.
+			tokenLimit = vp8tables.EntropyNodes
+		}
+		for block := range e.interCoefTokenCounts {
+			for band := range e.interCoefTokenCounts[block] {
+				for ctx := range e.interCoefTokenCounts[block][band] {
+					for token := range tokenLimit {
+						e.interCoefTokenCounts[block][band][ctx][token] += (*counts)[block][band][ctx][token]
+					}
+				}
+			}
+		}
+	}
+	e.interCoefTokenCountsValid = true
+	e.interCoefTokenRecordsValid = false
 }
 
 func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount int, required int) {
@@ -563,8 +640,11 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 	}
 	e.interModeErrorBins = mergedBins
 	e.mbsZeroLastDotSuppress = mergedDotSuppress
-	// libvpx copies rd_thresh_mult into each row worker and does not merge
-	// worker-local threshold mutations back into the primary MACROBLOCK.
+	// libvpx's main lane encodes through cpi->mb, so its threshold mutations
+	// naturally persist across frames. Helper lanes start from copied
+	// thresholds and are not merged back.
+	e.interRDThreshMult = p.workers[0].enc.interRDThreshMult
+	e.interRDThreshTouched = p.workers[0].enc.interRDThreshTouched
 	if len(e.dotArtifactChecked) >= required {
 		clear(e.dotArtifactChecked[:required])
 		for workerIndex := range workerCount {

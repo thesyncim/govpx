@@ -155,6 +155,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationThre
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
+	e.keyFrameCoefTokenCountsValid = false
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	if traceEnabled {
 		e.resetOracleMBTraceBuffer()
@@ -197,6 +198,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 	if qIndex < vp8common.MinQ || qIndex > vp8common.MaxQ {
 		return 0, ErrInvalidConfig
 	}
+	e.keyFrameCoefTokenCountsValid = false
 	traceEnabled := oracleTraceBuild && e.oracleTraceEnabled()
 	if traceEnabled {
 		// Reset oracle trace MB buffer at the start of each build pass so

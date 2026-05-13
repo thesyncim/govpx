@@ -196,6 +196,10 @@ func WriteCoefficientKeyFrameWithProbabilityBase(dst []byte, width int, height i
 // the same per-partition byte buffers across encodes; passing nil falls
 // back to allocating per call (the historical behaviour).
 func WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, scratch *PartitionScratch) (int, tables.CoefficientProbs, error) {
+	return WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst, width, height, cfg, modes, coeffs, above, base, scratch, nil)
+}
+
+func WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst []byte, width int, height int, cfg KeyFrameStateConfig, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, base *tables.CoefficientProbs, scratch *PartitionScratch, prebuiltCoefCounts *InterCoefficientTokenCounts) (int, tables.CoefficientProbs, error) {
 	if len(dst) < KeyFrameUncompressedHdrSize {
 		return 0, tables.CoefficientProbs{}, ErrBufferTooSmall
 	}
@@ -225,9 +229,12 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst []byte, width int, h
 		coefUpdates    CoefficientProbabilityUpdates
 		err            error
 	)
-	if cfg.IndependentContexts {
+	switch {
+	case cfg.IndependentContexts:
 		frameCoefProbs, coefUpdates, err = BuildKeyFrameCoefficientProbabilityUpdatesIndependent(rows, cols, modes, coeffs, above, base)
-	} else {
+	case prebuiltCoefCounts != nil:
+		frameCoefProbs, coefUpdates, err = BuildInterCoefficientProbabilityUpdatesFromPrebuiltCounts(base, prebuiltCoefCounts)
+	default:
 		frameCoefProbs, coefUpdates, err = BuildKeyFrameCoefficientProbabilityUpdates(rows, cols, modes, coeffs, above, base)
 	}
 	if err != nil {
