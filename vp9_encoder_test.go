@@ -12,6 +12,24 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
+func newVP9YCbCrForTest(width, height int, y, u, v byte) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	fillVP9YCbCrForTest(img, y, u, v)
+	return img
+}
+
+func fillVP9YCbCrForTest(img *image.YCbCr, y, u, v byte) {
+	for i := range img.Y {
+		img.Y[i] = y
+	}
+	for i := range img.Cb {
+		img.Cb[i] = u
+	}
+	for i := range img.Cr {
+		img.Cr[i] = v
+	}
+}
+
 // TestNewVP9EncoderRequiresDimensions: Width and Height must both be
 // positive; zero or negative values get rejected with
 // ErrInvalidConfig.
@@ -99,7 +117,7 @@ func TestVP9EncoderRejectsInvalidSourceShape(t *testing.T) {
 // existing decoder primitives.
 func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
 	got, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -203,12 +221,69 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
+	img := newVP9YCbCrForTest(96, 80, 91, 143, 37)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after source-backed keyframe")
+	}
+	assertVP9FilledFrame(t, frame, 96, 80, 91, 143, 37)
+}
+
+func TestVP9EncoderInterSkipRepeatsReconstructedReference(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
+	keySrc := newVP9YCbCrForTest(96, 80, 82, 123, 211)
+	interSrc := newVP9YCbCrForTest(96, 80, 201, 44, 19)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	assertVP9FilledFrame(t, frame, 96, 80, 82, 123, 211)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	frame, ok = d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible inter frame")
+	}
+	assertVP9FilledFrame(t, frame, 96, 80, 82, 123, 211)
+}
+
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
 // second-frame path: a visible LAST/ZeroMv skipped inter frame whose
 // reference dimensions come from the preceding keyframe.
 func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -309,7 +384,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 // order and both decode through the per-block keyframe driver.
 func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
-	img := image.NewYCbCr(image.Rect(0, 0, 128, 64), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(128, 64, 128, 128, 128)
 	got, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -400,7 +475,7 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 // shape vpxdec --codec=vp9 expects on disk.
 func TestVP9EncoderIVFRoundTrip(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
 	payload, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -463,7 +538,7 @@ func TestVP9EncoderIVFRoundTrip(t *testing.T) {
 // and MI grid across frames.
 func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(img, dst); err != nil {
@@ -487,12 +562,38 @@ func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderEncodeIntoSourceKeyframeSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := newVP9YCbCrForTest(256, 192, 87, 144, 39)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(100, func() {
+		e.frameIndex = 0
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto source keyframe: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto source keyframe wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto source keyframe steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 // TestVP9EncoderEncodeIntoInterSteadyStateAlloc verifies that visible
 // inter-frame header/mode emission reuses the keyframe-allocated scratch,
 // partition contexts, and MI grid.
 func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
-	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
+	img := newVP9YCbCrForTest(256, 192, 128, 128, 128)
 	dst := make([]byte, 65536)
 
 	if _, err := e.EncodeInto(img, dst); err != nil {
