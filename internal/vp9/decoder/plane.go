@@ -32,6 +32,9 @@ type MacroblockdPlane struct {
 // BlockSize onto the chroma plane using the (subsampling_x,
 // subsampling_y) pair from the plane.
 func GetPlaneBlockSize(bsize common.BlockSize, pd *MacroblockdPlane) common.BlockSize {
+	if bsize >= common.BlockSizes || pd.SubsamplingX > 1 || pd.SubsamplingY > 1 {
+		return common.BlockInvalid
+	}
 	return common.SsSizeLookup[bsize][pd.SubsamplingX][pd.SubsamplingY]
 }
 
@@ -39,6 +42,10 @@ func GetPlaneBlockSize(bsize common.BlockSize, pd *MacroblockdPlane) common.Bloc
 // transform size from the (sb_type, luma tx_size) pair via the
 // per-subsampling UV lookup table.
 func GetUvTxSize(sbType common.BlockSize, lumaTxSize common.TxSize, pd *MacroblockdPlane) common.TxSize {
+	if sbType >= common.BlockSizes || lumaTxSize >= common.TxSizes ||
+		pd.SubsamplingX > 1 || pd.SubsamplingY > 1 {
+		return common.Tx4x4
+	}
 	return common.UvTxsizeLookup[sbType][lumaTxSize][pd.SubsamplingX][pd.SubsamplingY]
 }
 
@@ -74,6 +81,9 @@ func ResetSkipContext(planes []MacroblockdPlane, bsize common.BlockSize, aboveOf
 	for i := range planes {
 		pd := &planes[i]
 		planeBsize := GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize])
 		bh := int(common.Num4x4BlocksHighLookup[planeBsize])
 		if i < len(aboveOffsets) && len(pd.AboveContext) >= aboveOffsets[i]+bw {

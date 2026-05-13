@@ -1056,6 +1056,78 @@ func TestVP9DecoderScaledZeroMvInterSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderScaledNewMvInterSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9SegmentedAltQKeyframeForTest(t)); err != nil {
+		t.Fatalf("Decode scaled-ref seed keyframe: %v", err)
+	}
+	inter := vp9ScaledNewMvInterFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled newmv inter err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled newmv inter err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled newmv inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderScaledNearestMvInterSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+		t.Fatalf("Decode scaled nearest seed keyframe: %v", err)
+	}
+	inter := vp9ScaledInterNearestMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled nearestmv inter err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled nearestmv inter err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled nearestmv inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderScaledNearMvInterSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+		t.Fatalf("Decode scaled near seed keyframe: %v", err)
+	}
+	inter := vp9ScaledInterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled nearmv inter err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled nearmv inter err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled nearmv inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 func TestVP9DecoderInterIntraSteadyStateAlloc(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -1103,6 +1175,63 @@ func TestVP9DecoderCompoundInterSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("compound inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderCompoundGoldenAltrefNewMvSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundTripleRefsForTest(t, d, 64, 64)
+	inter := vp9CompoundInterGoldenAltrefNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode compound golden/altref newmv err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode compound golden/altref newmv err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("compound golden/altref newmv steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderCompoundSignBiasLayoutsSteadyStateAlloc(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		frame func(*testing.T) []byte
+	}{
+		{"fixed-golden", vp9CompoundFixedGoldenSignBiasNewMvFrameForTest},
+		{"fixed-last", vp9CompoundFixedLastSignBiasNewMvFrameForTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			seedVP9CompoundTripleRefsForTest(t, d, 64, 64)
+			inter := tc.frame(t)
+			if err := d.Decode(inter); err != nil {
+				t.Fatalf("warm Decode compound %s sign-bias err = %v, want nil",
+					tc.name, err)
+			}
+
+			allocs := testing.AllocsPerRun(100, func() {
+				err = d.Decode(inter)
+			})
+			if err != nil {
+				t.Fatalf("Decode compound %s sign-bias err = %v, want nil",
+					tc.name, err)
+			}
+			if allocs != 0 {
+				t.Fatalf("compound %s sign-bias steady state: got %v allocs/op, want 0",
+					tc.name, allocs)
+			}
+		})
 	}
 }
 
@@ -1172,6 +1301,72 @@ func TestVP9DecoderCompoundInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("compound inter subpel newmv steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderScaledCompoundInterNewMvSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 64, 64)
+	inter := vp9ScaledCompoundInterNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled compound inter newmv err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled compound inter newmv err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled compound inter newmv steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderScaledCompoundInterNearestMvSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 128, 128)
+	inter := vp9ScaledCompoundInterNearestMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled compound inter nearestmv err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled compound inter nearestmv err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled compound inter nearestmv steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderScaledCompoundInterNearMvSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 128, 128)
+	inter := vp9ScaledCompoundInterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode scaled compound inter nearmv err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode scaled compound inter nearmv err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("scaled compound inter nearmv steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
@@ -1384,6 +1579,125 @@ func TestVP9DecoderReconstructsScaledZeroMvInterFrame(t *testing.T) {
 	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 16, 16, 128)
 }
 
+func TestVP9DecoderReconstructsScaledNewMvInterFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9SegmentedAltQKeyframeForTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode scaled-ref seed keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("scaled-ref seed keyframe did not publish output")
+	}
+
+	zero := vp9ScaledZeroMvInterFrameForTest(t, 32, 32, 64, 64)
+	if err := d.Decode(zero); err != nil {
+		t.Fatalf("Decode scaled zero-mv inter frame: %v", err)
+	}
+	zeroFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled zero-mv inter frame did not publish output")
+	}
+	zeroI420 := appendVP9I420(nil, zeroFrame)
+
+	inter := vp9ScaledNewMvInterFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled newmv inter frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled newmv inter frame did not publish output")
+	}
+	if frame.Width != 32 || frame.Height != 32 {
+		t.Fatalf("scaled newmv inter frame = %dx%d, want 32x32",
+			frame.Width, frame.Height)
+	}
+	if bytes.Equal(appendVP9I420(nil, frame), zeroI420) {
+		t.Fatal("scaled newmv inter frame matched the zero-mv scaled predictor")
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 16, 16, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 16, 16, 128)
+}
+
+func TestVP9DecoderReconstructsScaledNearestMvInterFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+		t.Fatalf("Decode scaled nearest seed keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("scaled nearest seed keyframe did not publish output")
+	}
+
+	zero := vp9ScaledZeroMvInterFrameForTest(t, 64, 64, 128, 128)
+	if err := d.Decode(zero); err != nil {
+		t.Fatalf("Decode scaled zero-mv inter frame: %v", err)
+	}
+	zeroFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled zero-mv inter frame did not publish output")
+	}
+	zeroI420 := appendVP9I420(nil, zeroFrame)
+
+	inter := vp9ScaledInterNearestMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled nearestmv inter frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled nearestmv inter frame did not publish output")
+	}
+	if frame.Width != 64 || frame.Height != 64 {
+		t.Fatalf("scaled nearestmv inter frame = %dx%d, want 64x64",
+			frame.Width, frame.Height)
+	}
+	if bytes.Equal(appendVP9I420(nil, frame), zeroI420) {
+		t.Fatal("scaled nearestmv inter frame matched the zero-mv scaled predictor")
+	}
+	miCols := miColsForSize(64)
+	if got := d.miGrid[4*miCols].Mode; got != common.NearestMv {
+		t.Fatalf("bottom-left inter mode = %v, want NEARESTMV", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsScaledNearMvInterFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+		t.Fatalf("Decode scaled nearmv seed keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("scaled nearmv seed keyframe did not publish output")
+	}
+
+	inter := vp9ScaledInterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled nearmv inter frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled nearmv inter frame did not publish output")
+	}
+	if frame.Width != 64 || frame.Height != 64 {
+		t.Fatalf("scaled nearmv inter frame = %dx%d, want 64x64",
+			frame.Width, frame.Height)
+	}
+	miCols := miColsForSize(64)
+	if got := d.miGrid[4*miCols+4].Mode; got != common.NearMv {
+		t.Fatalf("bottom-right inter mode = %v, want NEARMV", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
 func TestVP9DecoderDecodeIntoScaledZeroMvInterFrame(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -1409,6 +1723,35 @@ func TestVP9DecoderDecodeIntoScaledZeroMvInterFrame(t *testing.T) {
 	if right <= left {
 		t.Fatalf("DecodeInto scaled zero-mv right sample = %d, want above left sample %d",
 			right, left)
+	}
+}
+
+func TestVP9DecoderDecodeIntoScaledNewMvInterFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(vp9SegmentedAltQKeyframeForTest(t)); err != nil {
+		t.Fatalf("Decode scaled-ref seed keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("scaled-ref seed keyframe did not publish output")
+	}
+	dst := newTestImage(32, 32)
+	if _, err := d.DecodeInto(vp9ScaledZeroMvInterFrameForTest(t, 32, 32, 64, 64), &dst); err != nil {
+		t.Fatalf("DecodeInto scaled zero-mv inter frame: %v", err)
+	}
+	zeroI420 := appendVP9I420(nil, dst)
+	fillVP9PublicImage(&dst, 77)
+	info, err := d.DecodeInto(vp9ScaledNewMvInterFrameForTest(t), &dst)
+	if err != nil {
+		t.Fatalf("DecodeInto scaled newmv inter frame: %v", err)
+	}
+	if info.Width != 32 || info.Height != 32 || !info.ShowFrame {
+		t.Fatalf("DecodeInto scaled newmv info = %+v, want visible 32x32 frame", info)
+	}
+	if bytes.Equal(appendVP9I420(nil, dst), zeroI420) {
+		t.Fatal("DecodeInto scaled newmv frame matched the zero-mv scaled predictor")
 	}
 }
 
@@ -1522,6 +1865,102 @@ func TestVP9DecoderReconstructsCompoundInterNewMvFrame(t *testing.T) {
 	}
 	if got := frame.Y[0]; got != want {
 		t.Fatalf("top-left compound newmv Y[0,0] = %d, want average of LAST %d and ALTREF %d -> %d",
+			got, lastPix, altPix, want)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsCompoundGoldenAltrefNewMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundTripleRefsForTest(t, d, 64, 64)
+	goldenRef := d.refFrames[vp9CompoundGoldenSlotForTest].img
+	altRef := d.refFrames[vp9CompoundAltrefSlotForTest].img
+	goldenPix := goldenRef.Y[32]
+	altPix := altRef.Y[32]
+	if goldenPix == altPix {
+		t.Fatalf("compound reference test pattern missing: GOLDEN=%d ALTREF=%d",
+			goldenPix, altPix)
+	}
+	want := byte((int(goldenPix) + int(altPix) + 1) >> 1)
+
+	inter := vp9CompoundInterGoldenAltrefNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode compound golden/altref newmv frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("compound golden/altref newmv frame did not publish output")
+	}
+	if got := frame.Y[0]; got != want {
+		t.Fatalf("top-left compound golden/altref newmv Y[0,0] = %d, want average of GOLDEN %d and ALTREF %d -> %d",
+			got, goldenPix, altPix, want)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsCompoundFixedGoldenSignBiasNewMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundTripleRefsForTest(t, d, 64, 64)
+	goldenRef := d.refFrames[vp9CompoundGoldenSlotForTest].img
+	altRef := d.refFrames[vp9CompoundAltrefSlotForTest].img
+	goldenPix := goldenRef.Y[32]
+	altPix := altRef.Y[32]
+	if goldenPix == altPix {
+		t.Fatalf("compound fixed-GOLDEN pattern missing: GOLDEN=%d ALTREF=%d",
+			goldenPix, altPix)
+	}
+	want := byte((int(goldenPix) + int(altPix) + 1) >> 1)
+
+	inter := vp9CompoundFixedGoldenSignBiasNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode compound fixed-GOLDEN sign-bias frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("compound fixed-GOLDEN sign-bias frame did not publish output")
+	}
+	if got := frame.Y[0]; got != want {
+		t.Fatalf("top-left compound fixed-GOLDEN Y[0,0] = %d, want average of GOLDEN %d and ALTREF %d -> %d",
+			got, goldenPix, altPix, want)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsCompoundFixedLastSignBiasNewMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundTripleRefsForTest(t, d, 64, 64)
+	lastRef := d.refFrames[0].img
+	altRef := d.refFrames[vp9CompoundAltrefSlotForTest].img
+	lastPix := lastRef.Y[32]
+	altPix := altRef.Y[32]
+	if lastPix == altPix {
+		t.Fatalf("compound fixed-LAST pattern missing: LAST=%d ALTREF=%d",
+			lastPix, altPix)
+	}
+	want := byte((int(lastPix) + int(altPix) + 1) >> 1)
+
+	inter := vp9CompoundFixedLastSignBiasNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode compound fixed-LAST sign-bias frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("compound fixed-LAST sign-bias frame did not publish output")
+	}
+	if got := frame.Y[0]; got != want {
+		t.Fatalf("top-left compound fixed-LAST Y[0,0] = %d, want average of LAST %d and ALTREF %d -> %d",
 			got, lastPix, altPix, want)
 	}
 	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
@@ -1906,6 +2345,31 @@ func TestVP9DecoderInterNearestMvSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderInterNearMvSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	inter := vp9InterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode inter nearmv err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode inter nearmv err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("inter nearmv steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 func TestVP9DecoderReconstructsInterNewMvFrame(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -1976,6 +2440,35 @@ func TestVP9DecoderReconstructsInterNearestMvFrame(t *testing.T) {
 	if got := frame.Y[32*frame.YStride]; got != bottomRight {
 		t.Fatalf("bottom-left nearestmv Y[32,0] = %d, want copied reference Y[32,32] %d",
 			got, bottomRight)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsInterNearMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("keyframe did not publish output")
+	}
+
+	inter := vp9InterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter nearmv frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("inter nearmv frame did not publish output")
+	}
+	miCols := miColsForSize(64)
+	if got := d.miGrid[4*miCols+4].Mode; got != common.NearMv {
+		t.Fatalf("bottom-right inter mode = %v, want NEARMV", got)
 	}
 	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
 	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
@@ -2379,6 +2872,94 @@ func assertVP9DecoderReconstructsCompoundInterSubpelNewMvFilter(t *testing.T,
 	}
 	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 48, 48, 128)
 	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 48, 48, 128)
+}
+
+func TestVP9DecoderReconstructsScaledCompoundInterNewMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 64, 64)
+
+	zero := vp9ScaledCompoundInterZeroMvFrameForTest(t)
+	if err := d.Decode(zero); err != nil {
+		t.Fatalf("Decode scaled compound zero-mv frame: %v", err)
+	}
+	zeroFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled compound zero-mv frame did not publish output")
+	}
+	zeroI420 := appendVP9I420(nil, zeroFrame)
+
+	inter := vp9ScaledCompoundInterNewMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled compound inter newmv frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled compound inter newmv frame did not publish output")
+	}
+	if frame.Width != 32 || frame.Height != 32 {
+		t.Fatalf("scaled compound newmv frame = %dx%d, want 32x32",
+			frame.Width, frame.Height)
+	}
+	if bytes.Equal(appendVP9I420(nil, frame), zeroI420) {
+		t.Fatal("scaled compound newmv frame matched the zero-mv compound predictor")
+	}
+}
+
+func TestVP9DecoderReconstructsScaledCompoundInterNearestMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 128, 128)
+
+	inter := vp9ScaledCompoundInterNearestMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled compound inter nearestmv frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled compound inter nearestmv frame did not publish output")
+	}
+	if frame.Width != 64 || frame.Height != 64 {
+		t.Fatalf("scaled compound nearestmv frame = %dx%d, want 64x64",
+			frame.Width, frame.Height)
+	}
+	miCols := miColsForSize(64)
+	if got := d.miGrid[4*miCols+4].Mode; got != common.NearestMv {
+		t.Fatalf("bottom-right compound inter mode = %v, want NEARESTMV", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
+}
+
+func TestVP9DecoderReconstructsScaledCompoundInterNearMvFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seedVP9CompoundMotionRefsForTest(t, d, 128, 128)
+
+	inter := vp9ScaledCompoundInterNearMvFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode scaled compound inter nearmv frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("scaled compound inter nearmv frame did not publish output")
+	}
+	if frame.Width != 64 || frame.Height != 64 {
+		t.Fatalf("scaled compound nearmv frame = %dx%d, want 64x64",
+			frame.Width, frame.Height)
+	}
+	miCols := miColsForSize(64)
+	if got := d.miGrid[4*miCols+4].Mode; got != common.NearMv {
+		t.Fatalf("bottom-right compound inter mode = %v, want NEARMV", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
 }
 
 func TestVP9DecoderDecodeIntoInterSubpelNewMvFrame(t *testing.T) {
@@ -2886,8 +3467,8 @@ func vp9StubPacketForTest(t *testing.T, width, height, log2TileCols int,
 	var seg vp9dec.SegmentationParams
 	partitionProbs := tables.KfPartitionProbs
 	tileCols := 1 << uint(log2TileCols)
-	dest := make([]byte, 65536)
-	scratch := make([]byte, 65536)
+	dest := make([]byte, 262144)
+	scratch := make([]byte, 262144)
 	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
 		Dest:    dest,
 		Scratch: scratch,
@@ -2988,8 +3569,8 @@ func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
 	partitionProbs := tables.KfPartitionProbs
 	aboveSegCtx := make([]int8, alignToSb(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
-	dest := make([]byte, 65536)
-	scratch := make([]byte, 65536)
+	dest := make([]byte, 262144)
+	scratch := make([]byte, 262144)
 
 	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
 		Dest:    dest,
@@ -3305,8 +3886,8 @@ func vp9ColumnResidueIntraFrameForMotionTest(t *testing.T,
 			vp9dec.NoRefFrame,
 		},
 	}
-	dest := make([]byte, 65536)
-	scratch := make([]byte, 65536)
+	dest := make([]byte, 262144)
+	scratch := make([]byte, 262144)
 	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
 		Dest:    dest,
 		Scratch: scratch,
@@ -3878,6 +4459,11 @@ func vp9InterNearestMvFrameForTest(t *testing.T) []byte {
 	return vp9InterMotionMvFrameForTest(t, common.NearestMv)
 }
 
+func vp9InterNearMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9InterMvReuseFrameRefDimsForTest(t, common.NearMv, 64, 64)
+}
+
 func vp9InterSubpelNewMvFrameForTest(t *testing.T) []byte {
 	t.Helper()
 	return vp9InterSubpelMotionFrameForTest(t, false,
@@ -3920,7 +4506,26 @@ func vp9InterIntegerTopRightBorderNewMvFrameForTest(t *testing.T) []byte {
 		vp9dec.MV{Col: 256}, vp9dec.InterpEighttap, vp9dec.InterpEighttap)
 }
 
-const vp9CompoundAltrefSlotForTest = 5
+func vp9ScaledNewMvInterFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9InterSingleNewMvFrameRefDimsForTest(t, 32, 32, 0, 0,
+		vp9dec.MV{Col: 32}, vp9dec.InterpEighttap, vp9dec.InterpEighttap, 64, 64)
+}
+
+func vp9ScaledInterNearestMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9InterMvReuseFrameRefDimsForTest(t, common.NearestMv, 128, 128)
+}
+
+func vp9ScaledInterNearMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9InterMvReuseFrameRefDimsForTest(t, common.NearMv, 128, 128)
+}
+
+const (
+	vp9CompoundGoldenSlotForTest = 4
+	vp9CompoundAltrefSlotForTest = 5
+)
 
 func seedVP9CompoundMotionRefsForTest(t *testing.T, d *VP9Decoder, width, height int) {
 	t.Helper()
@@ -3944,11 +4549,72 @@ func seedVP9CompoundMotionRefsForTest(t *testing.T, d *VP9Decoder, width, height
 	}
 }
 
+func seedVP9CompoundTripleRefsForTest(t *testing.T, d *VP9Decoder, width, height int) {
+	t.Helper()
+	key := vp9ColumnResidueKeyframeForMotionTest(t, width, height)
+	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, width, height,
+		1<<uint(vp9CompoundGoldenSlotForTest), 32)
+	altref := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, width, height,
+		1<<uint(vp9CompoundAltrefSlotForTest), 96)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode compound LAST seed keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("compound LAST seed keyframe did not publish output")
+	}
+	if err := d.Decode(golden); err != nil {
+		t.Fatalf("Decode compound GOLDEN seed intra-only frame: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("compound GOLDEN seed intra-only frame published output")
+	}
+	if err := d.Decode(altref); err != nil {
+		t.Fatalf("Decode compound ALTREF seed intra-only frame: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("compound ALTREF seed intra-only frame published output")
+	}
+	if !d.refFrames[0].valid ||
+		!d.refFrames[vp9CompoundGoldenSlotForTest].valid ||
+		!d.refFrames[vp9CompoundAltrefSlotForTest].valid {
+		t.Fatal("compound reference setup did not populate LAST/GOLDEN/ALTREF slots")
+	}
+}
+
 func vp9CompoundInterNewMvFrameForTest(t *testing.T) []byte {
 	t.Helper()
 	return vp9CompoundInterMotionFrameForTest(t, 64, 64, 0, 0,
 		vp9dec.MV{Col: 256}, vp9dec.InterpEighttap, vp9dec.InterpEighttap,
 		[3]uint8{0, 0, vp9CompoundAltrefSlotForTest})
+}
+
+func vp9CompoundInterGoldenAltrefNewMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionRefsFrameModeRefDimsForTest(t, 64, 64, 0, 0,
+		vp9dec.MV{Col: 256}, vp9dec.InterpEighttap, vp9dec.InterpEighttap,
+		[3]uint8{0, vp9CompoundGoldenSlotForTest, vp9CompoundAltrefSlotForTest},
+		vp9dec.CompoundReference,
+		[2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame}, 64, 64)
+}
+
+func vp9CompoundFixedGoldenSignBiasNewMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionRefsFrameModeSignBiasRefDimsForTest(t,
+		64, 64, 0, 0, vp9dec.MV{Col: 256},
+		vp9dec.InterpEighttap, vp9dec.InterpEighttap,
+		[3]uint8{0, vp9CompoundGoldenSlotForTest, vp9CompoundAltrefSlotForTest},
+		vp9dec.CompoundReference, [2]int8{vp9dec.AltrefFrame, vp9dec.GoldenFrame},
+		[3]uint8{0, 1, 0}, 64, 64)
+}
+
+func vp9CompoundFixedLastSignBiasNewMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionRefsFrameModeSignBiasRefDimsForTest(t,
+		64, 64, 0, 0, vp9dec.MV{Col: 256},
+		vp9dec.InterpEighttap, vp9dec.InterpEighttap,
+		[3]uint8{0, vp9CompoundGoldenSlotForTest, vp9CompoundAltrefSlotForTest},
+		vp9dec.CompoundReference, [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame},
+		[3]uint8{0, 1, 1}, 64, 64)
 }
 
 func vp9CompoundInterReferenceModeSelectNewMvFrameForTest(t *testing.T) []byte {
@@ -3966,6 +4632,16 @@ func vp9CompoundInterNearestMvFrameForTest(t *testing.T) []byte {
 func vp9CompoundInterNearMvFrameForTest(t *testing.T) []byte {
 	t.Helper()
 	return vp9CompoundInterMvReuseFrameForTest(t, common.NearMv)
+}
+
+func vp9ScaledCompoundInterNearestMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMvReuseFrameRefDimsForTest(t, common.NearestMv, 128, 128)
+}
+
+func vp9ScaledCompoundInterNearMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMvReuseFrameRefDimsForTest(t, common.NearMv, 128, 128)
 }
 
 func vp9CompoundInterSubpelNewMvFrameForTest(t *testing.T) []byte {
@@ -3989,11 +4665,38 @@ func vp9CompoundInterSubpelSwitchableSmoothNewMvFrameForTest(t *testing.T) []byt
 		[3]uint8{0, 0, vp9CompoundAltrefSlotForTest})
 }
 
+func vp9ScaledCompoundInterZeroMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionFrameModeRefDimsForTest(t, 32, 32, -1, -1,
+		vp9dec.MV{}, vp9dec.InterpEighttap, vp9dec.InterpEighttap,
+		[3]uint8{0, 0, vp9CompoundAltrefSlotForTest}, vp9dec.CompoundReference, 64, 64)
+}
+
+func vp9ScaledCompoundInterNewMvFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionFrameModeRefDimsForTest(t, 32, 32, 0, 0,
+		vp9dec.MV{Col: 32}, vp9dec.InterpEighttap, vp9dec.InterpEighttap,
+		[3]uint8{0, 0, vp9CompoundAltrefSlotForTest}, vp9dec.CompoundReference, 64, 64)
+}
+
 func vp9InterSingleNewMvFrameForTest(t *testing.T,
 	width, height int,
 	targetMiRow, targetMiCol int,
 	targetMV vp9dec.MV,
 	frameFilter, blockFilter vp9dec.InterpFilter,
+) []byte {
+	t.Helper()
+	return vp9InterSingleNewMvFrameRefDimsForTest(t, width, height,
+		targetMiRow, targetMiCol, targetMV, frameFilter, blockFilter,
+		uint32(width), uint32(height))
+}
+
+func vp9InterSingleNewMvFrameRefDimsForTest(t *testing.T,
+	width, height int,
+	targetMiRow, targetMiCol int,
+	targetMV vp9dec.MV,
+	frameFilter, blockFilter vp9dec.InterpFilter,
+	refWidth, refHeight uint32,
 ) []byte {
 	t.Helper()
 	w := uint32(width)
@@ -4113,7 +4816,7 @@ func vp9InterSingleNewMvFrameForTest(t *testing.T,
 			return nil
 		},
 		RefDims: func(slot uint8) (uint32, uint32) {
-			return w, h
+			return refWidth, refHeight
 		},
 	})
 	if err != nil {
@@ -4126,11 +4829,20 @@ func vp9InterSingleNewMvFrameForTest(t *testing.T,
 
 func vp9InterMotionMvFrameForTest(t *testing.T, bottomLeftMode common.PredictionMode) []byte {
 	t.Helper()
-	return vp9InterMotionMvFrameLoopFilterForTest(t, bottomLeftMode, 0)
+	return vp9InterMotionMvFrameLoopFilterRefDimsForTest(t, bottomLeftMode, 0, 64, 64)
 }
 
 func vp9InterMotionMvFrameLoopFilterForTest(t *testing.T,
 	bottomLeftMode common.PredictionMode, filterLevel uint8,
+) []byte {
+	t.Helper()
+	return vp9InterMotionMvFrameLoopFilterRefDimsForTest(t, bottomLeftMode,
+		filterLevel, 64, 64)
+}
+
+func vp9InterMotionMvFrameLoopFilterRefDimsForTest(t *testing.T,
+	bottomLeftMode common.PredictionMode, filterLevel uint8,
+	refWidth, refHeight uint32,
 ) []byte {
 	t.Helper()
 	const width = 64
@@ -4254,7 +4966,152 @@ func vp9InterMotionMvFrameLoopFilterForTest(t *testing.T,
 			return nil
 		},
 		RefDims: func(slot uint8) (uint32, uint32) {
-			return w, h
+			return refWidth, refHeight
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet
+}
+
+func vp9InterMvReuseFrameRefDimsForTest(t *testing.T,
+	reuseMode common.PredictionMode,
+	refWidth, refHeight uint32,
+) []byte {
+	t.Helper()
+	const width = 64
+	const height = 64
+	w := uint32(width)
+	h := uint32(height)
+	miCols := int((w + 7) >> 3)
+	miRows := int((h + 7) >> 3)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var seg vp9dec.SegmentationParams
+	partitionProbs := fc.PartitionProb
+	aboveSegCtx := make([]int8, alignToSb(miCols))
+	leftSegCtx := make([]int8, common.MiBlockSize)
+	decodedGrid := make([]vp9dec.NeighborMi, miRows*miCols)
+	planGrid := make([]vp9dec.NeighborMi, miRows*miCols)
+	for miRow := 0; miRow < miRows; miRow += 4 {
+		for miCol := 0; miCol < miCols; miCol += 4 {
+			fillVP9MiGridForTest(planGrid, miRows, miCols, miRow, miCol,
+				common.Block32x32, vp9dec.NeighborMi{SbType: common.Block32x32})
+		}
+	}
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0,
+		Width:                 w,
+		Height:                h,
+		InterpFilter:          vp9dec.InterpEighttap,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: true,
+		FrameContextIdx:       0,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:     vp9dec.Bits8,
+			ColorSpace:   common.CSUnknown,
+			ColorRange:   common.CRStudioRange,
+			SubsamplingX: 1,
+			SubsamplingY: 1,
+		},
+	}
+	header.Quant.BaseQindex = 1
+
+	baseMi := vp9dec.NeighborMi{
+		SbType:       common.Block32x32,
+		Mode:         common.ZeroMv,
+		TxSize:       common.Tx4x4,
+		InterpFilter: uint8(vp9dec.InterpEighttap),
+		Skip:         1,
+		RefFrame:     [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame},
+	}
+	targetMV := vp9dec.MV{Col: 256}
+	dest := make([]byte, 65536)
+	scratch := make([]byte, 65536)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		Comp: vp9enc.CompressedHeaderInputs{
+			Lossless:             false,
+			TxMode:               common.Only4x4,
+			IntraOnly:            false,
+			InterpFilter:         vp9dec.InterpEighttap,
+			ReferenceMode:        vp9dec.SingleReference,
+			CompoundRefAllowed:   false,
+			AllowHighPrecisionMv: false,
+		},
+		TileRows: 1,
+		TileCols: 1,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			tile := vp9dec.TileBounds{
+				MiRowStart: 0,
+				MiRowEnd:   miRows,
+				MiColStart: 0,
+				MiColEnd:   miCols,
+			}
+			vp9enc.WriteModesSb(bw, vp9enc.WriteModesSbArgs{
+				AboveSegCtx:    aboveSegCtx,
+				LeftSegCtx:     leftSegCtx,
+				MiRows:         miRows,
+				MiCols:         miCols,
+				PartitionProbs: &partitionProbs,
+				GetMi: func(miRow, miCol int) *vp9dec.NeighborMi {
+					return vp9MiGridAtForTest(planGrid, miRows, miCols, miRow, miCol)
+				},
+				WriteB: func(bw *bitstream.Writer, miRow, miCol int, bsize common.BlockSize) {
+					cur := baseMi
+					cur.SbType = bsize
+					var mv [2]vp9dec.MV
+					switch {
+					case reuseMode == common.NearestMv && miRow == 0 && miCol == 0:
+						cur.Mode = common.NewMv
+						mv[0] = targetMV
+					case reuseMode == common.NearestMv && miRow == 4 && miCol == 0:
+						cur.Mode = common.NearestMv
+						mv[0] = targetMV
+					case reuseMode == common.NearMv && miRow == 0 && miCol == 4:
+						cur.Mode = common.NewMv
+						mv[0] = targetMV
+					case reuseMode == common.NearMv && miRow == 4 && miCol == 4:
+						cur.Mode = common.NearMv
+						mv[0] = targetMV
+					}
+					var left *vp9dec.NeighborMi
+					if miCol > tile.MiColStart {
+						left = vp9MiGridAtForTest(decodedGrid, miRows, miCols, miRow, miCol-1)
+					}
+					above := vp9MiGridAtForTest(decodedGrid, miRows, miCols, miRow-1, miCol)
+					vp9enc.WriteInterBlock(bw, vp9enc.WriteInterBlockArgs{
+						Seg:          &seg,
+						Mi:           &cur,
+						AboveMi:      above,
+						LeftMi:       left,
+						Fc:           &fc,
+						TxMode:       common.Only4x4,
+						FrameRefMode: vp9dec.SingleReference,
+						InterpFilter: vp9dec.InterpEighttap,
+						InterModeCtx: vp9dec.InterModeContext(decodedGrid, miCols, tile,
+							miRows, miRow, miCol, bsize),
+						AllowHP: false,
+						Mv:      mv,
+					})
+					cur.Mv = mv
+					fillVP9MiGridForTest(decodedGrid, miRows, miCols, miRow, miCol, bsize, cur)
+				},
+			}, 0, 0, common.Block64x64)
+			return nil
+		},
+		RefDims: func(slot uint8) (uint32, uint32) {
+			return refWidth, refHeight
 		},
 	})
 	if err != nil {
@@ -4417,8 +5274,14 @@ func vp9InterSubpelMotionFrameForTest(t *testing.T, nearestReuse bool,
 func vp9SetupCompoundHeaderRefsForTest(header *vp9dec.UncompressedHeader,
 	refIndex [3]uint8,
 ) ([vp9dec.MaxRefFrames]uint8, vp9dec.CompoundFrameRefs) {
+	return vp9SetupCompoundHeaderRefsSignBiasForTest(header, refIndex, [3]uint8{0, 0, 1})
+}
+
+func vp9SetupCompoundHeaderRefsSignBiasForTest(header *vp9dec.UncompressedHeader,
+	refIndex [3]uint8, headerSignBias [3]uint8,
+) ([vp9dec.MaxRefFrames]uint8, vp9dec.CompoundFrameRefs) {
 	header.InterRef.RefIndex = refIndex
-	header.InterRef.SignBias = [3]uint8{0, 0, 1}
+	header.InterRef.SignBias = headerSignBias
 	signBias := vp9FrameRefSignBias(header)
 	return signBias, vp9dec.SetupCompoundReferenceMode(signBias)
 }
@@ -4443,6 +5306,56 @@ func vp9CompoundInterMotionFrameModeForTest(t *testing.T,
 	frameFilter, blockFilter vp9dec.InterpFilter,
 	refIndex [3]uint8,
 	referenceMode vp9dec.ReferenceMode,
+) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionFrameModeRefDimsForTest(t, width, height,
+		targetMiRow, targetMiCol, targetMV, frameFilter, blockFilter,
+		refIndex, referenceMode, uint32(width), uint32(height))
+}
+
+func vp9CompoundInterMotionFrameModeRefDimsForTest(t *testing.T,
+	width, height int,
+	targetMiRow, targetMiCol int,
+	targetMV vp9dec.MV,
+	frameFilter, blockFilter vp9dec.InterpFilter,
+	refIndex [3]uint8,
+	referenceMode vp9dec.ReferenceMode,
+	refWidth, refHeight uint32,
+) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionRefsFrameModeRefDimsForTest(t, width, height,
+		targetMiRow, targetMiCol, targetMV, frameFilter, blockFilter,
+		refIndex, referenceMode,
+		[2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}, refWidth, refHeight)
+}
+
+func vp9CompoundInterMotionRefsFrameModeRefDimsForTest(t *testing.T,
+	width, height int,
+	targetMiRow, targetMiCol int,
+	targetMV vp9dec.MV,
+	frameFilter, blockFilter vp9dec.InterpFilter,
+	refIndex [3]uint8,
+	referenceMode vp9dec.ReferenceMode,
+	refFrames [2]int8,
+	refWidth, refHeight uint32,
+) []byte {
+	t.Helper()
+	return vp9CompoundInterMotionRefsFrameModeSignBiasRefDimsForTest(t,
+		width, height, targetMiRow, targetMiCol, targetMV,
+		frameFilter, blockFilter, refIndex, referenceMode, refFrames,
+		[3]uint8{0, 0, 1}, refWidth, refHeight)
+}
+
+func vp9CompoundInterMotionRefsFrameModeSignBiasRefDimsForTest(t *testing.T,
+	width, height int,
+	targetMiRow, targetMiCol int,
+	targetMV vp9dec.MV,
+	frameFilter, blockFilter vp9dec.InterpFilter,
+	refIndex [3]uint8,
+	referenceMode vp9dec.ReferenceMode,
+	refFrames [2]int8,
+	headerSignBias [3]uint8,
+	refWidth, refHeight uint32,
 ) []byte {
 	t.Helper()
 	w := uint32(width)
@@ -4485,7 +5398,8 @@ func vp9CompoundInterMotionFrameModeForTest(t *testing.T,
 		},
 	}
 	header.Quant.BaseQindex = 1
-	signBias, refs := vp9SetupCompoundHeaderRefsForTest(&header, refIndex)
+	signBias, refs := vp9SetupCompoundHeaderRefsSignBiasForTest(&header,
+		refIndex, headerSignBias)
 
 	baseMi := vp9dec.NeighborMi{
 		SbType:       common.Block32x32,
@@ -4493,7 +5407,7 @@ func vp9CompoundInterMotionFrameModeForTest(t *testing.T,
 		TxSize:       common.Tx4x4,
 		InterpFilter: uint8(blockFilter),
 		Skip:         1,
-		RefFrame:     [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame},
+		RefFrame:     refFrames,
 	}
 	dest := make([]byte, 131072)
 	scratch := make([]byte, 131072)
@@ -4575,7 +5489,7 @@ func vp9CompoundInterMotionFrameModeForTest(t *testing.T,
 			return nil
 		},
 		RefDims: func(slot uint8) (uint32, uint32) {
-			return w, h
+			return refWidth, refHeight
 		},
 	})
 	if err != nil {
@@ -4588,6 +5502,14 @@ func vp9CompoundInterMotionFrameModeForTest(t *testing.T,
 
 func vp9CompoundInterMvReuseFrameForTest(t *testing.T,
 	reuseMode common.PredictionMode,
+) []byte {
+	t.Helper()
+	return vp9CompoundInterMvReuseFrameRefDimsForTest(t, reuseMode, 64, 64)
+}
+
+func vp9CompoundInterMvReuseFrameRefDimsForTest(t *testing.T,
+	reuseMode common.PredictionMode,
+	refWidth, refHeight uint32,
 ) []byte {
 	t.Helper()
 	const width = 64
@@ -4729,7 +5651,7 @@ func vp9CompoundInterMvReuseFrameForTest(t *testing.T,
 			return nil
 		},
 		RefDims: func(slot uint8) (uint32, uint32) {
-			return w, h
+			return refWidth, refHeight
 		},
 	})
 	if err != nil {

@@ -22,10 +22,9 @@ const (
 
 // ScaleFactors mirrors the parser-visible subset of libvpx's
 // struct scale_factors. The C struct also carries a convolve-fn
-// dispatch table; we keep it out of this struct because the Go port
-// drives the dispatch from PredictTable in convolve_dispatch.go
-// (the non-scaled path) — scaled paths require the vpx_scaled_*
-// DSP kernels which land separately.
+// dispatch table; the Go port drives the same choice from
+// PredictTable in convolve_dispatch.go and uses XStepQ4/YStepQ4 to
+// select scaled horizontal, vertical, or 2-D prediction.
 type ScaleFactors struct {
 	XScaleFp int32
 	YScaleFp int32

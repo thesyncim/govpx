@@ -12,11 +12,11 @@ import (
 // so call sites can switch codecs by swapping the constructor.
 //
 // The current VP9 stack supports 8-bit 4:2:0 intra frames plus the
-// first single-reference inter-frame reconstruction paths: zero-MV
-// copy/residual blocks and direct non-scaled motion blocks whose
-// interpolation window either stays inside the stored reference or can
-// be satisfied by libvpx-style edge extension. Other valid frame classes
-// return [ErrVP9NotImplemented] at the current reconstruct boundary.
+// first inter-frame reconstruction paths: zero-MV copy/residual blocks,
+// direct single-reference motion blocks, scaled zero-MV/NEWMV blocks,
+// and compound motion blocks covered by the oracle tests. Other valid
+// frame classes return [ErrVP9NotImplemented] at the current reconstruct
+// boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -238,6 +238,17 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	compEnd := uncSize + int(hdr.FirstPartitionSize)
 	if compEnd > len(packet) {
 		return ErrInvalidVP9Data
+	}
+	if !vp9SupportedOutputFormat(&hdr) {
+		d.lastHeader = hdr
+		d.lastHeaderValid = true
+		if !hdr.ShowExistingFrame {
+			d.width = int(hdr.Width)
+			d.height = int(hdr.Height)
+		}
+		d.frameReady = false
+		d.finishVP9FrameInfo(info)
+		return ErrVP9NotImplemented
 	}
 
 	frameContextIdx := d.prepareVP9FrameContext(&hdr)

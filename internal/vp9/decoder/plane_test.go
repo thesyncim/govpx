@@ -34,6 +34,16 @@ func TestGetPlaneBlockSizeRouting(t *testing.T) {
 	}
 }
 
+func TestGetPlaneBlockSizeRejectsInvalidInputs(t *testing.T) {
+	if got := GetPlaneBlockSize(common.BlockInvalid, &MacroblockdPlane{}); got != common.BlockInvalid {
+		t.Errorf("invalid block got %d, want BlockInvalid", got)
+	}
+	if got := GetPlaneBlockSize(common.Block8x8,
+		&MacroblockdPlane{SubsamplingX: 2}); got != common.BlockInvalid {
+		t.Errorf("invalid subsampling got %d, want BlockInvalid", got)
+	}
+}
+
 func TestGetUvTxSizeRouting(t *testing.T) {
 	// Block8x8 with luma Tx8x8 + 4:2:0 chroma → libvpx's UvTxsizeLookup
 	// returns the matching chroma tx size.
@@ -41,6 +51,17 @@ func TestGetUvTxSizeRouting(t *testing.T) {
 	want := common.UvTxsizeLookup[common.Block8x8][common.Tx8x8][1][1]
 	if got := GetUvTxSize(common.Block8x8, common.Tx8x8, pd); got != want {
 		t.Errorf("got %d, want %d", got, want)
+	}
+}
+
+func TestGetUvTxSizeRejectsInvalidInputs(t *testing.T) {
+	if got := GetUvTxSize(common.BlockInvalid, common.Tx8x8,
+		&MacroblockdPlane{}); got != common.Tx4x4 {
+		t.Errorf("invalid block tx got %d, want Tx4x4", got)
+	}
+	if got := GetUvTxSize(common.Block8x8, common.TxSizes,
+		&MacroblockdPlane{}); got != common.Tx4x4 {
+		t.Errorf("invalid luma tx got %d, want Tx4x4", got)
 	}
 }
 
@@ -65,6 +86,20 @@ func TestResetSkipContextZeros(t *testing.T) {
 	}
 	if left[6] != 0 || left[7] != 0 {
 		t.Errorf("left window got [%d,%d]", left[6], left[7])
+	}
+}
+
+func TestResetSkipContextIgnoresInvalidBlockSize(t *testing.T) {
+	above := []uint8{1, 1, 1, 1}
+	left := []uint8{1, 1, 1, 1}
+	planes := []MacroblockdPlane{
+		{AboveContext: above, LeftContext: left},
+	}
+	ResetSkipContext(planes, common.BlockInvalid, []int{0}, []int{0})
+	for i := range above {
+		if above[i] != 1 || left[i] != 1 {
+			t.Fatalf("invalid block reset context at %d: above=%v left=%v", i, above, left)
+		}
 	}
 }
 

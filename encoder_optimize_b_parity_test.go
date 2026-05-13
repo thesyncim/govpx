@@ -63,12 +63,12 @@ func TestOptimizeBSignedBaseCost(t *testing.T) {
 // test pins the zero-on-elided behavior so the gap cannot regress.
 func TestOptimizeBTokenCostsMatchLibvpxFillTokenCosts(t *testing.T) {
 	probs := &vp8tables.DefaultCoefProbs
-	for blockType := 0; blockType < vp8tables.BlockTypes; blockType++ {
-		for band := 0; band < vp8tables.CoefBands; band++ {
-			for pt := 0; pt < vp8tables.PrevCoefContexts; pt++ {
+	for blockType := range vp8tables.BlockTypes {
+		for band := range vp8tables.CoefBands {
+			for pt := range vp8tables.PrevCoefContexts {
 				p := probs[blockType][band][pt]
 				wantCosts := libvpxOptimizeBFillTokenCostsRow(&p, blockType, band, pt)
-				for token := 0; token < vp8tables.MaxEntropyTokens; token++ {
+				for token := range vp8tables.MaxEntropyTokens {
 					got := coefficientTokenCost(p, token, blockType, band, pt)
 					if got != wantCosts[token] {
 						t.Errorf("coefficientTokenCost(type=%d band=%d pt=%d token=%d) = %d, want %d (libvpx fill_token_costs)",

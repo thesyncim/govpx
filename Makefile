@@ -20,6 +20,7 @@ VPXDEC_VP9 := $(CORACLE_BUILD)/vpxdec-vp9
 VPXENC_VP9 := $(CORACLE_BUILD)/vpxenc-vp9
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
+VP9_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp9
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
 PGO_PROFILE := cmd/govpx-bench/default.pgo
 
@@ -28,6 +29,9 @@ PGO_PROFILE := cmd/govpx-bench/default.pgo
 # conformance subset is 58 VP80 IVF vectors.
 VP8_DECODER_IVF_MIN ?= 58
 VP8_INVALID_IVF_MIN ?= 2
+VP9_DECODER_IVF_MIN ?= 7
+VP9_INVALID_IVF_MIN ?= 17
+VP9_DECODER_PROFILE_WEBM_MIN ?= 11
 VP8_ENCODER_SOURCE_MIN ?= 2
 VP8_ENCODER_SOURCE_FRAMES ?= 6
 VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
@@ -35,7 +39,7 @@ VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -99,11 +103,17 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_TEST_DATA_MIN="$(VP8_DECODER_IVF_MIN)" \
 	GOVPX_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_INVALID_TEST_DATA_MIN="$(VP8_INVALID_IVF_MIN)" \
+	GOVPX_VP9_TEST_DATA_PATH="$(VP9_TEST_DATA_DIR)" \
+	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
+	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
+	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_REQUIRED=1 \
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
-	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches)' -count=1 -timeout 10m
+	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity
 
@@ -166,7 +176,7 @@ vp9-vpxdec-tools:
 $(ORACLE): internal/coracle/build_libvpx.sh internal/coracle/vpx_oracle.c
 	internal/coracle/build_libvpx.sh >/dev/null
 
-fetch-test-data: fetch-vp8-test-data fetch-encoder-test-data
+fetch-test-data: fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data
 
 fetch-vp8-test-data: $(ORACLE)
 	mkdir -p "$(VP8_TEST_DATA_DIR)"
@@ -175,6 +185,16 @@ fetch-vp8-test-data: $(ORACLE)
 			printf 'fetch %s\n' "$$f"; \
 			$(CURL) -fsSL --retry 3 -o "$(VP8_TEST_DATA_DIR)/$$f.tmp" "$(LIBVPX_TEST_DATA_BASE)/$$f"; \
 			mv "$(VP8_TEST_DATA_DIR)/$$f.tmp" "$(VP8_TEST_DATA_DIR)/$$f"; \
+		fi; \
+	done
+
+fetch-vp9-test-data: $(ORACLE)
+	mkdir -p "$(VP9_TEST_DATA_DIR)"
+	$(AWK) '/LIBVPX_TEST_DATA-\$$\(CONFIG_VP9_DECODER\)/ && ($$NF ~ /^(invalid-)?vp9[0-3].*\.ivf$$/ || $$NF ~ /^vp9[1-3].*\.webm$$/) {print $$NF}' "$(LIBVPX_TEST_DATA_MK)" | sort | while read f; do \
+		if [ ! -s "$(VP9_TEST_DATA_DIR)/$$f" ]; then \
+			printf 'fetch %s\n' "$$f"; \
+			$(CURL) -fsSL --retry 3 -o "$(VP9_TEST_DATA_DIR)/$$f.tmp" "$(LIBVPX_TEST_DATA_BASE)/$$f"; \
+			mv "$(VP9_TEST_DATA_DIR)/$$f.tmp" "$(VP9_TEST_DATA_DIR)/$$f"; \
 		fi; \
 	done
 
