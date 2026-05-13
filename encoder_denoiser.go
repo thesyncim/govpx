@@ -425,7 +425,7 @@ func (e *VP8Encoder) denoiserReferenceTooOld(ref vp8common.MVReferenceFrame) boo
 		return false
 	}
 	return e.frameCount > e.referenceFrameNumbers[ref] &&
-		e.frameCount-e.referenceFrameNumbers[ref] > denoiserMaxGFARFRange+1
+		e.frameCount-e.referenceFrameNumbers[ref] > denoiserMaxGFARFRange
 }
 
 func denoiserReferenceAvgIndexForMVRef(ref vp8common.MVReferenceFrame) (int, bool) {
@@ -515,8 +515,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		sseThresh = uint32(e.denoiser.params.scaleSSEThresh * denoiserSSEThresholdHigh)
 	}
 	motionThresh := uint32(e.denoiser.params.scaleMotionThresh) * denoiserNoiseMotionThreshold
-	if bestSSE > sseThresh || motionMag > motionThresh ||
-		(e.macroblockIsSkin(row, col, cols) && (e.consecZeroLast[index] < 2 || motionMag > 0)) {
+	if bestSSE > sseThresh || motionMag > motionThresh || e.denoiserSkinGateBlocksFilter(row, col, cols, index, motionMag) {
 		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
@@ -637,6 +636,17 @@ func (e *VP8Encoder) applyDenoiserSpatialLoopFilter(filtered vp8enc.SourceImage,
 		dsp.MBLoopFilterHorizontalEdge(y[yAvgOff-4*stride:], stride, mblim, lim, hev, 2)
 	}
 	return len(filtered.Y) > ySigOff
+}
+
+func (e *VP8Encoder) denoiserSkinGateBlocksFilter(row int, col int, cols int, index int, motionMag uint32) bool {
+	if !e.macroblockIsSkin(row, col, cols) {
+		return false
+	}
+	consecZeroLastMVBias := 0
+	if uint(index) < uint(len(e.consecZeroLastMVBias)) {
+		consecZeroLastMVBias = int(e.consecZeroLastMVBias[index])
+	}
+	return consecZeroLastMVBias < 2 || motionMag > 0
 }
 
 func (e *VP8Encoder) copyDenoiserNoFilterMacroblock(source vp8enc.SourceImage, filtered vp8enc.SourceImage, row int, col int, cols int, index int) {

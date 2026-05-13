@@ -692,6 +692,53 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	}
 }
 
+func TestDenoiserReferenceTooOldMirrorsLibvpxRange(t *testing.T) {
+	e := &VP8Encoder{}
+	e.referenceFrameNumbers[vp8common.GoldenFrame] = 0
+	e.referenceFrameNumbers[vp8common.AltRefFrame] = 1
+	e.referenceFrameNumbers[vp8common.LastFrame] = 0
+
+	e.frameCount = denoiserMaxGFARFRange
+	if e.denoiserReferenceTooOld(vp8common.GoldenFrame) {
+		t.Fatalf("GOLDEN ref at distance %d marked too old", denoiserMaxGFARFRange)
+	}
+
+	e.frameCount = denoiserMaxGFARFRange + 1
+	if !e.denoiserReferenceTooOld(vp8common.GoldenFrame) {
+		t.Fatalf("GOLDEN ref at distance %d not marked too old", denoiserMaxGFARFRange+1)
+	}
+
+	if e.denoiserReferenceTooOld(vp8common.LastFrame) {
+		t.Fatalf("LAST ref should never be rejected by the GF/ARF denoiser age gate")
+	}
+
+	e.frameCount = denoiserMaxGFARFRange + 1
+	if e.denoiserReferenceTooOld(vp8common.AltRefFrame) {
+		t.Fatalf("ALTREF ref at distance %d marked too old", denoiserMaxGFARFRange)
+	}
+}
+
+func TestDenoiserSkinGateUsesMVBiasCounter(t *testing.T) {
+	e := &VP8Encoder{
+		skinMap:              []uint8{1},
+		consecZeroLast:       []uint8{0},
+		consecZeroLastMVBias: []uint8{2},
+	}
+	if e.denoiserSkinGateBlocksFilter(0, 0, 1, 0, 0) {
+		t.Fatalf("skin denoiser gate used regular zero-LAST counter, want mv-bias counter")
+	}
+
+	e.consecZeroLastMVBias[0] = 1
+	if !e.denoiserSkinGateBlocksFilter(0, 0, 1, 0, 0) {
+		t.Fatalf("skin denoiser gate did not block when mv-bias counter < 2")
+	}
+
+	e.consecZeroLastMVBias[0] = 2
+	if !e.denoiserSkinGateBlocksFilter(0, 0, 1, 0, 1) {
+		t.Fatalf("skin denoiser gate did not block non-zero motion")
+	}
+}
+
 func TestDenoiserAvgForRefreshHonorsCopyBufferControls(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	e.opts.NoiseSensitivity = 2
