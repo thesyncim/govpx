@@ -82,18 +82,31 @@ func coefficientBlockTokenRate(probs *vp8tables.CoefficientProbs, blockType int,
 }
 
 // coefTokenCostElided returns the token cost charged at one coefficient
-// position. It mirrors libvpx's `token_costs` table: when the prior token's
-// prev_token_class is 0 (a ZERO_TOKEN) and the current band is past the
-// plane's first encoded band, the EOB-vs-not bit is elided and only the
-// non-EOB subtree cost is charged. Otherwise the full tree cost is charged.
+// position. It mirrors libvpx's `token_costs` table layout: when the prior
+// token's prev_token_class is 0 (a ZERO_TOKEN) and the current band is past
+// the plane's first encoded band, libvpx fills the row via
+// vp8_cost_tokens2(..., start=2), which writes only the non-EOB subtree
+// terminals (TWO..DCT_CAT6) and leaves the EOB slot at the calloc'd zero
+// seed (because cost_tokens2 starts past the EOB tree edge). Mirror that
+// by returning 0 for DCT_EOB_TOKEN on elided rows so the trellis rate
+// matches libvpx's mb->token_costs lookup exactly. The trellis shortcut
+// path reaches the elided EOB slot when the current position rounds to
+// zero (pt=0) and the next trellis state's token is DCT_EOB_TOKEN — in
+// that case libvpx adds 0, not the full-minus-nonEOB value that govpx
+// previously returned.
 func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockType int, band int, pt int) int {
 	// Single uint range check folds (token < 0) and (token >= len) so the
 	// per-coefficient hot path only does one compare-and-branch.
 	if uint(token) >= uint(len(coefTokenPaths)) {
 		return maxInt() / 4
 	}
-	full := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
 	if pt == 0 && band > coefElisionBandThreshold[blockType&3] {
+		if token == vp8tables.DCTEOBToken {
+			// Libvpx's vp8_cost_tokens2(start=2) skips the EOB branch
+			// entirely, so the cell stays at the calloc'd zero seed.
+			return 0
+		}
+		full := coefTokenCostFromPath(&coefTokenPaths[token], &probs)
 		// nonEOB == boolBitCost(probs[0], 1) == ProbCost[255-probs[0]].
 		nonEOB := vp8tables.ProbCost[255-int(probs[0])]
 		if full <= nonEOB {
@@ -101,7 +114,7 @@ func coefTokenCostElided(probs [vp8tables.EntropyNodes]uint8, token int, blockTy
 		}
 		return full - nonEOB
 	}
-	return full
+	return coefTokenCostFromPath(&coefTokenPaths[token], &probs)
 }
 
 // coefElisionBandThreshold maps blockType -> the first band that participates
