@@ -121,20 +121,40 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	//
 	// Naming convention: <pair-name>/<combo-name>/<segment>.
 	// segment is "s1" for segment one or "s2" for segment two.
+	//
+	// Diagnosed root cause for the good-quality+cpu0 entries below
+	// (per-frame Q/buffer/this-frame-target ALL match between govpx and
+	// libvpx oracle traces; only the reconstructed-Y plane drifts):
+	// libvpx's vp8_inverse_transform_mby path runs `eob_adjust` against
+	// `xd->qcoeff` after the inverse Walsh writes per-Y-block DC slots,
+	// and that DC source is `xd->block[24].dqcoeff[0]` — which libvpx's
+	// `optimize_b` does NOT refresh for positions outside the trellis
+	// path, and which `check_reset_2nd_coeffs` only clears for positions
+	// `i < *bd->eob`. When the trellis lands at eob=0, the stale Y2
+	// dqcoeff[0] from `vp8_regular_quantize_b_c` persists, so libvpx's
+	// encoder-side reconstruction adds a small DC offset to Y blocks 0..14
+	// that govpx's decoder-equivalent reconstruction (which derives only
+	// from the emitted token stream) does not. The bitstream of the
+	// keyframe itself byte-matches (tokens are emitted pre-eob_adjust),
+	// but the reference Y plane used for the next inter frame's NEWMV
+	// prediction diverges by ≤1 LSB per Y block DC — enough to produce
+	// a 1-byte size delta in the inter-frame coefficient partition.
+	// Closing these limits requires mirroring libvpx's stale-Y2-DC
+	// reconstruction quirk in govpx's analysis-Image rebuild, which is
+	// scoped as a separate audit.
 	coldSegLimit := map[string]int{
-		// 32x32 panning at good-quality+cpu0 diverges from frame 1
-		// onward both at CBR and VBR. The base matrix only pins
-		// 32x32 good-quality at cpu4, not cpu0, so this is a newly
-		// surfaced gap in the small-frame good-quality rate-loop.
+		// 32x32 panning at good-quality+cpu0: keyframe matches; f1
+		// onward diverges by a handful of bytes per frame because the
+		// stored f0 Y reference has libvpx-side eob_adjust DC offsets
+		// that govpx's decoder-equivalent reconstruction omits.
 		"32x32-to-64x64/good-quality-cpu0-cbr/s1": 1,
 		"32x32-to-64x64/good-quality-cpu0-vbr/s1": 1,
-		// 64x64 panning at good-quality+cpu0+vbr matches the first 7
-		// frames cleanly; the last frame in the window diverges by
-		// 3 bytes (first_diff at frame header, so the quantizer
-		// drifts by one step). The base matrix pins 64x64 good-
-		// quality cpu4+vbr but not cpu0+vbr, so this is the same
-		// "good-quality cpu0 rate-loop" gap as above, just delayed
-		// because the larger MB grid amortizes the drift.
+		// 64x64 panning at good-quality+cpu0+vbr: matches f0..f6,
+		// diverges at f7 by ~3 bytes. Same root cause as above; the
+		// larger MB grid happens to amortize the per-MB DC drift so
+		// the divergence only surfaces once the cumulative error in
+		// the reference Y plane crosses a coefficient-quantization
+		// boundary at a single MB.
 		"64x64-to-96x96/good-quality-cpu0-vbr/s2": 7,
 	}
 
