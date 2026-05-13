@@ -101,12 +101,11 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "small-good-cpu0-16x16", deadline: DeadlineGoodQuality, cpuUsed: 0, fx: mk(16, 16)},
 		{name: "small-good-cpu4-16x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(16, 32)},
 		{name: "small-good-cpu4-32x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(32, 16)},
-		// BestQuality 16x32 diverges starting at frame 1: the BestQuality
-		// picker explores splitmv on the bottom MB row and produces a
-		// 1-byte first-partition delta. Same gap as the existing
-		// splitmv+denoiser cluster pinned in the extended matrix —
-		// keyframe (frame 0) byte-matches.
-		{name: "small-best-cpu0-16x32", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(16, 32), limit: 1},
+		// 16x32 BestQuality+cpu0 byte-matches end-to-end after closing
+		// the dctValueBaseCost positive/negative sign asymmetry (see
+		// encoder_inter_quantize.go) that was flipping trellis `best`
+		// decisions on negative SPLITMV Y coefficients.
+		{name: "small-best-cpu0-16x32", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(16, 32)},
 		{name: "small-best-cpu0-32x16", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(32, 16)},
 
 		// (2) Asymmetric small. Each picks a representative cpu_used to

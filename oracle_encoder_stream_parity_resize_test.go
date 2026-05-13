@@ -122,41 +122,21 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	// Naming convention: <pair-name>/<combo-name>/<segment>.
 	// segment is "s1" for segment one or "s2" for segment two.
 	//
-	// Diagnosed root cause for the good-quality+cpu0 entries below
-	// (per-frame Q/buffer/this-frame-target ALL match between govpx and
-	// libvpx oracle traces; only the reconstructed-Y plane drifts):
-	// libvpx's vp8_inverse_transform_mby path runs `eob_adjust` against
-	// `xd->qcoeff` after the inverse Walsh writes per-Y-block DC slots,
-	// and that DC source is `xd->block[24].dqcoeff[0]` — which libvpx's
-	// `optimize_b` does NOT refresh for positions outside the trellis
-	// path, and which `check_reset_2nd_coeffs` only clears for positions
-	// `i < *bd->eob`. When the trellis lands at eob=0, the stale Y2
-	// dqcoeff[0] from `vp8_regular_quantize_b_c` persists, so libvpx's
-	// encoder-side reconstruction adds a small DC offset to Y blocks 0..14
-	// that govpx's decoder-equivalent reconstruction (which derives only
-	// from the emitted token stream) does not. The bitstream of the
-	// keyframe itself byte-matches (tokens are emitted pre-eob_adjust),
-	// but the reference Y plane used for the next inter frame's NEWMV
-	// prediction diverges by ≤1 LSB per Y block DC — enough to produce
-	// a 1-byte size delta in the inter-frame coefficient partition.
-	// Closing these limits requires mirroring libvpx's stale-Y2-DC
-	// reconstruction quirk in govpx's analysis-Image rebuild, which is
-	// scoped as a separate audit.
-	coldSegLimit := map[string]int{
-		// 32x32 panning at good-quality+cpu0: keyframe matches; f1
-		// onward diverges by a handful of bytes per frame because the
-		// stored f0 Y reference has libvpx-side eob_adjust DC offsets
-		// that govpx's decoder-equivalent reconstruction omits.
-		"32x32-to-64x64/good-quality-cpu0-cbr/s1": 1,
-		"32x32-to-64x64/good-quality-cpu0-vbr/s1": 1,
-		// 64x64 panning at good-quality+cpu0+vbr: matches f0..f6,
-		// diverges at f7 by ~3 bytes. Same root cause as above; the
-		// larger MB grid happens to amortize the per-MB DC drift so
-		// the divergence only surfaces once the cumulative error in
-		// the reference Y plane crosses a coefficient-quantization
-		// boundary at a single MB.
-		"64x64-to-96x96/good-quality-cpu0-vbr/s2": 7,
-	}
+	// Previously the good-quality+cpu0 entries were pinned at limit:1
+	// (32x32 cbr/vbr) and limit:7 (64x64 vbr s2) because govpx's trellis
+	// optimizer's `dctValueBaseCost` returned the same cost for positive
+	// and negative coefficients of the same magnitude. libvpx's
+	// `dct_value_cost` LUT distinguishes signs: positive coefficients pay
+	// `vp8_cost_bit(vp8_prob_half=128, 0) = ProbCost[128] = 255` while
+	// negatives pay `vp8_cost_bit(128, 1) = ProbCost[127] = 257` (the
+	// LUT entries differ by 2 fixed-point units even though both probs
+	// represent 1/2). The 2-unit per-negative-coefficient drift flipped
+	// the trellis `best` selection at one iteration on the SPLITMV/B_PRED
+	// 4x4 trellis, producing different final EOBs and 1-3 byte coefficient
+	// partition divergence. Splitting `dctValueBaseCostLUT` into separate
+	// positive/negative tables (see encoder_inter_quantize.go) closes
+	// these gaps without affecting the rest of the matrix.
+	coldSegLimit := map[string]int{}
 
 	for _, pair := range pairs {
 		for _, combo := range combos {

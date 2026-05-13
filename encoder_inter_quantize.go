@@ -376,16 +376,27 @@ func dctValueToken(x int) int {
 	return token
 }
 
-// dctValueBaseCostLUT precomputes libvpx's dct_value_cost table for every
-// |coefficient| in [0, DCTMaxValue]: sign bit cost (always boolBitCost(128, 0))
-// plus the extra-bits subtree cost for the value's token category. The
-// per-coefficient hot-path lookup is then a single bounded array load,
-// replacing a token-category resolve + a per-bit loop over extra.Len.
-var dctValueBaseCostLUT = buildDCTValueBaseCostLUT()
+// dctValueBaseCostLUTPos / dctValueBaseCostLUTNeg precompute libvpx's
+// dct_value_cost table for every coefficient in [-DCTMaxValue, DCTMaxValue].
+// libvpx's fill_value_tokens stores the cost of the per-coefficient sign bit
+// at vp8_cost_bit(vp8_prob_half=128, extra&1) where `extra & 1` is the sign
+// bit (1 for negative, 0 for positive). Because vp8_prob_cost is a quantized
+// LUT and probs[128] ≠ probs[127] by 2 units in fixed-point, positive and
+// negative values of the same magnitude have a 2-bit-unit cost asymmetry
+// that the trellis observes through baseBits → toks[i][?].rate. Keeping a
+// single |coefficient|-indexed LUT (the previous shape) under-counts the
+// negative-sign cost by 2 units and over time flips per-iteration `best`
+// choices, producing 1-3 byte coefficient-partition divergences on the
+// BestQuality+cpu0 / GoodQuality+cpu0 SPLITMV path (small-best-cpu0-16x32
+// limit=1 etc.).
+var (
+	dctValueBaseCostLUTPos = buildDCTValueBaseCostLUT(0)
+	dctValueBaseCostLUTNeg = buildDCTValueBaseCostLUT(1)
+)
 
-func buildDCTValueBaseCostLUT() [vp8tables.DCTMaxValue + 1]int32 {
+func buildDCTValueBaseCostLUT(signBit int) [vp8tables.DCTMaxValue + 1]int32 {
 	var lut [vp8tables.DCTMaxValue + 1]int32
-	signCost := boolBitCost(128, 0)
+	signCost := boolBitCost(128, signBit)
 	for abs := 1; abs <= vp8tables.DCTMaxValue; abs++ {
 		token := int(coefficientTokenLUT[abs])
 		lut[abs] = int32(signCost + coefficientExtraBitsRate(token, abs))
@@ -402,7 +413,11 @@ func dctValueBaseCost(x int) int {
 	if uint(abs) > uint(vp8tables.DCTMaxValue) {
 		return maxInt() / 4
 	}
-	return int(dctValueBaseCostLUT[abs])
+	// mask is -1 for negative, 0 for positive. Use it to pick neg/pos LUT.
+	if mask != 0 {
+		return int(dctValueBaseCostLUTNeg[abs])
+	}
+	return int(dctValueBaseCostLUTPos[abs])
 }
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodemb.c
