@@ -1100,10 +1100,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			script: runtimeControlScript(frames, map[int]string{
 				1: "setref:last:panning:8",
 			}),
-			// The externally replaced-reference frame itself matches.
-			// Subsequent inter frames still drift, so keep the prefix
-			// pinned while the follow-on reference bookkeeping is fixed.
-			matchLimit: 2,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -1129,7 +1125,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			script: runtimeControlScript(frames, map[int]string{
 				1: "setref:last:panning:8",
 			}),
-			matchLimit: 2,
+			// Alias propagation fixes the reference-control drift through
+			// frame 7; frame 8 exposes a separate denoiser-state gap.
+			matchLimit: 8,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceLast, 8, "last"),
 			},
@@ -1149,7 +1147,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			script: runtimeControlScript(frames, map[int]string{
 				1: "setref:golden:panning:8",
 			}),
-			matchLimit: 2,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceGolden, 8, "golden"),
 			},
@@ -1169,7 +1166,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			script: runtimeControlScript(frames, map[int]string{
 				1: "setref:altref:panning:8",
 			}),
-			matchLimit: 2,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceAltRef, 8, "altref"),
 			},
@@ -1193,7 +1189,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				1: "setref:last:panning:8",
 				4: "setref:golden:panning:12",
 			}),
-			matchLimit: 2,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceLast, 8, "last"),
 				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),

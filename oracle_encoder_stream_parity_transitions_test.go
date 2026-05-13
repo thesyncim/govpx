@@ -384,7 +384,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-set-reference", baseOpts, targetKbps, sources, flags, []string{
 			"--control-script=" + strings.Join(script, ","),
 		})
-		assertSegmentByteParity(t, "flush-set-reference", govpxFrames, libvpxFrames, 2)
+		assertSegmentByteParity(t, "flush-set-reference", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("flush-tight-buffer-drop-resume", func(t *testing.T) {

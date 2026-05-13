@@ -88,6 +88,41 @@ func TestEncoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 	assertImagesEqual(t, "copied GOLDEN reference", ref, dst)
 }
 
+func TestEncoderSetReferenceFrameCopiesAliasedReferences(t *testing.T) {
+	e := newTestEncoder(t)
+
+	key := testImage(16, 16)
+	fillImage(key, 9, 10, 11)
+	packet := make([]byte, 4096)
+	if _, err := e.EncodeInto(packet, key, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if !e.goldenRefAliasesLast || !e.altRefAliasesLast || !e.goldenRefAliasesAlt {
+		t.Fatalf("post-key aliases = last/golden:%t last/alt:%t golden/alt:%t, want all true", e.goldenRefAliasesLast, e.altRefAliasesLast, e.goldenRefAliasesAlt)
+	}
+
+	ref := testImage(16, 16)
+	fillImage(ref, 66, 77, 88)
+	if err := e.SetReferenceFrame(ReferenceGolden, ref); err != nil {
+		t.Fatalf("SetReferenceFrame returned error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		ref  ReferenceFrame
+	}{
+		{name: "LAST", ref: ReferenceLast},
+		{name: "GOLDEN", ref: ReferenceGolden},
+		{name: "ALTREF", ref: ReferenceAltRef},
+	} {
+		dst := testImage(16, 16)
+		if err := e.CopyReferenceFrame(tc.ref, &dst); err != nil {
+			t.Fatalf("CopyReferenceFrame(%s): %v", tc.name, err)
+		}
+		assertImagesEqual(t, "aliased "+tc.name+" reference", ref, dst)
+	}
+}
+
 func TestEncoderReferenceFrameValidation(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)
@@ -129,6 +164,7 @@ func TestEncoderSetReferenceFrameInvalidatesReferenceState(t *testing.T) {
 	if _, err := e.EncodeInto(packet, key, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
+	referenceFrameNumbers := e.referenceFrameNumbers
 
 	ref := testImage(16, 16)
 	fillImage(ref, 66, 77, 88)
@@ -146,14 +182,13 @@ func TestEncoderSetReferenceFrameInvalidatesReferenceState(t *testing.T) {
 	if err := e.SetReferenceFrame(ReferenceGolden, ref); err != nil {
 		t.Fatalf("SetReferenceFrame returned error: %v", err)
 	}
-	if e.goldenRefAliasesLast || e.goldenRefAliasesAlt {
-		t.Fatalf("golden alias flags = last:%t alt:%t, want both false", e.goldenRefAliasesLast, e.goldenRefAliasesAlt)
+	if !e.goldenRefAliasesLast || !e.goldenRefAliasesAlt || !e.altRefAliasesLast {
+		t.Fatalf("alias flags = last/golden:%t golden/alt:%t last/alt:%t, want preserved", e.goldenRefAliasesLast, e.goldenRefAliasesAlt, e.altRefAliasesLast)
 	}
-	if !e.altRefAliasesLast {
-		t.Fatalf("altRefAliasesLast = false, want preserved LAST/ALT alias")
-	}
-	if got, want := e.referenceFrameNumbers[vp8common.GoldenFrame], e.frameCount; got != want {
-		t.Fatalf("golden reference frame number = %d, want %d", got, want)
+	for _, refFrame := range []vp8common.MVReferenceFrame{vp8common.LastFrame, vp8common.GoldenFrame, vp8common.AltRefFrame} {
+		if got, want := e.referenceFrameNumbers[refFrame], referenceFrameNumbers[refFrame]; got != want {
+			t.Fatalf("reference frame number[%d] = %d, want preserved %d", refFrame, got, want)
+		}
 	}
 	if e.lastFrameInterModesValid || e.interRDFrameRefSearchOrderValid {
 		t.Fatalf("reference-dependent mode caches were not invalidated")
@@ -203,8 +238,17 @@ func TestEncoderSetReferenceFrameSyncsDenoiserAverage(t *testing.T) {
 	if err := e.SetReferenceFrame(ReferenceAltRef, ref); err != nil {
 		t.Fatalf("SetReferenceFrame returned error: %v", err)
 	}
-	if !publicImageEqualVP8(ref, &e.denoiser.runningAvg[denoiserAvgAltRef].Img) {
-		t.Fatalf("ALTREF denoiser running average does not match replacement reference")
+	for _, tc := range []struct {
+		name string
+		idx  int
+	}{
+		{name: "LAST", idx: denoiserAvgLast},
+		{name: "GOLDEN", idx: denoiserAvgGolden},
+		{name: "ALTREF", idx: denoiserAvgAltRef},
+	} {
+		if !publicImageEqualVP8(ref, &e.denoiser.runningAvg[tc.idx].Img) {
+			t.Fatalf("%s denoiser running average does not match replacement reference", tc.name)
+		}
+		assertCodedBordersExtended(t, &e.denoiser.runningAvg[tc.idx].Img)
 	}
-	assertCodedBordersExtended(t, &e.denoiser.runningAvg[denoiserAvgAltRef].Img)
 }

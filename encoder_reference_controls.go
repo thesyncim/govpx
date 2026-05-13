@@ -15,15 +15,18 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	fb, ok := e.referenceFrameBuffer(ref)
-	if !ok || !src.validForEncode(e.opts.Width, e.opts.Height) {
+	if _, ok := e.referenceFrameBuffer(ref); !ok || !src.validForEncode(e.opts.Width, e.opts.Height) {
 		return ErrInvalidConfig
 	}
-	copyPublicImageToVP8(&fb.Img, src)
-	padFrameVisibleToCoded(&fb.Img)
-	fb.ExtendBorders()
-	e.syncDenoiserReferenceFrame(ref, src)
-	e.invalidateReferenceFrameState(ref)
+	refs := e.referenceAliasGroup(ref)
+	for _, aliasedRef := range refs {
+		fb, _ := e.referenceFrameBuffer(aliasedRef)
+		copyPublicImageToVP8(&fb.Img, src)
+		padFrameVisibleToCoded(&fb.Img)
+		fb.ExtendBorders()
+		e.syncDenoiserReferenceFrame(aliasedRef, src)
+	}
+	e.invalidateReferenceFrameState()
 	return nil
 }
 
@@ -64,23 +67,50 @@ func (e *VP8Encoder) referenceFrameBuffer(ref ReferenceFrame) (*vp8common.FrameB
 	}
 }
 
-// invalidateReferenceFrameState clears encoder state that assumes reference
-// identity only changes through the normal VP8 refresh/copy path.
-func (e *VP8Encoder) invalidateReferenceFrameState(ref ReferenceFrame) {
+// referenceAliasGroup returns the public references that currently share the
+// same libvpx reference-buffer identity as ref. VP8_SET_REFERENCE writes the
+// underlying YV12 buffer, not just the named public slot, so replacing an
+// aliased reference must update every govpx buffer in that alias group while
+// leaving the alias metadata itself unchanged.
+func (e *VP8Encoder) referenceAliasGroup(ref ReferenceFrame) []ReferenceFrame {
+	refs := []ReferenceFrame{ref}
+	add := func(candidate ReferenceFrame) {
+		for _, existing := range refs {
+			if existing == candidate {
+				return
+			}
+		}
+		refs = append(refs, candidate)
+	}
 	switch ref {
 	case ReferenceLast:
-		e.goldenRefAliasesLast = false
-		e.altRefAliasesLast = false
-		e.referenceFrameNumbers[vp8common.LastFrame] = e.frameCount
+		if e.goldenRefAliasesLast {
+			add(ReferenceGolden)
+		}
+		if e.altRefAliasesLast {
+			add(ReferenceAltRef)
+		}
 	case ReferenceGolden:
-		e.goldenRefAliasesLast = false
-		e.goldenRefAliasesAlt = false
-		e.referenceFrameNumbers[vp8common.GoldenFrame] = e.frameCount
+		if e.goldenRefAliasesLast {
+			add(ReferenceLast)
+		}
+		if e.goldenRefAliasesAlt {
+			add(ReferenceAltRef)
+		}
 	case ReferenceAltRef:
-		e.altRefAliasesLast = false
-		e.goldenRefAliasesAlt = false
-		e.referenceFrameNumbers[vp8common.AltRefFrame] = e.frameCount
+		if e.altRefAliasesLast {
+			add(ReferenceLast)
+		}
+		if e.goldenRefAliasesAlt {
+			add(ReferenceGolden)
+		}
 	}
+	return refs
+}
+
+// invalidateReferenceFrameState clears encoder state that assumes reference
+// pixels only change through the normal VP8 refresh/copy path.
+func (e *VP8Encoder) invalidateReferenceFrameState() {
 	e.lastFrameInterModesValid = false
 	e.interRDFrameRefSearchOrderValid = false
 	clearUint8Map(e.consecZeroLast)
