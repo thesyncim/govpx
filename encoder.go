@@ -980,6 +980,16 @@ type interFrameEncodeAttempt struct {
 	Ref               *vp8common.Image
 	Size              int
 	ProjectedSizeBits int
+	// PickerProjectedSizeBytes mirrors libvpx's pre-pack
+	// cpi->projected_frame_size (totalrate >> 8) before
+	// vp8_estimate_entropy_savings subtracts the coef / ref-frame savings.
+	// vp8_drop_encodedframe_overshoot consumes this value at
+	// onyx_if.c:3977 (i.e. before line 3986's savings subtraction), so the
+	// overshoot drop gate must see the raw picker rate rather than the
+	// post-savings projection or the final packed size. Always populated
+	// for non-zero-ref attempts so the overshoot drop can fire even when
+	// the recode loop is disabled.
+	PickerProjectedSizeBytes int
 	// Entropy-savings breakdown (see keyFrameEncodeAttempt).
 	CoefSavingsBits        int
 	RefFrameSavingsBits    int

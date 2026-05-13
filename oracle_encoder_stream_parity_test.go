@@ -1355,7 +1355,12 @@ func libvpxEndUsageArgs(extraArgs []string) []string {
 }
 
 // encodeFramesWithGovpx returns the raw per-frame VP8 packet payloads
-// produced by govpx for the supplied sources.
+// produced by govpx for the supplied sources. Dropped frames (CBR
+// decimation drops, buffer-underrun drops, vp8_drop_encodedframe_overshoot
+// drops) leave no payload in the returned slice, mirroring libvpx's
+// observable output where a drop produces no IVF packet for that source
+// frame. Callers that need to validate a specific drop pattern compare
+// the returned slice against the libvpx oracle's IVF packet list.
 func encodeFramesWithGovpx(t *testing.T, opts EncoderOptions, sources []Image) [][]byte {
 	t.Helper()
 	enc, err := NewVP8Encoder(opts)
@@ -1364,9 +1369,9 @@ func encodeFramesWithGovpx(t *testing.T, opts EncoderOptions, sources []Image) [
 	}
 	buf := make([]byte, opts.Width*opts.Height*4+4096)
 	out := make([][]byte, 0, len(sources))
-	appendResult := func(label string, result EncodeResult) {
+	appendResult := func(_ string, result EncodeResult) {
 		if result.Dropped {
-			t.Fatalf("%s dropped, want full stream", label)
+			return
 		}
 		out = append(out, append([]byte(nil), result.Data...))
 	}
