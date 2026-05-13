@@ -206,8 +206,11 @@ func TestLibvpxAutoGoldOnePassRefreshDecision(t *testing.T) {
 // rolling weighted-average over prior_key_frame_distance with weights
 // {1,2,3,4,5}. Seed the buffer with values 10,20,30,40,50 and set
 // framesSinceKeyframe=60. After one call, the buffer shifts left and
-// the new tail value is 60. The expected weighted average is
-// (1*20 + 2*30 + 3*40 + 4*50 + 5*60) / 15 = 700/15 = 46.
+// the new tail value is the libvpx-equivalent frames_since_key, which is
+// `framesSinceKeyframe+1` (govpx's counter excludes the KF's own
+// end-of-frame increment that libvpx folds into `cpi->frames_since_key`;
+// see the estimateKeyFrameFrequency doc comment). The expected weighted
+// average is (1*20 + 2*30 + 3*40 + 4*50 + 5*61) / 15 = 705/15 = 47.
 func TestRateControlEstimateKeyFrameFrequencyWeightedAverage(t *testing.T) {
 	rc := rateControlState{
 		keyFrameCount:         2,
@@ -215,7 +218,7 @@ func TestRateControlEstimateKeyFrameFrequencyWeightedAverage(t *testing.T) {
 		priorKeyFrameDistance: [5]int{10, 20, 30, 40, 50},
 	}
 	got := rc.estimateKeyFrameFrequency()
-	want := (1*20 + 2*30 + 3*40 + 4*50 + 5*60) / 15
+	want := (1*20 + 2*30 + 3*40 + 4*50 + 5*61) / 15
 	if got != want {
 		t.Fatalf("estimate = %d, want %d", got, want)
 	}

@@ -91,24 +91,37 @@ func TestOracleEncoderStreamByteParityCombo(t *testing.T) {
 		// refresh-state bookkeeping is reset every other frame.
 		{name: "cyclic-forcekf-every2-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: cyclicForceKFPattern(frames, 2)},
 		{name: "cyclic-forcekf-every2-panning32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: cyclicForceKFPattern(frames, 2)},
-		// every2 + 64x64 panning / splitmv: frames 0..10 byte-match;
-		// frame 11 (the trailing inter slot between forced KFs at
-		// frame 10 and the end of the stream) diverges by a single
-		// first-partition byte. Same trailing-inter-frame gap the
-		// existing extended matrix flags for the splitmv-64x64 +
-		// cpu-0 path — the cyclic forced-KF pattern just exposes it
-		// once per stream. Pin the 11-frame prefix; the trailing
-		// frame stays under the broader splitmv parity gap.
-		{name: "cyclic-forcekf-every2-panning64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: 11, flags: cyclicForceKFPattern(frames, 2)},
+		// every2 + 64x64 panning: closed by the
+		// estimate_keyframe_frequency off-by-one fix
+		// (close-cyclic-forcekf-splitmv). govpx's `framesSinceKeyframe`
+		// previously excluded the KF's own end-of-frame increment
+		// (libvpx folds it into `cpi->frames_since_key` at the
+		// post-encode tail), driving estimate_keyframe_frequency to
+		// 1 after a long forced-KF cadence and inflating
+		// kf_bitrate_adjustment enough for calc_pframe_target_size
+		// to drain all of kf_overspend_bits at once on the trailing
+		// inter frame; the resulting Q jump was several steps above
+		// libvpx and the frame size diverged by several hundred
+		// bytes. After the fix, frame 11's calc_pframe_target_size
+		// drain matches libvpx and the trailing inter is byte-
+		// identical on smooth panning content.
+		{name: "cyclic-forcekf-every2-panning64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, flags: cyclicForceKFPattern(frames, 2)},
+		// every2 + splitmv-64 at cpu0: same rate-control fix above
+		// brings the trailing inter frame to within the 1 first-
+		// partition byte the existing extended splitmv-64x64
+		// realtime-cbr matrix flags for cpu-0 splitmv content. Pin
+		// the 11-frame prefix; the trailing frame stays under the
+		// broader trailing-inter splitmv gap.
 		{name: "cyclic-forcekf-every2-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 11, flags: cyclicForceKFPattern(frames, 2)},
 		// k=3
 		{name: "cyclic-forcekf-every3-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: cyclicForceKFPattern(frames, 3)},
 		{name: "cyclic-forcekf-every3-panning32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: cyclicForceKFPattern(frames, 3)},
 		{name: "cyclic-forcekf-every3-panning64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, flags: cyclicForceKFPattern(frames, 3)},
-		// every3 + splitmv-64 at cpu0: same trailing-inter-frame gap
-		// the splitmv parity matrix flags (frame 11 first_part delta
-		// by 1 byte). Pin frames 0..10; trailing frame stays under
-		// the broader splitmv gap.
+		// every3 + splitmv-64 at cpu0: after the
+		// estimate_keyframe_frequency off-by-one fix the trailing
+		// inter delta shrinks to the same 1 first-partition byte
+		// the splitmv parity matrix flags. Pin frames 0..10; the
+		// trailing frame stays under the broader splitmv gap.
 		{name: "cyclic-forcekf-every3-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 11, flags: cyclicForceKFPattern(frames, 3)},
 		// k=4
 		{name: "cyclic-forcekf-every4-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: cyclicForceKFPattern(frames, 4)},
