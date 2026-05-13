@@ -572,6 +572,76 @@ func TestSetRealtimeTargetValidatesResolutionChange(t *testing.T) {
 	}
 }
 
+func TestSetRealtimeTargetResizesDrainedLookaheadBuffers(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		LookaheadFrames:   4,
+		AutoAltRef:        true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	defer e.Close()
+
+	buf := make([]byte, 96*96*6+4096)
+	for i := range 8 {
+		if _, err := e.EncodeInto(buf, rateControlTestFrame(64, 64, i), uint64(i), 1, 0); err != nil && !errors.Is(err, ErrFrameNotReady) {
+			t.Fatalf("pre-resize EncodeInto %d: %v", i, err)
+		}
+	}
+	for {
+		_, err := e.FlushInto(buf)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("pre-resize FlushInto: %v", err)
+		}
+	}
+	if e.lookaheadCount != 0 {
+		t.Fatalf("lookaheadCount before resize = %d, want drained", e.lookaheadCount)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 96, Height: 96}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize returned error: %v", err)
+	}
+	for i := range e.lookahead {
+		if got := e.lookahead[i].frame.Img.Width; got != 96 {
+			t.Fatalf("lookahead[%d] width = %d, want 96", i, got)
+		}
+		if got := e.lookahead[i].frame.Img.Height; got != 96 {
+			t.Fatalf("lookahead[%d] height = %d, want 96", i, got)
+		}
+	}
+	if e.autoAltRefStashFrame.Img.YStride != 0 {
+		if e.autoAltRefStashFrame.Img.Width != 96 || e.autoAltRefStashFrame.Img.Height != 96 {
+			t.Fatalf("auto-alt-ref stash dims = %dx%d, want 96x96", e.autoAltRefStashFrame.Img.Width, e.autoAltRefStashFrame.Img.Height)
+		}
+	}
+	for i := range 8 {
+		if _, err := e.EncodeInto(buf, rateControlTestFrame(96, 96, i+8), uint64(i+8), 1, 0); err != nil && !errors.Is(err, ErrFrameNotReady) {
+			t.Fatalf("post-resize EncodeInto %d: %v", i, err)
+		}
+	}
+	for {
+		_, err := e.FlushInto(buf)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("post-resize FlushInto: %v", err)
+		}
+	}
+}
+
 func TestEncoderRuntimeControlValidation(t *testing.T) {
 	e := newTestEncoder(t)
 

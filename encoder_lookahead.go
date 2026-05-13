@@ -19,8 +19,17 @@ func (e *VP8Encoder) initLookahead(width int, height int, depth int) error {
 		return nil
 	}
 	e.lookahead = make([]lookaheadEntry, depth+1)
+	return e.resizeLookaheadFrames(width, height)
+}
+
+func (e *VP8Encoder) resizeLookaheadFrames(width int, height int) error {
 	for i := range e.lookahead {
 		if err := e.lookahead[i].frame.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
+	}
+	if e.autoAltRefStashFrame.Img.YStride != 0 {
+		if err := e.autoAltRefStashFrame.Resize(width, height, 32, 32); err != nil {
 			return ErrInvalidConfig
 		}
 	}

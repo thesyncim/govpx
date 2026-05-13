@@ -225,6 +225,96 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder resize-control byte-parity gate")
+	}
+	vpxencOracle := findVpxencOracle(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 8
+		w1         = 64
+		h1         = 64
+		w2         = 96
+		h2         = 96
+	)
+	seg1 := makePanningSources(w1, h1, frames, 0)
+	seg2 := makePanningSources(w2, h2, frames, frames)
+	baseOpts := EncoderOptions{
+		Width:             w1,
+		Height:            h1,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+
+	cases := []struct {
+		name      string
+		mutate    func(*EncoderOptions)
+		extraArgs []string
+		coldLimit int
+	}{
+		{
+			name: "denoiser-threads-token-ssim",
+			mutate: func(opts *EncoderOptions) {
+				opts.NoiseSensitivity = 3
+				opts.Threads = 2
+				opts.TokenPartitions = 2
+				opts.Tuning = TuneSSIM
+			},
+			extraArgs: []string{"--noise-sensitivity=3", "--threads=2", "--token-parts=2", "--tune=ssim"},
+			coldLimit: 2,
+		},
+		{
+			name: "screen-static-sharpness",
+			mutate: func(opts *EncoderOptions) {
+				opts.ScreenContentMode = 1
+				opts.StaticThreshold = 50
+				opts.Sharpness = 4
+			},
+			extraArgs: []string{"--screen-content-mode=1", "--static-thresh=50", "--sharpness=4"},
+		},
+		{
+			name: "lookahead4-auto-alt-ref",
+			mutate: func(opts *EncoderOptions) {
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = true
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts1 := baseOpts
+			tc.mutate(&opts1)
+			opts2 := opts1
+			opts2.Width = w2
+			opts2.Height = h2
+
+			govpx1Cold := encodeFramesWithGovpx(t, opts1, seg1)
+			govpx2Cold := encodeFramesWithGovpx(t, opts2, seg2)
+			extraArgs := libvpxEndUsageArgs(tc.extraArgs)
+			libvpx1 := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name+"-seg1", opts1, targetKbps, seg1, extraArgs)
+			libvpx2 := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name+"-seg2", opts2, targetKbps, seg2, extraArgs)
+
+			assertSegmentByteParity(t, "cold-seg1-"+tc.name, govpx1Cold, libvpx1, tc.coldLimit)
+			assertSegmentByteParity(t, "cold-seg2-"+tc.name, govpx2Cold, libvpx2, tc.coldLimit)
+
+			govpx1Resize, govpx2Resize := encodeWithMidStreamResize(t, opts1, w2, h2, seg1, seg2)
+			assertSegmentByteParity(t, "resize-seg1-vs-cold-govpx-"+tc.name, govpx1Resize, govpx1Cold, 0)
+			assertSegmentByteParity(t, "resize-seg2-forced-key-"+tc.name, govpx2Resize, libvpx2, 1)
+		})
+	}
+}
+
 // encodeWithMidStreamResize runs a single govpx encoder across two
 // resolution segments. It encodes seg1 at the dimensions supplied in
 // initOpts, drains via FlushInto, calls SetRealtimeTarget with the new

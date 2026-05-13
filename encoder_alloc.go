@@ -155,6 +155,9 @@ func (e *VP8Encoder) reallocateForDimensions(width int, height int) error {
 	if err := e.initPreprocessFrames(width, height); err != nil {
 		return err
 	}
+	if err := e.resizeLookaheadFrames(width, height); err != nil {
+		return err
+	}
 	return nil
 }
 

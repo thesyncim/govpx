@@ -168,7 +168,9 @@ func (e *VP8Encoder) autoAltRefStashInput(src Image, pts uint64, duration uint64
 	if e.autoAltRefStashValid {
 		return ErrFrameNotReady
 	}
-	if e.autoAltRefStashFrame.Img.YStride == 0 {
+	if e.autoAltRefStashFrame.Img.YStride == 0 ||
+		e.autoAltRefStashFrame.Img.Width != e.opts.Width ||
+		e.autoAltRefStashFrame.Img.Height != e.opts.Height {
 		if err := e.autoAltRefStashFrame.Resize(e.opts.Width, e.opts.Height, 32, 32); err != nil {
 			return ErrInvalidConfig
 		}
