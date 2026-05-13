@@ -48,12 +48,11 @@ type NeighborMi struct {
 }
 
 // Bmi mirrors libvpx's b_mode_info — the per-4x4-subblock side of a
-// MODE_INFO. Only `as_mode` is needed by the decoder mode-info path;
-// libvpx's full b_mode_info also carries a per-subblock motion vector,
-// which will land alongside this struct when the inter mode-info port
-// pulls it in.
+// MODE_INFO. Carries the per-subblock intra mode (as_mode) and the
+// per-ref motion vector pair (as_mv) for sub-8x8 inter partitions.
 type Bmi struct {
 	AsMode common.PredictionMode
+	AsMv   [2]MV
 }
 
 // isInterBlock mirrors libvpx's is_inter_block(MODE_INFO*).
