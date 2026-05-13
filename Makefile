@@ -106,6 +106,7 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_VP9_TEST_DATA_PATH="$(VP9_TEST_DATA_DIR)" \
 	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
+	GOVPX_VP9_TEST_DATA_STRICT=1 \
 	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
 	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
@@ -144,19 +145,27 @@ scoreboard-update: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) run ./cmd/scoreboard-report -- . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
 
-decoder-oracle-test: oracle-tools fetch-vp8-test-data
+decoder-oracle-test: oracle-tools vp9-vpxdec-tools fetch-vp8-test-data fetch-vp9-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
 	GOVPX_ORACLE="$(ORACLE)" \
 	GOVPX_VPXDEC="$(VPXDEC)" \
 	GOVPX_VPXENC="$(VPXENC)" \
+	GOVPX_VPXDEC_VP9_BIN="$(VPXDEC_VP9)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_TEST_DATA_REQUIRED=1 \
 	GOVPX_TEST_DATA_MIN="$(VP8_DECODER_IVF_MIN)" \
 	GOVPX_INVALID_TEST_DATA_REQUIRED=1 \
 	GOVPX_INVALID_TEST_DATA_MIN="$(VP8_INVALID_IVF_MIN)" \
-	$(GO) test . -run 'TestOracle(Libvpx(ExtendedDecodeModesAvailable|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)$$' -count=1 -timeout 10m
+	GOVPX_VP9_TEST_DATA_PATH="$(VP9_TEST_DATA_DIR)" \
+	GOVPX_VP9_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_TEST_DATA_MIN="$(VP9_DECODER_IVF_MIN)" \
+	GOVPX_VP9_TEST_DATA_STRICT=1 \
+	GOVPX_VP9_PROFILE_TEST_DATA_MIN="$(VP9_DECODER_PROFILE_WEBM_MIN)" \
+	GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 \
+	GOVPX_VP9_INVALID_TEST_DATA_MIN="$(VP9_INVALID_IVF_MIN)" \
+	$(GO) test . -run 'Test(Oracle(Libvpx(ExtendedDecodeModesAvailable|ErrorConcealment.*|KeyFrameResolutionChange|PostProcess.*)|ExternalIVFTestData(MatchesLibvpx|DecodeIntoMatchesLibvpx)|ExternalInvalidIVFTestDataRejectedLikeLibvpx|GeneratedLibvpxCorpusMatchesLibvpx)|VP9Decoder(VpxdecOracleMatches.*|Official.*))$$' -count=1 -timeout 10m
 
 oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null

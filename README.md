@@ -185,17 +185,15 @@ make verify-decoder-parity   # cheaper: decoder-only oracle proof
 make verify-production       # full encoder + decoder oracle gate
 ```
 
-`verify-production` builds the pinned libvpx tools under
-`internal/coracle/build`, fetches VP8 conformance data, and runs decoder
-plus encoder oracle tests. Encoder parity compares libvpx-decoded frame
-checksums, key/show decisions, internal qindex, and packet-size ratchets
-for the covered realtime/WebRTC settings. Use
-`make verify-decoder-parity` when only decoder changes need re-checking.
+`verify-production` builds pinned libvpx tools, fetches conformance data,
+and runs the full oracle gate. VP9 decoder checks are strict for the
+official VP90 profile 0 IVF subset and reject non-profile0 profile-family
+streams as unsupported. Use `make verify-decoder-parity` for decoder-only
+changes.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
-build tag or in `*_test.go` files, so it is not linked into normal
-production builds. `UPSTREAM.md` documents the parity scope and known
-deviations in detail.
+build tag or in `*_test.go` files. `UPSTREAM.md` documents the exact
+scope.
 
 ## Benchmarking
 
