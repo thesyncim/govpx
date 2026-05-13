@@ -155,15 +155,18 @@ func TestOracleEncoderStreamByteParityLossRecovery(t *testing.T) {
 		// the full candidate set is back. Any drift between the
 		// govpx and libvpx picker's "stale-reference suppression"
 		// state machines will surface as a per-frame mismatch.
-		// NEW GAP (limit=-1): EncodeNoReferenceLast applied at frame 1
-		// (the first inter frame) — GF and ARF have not been refreshed
-		// from frame 0 yet, so masking LAST out leaves no usable inter
-		// reference. govpx's picker promotes the frame to a keyframe
-		// while libvpx still emits an inter frame that codes every MB
-		// as intra. Both behaviours are valid; the divergence is in
-		// the recovery-strategy choice at the very first NO_REF_LAST
-		// boundary, not in the underlying picker math.
-		{name: "no-ref-last-every3-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: -1, flags: patternEveryN(frames, 3, EncodeNoReferenceLast)},
+		// EncodeNoReferenceLast applied at frame 1 (the first inter
+		// frame) right after a keyframe. The keyframe seeded GOLDEN
+		// and ALTREF with copies of the LAST reconstruction, so when
+		// LAST is masked here the picker still has those alias slots
+		// available — libvpx's onyx_if.c walks the cm->ref_frame_flags
+		// mask, finds GOLDEN/ALTREF valid, and emits a normal inter
+		// frame whose MBs fall back to zero-MV against the KF-aliased
+		// GOLDEN. interReferenceAvailability mirrors that by only
+		// suppressing the aliased slot when its primary is itself
+		// reachable; with LAST masked, GOLDEN becomes the surviving
+		// picker candidate. Strict byte parity holds across the run.
+		{name: "no-ref-last-every3-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: patternEveryN(frames, 3, EncodeNoReferenceLast)},
 		{name: "no-ref-gf-every2-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: patternEveryN(frames, 2, EncodeNoReferenceGolden)},
 		{name: "no-ref-gf-every3-panning32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: patternEveryN(frames, 3, EncodeNoReferenceGolden)},
 		{name: "no-ref-arf-every2-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: patternEveryN(frames, 2, EncodeNoReferenceAltRef)},

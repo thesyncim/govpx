@@ -686,8 +686,20 @@ func TestInterAnalysisReferencesPruneLibvpxAliasFlagsAfterKeyFrame(t *testing.T)
 	if want := boolBitCost(255, 0); refs[0].RefRate != want {
 		t.Fatalf("post-key LAST rate = %d, want single-reference libvpx cost %d", refs[0].RefRate, want)
 	}
-	if !e.shouldEncodeKeyFrame(EncodeNoReferenceLast) {
-		t.Fatalf("shouldEncodeKeyFrame with LAST disabled = false, want keyframe when aliased GOLDEN/ALTREF are unavailable")
+	// When LAST is explicitly masked by EncodeNoReferenceLast, the
+	// previously-suppressed GOLDEN alias must surface as the picker's
+	// surviving candidate so the encoder stays on the inter-frame path
+	// instead of promoting to a keyframe. Mirrors libvpx
+	// onyx_if.c, which walks cm->ref_frame_flags and finds GOLDEN/ALTREF
+	// still valid because the KF refresh seeded them with the LAST
+	// reconstruction; the resulting inter frame codes its MBs as
+	// zero-MV against that aliased GOLDEN slot.
+	if e.shouldEncodeKeyFrame(EncodeNoReferenceLast) {
+		t.Fatalf("shouldEncodeKeyFrame with LAST disabled = true, want inter frame using aliased GOLDEN fallback")
+	}
+	count = e.interAnalysisReferences(EncodeNoReferenceLast, &refs)
+	if count != 1 || refs[0].Frame != vp8common.GoldenFrame {
+		t.Fatalf("NoReferenceLast picker refs = count:%d first:%+v, want only GOLDEN as aliased fallback", count, refs[0])
 	}
 }
 
