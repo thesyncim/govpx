@@ -144,16 +144,11 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "odd-rt-cpu0-17x49", deadline: DeadlineRealtime, cpuUsed: 0, fx: mk(17, 49)},
 		{name: "odd-rt-cpu-3-17x49", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(17, 49)},
 		{name: "odd-rt-cpu4-17x49", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(17, 49)},
-		// BestQuality fits the <=64x64 runtime budget on these.
-		// 17x17 byte-matches for 14 frames then diverges at frame 14 —
-		// same RD-late-frame BestQuality cluster the base matrix
-		// already pins on other small fixtures. 31x17 / 17x31 diverge
-		// at frame 1 because BestQuality's splitmv exploration on the
-		// padded-edge MB column behaves differently from libvpx; the
-		// keyframe path stays identical.
-		{name: "odd-best-cpu0-17x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 17), limit: 14},
-		{name: "odd-best-cpu0-31x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(31, 17), limit: 1},
-		{name: "odd-best-cpu0-17x31", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 31), limit: 1},
+		// BestQuality fits the <=64x64 runtime budget on these and now
+		// byte-matches the full 16-frame sequence across odd coded edges.
+		{name: "odd-best-cpu0-17x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 17)},
+		{name: "odd-best-cpu0-31x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(31, 17)},
+		{name: "odd-best-cpu0-17x31", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(17, 31)},
 		{name: "odd-good-cpu4-49x17", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(49, 17)},
 		{name: "odd-good-cpu4-17x49", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(17, 49)},
 
