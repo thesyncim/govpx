@@ -147,6 +147,23 @@ void vpx_lpf_vertical_16_c(uint8_t *s, int pitch, const uint8_t *blimit,
                            const uint8_t *limit, const uint8_t *thresh);
 void vpx_lpf_vertical_16_dual_c(uint8_t *s, int pitch, const uint8_t *blimit,
                                 const uint8_t *limit, const uint8_t *thresh);
+
+// SAD entry points (encoder-side; emitted with --enable-vp9-encoder).
+typedef unsigned int (*sad_fn)(const uint8_t *src, int src_stride,
+                               const uint8_t *ref, int ref_stride);
+unsigned int vpx_sad4x4_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad4x8_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad8x4_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad8x8_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad8x16_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad16x8_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad16x16_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad16x32_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad32x16_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad32x32_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad32x64_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad64x32_c(const uint8_t *, int, const uint8_t *, int);
+unsigned int vpx_sad64x64_c(const uint8_t *, int, const uint8_t *, int);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -339,6 +356,51 @@ static void run_convolve(int kind, int filter_idx, int x0_q4, int y0_q4,
 	emit_bytes(src, (size_t)(CONV_SRC_DIM * CONV_SRC_DIM));
 	emit_bytes(dst_pre, (size_t)(w * h));
 	emit_bytes(dst_post, (size_t)(w * h));
+}
+
+// SAD oracle record format (little-endian):
+//   u32 kernel_id   (600..612)
+//   u32 w
+//   u32 h
+//   u32 src_stride (= 80)
+//   u32 ref_stride (= 80)
+//   80*80 src bytes
+//   80*80 ref bytes
+//   u32 result (libvpx SAD output)
+#define SAD_PLANE_DIM 80
+#define SAD_PLANE_OFF 8
+static sad_fn const sad_table[13] = {
+	vpx_sad4x4_c,   vpx_sad4x8_c,   vpx_sad8x4_c,
+	vpx_sad8x8_c,   vpx_sad8x16_c,  vpx_sad16x8_c,
+	vpx_sad16x16_c, vpx_sad16x32_c, vpx_sad32x16_c,
+	vpx_sad32x32_c, vpx_sad32x64_c, vpx_sad64x32_c,
+	vpx_sad64x64_c,
+};
+static const int sad_sizes[13][2] = {
+	{4, 4}, {4, 8}, {8, 4}, {8, 8}, {8, 16}, {16, 8},
+	{16, 16}, {16, 32}, {32, 16}, {32, 32}, {32, 64}, {64, 32}, {64, 64},
+};
+static void run_sad(int kind_idx) {
+	int w = sad_sizes[kind_idx][0];
+	int h = sad_sizes[kind_idx][1];
+	static uint8_t src[SAD_PLANE_DIM * SAD_PLANE_DIM];
+	static uint8_t ref[SAD_PLANE_DIM * SAD_PLANE_DIM];
+	for (int i = 0; i < SAD_PLANE_DIM * SAD_PLANE_DIM; i++) {
+		src[i] = prng_pixel();
+		ref[i] = prng_pixel();
+	}
+	const uint8_t *src_p = src + SAD_PLANE_OFF * SAD_PLANE_DIM + SAD_PLANE_OFF;
+	const uint8_t *ref_p = ref + SAD_PLANE_OFF * SAD_PLANE_DIM + SAD_PLANE_OFF;
+	unsigned int result = sad_table[kind_idx](src_p, SAD_PLANE_DIM, ref_p, SAD_PLANE_DIM);
+
+	emit_u32((uint32_t)(600 + kind_idx));
+	emit_u32((uint32_t)w);
+	emit_u32((uint32_t)h);
+	emit_u32((uint32_t)SAD_PLANE_DIM);
+	emit_u32((uint32_t)SAD_PLANE_DIM);
+	emit_bytes(src, sizeof src);
+	emit_bytes(ref, sizeof ref);
+	emit_u32((uint32_t)result);
 }
 
 // Loop filter oracle record format (little-endian):
@@ -677,6 +739,11 @@ int main(void) {
 				run_lf(k, blimits[i], limits[i], thresh[i]);
 			}
 		}
+	}
+
+	// SAD — 13 block sizes × 2 random cases.
+	for (int s = 0; s < 13; s++) {
+		for (int i = 0; i < 2; i++) run_sad(s);
 	}
 
 	return 0;

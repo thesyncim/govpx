@@ -73,6 +73,11 @@ const (
 	kLfHoriz16Dl  = 506
 	kLfVert16Dl   = 507
 	lfPlaneDim    = 32
+
+	// SAD records start at 600. 13 sizes, ids 600..612.
+	kSadBase     = 600
+	sadPlaneDim  = 80
+	sadPlaneOff  = 8
 )
 
 const (
@@ -189,6 +194,44 @@ func readIntraRecord(b []byte) (kernelID, txSize int, above, left []byte, stride
 	_, _ = io.ReadFull(r, dst)
 	consumed := len(b) - r.Len()
 	return kernelID, txSize, above, left, stride, dst, consumed
+}
+
+// readSadRecord decodes one SAD record. SAD kernel ids start at 600
+// (kindIdx = id - 600, mapping to libvpx's [4x4, 4x8, 8x4, 8x8, 8x16,
+// 16x8, 16x16, 16x32, 32x16, 32x32, 32x64, 64x32, 64x64]).
+func readSadRecord(b []byte) (kernelID, w, h, srcStride, refStride int,
+	src, ref []byte, result uint32, n int) {
+	r := bytes.NewReader(b)
+	read32 := func() uint32 {
+		var v uint32
+		_ = binary.Read(r, binary.LittleEndian, &v)
+		return v
+	}
+	kernelID = int(read32())
+	w = int(read32())
+	h = int(read32())
+	srcStride = int(read32())
+	refStride = int(read32())
+	src = make([]byte, sadPlaneDim*sadPlaneDim)
+	_, _ = io.ReadFull(r, src)
+	ref = make([]byte, sadPlaneDim*sadPlaneDim)
+	_, _ = io.ReadFull(r, ref)
+	result = read32()
+	consumed := len(b) - r.Len()
+	return kernelID, w, h, srcStride, refStride, src, ref, result, consumed
+}
+
+// sadTable parallels the C oracle's sad_table ordering.
+var sadTable = [13]func(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32{
+	VpxSad4x4, VpxSad4x8, VpxSad8x4, VpxSad8x8, VpxSad8x16, VpxSad16x8,
+	VpxSad16x16, VpxSad16x32, VpxSad32x16, VpxSad32x32, VpxSad32x64,
+	VpxSad64x32, VpxSad64x64,
+}
+
+func callSad(kernelID int, src, ref []byte) uint32 {
+	idx := kernelID - kSadBase
+	off := sadPlaneOff*sadPlaneDim + sadPlaneOff
+	return sadTable[idx](src, off, sadPlaneDim, ref, off, sadPlaneDim)
 }
 
 // readLfRecord decodes one loop-filter record (kernel_id in [500, 501]).
@@ -479,10 +522,22 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
 	counts := make(map[int]int)
-	var nCases, nIntra, nConv, nLf int
+	var nCases, nIntra, nConv, nLf, nSad int
 
 	for len(blob) > 0 {
 		id := peekKernelID(blob)
+		if id >= kSadBase {
+			kernel, w, h, _, _, src, ref, want, consumed := readSadRecord(blob)
+			blob = blob[consumed:]
+			nCases++
+			nSad++
+			counts[kernel]++
+			got := callSad(kernel, src, ref)
+			if got != want {
+				t.Fatalf("sad kernel=%d w=%d h=%d: got %d want %d", kernel, w, h, got, want)
+			}
+			continue
+		}
 		if id >= kLfBase {
 			kernel, bl, li, th, pitch, cursor, pre, post, consumed := readLfRecord(blob)
 			blob = blob[consumed:]
@@ -620,8 +675,9 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 		t.Fatal("oracle blob contained no records")
 	}
 	_ = nLf
-	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d, lf=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
-		nCases, nCases-nIntra-nConv-nLf, nIntra, nConv, nLf,
+	_ = nSad
+	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d, lf=%d, sad=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
+		nCases, nCases-nIntra-nConv-nLf-nSad, nIntra, nConv, nLf, nSad,
 		counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
 		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],

@@ -13,7 +13,7 @@ src_dir="$build_dir/libvpx-$tag-vp9"
 prefix=${GOVPX_LIBVPX_VP9_PREFIX:-"$build_dir/libvpx-$tag-vp9-install"}
 oracle_bin=${GOVPX_VP9_DSP_ORACLE_BIN:-"$build_dir/govpx-vp9-dsp-oracle"}
 config_stamp="$prefix/.govpx-libvpx-vp9-config"
-want_config="v1.16.0-vp9-decoder-dsp-only
+want_config="v1.16.0-vp9-decoder+encoder-dsp-only
 src_dir=$src_dir
 prefix=$prefix"
 
@@ -56,10 +56,11 @@ if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [
 			--enable-optimizations \
 			--disable-vp8 \
 			--enable-vp9 \
-			--disable-vp9-encoder \
+			--enable-vp9-encoder \
 			--enable-vp9-decoder \
 			--disable-vp9-highbitdepth \
-			--disable-postproc
+			--disable-postproc \
+			--disable-internal-stats
 		make -j"$jobs"
 		make install
 	)
