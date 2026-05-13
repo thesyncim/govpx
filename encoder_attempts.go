@@ -83,7 +83,10 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	if roiSegmentation.Enabled {
 		segmentation = roiSegmentation
 	} else if staticSegmentationAllowed {
-		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(true, cyclicRefreshQ)
+		// libvpx applies the screen-content-mode=2 golden-refresh cyclic
+		// refresh exception in the inter-frame encode path. Keyframes keep
+		// the cyclic-refresh segmentation header when cyclic refresh is on.
+		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(false, cyclicRefreshQ)
 	}
 	var err error
 	projectedRate := 0
