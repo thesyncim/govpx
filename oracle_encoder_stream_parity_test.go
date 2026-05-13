@@ -254,7 +254,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// byte gap (frames 14/15 diverge on the 16x16 single-MB fixture
 		// at this quantizer slice); pin the clean 14-frame prefix so the
 		// CQ50 plumbing stays guarded.
-		{name: "realtime-cq-cpu-3-16x16-cq50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=cq", "--cq-level=50"}},
+		{name: "realtime-cq-cpu-3-16x16-cq50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=cq", "--cq-level=50"}},
 		// Token partitions (libvpx --token-parts maps log2). 2 = 4 partitions
 		// is one of the WebRTC-relevant settings; pin parity here so the
 		// partitioned writer regressions surface.
@@ -1145,11 +1145,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// remaining SPLITMV label-RD byte gap at frame 14. Pin the clean
 		// prefix so rate-control mode plumbing remains guarded while that
 		// next sub-MV tie is narrowed.
-		{name: "best-quality-q-cpu0-16x16-q20", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
-		{name: "best-quality-cq-cpu0-16x16-cq20", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
+		{name: "best-quality-q-cpu0-16x16-q20", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		{name: "best-quality-cq-cpu0-16x16-cq20", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
 		{name: "best-quality-cbr-cpu0-16x16-buffer-1000-500-600", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
-		{name: "best-quality-vbr-cpu0-16x16", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
-		{name: "best-quality-vbr-cpu0-16x16-buffer-1000-500-600", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlVBR, rcModeSet: true, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--end-usage=vbr", "--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		{name: "best-quality-vbr-cpu0-16x16", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
+		{name: "best-quality-vbr-cpu0-16x16-buffer-1000-500-600", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--end-usage=vbr", "--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
 		{name: "best-quality-cbr-cpu0-16x16-lookahead2-no-arf", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2},
 		{name: "best-quality-cbr-cpu5-32x32-lookahead2-no-arf", deadline: DeadlineBestQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2},
 		{name: "good-quality-vbr-cpu4-32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
