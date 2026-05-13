@@ -177,3 +177,32 @@ func VpxConvolveAvg(src []byte, srcStride int, dst []byte, dstStride, w, h, srcO
 		}
 	}
 }
+
+// VpxConvolve8 mirrors vpx_convolve8_c — full 2-pass subpel filter
+// (horizontal then vertical) with a scratch buffer matching libvpx's
+// 64×135 stride-64 intermediate layout.
+func VpxConvolve8(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
+) {
+	var temp [64 * 135]byte
+	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
+	// Horizontal pass — start the source `(SubpelTaps/2 - 1)` rows above
+	// the block top so the kernel tap window covers the first output row.
+	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)
+	convolveHoriz(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, w, intermediateHeight, horizSrcOffset)
+	// Vertical pass on the scratch buffer, offset by the same tap margin.
+	vertSrcOffset := 64 * (tables.SubpelTaps/2 - 1)
+	convolveVert(temp[:], 64, dst, dstStride, filter, y0Q4, yStepQ4, w, h, vertSrcOffset)
+}
+
+// VpxConvolve8Avg mirrors vpx_convolve8_avg_c — runs VpxConvolve8
+// into a scratch, then averages into dst.
+func VpxConvolve8Avg(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
+) {
+	var temp [64 * 64]byte
+	VpxConvolve8(src, srcStride, temp[:], 64, filter, x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
+	VpxConvolveAvg(temp[:], 64, dst, dstStride, w, h, 0)
+}
