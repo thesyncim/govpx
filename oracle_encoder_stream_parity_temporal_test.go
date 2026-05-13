@@ -124,17 +124,13 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 
 		// ---- Mode 3: 3-layer 6-frame period, 25/25/50 split. ----
 		// cpu0 and cpu-8 byte-match the full clip after the per-layer
-		// RC + LF restore landed. cpu-3 still carries a deeper L0
-		// first-inter divergence (source frame 6 -> output frame 1)
-		// under cpu-used=-3 that is independent of filter_level AND of
-		// layer-context state (the very first L0 inter after the
-		// keyframe — no other L0 frames have run yet, so the L0 slot
-		// holds the keyframe-time snapshot and the restore is a no-op
-		// against the post-keyframe state). The L2 fanout already
-		// matches the first 6 source frames; the gap surfaces only on
-		// the first source-frame-6 L0 encode and is a cpu_used=-3
-		// inter mode-search path divergence rather than a layer-state
-		// sync issue.
+		// RC + LF restore landed and the kf/gf overspend drain in TS
+		// mode (close-ts-overspend-drain) wired through the per-layer
+		// per_frame_bandwidth and stopped layer-anchor ARF refreshes
+		// from spuriously accumulating into gf_overspend_bits. cpu-3
+		// still carries a deeper L0 first-inter divergence that is
+		// independent of filter_level AND of layer-context state
+		// (cpu_used=-3 inter mode-search path divergence).
 		{name: "mode3-3layer-25-25-50-cpu0", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 0},
 		{name: "mode3-3layer-25-25-50-cpu-3", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 3, limit: 1},
 		{name: "mode3-3layer-25-25-50-cpu-8", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 8},

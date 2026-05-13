@@ -279,9 +279,13 @@ func TestRateControlAltRefPacketAccumulatesFullPostPackOverspend(t *testing.T) {
 		framesSinceGolden:     4,
 	}
 	// 500 bytes = 4000 bits. Unlike GF refresh, ARF post-pack accounting
-	// accumulates the full hidden-frame packet size.
+	// accumulates the full hidden-frame packet size. Hidden-ARF mode
+	// requires autoAltRef=true (libvpx oxcf.play_alternate); without it
+	// libvpx's update_alt_ref_frame_stats does not run and govpx mirrors
+	// that gate (see ratecontrol_postencode.go).
 	rc.postEncodeFrameWithPacketContext(500, rateControlPostEncodeContext{
 		altRefFrame: true,
+		autoAltRef:  true,
 		macroblocks: 1,
 		showFrame:   false,
 	})
