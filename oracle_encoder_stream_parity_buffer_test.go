@@ -258,3 +258,53 @@ func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
 		})
 	}
 }
+
+func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run RTC external-rate-control byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 80
+		frames     = 16
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:                  width,
+		Height:                 height,
+		FPS:                    fps,
+		RateControlMode:        RateControlCBR,
+		TargetBitrateKbps:      targetKbps,
+		MinQuantizer:           4,
+		MaxQuantizer:           56,
+		KeyFrameInterval:       999,
+		Deadline:               DeadlineRealtime,
+		CpuUsed:                -3,
+		Tuning:                 TunePSNR,
+		BufferSizeMs:           200,
+		BufferInitialSizeMs:    100,
+		BufferOptimalSizeMs:    150,
+		DropFrameAllowed:       true,
+		DropFrameWaterMark:     60,
+		RTCExternalRateControl: true,
+	}
+
+	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "rtc-external-drop-buffer-low-bitrate", opts, targetKbps, sources, nil, []string{
+		"--end-usage=cbr",
+		"--target-bitrate=80",
+		"--buf-sz=200",
+		"--buf-initial-sz=100",
+		"--buf-optimal-sz=150",
+		"--drop-frame=60",
+		"--rtc-external=1",
+	})
+	assertSegmentByteParity(t, "rtc-external-rate-control", govpxFrames, libvpxFrames, 0)
+}

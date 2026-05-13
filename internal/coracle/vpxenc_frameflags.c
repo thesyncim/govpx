@@ -55,6 +55,15 @@
  *   --auto-alt-ref=N     VP8E_SET_ENABLEAUTOALTREF flag (0|1).
  *   --arnr-maxframes=N --arnr-strength=N --arnr-type=N
  *                        ARNR controls.
+ *   --rtc-external-rate-control=N
+ *                        VP8E_SET_RTC_EXTERNAL_RATECTRL flag (0|1).
+ *   --active-map=PATTERN
+ *                        VP8E_SET_ACTIVEMAP pattern: all | checker |
+ *                        left-off | right-off | border-off | off.
+ *   --roi-map=PATTERN    VP8E_SET_ROI_MAP pattern: checker | left1 |
+ *                        quadrants | border1 | off.
+ *   --roi-dq=CSV4 --roi-dlf=CSV4 --roi-static=CSV4
+ *                        ROI segment deltas/static thresholds.
  *   --frame-flags=CSV    comma-separated 32-bit unsigned values, one
  *                        per encode call. The value is passed
  *                        verbatim to vpx_codec_encode as the
@@ -83,6 +92,7 @@
  *                          token:N static:N noise:N sharpness:N
  *                          screen:N maxintra:N gfboost:N cq:N
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
+ *                          rtc:N active:{pattern|off} roi:{pattern|off}
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -222,6 +232,147 @@ static int parse_tune(const char *value) {
 }
 
 static char **parse_csv_strings(const char *csv, int *out_count,
+                                const char *flag_name);
+static void free_csv_strings(char **tokens, int count);
+
+static int mb_rows_for_height(int height) { return (height + 15) >> 4; }
+
+static int mb_cols_for_width(int width) { return (width + 15) >> 4; }
+
+static void parse_int4_csv(const char *csv, int out[4], const char *flag_name) {
+  char **tokens = NULL;
+  int count = 0;
+  tokens = parse_csv_strings(csv, &count, flag_name);
+  if (count != 4) die_msg("%s expects exactly 4 comma-separated integers", flag_name);
+  for (int i = 0; i < 4; ++i) out[i] = parse_int(tokens[i], flag_name);
+  free_csv_strings(tokens, count);
+}
+
+static void parse_uint4_csv(const char *csv, unsigned int out[4],
+                            const char *flag_name) {
+  int tmp[4] = {0, 0, 0, 0};
+  parse_int4_csv(csv, tmp, flag_name);
+  for (int i = 0; i < 4; ++i) {
+    if (tmp[i] < 0) die_msg("%s value must be non-negative", flag_name);
+    out[i] = (unsigned int)tmp[i];
+  }
+}
+
+static unsigned char *alloc_active_map_pattern(const char *pattern, int rows,
+                                               int cols) {
+  size_t count = (size_t)rows * (size_t)cols;
+  unsigned char *map = (unsigned char *)malloc(count);
+  if (!map) die_msg("malloc active map");
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      unsigned char v;
+      if (strcmp(pattern, "all") == 0) {
+        v = 1;
+      } else if (strcmp(pattern, "checker") == 0) {
+        v = ((r + c) & 1) ? 0 : 1;
+      } else if (strcmp(pattern, "left-off") == 0) {
+        v = c == 0 ? 0 : 1;
+      } else if (strcmp(pattern, "right-off") == 0) {
+        v = c == cols - 1 ? 0 : 1;
+      } else if (strcmp(pattern, "border-off") == 0) {
+        v = (r == 0 || c == 0 || r == rows - 1 || c == cols - 1) ? 0 : 1;
+      } else {
+        die_msg("invalid active-map pattern: %s", pattern);
+        v = 1;
+      }
+      map[(size_t)r * (size_t)cols + (size_t)c] = v;
+    }
+  }
+  return map;
+}
+
+static unsigned char *alloc_roi_map_pattern(const char *pattern, int rows,
+                                            int cols) {
+  size_t count = (size_t)rows * (size_t)cols;
+  unsigned char *map = (unsigned char *)malloc(count);
+  if (!map) die_msg("malloc roi map");
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      unsigned char v;
+      if (strcmp(pattern, "checker") == 0) {
+        v = (unsigned char)((r + c) & 1);
+      } else if (strcmp(pattern, "left1") == 0) {
+        v = c < (cols + 1) / 2 ? 1 : 0;
+      } else if (strcmp(pattern, "quadrants") == 0) {
+        v = (unsigned char)((r >= rows / 2 ? 2 : 0) + (c >= cols / 2 ? 1 : 0));
+      } else if (strcmp(pattern, "border1") == 0) {
+        v = (r == 0 || c == 0 || r == rows - 1 || c == cols - 1) ? 1 : 0;
+      } else {
+        die_msg("invalid roi-map pattern: %s", pattern);
+        v = 0;
+      }
+      map[(size_t)r * (size_t)cols + (size_t)c] = v;
+    }
+  }
+  return map;
+}
+
+static void default_roi_params(const char *pattern, int delta_q[4],
+                               int delta_lf[4],
+                               unsigned int static_threshold[4]) {
+  for (int i = 0; i < 4; ++i) {
+    delta_q[i] = 0;
+    delta_lf[i] = 0;
+    static_threshold[i] = 0;
+  }
+  if (strcmp(pattern, "checker") == 0 || strcmp(pattern, "left1") == 0) {
+    delta_q[1] = -10;
+    delta_lf[1] = -3;
+  } else if (strcmp(pattern, "quadrants") == 0) {
+    delta_q[1] = -8;
+    delta_q[2] = 8;
+    delta_lf[3] = 4;
+    static_threshold[2] = 500;
+  } else if (strcmp(pattern, "border1") == 0) {
+    delta_q[1] = -6;
+    static_threshold[1] = 900;
+  } else if (strcmp(pattern, "off") == 0) {
+    return;
+  } else {
+    die_msg("invalid roi-map pattern: %s", pattern);
+  }
+}
+
+static void apply_active_map(vpx_codec_ctx_t *ctx, int rows, int cols,
+                             const char *pattern) {
+  vpx_active_map_t active;
+  active.rows = (unsigned int)rows;
+  active.cols = (unsigned int)cols;
+  active.active_map = NULL;
+  if (strcmp(pattern, "off") != 0) {
+    active.active_map = alloc_active_map_pattern(pattern, rows, cols);
+  }
+  if (vpx_codec_control(ctx, VP8E_SET_ACTIVEMAP, &active))
+    die_codec_msg(ctx, "VP8E_SET_ACTIVEMAP");
+  free(active.active_map);
+}
+
+static void apply_roi_map(vpx_codec_ctx_t *ctx, int rows, int cols,
+                          const char *pattern, const int delta_q[4],
+                          const int delta_lf[4],
+                          const unsigned int static_threshold[4]) {
+  vpx_roi_map_t roi;
+  memset(&roi, 0, sizeof(roi));
+  roi.enabled = strcmp(pattern, "off") != 0;
+  roi.rows = (unsigned int)rows;
+  roi.cols = (unsigned int)cols;
+  if (roi.enabled) roi.roi_map = alloc_roi_map_pattern(pattern, rows, cols);
+  for (int i = 0; i < 4; ++i) {
+    roi.delta_q[i] = delta_q[i];
+    roi.delta_lf[i] = delta_lf[i];
+    roi.static_threshold[i] = static_threshold[i];
+  }
+  if (vpx_codec_control(ctx, VP8E_SET_ROI_MAP, &roi))
+    die_codec_msg(ctx, "VP8E_SET_ROI_MAP");
+  free(roi.roi_map);
+}
+
+static char **parse_csv_strings(const char *csv, int *out_count,
                                 const char *flag_name) {
   if (!csv) {
     *out_count = 0;
@@ -355,56 +506,79 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
              starts_with(token, "screen:") || starts_with(token, "maxintra:") ||
              starts_with(token, "gfboost:") || starts_with(token, "cq:") ||
              starts_with(token, "autoaltref:") || starts_with(token, "arnrmax:") ||
-             starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:")) {
+             starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:") ||
+             starts_with(token, "rtc:") || starts_with(token, "active:") ||
+             starts_with(token, "roi:")) {
     return;
   } else {
     die_msg("unknown control token: %s", token);
   }
 }
 
-static void apply_runtime_codec_token(vpx_codec_ctx_t *ctx, const char *token) {
+struct runtime_codec_context {
+  vpx_codec_ctx_t *ctx;
+  int mb_rows;
+  int mb_cols;
+};
+
+static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
+                                      const char *token) {
   if (starts_with(token, "cpu:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_CPUUSED, control_value_int(token, "cpu:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_CPUUSED");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_CPUUSED, control_value_int(token, "cpu:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_CPUUSED");
   } else if (starts_with(token, "tune:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_TUNING, parse_tune(token + strlen("tune:"))))
-      die_codec_msg(ctx, "runtime VP8E_SET_TUNING");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_TUNING, parse_tune(token + strlen("tune:"))))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_TUNING");
   } else if (starts_with(token, "token:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_TOKEN_PARTITIONS, control_value_int(token, "token:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_TOKEN_PARTITIONS");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_TOKEN_PARTITIONS, control_value_int(token, "token:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_TOKEN_PARTITIONS");
   } else if (starts_with(token, "static:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_STATIC_THRESHOLD, control_value_int(token, "static:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_STATIC_THRESHOLD");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_STATIC_THRESHOLD, control_value_int(token, "static:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_STATIC_THRESHOLD");
   } else if (starts_with(token, "noise:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_NOISE_SENSITIVITY, control_value_int(token, "noise:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_NOISE_SENSITIVITY");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_NOISE_SENSITIVITY, control_value_int(token, "noise:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_NOISE_SENSITIVITY");
   } else if (starts_with(token, "sharpness:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_SHARPNESS, control_value_int(token, "sharpness:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_SHARPNESS");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_SHARPNESS, control_value_int(token, "sharpness:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_SHARPNESS");
   } else if (starts_with(token, "screen:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_SCREEN_CONTENT_MODE, control_value_int(token, "screen:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_SCREEN_CONTENT_MODE");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_SCREEN_CONTENT_MODE, control_value_int(token, "screen:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_SCREEN_CONTENT_MODE");
   } else if (starts_with(token, "maxintra:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT, control_value_int(token, "maxintra:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_MAX_INTRA_BITRATE_PCT");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT, control_value_int(token, "maxintra:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_MAX_INTRA_BITRATE_PCT");
   } else if (starts_with(token, "gfboost:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_GF_CBR_BOOST_PCT, control_value_int(token, "gfboost:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_GF_CBR_BOOST_PCT, control_value_int(token, "gfboost:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
   } else if (starts_with(token, "cq:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_CQ_LEVEL, control_value_int(token, "cq:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_CQ_LEVEL");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_CQ_LEVEL, control_value_int(token, "cq:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_CQ_LEVEL");
   } else if (starts_with(token, "autoaltref:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_ENABLEAUTOALTREF, control_value_int(token, "autoaltref:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_ENABLEAUTOALTREF");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ENABLEAUTOALTREF, control_value_int(token, "autoaltref:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ENABLEAUTOALTREF");
   } else if (starts_with(token, "arnrmax:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_ARNR_MAXFRAMES, control_value_int(token, "arnrmax:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_MAXFRAMES");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_MAXFRAMES, control_value_int(token, "arnrmax:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_MAXFRAMES");
   } else if (starts_with(token, "arnrstrength:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_ARNR_STRENGTH, control_value_int(token, "arnrstrength:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_STRENGTH");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_STRENGTH, control_value_int(token, "arnrstrength:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_STRENGTH");
   } else if (starts_with(token, "arnrtype:")) {
-    if (vpx_codec_control(ctx, VP8E_SET_ARNR_TYPE, control_value_int(token, "arnrtype:")))
-      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_TYPE");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_ARNR_TYPE, control_value_int(token, "arnrtype:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_ARNR_TYPE");
+  } else if (starts_with(token, "rtc:")) {
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_RTC_EXTERNAL_RATECTRL, control_value_int(token, "rtc:")))
+      die_codec_msg(ctx->ctx, "runtime VP8E_SET_RTC_EXTERNAL_RATECTRL");
+  } else if (starts_with(token, "active:")) {
+    apply_active_map(ctx->ctx, ctx->mb_rows, ctx->mb_cols,
+                     token + strlen("active:"));
+  } else if (starts_with(token, "roi:")) {
+    int delta_q[4];
+    int delta_lf[4];
+    unsigned int static_threshold[4];
+    const char *pattern = token + strlen("roi:");
+    default_roi_params(pattern, delta_q, delta_lf, static_threshold);
+    apply_roi_map(ctx->ctx, ctx->mb_rows, ctx->mb_cols, pattern, delta_q,
+                  delta_lf, static_threshold);
   }
 }
 
@@ -438,11 +612,12 @@ static void config_token_callback(void *opaque, const char *token) {
 }
 
 static void codec_token_callback(void *opaque, const char *token) {
-  apply_runtime_codec_token((vpx_codec_ctx_t *)opaque, token);
+  apply_runtime_codec_token((struct runtime_codec_context *)opaque, token);
 }
 
 static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cfg,
-                                   int *deadline, const char *entry) {
+                                   int *deadline, int mb_rows, int mb_cols,
+                                   const char *entry) {
   struct config_token_context config_ctx = {cfg, deadline, 0};
   for_each_control_token(entry, config_token_callback, &config_ctx);
   if (config_ctx.need_config) {
@@ -450,7 +625,8 @@ static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cf
       die_codec_msg(ctx, "runtime vpx_codec_enc_config_set");
     }
   }
-  for_each_control_token(entry, codec_token_callback, ctx);
+  struct runtime_codec_context codec_ctx = {ctx, mb_rows, mb_cols};
+  for_each_control_token(entry, codec_token_callback, &codec_ctx);
 }
 
 int main(int argc, char **argv) {
@@ -493,6 +669,12 @@ int main(int argc, char **argv) {
   int arnr_max = 0, arnr_max_set = 0;
   int arnr_strength = 0, arnr_strength_set = 0;
   int arnr_type = 0, arnr_type_set = 0;
+  int rtc_external = 0, rtc_external_set = 0;
+  const char *active_map_pattern = NULL;
+  const char *roi_map_pattern = NULL;
+  const char *roi_dq_csv = NULL;
+  const char *roi_dlf_csv = NULL;
+  const char *roi_static_csv = NULL;
   const char *frame_flags_csv = NULL;
   const char *control_script_csv = NULL;
 
@@ -587,6 +769,22 @@ int main(int argc, char **argv) {
     } else if ((v = flag_value(a, "--arnr-type"))) {
       arnr_type = parse_int(v, "--arnr-type");
       arnr_type_set = 1;
+    } else if ((v = flag_value(a, "--rtc-external-rate-control"))) {
+      rtc_external = parse_int(v, "--rtc-external-rate-control");
+      rtc_external_set = 1;
+    } else if ((v = flag_value(a, "--rtc-external"))) {
+      rtc_external = parse_int(v, "--rtc-external");
+      rtc_external_set = 1;
+    } else if ((v = flag_value(a, "--active-map"))) {
+      active_map_pattern = v;
+    } else if ((v = flag_value(a, "--roi-map"))) {
+      roi_map_pattern = v;
+    } else if ((v = flag_value(a, "--roi-dq"))) {
+      roi_dq_csv = v;
+    } else if ((v = flag_value(a, "--roi-dlf"))) {
+      roi_dlf_csv = v;
+    } else if ((v = flag_value(a, "--roi-static"))) {
+      roi_static_csv = v;
     } else if ((v = flag_value(a, "--frame-flags"))) {
       frame_flags_csv = v;
     } else if ((v = flag_value(a, "--control-script"))) {
@@ -599,6 +797,8 @@ int main(int argc, char **argv) {
   if (!infile_path || !outfile_path) die_msg("missing --infile/--outfile");
   if (width <= 0 || height <= 0) die_msg("invalid width/height");
   if (frames <= 0) die_msg("--frames must be > 0");
+  int mb_rows = mb_rows_for_height(height);
+  int mb_cols = mb_cols_for_width(width);
 
   int frame_flag_count = 0;
   unsigned int *per_frame_flags =
@@ -677,6 +877,25 @@ int main(int argc, char **argv) {
     if (vpx_codec_control(&ctx, VP8E_SET_ARNR_TYPE, arnr_type))
       die_codec_msg(&ctx, "VP8E_SET_ARNR_TYPE");
   }
+  if (rtc_external_set) {
+    if (vpx_codec_control(&ctx, VP8E_SET_RTC_EXTERNAL_RATECTRL, rtc_external))
+      die_codec_msg(&ctx, "VP8E_SET_RTC_EXTERNAL_RATECTRL");
+  }
+  if (active_map_pattern) {
+    apply_active_map(&ctx, mb_rows, mb_cols, active_map_pattern);
+  }
+  if (roi_map_pattern) {
+    int delta_q[4];
+    int delta_lf[4];
+    unsigned int static_threshold[4];
+    default_roi_params(roi_map_pattern, delta_q, delta_lf, static_threshold);
+    if (roi_dq_csv) parse_int4_csv(roi_dq_csv, delta_q, "--roi-dq");
+    if (roi_dlf_csv) parse_int4_csv(roi_dlf_csv, delta_lf, "--roi-dlf");
+    if (roi_static_csv) parse_uint4_csv(roi_static_csv, static_threshold,
+                                        "--roi-static");
+    apply_roi_map(&ctx, mb_rows, mb_cols, roi_map_pattern, delta_q, delta_lf,
+                  static_threshold);
+  }
 
   vpx_image_t img;
   if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)width, (unsigned)height,
@@ -731,7 +950,8 @@ int main(int argc, char **argv) {
       frame_flags = per_frame_flags[frame_idx];
     }
     if (have_input && frame_idx < control_script_count) {
-      apply_runtime_controls(&ctx, &cfg, &deadline, control_script[frame_idx]);
+      apply_runtime_controls(&ctx, &cfg, &deadline, mb_rows, mb_cols,
+                             control_script[frame_idx]);
     }
 
     vpx_codec_err_t enc_err =

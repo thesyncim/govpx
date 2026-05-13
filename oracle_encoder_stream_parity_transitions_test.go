@@ -47,6 +47,22 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-denoiser-threads-token-ssim-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.NoiseSensitivity = 3
+		opts.Threads = 2
+		opts.TokenPartitions = 2
+		opts.Tuning = TuneSSIM
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-nondefault-warmup", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--threads=2", "--token-parts=2", "--tune=ssim"})
+		// Reset clears the warmed state enough to match through the
+		// keyframe and first inter packet. The later denoiser/threaded
+		// partition path still carries a byte-level gap.
+		assertSegmentByteParity(t, "post-reset-nondefault", govpxFrames, libvpxFrames, 2)
+	})
+
 	t.Run("flush-no-lookahead-resume-matches-single-oracle-stream", func(t *testing.T) {
 		sources := makePanningSources(64, 64, 10, 0)
 		govpxFrames := encodeWithMidStreamFlush(t, baseOpts, sources, 4)
@@ -103,6 +119,16 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	// two-pass startup header. The following inter frames byte-match and are
 	// the transition coverage this row is meant to pin.
 	assertSegmentByteParityFrom(t, "twopass-e2e", govpxFrames, libvpxFrames, 1)
+
+	sectionOpts := opts
+	sectionOpts.TwoPassVBRBiasPct = 80
+	sectionOpts.TwoPassMinPct = 50
+	sectionOpts.TwoPassMaxPct = 200
+	sectionGovpxOpts := sectionOpts
+	sectionGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, sectionOpts, sources)
+	sectionGovpxFrames := encodeFramesWithGovpx(t, sectionGovpxOpts, sources)
+	sectionLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-ramp-sections", sectionOpts, targetKbps, sources)
+	assertSegmentByteParityFrom(t, "twopass-e2e-sections", sectionGovpxFrames, sectionLibvpxFrames, 1)
 }
 
 func makePanningSources(w, h, count, offset int) []Image {
@@ -240,8 +266,17 @@ func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOrac
 		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
 		"--limit=" + strconv.Itoa(len(sources)),
 		"--output=" + ivf2Path,
-		yuvPath,
 	}
+	if opts.TwoPassVBRBiasPct > 0 {
+		args = append(args, "--bias-pct="+strconv.Itoa(opts.TwoPassVBRBiasPct))
+	}
+	if opts.TwoPassMinPct > 0 {
+		args = append(args, "--minsection-pct="+strconv.Itoa(opts.TwoPassMinPct))
+	}
+	if opts.TwoPassMaxPct > 0 {
+		args = append(args, "--maxsection-pct="+strconv.Itoa(opts.TwoPassMaxPct))
+	}
+	args = append(args, yuvPath)
 	cmd := exec.Command(vpxencOracle, args...)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {

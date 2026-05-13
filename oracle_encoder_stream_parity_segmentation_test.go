@@ -14,18 +14,12 @@ import (
 // screen-content overlays, static-thresh sweeps, denoiser/screen-content
 // cross-products, and AdaptiveKeyFrames against a scene-cut fixture.
 //
-// Coverage gaps that this file deliberately does NOT pin (with reason):
+// Coverage boundaries:
 //
-//  1. ROI maps. The vpx_codec_control() VP8E_SET_ROI_MAP interface is
-//     not exposed via the upstream vpxenc CLI in any release — there is
-//     no `--roi-map=...` argument in libvpx-v1.16.0/vpxenc.c (verified
-//     with `vpxenc-oracle --help` against the patched libvpx binary).
-//     Strict byte-parity for ROI would require either patching the
-//     vpxenc-oracle helper to accept a ROI sidecar config or driving
-//     the libvpx C API directly from a Go cgo harness; both are
-//     out-of-scope for a parity test file. The existing
-//     encoder_roi_test.go covers the govpx ROI plumbing via the
-//     internal decoder.
+//  1. ROI maps. The upstream vpxenc CLI does not expose
+//     VP8E_SET_ROI_MAP, so ROI byte-parity rows in this file use the
+//     companion frame-flags driver, which drives the libvpx C API
+//     directly.
 //
 //  2. CyclicRefresh as a stand-alone knob. govpx does not expose a
 //     CyclicRefresh option on EncoderOptions — cyclic refresh is
@@ -275,4 +269,59 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+	govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+		0: func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetROIMap(custom quadrants)", e.SetROIMap(customQuadrantROIMap(width, height)))
+		},
+	})
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-altq-altlf-static-64x64", opts, targetKbps, sources, nil, []string{
+		"--roi-map=quadrants",
+		"--roi-dq=0,-10,8,-20",
+		"--roi-dlf=0,-3,2,5",
+		"--roi-static=0,500,0,1200",
+	})
+	// The ROI keyframe is byte-identical; inter frames still expose a
+	// first-partition drift under ROI segmentation.
+	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 1)
+}
+
+func customQuadrantROIMap(width, height int) *ROIMap {
+	roi := quadrantROIMap(width, height)
+	roi.DeltaQuantizer = [4]int{0, -10, 8, -20}
+	roi.DeltaLoopFilter = [4]int{0, -3, 2, 5}
+	roi.StaticThreshold = [4]int{0, 500, 0, 1200}
+	return roi
 }
