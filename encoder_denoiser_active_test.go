@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -689,4 +690,42 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	if got := e.denoiserPickmodeMVBias(); got != 75 {
 		t.Fatalf("aggressive bias = %d, want 75", got)
 	}
+}
+
+func TestDenoiserAvgForRefreshHonorsCopyBufferControls(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	e.opts.NoiseSensitivity = 2
+	if err := e.denoiser.ensureAllocated(32, 32); err != nil {
+		t.Fatalf("ensureAllocated: %v", err)
+	}
+
+	fillVP8Image(&e.denoiser.runningAvg[denoiserAvgIntra].Img, 33)
+	fillVP8Image(&e.denoiser.runningAvg[denoiserAvgLast].Img, 11)
+	fillVP8Image(&e.denoiser.runningAvg[denoiserAvgGolden].Img, 22)
+	fillVP8Image(&e.denoiser.runningAvg[denoiserAvgAltRef].Img, 44)
+
+	e.copyDenoiserAvgForRefresh(vp8enc.InterFrameStateConfig{
+		CopyBufferToGolden: 1,
+		CopyBufferToAltRef: 2,
+	})
+
+	intra := &e.denoiser.runningAvg[denoiserAvgIntra].Img
+	last := &e.denoiser.runningAvg[denoiserAvgLast].Img
+	golden := &e.denoiser.runningAvg[denoiserAvgGolden].Img
+	alt := &e.denoiser.runningAvg[denoiserAvgAltRef].Img
+	if !sameVP8Planes(golden, intra) {
+		t.Fatalf("GOLDEN denoiser average did not follow CopyBufferToGolden")
+	}
+	if !sameVP8Planes(alt, intra) {
+		t.Fatalf("ALTREF denoiser average did not follow CopyBufferToAltRef")
+	}
+	if last.Y[0] != 11 || last.U[0] != 11 || last.V[0] != 11 {
+		t.Fatalf("LAST denoiser average changed without RefreshLast")
+	}
+	assertCodedBordersExtended(t, golden)
+	assertCodedBordersExtended(t, alt)
+}
+
+func sameVP8Planes(a *vp8common.Image, b *vp8common.Image) bool {
+	return bytes.Equal(a.Y, b.Y) && bytes.Equal(a.U, b.U) && bytes.Equal(a.V, b.V)
 }

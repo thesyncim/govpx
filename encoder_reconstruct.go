@@ -446,9 +446,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
 	coeffSource := src
+	decisionSource := src
 	if denoiseActive {
 		copySourceToFrameBuffer(&e.denoiser.source, src)
-		coeffSource = sourceImageFromVP8(&e.denoiser.source.Img)
+		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
+		decisionSource = coeffSource
 	}
 	totalRate := 0
 	totalPredictionError := int64(0)
@@ -486,7 +488,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				haveFallbackSnapshot = true
 			}
 			decision, ok := e.selectInterFrameModeDecision(
-				src, refs[:], refCount,
+				decisionSource, refs[:], refCount,
 				row, col, rows, cols,
 				qIndex, segmentation, segmentID,
 				above, left, aboveLeft,

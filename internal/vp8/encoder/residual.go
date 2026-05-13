@@ -14,6 +14,9 @@ type SourceImage struct {
 	Width  int
 	Height int
 
+	UVWidth  int
+	UVHeight int
+
 	Y []byte
 	U []byte
 	V []byte

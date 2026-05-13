@@ -237,8 +237,7 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 		return false
 	}
 
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
+	uvWidth, uvHeight := sourceImageUVDimensions(src)
 	var uvAbove [4]uint8
 	var uvLeft [4]uint8
 	if aboveTok != nil {

@@ -3,6 +3,7 @@ package govpx
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
@@ -424,7 +425,7 @@ func (e *VP8Encoder) denoiserReferenceTooOld(ref vp8common.MVReferenceFrame) boo
 		return false
 	}
 	return e.frameCount > e.referenceFrameNumbers[ref] &&
-		e.frameCount-e.referenceFrameNumbers[ref] > denoiserMaxGFARFRange
+		e.frameCount-e.referenceFrameNumbers[ref] > denoiserMaxGFARFRange+1
 }
 
 func denoiserReferenceAvgIndexForMVRef(ref vp8common.MVReferenceFrame) (int, bool) {
@@ -479,8 +480,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	}
 	d := decision.denoise
 	if d.zeroMVReferenceFrame == vp8common.IntraFrame {
-		e.copyDenoiserMacroblockFromSource(source, row, col)
-		e.denoiser.state[index] = denoiserStateNoFilter
+		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
 
@@ -506,8 +506,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 
 	avgIndex, ok := denoiserReferenceAvgIndexForMVRef(frame)
 	if !ok {
-		e.copyDenoiserMacroblockFromSource(source, row, col)
-		e.denoiser.state[index] = denoiserStateNoFilter
+		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
 	increase := motionMag < uint32(e.denoiser.params.scaleIncreaseFilter)*denoiserNoiseMotionThreshold
@@ -518,8 +517,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	motionThresh := uint32(e.denoiser.params.scaleMotionThresh) * denoiserNoiseMotionThreshold
 	if bestSSE > sseThresh || motionMag > motionThresh ||
 		(e.macroblockIsSkin(row, col, cols) && (e.consecZeroLast[index] < 2 || motionMag > 0)) {
-		e.copyDenoiserMacroblockFromSource(source, row, col)
-		e.denoiser.state[index] = denoiserStateNoFilter
+		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
 
@@ -534,8 +532,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	convertInterFrameMode(&mcMode, &decMode)
 	var zeroTokens vp8dec.MacroblockTokens
 	if !reconstructInterAnalysisMacroblock(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
-		e.copyDenoiserMacroblockFromSource(source, row, col)
-		e.denoiser.state[index] = denoiserStateNoFilter
+		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
 
@@ -571,7 +568,13 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
 	}
 
+	applySpatialFilter := func() {
+		if e.applyDenoiserSpatialLoopFilter(filtered, avg, row, col, cols, index, ySigOff, yAvgOff) {
+			copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, avg.Img.Y[yAvgOff:], avg.Img.YStride)
+		}
+	}
 	if e.denoiser.mode == denoiserOnYOnly {
+		applySpatialFilter()
 		return
 	}
 	if motionMag == 0 && filterDecision == denoiserFilterBlock {
@@ -593,26 +596,71 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 			copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
 			copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
 		}
+		applySpatialFilter()
 		return
 	}
 	copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
 	copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
 	copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
 	copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+	applySpatialFilter()
 }
 
-func (e *VP8Encoder) copyDenoiserMacroblockFromSource(source vp8enc.SourceImage, row int, col int) {
+func (e *VP8Encoder) applyDenoiserSpatialLoopFilter(filtered vp8enc.SourceImage, avg *vp8common.FrameBuffer, row int, col int, cols int, index int, ySigOff int, yAvgOff int) bool {
+	const filterLevel = 48
+	currentState := e.denoiser.state[index]
+	applyFilterCol := false
+	applyFilterRow := false
+	if col > 0 {
+		leftState := e.denoiser.state[index-1]
+		applyFilterCol = !(currentState == leftState && currentState != denoiserStateFilterNonZero)
+	}
+	if row > 0 {
+		aboveState := e.denoiser.state[index-cols]
+		applyFilterRow = !(currentState == aboveState && currentState != denoiserStateFilterNonZero)
+	}
+	if !applyFilterCol && !applyFilterRow {
+		return false
+	}
+
+	var lfi vp8common.LoopFilterInfo
+	vp8common.InitLoopFilterInfo(&lfi, int(e.opts.Sharpness))
+	hev := lfi.HEVThresh[lfi.HEVThreshLUT[vp8common.InterFrame][filterLevel]]
+	mblim := lfi.MBLimit[filterLevel]
+	lim := lfi.Limit[filterLevel]
+	y := avg.Img.Y
+	stride := avg.Img.YStride
+	if applyFilterCol {
+		dsp.MBLoopFilterVerticalEdge(y[yAvgOff-4:], stride, mblim, lim, hev, 2)
+	}
+	if applyFilterRow {
+		dsp.MBLoopFilterHorizontalEdge(y[yAvgOff-4*stride:], stride, mblim, lim, hev, 2)
+	}
+	return len(filtered.Y) > ySigOff
+}
+
+func (e *VP8Encoder) copyDenoiserNoFilterMacroblock(source vp8enc.SourceImage, filtered vp8enc.SourceImage, row int, col int, cols int, index int) {
 	avg := &e.denoiser.runningAvg[denoiserAvgIntra]
 	yOff := row*16*source.YStride + col*16
 	uOff := row*8*source.UStride + col*8
 	vOff := row*8*source.VStride + col*8
+	ySigOff := row*16*filtered.YStride + col*16
+	uSigOff := row*8*filtered.UStride + col*8
+	vSigOff := row*8*filtered.VStride + col*8
 	yAvgOff := row*16*avg.Img.YStride + col*16
 	uAvgOff := row*8*avg.Img.UStride + col*8
 	vAvgOff := row*8*avg.Img.VStride + col*8
 	copyMacroblockY(avg.Img.Y[yAvgOff:], avg.Img.YStride, source.Y[yOff:], source.YStride)
+	copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
 	if e.denoiser.mode != denoiserOnYOnly {
 		copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
 		copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
+		copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
+		copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+	}
+	e.denoiser.state[index] = denoiserStateNoFilter
+	if e.applyDenoiserSpatialLoopFilter(filtered, avg, row, col, cols, index, ySigOff, yAvgOff) {
+		copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, avg.Img.Y[yAvgOff:], avg.Img.YStride)
 	}
 }
 
@@ -641,24 +689,24 @@ func copyMacroblock8x8(dst []byte, dstStride int, src []byte, srcStride int) {
 
 // copyDenoiserAvgForRefresh mirrors update_reference_frames' denoiser branch:
 // after the encoded frame is committed, copy running_avg[INTRA] into the
-// per-reference running_avg buffers that this frame's refresh policy updates,
-// keeping the denoiser's parallel reference stream in sync with the encoder's
-// references.
-func (e *VP8Encoder) copyDenoiserAvgForRefresh(refreshLast bool, refreshGolden bool, refreshAltRef bool) {
+// per-reference running_avg buffers that this frame's refresh/copy policy
+// updates, keeping the denoiser's parallel reference stream in sync with the
+// encoder's references.
+func (e *VP8Encoder) copyDenoiserAvgForRefresh(cfg vp8enc.InterFrameStateConfig) {
 	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return
 	}
 	intra := &e.denoiser.runningAvg[denoiserAvgIntra]
 	intra.ExtendBorders()
-	if refreshLast {
+	if cfg.RefreshLast {
 		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgLast].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgLast].ExtendBorders()
 	}
-	if refreshGolden {
+	if cfg.RefreshGolden || cfg.CopyBufferToGolden != 0 {
 		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgGolden].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgGolden].ExtendBorders()
 	}
-	if refreshAltRef {
+	if cfg.RefreshAltRef || cfg.CopyBufferToAltRef != 0 {
 		copyFrameImage(&e.denoiser.runningAvg[denoiserAvgAltRef].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgAltRef].ExtendBorders()
 	}
