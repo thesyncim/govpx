@@ -411,9 +411,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-16-16x16", deadline: DeadlineRealtime, cpuUsed: -16, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu-16-32x32", deadline: DeadlineRealtime, cpuUsed: -16, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		// Positive cpu-used=16 hits libvpx's most aggressive realtime
-		// auto-speed path and currently diverges from the keyframe onward.
-		// Keep the edge-case visible while the speed-feature gap is open.
-		{name: "realtime-cbr-cpu16-32x32", deadline: DeadlineRealtime, cpuUsed: 16, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, limit: -1},
+		// auto-speed path. With cpu_used=16, msForCompress collapses
+		// to zero so vp8_auto_select_speed's "else" branch fires from
+		// frame 0 onward; libvpxAutoSelectSpeed seeds autoSpeed from
+		// cpu_used (mirroring libvpx onyx_if.c:1706
+		// cpi->Speed = cpi->oxcf.cpu_used) so the branch starts at 16
+		// rather than 0.
+		{name: "realtime-cbr-cpu16-32x32", deadline: DeadlineRealtime, cpuUsed: 16, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		// Different bitrate floors at 32x32 (CBR target hits the buffer
 		// adjustment paths differently).
 		{name: "realtime-cbr-cpu0-32x32-bitrate200", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},

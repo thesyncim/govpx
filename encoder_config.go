@@ -492,6 +492,15 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 		e.autoSpeed = -cpuUsed
 		return
 	}
+	if e.autoSpeed == 0 {
+		// libvpx onyx_if.c:1706 seeds cpi->Speed = cpi->oxcf.cpu_used at
+		// vp8_change_config. vp8_auto_select_speed then iterates from
+		// that starting value. At cpu_used=16 the "else" branch
+		// (avg_pick_mode_time >= msForCompress=0) keeps Speed pinned at
+		// 16 rather than collapsing it to 4 as the cold-start reset in
+		// the matching-budget branch would.
+		e.autoSpeed = cpuUsed
+	}
 	fps := e.opts.FPS
 	if fps <= 0 {
 		fps = 30
