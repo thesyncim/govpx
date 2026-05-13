@@ -252,7 +252,19 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	if attempt.Config.RefreshAltRef {
 		e.coefProbsAltRef = e.coefProbs
 	}
-	if attempt.Config.RefreshGolden {
+	// libvpx onyx_if.c: `update_golden_frame_stats` (line 2629) sets
+	// `cm->refresh_golden_frame = 0` BEFORE the `if (refresh_golden) lfc_g
+	// = cm->fc` snapshot at line 5155 runs. update_golden_frame_stats is
+	// itself gated on `!error_resilient_mode` at line 4741, so in error
+	// resilient encodes the flag survives and lfc_g IS refreshed. govpx
+	// mirrors the same gate (see commitInterFrameAttempt's
+	// updateGoldenFrameStats call) so the picker's coefProbsGolden snapshot
+	// stays frozen at the keyframe-seeded default in non-resilient mode,
+	// matching libvpx's lfc_g. Without this gate the SPLITMV picker on the
+	// next golden-refresh inter frame fed fill_token_costs the adapted
+	// post-keyframe table, which inflated label costs by ~10000 and let
+	// LEFT4X4 beat NEW4X4 (see close-splitmv-frame14).
+	if attempt.Config.RefreshGolden && (e.opts.ErrorResilient || e.opts.ErrorResilientPartitions) {
 		e.coefProbsGolden = e.coefProbs
 	}
 	if attempt.Config.RefreshLast {
