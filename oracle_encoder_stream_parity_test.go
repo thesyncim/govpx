@@ -984,11 +984,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// pin the SPLITMV-heavy mode picker against extra knobs.
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
-		// splitmv-96x96 + error-resilient byte-matches the keyframe +
-		// first inter, then has a long transient mismatch span
-		// (frames 2-10, 12, 15 diverge while 11, 13, 14 happen to
-		// re-match). Pin the clean prefix only.
-		{name: "realtime-cbr-cpu-3-96x96-splitmv-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, limit: 2, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		// splitmv-96x96 + error-resilient byte-matches in full once the
+		// libvpx-side `vp8_adjust_key_frame_context` non_gf_bitrate_adjustment
+		// gate is mirrored (see ratecontrol_postencode.go). Before that fix
+		// govpx drained gf_overspend_bits one frame faster than libvpx, which
+		// biased frame-2's vp8_regulate_q one Q step high (12 vs 11) and
+		// cascaded into intra coefficient eob_sum mismatches across the
+		// SPLITMV-heavy intra MBs in frames 2-10, 12, 15.
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},

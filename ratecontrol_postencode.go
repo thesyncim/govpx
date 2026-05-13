@@ -21,6 +21,21 @@ type rateControlPostEncodeContext struct {
 	showFrame             bool
 	skipPostPackOverspend bool
 	alwaysUpdateFactor    bool
+	// errorResilient mirrors libvpx oxcf.error_resilient_mode at the post-encode
+	// hook. libvpx gates BOTH update_golden_frame_stats and
+	// update_alt_ref_frame_stats on `!error_resilient_mode` at
+	// vp8/encoder/onyx_if.c:4724. The govpx counterparts (the KF and golden
+	// branches inside accumulatePostPackOverspend and
+	// accumulatePostPackAltRefOverspend) need the same gate on the
+	// non_gf_bitrate_adjustment refresh so that, in error-resilient mode,
+	// gf_overspend_bits keeps accumulating undrained between GF refreshes
+	// (libvpx behavior: the field stays at zero so calc_pframe_target_size's
+	// recovery branch is a no-op). Without the gate, govpx drained
+	// gf_overspend_bits one frame ahead of libvpx on
+	// realtime-cbr-cpu-3-96x96-splitmv-error-resilient and biased the
+	// frame-2 regulator one Q step high (12 vs 11), cascading into intra
+	// coefficient eob_sum mismatches across the SPLITMV-heavy intra MBs.
+	errorResilient bool
 }
 
 func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx rateControlPostEncodeContext) {
@@ -55,9 +70,9 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 	// calc_pframe_target_size runs. Pass2 skips this one-pass bookkeeping.
 	if !ctx.skipPostPackOverspend {
 		if ctx.altRefFrame && !ctx.keyFrame {
-			rc.accumulatePostPackAltRefOverspend(actualBits)
+			rc.accumulatePostPackAltRefOverspend(actualBits, ctx.errorResilient)
 		} else {
-			rc.accumulatePostPackOverspend(actualBits, ctx.keyFrame, ctx.goldenFrame)
+			rc.accumulatePostPackOverspend(actualBits, ctx.keyFrame, ctx.goldenFrame, ctx.errorResilient)
 		}
 	}
 
@@ -108,7 +123,23 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 // inter_frame_target accumulates into gf_overspend_bits and
 // non_gf_bitrate_adjustment is the per-frame drain rate over the next GF
 // interval.
-func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame bool, goldenFrame bool) {
+//
+// The non_gf_bitrate_adjustment refresh sits inside libvpx's
+// update_golden_frame_stats (vp8/encoder/onyx_if.c:2612), which runs at the
+// `cm->refresh_golden_frame` branch. Because vp8_setup_key_frame always sets
+// cm->refresh_golden_frame = 1, that refresh fires after every keyframe --
+// AFTER vp8_adjust_key_frame_context has accumulated gf_overspend_bits, and
+// gated by `!error_resilient_mode` at the call site (onyx_if.c:4724).
+// Mirror that gate here via the errorResilient flag: refresh kf_bitrate_adjustment
+// unconditionally inside the keyframe path (vp8_adjust_key_frame_context has
+// no error-resilient gate) but only refresh non_gf_bitrate_adjustment when
+// the libvpx GF stat update would have run. Without this gate, govpx's
+// frame-1 this_frame_target drained ~560 bits faster than libvpx on the
+// realtime-cbr-cpu-3-96x96-splitmv-error-resilient fixture, biasing
+// frame-2's vp8_regulate_q one Q step high (12 vs 11) and cascading into
+// intra coefficient eob_sum mismatches on every B_PRED/DC_PRED MB in
+// frames 2-10, 12, and 15.
+func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame bool, goldenFrame bool, errorResilient bool) {
 	perFrameBandwidth := rc.bitsPerFrame
 	if perFrameBandwidth <= 0 {
 		return
@@ -128,10 +159,16 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				kfFreq = 1
 			}
 			rc.kfBitrateAdjustment = rc.kfOverspendBits / kfFreq
-			if rc.framesTillGFUpdateDue > 0 {
+			if !errorResilient && rc.framesTillGFUpdateDue > 0 {
 				rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 			}
 		}
+		return
+	}
+	if errorResilient {
+		// libvpx update_golden_frame_stats / update_alt_ref_frame_stats are
+		// both gated out in error-resilient mode (onyx_if.c:4724), so the
+		// non-key inter GF refresh path is a no-op too.
 		return
 	}
 	if !goldenFrame {
@@ -167,7 +204,13 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 // Caller must have already set rc.framesTillGFUpdateDue to the next
 // section length (libvpx's `if (!auto_gold) frames_till_gf_update_due
 // = DEFAULT_GF_INTERVAL` is the encoder-side default).
-func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int) {
+func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int, errorResilient bool) {
+	if errorResilient {
+		// libvpx onyx_if.c:4724 gates update_alt_ref_frame_stats on
+		// `!error_resilient_mode`, so the post-pack ARF accumulation is a
+		// no-op in error-resilient mode.
+		return
+	}
 	if actualBits <= 0 {
 		return
 	}
