@@ -331,8 +331,10 @@ func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int
 	yOff := row*16*img.YStride + col*16
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
-	vp8dec.TransformMacroblockTokens(tokens, dequant, mode.Is4x4 || mode.Mode == vp8common.SplitMV, &scratch.Residual)
+	is4x4 := mode.Is4x4 || mode.Mode == vp8common.SplitMV
+	vp8dec.TransformMacroblockTokens(tokens, dequant, is4x4, &scratch.Residual)
 	vp8dec.AddMacroblockResidual(tokens, &scratch.Residual, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
+	applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens, is4x4, &scratch.Residual, img.Y[yOff:], img.YStride)
 	return true
 }
 
@@ -341,7 +343,41 @@ func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode 
 	yOff := row*16*img.YStride + col*16
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
-	return vp8dec.ReconstructIntraMacroblock(mode, tokens, dequant, refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual)
+	if !vp8dec.ReconstructIntraMacroblock(mode, tokens, dequant, refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+		return false
+	}
+	is4x4 := mode.Is4x4 || mode.Mode == vp8common.BPred
+	applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens, is4x4, &scratch.Residual, img.Y[yOff:], img.YStride)
+	return true
+}
+
+// applyLibvpxY2EobAdjustToAnalysisMacroblock mirrors libvpx's
+// vp8_dequant_idct_add_y_block_c eob<=1 path for non-SPLITMV non-B_PRED
+// 16x16 macroblocks. libvpx unconditionally runs the inverse Walsh in
+// vp8_inverse_transform_mby (vp8/common/invtrans.h), writes per-Y-block
+// qcoeff[0] from xd->block[24].dqcoeff[], and applies DC-only IDCT for
+// every Y block with eob<=1 using q[0]*dq[0] (dq[0]=1 via the
+// dequant_y1_dc override). convertMacroblockCoefficients's
+// max(src.EOB[i], 1) promotion on the !is4x4 path lets
+// AddMacroblockResidual cover this case for the production convert
+// pipeline; this helper is the catch-all keeping the analysis-image
+// mirror explicit so future refactors of the convert pass do not
+// silently lose libvpx parity (see dc16770 stale-Y2-DC diagnosis).
+func applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens *vp8dec.MacroblockTokens, is4x4 bool, scratch *vp8dec.MacroblockResidual, y []byte, yStride int) {
+	if tokens == nil || scratch == nil || is4x4 || tokens.EOB[24] == 0 {
+		return
+	}
+	for block := range 16 {
+		if tokens.EOB[block] != 0 {
+			continue
+		}
+		dc := scratch.DQCoeff[block*16]
+		if dc == 0 {
+			continue
+		}
+		offset := analysisYBlockOffset(block, yStride)
+		dsp.DCOnlyIDCT4x4Add(dc, y[offset:], yStride, y[offset:], yStride)
+	}
 }
 
 func fillPredictedResidual4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, x int, y int, out *[16]int16) {
