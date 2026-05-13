@@ -135,7 +135,7 @@ func encoderThreadSyncRange(mbCols int) int {
 	case mbCols < 40:
 		return 1
 	case mbCols <= 80:
-		return 8
+		return 4
 	case mbCols <= 160:
 		return 8
 	default:

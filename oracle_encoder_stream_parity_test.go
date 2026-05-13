@@ -885,6 +885,12 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "best-quality-cbr-cpu5-32x32-bitrate200", deadline: DeadlineBestQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "best-quality-cbr-cpu0-32x32-2partitions", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "best-quality-cbr-cpu5-32x32-4partitions", deadline: DeadlineBestQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "best-quality-cbr-cpu0-32x32-8partitions", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		{name: "best-quality-cbr-cpu5-32x32-8partitions", deadline: DeadlineBestQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		// Additional direct libvpx control probes.
+		{name: "good-quality-cbr-cpu4-16x16-tune-ssim", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
+		{name: "realtime-cbr-cpu-3-64x64-lookahead4-no-arf-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 4, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "good-quality-cbr-cpu4-16x16-lookahead2-no-arf-8partitions", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 	}
 
 	for _, tc := range cases {

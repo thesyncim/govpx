@@ -5,6 +5,8 @@ import (
 	"errors"
 	"runtime"
 	"testing"
+
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // TestEncoderOptionsThreadsValidation pins the public configuration
@@ -482,6 +484,27 @@ func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
 	pool.shutdownPool()
 }
 
+func TestEncoderThreadSyncRangeMatchesLibvpxWidthBuckets(t *testing.T) {
+	for _, tc := range []struct {
+		mbCols int
+		want   int
+	}{
+		// libvpx buckets pixel width as <640 => 1, <=1280 => 4,
+		// <=2560 => 8, else 16. encoderThreadSyncRange accepts MB cols,
+		// so the thresholds are those widths divided by 16.
+		{mbCols: 39, want: 1},
+		{mbCols: 40, want: 4},
+		{mbCols: 80, want: 4},
+		{mbCols: 81, want: 8},
+		{mbCols: 160, want: 8},
+		{mbCols: 161, want: 16},
+	} {
+		if got := encoderThreadSyncRange(tc.mbCols); got != tc.want {
+			t.Fatalf("encoderThreadSyncRange(%d) = %d, want %d", tc.mbCols, got, tc.want)
+		}
+	}
+}
+
 func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 	const (
 		workerCount = 3
@@ -548,6 +571,44 @@ func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 		if got := e.dotArtifactChecked[i]; got != want {
 			t.Fatalf("dotArtifactChecked[%d] = %v, want %v", i, got, want)
 		}
+	}
+}
+
+func TestMergeThreadedInterFrameCoefCountsOmitsHelperEOBOnly(t *testing.T) {
+	const workerCount = 2
+	pool := &rowWorkerPool{
+		workers: make([]rowEncoderState, workerCount),
+	}
+	counts0 := &pool.workers[0].interCoefTokenCounts
+	counts1 := &pool.workers[1].interCoefTokenCounts
+	(*counts0)[0][0][0][vp8tables.ZeroToken] = 5
+	(*counts0)[0][0][0][vp8tables.DCTEOBToken] = 3
+	(*counts1)[0][0][0][vp8tables.OneToken] = 11
+	(*counts1)[0][0][0][vp8tables.DCTValCategory6] = 13
+	(*counts1)[0][0][0][vp8tables.DCTEOBToken] = 7
+
+	e := &VP8Encoder{interCoefTokenCountsValid: true, interCoefTokenRecordsValid: true}
+	e.interCoefTokenCounts[0][0][0][vp8tables.ZeroToken] = 99
+	e.interCoefTokenCounts[0][0][0][vp8tables.DCTEOBToken] = 99
+	pool.mergeThreadedInterFrameCoefCounts(e, workerCount)
+
+	if got := e.interCoefTokenCounts[0][0][0][vp8tables.ZeroToken]; got != 5 {
+		t.Fatalf("worker0 zero-token count = %d, want 5", got)
+	}
+	if got := e.interCoefTokenCounts[0][0][0][vp8tables.OneToken]; got != 11 {
+		t.Fatalf("helper one-token count = %d, want 11", got)
+	}
+	if got := e.interCoefTokenCounts[0][0][0][vp8tables.DCTValCategory6]; got != 13 {
+		t.Fatalf("helper category6 count = %d, want 13", got)
+	}
+	if got := e.interCoefTokenCounts[0][0][0][vp8tables.DCTEOBToken]; got != 3 {
+		t.Fatalf("merged EOB count = %d, want worker0-only 3", got)
+	}
+	if !e.interCoefTokenCountsValid {
+		t.Fatalf("interCoefTokenCountsValid = false, want true")
+	}
+	if e.interCoefTokenRecordsValid {
+		t.Fatalf("interCoefTokenRecordsValid = true, want false after count-only merge")
 	}
 }
 
