@@ -14,6 +14,7 @@ LIBVPX_TEST_DATA_MK := $(CORACLE_BUILD)/libvpx-v1.16.0/test/test-data.mk
 ORACLE := $(CORACLE_BUILD)/govpx-vpx-oracle
 VPXENC := $(CORACLE_BUILD)/vpxenc
 VPXENC_ORACLE := $(CORACLE_BUILD)/vpxenc-oracle
+VPXENC_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-frameflags
 VPXDEC := $(CORACLE_BUILD)/vpxdec
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
@@ -76,6 +77,7 @@ oracle-test: oracle-tools fetch-test-data
 	GOVPX_VPXDEC="$(VPXDEC)" \
 	GOVPX_VPXENC="$(VPXENC)" \
 	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
+	GOVPX_VPXENC_FRAMEFLAGS="$(VPXENC_FRAMEFLAGS)" \
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_TEST_DATA_REQUIRED=1 \
@@ -134,8 +136,10 @@ decoder-oracle-test: oracle-tools fetch-vp8-test-data
 oracle-tools: $(ORACLE)
 	internal/coracle/build_vpxenc.sh >/dev/null
 	sh internal/coracle/build_vpxenc_oracle.sh >/dev/null
+	sh internal/coracle/build_vpxenc_frameflags.sh >/dev/null
 	test -x "$(VPXENC)"
 	test -x "$(VPXENC_ORACLE)"
+	test -x "$(VPXENC_FRAMEFLAGS)"
 	test -x "$(VPXDEC)"
 	test -x "$(VPX_TEMPORAL_SVC_ENCODER)"
 
