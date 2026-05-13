@@ -111,3 +111,60 @@ func TestReadPartitionBoundary(t *testing.T) {
 		t.Errorf("neither: got %d, want Split", got)
 	}
 }
+
+// TestUpdatePartitionContext stamps the per-subsize "above" / "left"
+// values across the right width and confirms slots outside the bw
+// window stay untouched.
+func TestUpdatePartitionContext(t *testing.T) {
+	above := make([]int8, 16)
+	left := make([]int8, 16)
+	for i := range above {
+		above[i] = -1
+		left[i] = -1
+	}
+	// Block16x16 → {12, 12} per partition_context_lookup.
+	UpdatePartitionContext(above, left, 5, 3, common.Block16x16, 2)
+	wantAbove := common.PartitionContextLookup[common.Block16x16].Above
+	wantLeft := common.PartitionContextLookup[common.Block16x16].Left
+	for i := 0; i < 2; i++ {
+		if above[3+i] != wantAbove {
+			t.Errorf("above[%d]=%d want %d", 3+i, above[3+i], wantAbove)
+		}
+		if left[(5&common.MiMask)+i] != wantLeft {
+			t.Errorf("left[%d]=%d want %d", (5&common.MiMask)+i, left[(5&common.MiMask)+i], wantLeft)
+		}
+	}
+	// Outside the window: untouched.
+	if above[2] != -1 || above[5] != -1 {
+		t.Errorf("above outside window dirtied: %d, %d", above[2], above[5])
+	}
+}
+
+// TestIsInside covers the tile + frame bound combinations.
+func TestIsInside(t *testing.T) {
+	tile := TileBounds{MiColStart: 4, MiColEnd: 12}
+	cases := []struct {
+		miRow, miCol   int
+		posRow, posCol int
+		want           bool
+	}{
+		// inside
+		{5, 5, 0, 1, true},
+		{5, 5, -1, 0, true},
+		// row clamp at -1
+		{0, 5, -1, 0, false},
+		// row >= miRows (10)
+		{9, 5, 1, 0, false},
+		// col < tile start
+		{5, 4, 0, -1, false},
+		// col >= tile end
+		{5, 11, 0, 1, false},
+		// col at exactly start/end
+		{5, 5, 0, -1, true}, // (5,4) ok
+	}
+	for i, c := range cases {
+		if got := IsInside(tile, 10, c.miRow, c.miCol, c.posRow, c.posCol); got != c.want {
+			t.Errorf("case %d: got %v, want %v", i, got, c.want)
+		}
+	}
+}
