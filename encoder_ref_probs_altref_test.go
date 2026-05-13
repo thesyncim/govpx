@@ -186,8 +186,15 @@ func TestUpdateRefFrameProbsFromKeyFrameMirrorsLibvpx(t *testing.T) {
 // resets frames_since_golden and sets source_alt_ref_active=true; refreshing
 // golden resets frames_since_golden and clears source_alt_ref_active; plain
 // inter frames increment the counter.
+//
+// The libvpx dispatcher at vp8/encoder/onyx_if.c:4724-4732 calls
+// update_alt_ref_frame_stats only when (oxcf.play_alternate &&
+// refresh_alt_ref_frame); govpx mirrors that with the AutoAltRef gate, so
+// this test runs with AutoAltRef=true to exercise the auto-ARF lifecycle
+// (the no-AutoAltRef ARF-refresh path is covered separately by the
+// frame-flags byte-parity oracle).
 func TestUpdateGoldenFrameStatsMirrorsLibvpxCounter(t *testing.T) {
-	e := &VP8Encoder{}
+	e := &VP8Encoder{opts: EncoderOptions{AutoAltRef: true}}
 
 	// Plain inter frame increments frames_since_golden.
 	e.updateGoldenFrameStats(false, false)
@@ -354,9 +361,11 @@ func TestUpdateGoldenFrameStatsCountsDownAltRefFrame(t *testing.T) {
 
 // TestUpdateGoldenFrameStatsAltRefRefreshClearsPending pins the libvpx
 // update_alt_ref_frame_stats branch: a successful ARF refresh consumes
-// the pending flag.
+// the pending flag. The branch is gated on AutoAltRef
+// (libvpx oxcf.play_alternate) — see TestUpdateGoldenFrameStatsMirrorsLibvpxCounter
+// for the dispatcher reference.
 func TestUpdateGoldenFrameStatsAltRefRefreshClearsPending(t *testing.T) {
-	e := &VP8Encoder{sourceAltRefPending: true, framesTillAltRefFrame: 2}
+	e := &VP8Encoder{opts: EncoderOptions{AutoAltRef: true}, sourceAltRefPending: true, framesTillAltRefFrame: 2}
 	e.updateGoldenFrameStats(false, true)
 	if e.sourceAltRefPending {
 		t.Fatalf("sourceAltRefPending after ARF refresh = true, want false (consumed)")
@@ -379,6 +388,11 @@ func TestUpdateGoldenFrameStatsGoldenRefreshKeepsActiveOnPending(t *testing.T) {
 }
 
 func TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive(t *testing.T) {
+	// AutoAltRef mirrors libvpx oxcf.play_alternate; without it the
+	// vp8/encoder/onyx_if.c:4724-4732 dispatcher routes refresh_alt_ref_frame=1
+	// through update_golden_frame_stats (which leaves source_alt_ref_active=0),
+	// so the ALTREF sign-bias activation seen here only fires when AutoAltRef
+	// is set. The frame-flags byte-parity oracle covers the no-AutoAltRef path.
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -393,6 +407,7 @@ func TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive(t *testing.T) {
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
+		AutoAltRef:          true,
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
@@ -432,7 +447,16 @@ func TestEncodeIntoAltRefSignBiasFollowsLibvpxSourceAltRefActive(t *testing.T) {
 		t.Fatalf("post-altref sign bias = golden:%v alt:%v, want golden:false alt:true", interState.Refresh.GoldenSignBias, interState.Refresh.AltRefSignBias)
 	}
 
-	golden, err := e.EncodeInto(dst, interSrc, 3, 1, EncodeForceGoldenFrame)
+	// FORCE_GF in isolation maps (via libvpx vp8e_set_frame_flags
+	// upd-mask) to refresh_last=refresh_golden=refresh_alt_ref=1, which
+	// re-routes the post-encode dispatcher to update_alt_ref_frame_stats
+	// (play_alternate=AutoAltRef=true on this encoder) and keeps
+	// sourceAltRefActive=true. To exercise the libvpx "GOLDEN refresh
+	// while ALTREF active" branch (update_golden_frame_stats with
+	// refresh_golden_frame=1 and refresh_alt_ref_frame=0), the user has
+	// to opt out of the ALTREF half of the FORCE_GF mask with
+	// EncodeNoUpdateAltRef.
+	golden, err := e.EncodeInto(dst, interSrc, 3, 1, EncodeForceGoldenFrame|EncodeNoUpdateAltRef)
 	if err != nil {
 		t.Fatalf("golden refresh EncodeInto returned error: %v", err)
 	}
@@ -508,7 +532,13 @@ func TestSignBiasEvolutionMatchesLibvpxAcrossGFAndARF(t *testing.T) {
 		var flags EncodeFlags
 		forced := false
 		if i == 10 {
-			flags = EncodeForceGoldenFrame
+			// FORCE_GF alone runs through libvpx's upd-mask and sets
+			// refresh_alt_ref=1 too, which would re-route the post-encode
+			// dispatcher away from update_golden_frame_stats. Opt out of
+			// the ALTREF half of the mask so the libvpx "GOLDEN refresh
+			// while ALTREF active" branch (update_golden_frame_stats
+			// with refresh_golden=1, refresh_alt_ref=0) actually fires.
+			flags = EncodeForceGoldenFrame | EncodeNoUpdateAltRef
 			forced = true
 		}
 		result, err := e.EncodeInto(dst, img, uint64(i)*1000, 1000, flags)

@@ -413,19 +413,29 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.SimpleLoopFilter = e.encoderUsesSimpleLoopFilter()
 	cfg.RefreshEntropyProbs = flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient && !e.opts.ErrorResilientPartitions
 	cfg.IndependentContexts = e.opts.ErrorResilientPartitions
-	cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 	// Match libvpx's normal interframe shape: LAST advances by default while
-	// golden/altref remain long-lived references unless a future policy updates them.
-	cfg.RefreshGolden = false
-	cfg.RefreshAltRef = false
+	// golden/altref remain long-lived references unless a future policy
+	// (auto-GF, temporal SVC scoreboard, FORCE_GF/FORCE_ARF flags) updates
+	// them. When the caller provides any of the per-frame update flags,
+	// libvpx vp8/vp8_cx_iface.c:vp8e_set_frame_flags routes the request
+	// through vp8_update_reference which rewrites cm->refresh_*_frame from
+	// an explicit "update" mask (start at all-three, XOR off each NO_UPD_*
+	// bit); mirror that mask so the inter-frame refresh header bits and
+	// the downstream rdopt token-cost / mode-cost branches see the same
+	// state as libvpx.
 	if temporalActive {
+		// The temporal SVC layer manager passes the per-layer scoreboard
+		// in flags, with NO_UPD_* meaning "do not refresh this buffer".
+		// Treat each axis independently so the scoreboard contract holds.
+		cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
 		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
 		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
-	} else if goldenCBRRefresh || flags&EncodeForceGoldenFrame != 0 {
-		cfg.RefreshGolden = true
-	}
-	if flags&EncodeForceAltRefFrame != 0 {
-		cfg.RefreshAltRef = true
+	} else if externalRefreshFlagsPending(flags) {
+		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = libvpxExternalRefreshMask(flags)
+	} else {
+		cfg.RefreshLast = true
+		cfg.RefreshGolden = goldenCBRRefresh
+		cfg.RefreshAltRef = false
 	}
 	signBias := e.interFrameSignBias()
 	cfg.GoldenSignBias = signBias[vp8common.GoldenFrame]

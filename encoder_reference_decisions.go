@@ -227,6 +227,51 @@ func boostedReferenceRateControlFrame(goldenCBRRefresh bool, flags EncodeFlags) 
 	return goldenCBRRefresh || flags&(EncodeForceGoldenFrame|EncodeForceAltRefFrame) != 0
 }
 
+// externalRefreshFlagsPending mirrors libvpx
+// vp8/vp8_cx_iface.c:vp8e_set_frame_flags: whenever the user sets any of
+// VP8_EFLAG_NO_UPD_LAST / VP8_EFLAG_NO_UPD_GF / VP8_EFLAG_NO_UPD_ARF /
+// VP8_EFLAG_FORCE_GF / VP8_EFLAG_FORCE_ARF on a frame, libvpx routes
+// the request through vp8_update_reference which arms
+// cpi->ext_refresh_frame_flags_pending and rewrites the three
+// cpi->common.refresh_*_frame fields from an explicit "update" mask
+// rather than the encoder-internal defaults. The mask starts at 7 (all
+// three buffers refreshed) and is XOR'd by each VP8_EFLAG_NO_UPD_*
+// bit, so e.g. NO_UPD_LAST alone yields {LAST=0, GOLDEN=1, ALTREF=1} —
+// surprising at first read but the libvpx-documented behaviour every
+// downstream consumer (WebRTC, vpx_temporal_svc_encoder) relies on.
+func externalRefreshFlagsPending(flags EncodeFlags) bool {
+	return flags&(EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef|EncodeForceGoldenFrame|EncodeForceAltRefFrame) != 0
+}
+
+// libvpxExternalRefreshMask returns the (RefreshLast, RefreshGolden,
+// RefreshAltRef) tuple produced by the libvpx vp8_update_reference
+// mask. Callers must only invoke this when externalRefreshFlagsPending
+// returns true; the libvpx default (no user flags) is encoded
+// elsewhere because it depends on encoder-internal state
+// (goldenCBRRefresh, temporal SVC scoreboard, etc.).
+func libvpxExternalRefreshMask(flags EncodeFlags) (refreshLast bool, refreshGolden bool, refreshAltRef bool) {
+	const (
+		vp8LastFrame  = 1
+		vp8GoldFrame  = 2
+		vp8AltrFrame  = 4
+		allRefreshSet = vp8LastFrame | vp8GoldFrame | vp8AltrFrame
+	)
+	upd := allRefreshSet
+	if flags&EncodeNoUpdateLast != 0 {
+		upd ^= vp8LastFrame
+	}
+	if flags&EncodeNoUpdateGolden != 0 {
+		upd ^= vp8GoldFrame
+	}
+	if flags&EncodeNoUpdateAltRef != 0 {
+		upd ^= vp8AltrFrame
+	}
+	refreshLast = upd&vp8LastFrame != 0
+	refreshGolden = upd&vp8GoldFrame != 0
+	refreshAltRef = upd&vp8AltrFrame != 0
+	return refreshLast, refreshGolden, refreshAltRef
+}
+
 func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRefresh bool, flags EncodeFlags) bool {
 	if errorResilient || !goldenCBRRefresh {
 		return false

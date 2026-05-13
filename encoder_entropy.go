@@ -295,7 +295,29 @@ func (e *VP8Encoder) applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef b
 // govpx counterpart to vp8/encoder/onyx_if.c update_golden_frame_stats minus
 // the auto-arf bookkeeping that govpx's flag-driven alt-ref does not exercise.
 func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bool) {
-	if refreshAltRef {
+	// libvpx vp8/encoder/onyx_if.c dispatches between update_alt_ref_frame_stats
+	// and update_golden_frame_stats at lines 4724-4732:
+	//
+	//   if (!cpi->oxcf.error_resilient_mode) {
+	//       if (cpi->oxcf.play_alternate && cm->refresh_alt_ref_frame &&
+	//           (cm->frame_type != KEY_FRAME)) {
+	//           update_alt_ref_frame_stats(cpi);
+	//       } else {
+	//           update_golden_frame_stats(cpi);
+	//       }
+	//   }
+	//
+	// `update_alt_ref_frame_stats` is the only path that asserts
+	// `cpi->source_alt_ref_active = 1`; when play_alternate (AutoAltRef) is
+	// disabled libvpx routes refresh_alt_ref_frame=1 through
+	// `update_golden_frame_stats` instead, which clears source_alt_ref_active
+	// unless an ARF schedule is pending. Without the AutoAltRef gate, a user
+	// passing VP8_EFLAG_NO_UPD_LAST (which libvpx maps to
+	// refresh_alt_ref_frame=1, refresh_golden_frame=1 via the
+	// vp8_update_reference upd-mask) would incorrectly mark
+	// source_alt_ref_active in govpx and shift the prob_gf_coded picker
+	// adjustment to the auto-ARF branch on the next frame.
+	if refreshAltRef && e.opts.AutoAltRef {
 		e.framesSinceGolden = 0
 		e.sourceAltRefActive = true
 		// libvpx vp8/encoder/onyx_if.c update_alt_ref_frame_stats clears

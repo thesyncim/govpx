@@ -164,26 +164,21 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 
 		// EncodeNoUpdateLast on every inter frame — exercises the
 		// "freeze LAST" pattern used by WebRTC scalability layers.
-		//
-		// NEW GAP (limit:1): per-frame VP8_EFLAG_NO_UPD_LAST diverges
-		// from frame 1. govpx still refreshes its internal LAST
-		// buffer when the flag is set, while libvpx skips the
-		// LAST-buffer refresh — the picker therefore sees a
-		// different reference frame from frame 1 onward. The 8-frame
-		// drift compounds quickly; pin frame 0 strict, log the rest.
-		{name: "no-upd-last-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 1, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
-		{name: "no-upd-last-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, limit: 1, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
+		// libvpx vp8_cx_iface vp8e_set_frame_flags routes any of
+		// {NO_UPD_LAST, NO_UPD_GF, NO_UPD_ARF, FORCE_GF, FORCE_ARF}
+		// through vp8_update_reference with an inverted "upd" mask
+		// (start at all-three, XOR off each NO_UPD_*); govpx mirrors
+		// the same mask via libvpxExternalRefreshMask so the
+		// downstream refresh / sourceAltRefActive bookkeeping lines
+		// up on the next frame.
+		{name: "no-upd-last-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
+		{name: "no-upd-last-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
 		// EncodeNoUpdateGolden / EncodeNoUpdateAltRef on every inter
 		// frame. Together with the existing temporal SVC scoreboard
-		// tests these pin the per-flag refresh accounting.
-		//
-		// NEW GAP (limit:1): per-frame VP8_EFLAG_NO_UPD_GF and
-		// VP8_EFLAG_NO_UPD_ARF singly diverge from frame 1; the
-		// combined GF|ARF case happens to byte-match (both refs
-		// share the default "do not refresh on inter frames" state
-		// in this baseline). Pin frame 0 strict.
-		{name: "no-upd-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 1, flags: repeatFlag(frames-1, EncodeNoUpdateGolden)},
-		{name: "no-upd-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 1, flags: repeatFlag(frames-1, EncodeNoUpdateAltRef)},
+		// tests these pin the per-flag refresh accounting through
+		// the libvpx upd-mask semantics described above.
+		{name: "no-upd-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateGolden)},
+		{name: "no-upd-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateAltRef)},
 		{name: "no-upd-gf-arf-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 
 		// EncodeNoReferenceGolden / EncodeNoReferenceAltRef — drop
@@ -197,25 +192,19 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// Combined no-update-Last+no-reference-Golden, the canonical
 		// "base temporal layer" pattern from libvpx's
 		// vpx_temporal_svc_encoder mode 1.
-		//
-		// NEW GAP (limit:1): inherits the no-upd-last divergence,
-		// so the rest of the sequence drifts the same way.
-		{name: "no-upd-last-no-ref-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 1, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "no-upd-last-no-ref-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
 
-		// EncodeForceGoldenFrame at a specific frame, mirroring the
-		// "manual GF refresh" pattern.
-		//
-		// NEW GAP (limit:4): the first four frames byte-match;
-		// frame 4 (the forced GF refresh) and the inter frames
-		// after it diverge because govpx's force-GF path picks a
-		// different quantizer / mode set than libvpx's GF refresh.
-		{name: "force-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 4, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
-		{name: "force-gf-frame4-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, limit: 4, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
-		// EncodeForceAltRefFrame at a specific frame.
-		//
-		// NEW GAP (limit:4): same shape as force-GF — frame 4 is
-		// the forced ARF refresh and diverges.
-		{name: "force-arf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 4, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame}},
+		// EncodeForceGoldenFrame / EncodeForceAltRefFrame at a
+		// specific frame, mirroring the "manual GF/ARF refresh"
+		// pattern. libvpx's upd-mask interpretation here is the
+		// surprising part: with no NO_UPD_* bits set the mask stays
+		// at 7 so refresh_last_frame, refresh_golden_frame and
+		// refresh_alt_ref_frame ALL flip to 1 on the forced frame
+		// (independent of which of FORCE_GF / FORCE_ARF the user
+		// requested). libvpxExternalRefreshMask reproduces that.
+		{name: "force-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
+		{name: "force-gf-frame4-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
+		{name: "force-arf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame}},
 
 		// EncodeNoUpdateEntropy on every inter frame — keeps the
 		// reference entropy adaptation state frozen.
@@ -229,14 +218,12 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// Token-partitions=2 / 4 crossed with per-frame flags to
 		// confirm the partitioned writer also honors per-frame refs.
 		{name: "force-kf-frame3-realtime-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}},
-		// NEW GAP (limit:1): inherits the no-upd-last divergence.
-		{name: "no-upd-last-realtime-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, limit: 1, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeNoUpdateLast)},
+		{name: "no-upd-last-realtime-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeNoUpdateLast)},
 
 		// Good-quality deadline + per-frame flags to widen the
 		// picker's mode-decision coverage.
 		{name: "force-kf-frame3-good-quality-cpu4-32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: panning32, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}},
-		// NEW GAP (limit:1): inherits the no-upd-last divergence.
-		{name: "no-upd-last-good-quality-cpu4-16x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: panning16, limit: 1, flags: repeatFlag(frames-1, EncodeNoUpdateLast)},
+		{name: "no-upd-last-good-quality-cpu4-16x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateLast)},
 	}
 
 	for _, tc := range cases {
