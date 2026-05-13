@@ -176,7 +176,7 @@ func (e *VP8Encoder) updateGFActiveMap(refreshGolden bool, modes []vp8enc.InterF
 	}
 	limit := min(len(modes), len(e.gfActiveMap))
 	active := 0
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		mode := modes[i]
 		isActive := e.gfActiveMap[i]
 		if mode.RefFrame == vp8common.GoldenFrame || mode.RefFrame == vp8common.AltRefFrame {

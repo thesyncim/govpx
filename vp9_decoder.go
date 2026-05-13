@@ -33,6 +33,33 @@ type VP9DecoderOptions struct {
 	RejectResolutionChange bool
 }
 
+// VP9FrameInfo describes one decoded VP9 packet. Quantizer is the raw
+// VP9 base qindex in [0, 255]; show-existing packets do not carry a
+// quantizer and report zero.
+type VP9FrameInfo struct {
+	// Width and Height are the visible output dimensions.
+	Width  int
+	Height int
+
+	// KeyFrame reports whether the packet is a key frame.
+	KeyFrame bool
+	// ShowFrame reports whether the packet produced visible output.
+	ShowFrame bool
+	// ShowExistingFrame reports whether the packet displayed a stored
+	// VP9 reference slot instead of carrying a frame body.
+	ShowExistingFrame bool
+	// ExistingFrameSlot is valid when ShowExistingFrame is true.
+	ExistingFrameSlot uint8
+
+	// Quantizer is the raw VP9 base qindex in [0, 255].
+	Quantizer int
+	// RefreshFrameFlags is the VP9 reference-slot update bitmask.
+	RefreshFrameFlags uint8
+
+	// PTS is the caller-provided presentation timestamp.
+	PTS uint64
+}
+
 // ErrVP9NotImplemented is returned by VP9Decoder.Decode for valid VP9
 // frames whose reconstruction path has not been ported yet.
 var ErrVP9NotImplemented = errors.New("govpx: VP9 reconstruct pipeline not yet implemented")
@@ -95,12 +122,47 @@ type VP9Decoder struct {
 	frameU                 []byte
 	frameV                 []byte
 	intraScratch           vp9dec.IntraPredictorScratch
+	refFrames              [common.RefFrames]vp9ReferenceFrame
 
-	// width and height carry the last keyframe's frame dimensions.
-	// Reset on every keyframe; non-zero only after the first
-	// successful keyframe parse.
+	// width and height carry the most recent decoded frame dimensions.
+	// They stay zero until the first successful frame parse.
 	width  int
 	height int
+}
+
+type vp9ReferenceFrame struct {
+	img   Image
+	y     []byte
+	u     []byte
+	v     []byte
+	valid bool
+}
+
+func (f *vp9ReferenceFrame) store(src Image) {
+	f.y = ensureVP9PlaneCapacity(f.y, len(src.Y))
+	f.u = ensureVP9PlaneCapacity(f.u, len(src.U))
+	f.v = ensureVP9PlaneCapacity(f.v, len(src.V))
+	copy(f.y, src.Y)
+	copy(f.u, src.U)
+	copy(f.v, src.V)
+	f.img = Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       f.y,
+		U:       f.u,
+		V:       f.v,
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+	f.valid = true
+}
+
+func ensureVP9PlaneCapacity(buf []byte, n int) []byte {
+	if cap(buf) < n {
+		return make([]byte, n)
+	}
+	return buf[:n]
 }
 
 // NewVP9Decoder creates a VP9 decoder with validated options. The
@@ -139,73 +201,59 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
-	if len(packet) == 0 {
-		return ErrInvalidVP9Data
-	}
-	var br vp9dec.BitReader
-	br.Init(packet)
-	var prev *vp9dec.UncompressedHeader
-	if d.lastHeaderValid {
-		prev = &d.lastHeader
-	}
-	hdr, err := vp9dec.ReadUncompressedHeader(&br, prev, d.refDims)
+	hdr, uncSize, err := d.readVP9UncompressedHeader(packet)
 	if err != nil {
+		return err
+	}
+
+	if hdr.ShowExistingFrame {
+		return d.decodeVP9ShowExistingFrame(&hdr)
+	}
+
+	compEnd := uncSize + int(hdr.FirstPartitionSize)
+	if compEnd > len(packet) {
 		return ErrInvalidVP9Data
 	}
-	if d.opts.MaxWidth > 0 && int(hdr.Width) > d.opts.MaxWidth {
-		return ErrFrameRejected
+
+	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly || hdr.ErrorResilientMode {
+		vp9dec.ResetFrameContext(&d.fc)
 	}
-	if d.opts.MaxHeight > 0 && int(hdr.Height) > d.opts.MaxHeight {
-		return ErrFrameRejected
+	var cr bitstream.Reader
+	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
+		return ErrInvalidVP9Data
+	}
+	compHeader := vp9dec.ReadCompressedHeader(&cr, &d.fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:             hdr.Quant.Lossless,
+		IntraOnly:            hdr.IntraOnly,
+		KeyFrame:             hdr.FrameType == common.KeyFrame,
+		InterpFilter:         hdr.InterpFilter,
+		AllowHighPrecisionMv: hdr.AllowHighPrecisionMv,
+		CompoundRefAllowed:   false,
+	})
+	if cr.HasError() {
+		return ErrInvalidVP9Data
 	}
 
-	if !hdr.ShowExistingFrame {
-		uncSize := br.BytesRead()
-		compEnd := uncSize + int(hdr.FirstPartitionSize)
-		if compEnd > len(packet) {
-			return ErrInvalidVP9Data
-		}
+	vp9dec.SetupSegmentationDequant(&hdr.Seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: int(hdr.Quant.BaseQindex),
+		YDcDeltaQ:  int(hdr.Quant.YDcDeltaQ),
+		UvDcDeltaQ: int(hdr.Quant.UvDcDeltaQ),
+		UvAcDeltaQ: int(hdr.Quant.UvAcDeltaQ),
+		BitDepth:   vp9dec.BitDepth(hdr.BitDepthColor.BitDepth),
+	}, &d.dq)
+	vp9dec.LoopFilterFrameInit(&d.lfi, &hdr.Loopfilter, &hdr.Seg,
+		int(hdr.Loopfilter.FilterLevel))
 
-		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly || hdr.ErrorResilientMode {
-			vp9dec.ResetFrameContext(&d.fc)
+	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+		d.unsupportedReconstruct = !vp9SupportedOutputFormat(&hdr)
+		if !d.unsupportedReconstruct {
+			d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height))
 		}
-		var cr bitstream.Reader
-		if err := cr.Init(packet[uncSize:compEnd]); err != nil {
-			return ErrInvalidVP9Data
+		if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
+			return err
 		}
-		compHeader := vp9dec.ReadCompressedHeader(&cr, &d.fc, vp9dec.ReadCompressedHeaderArgs{
-			Lossless:             hdr.Quant.Lossless,
-			IntraOnly:            hdr.IntraOnly,
-			KeyFrame:             hdr.FrameType == common.KeyFrame,
-			InterpFilter:         hdr.InterpFilter,
-			AllowHighPrecisionMv: hdr.AllowHighPrecisionMv,
-			CompoundRefAllowed:   false,
-		})
-		if cr.HasError() {
-			return ErrInvalidVP9Data
-		}
-
-		vp9dec.SetupSegmentationDequant(&hdr.Seg, vp9dec.SetupSegmentationDequantArgs{
-			BaseQindex: int(hdr.Quant.BaseQindex),
-			YDcDeltaQ:  int(hdr.Quant.YDcDeltaQ),
-			UvDcDeltaQ: int(hdr.Quant.UvDcDeltaQ),
-			UvAcDeltaQ: int(hdr.Quant.UvAcDeltaQ),
-			BitDepth:   vp9dec.BitDepth(hdr.BitDepthColor.BitDepth),
-		}, &d.dq)
-		vp9dec.LoopFilterFrameInit(&d.lfi, &hdr.Loopfilter, &hdr.Seg,
-			int(hdr.Loopfilter.FilterLevel))
-
-		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
-			d.unsupportedReconstruct = !vp9SupportedOutputFormat(&hdr)
-			if !d.unsupportedReconstruct {
-				d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height))
-			}
-			if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
-				return err
-			}
-		} else {
-			d.unsupportedReconstruct = true
-		}
+	} else {
+		d.unsupportedReconstruct = true
 	}
 
 	d.lastHeader = hdr
@@ -216,12 +264,99 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 	}
 	d.frameReady = false
 	if d.vp9CanPublishReconstructedFrame(&hdr) {
+		d.refreshVP9ReferenceFrames(&hdr)
 		if hdr.ShowFrame {
 			d.frameReady = true
 		}
 		return nil
 	}
 	return ErrVP9NotImplemented
+}
+
+// DecodeInto decodes one raw VP9 frame payload. If the packet is a
+// visible frame its decoded pixels are written into the caller-owned
+// planes of dst; for hidden frames dst is left untouched.
+func (d *VP9Decoder) DecodeInto(packet []byte, dst *Image) (VP9FrameInfo, error) {
+	return d.DecodeIntoWithPTS(packet, dst, 0)
+}
+
+// DecodeIntoWithPTS is DecodeInto with an explicit presentation timestamp.
+// pts is echoed back in the returned VP9FrameInfo.
+func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (VP9FrameInfo, error) {
+	if d == nil || d.closed {
+		return VP9FrameInfo{}, ErrClosed
+	}
+	if dst == nil {
+		return VP9FrameInfo{}, ErrInvalidConfig
+	}
+	hdr, _, err := d.readVP9UncompressedHeader(packet)
+	if err != nil {
+		return VP9FrameInfo{}, err
+	}
+	info, err := d.vp9FrameInfoFromHeader(&hdr, pts)
+	if err != nil {
+		return VP9FrameInfo{}, err
+	}
+	if !dst.validForEncode(info.Width, info.Height) {
+		return VP9FrameInfo{}, ErrInvalidConfig
+	}
+	if err := d.Decode(packet); err != nil {
+		return VP9FrameInfo{}, err
+	}
+	d.frameReady = false
+	if info.ShowFrame {
+		copyVP9ImageToPublic(dst, d.lastFrame)
+	}
+	return info, nil
+}
+
+func (d *VP9Decoder) readVP9UncompressedHeader(packet []byte) (vp9dec.UncompressedHeader, int, error) {
+	if len(packet) == 0 {
+		return vp9dec.UncompressedHeader{}, 0, ErrInvalidVP9Data
+	}
+	var br vp9dec.BitReader
+	br.Init(packet)
+	var prev *vp9dec.UncompressedHeader
+	if d.lastHeaderValid {
+		prev = &d.lastHeader
+	}
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, prev, d.refDims)
+	if err != nil {
+		return vp9dec.UncompressedHeader{}, 0, ErrInvalidVP9Data
+	}
+	if d.opts.MaxWidth > 0 && int(hdr.Width) > d.opts.MaxWidth {
+		return vp9dec.UncompressedHeader{}, 0, ErrFrameRejected
+	}
+	if d.opts.MaxHeight > 0 && int(hdr.Height) > d.opts.MaxHeight {
+		return vp9dec.UncompressedHeader{}, 0, ErrFrameRejected
+	}
+	return hdr, br.BytesRead(), nil
+}
+
+func (d *VP9Decoder) vp9FrameInfoFromHeader(hdr *vp9dec.UncompressedHeader, pts uint64) (VP9FrameInfo, error) {
+	info := VP9FrameInfo{
+		KeyFrame:          !hdr.ShowExistingFrame && hdr.FrameType == common.KeyFrame,
+		ShowFrame:         hdr.ShowFrame,
+		ShowExistingFrame: hdr.ShowExistingFrame,
+		ExistingFrameSlot: hdr.ExistingFrameSlot,
+		Quantizer:         int(hdr.Quant.BaseQindex),
+		RefreshFrameFlags: hdr.RefreshFrameFlags,
+		PTS:               pts,
+	}
+	if hdr.ShowExistingFrame {
+		slot := int(hdr.ExistingFrameSlot)
+		if slot >= len(d.refFrames) || !d.refFrames[slot].valid {
+			return VP9FrameInfo{}, ErrInvalidVP9Data
+		}
+		ref := &d.refFrames[slot].img
+		info.Width = ref.Width
+		info.Height = ref.Height
+		info.ShowFrame = true
+		return info, nil
+	}
+	info.Width = int(hdr.Width)
+	info.Height = int(hdr.Height)
+	return info, nil
 }
 
 func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHeader) bool {
@@ -241,6 +376,36 @@ func vp9SupportedOutputFormat(hdr *vp9dec.UncompressedHeader) bool {
 		return false
 	}
 	return true
+}
+
+func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) error {
+	slot := int(hdr.ExistingFrameSlot)
+	if slot >= len(d.refFrames) || !d.refFrames[slot].valid {
+		return ErrInvalidVP9Data
+	}
+	ref := &d.refFrames[slot]
+	d.lastFrame = ref.img
+	d.width = ref.img.Width
+	d.height = ref.img.Height
+	d.frameReady = true
+	return nil
+}
+
+func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
+	flags := hdr.RefreshFrameFlags
+	for slot := range d.refFrames {
+		if flags&(1<<uint(slot)) != 0 {
+			d.refFrames[slot].store(d.lastFrame)
+		}
+	}
+}
+
+func copyVP9ImageToPublic(dst *Image, src Image) {
+	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
 func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) {
@@ -294,18 +459,20 @@ func fillVP9Plane(buf []byte, value byte) {
 	}
 }
 
-// refDims is the placeholder ring-slot dimension lookup. The full
-// implementation will return the (width, height) of the reference
-// frame at the given ring slot; until the frame-buffer manager
-// lands we return the current frame's dimensions, matching the
-// libvpx fast-path when every ref is the same size.
-func (d *VP9Decoder) refDims(uint8) (uint32, uint32) {
+// refDims returns the dimensions of a stored VP9 reference slot. Frames
+// that predate the reference manager fall back to the active stream size,
+// matching the libvpx fast-path when every ref has the same dimensions.
+func (d *VP9Decoder) refDims(slot uint8) (uint32, uint32) {
+	idx := int(slot)
+	if idx < len(d.refFrames) && d.refFrames[idx].valid {
+		ref := &d.refFrames[idx].img
+		return uint32(ref.Width), uint32(ref.Height)
+	}
 	return uint32(d.width), uint32(d.height)
 }
 
 // LastFrameSize returns the (width, height) of the last successfully
-// parsed key/inter frame. Returns (0, 0) before any successful
-// header parse.
+// decoded VP9 frame. Returns (0, 0) before any successful header parse.
 func (d *VP9Decoder) LastFrameSize() (width, height int) {
 	if d == nil {
 		return 0, 0

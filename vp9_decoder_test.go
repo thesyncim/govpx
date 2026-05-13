@@ -197,6 +197,206 @@ func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderShowExistingFrameUsesReferenceSlot covers the first
+// reference-frame-manager behavior: keyframes refresh the VP9 ring, a
+// show-existing packet displays a stored slot, and that packet must not
+// disturb the preserved header state needed by the following intra-only
+// inter header.
+func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode intra-only: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after visible keyframe")
+	}
+
+	if err := d.Decode(vp9ShowExistingFramePacketForTest(5)); err != nil {
+		t.Fatalf("Decode show-existing err = %v, want nil", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after show-existing frame")
+	}
+	assertVP9NeutralFrame(t, frame, 96, 96)
+
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode intra-only after show-existing err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame queued output for non-show intra-only frame")
+	}
+}
+
+// TestVP9DecoderRejectsShowExistingMissingReference rejects a show-
+// existing packet before any frame has refreshed the requested slot.
+func TestVP9DecoderRejectsShowExistingMissingReference(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	err = d.Decode(vp9ShowExistingFramePacketForTest(0))
+	if !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 0 || h != 0 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (0, 0)", w, h)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame published output for invalid show-existing frame")
+	}
+}
+
+// TestVP9DecoderDecodeIntoCopiesVisibleFrame mirrors the VP8
+// caller-owned-output path for the VP9 reconstruction slice.
+func TestVP9DecoderDecodeIntoCopiesVisibleFrame(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	dst := newTestImage(96, 96)
+	info, err := d.DecodeIntoWithPTS(packet, &dst, 42)
+	if err != nil {
+		t.Fatalf("DecodeIntoWithPTS err = %v, want nil", err)
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		!info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
+		info.Quantizer != 1 || info.RefreshFrameFlags != 0xff || info.PTS != 42 {
+		t.Fatalf("DecodeIntoWithPTS info = %+v, want visible keyframe metadata", info)
+	}
+	assertVP9NeutralFrame(t, dst, 96, 96)
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued output for NextFrame")
+	}
+}
+
+// TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched covers
+// non-show intra-only packets: they refresh references but do not copy
+// pixels into the caller-owned output image.
+func TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode intra-only: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seed := newTestImage(96, 96)
+	if _, err := d.DecodeInto(key, &seed); err != nil {
+		t.Fatalf("DecodeInto keyframe err = %v, want nil", err)
+	}
+
+	dst := newTestImage(96, 96)
+	fillVP9PublicImage(&dst, 77)
+	info, err := d.DecodeInto(inter, &dst)
+	if err != nil {
+		t.Fatalf("DecodeInto hidden intra-only err = %v, want nil", err)
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		info.KeyFrame || info.ShowFrame || info.ShowExistingFrame ||
+		info.Quantizer != 1 || info.RefreshFrameFlags != 1 {
+		t.Fatalf("DecodeInto hidden info = %+v, want hidden intra-only metadata", info)
+	}
+	assertVP9FilledFrame(t, dst, 96, 96, 77, 77, 77)
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued output for hidden frame")
+	}
+}
+
+// TestVP9DecoderDecodeIntoShowExistingCopiesReference verifies that
+// DecodeInto consumes a show-existing packet through the reference
+// manager and returns the shown slot metadata.
+func TestVP9DecoderDecodeIntoShowExistingCopiesReference(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	seed := newTestImage(96, 96)
+	if _, err := d.DecodeInto(key, &seed); err != nil {
+		t.Fatalf("DecodeInto keyframe err = %v, want nil", err)
+	}
+
+	dst := newTestImage(96, 96)
+	info, err := d.DecodeIntoWithPTS(vp9ShowExistingFramePacketForTest(5), &dst, 7)
+	if err != nil {
+		t.Fatalf("DecodeIntoWithPTS show-existing err = %v, want nil", err)
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		info.KeyFrame || !info.ShowFrame || !info.ShowExistingFrame ||
+		info.ExistingFrameSlot != 5 || info.PTS != 7 {
+		t.Fatalf("DecodeIntoWithPTS show-existing info = %+v, want slot 5 metadata", info)
+	}
+	assertVP9NeutralFrame(t, dst, 96, 96)
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued output for show-existing frame")
+	}
+}
+
+// TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode keeps
+// invalid caller buffers from mutating decoder stream state.
+func TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	dst := newTestImage(64, 64)
+	_, err = d.DecodeInto(packet, &dst)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("DecodeInto err = %v, want ErrInvalidConfig", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 0 || h != 0 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (0, 0)", w, h)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued output after invalid destination")
+	}
+}
+
 // TestVP9DecoderDecodesEncoderEdgeClippedModeTiles covers the same
 // partial-SB shapes as the vpxdec oracle, but through the public
 // decoder's tile-mode/residual parser and prediction-only output path for
@@ -476,9 +676,55 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderDecodeIntoSteadyStateAlloc keeps caller-owned VP9 output
+// allocation-free after the decoder and reference slots are warm.
+func TestVP9DecoderDecodeIntoSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	dst := newTestImage(96, 96)
+	if _, err := d.DecodeInto(packet, &dst); err != nil {
+		t.Fatalf("warm DecodeInto err = %v, want nil", err)
+	}
+
+	var info VP9FrameInfo
+	allocs := testing.AllocsPerRun(100, func() {
+		info, err = d.DecodeInto(packet, &dst)
+	})
+	if err != nil {
+		t.Fatalf("DecodeInto err = %v, want nil", err)
+	}
+	if info.Width != 96 || info.Height != 96 || !info.ShowFrame {
+		t.Fatalf("DecodeInto info = %+v, want visible 96x96 frame", info)
+	}
+	if allocs != 0 {
+		t.Fatalf("DecodeInto steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 	t.Helper()
 	assertVP9FilledFrame(t, got, width, height, 128, 128, 128)
+}
+
+func fillVP9PublicImage(img *Image, value byte) {
+	for i := range img.Y {
+		img.Y[i] = value
+	}
+	for i := range img.U {
+		img.U[i] = value
+	}
+	for i := range img.V {
+		img.V[i] = value
+	}
 }
 
 func assertVP9FilledFrame(t *testing.T, got Image, width, height int,
@@ -824,6 +1070,16 @@ func (p *vp9BitPacker) flushByte() {
 	if p.pos != 0 {
 		p.pos = 0
 	}
+}
+
+func vp9ShowExistingFramePacketForTest(slot uint8) []byte {
+	var pk vp9BitPacker
+	pk.writeLiteral(2, 2)              // frame_marker = 0b10
+	pk.writeLiteral(0, 2)              // profile = 0
+	pk.writeBit(1)                     // show_existing_frame
+	pk.writeLiteral(uint32(slot&7), 3) // frame_to_show_map_idx
+	pk.flushByte()
+	return pk.buf
 }
 
 // TestVP9DecoderClose marks the decoder as closed; subsequent Decode
