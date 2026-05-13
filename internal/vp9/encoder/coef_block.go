@@ -28,6 +28,11 @@ type WriteCoefBlockArgs struct {
 	// Fc carries the active per-frame coefficient probabilities.
 	Fc *vp9dec.FrameCoefProbs
 
+	// CoefBranchStats, when non-nil, receives the branch counts for
+	// the coefficient token tree slots touched by this block. These
+	// are the counts consumed by WriteCoefProbsFromCounts.
+	CoefBranchStats *FrameCoefBranchStats
+
 	// InitCtx is the band-0 coefficient context derived from the
 	// above/left entropy-context cache via GetEntropyContext. Mirrors
 	// libvpx's get_entropy_context result (0..2). Zero is correct
@@ -70,15 +75,20 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		band := int(bandTrans[bandIdx])
 		bandIdx++
 		probs := &coefModel[band][ctx]
+		branchStats := coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
+			a.PlaneType, a.IsInter, band, ctx)
 		if c == eob {
+			recordCoefBranch(branchStats, 0, 0)
 			bw.Write(0, uint32(probs[0])) // EOB
 			return nil
 		}
+		recordCoefBranch(branchStats, 0, 1)
 		bw.Write(1, uint32(probs[0])) // not EOB
 
 		// ZERO inner loop: mirror the decoder, which reads only the
 		// ZERO bit (no fresh EOB) for each zero in a run.
 		for a.Coeffs[a.Scan[c]] == 0 {
+			recordCoefBranch(branchStats, 1, 0)
 			bw.Write(0, uint32(probs[1])) // ZERO
 			tokenCache[a.Scan[c]] = 0
 			c++
@@ -89,9 +99,12 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
+			branchStats = coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
+				a.PlaneType, a.IsInter, band, ctx)
 		}
 
 		// Non-zero at c.
+		recordCoefBranch(branchStats, 1, 1)
 		bw.Write(1, uint32(probs[1])) // not ZERO
 
 		raster := a.Scan[c]
@@ -107,7 +120,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 			sign = 1
 		}
 		absVal := (int(absCoeff) << dqShift) / int(dqv)
-		WriteTokenForCoeff(bw, probs[:], absVal, sign)
+		writeTokenForCoeff(bw, probs[:], absVal, sign, branchStats)
 
 		switch {
 		case absVal == 1:
@@ -127,4 +140,13 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		}
 	}
 	return nil
+}
+
+func coefBranchStatsSlot(
+	stats *FrameCoefBranchStats, tx common.TxSize, planeType, isInter, band, ctx int,
+) *[EntropyNodes][2]uint32 {
+	if stats == nil {
+		return nil
+	}
+	return &stats[tx][planeType][isInter][band][ctx]
 }

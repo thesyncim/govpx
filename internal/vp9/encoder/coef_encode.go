@@ -83,17 +83,26 @@ const UnconstrainedNodes = 3
 // Returns true if the coefficient was emittable. CAT classes that
 // haven't been wired here (none yet) return false.
 func WriteTokenForCoeff(bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sign int) bool {
+	return writeTokenForCoeff(bw, ctxTree, absCoeff, sign, nil)
+}
+
+func writeTokenForCoeff(
+	bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sign int,
+	branchStats *[EntropyNodes][2]uint32,
+) bool {
 	if absCoeff == 0 {
 		// Caller should have already written the zero bit.
 		return false
 	}
 	token, extra := TokenForAbsCoeff(absCoeff)
 	if token == OneToken {
+		recordCoefBranch(branchStats, PivotNode, 0)
 		bw.Write(0, uint32(ctxTree[2]))
 		bw.WriteBit(uint32(sign))
 		return true
 	}
 	// Non-ONE: emit the "go to pareto" bit at ctx[2].
+	recordCoefBranch(branchStats, PivotNode, 1)
 	bw.Write(1, uint32(ctxTree[2]))
 	enc := CoefEncodings[token]
 	pareto := tables.Pareto8Full[ctxTree[2]-1]
@@ -102,7 +111,8 @@ func WriteTokenForCoeff(bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sig
 	// CoefConTree walk). pack_mb_tokens passes (n - UNCONSTRAINED_NODES)
 	// so the tree walk consumes only the pareto-tail bits.
 	walkLen := int(enc.Len) - UnconstrainedNodes
-	writeTreeBits(bw, CoefConTree[:], pareto[:], int(enc.Value), walkLen)
+	writeTreeBitsWithCounts(bw, CoefConTree[:], pareto[:], int(enc.Value), walkLen,
+		branchStats)
 	if token >= Category1Tok {
 		eb := VP9ExtraBits[token]
 		for i := eb.Len - 1; i >= 0; i-- {
@@ -117,11 +127,26 @@ func WriteTokenForCoeff(bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sig
 // writeTreeBits mirrors libvpx's vp9_write_tree — walks the tree
 // against the given probability row, emitting one bit per level.
 func writeTreeBits(bw *bitstream.Writer, tree []int8, probs []uint8, bits, length int) {
+	writeTreeBitsWithCounts(bw, tree, probs, bits, length, nil)
+}
+
+func writeTreeBitsWithCounts(
+	bw *bitstream.Writer, tree []int8, probs []uint8, bits, length int,
+	branchStats *[EntropyNodes][2]uint32,
+) {
 	i := int8(0)
 	for length > 0 {
 		length--
 		bit := (bits >> uint(length)) & 1
+		recordCoefBranch(branchStats, UnconstrainedNodes+int(i>>1), bit)
 		bw.Write(uint32(bit), uint32(probs[i>>1]))
 		i = tree[int(i)+bit]
 	}
+}
+
+func recordCoefBranch(stats *[EntropyNodes][2]uint32, node int, bit int) {
+	if stats == nil {
+		return
+	}
+	stats[node][bit]++
 }

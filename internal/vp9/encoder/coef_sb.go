@@ -60,9 +60,13 @@ type WriteCoefSbArgs struct {
 	// Fc is the active per-frame coefficient probability table.
 	Fc *vp9dec.FrameCoefProbs
 
+	// CoefBranchStats, when non-nil, receives coefficient branch counts
+	// for every tx block emitted by this leaf.
+	CoefBranchStats *FrameCoefBranchStats
+
 	// GetCoeffs is called per tx block to fetch the dequantized
 	// coefficient buffer in raster (NOT scan) order, sized to
-	// (1 << (2 * txSize)) entries. (r, c) are 4x4-unit indices into
+	// MaxEobForTxSize(txSize) entries. (r, c) are 4x4-unit indices into
 	// the plane.
 	GetCoeffs func(plane int, r, c int, txSize common.TxSize) []int16
 }
@@ -140,22 +144,23 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 
 				coeffs := a.GetCoeffs(plane, r, c, txSize)
 				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
-					TxSize:    txSize,
-					PlaneType: planeType,
-					IsInter:   a.IsInter,
-					DequantDC: dequant[0],
-					DequantAC: dequant[1],
-					Scan:      scan,
-					Neighbors: neighbors,
-					Coeffs:    coeffs,
-					Fc:        a.Fc,
-					InitCtx:   initCtx,
+					TxSize:          txSize,
+					PlaneType:       planeType,
+					IsInter:         a.IsInter,
+					DequantDC:       dequant[0],
+					DequantAC:       dequant[1],
+					Scan:            scan,
+					Neighbors:       neighbors,
+					Coeffs:          coeffs,
+					Fc:              a.Fc,
+					CoefBranchStats: a.CoefBranchStats,
+					InitCtx:         initCtx,
 				}); err != nil {
 					return err
 				}
 
 				eob := 0
-				for i := 0; i < (1 << uint(2*txSize)); i++ {
+				for i := 0; i < vp9dec.MaxEobForTxSize(txSize); i++ {
 					if coeffs[scan[i]] != 0 {
 						eob = i + 1
 					}

@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"bytes"
+	"crypto/md5"
 	"errors"
 	"image"
 	"testing"
@@ -51,6 +53,39 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
+}
+
+func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	base := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	next := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	key, err := e.Encode(base)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(next)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
 // TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe runs the structural
 // oracle gate against a 128x64 frame: two side-by-side 64x64 SBs. The
 // encoder's WriteModesTile dispatches per SB; libvpx must accept the
@@ -85,6 +120,21 @@ func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("vpxdec-vp9 rejected the multi-SB keyframe: %v\nvpxdec:\n%s",
 			err, out)
+	}
+}
+
+func assertVP9EncoderVpxdecI420Match(t *testing.T, width, height int, packets ...[]byte) {
+	t.Helper()
+	ivf := vp9IVFForTest(width, height, packets...)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+	got := vp9DecodeVisibleI420ForTest(t, packets...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for encoder stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
 	}
 }
 

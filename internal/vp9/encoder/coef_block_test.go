@@ -136,3 +136,119 @@ func TestWriteCoefBlockZeroRunThenOne(t *testing.T) {
 		t.Errorf("dqcoeff[scan[1]] = %d want %d", dqcoeff[scan[1]], dq[1])
 	}
 }
+
+func TestWriteCoefBlockBranchStatsMatchDecoderPrefixCounts(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan4x4[:]
+	neigh := tables.DefaultScan4x4Neighbors[:]
+	dq := [2]int16{16, 24}
+
+	coeffs := make([]int16, 16)
+	coeffs[scan[0]] = 5 * dq[0] // CAT1 at DC.
+	coeffs[scan[3]] = -dq[1]    // ZERO run, then ONE at AC.
+
+	var stats FrameCoefBranchStats
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+		TxSize:          common.Tx4x4,
+		DequantDC:       dq[0],
+		DequantAC:       dq[1],
+		Scan:            scan,
+		Neighbors:       neigh,
+		Coeffs:          coeffs,
+		Fc:              &fc,
+		CoefBranchStats: &stats,
+	}); err != nil {
+		t.Fatalf("WriteCoefBlock: %v", err)
+	}
+	size, _ := bw.Stop()
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	var counts vp9dec.CoefCounts
+	dqcoeff := make([]int16, 16)
+	got := vp9dec.DecodeCoefsWithCounts(&r, common.Tx4x4, 0, 0, dq, 0,
+		scan, neigh, &fc, &counts, dqcoeff)
+	if got != 4 {
+		t.Fatalf("eob got %d want 4", got)
+	}
+
+	assertCoefPrefixStatsMatchDecoderCounts(t, &stats, &counts)
+}
+
+func TestWriteCoefBlockBranchStatsIncludeParetoTail(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan4x4[:]
+	neigh := tables.DefaultScan4x4Neighbors[:]
+	dq := [2]int16{16, 16}
+
+	coeffs := make([]int16, 16)
+	coeffs[scan[0]] = 5 * dq[0] // CAT1 tail path: 1, 0, 0.
+
+	var stats FrameCoefBranchStats
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+		TxSize:          common.Tx4x4,
+		DequantDC:       dq[0],
+		DequantAC:       dq[1],
+		Scan:            scan,
+		Neighbors:       neigh,
+		Coeffs:          coeffs,
+		Fc:              &fc,
+		CoefBranchStats: &stats,
+	}); err != nil {
+		t.Fatalf("WriteCoefBlock: %v", err)
+	}
+
+	slot := stats[common.Tx4x4][0][0][0][0]
+	if got := slot[PivotNode]; got != [2]uint32{0, 1} {
+		t.Fatalf("pivot branch = %v, want [0 1]", got)
+	}
+	if got := slot[UnconstrainedNodes+0]; got != [2]uint32{0, 1} {
+		t.Fatalf("tail root branch = %v, want [0 1]", got)
+	}
+	if got := slot[UnconstrainedNodes+3]; got != [2]uint32{1, 0} {
+		t.Fatalf("tail CAT1/CAT2 split branch = %v, want [1 0]", got)
+	}
+	if got := slot[UnconstrainedNodes+4]; got != [2]uint32{1, 0} {
+		t.Fatalf("tail CAT1 branch = %v, want [1 0]", got)
+	}
+}
+
+func assertCoefPrefixStatsMatchDecoderCounts(
+	t *testing.T, stats *FrameCoefBranchStats, counts *vp9dec.CoefCounts,
+) {
+	t.Helper()
+	for tx := common.Tx4x4; tx <= common.Tx32x32; tx++ {
+		for plane := range vp9dec.CoefPlaneTypes {
+			for ref := range vp9dec.CoefRefTypes {
+				for band := range vp9dec.CoefBands {
+					for ctx := range vp9dec.BandCoefContexts(band) {
+						n0 := counts.Coef[tx][plane][ref][band][ctx][ZeroToken]
+						n1 := counts.Coef[tx][plane][ref][band][ctx][OneToken]
+						n2 := counts.Coef[tx][plane][ref][band][ctx][TwoToken]
+						neob := counts.Coef[tx][plane][ref][band][ctx][EobModelToken]
+						eob := counts.EobBranch[tx][plane][ref][band][ctx]
+						want := [UnconstrainedNodes][2]uint32{
+							{neob, eob - neob},
+							{n0, n1 + n2},
+							{n1, n2},
+						}
+						for node := range UnconstrainedNodes {
+							if got := stats[tx][plane][ref][band][ctx][node]; got != want[node] {
+								t.Fatalf("stats[%d][%d][%d][%d][%d][%d] = %v, want %v",
+									tx, plane, ref, band, ctx, node, got, want[node])
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

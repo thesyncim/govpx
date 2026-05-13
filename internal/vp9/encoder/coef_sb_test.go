@@ -42,6 +42,8 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 		Fc:        &fc,
 		GetCoeffs: getCoeffs,
 	}
+	var stats FrameCoefBranchStats
+	args.CoefBranchStats = &stats
 
 	buf := make([]byte, 256)
 	var bw bitstream.Writer
@@ -50,6 +52,12 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 		t.Fatalf("WriteCoefSb: %v", err)
 	}
 	size, _ := bw.Stop()
+	if got := stats[common.Tx4x4][0][0][0][0][0]; got != [2]uint32{4, 0} {
+		t.Fatalf("Y all-zero eob stats = %v, want [4 0]", got)
+	}
+	if got := stats[common.Tx4x4][1][0][0][0][0]; got != [2]uint32{2, 0} {
+		t.Fatalf("UV all-zero eob stats = %v, want [2 0]", got)
+	}
 
 	// Decode side: walk the same plane / tx-block layout and confirm
 	// every block reads back eob=0 with the dqcoeff buffer left
@@ -103,6 +111,54 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestWriteCoefSbACOnlyResidueStampsEntropyContext(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+
+	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	vp9dec.SetupBlockPlanes(&planes, 1, 1)
+	planes[0].AboveContext = make([]uint8, 4)
+	planes[0].LeftContext = make([]uint8, 4)
+	planes[1].AboveContext = make([]uint8, 2)
+	planes[1].LeftContext = make([]uint8, 2)
+	planes[2].AboveContext = make([]uint8, 2)
+	planes[2].LeftContext = make([]uint8, 2)
+
+	dq := int16(16)
+	scan, _ := scanForTxSize(common.Tx4x4)
+	blockCoeffs := map[[3]int][]int16{}
+	for plane := range 3 {
+		for r := 0; r < 2; r++ {
+			for c := 0; c < 2; c++ {
+				blockCoeffs[[3]int{plane, r, c}] = make([]int16, 16)
+			}
+		}
+	}
+	blockCoeffs[[3]int{0, 1, 1}][scan[1]] = dq
+
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefSb(&bw, WriteCoefSbArgs{
+		BSize:    common.Block8x8,
+		MiTxSize: common.Tx4x4,
+		Planes:   &planes,
+		PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+			{dq, dq}, {dq, dq}, {dq, dq},
+		},
+		Fc: &fc,
+		GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+			return blockCoeffs[[3]int{plane, r, c}]
+		},
+	}); err != nil {
+		t.Fatalf("WriteCoefSb: %v", err)
+	}
+
+	if planes[0].AboveContext[1] != 1 || planes[0].LeftContext[1] != 1 {
+		t.Fatalf("AC-only Y above[1]/left[1] = %d/%d, want 1/1",
+			planes[0].AboveContext[1], planes[0].LeftContext[1])
 	}
 }
 
