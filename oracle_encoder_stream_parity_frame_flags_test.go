@@ -207,8 +207,10 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "force-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
 		{name: "force-gf-frame4-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
 		{name: "force-gf-no-upd-last-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame | EncodeNoUpdateLast}},
+		{name: "force-gf-every3-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: everyNFlag(frames, 3, EncodeForceGoldenFrame)},
 		{name: "force-arf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame}},
 		{name: "force-arf-no-upd-last-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden}},
+		{name: "force-arf-every3-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: everyNFlag(frames, 3, EncodeForceAltRefFrame)},
 
 		// EncodeNoUpdateEntropy on every inter frame — keeps the
 		// reference entropy adaptation state frozen.
@@ -303,6 +305,88 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run force-key API byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 8
+		width      = 32
+		height     = 16
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	}
+	forceFrames := map[int]bool{1: true, 4: true}
+	flags := make([]EncodeFlags, frames)
+	for frame := range forceFrames {
+		flags[frame] = EncodeForceKeyFrame
+	}
+
+	govpxFrames := encodeFramesWithGovpxForceKeySchedule(t, opts, sources, forceFrames)
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-32x16", opts, targetKbps, sources, flags, nil)
+	assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, 0)
+}
+
+func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {
+	t.Helper()
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer enc.Close()
+	buf := make([]byte, opts.Width*opts.Height*4+4096)
+	out := make([][]byte, 0, len(sources))
+	for i, src := range sources {
+		if forceFrames[i] {
+			enc.ForceKeyFrame()
+		}
+		result, err := enc.EncodeInto(buf, src, uint64(i), 1, 0)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("frame %d dropped, want full stream", i)
+		}
+		out = append(out, append([]byte(nil), result.Data...))
+	}
+	for {
+		result, err := enc.FlushInto(buf)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushInto: %v", err)
+		}
+		if result.Dropped {
+			t.Fatalf("flush packet dropped, want full stream")
+		}
+		out = append(out, append([]byte(nil), result.Data...))
+	}
+	return out
 }
 
 // repeatFlag returns a slice of length 1+n with index 0 set to 0
