@@ -522,6 +522,29 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 	return true
 }
 
+// gatherVisibleClampedRefBlock copies a (height x width) Y-plane block from
+// ref into dst at dstStride, clamping each source coordinate to the visible
+// extent (ref.Width / ref.Height). This mirrors libvpx's effective state on
+// the bordered Y buffer post vp8_yv12_extend_frame_borders without requiring
+// a full-plane overwrite of the live reconstruction (which would force the
+// decoder side to mirror the change and regresses previously-passing
+// odd-axis fixtures). Only the SPLITMV picker WALK uses this; the actual
+// reconstruction predict path stays on the coded-clamped read shared with
+// the decoder so encoder/decoder consistency is preserved.
+func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
+	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
+	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
+	for row := range height {
+		refY := clampEncodeCoord(baseY+row, visibleH)
+		dstRow := row * dstStride
+		srcRow := refY * ref.YStride
+		for col := range width {
+			refX := clampEncodeCoord(baseX+col, visibleW)
+			dst[dstRow+col] = ref.Y[srcRow+refX]
+		}
+	}
+}
+
 func fillSplitMotionResidual4x4(src vp8enc.SourceImage, mbRow int, mbCol int, block int, pred *[16]byte, out *[16]int16) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4

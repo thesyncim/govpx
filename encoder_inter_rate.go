@@ -564,19 +564,43 @@ func splitBlockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 		}
 	}
 
+	// libvpx publishes cm->frame_to_show post-loop-filter via
+	// vp8_yv12_extend_frame_borders, which extends from y_crop_width /
+	// y_crop_height. That overwrites the padded-but-uncoded region between
+	// visible (Width/Height) and 16-aligned coded (CodedWidth/CodedHeight)
+	// with the visible-edge sample. The split-MB picker's NEW4X4 SAD walk
+	// on padded-edge MBs reads from that region; clamping ref reads to the
+	// visible extent here mirrors libvpx's effective reference state without
+	// requiring an extra full-plane overwrite of the live reconstruction
+	// (which regressed other previously-passing odd-axis fixtures via
+	// downstream prediction reads).
+	refClampHeight := refVisibleClampDim(ref.Height, ref.CodedHeight)
+	refClampWidth := refVisibleClampDim(ref.Width, ref.CodedWidth)
 	sad := 0
 	for row := range height {
 		srcY := clampEncodeCoord(baseY+row, src.Height)
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
+		refY := clampEncodeCoord(refBaseY+row, refClampHeight)
 		for col := range width {
 			srcX := clampEncodeCoord(baseX+col, src.Width)
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
+			refX := clampEncodeCoord(refBaseX+col, refClampWidth)
 			diff := int(src.Y[srcY*src.YStride+srcX]) - int(ref.Y[refY*ref.YStride+refX])
 			mask := diff >> mvKernelSignShift
 			sad += (diff ^ mask) - mask
 		}
 	}
 	return sad
+}
+
+// refVisibleClampDim returns the visible-extent clamp limit for ref
+// coordinates used by the SPLITMV picker's padded-edge fallbacks, mirroring
+// libvpx's effective post-extend reference state. The fallback to coded is
+// defensive: callers tolerate visible <= 0 by going through the coded clamp
+// (matching the legacy behaviour) on malformed buffers.
+func refVisibleClampDim(visible int, coded int) int {
+	if visible <= 0 || visible > coded {
+		return coded
+	}
+	return visible
 }
 
 func splitBlockSubpixelSAD(src vp8enc.SourceImage, ref *vp8common.Image, baseY int, baseX int, refBaseY int, refBaseX int, width int, height int, xOffset int, yOffset int) (int, bool) {
@@ -596,19 +620,56 @@ func splitBlockSubpixelSADBlock(ref *vp8common.Image, refBaseY int, refBaseX int
 	if start < 0 || start+(height+4)*ref.YStride+width+5 > len(ref.YFull) {
 		return 0, false
 	}
+	// libvpx's bordered reference reads through SixTap on a buffer where
+	// vp8_yv12_extend_frame_borders has already replaced the
+	// padded-but-uncoded region (between visible and 16-aligned coded) with
+	// the visible-edge sample. govpx keeps the live reconstruction in that
+	// region, so the SPLITMV picker's NEW4X4 sub-pel SAD diverges on the
+	// padded edge. Mirror libvpx's effective state by routing the SixTap
+	// input through a visible-clamped scratch when the read window spills
+	// past the visible extent. Pure-visible-extent reads stay on the SIMD
+	// direct-buffer path.
+	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
+	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
+	useScratch := refBaseY-2 < 0 || refBaseX-2 < 0 ||
+		refBaseY+height+3 > visibleH || refBaseX+width+3 > visibleW
 	var pred [16 * 16]byte
 	switch {
 	case width == 16 && height == 8:
-		dsp.SixTapPredict16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
+		if useScratch {
+			var scratch [(8 + 5) * (16 + 5)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY-2, refBaseX-2, 16+5, 8+5, scratch[:], 16+5)
+			dsp.SixTapPredict16x8(scratch[:], 16+5, xOffset, yOffset, pred[:], 16)
+		} else {
+			dsp.SixTapPredict16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 16)
+		}
 		return dsp.SAD16x8(srcBlock, srcStride, pred[:], 16), true
 	case width == 8 && height == 16:
-		dsp.SixTapPredict8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
+		if useScratch {
+			var scratch [(16 + 5) * (8 + 5)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY-2, refBaseX-2, 8+5, 16+5, scratch[:], 8+5)
+			dsp.SixTapPredict8x16(scratch[:], 8+5, xOffset, yOffset, pred[:], 8)
+		} else {
+			dsp.SixTapPredict8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
+		}
 		return dsp.SAD8x16(srcBlock, srcStride, pred[:], 8), true
 	case width == 8 && height == 8:
-		dsp.SixTapPredict8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
+		if useScratch {
+			var scratch [(8 + 5) * (8 + 5)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY-2, refBaseX-2, 8+5, 8+5, scratch[:], 8+5)
+			dsp.SixTapPredict8x8(scratch[:], 8+5, xOffset, yOffset, pred[:], 8)
+		} else {
+			dsp.SixTapPredict8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 8)
+		}
 		return dsp.SAD8x8(srcBlock, srcStride, pred[:], 8), true
 	case width == 4 && height == 4:
-		dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 4)
+		if useScratch {
+			var scratch [(4 + 5) * (4 + 5)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY-2, refBaseX-2, 4+5, 4+5, scratch[:], 4+5)
+			dsp.SixTapPredict4x4(scratch[:], 4+5, xOffset, yOffset, pred[:], 4)
+		} else {
+			dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, pred[:], 4)
+		}
 		return dsp.SAD4x4(srcBlock, srcStride, pred[:], 4), true
 	default:
 		return 0, false
@@ -676,17 +737,50 @@ func splitBlockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBase
 	if start < 0 || start+height*ref.YStride+width+1 > len(ref.YFull) {
 		return 0, 0, false
 	}
+	// On padded-edge MBs the bilinear subpel-variance read window
+	// (refBaseY..refBaseY+height, refBaseX..refBaseX+width+1) overlaps
+	// the padded-but-uncoded region; route through a visible-clamped
+	// scratch buffer so the bilinear input matches libvpx's effective
+	// post vp8_yv12_extend_frame_borders reference state.
+	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
+	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
+	useScratch := refBaseY < 0 || refBaseX < 0 ||
+		refBaseY+height+1 > visibleH || refBaseX+width+1 > visibleW
 	switch {
 	case width == 16 && height == 8:
+		if useScratch {
+			var scratch [(8 + 1) * (16 + 1)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 16+1, 8+1, scratch[:], 16+1)
+			variance, sse := dsp.SubpelVariance16x8(scratch[:], 16+1, xOffset, yOffset, srcBlock, srcStride)
+			return variance, sse, true
+		}
 		variance, sse := dsp.SubpelVariance16x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 8 && height == 16:
+		if useScratch {
+			var scratch [(16 + 1) * (8 + 1)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 8+1, 16+1, scratch[:], 8+1)
+			variance, sse := dsp.SubpelVariance8x16(scratch[:], 8+1, xOffset, yOffset, srcBlock, srcStride)
+			return variance, sse, true
+		}
 		variance, sse := dsp.SubpelVariance8x16(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 8 && height == 8:
+		if useScratch {
+			var scratch [(8 + 1) * (8 + 1)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 8+1, 8+1, scratch[:], 8+1)
+			variance, sse := dsp.SubpelVariance8x8(scratch[:], 8+1, xOffset, yOffset, srcBlock, srcStride)
+			return variance, sse, true
+		}
 		variance, sse := dsp.SubpelVariance8x8(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	case width == 4 && height == 4:
+		if useScratch {
+			var scratch [(4 + 1) * (4 + 1)]byte
+			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 4+1, 4+1, scratch[:], 4+1)
+			variance, sse := dsp.SubpelVariance4x4(scratch[:], 4+1, xOffset, yOffset, srcBlock, srcStride)
+			return variance, sse, true
+		}
 		variance, sse := dsp.SubpelVariance4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, srcBlock, srcStride)
 		return variance, sse, true
 	default:

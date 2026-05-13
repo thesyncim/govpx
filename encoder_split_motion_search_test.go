@@ -504,9 +504,15 @@ func TestSplitBlockSADClampsPartialSourceSubpel(t *testing.T) {
 			srcScratch[row*16+col] = src.Y[srcY*src.YStride+srcX]
 		}
 	}
+	// libvpx's vp8_yv12_extend_frame_borders publishes visible-edge
+	// replication into the padded-but-uncoded region of the reference.
+	// splitBlockSAD mirrors that on padded-edge MBs by routing the SixTap
+	// input through a visible-clamped scratch; the expected result here
+	// must do the same so the kernel sees the libvpx-equivalent buffer.
+	var refScratch [(8 + 5) * (8 + 5)]byte
+	gatherVisibleClampedRefBlock(&ref.Img, refBaseY-2, refBaseX-2, 8+5, 8+5, refScratch[:], 8+5)
 	var pred [16 * 16]byte
-	refStart := ref.Img.YOrigin + (refBaseY-2)*ref.Img.YStride + refBaseX - 2
-	dsp.SixTapPredict8x8(ref.Img.YFull[refStart:], ref.Img.YStride, xOffset, yOffset, pred[:], 8)
+	dsp.SixTapPredict8x8(refScratch[:], 8+5, xOffset, yOffset, pred[:], 8)
 	want := dsp.SAD8x8(srcScratch[:], 16, pred[:], 8)
 
 	if got := splitBlockSAD(sourceImageFromPublic(src), &ref.Img, mbRow, mbCol, block, width, height, mv); got != want {
