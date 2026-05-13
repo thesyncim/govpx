@@ -106,23 +106,18 @@ func TestOracleEncoderStreamByteParityCombo(t *testing.T) {
 		// drain matches libvpx and the trailing inter is byte-
 		// identical on smooth panning content.
 		{name: "cyclic-forcekf-every2-panning64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, flags: cyclicForceKFPattern(frames, 2)},
-		// every2 + splitmv-64 at cpu0: same rate-control fix above
-		// brings the trailing inter frame to within the 1 first-
-		// partition byte the existing extended splitmv-64x64
-		// realtime-cbr matrix flags for cpu-0 splitmv content. Pin
-		// the 11-frame prefix; the trailing frame stays under the
-		// broader trailing-inter splitmv gap.
-		{name: "cyclic-forcekf-every2-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 11, flags: cyclicForceKFPattern(frames, 2)},
+		// every2 + splitmv-64 at cpu0: after the libvpx-style
+		// prior_key_frame_distance cold-start seed, the repeated forced-KF
+		// overspend drain matches libvpx and the trailing inter frame is
+		// byte-identical.
+		{name: "cyclic-forcekf-every2-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, flags: cyclicForceKFPattern(frames, 2)},
 		// k=3
 		{name: "cyclic-forcekf-every3-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: cyclicForceKFPattern(frames, 3)},
 		{name: "cyclic-forcekf-every3-panning32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: cyclicForceKFPattern(frames, 3)},
 		{name: "cyclic-forcekf-every3-panning64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, flags: cyclicForceKFPattern(frames, 3)},
-		// every3 + splitmv-64 at cpu0: after the
-		// estimate_keyframe_frequency off-by-one fix the trailing
-		// inter delta shrinks to the same 1 first-partition byte
-		// the splitmv parity matrix flags. Pin frames 0..10; the
-		// trailing frame stays under the broader splitmv gap.
-		{name: "cyclic-forcekf-every3-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 11, flags: cyclicForceKFPattern(frames, 3)},
+		// every3 + splitmv-64 at cpu0: same forced-KF overspend-history
+		// path as every2, now strict across the full 12-frame window.
+		{name: "cyclic-forcekf-every3-splitmv64", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, flags: cyclicForceKFPattern(frames, 3)},
 		// k=4
 		{name: "cyclic-forcekf-every4-panning16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: cyclicForceKFPattern(frames, 4)},
 		{name: "cyclic-forcekf-every4-panning32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: cyclicForceKFPattern(frames, 4)},

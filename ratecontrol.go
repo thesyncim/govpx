@@ -400,6 +400,16 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	rc.goldenCorrectionFactor = 1.0
 	rc.totalActualBits = 0
 	rc.outputFrameRate = int(outputFrameRate(timing))
+	if rc.keyFrameCount == 0 && rc.priorKeyFrameDistance == ([keyFrameContextSize]int{}) {
+		// libvpx vp8_create_compressor seeds key_frame_count=1 and every
+		// prior_key_frame_distance slot to output_framerate. The first
+		// forced keyframe then replaces only the newest slot with the
+		// two-second bootstrap estimate, leaving the older slots at FPS.
+		rc.keyFrameCount = 1
+		for i := range rc.priorKeyFrameDistance {
+			rc.priorKeyFrameDistance[i] = rc.outputFrameRate
+		}
+	}
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}

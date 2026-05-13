@@ -70,16 +70,18 @@ Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
     selection, excessive non-zero coeffs from quantize, ZeroToken vs
     token-tree divergence) would all manifest as byte-ratio drift even
     at matched Q -- they don't. The cmd/govpx-bench harness's
-    avg_interframe_bytes ratio of ~1.30-1.40x against libvpx is driven
+    avg_interframe_bytes ratio of ~1.30-1.40x against libvpx was driven
     by **mode-decision divergence under wall-clock autoSpeed
     adaptation** (vp8_auto_select_speed evolves cpi->Speed based on
-    avgPickModeTime / avgEncodeTime, and govpx's converged value
-    diverges from libvpx because per-frame timing varies between cold
-    and warm cache, producing different mode picks), not by
-    coefficient-token rate. Capturing the trace itself inflates
-    wall-clock timing and pushes autoSpeed away from the bench-measured
-    trajectory, so per-MB qcoeff in the trace is biased; bench
-    measurements are the authoritative ground truth for byte-ratio.
+    avgPickModeTime / avgEncodeTime). govpx's former deterministic
+    large-MB slow-timer shim pushed positive realtime presets into the
+    speed-16 decision band, while uninstrumented libvpx stayed in the
+    speed-4 band on the 1280x720 60/120-frame bench fixture. Capturing
+    the trace itself can still inflate wall-clock timing and bias
+    per-MB qcoeff, so bench measurements against uninstrumented vpxenc
+    are the authoritative ground truth for byte-ratio. The production
+    gate is now a 60-frame 1280x720 bench-noise oracle check against
+    uninstrumented vpxenc.
     Side-effect: tightened Reset() to mirror libvpx's
     vp8_create_compressor calloc-zero of cpi->Speed /
     avg_pick_mode_time / avg_encode_time so a sequence re-init does not
