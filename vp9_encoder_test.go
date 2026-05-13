@@ -216,6 +216,23 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 		MiCols:             miCols,
 	}
 	var seg vp9dec.SegmentationParams
+	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
+	miAt := func(r, c int) *vp9dec.NeighborMi {
+		if r < 0 || c < 0 || r >= miRows || c >= miCols {
+			return nil
+		}
+		return &miGrid[r*miCols+c]
+	}
+	fillMi := func(r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {
+		rows := int(common.Num8x8BlocksHighLookup[bsize])
+		cols := int(common.Num8x8BlocksWideLookup[bsize])
+		for rr := 0; rr < rows && r+rr < miRows; rr++ {
+			row := miGrid[(r+rr)*miCols:]
+			for cc := 0; cc < cols && c+cc < miCols; cc++ {
+				row[c+cc] = mi
+			}
+		}
+	}
 
 	// Half-step (hbs) for Block64x64 in mi units: (1 << bsl) / 4 = 4.
 	const hbs = 4
@@ -234,11 +251,14 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 			Reader: &tr, Fc: &fc, Seg: &seg, Maps: &maps,
 			TxMode:   common.Only4x4,
 			MiOffset: miCol, XMis: common.MiBlockSize, YMis: common.MiBlockSize,
+			Above: miAt(-1, miCol),
+			Left:  miAt(0, miCol-1),
 		}, leafMi)
 		if leafMi.Mode != common.DcPred || mode.UvMode != common.DcPred {
 			t.Errorf("SB at miCol=%d: Y=%d UV=%d, want DcPred/DcPred",
 				miCol, leafMi.Mode, mode.UvMode)
 		}
+		fillMi(0, miCol, common.Block64x64, *leafMi)
 		// Update partition context (decoder side mirror of encoder stamp).
 		vp9dec.UpdatePartitionContext(aboveCtx, leftCtx, 0, miCol,
 			common.Block64x64, common.MiBlockSize)
@@ -309,6 +329,36 @@ func TestVP9EncoderIVFRoundTrip(t *testing.T) {
 	}
 	if h.FrameType != common.KeyFrame {
 		t.Errorf("recovered FrameType = %d, want KeyFrame", h.FrameType)
+	}
+}
+
+// TestVP9EncoderEncodeIntoSteadyStateAlloc verifies that the
+// caller-owned output path allocates only during setup / growth. The
+// hot path reuses the compressed-header scratch, partition contexts,
+// and MI grid across frames.
+func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(100, func() {
+		e.frameIndex = 0
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 

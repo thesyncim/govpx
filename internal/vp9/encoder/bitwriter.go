@@ -20,6 +20,13 @@ func NewBitWriter(buf []byte) *BitWriter {
 	return &BitWriter{buf: buf}
 }
 
+// Init resets w to pack into buf. It is the stack-owned form of
+// NewBitWriter for hot paths that reuse caller-owned writers.
+func (w *BitWriter) Init(buf []byte) {
+	w.buf = buf
+	w.bitPos = 0
+}
+
 // WriteBit writes a single bit, value 0 or 1.
 func (w *BitWriter) WriteBit(v uint32) {
 	off := w.bitPos

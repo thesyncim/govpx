@@ -1,7 +1,7 @@
-# govpx VP8 parity tracker
+# govpx parity tracker
 
-Reference: libvpx v1.16.0. Scope: VP8 only, pure Go, no cgo, no VP9/AV1/WebM
-muxing, and no libvpx C API clone.
+Reference: libvpx v1.16.0. Scope: pure Go VP8 plus the in-progress VP9 port
+on this branch; no AV1/WebM muxing and no libvpx C API clone.
 
 ## Gates
 
@@ -27,8 +27,9 @@ muxing, and no libvpx C API clone.
 - Every safe point should end with `make verify-production` and
   `git status --short`.
 
-Status details live in [UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in
-[Makefile](Makefile). Oracle scoreboard baselines live in [testdata](testdata).
+Status details, including the VP9 branch status, live in
+[UPSTREAM.md](UPSTREAM.md). Build/test wiring lives in [Makefile](Makefile).
+Oracle scoreboard baselines live in [testdata](testdata).
 
 ## Current Status
 

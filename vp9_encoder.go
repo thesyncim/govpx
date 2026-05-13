@@ -84,6 +84,12 @@ type VP9Encoder struct {
 	// EncodeInto.
 	aboveSegCtx []int8
 	leftSegCtx  []int8
+
+	// miGrid mirrors the decoder-visible MODE_INFO grid at 8x8
+	// granularity. The keyframe stub fills it as each block is written
+	// so subsequent block mode-context probabilities see the same
+	// above/left skip and intra-mode state that libvpx's decoder sees.
+	miGrid []vp9dec.NeighborMi
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -162,6 +168,7 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 	miCols := int((width + 7) >> 3)
 	miRows := int((height + 7) >> 3)
 	miColsAligned := alignToSb(miCols)
+	miGridLen := miRows * miCols
 	if cap(e.aboveSegCtx) < miColsAligned {
 		e.aboveSegCtx = make([]int8, miColsAligned)
 	} else {
@@ -174,6 +181,14 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 		e.leftSegCtx = make([]int8, common.MiBlockSize)
 	} else {
 		e.leftSegCtx = e.leftSegCtx[:common.MiBlockSize]
+	}
+	if cap(e.miGrid) < miGridLen {
+		e.miGrid = make([]vp9dec.NeighborMi, miGridLen)
+	} else {
+		e.miGrid = e.miGrid[:miGridLen]
+		for i := range e.miGrid {
+			e.miGrid[i] = vp9dec.NeighborMi{}
+		}
 	}
 
 	isKey := e.IsKeyFrameNext()
@@ -219,13 +234,16 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 		header.RefreshFrameFlags = 1
 	}
 
-	mi := &vp9dec.NeighborMi{
+	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
 		TxSize: common.Tx4x4,
 		Skip:   1,
+		RefFrame: [2]int8{
+			vp9dec.IntraFrame,
+			vp9dec.NoRefFrame,
+		},
 	}
-	miGet := func(r, c int) *vp9dec.NeighborMi { return mi }
 	var seg vp9dec.SegmentationParams // disabled — no map / no data update
 
 	// libvpx swaps in vp9_kf_partition_probs (not fc->partition_prob)
@@ -235,56 +253,151 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 	// encoder uses the wrong one.
 	partitionProbs := tables.KfPartitionProbs
 
-	args := encoder.PackBitstreamArgs{
-		Dest:    dst,
-		Scratch: e.scratch[:],
-		Header:  &header,
-		Comp: encoder.CompressedHeaderInputs{
-			Lossless:           false,
-			TxMode:             common.Only4x4,
-			IntraOnly:          true,
-			InterpFilter:       vp9dec.InterpEighttap,
-			ReferenceMode:      vp9dec.SingleReference,
-			CompoundRefAllowed: false,
-		},
-		TileRows: 1,
-		TileCols: 1,
-		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
-			sbArgs := encoder.WriteModesSbArgs{
-				AboveSegCtx:    e.aboveSegCtx,
-				LeftSegCtx:     e.leftSegCtx,
-				MiRows:         miRows,
-				MiCols:         miCols,
-				PartitionProbs: &partitionProbs,
-				GetMi:          miGet,
-				WriteB: func(bw *bitstream.Writer, miRow, miCol int, bsize common.BlockSize) {
-					encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
-						Seg:       &seg,
-						Mi:        mi,
-						TxMode:    common.Only4x4,
-						SkipProbs: e.fc.SkipProbs,
-					})
-					encoder.WriteKeyframeUvMode(bw, common.DcPred, mi.Mode)
-					// skip=1 → no residue walk.
-				},
-			}
-			encoder.WriteModesTile(bw, encoder.WriteModesTileArgs{
-				WriteModesSbArgs: sbArgs,
-				MiRowStart:       0,
-				MiRowEnd:         miRows,
-				MiColStart:       0,
-				MiColEnd:         miCols,
-			})
-			return nil
-		},
-	}
-
-	n, err := encoder.PackBitstream(args)
+	compSize, err := encoder.WriteCompressedHeaderNoUpdate(e.scratch[:], encoder.CompressedHeaderInputs{
+		Lossless:           false,
+		TxMode:             common.Only4x4,
+		IntraOnly:          true,
+		InterpFilter:       vp9dec.InterpEighttap,
+		ReferenceMode:      vp9dec.SingleReference,
+		CompoundRefAllowed: false,
+	})
 	if err != nil {
-		return n, err
+		return 0, err
 	}
+	if compSize > 0xffff {
+		return 0, encoder.ErrCompressedHeaderTooLarge
+	}
+	header.FirstPartitionSize = uint16(compSize)
+
+	var headerBW encoder.BitWriter
+	headerBW.Init(dst)
+	var uncSize int
+	if header.FrameType == common.KeyFrame {
+		uncSize = encoder.WriteKeyframeUncompressedHeader(&headerBW, &header)
+	} else {
+		uncSize = encoder.WriteIntraOnlyUncompressedHeader(&headerBW, &header)
+	}
+	if uncSize+compSize >= len(dst) {
+		return uncSize, encoder.ErrPackBufferFull
+	}
+	copy(dst[uncSize:uncSize+compSize], e.scratch[:compSize])
+
+	var tileBW bitstream.Writer
+	tileStart := uncSize + compSize
+	tileBW.Start(dst[tileStart:])
+	e.writeVP9StubModesTile(&tileBW, miRows, miCols, &partitionProbs, &seg, baseMi)
+	tileSize, err := tileBW.Stop()
+	if err != nil {
+		return tileStart, err
+	}
+	n := tileStart + tileSize
 	e.frameIndex++
 	return n, nil
+}
+
+func (e *VP9Encoder) writeVP9StubModesTile(bw *bitstream.Writer, miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+) {
+	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
+		for i := range e.leftSegCtx {
+			e.leftSegCtx[i] = 0
+		}
+		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol,
+				common.Block64x64, partitionProbs, seg, baseMi)
+		}
+	}
+}
+
+func (e *VP9Encoder) writeVP9StubModesSb(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+) {
+	if miRow >= miRows || miCol >= miCols {
+		return
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << uint(bsl)) / 4
+	partition := common.PartitionLookup[bsl][baseMi.SbType]
+	encoder.WritePartitionForBlock(bw, encoder.WriteModesSbArgs{
+		AboveSegCtx:    e.aboveSegCtx,
+		LeftSegCtx:     e.leftSegCtx,
+		MiRows:         miRows,
+		MiCols:         miCols,
+		PartitionProbs: partitionProbs,
+	}, miRow, miCol, partition, bsize, bs)
+
+	subsize := common.SubsizeLookup[partition][bsize]
+	if subsize < common.Block8x8 {
+		e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+	} else {
+		switch partition {
+		case common.PartitionNone:
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+		case common.PartitionHorz:
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+			if miRow+bs < miRows {
+				e.writeVP9StubBlock(bw, miRows, miCols, miRow+bs, miCol, subsize, seg, baseMi)
+			}
+		case common.PartitionVert:
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+			if miCol+bs < miCols {
+				e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol+bs, subsize, seg, baseMi)
+			}
+		default:
+			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol,
+				subsize, partitionProbs, seg, baseMi)
+			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol+bs,
+				subsize, partitionProbs, seg, baseMi)
+			e.writeVP9StubModesSb(bw, miRows, miCols, miRow+bs, miCol,
+				subsize, partitionProbs, seg, baseMi)
+			e.writeVP9StubModesSb(bw, miRows, miCols, miRow+bs, miCol+bs,
+				subsize, partitionProbs, seg, baseMi)
+		}
+	}
+
+	if bsize >= common.Block8x8 &&
+		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
+		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
+			miRow, miCol, subsize, 2*bs)
+	}
+}
+
+func (e *VP9Encoder) writeVP9StubBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+) {
+	cur := baseMi
+	cur.SbType = bsize
+	encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
+		Seg:       seg,
+		Mi:        &cur,
+		AboveMi:   e.vp9MiAt(miRows, miCols, miRow-1, miCol),
+		LeftMi:    e.vp9MiAt(miRows, miCols, miRow, miCol-1),
+		TxMode:    common.Only4x4,
+		SkipProbs: e.fc.SkipProbs,
+	})
+	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
+	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
+}
+
+func (e *VP9Encoder) vp9MiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {
+	if r < 0 || c < 0 || r >= miRows || c >= miCols {
+		return nil
+	}
+	return &e.miGrid[r*miCols+c]
+}
+
+func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {
+	rows := int(common.Num8x8BlocksHighLookup[bsize])
+	cols := int(common.Num8x8BlocksWideLookup[bsize])
+	for rr := 0; rr < rows && r+rr < miRows; rr++ {
+		row := e.miGrid[(r+rr)*miCols:]
+		for cc := 0; cc < cols && c+cc < miCols; cc++ {
+			row[c+cc] = mi
+		}
+	}
 }
 
 // Encode is the alloc-returning wrapper around EncodeInto. Sizes
