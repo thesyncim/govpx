@@ -22,7 +22,7 @@ config_stamp="$src_dir/.govpx-vpxenc-frameflags-config"
 # Bump this whenever the C source or compile flags change; the test
 # harness re-runs the build whenever this value differs from the
 # stamp.
-want_config="vpxenc-frameflags-2026-05-13-r7-runtime-temporal-config"
+want_config="vpxenc-frameflags-2026-05-13-r8-copy-reference-log"
 
 mkdir -p "$build_dir"
 

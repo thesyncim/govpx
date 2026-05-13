@@ -103,9 +103,11 @@
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
  *                          setref:{last,golden,altref}:panning:N
+ *                          copyref:{last,golden,altref}
  *                          tlid:N tslayers:N tsperiodicity:N
  *                          tsbitrates:A/B[/...] tsdecimators:A/B[/...]
  *                          tsids:A/B[/...]
+ *   --copy-ref-log=PATH  optional log path for copyref checksums.
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -455,6 +457,56 @@ static vpx_ref_frame_type_t parse_ref_frame_type(const char *value) {
   return VP8_LAST_FRAME;
 }
 
+#define GOVPX_ADLER_MOD 65521u
+static unsigned int plane_adler32(const uint8_t *plane, int width, int height,
+                                  int stride) {
+  unsigned int a = 1;
+  unsigned int b = 0;
+  if (!plane || width <= 0 || height <= 0 || stride <= 0) return 0;
+  for (int y = 0; y < height; ++y) {
+    const uint8_t *row = plane + (ptrdiff_t)y * stride;
+    for (int x = 0; x < width; ++x) {
+      a = (a + row[x]) % GOVPX_ADLER_MOD;
+      b = (b + a) % GOVPX_ADLER_MOD;
+    }
+  }
+  return (b << 16) | a;
+}
+
+static void apply_copy_reference_token(vpx_codec_ctx_t *ctx, int width,
+                                       int height, int frame_idx,
+                                       const char *ref_name, FILE *log) {
+  if (!log) die_msg("copyref token requires --copy-ref-log");
+  vpx_image_t ref_img;
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
+                     (unsigned)height, 1)) {
+    die_msg("vpx_img_alloc copyref failed");
+  }
+  vpx_ref_frame_t ref;
+  ref.frame_type = parse_ref_frame_type(ref_name);
+  ref.img = ref_img;
+  if (vpx_codec_control(ctx, VP8_COPY_REFERENCE, &ref))
+    die_codec_msg(ctx, "VP8_COPY_REFERENCE");
+
+  int uv_w = (width + 1) >> 1;
+  int uv_h = (height + 1) >> 1;
+  unsigned int y_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_Y], width, height,
+                    ref_img.stride[VPX_PLANE_Y]);
+  unsigned int u_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_U], uv_w, uv_h,
+                    ref_img.stride[VPX_PLANE_U]);
+  unsigned int v_adler =
+      plane_adler32(ref_img.planes[VPX_PLANE_V], uv_w, uv_h,
+                    ref_img.stride[VPX_PLANE_V]);
+  if (fprintf(log,
+              "frame=%d ref=%s y_adler32=%u u_adler32=%u v_adler32=%u\n",
+              frame_idx, ref_name, y_adler, u_adler, v_adler) < 0) {
+    die_msg("write copy-ref log failed");
+  }
+  vpx_img_free(&ref_img);
+}
+
 static void apply_set_reference_token(vpx_codec_ctx_t *ctx, int width,
                                       int height, const char *spec) {
   char buf[128];
@@ -668,7 +720,7 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
              starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:") ||
              starts_with(token, "rtc:") || starts_with(token, "active:") ||
              starts_with(token, "roi:") || starts_with(token, "setref:") ||
-             starts_with(token, "tlid:")) {
+             starts_with(token, "copyref:") || starts_with(token, "tlid:")) {
     return;
   } else {
     die_msg("unknown control token: %s", token);
@@ -681,6 +733,8 @@ struct runtime_codec_context {
   int height;
   int mb_rows;
   int mb_cols;
+  int frame_idx;
+  FILE *copy_ref_log;
 };
 
 static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
@@ -744,6 +798,10 @@ static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
   } else if (starts_with(token, "setref:")) {
     apply_set_reference_token(ctx->ctx, ctx->width, ctx->height,
                               token + strlen("setref:"));
+  } else if (starts_with(token, "copyref:")) {
+    apply_copy_reference_token(ctx->ctx, ctx->width, ctx->height,
+                               ctx->frame_idx, token + strlen("copyref:"),
+                               ctx->copy_ref_log);
   } else if (starts_with(token, "tlid:")) {
     int layer_id = parse_int(token + strlen("tlid:"), "tlid");
     if (vpx_codec_control(ctx->ctx, VP8E_SET_TEMPORAL_LAYER_ID, layer_id))
@@ -786,7 +844,8 @@ static void codec_token_callback(void *opaque, const char *token) {
 
 static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cfg,
                                    int *deadline, int mb_rows, int mb_cols,
-                                   const char *entry) {
+                                   const char *entry, int frame_idx,
+                                   FILE *copy_ref_log) {
   struct config_token_context config_ctx = {cfg, deadline, 0};
   for_each_control_token(entry, config_token_callback, &config_ctx);
   if (config_ctx.need_config) {
@@ -795,7 +854,8 @@ static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cf
     }
   }
   struct runtime_codec_context codec_ctx = {
-      ctx, (int)cfg->g_w, (int)cfg->g_h, mb_rows, mb_cols};
+      ctx, (int)cfg->g_w, (int)cfg->g_h, mb_rows, mb_cols, frame_idx,
+      copy_ref_log};
   for_each_control_token(entry, codec_token_callback, &codec_ctx);
 }
 
@@ -852,6 +912,7 @@ int main(int argc, char **argv) {
   const char *temporal_layer_ids_csv = NULL;
   const char *frame_flags_csv = NULL;
   const char *control_script_csv = NULL;
+  const char *copy_ref_log_path = NULL;
 
   for (int i = 1; i < argc; ++i) {
     const char *a = argv[i];
@@ -974,6 +1035,8 @@ int main(int argc, char **argv) {
       frame_flags_csv = v;
     } else if ((v = flag_value(a, "--control-script"))) {
       control_script_csv = v;
+    } else if ((v = flag_value(a, "--copy-ref-log"))) {
+      copy_ref_log_path = v;
     } else {
       die_msg("unknown argument: %s", a);
     }
@@ -1125,6 +1188,12 @@ int main(int argc, char **argv) {
   if (!in) die_msg("open %s for read: %s", infile_path, strerror(errno));
   FILE *out = fopen(outfile_path, "wb");
   if (!out) die_msg("open %s for write: %s", outfile_path, strerror(errno));
+  FILE *copy_ref_log = NULL;
+  if (copy_ref_log_path) {
+    copy_ref_log = fopen(copy_ref_log_path, "w");
+    if (!copy_ref_log)
+      die_msg("open %s for write: %s", copy_ref_log_path, strerror(errno));
+  }
 
   write_ivf_file_header(out, width, height, fps_den, fps_num, frames);
 
@@ -1169,7 +1238,8 @@ int main(int argc, char **argv) {
     }
     if (have_input && frame_idx < control_script_count) {
       apply_runtime_controls(&ctx, &cfg, &deadline, mb_rows, mb_cols,
-                             control_script[frame_idx]);
+                             control_script[frame_idx], frame_idx,
+                             copy_ref_log);
     }
 
     vpx_codec_err_t enc_err =
@@ -1195,6 +1265,7 @@ int main(int argc, char **argv) {
   free_csv_strings(control_script, control_script_count);
   fclose(in);
   fclose(out);
+  if (copy_ref_log) fclose(copy_ref_log);
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);
