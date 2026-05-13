@@ -358,6 +358,16 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	// the transition coverage this row is meant to pin.
 	assertSegmentByteParityFrom(t, "twopass-e2e", govpxFrames, libvpxFrames, 1)
 
+	setterGovpxFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, opts, govpxOpts.TwoPassStats, sources, false)
+	assertSegmentByteParity(t, "twopass-e2e-setter-vs-options", setterGovpxFrames, govpxFrames, 0)
+	assertSegmentByteParityFrom(t, "twopass-e2e-setter", setterGovpxFrames, libvpxFrames, 1)
+
+	disabledGovpxFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, govpxOpts, nil, sources, true)
+	onePassGovpxFrames := encodeFramesWithGovpx(t, opts, sources)
+	disabledLibvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "twopass-e2e-disabled-before-frame0", opts, targetKbps, sources, []string{"--end-usage=vbr"})
+	assertSegmentByteParity(t, "twopass-e2e-disabled-vs-one-pass-govpx", disabledGovpxFrames, onePassGovpxFrames, 0)
+	assertSegmentByteParityFrom(t, "twopass-e2e-disabled-before-frame0", disabledGovpxFrames, disabledLibvpxFrames, 1)
+
 	sectionOpts := opts
 	sectionOpts.TwoPassVBRBiasPct = 80
 	sectionOpts.TwoPassMinPct = 50
@@ -448,6 +458,24 @@ func makePanningSources(w, h, count, offset int) []Image {
 		sources[i] = encoderValidationPanningFrame(w, h, i+offset)
 	}
 	return sources
+}
+
+func encodeFramesWithGovpxTwoPassStatsSetter(t *testing.T, opts EncoderOptions, stats []FirstPassFrameStats, sources []Image, disable bool) [][]byte {
+	t.Helper()
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer enc.Close()
+	if disable {
+		stats = nil
+	}
+	if err := enc.SetTwoPassStats(stats); err != nil {
+		t.Fatalf("SetTwoPassStats: %v", err)
+	}
+	out := encodeGovpxBurst(t, enc, opts, sources, 0, true)
+	out = append(out, drainGovpxFlush(t, enc, opts, "SetTwoPassStats FlushInto")...)
+	return out
 }
 
 func encodePostResetWithGovpx(t *testing.T, opts EncoderOptions, warm []Image, afterReset []Image) [][]byte {
