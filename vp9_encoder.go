@@ -208,9 +208,14 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 		header.RefreshFrameFlags = 0xff
 	} else {
 		// Inter / intra-only path not wired yet — fall back to an
-		// intra-only frame so the decoder doesn't need ref-frame state.
+		// intra-only frame. VP9 only emits the intra_only bit when
+		// !show_frame, so the intra-only fallback must set
+		// ShowFrame=false (it's a reference-frame-only update, not a
+		// displayed frame). The full inter encode pipeline replaces
+		// this fallback when the MV-ref search lands.
 		header.FrameType = common.InterFrame
 		header.IntraOnly = true
+		header.ShowFrame = false
 		header.RefreshFrameFlags = 1
 	}
 
