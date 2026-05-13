@@ -206,7 +206,7 @@ func TestEncoderSetReferenceFrameInvalidatesReferenceState(t *testing.T) {
 	}
 }
 
-func TestEncoderSetReferenceFrameSyncsDenoiserAverage(t *testing.T) {
+func TestEncoderSetReferenceFrameLeavesDenoiserAveragesStale(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -232,13 +232,18 @@ func TestEncoderSetReferenceFrameSyncsDenoiserAverage(t *testing.T) {
 	if !e.denoiser.allocated {
 		t.Fatalf("denoiser was not allocated after noise-sensitive encode")
 	}
+	before := make([]Image, 3)
+	for i, idx := range []int{denoiserAvgLast, denoiserAvgGolden, denoiserAvgAltRef} {
+		before[i] = testImage(16, 16)
+		copyVP8ImageToPublic(&before[i], &e.denoiser.runningAvg[idx].Img)
+	}
 
 	ref := testImage(16, 16)
 	fillImage(ref, 80, 90, 100)
 	if err := e.SetReferenceFrame(ReferenceAltRef, ref); err != nil {
 		t.Fatalf("SetReferenceFrame returned error: %v", err)
 	}
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		name string
 		idx  int
 	}{
@@ -246,9 +251,9 @@ func TestEncoderSetReferenceFrameSyncsDenoiserAverage(t *testing.T) {
 		{name: "GOLDEN", idx: denoiserAvgGolden},
 		{name: "ALTREF", idx: denoiserAvgAltRef},
 	} {
-		if !publicImageEqualVP8(ref, &e.denoiser.runningAvg[tc.idx].Img) {
-			t.Fatalf("%s denoiser running average does not match replacement reference", tc.name)
+		if publicImageEqualVP8(ref, &e.denoiser.runningAvg[tc.idx].Img) {
+			t.Fatalf("%s denoiser running average unexpectedly matched replacement reference", tc.name)
 		}
-		assertCodedBordersExtended(t, &e.denoiser.runningAvg[tc.idx].Img)
+		assertImagesEqual(t, tc.name+" denoiser running average", before[i], publicImageFromVP8(&e.denoiser.runningAvg[tc.idx].Img))
 	}
 }

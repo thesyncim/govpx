@@ -24,7 +24,6 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 		copyPublicImageToVP8(&fb.Img, src)
 		padFrameVisibleToCoded(&fb.Img)
 		fb.ExtendBorders()
-		e.syncDenoiserReferenceFrame(aliasedRef, src)
 	}
 	e.invalidateReferenceFrameState()
 	return nil
@@ -119,33 +118,4 @@ func (e *VP8Encoder) invalidateReferenceFrameState() {
 	e.mbsZeroLastDotSuppress = 0
 	e.sourceAltRefActive = false
 	e.clearAltRefSchedule()
-}
-
-// syncDenoiserReferenceFrame keeps the denoiser's parallel reference stream in
-// step with externally replaced encoder references.
-func (e *VP8Encoder) syncDenoiserReferenceFrame(ref ReferenceFrame, src Image) {
-	if !e.denoiser.allocated {
-		return
-	}
-	index, ok := denoiserReferenceAvgIndex(ref)
-	if !ok {
-		return
-	}
-	avg := &e.denoiser.runningAvg[index]
-	copyPublicImageToVP8(&avg.Img, src)
-	padFrameVisibleToCoded(&avg.Img)
-	avg.ExtendBorders()
-}
-
-func denoiserReferenceAvgIndex(ref ReferenceFrame) (int, bool) {
-	switch ref {
-	case ReferenceLast:
-		return denoiserAvgLast, true
-	case ReferenceGolden:
-		return denoiserAvgGolden, true
-	case ReferenceAltRef:
-		return denoiserAvgAltRef, true
-	default:
-		return 0, false
-	}
 }

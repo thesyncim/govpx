@@ -1125,9 +1125,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			script: runtimeControlScript(frames, map[int]string{
 				1: "setref:last:panning:8",
 			}),
-			// Alias propagation fixes the reference-control drift through
-			// frame 7; frame 8 exposes a separate denoiser-state gap.
-			matchLimit: 8,
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceLast, 8, "last"),
 			},
