@@ -12,9 +12,11 @@ import (
 // so call sites can switch codecs by swapping the constructor.
 //
 // The current VP9 stack supports 8-bit 4:2:0 intra frames plus the
-// first skipped single-reference zero-MV inter-frame reconstruction
-// path. Other valid frame classes return [ErrVP9NotImplemented] at the
-// current reconstruct boundary.
+// first single-reference inter-frame reconstruction paths: zero-MV
+// copy/residual blocks and direct non-scaled motion blocks whose
+// interpolation window stays inside the stored reference. Other valid
+// frame classes return [ErrVP9NotImplemented] at the current
+// reconstruct boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -202,10 +204,10 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 // DecodeWithPTS decodes one raw VP9 frame payload. The uncompressed and
 // compressed headers plus tile mode-info/residual tokens are parsed and
 // validated; malformed frames surface as [ErrInvalidVP9Data]. 8-bit 4:2:0
-// intra frames and skipped single-reference zero-MV inter frames decode to
-// I420 output. Other valid packets return [ErrVP9NotImplemented] after
-// parser state is updated. pts is echoed back through
-// [VP9Decoder.LastFrameInfo].
+// intra frames and the currently supported single-reference inter frames
+// decode to I420 output. Other valid packets return
+// [ErrVP9NotImplemented] after parser state is updated. pts is echoed
+// back through [VP9Decoder.LastFrameInfo].
 //
 // Side effects on a successful parse: the decoder's stored frame
 // dimensions, loopfilter state, segmentation state, mode-info buffers,

@@ -777,13 +777,10 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 		int(pd.SubsamplingX), int(pd.SubsamplingY))
 	subpelX := int(mvQ4.Col) & (vp9dec.SubpelShifts - 1)
 	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
-	if subpelX != 0 || subpelY != 0 {
-		d.unsupportedReconstruct = true
-		return true
-	}
 	srcX := x0 + (int(mvQ4.Col) >> vp9dec.SubpelBitsConst)
 	srcY := y0 + (int(mvQ4.Row) >> vp9dec.SubpelBitsConst)
-	if srcX < 0 || srcY < 0 || srcX+bw > srcStride || srcY+bh > srcRows ||
+	if !vp9InterPredictSourceInBounds(srcX, srcY, bw, bh,
+		srcStride, srcRows, subpelX, subpelY) ||
 		x0+bw > dstStride || y0+bh > dstRows {
 		d.unsupportedReconstruct = true
 		return true
@@ -793,6 +790,25 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, 0,
 		srcY*srcStride+srcX)
 	return true
+}
+
+func vp9InterPredictSourceInBounds(srcX, srcY, bw, bh int,
+	srcStride, srcRows int,
+	subpelX, subpelY int,
+) bool {
+	left, right := 0, 0
+	if subpelX != 0 {
+		left = tables.SubpelTaps/2 - 1
+		right = tables.SubpelTaps - left - 1
+	}
+	top, bottom := 0, 0
+	if subpelY != 0 {
+		top = tables.SubpelTaps/2 - 1
+		bottom = tables.SubpelTaps - top - 1
+	}
+	return srcX >= left && srcY >= top &&
+		srcX+bw+right <= srcStride &&
+		srcY+bh+bottom <= srcRows
 }
 
 func vp9InterReferenceSlot(hdr *vp9dec.UncompressedHeader, ref int8) (int, bool) {

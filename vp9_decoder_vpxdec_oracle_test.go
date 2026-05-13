@@ -158,6 +158,44 @@ func TestVP9DecoderVpxdecOracleMatchesInterNearestMvStream(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesInterSubpelNewMvStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	inter := vp9InterSubpelNewMvFrameForTest(t)
+	ivf := vp9IVFForTest(96, 96, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inter subpel newmv stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterSubpelNearestMvStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	inter := vp9InterSubpelNearestMvFrameForTest(t)
+	ivf := vp9IVFForTest(96, 96, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inter subpel nearestmv stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
 func TestVP9DecoderVpxdecOracleMatchesTiledInterSkipStream(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 
