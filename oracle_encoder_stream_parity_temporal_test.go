@@ -111,19 +111,28 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode0-1layer-cpu-8", fx: panning64, layeringMode: 0, numLayers: 1, bitratesKbps: [5]int{700}, speed: 8},
 
 		// ---- Mode 2: 2-layer 3-frame period, 60/40 split (libvpx). ----
-		// cpu0 byte-matches for 28 frames; cpu-3 byte-matches the full
-		// 32-frame clip; cpu-8 first diverges at frame 7 (residual
-		// rate-control gap in the realtime-fast L0 quantizer path).
-		{name: "mode2-2layer-60-40-cpu0", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 0, limit: 28},
+		// All three speeds byte-match the full 32-frame clip after the
+		// per-layer filter-level seed lookup landed (govpx now pulls
+		// the previous-frame LF level from LAYER_CONTEXT instead of
+		// from the trailing layer's commit, mirroring libvpx
+		// vp8_restore_layer_context). cpu-8 still drifts later in the
+		// clip on a separate residual rate-control gap; the limit
+		// pins the prefix that the L0 sync-slot fix unlocked.
+		{name: "mode2-2layer-60-40-cpu0", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 0},
 		{name: "mode2-2layer-60-40-cpu-3", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
 		{name: "mode2-2layer-60-40-cpu-8", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8, limit: 7},
 
 		// ---- Mode 3: 3-layer 6-frame period, 25/25/50 split. ----
-		// cpu0 byte-matches 31 frames; cpu-3 has a sync-point gap at
-		// frame 1 (govpx vs libvpx differ on the L0 layer's first
-		// inter frame after the keyframe under cpu-3); cpu-8 matches
-		// the full clip.
-		{name: "mode3-3layer-25-25-50-cpu0", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 0, limit: 31},
+		// cpu0 byte-matches the full clip after per-layer LF restore
+		// (was 31). cpu-3 still carries a deeper L0 first-inter
+		// divergence under cpu-used=-3 that is independent of
+		// filter_level (Q stays at min through the clip, but the L0
+		// recode-loop path picks a different inter mode mix on the
+		// first L0 inter after the keyframe; the LF fix already
+		// extends the L2 fanout match from source frame 1 to source
+		// frame 5, but the L0 stream itself still falls over at the
+		// first inter frame). cpu-8 byte-matches the full clip.
+		{name: "mode3-3layer-25-25-50-cpu0", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 0},
 		{name: "mode3-3layer-25-25-50-cpu-3", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 3, limit: 1},
 		{name: "mode3-3layer-25-25-50-cpu-8", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 8},
 

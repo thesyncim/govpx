@@ -177,6 +177,8 @@ func (e *VP8Encoder) Reset() {
 	e.temporal.refLayer = [temporalReferenceCount]int{}
 	e.temporal.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	e.temporal.buffersSet = false
+	e.temporal.codingState = [MaxTemporalLayers]temporalLayerCodingState{}
+	e.temporal.codingValid = [MaxTemporalLayers]bool{}
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	e.coefProbs = vp8tables.DefaultCoefProbs

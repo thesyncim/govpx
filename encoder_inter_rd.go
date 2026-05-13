@@ -211,23 +211,44 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)
 	}
 	if mode.RefFrame == vp8common.LastFrame && mode.Mode == vp8common.ZeroMV {
+		// Mirror libvpx vp8/encoder/pickinter.c vp8_pick_inter_mode (lines
+		// 780-794) followed by evaluate_inter_mode (lines 519-528). Order:
+		//   1. rd_adjustment = 100
+		//   2. calculate_zeromv_rd_adjustment may set 80/90 when
+		//      lf_zeromv_pct > 40 and neighbors have small motion.
+		//   3. multiply by pickmode_mv_bias/100 (CONFIG_TEMPORAL_DENOISING).
+		//   4. dot_artifact_candidate OVERRIDES rd_adjustment to 150
+		//      (so the pickmode_mv_bias scaling is discarded).
+		//   5. evaluate_inter_mode: when ZEROMV+LAST and denoise_aggressive
+		//      (or closest_reference_frame==LAST), x->is_skin OVERRIDES
+		//      rd_adj to 100 (so BOTH the local-motion scaling AND the
+		//      pickmode_mv_bias scaling are discarded for skin MBs).
+		//
+		// Surfaced by splitmv-realtime-cpu0-64x64-noise3 frame-2 MB(2,3):
+		// govpx applied (adj=100)*(pickmodeMVBias=75)/100=0.75 ZEROMV-LAST
+		// discount on a skin MB; libvpx applied no discount. govpx picked
+		// ZEROMV-LAST, libvpx picked NEWMV-LAST mv=(2,-12). The cascading
+		// mode-info divergence corrupted frame 2's entropy stream and the
+		// rest of the clip.
 		adj := 100
+		pickmodeMVBias := e.denoiserPickmodeMVBias()
 		if e.fastZeroMVLastAdjustmentEligible(mbRows, mbCols) {
 			adj = fastZeroMVLastRDAdjustment(mbRow, mbCol, above, left, aboveLeft)
 		}
-		// Dot-artifact bias overrides the local-motion reduction with a 1.5x
-		// penalty (libvpx pickinter.c). Skin macroblocks reset the multiplier
-		// to 100 so face-coloured blocks aren't pushed off ZEROMV-LAST.
 		if e.checkDotArtifactCandidateY(src, ref, mbRow, mbCol, mbRows, mbCols) {
+			// libvpx dot_artifact override applies AFTER the pickmode_mv_bias
+			// multiply, so the final multiplier is 1.5x — discard the bias.
 			adj = 150
+			pickmodeMVBias = 100
 		}
 		if e.macroblockIsSkin(mbRow, mbCol, mbCols) {
+			// libvpx evaluate_inter_mode resets rd_adj to 100 for skin MBs
+			// before applying the multiplier, discarding both the
+			// local-motion adjustment AND the pickmode_mv_bias scaling.
 			adj = 100
+			pickmodeMVBias = 100
 		}
-		// libvpx denoiser pickmode_mv_bias: aggressive denoise scales ZEROMV
-		// down (multiplier=75) so ZEROMV-LAST is preferred for noisy areas.
-		// Non-aggressive denoise leaves the multiplier at 100.
-		score = (score * adj * e.denoiserPickmodeMVBias()) / 10000
+		score = (score * adj * pickmodeMVBias) / 10000
 	}
 	breakoutSkip := staticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.interStaticThresholdForSegment(mode.SegmentID), sse)
 	return score, variance, sse, modeRate, breakoutSkip, true

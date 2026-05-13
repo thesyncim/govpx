@@ -218,11 +218,30 @@ func predictBestWholeBlockIntraModeRD(src vp8enc.SourceImage, qIndex int, zbinOv
 }
 
 func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interYModeProbs []uint8, interUVModeProbs []uint8, fastQuant bool) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
+	return predictBestWholeBlockIntraModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interYModeProbs, interUVModeProbs, fastQuant, 0, 0)
+}
+
+// predictBestWholeBlockIntraModeRDWithProbsAndRDConstants mirrors
+// predictBestWholeBlockIntraModeRDWithProbs but accepts an explicit
+// (rdMult, rdDiv) pair so callers can thread libvpx's activity-masked
+// x->rdmult into the per-mode RDCOST comparison inside the whole-block
+// intra Y picker. libvpx's vp8/encoder/rdopt.c rd_pick_intra_mbuv_mode
+// and rd_pick_intra_mby_mode score every candidate with RDCOST using
+// x->rdmult, which is activity-masked under --tune=ssim. Threading the
+// tuned pair here makes the inter-frame intra mode picker (DC/V/H/TM/B)
+// match libvpx's per-MB winner.
+//
+// When rdMult <= 0, libvpxRDConstantsWithZbin(qIndex, zbinOverQuant) is
+// used (the PSNR / keyframe default path).
+func predictBestWholeBlockIntraModeRDWithProbsAndRDConstants(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interYModeProbs []uint8, interUVModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) (vp8common.MBPredictionMode, vp8common.MBPredictionMode, int, int, int, int, bool) {
 	if quant == nil {
 		return 0, 0, 0, 0, 0, 0, false
 	}
 	if coefProbs == nil {
 		return 0, 0, 0, 0, 0, 0, false
+	}
+	if rdMult <= 0 {
+		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 	}
 	bestYMode := vp8common.DCPred
 	bestYRate := 0
@@ -235,7 +254,7 @@ func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex in
 		}
 		yRate, yDist, _, _ := wholeBlockYTransformRD(src, pred, mbRow, mbCol, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
 		rate := intraYModeRateWithProbs(keyFrame, yMode, interYModeProbs) + yRate
-		cost := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, yDist)
+		cost := libvpxRDCost(rdMult, rdDiv, rate, yDist)
 		if i == 0 || cost < bestYCost {
 			bestYMode = yMode
 			bestYRate = rate
@@ -244,7 +263,7 @@ func predictBestWholeBlockIntraModeRDWithProbs(src vp8enc.SourceImage, qIndex in
 		}
 	}
 
-	bestUVMode, bestUVRate, bestUVDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interUVModeProbs, fastQuant)
+	bestUVMode, bestUVRate, bestUVDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interUVModeProbs, fastQuant, rdMult, rdDiv)
 	if !ok {
 		return 0, 0, 0, 0, 0, 0, false
 	}
@@ -321,8 +340,23 @@ func predictBestIntraChromaModeRD(src vp8enc.SourceImage, qIndex int, zbinOverQu
 }
 
 func predictBestIntraChromaModeRDWithProbs(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool) (vp8common.MBPredictionMode, int, int, bool) {
+	return predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, keyFrame, mbRow, mbCol, aboveTok, leftTok, quant, pred, scratch, coefProbs, interUVModeProbs, fastQuant, 0, 0)
+}
+
+// predictBestIntraChromaModeRDWithProbsAndRDConstants mirrors
+// predictBestIntraChromaModeRDWithProbs but accepts an explicit
+// (rdMult, rdDiv) pair so the activity-masked x->rdmult drives the UV
+// mode RDCOST comparison. libvpx's vp8/encoder/rdopt.c
+// rd_pick_intra_mbuv_mode uses x->rdmult for the per-UV-mode RDCOST
+// (lines 1162-1190), so under --tune=ssim the activity-tuned multiplier
+// changes which chroma mode wins on textured / flat macroblocks. When
+// rdMult <= 0 the libvpxRDConstantsWithZbin defaults are used.
+func predictBestIntraChromaModeRDWithProbsAndRDConstants(src vp8enc.SourceImage, qIndex int, zbinOverQuant int, keyFrame bool, mbRow int, mbCol int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, quant *vp8enc.MacroblockQuant, pred *vp8common.Image, scratch *vp8dec.IntraReconstructionScratch, coefProbs *vp8tables.CoefficientProbs, interUVModeProbs []uint8, fastQuant bool, rdMult int, rdDiv int) (vp8common.MBPredictionMode, int, int, bool) {
 	if quant == nil || coefProbs == nil {
 		return 0, 0, 0, false
+	}
+	if rdMult <= 0 {
+		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
 	}
 	bestUVMode := vp8common.DCPred
 	bestUVRate := 0
@@ -334,7 +368,7 @@ func predictBestIntraChromaModeRDWithProbs(src vp8enc.SourceImage, qIndex int, z
 		}
 		tokenRate, dist := wholeBlockChromaTransformRD(src, pred, mbRow, mbCol, zbinOverQuant, aboveTok, leftTok, quant, coefProbs, fastQuant)
 		rate := intraUVModeRateWithProbs(keyFrame, uvMode, interUVModeProbs) + tokenRate
-		cost := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, dist)
+		cost := libvpxRDCost(rdMult, rdDiv, rate, dist)
 		if i == 0 || cost < bestUVCost {
 			bestUVMode = uvMode
 			bestUVRate = rate
