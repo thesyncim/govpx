@@ -543,6 +543,59 @@ func TestVP9EncoderInterReusesNearestMvCandidate(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterUsesPreviousFrameMvRefs(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter1Src := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter1, err := e.Encode(inter1Src)
+	if err != nil {
+		t.Fatalf("Encode first inter: %v", err)
+	}
+	inter2Src := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter2, err := e.Encode(inter2Src)
+	if err != nil {
+		t.Fatalf("Encode second inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	frames := []struct {
+		name   string
+		packet []byte
+	}{
+		{"key", key},
+		{"inter1", inter1},
+		{"inter2", inter2},
+	}
+	for _, frame := range frames {
+		name, packet := frame.name, frame.packet
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode %s: %v", name, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("NextFrame returned !ok after %s", name)
+		}
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after second inter frame")
+	}
+	want := vp9dec.MV{Col: 64}
+	if got := d.miGrid[0]; got.Mode != common.NearestMv || got.Mv[0] != want {
+		t.Fatalf("second inter top-left = mode %d mv %+v, want NearestMv %+v",
+			got.Mode, got.Mv[0], want)
+	}
+}
+
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
 // second-frame path: a visible LAST/ZeroMv skipped inter frame whose
 // reference dimensions come from the preceding keyframe.

@@ -68,11 +68,6 @@ type VP9Encoder struct {
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
 	frameIndex int
-	// lastEncodedKey records whether the immediately previous encoded
-	// frame was a keyframe. The first inter frame after a key has no
-	// previous-frame MV context, which makes the initial NEWMV path
-	// deterministic against the decoder-side MV-ref search.
-	lastEncodedKey bool
 
 	// fc carries the per-frame entropy context across frames.
 	// Reset on every keyframe via ResetFrameContext.
@@ -115,6 +110,11 @@ type VP9Encoder struct {
 	reconV     []byte
 
 	refFrames [common.RefFrames]vp9ReferenceFrame
+
+	prevFrameMvs      []vp9MvRef
+	prevFrameMvRows   int
+	prevFrameMvCols   int
+	prevFrameMvsValid bool
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch    [1024]int16
@@ -389,8 +389,8 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		return tileStart, err
 	}
 	n := tileStart + tileSize
+	e.refreshVP9EncoderMvRefs(isKey, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header)
-	e.lastEncodedKey = isKey
 	e.frameIndex++
 	return n, nil
 }
@@ -416,6 +416,36 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader) {
 			e.refFrames[slot].store(e.reconFrame)
 		}
 	}
+}
+
+func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
+	if isKey {
+		e.prevFrameMvsValid = false
+		e.prevFrameMvRows = 0
+		e.prevFrameMvCols = 0
+		return
+	}
+	need := miRows * miCols
+	if cap(e.prevFrameMvs) < need {
+		e.prevFrameMvs = make([]vp9MvRef, need)
+	} else {
+		e.prevFrameMvs = e.prevFrameMvs[:need]
+	}
+	for i := 0; i < need; i++ {
+		mi := e.miGrid[i]
+		e.prevFrameMvs[i] = vp9MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
+	}
+	e.prevFrameMvRows = miRows
+	e.prevFrameMvCols = miCols
+	e.prevFrameMvsValid = true
+}
+
+func (e *VP9Encoder) useVP9EncoderPrevFrameMvs(miRows, miCols int) bool {
+	return e.prevFrameMvsValid &&
+		!e.opts.ErrorResilient &&
+		e.prevFrameMvRows == miRows &&
+		e.prevFrameMvCols == miCols &&
+		len(e.prevFrameMvs) >= miRows*miCols
 }
 
 func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
@@ -1213,7 +1243,7 @@ func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) (vp9dec.MV, bool) {
-	if inter == nil || inter.ref == nil || !inter.ref.valid || !e.lastEncodedKey {
+	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return vp9dec.MV{}, false
 	}
 	if bsize < common.Block16x16 {
@@ -1354,7 +1384,13 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	if mode == common.ZeroMv || refFrame <= vp9dec.IntraFrame {
 		return vp9dec.MV{}, false
 	}
-	refFinder := VP9Decoder{miGrid: e.miGrid}
+	refFinder := VP9Decoder{
+		miGrid:          e.miGrid,
+		usePrevFrameMvs: e.useVP9EncoderPrevFrameMvs(miRows, miCols),
+		prevFrameMvs:    e.prevFrameMvs,
+		prevFrameMvRows: e.prevFrameMvRows,
+		prevFrameMvCols: e.prevFrameMvCols,
+	}
 	signBias := [vp9dec.MaxRefFrames]uint8{}
 	refList, refCount := refFinder.vp9FindInterMvRefs(tile, miRows, miCols,
 		miRow, miCol, bsize, mode, refFrame, signBias)
