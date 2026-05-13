@@ -11,9 +11,8 @@ import (
 
 // VP9 vpxdec oracle harness. Spawns the matching libvpx vpxdec
 // binary (built via internal/coracle/build_vpxdec_vp9.sh) and
-// pipes a govpx-produced VP9 IVF stream through it. The
-// byte-parity gate is: when vpxdec exits 0 and writes a frame,
-// our encoder's output is structurally valid VP9.
+// pipes a govpx-produced VP9 IVF stream through it. This is a structural
+// acceptance check: when vpxdec exits 0, the packet stream is valid VP9.
 //
 // The binary path defaults to internal/coracle/build/vpxdec-vp9
 // relative to the package's source location. Override via

@@ -11,11 +11,6 @@ import (
 // canonical wire shape; this file translates them back onto the
 // bit stream.
 //
-// Coverage: keyframe path only. The intra-only and inter paths
-// require ref-frame map indices and ref dimension lookups that
-// the public API doesn't surface yet; they land in subsequent
-// commits.
-//
 // The writer does not allocate; the caller owns the output buffer
 // and the BitWriter tracks its bit offset.
 
@@ -202,8 +197,8 @@ func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyfram
 			w.WriteLiteral(uint32(h.RefreshFrameFlags), common.RefFrames)
 			writeFrameSize(w, h)
 		}
-		// The inter (non-intra-only) branch lands when ref-frame
-		// management is wired up.
+		// Inter (non-intra-only) callers use WriteInterUncompressedHeader,
+		// which carries the required reference-index and dimension inputs.
 	}
 
 	if !h.ErrorResilientMode {
@@ -276,10 +271,8 @@ func writeBitdepthColorspaceSampling(w *BitWriter, h *vp9dec.UncompressedHeader)
 	}
 }
 
-// writeFrameSize mirrors libvpx's write_frame_size — 16-bit width-1
-// then 16-bit height-1 then a 1-bit render flag (always 0 for now;
-// the render_size full path lands when the encoder exposes a custom
-// render size).
+// writeFrameSize mirrors libvpx's write_frame_size: 16-bit width-1,
+// 16-bit height-1, then render_flag=0.
 func writeFrameSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
 	w.WriteLiteral(h.Width-1, 16)
 	w.WriteLiteral(h.Height-1, 16)

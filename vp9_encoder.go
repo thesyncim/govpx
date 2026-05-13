@@ -11,10 +11,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
-// VP9EncoderOptions configures a VP9 encoder. Mirrors the subset of
-// VP8 EncoderOptions that's wire-relevant once the VP9 encoder is
-// implemented. The current build only validates options and emits
-// ErrVP9NotImplemented from Encode/EncodeInto.
+// VP9EncoderOptions configures a VP9 profile 0 encoder.
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
 	// EncodeInto. Must both be positive.
@@ -30,19 +27,17 @@ type VP9EncoderOptions struct {
 	// TimebaseDen is the denominator of the caller timebase.
 	TimebaseDen int
 
-	// Threads selects the worker-goroutine count for the inter-frame
-	// tile-threaded macroblock pipeline. Zero or 1 use the serial
-	// reference path; >=2 enables tile-parallel encode when the
-	// frame is large enough. Negative values return ErrInvalidConfig.
+	// Threads is reserved for VP9 encode paths that can split work by
+	// tile. Zero or 1 use the serial path. Negative values return
+	// ErrInvalidConfig.
 	Threads int
 
-	// TargetBitrateKbps is the total target bitrate in kbps. Required
-	// for rate-controlled modes; for VPX_Q / Q-mode encodes the
-	// quantizer is taken from Quantizer.
+	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
+	// configuration. The current packet path does not run rate control.
 	TargetBitrateKbps int
 
-	// Quantizer selects a fixed VPX_Q-mode quantizer in [0, 255].
-	// Zero defers to TargetBitrateKbps + RateControlMode.
+	// Quantizer selects a fixed VP9 base qindex in [0, 255]. Zero uses the
+	// packet path default.
 	Quantizer int
 
 	// MaxKeyframeInterval bounds the gap between key frames. Zero
@@ -54,14 +49,13 @@ type VP9EncoderOptions struct {
 	ErrorResilient bool
 }
 
-// ErrVP9EncoderNotImplemented is returned by VP9Encoder.Encode /
-// EncodeInto until the encoder bitstream path lands.
-var ErrVP9EncoderNotImplemented = errors.New("govpx: VP9 encoder not yet implemented")
+// ErrVP9EncoderNotImplemented is retained for callers that already branch on
+// this sentinel.
+//
+// Deprecated: Encode and EncodeInto no longer return this error.
+var ErrVP9EncoderNotImplemented = errors.New("govpx: VP9 encoder path unavailable")
 
-// VP9Encoder is the public entry point for VP9 stream encoding.
-// Encode/EncodeInto currently return ErrVP9EncoderNotImplemented;
-// construction + option validation + the IsKeyFrameNext predicate
-// are usable today so callers can plumb the surface.
+// VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
 	opts   VP9EncoderOptions
 	closed bool
@@ -85,10 +79,9 @@ type VP9Encoder struct {
 	aboveSegCtx []int8
 	leftSegCtx  []int8
 
-	// miGrid mirrors the decoder-visible MODE_INFO grid at 8x8
-	// granularity. The keyframe stub fills it as each block is written
-	// so subsequent block mode-context probabilities see the same
-	// above/left skip and intra-mode state that libvpx's decoder sees.
+	// miGrid mirrors the decoder-visible MODE_INFO grid at 8x8 granularity so
+	// subsequent block mode-context probabilities see the same above/left
+	// state that libvpx's decoder sees.
 	miGrid []vp9dec.NeighborMi
 }
 
@@ -129,6 +122,38 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	return nil
 }
 
+func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
+	if img == nil {
+		return ErrInvalidConfig
+	}
+	if img.Rect.Dx() != e.opts.Width || img.Rect.Dy() != e.opts.Height {
+		return ErrInvalidConfig
+	}
+	if img.SubsampleRatio != image.YCbCrSubsampleRatio420 {
+		return ErrInvalidConfig
+	}
+	if img.YStride < e.opts.Width || img.CStride < (e.opts.Width+1)/2 {
+		return ErrInvalidConfig
+	}
+	if len(img.Y) < ycbcrPlaneLen(img.YStride, e.opts.Width, e.opts.Height) {
+		return ErrInvalidConfig
+	}
+	uvWidth := (e.opts.Width + 1) / 2
+	uvHeight := (e.opts.Height + 1) / 2
+	if len(img.Cb) < ycbcrPlaneLen(img.CStride, uvWidth, uvHeight) ||
+		len(img.Cr) < ycbcrPlaneLen(img.CStride, uvWidth, uvHeight) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func ycbcrPlaneLen(stride, width, height int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	return (height-1)*stride + width
+}
+
 // IsKeyFrameNext reports whether the next call to EncodeInto would
 // emit a key frame. The first frame is always a key; subsequent
 // frames key on MaxKeyframeInterval boundaries.
@@ -146,21 +171,22 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 	return e.frameIndex%cadence == 0
 }
 
-// EncodeInto packs the next frame into dst. The current shape covers
-// the keyframe-only stub path: every block emits as a Block64x64
-// DC-pred intra with skip=1, so the residue walker short-circuits and
-// the output is a valid VP9 frame whose Y/UV planes decode to the
-// DC predictor (gray). The compressed header rides the no-update
-// path; counts-driven updates land when the encoder's tokenize loop
+// EncodeInto packs the next profile 0 frame into dst. The current packet path
+// emits DC-predicted, zero-residue frames. The compressed header uses the
+// no-update path; counts-driven updates land when the encoder's tokenize loop
 // exposes real per-frame counters.
 //
-// Returns the number of bytes written into dst. Caller sizes dst —
-// the keyframe header + an empty body is well under 256 bytes for
-// modest frame dimensions, but the caller should leave room for
-// up to ~64 KB to match libvpx's worst-case header.
-func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
+// Returns the number of bytes written into dst. Caller sizes dst; leave room
+// for up to 64 KiB to match libvpx's first-partition header bound.
+func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
+	}
+	if err := e.validateVP9EncoderSource(img); err != nil {
+		return 0, err
+	}
+	if len(dst) == 0 {
+		return 0, ErrBufferTooSmall
 	}
 
 	width := uint32(e.opts.Width)
@@ -216,18 +242,15 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 	// base_qindex + every delta_q are all zero. Lossless mode forces
 	// tx_mode=ONLY_4X4 on the decoder side and skips the tx_mode
 	// literal in the compressed header; staying out of lossless keeps
-	// the wire layout consistent with the rest of the stub path.
+	// the wire layout consistent with the rest of the zero-residue path.
 	header.Quant.BaseQindex = 1
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
 	} else {
-		// Inter / intra-only path not wired yet — fall back to an
-		// intra-only frame. VP9 only emits the intra_only bit when
-		// !show_frame, so the intra-only fallback must set
-		// ShowFrame=false (it's a reference-frame-only update, not a
-		// displayed frame). The full inter encode pipeline replaces
-		// this fallback when the MV-ref search lands.
+		// Subsequent frames use a hidden intra-only reference update. It is
+		// valid VP9 profile 0 and keeps reference state moving without
+		// claiming a displayed inter frame.
 		header.FrameType = common.InterFrame
 		header.IntraOnly = true
 		header.ShowFrame = false
@@ -452,7 +475,7 @@ func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockS
 
 // Encode is the alloc-returning wrapper around EncodeInto. Sizes
 // dst at 64 KB upfront so EncodeInto can never overflow the
-// compressed-header staging buffer for the stub keyframe body.
+// compressed-header staging buffer for the zero-residue frame body.
 func (e *VP9Encoder) Encode(img *image.YCbCr) ([]byte, error) {
 	if e == nil || e.closed {
 		return nil, ErrClosed

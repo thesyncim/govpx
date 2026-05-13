@@ -17,9 +17,8 @@ import (
 //
 // The ONE_LOOP_REDUCED variant is a separate fork in libvpx — it
 // streams updates and emits the gate retroactively. The
-// reference encoder typically picks TWO_LOOP for the high-quality
-// modes (good / best), so this port covers the byte-parity path
-// for those modes.
+// reference encoder typically picks TWO_LOOP for the high-quality modes
+// (good / best), so this port follows that emitted update order.
 
 // CoefBranchStatsPerTx mirrors libvpx's vp9_coeff_stats prefixed
 // with PLANE_TYPES — the per-tx-size branch-count payload for one

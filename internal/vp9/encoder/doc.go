@@ -1,18 +1,9 @@
-// Package encoder implements the VP9 encode pipeline.
+// Package encoder holds VP9 profile 0 bitstream writers.
 //
-// Components: rate control (CBR, VBR, CQ, Q; one-pass and two-pass),
-// frame-type selection (key / inter / arnr / golden / altref / overlay /
-// invisible), partition search across BLOCK_4x4..BLOCK_64x64, intra and
-// inter mode RD with reference frame selection, full-pel and subpel
-// motion search (NSTEP / DIAMOND / HEX / BIGDIA / SQUARE / FAST_HEX), 8/16
-// /32 transforms with quant and reconstruct, segmentation (cyclic
-// refresh, AQ), in-loop deblock with libvpx's lf-pick, scene-cut, alt-ref
-// temporal filter, lookahead, denoiser, ROI map, and the bitstream pack
-// stage.
-//
-// As with VP8, hot encode paths are zero-allocation after init: per-frame
-// allocations happen in Reset and EncoderOptions changes, not in steady
-// state EncodeInto.
+// It covers uncompressed headers, compressed headers, partition and mode
+// writers, coefficient token packing, probability updates, cost helpers, and
+// tile/frame packing. Rate control, full mode decision, motion search, and
+// source-to-residual analysis live outside this package scope.
 //
 // Upstream:
 //

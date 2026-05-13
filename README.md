@@ -3,22 +3,20 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 and VP9 encoder and decoder for raw VPx frame payloads.
+Pure-Go VP8 and VP9 profile 0 codec support for raw VPx payloads.
 
-govpx is for Go programs that need VP8 or VP9 without cgo and without a
-libvpx runtime dependency. The package scope is the libvpx codec surface
-only: no AV1, no WebM muxer, no RTP packetizer, no libvpx C API
-compatibility layer. Transport framing is the caller's responsibility.
+govpx is for Go programs that need VP8 or VP9 profile 0 without cgo and
+without a libvpx runtime dependency. It produces and consumes raw VP8 frame
+payloads and raw VP9 packets; transport framing is the caller's
+responsibility.
+
 VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw VP9 packets,
-including valid VP9 superframes. Profiles 1, 2, and 3, high bit depth,
-non-4:2:0 chroma, alpha, and container behavior remain out of scope.
+including valid superframes. Profiles 1, 2, and 3, high bit depth,
+non-4:2:0 chroma, alpha, WebM/container behavior, AV1, and libvpx C API
+compatibility are out of scope.
 
-Behavior is validated against a pinned libvpx v1.16.0 oracle with 100%
-byte parity required on the supported configurations — bit-identical
-encoded packets for the encoder, bit-identical decoded pixels for the
-decoder. The public API uses Go types and methods; libvpx names appear
-only when they identify upstream behavior, controls, or validation
-tooling.
+Validation uses a pinned libvpx v1.16.0 oracle. VP9 oracle coverage is
+profile 0 only.
 
 ## Install
 
@@ -186,10 +184,10 @@ make verify-production       # full encoder + decoder oracle gate
 ```
 
 `verify-production` builds pinned libvpx tools, fetches conformance data,
-and runs the full oracle gate. VP9 decoder checks are strict for the
-official VP90 profile 0 IVF subset and reject non-profile0 profile-family
-streams as unsupported. Use `make verify-decoder-parity` for decoder-only
-changes.
+and runs the supported oracle gate. VP9 checks are profile 0 only: valid
+VP90 profile 0 IVF streams are strict, and non-profile0 profile-family
+streams are rejected as unsupported. Use `make verify-decoder-parity` for
+decoder-only changes.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
 build tag or in `*_test.go` files. `UPSTREAM.md` documents the exact
@@ -247,7 +245,7 @@ internal/vp8/dsp          VP8 scalar and architecture-specific pixel kernels
 internal/vp9/bitstream    VP9 boolean range coder (reader + writer)
 internal/vp9/common       VP9 shared state, headers, partition tree, references
 internal/vp9/decoder      VP9 decoder internals
-internal/vp9/encoder      VP9 RD, motion search, transform/quant, bitstream pack
+internal/vp9/encoder      VP9 header, mode, coefficient, probability, and pack writers
 internal/vp9/dsp          VP9 scalar and architecture-specific pixel kernels
 internal/vp9/tables       VP9 entropy / scan / quant / probability constants
 internal/coracle          pinned libvpx oracle build and comparison helpers

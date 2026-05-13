@@ -1,20 +1,16 @@
-// Package govpx is a pure-Go VP8 and VP9 encoder and decoder.
+// Package govpx is a pure-Go VP8 and VP9 profile 0 codec package.
 //
-// The package scope is the libvpx codec surface only: no AV1, no WebM muxer,
-// no RTP packetizer, and no libvpx C API compatibility layer. It produces and
-// consumes raw VP8 frame payloads and raw VP9 packets; VP9 packets may be
-// superframes. Transport framing is the caller's responsibility.
+// It produces and consumes raw VP8 frame payloads and raw VP9 packets; VP9
+// packets may be superframes. Transport framing is the caller's responsibility.
 //
 // VP9 scope is full profile 0 support only: 8-bit 4:2:0 VP9. Profiles 1, 2,
-// and 3, high bit depth, and non-4:2:0 chroma are intentionally outside
-// scope.
+// and 3, high bit depth, non-4:2:0 chroma, alpha, WebM/container behavior,
+// AV1, and libvpx C API compatibility are outside scope.
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go
 // dependency. Behavior is validated against a pinned libvpx v1.16.0 oracle;
-// see [UpstreamLibvpxVersion]. The parity bar is 100% byte parity with
-// libvpx on the supported configurations: bit-identical encoded packets and
-// bit-identical decoded pixels.
+// see [UpstreamLibvpxVersion]. VP9 oracle coverage is profile 0 only.
 //
 // # Decoding
 //
@@ -93,5 +89,5 @@
 //
 // See the repository README for build, benchmarking, and validation
 // commands, the WebRTC demo under examples/webrtc-vp8, and UPSTREAM.md for
-// libvpx parity scope.
+// the libvpx baseline and VP9 scope.
 package govpx

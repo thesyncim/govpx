@@ -19,8 +19,8 @@ const (
 )
 
 // BitstreamProfile is the 2-or-3-bit profile field in the uncompressed
-// header. Profile 0 is 8-bit 4:2:0; profile 1 adds 4:4:4 / 4:2:2 / 4:4:0;
-// profiles 2 and 3 carry 10/12-bit samples.
+// header. Public VP9 support is profile 0 only; the other values are kept so
+// the parser can classify and reject valid non-profile0 packets cleanly.
 type BitstreamProfile uint8
 
 const (

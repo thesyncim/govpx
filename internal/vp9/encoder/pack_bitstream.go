@@ -61,8 +61,8 @@ type PackBitstreamArgs struct {
 	// through the counts-driven driver (mirroring libvpx's
 	// write_compressed_header). Comp is ignored on this path because
 	// CountsArgs carries the same per-frame gating plus the
-	// FrameContext + FrameCounts payloads. This is the byte-parity
-	// path; callers without per-frame counters fall back to the
+	// FrameContext + FrameCounts payloads. Callers without per-frame
+	// counters fall back to the
 	// no-update fields on Comp.
 	CountsArgs *WriteCompressedHeaderFromCountsArgs
 

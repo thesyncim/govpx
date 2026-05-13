@@ -14,9 +14,8 @@ import (
 // buffer, and frames each non-last tile with a 4-byte big-endian
 // size prefix matching libvpx's mem_put_be32 layout.
 //
-// The multi-threaded encode_tiles_mt fork in libvpx is not yet
-// ported; the single-threaded path is wire-equivalent and the
-// canonical reference for byte parity.
+// The single-threaded path is wire-equivalent to libvpx for the emitted tile
+// layout.
 
 // WriteTileFn is the per-tile body callback. It receives a fresh
 // bitstream.Writer already pointed at the next available output

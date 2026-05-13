@@ -19,10 +19,8 @@ import (
 // are intentionally outside the package scope and return
 // [ErrVP9NotImplemented] when their headers are otherwise valid.
 type VP9DecoderOptions struct {
-	// Threads selects the decoder worker count for parallel tile
-	// rows. 0 and 1 use the serial path. The threaded path mirrors
-	// the libvpx row-pipeline and will be enabled when the
-	// reconstruct loop lands.
+	// Threads selects the decoder worker count. 0 and 1 use the serial path;
+	// higher values are currently accepted and run the same profile 0 path.
 	Threads int
 
 	// MaxWidth and MaxHeight cap the accepted frame dimensions.

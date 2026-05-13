@@ -5,9 +5,9 @@ import "github.com/thesyncim/govpx/internal/vp9/tables"
 // Ported from libvpx v1.16.0 vp9/common/vp9_quant_common.{c,h}.
 //
 // DcQuant / AcQuant look up the dequant multiplier for a given qindex,
-// optional per-segment delta, and bit depth. The bit depth dispatch is
-// part of the wire format: profile 0/1 streams use the 8-bit tables,
-// profile 2 the 10-bit tables, and profile 3 the 12-bit tables.
+// optional per-segment delta, and bit depth. Public VP9 support is profile 0;
+// the wider bit-depth table dispatch is retained to keep the libvpx-derived
+// helper complete and to classify unsupported profile-family streams.
 
 // BitDepth selects which of the (8,10,12)-bit dequant tables vp9_dc_quant
 // and vp9_ac_quant should pull from. Matches vpx_bit_depth_t in libvpx.

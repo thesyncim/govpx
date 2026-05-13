@@ -12,9 +12,8 @@ import (
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
 // VP9 keyframe through the libvpx vpxdec binary (built via
-// internal/coracle/build_vpxdec_vp9.sh). The byte-parity gate is:
-// vpxdec parses the frame without error, so the encoder's output
-// is structurally valid VP9.
+// internal/coracle/build_vpxdec_vp9.sh). This is a structural acceptance
+// gate: vpxdec parses the frame without error.
 //
 // Gated by ErrVpxdecVP9NotBuilt — the test skips on CI hosts that
 // haven't run the build script yet, mirroring how the VP8 oracle
@@ -52,11 +51,10 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe runs the byte-
-// parity oracle gate against a 128x64 frame — two side-by-side
-// 64x64 SBs. The encoder's WriteModesTile dispatches per SB; the
-// gate confirms libvpx accepts the resulting multi-SB tile body
-// just as cleanly as the single-SB case.
+// TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe runs the structural
+// oracle gate against a 128x64 frame: two side-by-side 64x64 SBs. The
+// encoder's WriteModesTile dispatches per SB; libvpx must accept the
+// resulting multi-SB tile body.
 func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
@@ -90,11 +88,10 @@ func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack runs the gate
-// against a 64x128 frame — two stacked 64x64 SBs. The encoder's
-// SB row loop in WriteModesTile steps mi_row by MiBlockSize across
-// the two rows; this gate confirms the per-row left_seg_context
-// reset is happening at the right boundary against libvpx.
+// TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack runs the structural
+// gate against a 64x128 frame: two stacked 64x64 SBs. The encoder's SB row
+// loop in WriteModesTile steps mi_row by MiBlockSize across the two rows;
+// libvpx must accept the per-row left_seg_context reset.
 func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
@@ -128,10 +125,9 @@ func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsLargeFrame runs the gate against
-// a 256x192 keyframe — 4×3 SB grid. The gate exercises the SB
-// walker against a fuller mi grid + entropy-context propagation
-// across both axes.
+// TestVP9EncoderVpxdecOracleAcceptsLargeFrame runs the structural gate
+// against a 256x192 keyframe: a 4x3 SB grid. This exercises the SB walker
+// against a fuller mi grid and entropy-context propagation across both axes.
 func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
@@ -165,8 +161,8 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes expands the
-// keyframe gate beyond complete 64x64 SBs. These sizes force the
+// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes expands structural
+// coverage beyond complete 64x64 SBs. These sizes force the
 // partition writer into libvpx's frame-edge branches where the
 // decoder may force SPLIT/HORZ/VERT decisions from has_rows /
 // has_cols instead of reading the full tree.
@@ -218,12 +214,11 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter runs the gate
+// TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter runs the structural gate
 // against the second frame produced by the encoder — an
 // intra-only inter frame (FrameType=InterFrame + IntraOnly=true)
-// emitted after the keyframe. The encoder takes the intra-only
-// fallback path because the full inter encode pipeline isn't wired
-// yet; the gate confirms that fallback frame is also valid VP9.
+// emitted after the keyframe. The gate confirms that fallback frame is also
+// valid VP9.
 func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {

@@ -13,11 +13,10 @@ import (
 // feed frame_counts.* through prob_diff_update / vp9_cond_prob_diff_update.
 //
 // Each helper here mirrors the matching libvpx walker exactly: same
-// iteration order, same prob slots, same counts shape. The
-// existing WriteCompressedHeaderNoUpdate writer falls back to all-
-// zero "update?" bits per slot; these helpers replace that fallback
-// when the caller has real per-frame counters and wants byte-parity
-// updates.
+// iteration order, same prob slots, same counts shape. The existing
+// WriteCompressedHeaderNoUpdate writer falls back to all-zero "update?" bits
+// per slot; these helpers replace that fallback when the caller has real
+// per-frame counters.
 
 // WriteSkipProbsFromCounts mirrors libvpx's update_skip_probs.
 // Walks the 3 skip contexts and runs the savings-search cond-update

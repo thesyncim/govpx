@@ -3,9 +3,9 @@ package tables
 // Ported byte-for-byte from libvpx v1.16.0 vp9/common/vp9_quant_common.c.
 //
 // dc_qlookup / ac_qlookup map an 8-bit quantizer index to the actual
-// dequant multiplier used to reconstruct transform coefficients. The
-// 10-bit and 12-bit variants are used by profiles 2 and 3. Wrappers in
-// internal/vp9/common dispatch on bit depth and clamp the index.
+// dequant multiplier used to reconstruct transform coefficients. Public VP9
+// support uses the 8-bit profile 0 tables; the 10-bit and 12-bit tables are
+// retained as libvpx-derived data for unsupported profile-family parsing.
 
 // QindexRange is the number of valid qindex values, 0..255 inclusive.
 const (

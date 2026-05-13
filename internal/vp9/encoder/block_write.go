@@ -8,10 +8,8 @@ import (
 )
 
 // VP9 per-block mode-info compose layer (encoder side). Ported from
-// libvpx v1.16.0 vp9/encoder/vp9_bitstream.c — write_mb_modes_kf
-// covers the keyframe path. The inter-frame pack_inter_mode_mvs
-// composer lands separately because it needs the per-block
-// mode_context table the encoder runs the MV-ref search against.
+// libvpx v1.16.0 vp9/encoder/vp9_bitstream.c — write_mb_modes_kf covers
+// the keyframe path. Inter block composition lives in inter_block_write.go.
 //
 // These compose-layer writers mirror the matching decoder
 // functions (ReadIntraFrameModeInfo, ReadIntraBlockModeInfo,
