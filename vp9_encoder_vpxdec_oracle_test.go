@@ -86,6 +86,25 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 128, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 7, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
 // TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe runs the structural
 // oracle gate against a 128x64 frame: two side-by-side 64x64 SBs. The
 // encoder's WriteModesTile dispatches per SB; libvpx must accept the

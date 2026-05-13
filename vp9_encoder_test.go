@@ -496,6 +496,46 @@ func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 7, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	want := vp9dec.MV{Col: 56}
+	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
+		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
+			got.Mode, got.Mv[0], want)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after odd-MV inter frame")
+	}
+}
+
 func TestVP9EncoderInterReusesNearestMvCandidate(t *testing.T) {
 	const (
 		width  = 192

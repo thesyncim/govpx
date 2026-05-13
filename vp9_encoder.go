@@ -100,6 +100,10 @@ type VP9Encoder struct {
 
 	intraScratch vp9dec.IntraPredictorScratch
 	modeScratch  [1024]byte
+	// interPredictScratch is passed through the decoder-shared inter
+	// predictor so odd luma MVs can use the same chroma/subpel extension
+	// path as the real decoder without per-block allocations after warmup.
+	interPredictScratch []byte
 
 	reconFrame Image
 	reconYFull []byte
@@ -1236,7 +1240,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			miRow, miCol, bsize, mi.RefFrame[0], mv)
 		mi.Mv[0] = mv
 	}
-	return e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize, mi.Mv[0])
+	return e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi)
 }
 
 func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
@@ -1289,7 +1293,7 @@ func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
 	const (
 		searchRadius = 16
 		coarseStep   = 8
-		minStep      = 2
+		minStep      = 1
 	)
 	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
 		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
@@ -1406,48 +1410,38 @@ func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
 	return mv, true
 }
 
-func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize, mv vp9dec.MV,
+func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
 ) bool {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return false
 	}
-	for plane := range vp9dec.MaxMbPlane {
-		pd := &e.planes[plane]
-		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if planeBsize >= common.BlockSizes {
-			return false
-		}
-		dst, dstStride := e.vp9EncoderReconPlane(plane)
-		src, srcStride, srcW, srcH := vp9ReferenceVisiblePlane(inter.ref, plane)
-		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
-			return false
-		}
-		if mv.Row%8 != 0 || mv.Col%8 != 0 {
-			return false
-		}
-		dx := (int(mv.Col) / 8) >> pd.SubsamplingX
-		dy := (int(mv.Row) / 8) >> pd.SubsamplingY
-		dstRows := len(dst) / dstStride
-		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
-		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
-		srcX := x0 + dx
-		srcY := y0 + dy
-		if x0 >= dstStride || y0 >= dstRows || srcX < 0 || srcY < 0 ||
-			srcX >= srcW || srcY >= srcH {
-			continue
-		}
-		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
-		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
-		w := min(bw, min(dstStride-x0, srcW-srcX))
-		h := min(bh, min(dstRows-y0, srcH-srcY))
-		if w <= 0 || h <= 0 {
-			continue
-		}
-		copyPlane(dst[y0*dstStride+x0:], dstStride,
-			src[srcY*srcStride+srcX:], srcStride, w, h)
+	if mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return false
 	}
-	return true
+	var refs [common.RefFrames]vp9ReferenceFrame
+	refs[0] = *inter.ref
+	predictor := VP9Decoder{
+		planes:              e.planes,
+		frameY:              e.reconY,
+		frameU:              e.reconU,
+		frameV:              e.reconV,
+		lastFrame:           e.reconFrame,
+		interPredictScratch: e.interPredictScratch,
+		refFrames:           refs,
+	}
+	hdr := vp9dec.UncompressedHeader{
+		Width:  uint32(e.opts.Width),
+		Height: uint32(e.opts.Height),
+		InterRef: vp9dec.InterRefBlock{
+			RefIndex: [3]uint8{0, 0, 0},
+		},
+		InterpFilter: vp9dec.InterpEighttap,
+	}
+	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
+	e.interPredictScratch = predictor.interPredictScratch
+	return ok && !predictor.unsupportedReconstruct
 }
 
 func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize) {
