@@ -369,20 +369,120 @@ func writeDeltaQ(w *BitWriter, delta int32) {
 	w.WriteBit(sign)
 }
 
-// encodeSegmentation mirrors the disabled-fast-path of
-// libvpx's encode_segmentation. Full implementation (map updates,
-// per-feature data, temporal predictor probs) lands when the encoder
-// exposes the segmentation pass.
+// encodeSegmentation mirrors libvpx v1.16.0 encode_segmentation
+// in vp9/encoder/vp9_bitstream.c. Walks the map / data update
+// gates: TreeProbs / PredProbs encode "no update" via prob =
+// MAX_PROB so the encoder emits the 0 bit; otherwise emits 1 +
+// 8-bit literal. The per-feature data block walks
+// MaxSegments × SegLvlMax, gated by FeatureMask, encoding data
+// with get_unsigned_bits(max) bits + an optional sign bit for the
+// signed features (SEG_LVL_ALT_Q, SEG_LVL_ALT_LF).
 func encodeSegmentation(w *BitWriter, seg *vp9dec.SegmentationParams) {
 	bit32(w, seg.Enabled)
 	if !seg.Enabled {
 		return
 	}
-	// Stub for non-zero seg: emit (update_map=0, update_data=0) so
-	// the decoder preserves the previous-frame state. Full path
-	// lands in a later commit.
-	w.WriteBit(0) // update_map
-	w.WriteBit(0) // update_data
+
+	bit32(w, seg.UpdateMap)
+	if seg.UpdateMap {
+		for i := range vp9dec.SegTreeProbs {
+			p := seg.TreeProbs[i]
+			if p == vp9dec.MaxProb {
+				w.WriteBit(0)
+				continue
+			}
+			w.WriteBit(1)
+			w.WriteLiteral(uint32(p), 8)
+		}
+		bit32(w, seg.TemporalUpdate)
+		if seg.TemporalUpdate {
+			for i := range vp9dec.PredictionProbs {
+				p := seg.PredProbs[i]
+				if p == vp9dec.MaxProb {
+					w.WriteBit(0)
+					continue
+				}
+				w.WriteBit(1)
+				w.WriteLiteral(uint32(p), 8)
+			}
+		}
+	}
+
+	bit32(w, seg.UpdateData)
+	if !seg.UpdateData {
+		return
+	}
+	bit32(w, seg.AbsDelta)
+	for i := range vp9dec.MaxSegments {
+		for j := range vp9dec.SegLvlMax {
+			active := seg.FeatureMask[i]&(1<<uint(j)) != 0
+			bit32(w, active)
+			if !active {
+				continue
+			}
+			data := int(seg.FeatureData[i][j])
+			dataMax := segFeatureDataMax(j)
+			signed := segFeatureDataSigned(j)
+			mag := data
+			if mag < 0 {
+				mag = -mag
+			}
+			encodeUnsignedMax(w, mag, dataMax)
+			if signed {
+				if data < 0 {
+					w.WriteBit(1)
+				} else {
+					w.WriteBit(0)
+				}
+			}
+		}
+	}
+}
+
+// encodeUnsignedMax mirrors libvpx's encode_unsigned_max — write
+// `data` as a fixed-width literal sized by get_unsigned_bits(max).
+// The decoder side's decodeUnsignedMax reads the same width and
+// saturates at max, so out-of-range values aren't expressible.
+func encodeUnsignedMax(w *BitWriter, data, max int) {
+	bits := getUnsignedBits(max)
+	if bits == 0 {
+		return
+	}
+	w.WriteLiteral(uint32(data), bits)
+}
+
+// getUnsignedBits mirrors libvpx's get_unsigned_bits — number of
+// bits needed to represent any value in [0, n].
+func getUnsignedBits(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	bits := 0
+	for v := uint(n); v > 0; v >>= 1 {
+		bits++
+	}
+	return bits
+}
+
+// segFeatureDataMax mirrors libvpx's seg_feature_data_max table.
+// Indexed by feature slot (SegLvlAltQ / AltLf / RefFrame / Skip).
+func segFeatureDataMax(j int) int {
+	switch j {
+	case vp9dec.SegLvlAltQ:
+		return 255 // MAXQ
+	case vp9dec.SegLvlAltLf:
+		return 63 // MAX_LOOP_FILTER
+	case vp9dec.SegLvlRefFrame:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// segFeatureDataSigned mirrors libvpx's seg_feature_data_signed
+// table — only the alt-q and alt-lf features carry a sign bit.
+func segFeatureDataSigned(j int) bool {
+	return j == vp9dec.SegLvlAltQ || j == vp9dec.SegLvlAltLf
 }
 
 // WriteTileInfo mirrors libvpx's write_tile_info inline in
