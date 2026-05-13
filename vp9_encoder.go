@@ -68,6 +68,11 @@ type VP9Encoder struct {
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
 	frameIndex int
+	// lastEncodedKey records whether the immediately previous encoded
+	// frame was a keyframe. The first inter frame after a key has no
+	// previous-frame MV context, which makes the initial NEWMV path
+	// deterministic against the decoder-side MV-ref search.
+	lastEncodedKey bool
 
 	// fc carries the per-frame entropy context across frames.
 	// Reset on every keyframe via ResetFrameContext.
@@ -206,8 +211,9 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 }
 
 // EncodeInto packs the next profile 0 frame into dst. The current packet path
-// emits source-backed keyframes and visible LAST/ZeroMv inter frames with
-// fixed-size DCT_DCT residual transforms up to Tx32x32. A deterministic
+// emits source-backed keyframes and visible LAST inter frames with fixed-size
+// DCT_DCT residual transforms up to Tx32x32, including a bounded integer-pel
+// NEWMV path for the first inter frame after a keyframe. A deterministic
 // prepass walks the same mode tree to collect frame counts before the
 // compressed header, so the real tile is encoded with same-frame counts-driven
 // probability updates.
@@ -384,6 +390,7 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	}
 	n := tileStart + tileSize
 	e.refreshVP9EncoderRefs(&header)
+	e.lastEncodedKey = isKey
 	e.frameIndex++
 	return n, nil
 }
@@ -861,7 +868,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		hasResidue := false
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-				miRow, miCol, reconBsize, &cur)
+				miRow, miCol, reconBsize, tile, &cur)
 			if hasResidue {
 				cur.Skip = 0
 			}
@@ -873,6 +880,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		countVP9IntraInter(counts, seg, segID, above, left, 1)
 		countVP9SingleRef(counts, seg, segID, above, left, cur.RefFrame[0])
 		countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
+		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
+			miRow, miCol, bsize, &cur)
 		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
 			Seg:          seg,
 			Mi:           &cur,
@@ -883,6 +892,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			FrameRefMode: vp9dec.SingleReference,
 			InterpFilter: vp9dec.InterpEighttap,
 			InterModeCtx: interModeCtx,
+			Mv:           cur.Mv,
+			BestRefMv:    bestRefMv,
 		})
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
@@ -1141,9 +1152,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 
 func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
 ) bool {
-	if !e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize) {
+	if !e.prepareVP9InterPredictionBlock(inter, miRows, miCols, miRow, miCol,
+		bsize, tile, mi) {
 		return false
 	}
 	hasResidue := false
@@ -1180,8 +1192,149 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	return hasResidue
 }
 
+func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
+) bool {
+	if mi == nil {
+		return false
+	}
+	mi.Mode = common.ZeroMv
+	mi.Mv = [2]vp9dec.MV{}
+	if mv, ok := e.pickVP9InterIntegerMv(inter, miRows, miCols, miRow, miCol, bsize, tile); ok {
+		mi.Mode = common.NewMv
+		mi.Mv[0] = mv
+	}
+	return e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize, mi.Mv[0])
+}
+
+func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, _ vp9dec.TileBounds,
+) (vp9dec.MV, bool) {
+	if inter == nil || inter.ref == nil || !inter.ref.valid || !e.lastEncodedKey {
+		return vp9dec.MV{}, false
+	}
+	if bsize < common.Block16x16 {
+		return vp9dec.MV{}, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	ref, refStride, refW, refH := vp9ReferenceVisiblePlane(inter.ref, 0)
+	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 {
+		return vp9dec.MV{}, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > refW || y0+blockH > refH {
+		return vp9dec.MV{}, false
+	}
+
+	bestScore := vp9BlockSAD(src, srcStride, ref, refStride,
+		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+	bestDx, bestDy := 0, 0
+	eval := func(dx, dy int) bool {
+		if dx == bestDx && dy == bestDy {
+			return false
+		}
+		refX := x0 + dx
+		refY := y0 + dy
+		if refX < 0 || refY < 0 || refX+blockW > refW || refY+blockH > refH {
+			return false
+		}
+		score := vp9BlockSAD(src, srcStride, ref, refStride,
+			x0, y0, refX, refY, blockW, blockH, bestScore)
+		if score < bestScore {
+			bestScore = score
+			bestDx = dx
+			bestDy = dy
+			return true
+		}
+		return false
+	}
+
+	const (
+		searchRadius = 16
+		coarseStep   = 8
+		minStep      = 2
+	)
+	for dy := -searchRadius; dy <= searchRadius; dy += coarseStep {
+		for dx := -searchRadius; dx <= searchRadius; dx += coarseStep {
+			eval(dx, dy)
+		}
+	}
+	for step := coarseStep >> 1; step >= minStep; step >>= 1 {
+		improved := true
+		for improved {
+			improved = false
+			centerDx, centerDy := bestDx, bestDy
+			for dy := centerDy - step; dy <= centerDy+step; dy += step {
+				for dx := centerDx - step; dx <= centerDx+step; dx += step {
+					if dx < -searchRadius || dx > searchRadius ||
+						dy < -searchRadius || dy > searchRadius {
+						continue
+					}
+					if eval(dx, dy) {
+						improved = true
+					}
+				}
+			}
+		}
+	}
+	if bestDx == 0 && bestDy == 0 {
+		return vp9dec.MV{}, false
+	}
+	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
+	vp9ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
+	vp9dec.LowerMvPrecision(&mv, false)
+	if mv == (vp9dec.MV{}) {
+		return vp9dec.MV{}, false
+	}
+	return mv, true
+}
+
+func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int, limit uint64,
+) uint64 {
+	var sad uint64
+	for y := range h {
+		srcRow := src[(srcY+y)*srcStride+srcX:]
+		refRow := ref[(refY+y)*refStride+refX:]
+		for x := range w {
+			diff := int(srcRow[x]) - int(refRow[x])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += uint64(diff)
+		}
+		if sad >= limit {
+			return sad
+		}
+	}
+	return sad
+}
+
+func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) [2]vp9dec.MV {
+	var best [2]vp9dec.MV
+	if mi == nil || mi.Mode == common.ZeroMv || mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return best
+	}
+	refFinder := VP9Decoder{miGrid: e.miGrid}
+	signBias := [vp9dec.MaxRefFrames]uint8{}
+	refList, refCount := refFinder.vp9FindInterMvRefs(tile, miRows, miCols,
+		miRow, miCol, bsize, mi.Mode, mi.RefFrame[0], signBias)
+	best[0] = vp9InterModeMvCandidate(refList, refCount, mi.Mode)
+	vp9dec.LowerMvPrecision(&best[0], false)
+	return best
+}
+
 func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize,
+	miRow, miCol int, bsize common.BlockSize, mv vp9dec.MV,
 ) bool {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return false
@@ -1193,26 +1346,33 @@ func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			return false
 		}
 		dst, dstStride := e.vp9EncoderReconPlane(plane)
-		src, srcStride := vp9ReferencePlane(inter.ref, plane)
+		src, srcStride, srcW, srcH := vp9ReferenceVisiblePlane(inter.ref, plane)
 		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
 			return false
 		}
+		if mv.Row%8 != 0 || mv.Col%8 != 0 {
+			return false
+		}
+		dx := (int(mv.Col) / 8) >> pd.SubsamplingX
+		dy := (int(mv.Row) / 8) >> pd.SubsamplingY
 		dstRows := len(dst) / dstStride
-		srcRows := len(src) / srcStride
 		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
 		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
-		if x0 >= dstStride || y0 >= dstRows || x0 >= srcStride || y0 >= srcRows {
+		srcX := x0 + dx
+		srcY := y0 + dy
+		if x0 >= dstStride || y0 >= dstRows || srcX < 0 || srcY < 0 ||
+			srcX >= srcW || srcY >= srcH {
 			continue
 		}
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
 		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
-		w := min(bw, min(dstStride-x0, srcStride-x0))
-		h := min(bh, min(dstRows-y0, srcRows-y0))
+		w := min(bw, min(dstStride-x0, srcW-srcX))
+		h := min(bh, min(dstRows-y0, srcH-srcY))
 		if w <= 0 || h <= 0 {
 			continue
 		}
 		copyPlane(dst[y0*dstStride+x0:], dstStride,
-			src[y0*srcStride+x0:], srcStride, w, h)
+			src[srcY*srcStride+srcX:], srcStride, w, h)
 	}
 	return true
 }
@@ -1481,6 +1641,23 @@ func vp9EncoderSourcePlane(img *image.YCbCr, plane int) (
 		return img.Cb, img.CStride, (img.Rect.Dx() + 1) >> 1, (img.Rect.Dy() + 1) >> 1
 	case 2:
 		return img.Cr, img.CStride, (img.Rect.Dx() + 1) >> 1, (img.Rect.Dy() + 1) >> 1
+	default:
+		return nil, 0, 0, 0
+	}
+}
+
+func vp9ReferenceVisiblePlane(ref *vp9ReferenceFrame, plane int) (
+	pixels []byte, stride, width, height int,
+) {
+	if ref == nil || !ref.valid {
+		return nil, 0, 0, 0
+	}
+	pixels, stride = vp9ReferencePlane(ref, plane)
+	switch plane {
+	case 0:
+		return pixels, stride, ref.img.Width, ref.img.Height
+	case 1, 2:
+		return pixels, stride, (ref.img.Width + 1) >> 1, (ref.img.Height + 1) >> 1
 	default:
 		return nil, 0, 0, 0
 	}

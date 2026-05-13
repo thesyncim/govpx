@@ -10,9 +10,9 @@ Reference: libvpx v1.16.0. VP9 scope is documented in [UPSTREAM.md](UPSTREAM.md)
 
 ## VP9 Scope
 
-- Full profile 0 support only: 8-bit 4:2:0 raw VP9 packets and valid
+- Full profile 0 only: 8-bit 4:2:0 raw VP9 packets and valid
   superframes.
-- Out of scope: profiles 1, 2, and 3; high bit depth; non-4:2:0; alpha;
-  containers.
+- Out of scope: VP9 profiles 1, 2, and 3; high bit depth; non-4:2:0; alpha;
+  containers; extra VP9 features without implementation and oracle coverage.
 - RTP/WebRTC payload compatibility is in scope for both VP8 and VP9.
 - Do not claim support without an oracle case or conformance fixture.

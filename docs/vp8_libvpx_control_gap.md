@@ -11,10 +11,9 @@ Primary sources:
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_cx_iface.c`
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_dx_iface.c`
 
-This document tracks VP8-relevant libvpx controls and the govpx surfaces that
-cover them, with an opinionated "sane to port" filter. It is not a plan to
-recreate the libvpx C ABI. The intended shape is still small Go APIs that map
-cleanly onto libvpx behavior where that behavior is useful.
+This document tracks VP8-relevant libvpx controls and the govpx APIs that cover
+them. It is not a plan to recreate the libvpx C ABI. VP9 controls and VP9
+profiles beyond profile 0 are out of scope.
 
 ## Summary
 
@@ -24,10 +23,9 @@ scale mode (the caller-driven resolution change side of
 `vpx_codec_enc_config_set` is covered), output-partition packetization, PSNR
 packets, and input-fragment decode plumbing.
 
-The controls that are probably not worth porting by default are encoder
-preview postproc, decryptor callbacks, VP8 nonzero profiles for encode,
-multi-resolution encode, VP9-only controls, and header-only fields that libvpx
-does not actually wire into the VP8 encoder.
+Skipped controls: encoder preview postproc, decryptor callbacks, VP8 nonzero
+profiles for encode, multi-resolution encode, VP9-only controls, and
+header-only fields that libvpx does not wire into the VP8 encoder.
 
 ## Already Covered
 
@@ -75,11 +73,10 @@ What libvpx exposes:
 - Passing nil/no deltas disables segmentation.
 - Enabling ROI disables cyclic refresh in libvpx.
 
-Why it is sane:
+Why it is covered:
 
 - It is a real VP8 feature, not C API scaffolding.
-- It is useful for screen sharing, active speaker regions, and ROI quality
-  shaping.
+- It supports screen sharing, active speaker regions, and ROI quality shaping.
 - govpx already has segmentation machinery for cyclic refresh and alt-LF
   paths, so the port is mostly a public control plus plumbing and precedence.
 
@@ -122,7 +119,7 @@ libvpx controls:
 These controls are available on both the VP8 encoder and decoder interfaces.
 They set or copy `LAST`, `GOLDEN`, or `ALTREF` reference buffers.
 
-Why it is sane:
+Why it is covered:
 
 - External reference repair and recovery are legitimate VP8 workflows.
 - It helps WebRTC-style applications and diagnostics.
@@ -163,7 +160,7 @@ What libvpx exposes:
 - `VP8_TUNE_PSNR`
 - `VP8_TUNE_SSIM`
 
-Why it is sane:
+Why it is covered:
 
 - It is a real quality/decision knob.
 - It affects RD behavior through activity masking and is visible in quality
@@ -202,11 +199,11 @@ libvpx has four rate-control modes: `VPX_VBR`, `VPX_CBR`, `VPX_CQ`, and
 `VPX_Q`. govpx exposes these as `RateControlVBR`, `RateControlCBR`,
 `RateControlCQ`, and `RateControlQ`.
 
-Why it is sane:
+Why it is covered:
 
 - This is part of the common encoder config and VP8 implements it.
-- It may be useful for callers that want the closest libvpx-style
-  constant-quality behavior rather than the current constrained-quality floor.
+- It gives callers libvpx-style constant-quality behavior instead of the
+  constrained-quality floor.
 
 Current Go API:
 
@@ -252,7 +249,7 @@ Implemented notes:
   `activeWorstQChanged` is set, overshoot-drop disablement, runtime setter
   validation, and zero-allocation runtime control behavior.
 
-## Maybe Sane, But Larger Or Niche
+## Deferred
 
 ### Spatial Resampling And `VP8E_SET_SCALEMODE`
 
@@ -270,13 +267,9 @@ libvpx surfaces this through:
 - `rc_resize_up_thresh` — **missing**.
 - `rc_resize_down_thresh` — **missing**.
 
-Why the remaining (spatial-resampler) part may still be sane:
+Why it is still deferred:
 
-- It is useful for low-bitrate realtime streams.
 - It is a real VP8/libvpx behavior, not VP9-only scaffolding.
-
-Why the spatial-resampler side is not a first pass:
-
 - It would scale the source inside the encoder, separate display size
   from coded size, and change keyframe scale bits in the bitstream
   header.
@@ -287,8 +280,8 @@ Why the spatial-resampler side is not a first pass:
   drives the coded size, which is the contract the implemented
   resolution-change path keeps.
 
-Port the spatial resampler only after deciding the Go API for coded
-size vs display size.
+Port the spatial resampler only after deciding the Go API for coded size vs
+display size.
 
 ### Output Partition Packets
 
@@ -302,7 +295,7 @@ This is not the same thing as `VP8E_SET_TOKEN_PARTITIONS`. govpx can encode
 multi-token-partition frames, but it always returns one contiguous frame buffer.
 libvpx can return one packet per partition with fragment flags.
 
-Sane API only if callers need partition packetization:
+Possible API if callers need partition packetization:
 
 ```go
 type EncodedPartition struct {
@@ -323,17 +316,16 @@ libvpx surfaces this through:
 - `VPX_CODEC_PSNR_PKT`
 
 govpx has `EncodeResult.PSNRHint`, but it is not equivalent to libvpx PSNR
-packets. This is useful for diagnostics, but applications can also compute
-PSNR externally from source and decoded output.
+packets. Applications can also compute PSNR externally from source and decoded
+output.
 
 ### Input Fragments
 
 Status: missing as a streaming decode mode. Priority: low.
 
 libvpx's decoder can be initialized with `VPX_CODEC_USE_INPUT_FRAGMENTS`.
-govpx expects complete VP8 frames. A fragment accumulator could be useful for
-some RTP/container users, but it is transport framing rather than core VP8
-decode.
+govpx expects complete VP8 frames. A fragment accumulator would be transport
+framing, not core VP8 decode.
 
 ## Probably Skip
 

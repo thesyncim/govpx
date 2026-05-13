@@ -57,6 +57,58 @@ func newVP9HorizontalBandsForTest(width, height int, u, v byte) *image.YCbCr {
 	return img
 }
 
+func newVP9MotionYCbCrForTest(width, height int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			row[x] = byte(16 + (x*7+y*11+(x*y)%37)%224)
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			cb[x] = byte(64 + (x*5+y*3)%128)
+			cr[x] = byte(48 + (x*3+y*7)%160)
+		}
+	}
+	return img
+}
+
+func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
+	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeDx, planeDy int) {
+		for y := range height {
+			dstRow := dst[y*dstStride:]
+			sy := clampVP9IntForTest(y+planeDy, 0, height-1)
+			srcRow := src[sy*srcStride:]
+			for x := range width {
+				sx := clampVP9IntForTest(x+planeDx, 0, width-1)
+				dstRow[x] = srcRow[sx]
+			}
+		}
+	}
+	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height, dx, dy)
+	uvWidth := (ref.Width + 1) >> 1
+	uvHeight := (ref.Height + 1) >> 1
+	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, dx>>1, dy>>1)
+	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, dx>>1, dy>>1)
+	return img
+}
+
+func clampVP9IntForTest(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 func fillVP9YCbCrForTest(img *image.YCbCr, y, u, v byte) {
 	for i := range img.Y {
 		img.Y[i] = y
@@ -393,6 +445,55 @@ func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after checker inter frame")
 	}
 	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
+}
+
+func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after inter frame")
+	}
+	got := d.miGrid[0]
+	if got.Mode != common.NewMv {
+		t.Fatalf("top-left inter mode = %d, want NewMv", got.Mode)
+	}
+	want := vp9dec.MV{Col: 64}
+	if got.Mv[0] != want {
+		t.Fatalf("top-left MV = %+v, want %+v", got.Mv[0], want)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after NEWMV inter frame")
+	}
 }
 
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
