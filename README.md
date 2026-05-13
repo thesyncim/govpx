@@ -10,13 +10,11 @@ a libvpx runtime dependency. It produces and consumes raw VP8 frame payloads and
 raw VP9 profile 0 packets for RTP/WebRTC-compatible transport.
 
 VP9 scope is full profile 0 only: 8-bit 4:2:0 raw packets and valid
-superframes. VP9 profiles 1, 2, and 3 are out of scope. High bit depth,
-non-4:2:0 chroma variants, alpha, containers, AV1, and libvpx C ABI
-compatibility are out of scope. RTP/WebRTC payload compatibility is in scope
-for both VP8 and VP9.
-
-Validation uses a pinned libvpx v1.16.0 oracle. VP9 oracle coverage is
-profile 0 only.
+superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
+non-4:2:0 chroma variants are out of scope. RTP/WebRTC payload compatibility is
+in scope for both VP8 and VP9. Valid non-profile-0 VP9 packets return
+`ErrVP9NotImplemented`. Validation uses pinned libvpx v1.16.0 only as an
+oracle/baseline; VP9 oracle coverage is profile 0 only.
 
 ## Install
 
@@ -122,7 +120,12 @@ returns no more data.
 | Reference buffer control | `SetReferenceFrame`, `CopyReferenceFrame` |
 | Last decoded/encoded metadata | `LastFrameInfo`, `LastQuantizer`, `EncodeResult` |
 
-## WebRTC profile
+## RTP/WebRTC Compatibility
+
+govpx's RTP/WebRTC contract is codec-payload compatibility: raw VP8 frame
+payloads and raw VP9 profile 0 packets suitable for RTP/WebRTC packetization.
+RTP payload descriptors, fragmentation/reassembly, SRTP, SDP, and signaling
+remain caller-owned.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
 dropping, and RTC external rate control:
@@ -149,9 +152,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 
 - Use `ForceKeyFrame()` for sticky PLI/FIR. Use `EncodeForceKeyFrame`
   on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
-- VP9 `EncodeIntoWithFlags` supports no-update reference / entropy flags and
-  visible GOLDEN / ALTREF refresh flags. VP9 inter prediction currently uses
-  single-reference LAST / GOLDEN / ALTREF, not compound references.
+- VP9 `EncodeIntoWithFlags` is profile-0-only and supports the VP9-compatible
+  keyframe, reference, and entropy hints documented by `EncodeFlags`. Remaining
+  profile-0 encoder gaps are implementation status, not scope expansion.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"encoding/binary"
 	"errors"
 	"image"
 
@@ -33,9 +34,10 @@ type VP9EncoderOptions struct {
 	// TimebaseDen is the denominator of the caller timebase.
 	TimebaseDen int
 
-	// Threads is reserved for VP9 encode paths that can split work by
-	// tile. Zero or 1 use the serial path. Negative values return
-	// ErrInvalidConfig.
+	// Threads is a tile-column hint for VP9 profile 0 encode. Zero or 1
+	// choose the minimum legal tile columns for the frame; larger values choose
+	// enough columns for decoder/transport parallelism, clamped to VP9 limits.
+	// Encoding is currently serial. Negative values return ErrInvalidConfig.
 	Threads int
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
@@ -243,12 +245,12 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 // EncodeNoUpdateEntropy, EncodeForceGoldenFrame, and EncodeForceAltRefFrame.
 // Invisible frames are not implemented by the current profile 0 packet path.
 //
-// The current packet path emits source-backed keyframes and visible LAST inter
-// frames with fixed-size DCT_DCT residual transforms up to Tx32x32, including
-// bounded rate-aware LAST-frame motion search with quarter-pel refinement. A
-// deterministic prepass walks the same mode tree to collect frame counts before
-// the compressed header, so the real tile is encoded with same-frame
-// counts-driven probability updates.
+// The current packet path emits source-backed keyframes and visible
+// single-reference LAST / GOLDEN / ALTREF inter frames with fixed-size DCT_DCT
+// residual transforms up to Tx32x32, including bounded rate-aware motion search
+// with quarter-pel refinement. A deterministic prepass walks the same tiled mode
+// tree to collect frame counts before the compressed header, so the real tile
+// stream is encoded with same-frame counts-driven probability updates.
 func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
@@ -307,6 +309,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 			ColorRange: common.CRStudioRange,
 		},
 	}
+	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
 	// BaseQindex=1 dodges the lossless inference libvpx makes when
 	// base_qindex + every delta_q are all zero. Lossless mode forces
 	// tx_mode=ONLY_4X4 on the decoder side and skips the tx_mode
@@ -383,7 +386,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	}
 
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
-		&partitionProbs, &seg, baseMi, isKey, header.IntraOnly, keyState, interState)
+		header.Tile, &partitionProbs, &seg, baseMi, isKey, header.IntraOnly, keyState, interState)
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:           false,
@@ -422,19 +425,15 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	}
 	copy(dst[uncSize:uncSize+compSize], e.scratch[:compSize])
 
-	var tileBW bitstream.Writer
 	tileStart := uncSize + compSize
-	tileBW.Start(dst[tileStart:])
+	tileKind := vp9ModeTreeInterSource
 	if isKey {
-		e.writeVP9KeyframeSourceModesTile(&tileBW, miRows, miCols,
-			&partitionProbs, &seg, baseMi, keyState)
+		tileKind = vp9ModeTreeKeyframeSource
 	} else if header.IntraOnly {
-		e.writeVP9StubModesTile(&tileBW, miRows, miCols, &partitionProbs, &seg, baseMi)
-	} else {
-		e.writeVP9InterSourceModesTile(&tileBW, miRows, miCols,
-			&partitionProbs, &seg, baseMi, interState)
+		tileKind = vp9ModeTreeKeyframe
 	}
-	tileSize, err := tileBW.Stop()
+	tileSize, err := e.writeVP9FrameTiles(dst[tileStart:], miRows, miCols,
+		header.Tile, &partitionProbs, &seg, baseMi, tileKind, keyState, interState)
 	if err != nil {
 		return tileStart, err
 	}
@@ -482,6 +481,32 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 		refresh |= 1 << vp9AltRefSlot
 	}
 	return refresh
+}
+
+func vp9EncoderTileInfo(miCols, threads int) vp9dec.TileInfo {
+	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
+	log2Cols := minLog2
+	if threads > 1 {
+		log2Cols = max(log2Cols, vp9CeilLog2(threads))
+	}
+	log2Cols = min(log2Cols, maxLog2)
+	return vp9dec.TileInfo{
+		Log2TileCols: log2Cols,
+		Log2TileRows: 0,
+	}
+}
+
+func vp9CeilLog2(v int) int {
+	if v <= 1 {
+		return 0
+	}
+	n := 0
+	p := 1
+	for p < v {
+		p <<= 1
+		n++
+	}
+	return n
 }
 
 func vp9EncoderReferenceSlot(refFrame int8) (int, bool) {
@@ -690,6 +715,7 @@ func (e *VP9Encoder) resetVP9EncoderCodingState(width, height int) {
 }
 
 func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols int,
+	tileInfo vp9dec.TileInfo,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 	isKey, intraOnly bool, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
@@ -710,21 +736,37 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 		countInter = &tmp
 	}
 
-	var bw bitstream.Writer
-	bw.Start(e.scratch[:])
-	switch {
-	case isKey:
-		e.writeVP9KeyframeSourceModesTile(&bw, miRows, miCols,
-			partitionProbs, seg, baseMi, countKey)
-	case intraOnly:
-		e.writeVP9StubModesTile(&bw, miRows, miCols, partitionProbs, seg, baseMi)
-	default:
-		e.writeVP9InterSourceModesTile(&bw, miRows, miCols,
-			partitionProbs, seg, baseMi, countInter)
+	kind := vp9ModeTreeInterSource
+	if isKey {
+		kind = vp9ModeTreeKeyframeSource
+	} else if intraOnly {
+		kind = vp9ModeTreeKeyframe
 	}
+	e.collectVP9FrameTileCounts(miRows, miCols, tileInfo,
+		partitionProbs, seg, baseMi, kind, countKey, countInter)
 
 	e.resetVP9EncoderCodingState(width, height)
 	return counts
+}
+
+func (e *VP9Encoder) collectVP9FrameTileCounts(miRows, miCols int,
+	tileInfo vp9dec.TileInfo,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+) {
+	tileRows := 1 << uint(tileInfo.Log2TileRows)
+	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	for tileRow := range tileRows {
+		for tileCol := range tileCols {
+			var bw bitstream.Writer
+			bw.Start(e.scratch[:])
+			e.writeVP9FrameTile(&bw, miRows, miCols,
+				vp9EncoderTileBounds(tileRow, tileCol, miRows, miCols, tileInfo),
+				partitionProbs, seg, baseMi, kind, key, inter)
+			_, _ = bw.Stop()
+		}
+	}
 }
 
 func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
@@ -911,6 +953,77 @@ func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, m
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
 	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi, vp9ModeTreeKeyframe, nil, nil)
+}
+
+func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
+	tileInfo vp9dec.TileInfo,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+) (int, error) {
+	tileRows := 1 << uint(tileInfo.Log2TileRows)
+	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	totalSize := 0
+	nTiles := tileRows * tileCols
+	for tileRow := range tileRows {
+		for tileCol := range tileCols {
+			idx := tileRow*tileCols + tileCol
+			isLast := idx == nTiles-1
+			offset := totalSize
+			if !isLast {
+				offset += 4
+			}
+			if offset >= len(output) {
+				return totalSize, encoder.ErrTileBufferFull
+			}
+
+			var bw bitstream.Writer
+			bw.Start(output[offset:])
+			e.writeVP9FrameTile(&bw, miRows, miCols,
+				vp9EncoderTileBounds(tileRow, tileCol, miRows, miCols, tileInfo),
+				partitionProbs, seg, baseMi, kind, key, inter)
+			size, err := bw.Stop()
+			if err != nil {
+				return totalSize, err
+			}
+			if !isLast {
+				binary.BigEndian.PutUint32(output[totalSize:totalSize+4], uint32(size))
+				totalSize += 4
+			}
+			totalSize += size
+		}
+	}
+	return totalSize, nil
+}
+
+func (e *VP9Encoder) writeVP9FrameTile(bw *bitstream.Writer, miRows, miCols int,
+	tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+) {
+	switch kind {
+	case vp9ModeTreeKeyframeSource:
+		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
+			partitionProbs, seg, baseMi, kind, key, nil)
+	case vp9ModeTreeInterSource:
+		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
+			partitionProbs, seg, baseMi, kind, nil, inter)
+	default:
+		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
+			partitionProbs, seg, baseMi, kind, nil, nil)
+	}
+}
+
+func vp9EncoderTileBounds(tileRow, tileCol, miRows, miCols int,
+	tileInfo vp9dec.TileInfo,
+) vp9dec.TileBounds {
+	return vp9dec.TileBounds{
+		MiRowStart: vp9DecoderTileOffset(tileRow, miRows, tileInfo.Log2TileRows),
+		MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, tileInfo.Log2TileRows),
+		MiColStart: vp9DecoderTileOffset(tileCol, miCols, tileInfo.Log2TileCols),
+		MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, tileInfo.Log2TileCols),
+	}
 }
 
 type vp9ModeTreeKind uint8

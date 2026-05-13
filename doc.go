@@ -5,9 +5,9 @@
 // both VP8 and VP9. Transport framing is the caller's responsibility.
 //
 // VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw packets and valid
-// superframes. Profiles 1, 2, and 3, high bit depth, non-4:2:0 chroma
-// variants, alpha, WebM/container behavior, AV1, and libvpx C ABI
-// compatibility are outside scope.
+// superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
+// non-4:2:0 chroma variants are out of scope. Valid non-profile-0 VP9 packets
+// return [ErrVP9NotImplemented].
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go

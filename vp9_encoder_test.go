@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"encoding/binary"
 	"errors"
 	"image"
 	"testing"
@@ -1394,6 +1395,74 @@ func TestVP9EncoderKeyframeChromaBandsRoundTrip(t *testing.T) {
 	assertVP9VisibleChromaContrast(t, frame, width, height, 48)
 }
 
+func TestVP9EncoderWideFrameUsesMinimumLegalTileColumns(t *testing.T) {
+	const width, height = 4160, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	minLog2, _ := vp9dec.TileNBits(int((uint32(width) + 7) >> 3))
+	if minLog2 < 1 {
+		t.Fatalf("test frame min tile columns = %d, want >= 1", minLog2)
+	}
+	if h.Tile.Log2TileCols != minLog2 {
+		t.Fatalf("Log2TileCols = %d, want minimum legal %d",
+			h.Tile.Log2TileCols, minLog2)
+	}
+	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after multi-tile keyframe")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 91, 143, 37)
+}
+
+func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
+	const width, height = 1280, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	})
+	img := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	h, tileStart := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Tile.Log2TileCols != 2 {
+		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
+			h.Tile.Log2TileCols)
+	}
+	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after threaded-tile keyframe")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 82, 123, 211)
+}
+
 // TestVP9EncoderIVFRoundTrip wraps the encoded keyframe in an IVF
 // container and round-trips it through the existing IVF parser.
 // Confirms the encoder's output is a valid VP9-IVF stream — the
@@ -1637,6 +1706,37 @@ func assertVP9VisibleChromaContrast(t *testing.T, got Image, width, height int, 
 	}
 	if hi-lo < minDelta {
 		t.Fatalf("visible UV contrast = %d..%d, want delta >= %d", lo, hi, minDelta)
+	}
+}
+
+func parseVP9EncoderHeaderForTest(t *testing.T, packet []byte) (vp9dec.UncompressedHeader, int) {
+	t.Helper()
+	var br vp9dec.BitReader
+	br.Init(packet)
+	h, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	tileStart := br.BytesRead() + int(h.FirstPartitionSize)
+	if tileStart > len(packet) {
+		t.Fatalf("tile start %d past packet len %d", tileStart, len(packet))
+	}
+	return h, tileStart
+}
+
+func assertVP9EncoderTilePrefixForTest(t *testing.T, packet []byte, tileStart int) {
+	t.Helper()
+	if len(packet)-tileStart < 5 {
+		t.Fatalf("multi-tile payload too small: tileStart=%d packet=%d",
+			tileStart, len(packet))
+	}
+	firstTileSize := int(binary.BigEndian.Uint32(packet[tileStart : tileStart+4]))
+	if firstTileSize <= 0 {
+		t.Fatalf("first tile size prefix = %d, want > 0", firstTileSize)
+	}
+	if tileStart+4+firstTileSize >= len(packet) {
+		t.Fatalf("first tile consumes packet: start=%d size=%d len=%d",
+			tileStart, firstTileSize, len(packet))
 	}
 }
 

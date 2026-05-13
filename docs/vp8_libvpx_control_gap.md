@@ -12,9 +12,8 @@ Primary sources:
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_dx_iface.c`
 
 This document tracks VP8-relevant libvpx controls and the govpx APIs that cover
-them. It is not a plan to recreate the libvpx C ABI. VP9-only libvpx C-control
-parity, VP9 profiles 1/2/3, high bit depth, chroma variants outside 8-bit
-4:2:0, and AV1 are out of scope for this gap list.
+them. It is not a libvpx C ABI roadmap and does not define VP9 scope; use
+`UPSTREAM.md` for VP9 profile 0, RTP/WebRTC, and non-profile-0 behavior.
 
 ## Summary
 
@@ -325,8 +324,9 @@ output.
 Status: missing as a streaming decode mode. Priority: low.
 
 libvpx's decoder can be initialized with `VPX_CODEC_USE_INPUT_FRAGMENTS`.
-govpx expects complete VP8 frames. A fragment accumulator would be transport
-framing, not core VP8 decode.
+govpx expects complete VP8 frame payloads; RTP/WebRTC packetization and
+reassembly are caller-owned compatibility layers. A built-in fragment
+accumulator is optional and not required for core decode parity.
 
 ## Probably Skip
 

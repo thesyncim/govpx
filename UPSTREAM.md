@@ -11,17 +11,14 @@ govpx is pinned to libvpx `v1.16.0`.
 ## Scope
 
 govpx uses libvpx as an oracle and baseline, not as a runtime dependency.
-The public package API is Go-native and does not try to mirror the libvpx C ABI.
+Compatibility targets are VP8/VP9 bitstreams and RTP/WebRTC payload behavior,
+not the libvpx C ABI.
 
 VP9 support is full profile 0 only: 8-bit 4:2:0 raw packets and valid
-superframes.
-
-Out of scope: VP9 profiles 1, 2, and 3; high bit depth; non-4:2:0 chroma
-variants; alpha; containers; AV1; and libvpx C ABI compatibility.
-
-RTP/WebRTC payload compatibility is in scope for both VP8 and VP9.
-
-Valid non-profile0 VP9 packets return `ErrVP9NotImplemented`.
+superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
+non-4:2:0 chroma variants are out of scope. RTP/WebRTC payload compatibility is
+in scope for both VP8 and VP9. Valid non-profile-0 VP9 packets return
+`ErrVP9NotImplemented`.
 
 ## Gates
 

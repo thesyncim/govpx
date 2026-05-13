@@ -48,9 +48,12 @@ its first frame.
 
 ## What this proves
 
-- `govpx` produces VP8 bitstreams that real-world VP8 decoders (libvpx
-  inside Chromium / Firefox / Safari) decode without modification.
+- `govpx` produces VP8 payloads that native browser VP8 decoders accept over
+  WebRTC without bitstream modification.
 - The encoder is fast enough on a single goroutine to sustain 30 fps at
   320x240 in pure Go.
 - Realtime rate control, keyframe forcing, and the zero-allocation hot path
   hold up under live RTP delivery.
+
+This example covers the VP8 path only; repository scope still includes
+RTP/WebRTC payload compatibility for both VP8 and VP9.
