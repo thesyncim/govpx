@@ -14,7 +14,17 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	fastQuant := e.libvpxUseFastQuantForPick()
 	pickerProbs := e.pickerCoefProbs()
 	if mbMode == vp8common.BPred {
-		bModes, bRate, bDist, ok := predictBestBPredLumaModeRD(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant)
+		// libvpx: rd_pick_intra4x4block scores each 4x4 candidate with
+		// RDCOST(x->rdmult, x->rddiv, rate, distortion), where x->rdmult is
+		// activity-masked when --tune=ssim. Thread the tuned (rdMult, rdDiv)
+		// here so the per-sub-block intra mode picker matches libvpx's
+		// activity-tuned per-block decisions.
+		rdMult, rdDiv := 0, 0
+		if e.activityMapValid {
+			rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+			rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
+		}
+		bModes, bRate, bDist, ok := predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant, rdMult, rdDiv)
 		if !ok {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 		}
