@@ -136,20 +136,18 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode3-3layer-25-25-50-cpu-8", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 8},
 
 		// ---- Mode 5: 3-layer 4-frame period, 20/20/60 split. ----
-		// All three speeds carry a gap around the layer-0 sync-frame
-		// path: first divergence is at frame 1 (cpu0), 2 (cpu-3,-8).
-		// The L0 first-inter quant decision under 3-layer mode 5
-		// differs slightly from libvpx; once L0 drifts, downstream
-		// L1/L2 fanout amplifies it.
-		{name: "mode5-3layer-20-20-60-cpu0", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 0, limit: 1},
+		// cpu0 byte-matches the full clip after explicit NO_REF_*
+		// layer masks bypass the post-keyframe LAST/GOLDEN/ALTREF alias
+		// filter, matching libvpx's vp8_use_as_reference path. cpu-3
+		// and cpu-8 still diverge at frame 2 in the speed-specific
+		// inter mode-search paths.
+		{name: "mode5-3layer-20-20-60-cpu0", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 0},
 		{name: "mode5-3layer-20-20-60-cpu-3", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, limit: 2},
 		{name: "mode5-3layer-20-20-60-cpu-8", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 8, limit: 2},
 
 		// ---- ErrorResilient cross (mode 5 = the standard WebRTC SVC pattern). ----
-		// mode 5 + ER: first L1 mismatch at frame 3 (carries the
-		// underlying mode-5 sync-frame gap above). mode 2 + ER is
-		// fully byte-identical.
-		{name: "mode5-3layer-cpu-3-error-resilient", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, errorResilient: true, limit: 3},
+		// mode 5 + ER and mode 2 + ER are fully byte-identical.
+		{name: "mode5-3layer-cpu-3-error-resilient", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, errorResilient: true},
 		{name: "mode2-2layer-cpu-3-error-resilient", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, errorResilient: true},
 
 		// ---- Threads=2 cross. ----
