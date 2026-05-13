@@ -777,6 +777,26 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	}
 	state := e.temporal.codingState[meta.LayerID]
 	e.loopFilterLevel = state.FilterLevel
+	e.rc.bufferLevelBits = state.BufferLevelBits
+	e.rc.totalActualBits = state.TotalActualBits
+	e.rc.rateCorrectionFactor = state.RateCorrectionFactor
+	e.rc.keyFrameCorrectionFactor = state.KeyFrameCorrectionFactor
+	e.rc.goldenCorrectionFactor = state.GoldenCorrectionFactor
+	e.rc.avgFrameQuantizer = state.AvgFrameQuantizer
+	e.rc.normalInterAvgQuantizer = state.NormalInterAvgQuantizer
+	e.rc.normalInterFrames = state.NormalInterFrames
+	e.rc.normalInterQuantizerTotal = state.NormalInterQuantizerTotal
+	e.rc.lastQuantizer = state.LastQuantizer
+	e.rc.lastInterQuantizer = state.LastInterQuantizer
+	e.rc.currentZbinOverQuant = state.CurrentZbinOverQuant
+	e.rc.framesSinceLastDropOvershoot = state.FramesSinceLastDropOvershoot
+	e.forceMaxQuantizer = state.ForceMaxQuantizer
+	e.lastFramePercentIntra = state.LastFramePercentIntra
+	e.rc.interFrameTarget = state.InterFrameTarget
+	e.rc.recentRefFrameUsageIntra = state.RecentRefFrameUsageIntra
+	e.rc.recentRefFrameUsageLast = state.RecentRefFrameUsageLast
+	e.rc.recentRefFrameUsageGolden = state.RecentRefFrameUsageGolden
+	e.rc.recentRefFrameUsageAltRef = state.RecentRefFrameUsageAltRef
 }
 
 // saveTemporalLayerCodingState captures the per-layer state that needs to
@@ -793,7 +813,27 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 		return
 	}
 	e.temporal.codingState[meta.LayerID] = temporalLayerCodingState{
-		FilterLevel: e.loopFilterLevel,
+		FilterLevel:                  e.loopFilterLevel,
+		BufferLevelBits:              e.rc.bufferLevelBits,
+		TotalActualBits:              e.rc.totalActualBits,
+		RateCorrectionFactor:         e.rc.rateCorrectionFactor,
+		KeyFrameCorrectionFactor:     e.rc.keyFrameCorrectionFactor,
+		GoldenCorrectionFactor:       e.rc.goldenCorrectionFactor,
+		AvgFrameQuantizer:            e.rc.avgFrameQuantizer,
+		NormalInterAvgQuantizer:      e.rc.normalInterAvgQuantizer,
+		NormalInterFrames:            e.rc.normalInterFrames,
+		NormalInterQuantizerTotal:    e.rc.normalInterQuantizerTotal,
+		LastQuantizer:                e.rc.lastQuantizer,
+		LastInterQuantizer:           e.rc.lastInterQuantizer,
+		CurrentZbinOverQuant:         e.rc.currentZbinOverQuant,
+		FramesSinceLastDropOvershoot: e.rc.framesSinceLastDropOvershoot,
+		ForceMaxQuantizer:            e.forceMaxQuantizer,
+		LastFramePercentIntra:        e.lastFramePercentIntra,
+		InterFrameTarget:             e.rc.interFrameTarget,
+		RecentRefFrameUsageIntra:     e.rc.recentRefFrameUsageIntra,
+		RecentRefFrameUsageLast:      e.rc.recentRefFrameUsageLast,
+		RecentRefFrameUsageGolden:    e.rc.recentRefFrameUsageGolden,
+		RecentRefFrameUsageAltRef:    e.rc.recentRefFrameUsageAltRef,
 	}
 	e.temporal.codingValid[meta.LayerID] = true
 }

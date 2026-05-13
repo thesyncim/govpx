@@ -112,26 +112,29 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 
 		// ---- Mode 2: 2-layer 3-frame period, 60/40 split (libvpx). ----
 		// All three speeds byte-match the full 32-frame clip after the
-		// per-layer filter-level seed lookup landed (govpx now pulls
-		// the previous-frame LF level from LAYER_CONTEXT instead of
-		// from the trailing layer's commit, mirroring libvpx
-		// vp8_restore_layer_context). cpu-8 still drifts later in the
-		// clip on a separate residual rate-control gap; the limit
-		// pins the prefix that the L0 sync-slot fix unlocked.
+		// per-layer rate-control + filter-level seed lookup landed
+		// (govpx now pulls buffer_level / total_actual_bits / Q rolling
+		// averages / rate-correction factors / filter_level back from
+		// LAYER_CONTEXT instead of the trailing layer's commit,
+		// mirroring libvpx vp8_save_layer_context /
+		// vp8_restore_layer_context).
 		{name: "mode2-2layer-60-40-cpu0", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 0},
 		{name: "mode2-2layer-60-40-cpu-3", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
-		{name: "mode2-2layer-60-40-cpu-8", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8, limit: 7},
+		{name: "mode2-2layer-60-40-cpu-8", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8},
 
 		// ---- Mode 3: 3-layer 6-frame period, 25/25/50 split. ----
-		// cpu0 byte-matches the full clip after per-layer LF restore
-		// (was 31). cpu-3 still carries a deeper L0 first-inter
-		// divergence under cpu-used=-3 that is independent of
-		// filter_level (Q stays at min through the clip, but the L0
-		// recode-loop path picks a different inter mode mix on the
-		// first L0 inter after the keyframe; the LF fix already
-		// extends the L2 fanout match from source frame 1 to source
-		// frame 5, but the L0 stream itself still falls over at the
-		// first inter frame). cpu-8 byte-matches the full clip.
+		// cpu0 and cpu-8 byte-match the full clip after the per-layer
+		// RC + LF restore landed. cpu-3 still carries a deeper L0
+		// first-inter divergence (source frame 6 -> output frame 1)
+		// under cpu-used=-3 that is independent of filter_level AND of
+		// layer-context state (the very first L0 inter after the
+		// keyframe — no other L0 frames have run yet, so the L0 slot
+		// holds the keyframe-time snapshot and the restore is a no-op
+		// against the post-keyframe state). The L2 fanout already
+		// matches the first 6 source frames; the gap surfaces only on
+		// the first source-frame-6 L0 encode and is a cpu_used=-3
+		// inter mode-search path divergence rather than a layer-state
+		// sync issue.
 		{name: "mode3-3layer-25-25-50-cpu0", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 0},
 		{name: "mode3-3layer-25-25-50-cpu-3", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 3, limit: 1},
 		{name: "mode3-3layer-25-25-50-cpu-8", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 8},
