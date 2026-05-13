@@ -941,6 +941,89 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T)
 	}
 }
 
+func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	goldenSrc := newVP9YCbCrForTest(width, height, 188, 96, 224)
+	goldenRefresh, err := e.EncodeWithFlags(goldenSrc,
+		EncodeForceGoldenFrame|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode force-GOLDEN: %v", err)
+	}
+	inter, err := e.EncodeWithFlags(goldenSrc,
+		EncodeNoReferenceLast|EncodeNoReferenceAltRef|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode GOLDEN-only inter: %v", err)
+	}
+	info, err := PeekVP9StreamInfo(inter)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo: %v", err)
+	}
+	if info.KeyFrame {
+		t.Fatal("NoReferenceLast forced a keyframe despite usable GOLDEN")
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	for _, packet := range [][]byte{key, goldenRefresh, inter} {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet: %v", err)
+		}
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after GOLDEN-only inter")
+	}
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.GoldenFrame || got.Mv[0] != (vp9dec.MV{}) {
+		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want GOLDEN with zero MV",
+			got.RefFrame[0], got.Mode, got.Mv[0])
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	altSrc := newVP9YCbCrForTest(width, height, 44, 208, 96)
+	altRefresh, err := e.EncodeWithFlags(altSrc,
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+	if err != nil {
+		t.Fatalf("Encode force-ALTREF: %v", err)
+	}
+	inter, err := e.EncodeWithFlags(altSrc,
+		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode ALTREF-only inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	for _, packet := range [][]byte{key, altRefresh, inter} {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet: %v", err)
+		}
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after ALTREF-only inter")
+	}
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.AltrefFrame || got.Mv[0] != (vp9dec.MV{}) {
+		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want ALTREF with zero MV",
+			got.RefFrame[0], got.Mode, got.Mv[0])
+	}
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsNoUpdateEntropyRestoresFrameContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
