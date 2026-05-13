@@ -93,6 +93,7 @@
  *                          screen:N maxintra:N gfboost:N cq:N
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
+ *                          setref:{last,golden,altref}:panning:N
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -372,6 +373,75 @@ static void apply_roi_map(vpx_codec_ctx_t *ctx, int rows, int cols,
   free(roi.roi_map);
 }
 
+static void fill_panning_image(vpx_image_t *img, int width, int height,
+                               int index) {
+  int xoff = index * 2;
+  int yoff = index;
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      int src_x = x + xoff;
+      int src_y = y + yoff;
+      img->planes[VPX_PLANE_Y][(ptrdiff_t)y * img->stride[VPX_PLANE_Y] + x] =
+          (uint8_t)(32 + ((src_y * 7 + src_x * 11 +
+                           (src_x / 8) * (src_y / 8) * 13) &
+                          191));
+    }
+  }
+  int uv_w = (width + 1) >> 1;
+  int uv_h = (height + 1) >> 1;
+  for (int y = 0; y < uv_h; ++y) {
+    for (int x = 0; x < uv_w; ++x) {
+      int src_x = x + xoff / 2;
+      int src_y = y + yoff / 2;
+      img->planes[VPX_PLANE_U][(ptrdiff_t)y * img->stride[VPX_PLANE_U] + x] =
+          (uint8_t)(96 + ((src_x * 5 + src_y * 3) & 63));
+      img->planes[VPX_PLANE_V][(ptrdiff_t)y * img->stride[VPX_PLANE_V] + x] =
+          (uint8_t)(144 + ((src_x * 2 + src_y * 7) & 63));
+    }
+  }
+}
+
+static vpx_ref_frame_type_t parse_ref_frame_type(const char *value) {
+  if (strcmp(value, "last") == 0) return VP8_LAST_FRAME;
+  if (strcmp(value, "golden") == 0) return VP8_GOLD_FRAME;
+  if (strcmp(value, "altref") == 0) return VP8_ALTR_FRAME;
+  die_msg("invalid reference frame: %s", value);
+  return VP8_LAST_FRAME;
+}
+
+static void apply_set_reference_token(vpx_codec_ctx_t *ctx, int width,
+                                      int height, const char *spec) {
+  char buf[128];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) die_msg("setref token too long: %s", spec);
+  memcpy(buf, spec, len + 1);
+
+  char *ref_name = buf;
+  char *kind = strchr(ref_name, ':');
+  if (!kind) die_msg("setref expects ref:pattern:index: %s", spec);
+  *kind++ = '\0';
+  char *index_text = strchr(kind, ':');
+  if (!index_text) die_msg("setref expects ref:pattern:index: %s", spec);
+  *index_text++ = '\0';
+  if (strcmp(kind, "panning") != 0) {
+    die_msg("unsupported setref pattern: %s", kind);
+  }
+  int index = parse_int(index_text, "setref index");
+
+  vpx_image_t ref_img;
+  if (!vpx_img_alloc(&ref_img, VPX_IMG_FMT_I420, (unsigned)width,
+                     (unsigned)height, 1)) {
+    die_msg("vpx_img_alloc setref failed");
+  }
+  fill_panning_image(&ref_img, width, height, index);
+  vpx_ref_frame_t ref;
+  ref.frame_type = parse_ref_frame_type(ref_name);
+  ref.img = ref_img;
+  if (vpx_codec_control(ctx, VP8_SET_REFERENCE, &ref))
+    die_codec_msg(ctx, "VP8_SET_REFERENCE");
+  vpx_img_free(&ref_img);
+}
+
 static char **parse_csv_strings(const char *csv, int *out_count,
                                 const char *flag_name) {
   if (!csv) {
@@ -508,7 +578,7 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
              starts_with(token, "autoaltref:") || starts_with(token, "arnrmax:") ||
              starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:") ||
              starts_with(token, "rtc:") || starts_with(token, "active:") ||
-             starts_with(token, "roi:")) {
+             starts_with(token, "roi:") || starts_with(token, "setref:")) {
     return;
   } else {
     die_msg("unknown control token: %s", token);
@@ -517,6 +587,8 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
 
 struct runtime_codec_context {
   vpx_codec_ctx_t *ctx;
+  int width;
+  int height;
   int mb_rows;
   int mb_cols;
 };
@@ -579,6 +651,9 @@ static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
     default_roi_params(pattern, delta_q, delta_lf, static_threshold);
     apply_roi_map(ctx->ctx, ctx->mb_rows, ctx->mb_cols, pattern, delta_q,
                   delta_lf, static_threshold);
+  } else if (starts_with(token, "setref:")) {
+    apply_set_reference_token(ctx->ctx, ctx->width, ctx->height,
+                              token + strlen("setref:"));
   }
 }
 
@@ -625,7 +700,8 @@ static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cf
       die_codec_msg(ctx, "runtime vpx_codec_enc_config_set");
     }
   }
-  struct runtime_codec_context codec_ctx = {ctx, mb_rows, mb_cols};
+  struct runtime_codec_context codec_ctx = {
+      ctx, (int)cfg->g_w, (int)cfg->g_h, mb_rows, mb_cols};
   for_each_control_token(entry, codec_token_callback, &codec_ctx);
 }
 

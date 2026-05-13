@@ -354,6 +354,33 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "set-reference-last-before-inter",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				return opts
+			}(),
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:last:panning:8",
+			}),
+			// The externally replaced-reference frame itself matches.
+			// Subsequent inter frames still drift, so keep the prefix
+			// pinned while the follow-on reference bookkeeping is fixed.
+			matchLimit: 2,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					ref := encoderValidationPanningFrame(e.opts.Width, e.opts.Height, 8)
+					mustRuntime(t, "SetReferenceFrame(last)", e.SetReferenceFrame(ReferenceLast, ref))
+				},
+			},
+		},
+		{
 			name: "roi-map-quadrants-toggle",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
