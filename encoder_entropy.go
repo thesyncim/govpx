@@ -75,7 +75,25 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.updateLastSignaledLFDeltas(attempt.Config.LFDeltaEnabled, attempt.Config.RefLFDeltas, attempt.Config.ModeLFDeltas)
 	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
 	// counters used by applyLibvpxRdRefFrameProbRefreshAdjustments next frame.
-	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
+	//
+	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate gates BOTH
+	// branches (update_alt_ref_frame_stats and update_golden_frame_stats) on
+	// `if (!cpi->oxcf.error_resilient_mode)` at line 4724. When either
+	// VPX_ERROR_RESILIENT_DEFAULT or VPX_ERROR_RESILIENT_PARTITIONS is set,
+	// neither function runs, so `cpi->frames_since_golden` is frozen at 0 for
+	// the entire clip (it is zero-initialized by vp8_create_compressor and
+	// never reset). The next frame's update_rd_ref_frame_probs therefore
+	// takes the `frames_since_golden == 0` branch on every inter frame and
+	// forces prob_last_coded = 214 in the picker's vp8_calc_ref_frame_costs
+	// dispatch. Without this gate, govpx incremented framesSinceGolden every
+	// inter frame and the picker saw the post-rfct-derived prob_last_coded
+	// (typically much smaller than 214 once LAST dominated), which biased
+	// the ref_frame_cost in favor of GOLDEN on knife-edge mb decisions and
+	// surfaced as a frame-3 1-byte first_partition diff on the
+	// realtime-cbr-cpu-3-64x64-error-resilient3 panning fixture.
+	if !e.opts.ErrorResilient && !e.opts.ErrorResilientPartitions {
+		e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
+	}
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 	} else {
