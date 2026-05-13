@@ -109,6 +109,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// minQ / maxQ override the default 4 / 56 quantizer band.
 		minQ int
 		maxQ int
+		// minQSet / maxQSet distinguish explicit zero-valued quantizer
+		// bounds from the default band.
+		minQSet bool
+		maxQSet bool
 		// cqLevel overrides EncoderOptions.CQLevel for CQ/Q mode.
 		cqLevel int
 		// kfInterval overrides the keyframe interval (0 = use the
@@ -187,6 +191,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-bitrate2000", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		// Tight quantizer band.
 		{name: "realtime-cbr-cpu8-q10-30", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, minQ: 10, maxQ: 30},
+		{name: "realtime-cbr-cpu-3-64x64-q0-63", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, minQ: 0, maxQ: 63, minQSet: true, maxQSet: true},
 		// Forced keyframe every frame stresses the keyframe writer
 		// path; diverges today (keyframe Q selection differs in
 		// repeated-keyframe sequences).
@@ -194,11 +199,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Different FPS.
 		{name: "realtime-cbr-cpu8-fps15", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu8-fps60", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
-		// GoodQuality across cpu-used. cpu0/cpu4/cpu5 byte-match on the
-		// panning fixture; cpu2 still has a residual RD divergence.
+		// GoodQuality across cpu-used. cpu0/cpu2/cpu4/cpu5 byte-match on
+		// the panning fixture.
 		{name: "good-quality-cbr-cpu0", deadline: DeadlineGoodQuality, cpuUsed: 0, fx: panning64},
-		{name: "good-quality-cbr-cpu2", deadline: DeadlineGoodQuality, cpuUsed: 2, fx: panning64, limit: -1},
+		{name: "good-quality-cbr-cpu2", deadline: DeadlineGoodQuality, cpuUsed: 2, fx: panning64},
 		{name: "good-quality-cbr-cpu4", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: panning64},
+		{name: "good-quality-vbr-cpu4-16x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
+		{name: "good-quality-q-cpu4-16x16-q20", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		{name: "good-quality-cq-cpu4-16x16-cq20", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
 		// BestQuality panning now byte-matches the full sequence at cpu0.
 		{name: "best-quality-cbr-cpu0-panning", deadline: DeadlineBestQuality, cpuUsed: 0, fx: panning64},
 		// Realtime explicit-speed inputs (libvpx skips auto-select).
@@ -211,6 +219,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-640x480", w: 640, h: 480, source: encoderValidationPanningFrame}},
 		// Sub-MB-aligned dimensions (w / h % 16 != 0) exercise the
 		// MB padding / coded-vs-visible width handling.
+		{name: "realtime-cbr-cpu-3-33x17", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-33x17", w: 33, h: 17, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-72x40", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-72x40", w: 72, h: 40, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu8-100x100", deadline: DeadlineRealtime, cpuUsed: 8, fx: fixture{name: "panning-100x100", w: 100, h: 100, source: encoderValidationPanningFrame}},
 		// 16x16 minimum frame size — single-MB encode is byte-identical
@@ -509,6 +518,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-3-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu-3-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		{name: "realtime-cbr-cpu8-error-resilient-partitions-8partitions", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--error-resilient=2", "--token-parts=3"}},
 		{name: "realtime-cbr-cpu-8-2partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-8-4partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu-8-8partitions", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
@@ -825,11 +835,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				caseTargetKbps = tc.targetKbpsOverride
 			}
 			minQ := 4
-			if tc.minQ > 0 {
+			if tc.minQSet || tc.minQ > 0 {
 				minQ = tc.minQ
 			}
 			maxQ := 56
-			if tc.maxQ > 0 {
+			if tc.maxQSet || tc.maxQ > 0 {
 				maxQ = tc.maxQ
 			}
 			cqLevel := 0
