@@ -135,6 +135,18 @@ void vpx_lpf_horizontal_4_c(uint8_t *s, int pitch, const uint8_t *blimit,
                             const uint8_t *limit, const uint8_t *thresh);
 void vpx_lpf_vertical_4_c(uint8_t *s, int pitch, const uint8_t *blimit,
                           const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_horizontal_8_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                            const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_vertical_8_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                          const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_horizontal_16_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                             const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_horizontal_16_dual_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                                  const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_vertical_16_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                           const uint8_t *limit, const uint8_t *thresh);
+void vpx_lpf_vertical_16_dual_c(uint8_t *s, int pitch, const uint8_t *blimit,
+                                const uint8_t *limit, const uint8_t *thresh);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -351,8 +363,14 @@ static void run_lf(int kind, int blimit, int limit, int thresh) {
 	uint8_t *s = plane_post + LF_CURSOR_OFFSET;
 
 	switch (kind) {
-		case 500: vpx_lpf_horizontal_4_c(s, LF_PLANE_DIM, &bl, &li, &th); break;
-		case 501: vpx_lpf_vertical_4_c(s,   LF_PLANE_DIM, &bl, &li, &th); break;
+		case 500: vpx_lpf_horizontal_4_c(s,        LF_PLANE_DIM, &bl, &li, &th); break;
+		case 501: vpx_lpf_vertical_4_c(s,          LF_PLANE_DIM, &bl, &li, &th); break;
+		case 502: vpx_lpf_horizontal_8_c(s,        LF_PLANE_DIM, &bl, &li, &th); break;
+		case 503: vpx_lpf_vertical_8_c(s,          LF_PLANE_DIM, &bl, &li, &th); break;
+		case 504: vpx_lpf_horizontal_16_c(s,       LF_PLANE_DIM, &bl, &li, &th); break;
+		case 505: vpx_lpf_vertical_16_c(s,         LF_PLANE_DIM, &bl, &li, &th); break;
+		case 506: vpx_lpf_horizontal_16_dual_c(s,  LF_PLANE_DIM, &bl, &li, &th); break;
+		case 507: vpx_lpf_vertical_16_dual_c(s,    LF_PLANE_DIM, &bl, &li, &th); break;
 		default: return;
 	}
 
@@ -654,7 +672,7 @@ int main(void) {
 		int blimits[] = { 4, 8, 12, 24, 48 };
 		int limits[]  = { 2, 4, 8, 16, 32 };
 		int thresh[]  = { 0, 2, 4, 8, 16 };
-		for (int k = 500; k <= 501; k++) {
+		for (int k = 500; k <= 507; k++) {
 			for (int i = 0; i < 5; i++) {
 				run_lf(k, blimits[i], limits[i], thresh[i]);
 			}

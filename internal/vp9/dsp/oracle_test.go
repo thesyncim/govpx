@@ -63,10 +63,16 @@ const (
 	convSrcOffset = 16
 
 	// Loop filter records start at 500.
-	kLfBase    = 500
-	kLfHoriz4  = 500
-	kLfVert4   = 501
-	lfPlaneDim = 32
+	kLfBase       = 500
+	kLfHoriz4     = 500
+	kLfVert4      = 501
+	kLfHoriz8     = 502
+	kLfVert8      = 503
+	kLfHoriz16    = 504
+	kLfVert16     = 505
+	kLfHoriz16Dl  = 506
+	kLfVert16Dl   = 507
+	lfPlaneDim    = 32
 )
 
 const (
@@ -216,6 +222,18 @@ func callLf(kernelID, blimit, limit, thresh, pitch, cursor int, plane []byte) {
 		VpxLpfHorizontal4(plane, cursor, pitch, bl, li, th)
 	case kLfVert4:
 		VpxLpfVertical4(plane, cursor, pitch, bl, li, th)
+	case kLfHoriz8:
+		VpxLpfHorizontal8(plane, cursor, pitch, bl, li, th)
+	case kLfVert8:
+		VpxLpfVertical8(plane, cursor, pitch, bl, li, th)
+	case kLfHoriz16:
+		VpxLpfHorizontal16(plane, cursor, pitch, bl, li, th)
+	case kLfVert16:
+		VpxLpfVertical16(plane, cursor, pitch, bl, li, th)
+	case kLfHoriz16Dl:
+		VpxLpfHorizontal16Dual(plane, cursor, pitch, bl, li, th)
+	case kLfVert16Dl:
+		VpxLpfVertical16Dual(plane, cursor, pitch, bl, li, th)
 	}
 }
 
