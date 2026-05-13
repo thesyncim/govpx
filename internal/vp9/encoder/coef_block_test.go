@@ -180,6 +180,51 @@ func TestWriteCoefBlockBranchStatsMatchDecoderPrefixCounts(t *testing.T) {
 	assertCoefPrefixStatsMatchDecoderCounts(t, &stats, &counts)
 }
 
+func TestWriteCoefBlockCat2UsesLibvpxEnergyClass(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan4x4[:]
+	neigh := tables.DefaultScan4x4Neighbors[:]
+	dq := [2]int16{16, 24}
+
+	coeffs := make([]int16, 16)
+	coeffs[scan[0]] = 7 * dq[0] // CAT2 at DC; libvpx energy class is 4.
+	coeffs[scan[1]] = dq[1]
+
+	var stats FrameCoefBranchStats
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+		TxSize:          common.Tx4x4,
+		DequantDC:       dq[0],
+		DequantAC:       dq[1],
+		Scan:            scan,
+		Neighbors:       neigh,
+		Coeffs:          coeffs,
+		Fc:              &fc,
+		CoefBranchStats: &stats,
+	}); err != nil {
+		t.Fatalf("WriteCoefBlock: %v", err)
+	}
+
+	var tokenCache [1024]uint8
+	tokenCache[scan[0]] = 4
+	wantCtx := vp9dec.GetCoefContext(neigh, &tokenCache, 1)
+	tokenCache[scan[0]] = 5
+	wrongCtx := vp9dec.GetCoefContext(neigh, &tokenCache, 1)
+	if wantCtx == wrongCtx {
+		t.Fatalf("test setup did not distinguish CAT2 context: got %d", wantCtx)
+	}
+
+	band := tables.CoefbandTrans4x4[1]
+	if got := stats[common.Tx4x4][0][0][band][wantCtx][0]; got[1] == 0 {
+		t.Fatalf("CAT2-following EOB branch at ctx %d = %v, want not-EOB usage", wantCtx, got)
+	}
+	if got := stats[common.Tx4x4][0][0][band][wrongCtx][0]; got != [2]uint32{} {
+		t.Fatalf("CAT2-following wrong ctx %d was used: %v", wrongCtx, got)
+	}
+}
+
 func TestWriteCoefBlockBranchStatsIncludeParetoTail(t *testing.T) {
 	fc := seedDefaultCoefProbsForEnc()
 	scan := tables.DefaultScan4x4[:]

@@ -40,6 +40,23 @@ func TestForwardDCT8x8ConstantKeepsOnlyDC(t *testing.T) {
 	}
 }
 
+func TestForwardDCT16x16ConstantKeepsOnlyDC(t *testing.T) {
+	var input [256]int16
+	for i := range input {
+		input[i] = 10
+	}
+	var got [256]int16
+	ForwardDCT16x16(input[:], 16, &got)
+	if got[0] != 1278 {
+		t.Fatalf("constant block DC = %d, want 1278; coeffs=%v", got[0], got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] != 0 {
+			t.Fatalf("constant block AC[%d] = %d, want 0; coeffs=%v", i, got[i], got)
+		}
+	}
+}
+
 func TestQuantizeFP4x4EmitsDequantizedCoefficients(t *testing.T) {
 	scan := common.DefaultScanOrders[common.Tx4x4].Scan
 	var coeff [16]int16
@@ -53,6 +70,27 @@ func TestQuantizeFP4x4EmitsDequantizedCoefficients(t *testing.T) {
 	}
 	if dqcoeff[0] != 320 || dqcoeff[ac] != -20 {
 		t.Fatalf("dqcoeff[0]=%d dqcoeff[%d]=%d, want 320/-20", dqcoeff[0], ac, dqcoeff[ac])
+	}
+	for i := 1; i < len(dqcoeff); i++ {
+		if i != ac && dqcoeff[i] != 0 {
+			t.Fatalf("dqcoeff[%d] = %d, want 0", i, dqcoeff[i])
+		}
+	}
+}
+
+func TestQuantizeFP16x16EmitsDequantizedCoefficients(t *testing.T) {
+	scan := common.DefaultScanOrders[common.Tx16x16].Scan
+	var coeff [256]int16
+	coeff[0] = 1278
+	ac := int(scan[63])
+	coeff[ac] = -46
+	var dqcoeff [256]int16
+	eob := QuantizeFP(coeff[:], [2]int16{7, 6}, scan, dqcoeff[:])
+	if eob != 64 {
+		t.Fatalf("eob = %d, want 64; dqcoeff=%v", eob, dqcoeff)
+	}
+	if dqcoeff[0] != 1274 || dqcoeff[ac] != -42 {
+		t.Fatalf("dqcoeff[0]=%d dqcoeff[%d]=%d, want 1274/-42", dqcoeff[0], ac, dqcoeff[ac])
 	}
 	for i := 1; i < len(dqcoeff); i++ {
 		if i != ac && dqcoeff[i] != 0 {

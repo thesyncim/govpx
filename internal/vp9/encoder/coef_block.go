@@ -129,7 +129,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 			tokenCache[raster] = 2
 		case absVal == 3 || absVal == 4:
 			tokenCache[raster] = 3
-		case absVal <= 6:
+		case absVal <= 10:
 			tokenCache[raster] = 4
 		default:
 			tokenCache[raster] = 5

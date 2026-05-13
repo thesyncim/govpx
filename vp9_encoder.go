@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	vp9EncoderTxCoeffSlots    = 64
+	vp9EncoderTxCoeffSlots    = 256
 	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
 )
 
@@ -112,9 +112,9 @@ type VP9Encoder struct {
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch    [1024]int16
-	residueScratch [64]int16
-	txCoeffScratch [64]int16
-	dqCoeffScratch [64]int16
+	residueScratch [256]int16
+	txCoeffScratch [256]int16
+	dqCoeffScratch [256]int16
 	frameCounts    encoder.FrameCounts
 }
 
@@ -275,11 +275,11 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
 
-	txMode := common.Allow8x8
+	txMode := common.Allow16x16
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
-		TxSize: common.Tx8x8,
+		TxSize: common.Tx16x16,
 		Skip:   1,
 		RefFrame: [2]int8{
 			vp9dec.IntraFrame,
@@ -568,10 +568,21 @@ func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
 }
 
 func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
+	if mi.TxSize >= common.Tx16x16 {
+		return common.Allow16x16
+	}
 	if mi.TxSize >= common.Tx8x8 {
 		return common.Allow8x8
 	}
 	return common.Only4x4
+}
+
+func clampVP9TxSizeForBlock(tx common.TxSize, bsize common.BlockSize) common.TxSize {
+	maxTx := common.MaxTxsizeLookup[bsize]
+	if tx > maxTx {
+		return maxTx
+	}
+	return tx
 }
 
 func countVP9Skip(counts *encoder.FrameCounts, seg *vp9dec.SegmentationParams,
@@ -833,6 +844,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 ) {
 	cur := baseMi
 	cur.SbType = bsize
+	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -1174,6 +1186,8 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 		encoder.ForwardDCT4x4Into(e.residueScratch[:], 4, e.txCoeffScratch[:maxEob])
 	case common.Tx8x8:
 		encoder.ForwardDCT8x8Into(e.residueScratch[:], 8, e.txCoeffScratch[:maxEob])
+	case common.Tx16x16:
+		encoder.ForwardDCT16x16Into(e.residueScratch[:], 16, e.txCoeffScratch[:maxEob])
 	default:
 		return false
 	}
