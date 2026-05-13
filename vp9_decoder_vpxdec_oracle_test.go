@@ -9,6 +9,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
@@ -45,6 +46,77 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
 		t.Fatalf("I420 mismatch for skipped inter stream\nlibvpx=%s\ngovpx=%s",
 			testutil.MD5Hex(md5.Sum(want)),
 			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9StubPacketForTest(t, 96, 96, 0, common.DcPred)
+	inter := vp9InterSkipFrameForTest(t, 96, 96)
+	ivf := vp9IVFForTest(96, 96, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for edge skipped inter stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	inter := vp9InterResidueFrameForTest(t, 64, 64, 32)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inter residual stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterResidualEdgeStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	cases := []struct {
+		name          string
+		width, height int
+	}{
+		{"sub-sb", 32, 32},
+		{"right-edge", 96, 64},
+		{"bottom-edge", 64, 96},
+		{"corner-edge", 96, 96},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := vp9StubPacketForTest(t, tc.width, tc.height, 0, common.DcPred)
+			inter := vp9InterResidueFrameForTest(t, tc.width, tc.height, 32)
+			ivf := vp9IVFForTest(tc.width, tc.height, key, inter)
+			want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+			if err != nil {
+				t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+			}
+
+			got := vp9DecodeVisibleI420ForTest(t, key, inter)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("I420 mismatch for edge inter residual stream\nlibvpx=%s\ngovpx=%s",
+					testutil.MD5Hex(md5.Sum(want)),
+					testutil.MD5Hex(md5.Sum(got)))
+			}
+		})
 	}
 }
 

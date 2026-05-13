@@ -462,13 +462,13 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 	if mi.Skip != 0 {
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
-		if isInter != 0 && !d.reconstructVP9InterSkipBlock(hdr, mi, miRow, miCol, bsize) {
+		if isInter != 0 && !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
 			return false
 		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
 	}
-	if isInter != 0 {
+	if isInter != 0 && !vp9CanReconstructInterBlock(mi) {
 		d.unsupportedReconstruct = true
 	}
 	if !d.readVP9ResidueBlock(r, hdr, mi, uvMode, tile, miRow, miCol, bsize, segID, isInter) {
@@ -542,7 +542,7 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 		int(mi.SegIDPredicted), 0)
 }
 
-func (d *VP9Decoder) reconstructVP9InterSkipBlock(
+func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 	hdr *vp9dec.UncompressedHeader,
 	mi *vp9dec.NeighborMi,
 	miRow, miCol int,
@@ -551,7 +551,7 @@ func (d *VP9Decoder) reconstructVP9InterSkipBlock(
 	if d.unsupportedReconstruct {
 		return true
 	}
-	if !vp9CanReconstructInterSkipBlock(mi) {
+	if !vp9CanReconstructInterBlock(mi) {
 		d.unsupportedReconstruct = true
 		return true
 	}
@@ -599,8 +599,8 @@ func (d *VP9Decoder) reconstructVP9InterSkipBlock(
 	return true
 }
 
-func vp9CanReconstructInterSkipBlock(mi *vp9dec.NeighborMi) bool {
-	if mi == nil || mi.SbType < common.Block8x8 || mi.Skip == 0 {
+func vp9CanReconstructInterBlock(mi *vp9dec.NeighborMi) bool {
+	if mi == nil || mi.SbType < common.Block8x8 {
 		return false
 	}
 	if mi.RefFrame[0] <= vp9dec.IntraFrame || mi.RefFrame[0] > vp9dec.AltrefFrame ||
@@ -641,6 +641,11 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	miRow, miCol int, bsize common.BlockSize, segID int, isInter int,
 ) bool {
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
+	if isInter != 0 && !d.unsupportedReconstruct {
+		if !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
+			return false
+		}
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
 		planeType := 0
@@ -682,7 +687,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					coeffs[i] = 0
 				}
 
-				eob := vp9dec.DecodeCoefs(r, txSize, planeType, 0, dequant,
+				eob := vp9dec.DecodeCoefs(r, txSize, planeType, isInter, dequant,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs, coeffs)
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
@@ -696,6 +701,15 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 						}
 						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
 							txType, eob, hdr.Quant.Lossless)
+					}
+				} else if isInter != 0 && !d.unsupportedReconstruct {
+					dst, stride, ok := d.vp9InterTxDst(hdr, pd, plane, txSize,
+						miRow, miCol, rr, cc)
+					if !ok {
+						d.unsupportedReconstruct = true
+					} else if eob > 0 && dst != nil {
+						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
+							common.DctDct, eob, hdr.Quant.Lossless)
 					}
 				}
 				hasResidue := uint8(0)
@@ -711,6 +725,36 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		}
 	}
 	return true
+}
+
+func (d *VP9Decoder) vp9InterTxDst(
+	hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane,
+	plane int,
+	txSize common.TxSize,
+	miRow, miCol int,
+	blockRow4x4, blockCol4x4 int,
+) (dst []byte, stride int, ok bool) {
+	planeData, stride := d.vp9OutputPlane(plane)
+	if stride <= 0 || len(planeData) == 0 {
+		return nil, 0, false
+	}
+	rows := len(planeData) / stride
+	planeWidth, planeHeight := vp9dec.FramePlaneDims(int(hdr.Width), int(hdr.Height),
+		pd.SubsamplingX, pd.SubsamplingY)
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	x0 := baseX + blockCol4x4*4
+	y0 := baseY + blockRow4x4*4
+	if x0 >= planeWidth || y0 >= planeHeight {
+		return nil, 0, true
+	}
+
+	bs := 4 << uint(txSize)
+	if x0+bs > stride || y0+bs > rows {
+		return nil, 0, false
+	}
+	return planeData[y0*stride+x0:], stride, true
 }
 
 func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
