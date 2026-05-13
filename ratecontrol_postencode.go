@@ -171,7 +171,6 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 		return
 	}
 	if keyFrame {
-		rc.keyFrameCount++
 		if actualBits > perFrameBandwidth {
 			overspend := actualBits - perFrameBandwidth
 			if rc.currentTemporalLayers > 1 {
@@ -189,6 +188,7 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 			}
 		}
+		rc.keyFrameCount++
 		return
 	}
 	if errorResilient {
@@ -264,15 +264,10 @@ func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int, er
 // (e.g. 2 for an every-2 forced-KF cadence) while govpx records the
 // intervening *inter-frame* count (1 for the same cadence). Adding 1 here
 // closes the off-by-one so `last_kf_interval` matches libvpx's value
-// at `vp8_adjust_key_frame_context` time. Without this bump, repeated
-// forced KFs spuriously drive estimate_keyframe_frequency to 1 (the
-// weighted average bottoms out one tick early), inflating
-// kf_bitrate_adjustment to the point where the very next inter frame's
-// calc_pframe_target_size drains all of kf_overspend_bits at once and
-// the trailing inter frame's vp8_regulate_q ends up several Q steps
-// above libvpx (close-cyclic-forcekf-splitmv).
+// at `vp8_adjust_key_frame_context` time. The key-frame count is advanced
+// after this helper, matching libvpx's vp8_adjust_key_frame_context tail.
 func (rc *rateControlState) estimateKeyFrameFrequency() int {
-	if rc.keyFrameCount == 1 {
+	if rc.keyFrameCount <= 1 {
 		avg := 1 + rc.outputFrameRate*2
 		if avg <= 0 {
 			avg = 1

@@ -305,6 +305,15 @@ func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, g
 	last = flags&EncodeNoReferenceLast == 0
 	golden = flags&EncodeNoReferenceGolden == 0
 	alt = flags&EncodeNoReferenceAltRef == 0
+	// libvpx routes explicit VP8_EFLAG_NO_REF_* user masks through
+	// vp8_use_as_reference, which overwrites cpi->ref_frame_flags with the
+	// user-derived mask and bypasses the gold_is_last / alt_is_last /
+	// gold_is_alt alias filters from update_reference_frames. Temporal-SVC
+	// layer flags rely on that: a post-keyframe L1 frame may intentionally
+	// allow LAST and GOLDEN even though both buffers still alias the keyframe.
+	if flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) != 0 {
+		return last, golden, alt
+	}
 	// Reference-alias deduplication: when two reference buffers hold
 	// the same pixel data the picker only needs to consider the
 	// primary one. The primary is LAST when reachable; otherwise we

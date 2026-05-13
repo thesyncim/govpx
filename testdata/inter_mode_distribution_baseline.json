@@ -2,14 +2,14 @@
   "fixtures": {
     "rt-cpu8-1280x720-bench-noise": {
       "diff_pp": {
-        "zeromv": -0.10317460317460325,
-        "nearestmv": 0.1547619047619122,
-        "nearmv": 0,
-        "newmv": -0.011904761904761918,
-        "intra": -0.039682539682539694
+        "zeromv": -2.9047619047619047,
+        "nearestmv": -14.527777777777771,
+        "nearmv": 10.8015873015873,
+        "newmv": 6.785714285714286,
+        "intra": -0.15476190476190477
       },
-      "l1_pp": 0.3095238095238171,
-      "eob_sum_ratio": 0.9232329871609483
+      "l1_pp": 35.17460317460317,
+      "eob_sum_ratio": 0.60893037114938
     },
     "rt-cpu8-128x128-bench-noise": {
       "diff_pp": {
@@ -25,24 +25,24 @@
     "rt-cpu8-128x128-panning": {
       "diff_pp": {
         "zeromv": 0,
-        "nearestmv": -0.2232142857142776,
+        "nearestmv": 0,
         "nearmv": 0,
         "newmv": 0,
-        "intra": 0.2232142857142856
+        "intra": 0
       },
-      "l1_pp": 0.4464285714285632,
-      "eob_sum_ratio": 0.9765096574121555
+      "l1_pp": 0,
+      "eob_sum_ratio": 1.0018069494298343
     },
     "rt-cpu8-256x256-bench-noise": {
       "diff_pp": {
         "zeromv": 0,
-        "nearestmv": -0.7254464285714306,
-        "nearmv": 0.7254464285714288,
+        "nearestmv": 0,
+        "nearmv": 0,
         "newmv": 0,
         "intra": 0
       },
-      "l1_pp": 1.4508928571428594,
-      "eob_sum_ratio": 1.0076592864395006
+      "l1_pp": 0,
+      "eob_sum_ratio": 1
     },
     "rt-cpu8-256x256-panning": {
       "diff_pp": {

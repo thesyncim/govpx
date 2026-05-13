@@ -686,20 +686,22 @@ func TestInterAnalysisReferencesPruneLibvpxAliasFlagsAfterKeyFrame(t *testing.T)
 	if want := boolBitCost(255, 0); refs[0].RefRate != want {
 		t.Fatalf("post-key LAST rate = %d, want single-reference libvpx cost %d", refs[0].RefRate, want)
 	}
-	// When LAST is explicitly masked by EncodeNoReferenceLast, the
-	// previously-suppressed GOLDEN alias must surface as the picker's
-	// surviving candidate so the encoder stays on the inter-frame path
-	// instead of promoting to a keyframe. Mirrors libvpx
-	// onyx_if.c, which walks cm->ref_frame_flags and finds GOLDEN/ALTREF
-	// still valid because the KF refresh seeded them with the LAST
-	// reconstruction; the resulting inter frame codes its MBs as
-	// zero-MV against that aliased GOLDEN slot.
+	// Explicit NO_REF_* user masks route through libvpx's
+	// vp8_use_as_reference path, which replaces ref_frame_flags with the
+	// user-derived mask and bypasses the post-keyframe alias filter. When
+	// LAST is explicitly masked, both GOLDEN and ALTREF remain available
+	// even though the keyframe refresh seeded them with the LAST
+	// reconstruction.
 	if e.shouldEncodeKeyFrame(EncodeNoReferenceLast) {
-		t.Fatalf("shouldEncodeKeyFrame with LAST disabled = true, want inter frame using aliased GOLDEN fallback")
+		t.Fatalf("shouldEncodeKeyFrame with LAST disabled = true, want inter frame using user-selected aliased refs")
 	}
 	count = e.interAnalysisReferences(EncodeNoReferenceLast, &refs)
-	if count != 1 || refs[0].Frame != vp8common.GoldenFrame {
-		t.Fatalf("NoReferenceLast picker refs = count:%d first:%+v, want only GOLDEN as aliased fallback", count, refs[0])
+	if count != 2 || refs[0].Frame != vp8common.GoldenFrame || refs[1].Frame != vp8common.AltRefFrame {
+		t.Fatalf("NoReferenceLast picker refs = count:%d refs:%+v, want GOLDEN and ALTREF user-selected aliases", count, refs[:count])
+	}
+	count = e.interAnalysisReferences(EncodeNoReferenceAltRef, &refs)
+	if count != 2 || refs[0].Frame != vp8common.LastFrame || refs[1].Frame != vp8common.GoldenFrame {
+		t.Fatalf("NoReferenceAltRef picker refs = count:%d refs:%+v, want LAST and GOLDEN user-selected aliases", count, refs[:count])
 	}
 }
 

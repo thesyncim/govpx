@@ -75,6 +75,10 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	if err != nil {
 		return referenceReport{}, err
 	}
+	framesInfo, err := parseIVFFrameInfo(ivf)
+	if err != nil {
+		return referenceReport{}, err
+	}
 	outputBytes := 0
 	for _, size := range sizes {
 		outputBytes += size
@@ -99,15 +103,18 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	bitrateError := (outputBitrate - float64(cfg.BitrateKbps)) * 100 / float64(cfg.BitrateKbps)
 	keyframeBytes := 0
 	interBytes := 0
-	if len(sizes) > 0 {
-		keyframeBytes = sizes[0]
-		for _, size := range sizes[1:] {
-			interBytes += size
+	interCount := 0
+	for _, frame := range framesInfo {
+		if frame.keyFrame {
+			keyframeBytes = frame.size
+		} else {
+			interBytes += frame.size
+			interCount++
 		}
 	}
 	avgInter := 0.0
-	if len(sizes) > 1 {
-		avgInter = float64(interBytes) / float64(len(sizes)-1)
+	if interCount > 0 {
+		avgInter = float64(interBytes) / float64(interCount)
 	}
 	psnr := 0.0
 	ssim := 0.0
@@ -177,6 +184,7 @@ func libvpxParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []
 		fmt.Sprintf("--overshoot-pct=%d", p.OvershootPct),
 		fmt.Sprintf("--threads=%d", p.Threads),
 		fmt.Sprintf("--token-parts=%d", p.TokenPartitions),
+		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
 		"--noise-sensitivity=0",
 		deadlineFlag,
 		fmt.Sprintf("--cpu-used=%d", p.CpuUsed),

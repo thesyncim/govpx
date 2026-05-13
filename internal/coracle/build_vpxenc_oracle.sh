@@ -25,7 +25,7 @@ src_dir="$build_dir/libvpx-$tag-vpxenc-oracle"
 vpxenc_oracle_bin=${GOVPX_VPXENC_ORACLE_BIN:-"$build_dir/vpxenc-oracle"}
 config_stamp="$src_dir/.govpx-vpxenc-oracle-config"
 patch_stamp="$src_dir/.govpx-vpxenc-oracle-patched"
-want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v5
+want_config="v1.16.0-vp8-vpxenc-oracle-trace-2026-05-09-mb-rate-entropy-split-lf-trial-full-v1-fast-pre-y-sse-r12-c-bmodes-inter-picker-entry-iter-outcome-r12d-speed-v6-production-autospeed
 src_dir=$src_dir
 vpxenc_oracle_bin=$vpxenc_oracle_bin"
 jobs=${JOBS:-}
@@ -1744,8 +1744,22 @@ import sys, io
 path = sys.argv[1]
 with io.open(path, 'r', encoding='utf-8') as f:
     text = f.read()
+def strip_autospeed_shim(src):
+    start = src.find('    /* govpx oracle determinism shim: replace the wall-clock measurement')
+    if start < 0:
+        return src
+    end_marker = '\n\n    if (cm->frame_type != KEY_FRAME) {'
+    end = src.find(end_marker, start)
+    if end < 0:
+        sys.stderr.write('build_vpxenc_oracle.sh: autospeed shim terminator missing in onyx_if.c\n')
+        sys.exit(2)
+    return src[:start] + src[end + 2:]
 sentinel = '/* govpx oracle: rate/recode emit hook. */'
 if sentinel in text:
+    stripped = strip_autospeed_shim(text)
+    if stripped != text:
+        with io.open(path, 'w', encoding='utf-8') as f:
+            f.write(stripped)
     sys.exit(0)  # already patched
 # Anchor 1: inject extern declarations directly after the "extern void
 # vp8cx_init_quantizer" line (unique in v1.16.0). If absent, fall back to
@@ -1858,50 +1872,43 @@ if overshoot_anchor not in text:
     sys.exit(2)
 text = text.replace(overshoot_anchor, overshoot_replacement, 1)
 
-# Anchor 5: pin the realtime auto-speed timer measurements to a deterministic
-# synthetic value for large-MB realtime+positive-cpu_used fixtures. Without
-# this shim, vp8_auto_select_speed feeds off vpx_usec_timer_elapsed, which
-# fluctuates with host load and (more importantly) with whether
-# GOVPX_ORACLE_TRACE_OUT is set — the trace I/O lives inside the timer scope
-# so the oracle binary's avg_pick_mode_time drifts when tracing is enabled.
-# The drift drives cpi->Speed onto a different trajectory than govpx's
-# deterministic mirror produces, breaking byte parity on the large-MB
-# realtime fixtures and making the trace-derived inter-mode distribution
-# scoreboard compare against a different libvpx behavior than the byte-
-# parity gate. The gate mirrors govpx's largeMBRealtimeAutoSpeedSynthetic
-# exactly (>=3000 MBs at any cpu_used, or cpu_used>=8 with >=1700 MBs).
+# Anchor 5: remove the older deterministic slow-timer shim if it exists in an
+# already-generated oracle source tree. Realtime auto-speed is wall-clock
+# sensitive; the production byte-ratio reference is the uninstrumented vpxenc
+# binary, so vpxenc-oracle should not force large-MB positive-cpu realtime
+# fixtures onto an artificial speed-16 trajectory.
 autospeed_sentinel = '/* govpx oracle determinism shim: replace the wall-clock measurement'
-if autospeed_sentinel not in text:
-    autospeed_anchor = ('    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
-                        '    duration2 = (unsigned int)((double)duration / 2);\n'
-                        '\n'
-                        '    if (cm->frame_type != KEY_FRAME) {')
-    if autospeed_anchor not in text:
-        sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
-        sys.exit(2)
-    autospeed_replacement = (
-        '    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
-        '    duration2 = (unsigned int)((double)duration / 2);\n'
-        '\n'
-        '    ' + autospeed_sentinel + '\n'
-        '     * with a synthetic deterministic value for realtime+positive-cpu_used\n'
-        '     * fixtures whose MB count crosses the threshold where govpx\'s\n'
-        '     * largeMBRealtimeAutoSpeedSynthetic gate fires. Mirrors the\n'
-        '     * Go-side threshold exactly so both sides evolve cpi->Speed on\n'
-        '     * the same trajectory. */\n'
-        '    if (cpi->oxcf.cpu_used >= 0) {\n'
-        '      int n_mb = cm->mb_rows * cm->mb_cols;\n'
-        '      int gate = 0;\n'
-        '      if (n_mb >= 3000) gate = 1;\n'
-        '      else if (cpi->oxcf.cpu_used >= 8 && n_mb >= 1700) gate = 1;\n'
-        '      if (gate) {\n'
-        '        duration = 4000000;\n'
-        '        duration2 = 2000000;\n'
-        '      }\n'
-        '    }\n'
-        '\n'
-        '    if (cm->frame_type != KEY_FRAME) {')
-    text = text.replace(autospeed_anchor, autospeed_replacement, 1)
+autospeed_anchor = ('    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+                    '    duration2 = (unsigned int)((double)duration / 2);\n'
+                    '\n'
+                    '    if (cm->frame_type != KEY_FRAME) {')
+autospeed_old = (
+    '    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+    '    duration2 = (unsigned int)((double)duration / 2);\n'
+    '\n'
+    '    ' + autospeed_sentinel + '\n'
+    '     * with a synthetic deterministic value for realtime+positive-cpu_used\n'
+    '     * fixtures whose MB count crosses the threshold where govpx\'s\n'
+    '     * largeMBRealtimeAutoSpeedSynthetic gate fires. Mirrors the\n'
+    '     * Go-side threshold exactly so both sides evolve cpi->Speed on\n'
+    '     * the same trajectory. */\n'
+    '    if (cpi->oxcf.cpu_used >= 0) {\n'
+    '      int n_mb = cm->mb_rows * cm->mb_cols;\n'
+    '      int gate = 0;\n'
+    '      if (n_mb >= 3000) gate = 1;\n'
+    '      else if (cpi->oxcf.cpu_used >= 8 && n_mb >= 1700) gate = 1;\n'
+    '      if (gate) {\n'
+    '        duration = 4000000;\n'
+    '        duration2 = 2000000;\n'
+    '      }\n'
+    '    }\n'
+    '\n'
+    '    if (cm->frame_type != KEY_FRAME) {')
+if autospeed_old in text:
+    text = text.replace(autospeed_old, autospeed_anchor, 1)
+elif autospeed_anchor not in text:
+    sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
+    sys.exit(2)
 
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)

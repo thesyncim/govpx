@@ -101,6 +101,46 @@ func TestRateControlEstimateKeyFrameFrequencyBootstraps(t *testing.T) {
 	if got := rc.estimateKeyFrameFrequency(); got != 1 {
 		t.Fatalf("first keyframe estimate without freq = %d, want 1", got)
 	}
+	rc = rateControlState{}
+	if got := rc.estimateKeyFrameFrequency(); got != 1 {
+		t.Fatalf("zero-value first keyframe estimate = %d, want defensive bootstrap 1", got)
+	}
+}
+
+func TestRateControlApplyConfigSeedsKeyFrameHistory(t *testing.T) {
+	var rc rateControlState
+	if err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	}, timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1}); err != nil {
+		t.Fatalf("applyConfig returned error: %v", err)
+	}
+	if rc.keyFrameCount != 1 {
+		t.Fatalf("keyFrameCount = %d, want libvpx cold-start seed 1", rc.keyFrameCount)
+	}
+	for i, got := range rc.priorKeyFrameDistance {
+		if got != 30 {
+			t.Fatalf("priorKeyFrameDistance[%d] = %d, want output framerate 30", i, got)
+		}
+	}
+}
+
+func TestRateControlForcedKFSecondEstimateUsesSeededHistory(t *testing.T) {
+	rc := rateControlState{
+		keyFrameCount:         2,
+		framesSinceKeyframe:   1,
+		priorKeyFrameDistance: [5]int{30, 30, 30, 30, 61},
+	}
+	got := rc.estimateKeyFrameFrequency()
+	want := (1*30 + 2*30 + 3*30 + 4*61 + 5*2) / 15
+	if got != want {
+		t.Fatalf("second forced-key estimate = %d, want %d from FPS-seeded history", got, want)
+	}
 }
 
 // TestRateControlUpdatesRecentRefFrameUsage pins libvpx's

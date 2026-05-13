@@ -236,6 +236,35 @@ func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
 	}
 }
 
+func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
+	e := newSizedTestEncoder(t, 1280, 720)
+	e.opts.CpuUsed = 8
+
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 4 {
+		t.Fatalf("cold positive-cpu autospeed = %d, want speed-4 band", e.autoSpeed)
+	}
+	e.beginAutoSpeedTiming()
+	e.finishAutoSpeedTiming(true)
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 4 {
+		t.Fatalf("post-key positive-cpu autospeed = %d, want speed-4 band", e.autoSpeed)
+	}
+	e.beginAutoSpeedTiming()
+	e.finishAutoSpeedTiming(false)
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 4 {
+		t.Fatalf("post-inter positive-cpu autospeed = %d, want speed-4 band", e.autoSpeed)
+	}
+
+	e = newSizedTestEncoder(t, 1280, 720)
+	e.opts.CpuUsed = 16
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 16 {
+		t.Fatalf("cpu-used=16 autospeed = %d, want pinned aggressive band 16", e.autoSpeed)
+	}
+}
+
 func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
 	e := newTestEncoder(t)
 	e.rc.dropFrameAllowed = true
