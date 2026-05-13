@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -162,6 +163,67 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-rtc-external", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-temporal-svc-matches-cold-start", func(t *testing.T) {
+		cfg := TemporalScalabilityConfig{
+			Enabled:                true,
+			Mode:                   TemporalLayeringTwoLayers,
+			LayerTargetBitrateKbps: [MaxTemporalLayers]int{420, targetKbps},
+		}
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpxMutations(t, baseOpts, warm, afterReset,
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetTemporalScalability(two-layer)", e.SetTemporalScalability(cfg))
+			}, nil)
+		coldOpts := baseOpts
+		coldOpts.TemporalScalability = cfg
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "reset-after-temporal-svc", coldOpts, targetKbps, afterReset, temporalTwoLayerFlags(len(afterReset)), []string{
+			"--temporal-layers=2",
+			"--temporal-bitrates=420,700",
+			"--temporal-decimators=2,1",
+			"--temporal-periodicity=2",
+			"--temporal-layer-ids=0,1",
+		})
+		// Reset reaches the temporal cold-start keyframe exactly; later
+		// layer-context packets keep the existing temporal drift visible.
+		assertSegmentByteParity(t, "post-reset-temporal-svc", govpxFrames, libvpxFrames, 1)
+	})
+
+	t.Run("reset-after-lookahead4-auto-alt-ref-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.LookaheadFrames = 4
+		opts.AutoAltRef = true
+		warm := makePanningSources(64, 64, 8, 0)
+		afterReset := makePanningSources(64, 64, 10, 8)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-lookahead4-auto-alt-ref", opts, targetKbps, afterReset, []string{"--end-usage=cbr"})
+		assertSegmentByteParity(t, "post-reset-lookahead4-auto-alt-ref", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("reset-after-resize-matches-cold-start-at-new-size", func(t *testing.T) {
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(96, 96, 8, 6)
+		newOpts := baseOpts
+		newOpts.Width = 96
+		newOpts.Height = 96
+		govpxFrames := encodePostResizeResetWithGovpx(t, baseOpts, warm, newOpts, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-resize-96x96", newOpts, targetKbps, afterReset, []string{"--end-usage=cbr"})
+		assertSegmentByteParity(t, "post-reset-resize-96x96", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("reset-after-pending-force-key-clears-request", func(t *testing.T) {
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpxMutations(t, baseOpts, warm, afterReset, nil,
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				e.ForceKeyFrame()
+			})
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-pending-force-key", baseOpts, targetKbps, afterReset, []string{"--end-usage=cbr"})
+		assertSegmentByteParity(t, "post-reset-pending-force-key", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("flush-no-lookahead-resume-matches-single-oracle-stream", func(t *testing.T) {
 		sources := makePanningSources(64, 64, 10, 0)
 		govpxFrames := encodeWithMidStreamFlush(t, baseOpts, sources, 4)
@@ -198,6 +260,61 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		govpxFrames := encodeWithMidStreamFlush(t, opts, sources, 5)
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "flush-lookahead4-auto-alt-ref", opts, targetKbps, sources, []string{"--end-usage=cbr"})
 		assertSegmentByteParity(t, "flush-lookahead4-auto-alt-ref", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("flush-active-map-resume", func(t *testing.T) {
+		sources := makePanningSources(64, 64, 10, 0)
+		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, baseOpts, sources, 4, nil,
+			map[int]func(*testing.T, *VP8Encoder){0: activeMapApply("checker")}, nil)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-active-map", baseOpts, targetKbps, sources, nil, []string{"--active-map=checker"})
+		assertSegmentByteParity(t, "flush-active-map", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("flush-roi-map-resume", func(t *testing.T) {
+		sources := makePanningSources(64, 64, 10, 0)
+		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, baseOpts, sources, 4, nil,
+			map[int]func(*testing.T, *VP8Encoder){0: roiMapApply("checker")}, nil)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-roi-map", baseOpts, targetKbps, sources, nil, []string{"--roi-map=checker"})
+		assertSegmentByteParity(t, "flush-roi-map", govpxFrames, libvpxFrames, -1)
+	})
+
+	t.Run("flush-set-reference-resume", func(t *testing.T) {
+		sources := makePanningSources(64, 64, 10, 0)
+		flags := []EncodeFlags{
+			0,
+			EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+		}
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: setReferencePanningApply(ReferenceLast, 8, "last"),
+		}
+		script := runtimeControlScript(len(sources), map[int]string{
+			1: "setref:last:panning:8",
+		})
+		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, baseOpts, sources, 4, nil, apply, flags)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-set-reference", baseOpts, targetKbps, sources, flags, []string{
+			"--control-script=" + strings.Join(script, ","),
+		})
+		assertSegmentByteParity(t, "flush-set-reference", govpxFrames, libvpxFrames, 2)
+	})
+
+	t.Run("flush-tight-buffer-drop-resume", func(t *testing.T) {
+		opts := baseOpts
+		opts.TargetBitrateKbps = 50
+		opts.BufferSizeMs = 200
+		opts.BufferInitialSizeMs = 100
+		opts.BufferOptimalSizeMs = 150
+		opts.DropFrameAllowed = true
+		opts.DropFrameWaterMark = 60
+		sources := makePanningSources(64, 64, 18, 0)
+		govpxFrames := encodeWithMidStreamFlush(t, opts, sources, 7)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-tight-buffer-drop", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--target-bitrate=50",
+			"--buf-sz=200",
+			"--buf-initial-sz=100",
+			"--buf-optimal-sz=150",
+			"--drop-frame=60",
+		})
+		assertSegmentByteParity(t, "flush-tight-buffer-drop", govpxFrames, libvpxFrames, 0)
 	})
 }
 
@@ -298,7 +415,24 @@ func encodePostResetWithGovpxMutations(t *testing.T, opts EncoderOptions, warm [
 		afterWarm(t, enc)
 	}
 	enc.Reset()
-	return encodeGovpxBurst(t, enc, opts, afterReset, 0, true)
+	out := encodeGovpxBurst(t, enc, opts, afterReset, 0, true)
+	out = append(out, drainGovpxFlush(t, enc, opts, "post-reset FlushInto")...)
+	return out
+}
+
+func encodePostResizeResetWithGovpx(t *testing.T, initOpts EncoderOptions, warm []Image, newOpts EncoderOptions, afterReset []Image) [][]byte {
+	t.Helper()
+	enc, err := NewVP8Encoder(initOpts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer enc.Close()
+	_ = encodeGovpxBurst(t, enc, initOpts, warm, 0, true)
+	if err := enc.SetRealtimeTarget(RealtimeTarget{Width: newOpts.Width, Height: newOpts.Height}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	enc.Reset()
+	return encodeGovpxBurst(t, enc, newOpts, afterReset, 0, true)
 }
 
 func encodeWithMidStreamFlush(t *testing.T, opts EncoderOptions, sources []Image, split int) [][]byte {
@@ -311,6 +445,44 @@ func encodeWithMidStreamFlush(t *testing.T, opts EncoderOptions, sources []Image
 	out := encodeGovpxBurst(t, enc, opts, sources[:split], 0, true)
 	out = append(out, drainGovpxFlush(t, enc, opts, "mid FlushInto")...)
 	out = append(out, encodeGovpxBurst(t, enc, opts, sources[split:], uint64(split), true)...)
+	out = append(out, drainGovpxFlush(t, enc, opts, "final FlushInto")...)
+	return out
+}
+
+func encodeWithMidStreamFlushRuntimeControls(t *testing.T, opts EncoderOptions, sources []Image, split int, before func(*testing.T, *VP8Encoder), apply map[int]func(*testing.T, *VP8Encoder), flags []EncodeFlags) [][]byte {
+	t.Helper()
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer enc.Close()
+	if before != nil {
+		before(t, enc)
+	}
+	buf := make([]byte, opts.Width*opts.Height*4+4096)
+	out := make([][]byte, 0, len(sources))
+	for i, src := range sources {
+		if i == split {
+			out = append(out, drainGovpxFlush(t, enc, opts, "mid FlushInto")...)
+		}
+		if fn := apply[i]; fn != nil {
+			fn(t, enc)
+		}
+		var f EncodeFlags
+		if i < len(flags) {
+			f = flags[i]
+		}
+		result, err := enc.EncodeInto(buf, src, uint64(i), 1, f)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d: %v", i, err)
+		}
+		if !result.Dropped {
+			out = append(out, append([]byte(nil), result.Data...))
+		}
+	}
 	out = append(out, drainGovpxFlush(t, enc, opts, "final FlushInto")...)
 	return out
 }
