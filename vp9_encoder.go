@@ -196,6 +196,12 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 			ColorRange: common.CRStudioRange,
 		},
 	}
+	// BaseQindex=1 dodges the lossless inference libvpx makes when
+	// base_qindex + every delta_q are all zero. Lossless mode forces
+	// tx_mode=ONLY_4X4 on the decoder side and skips the tx_mode
+	// literal in the compressed header; staying out of lossless keeps
+	// the wire layout consistent with the rest of the stub path.
+	header.Quant.BaseQindex = 1
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
