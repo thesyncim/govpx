@@ -77,6 +77,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	best := interFrameModeDecision{}
 	denoiseActive := e.opts.NoiseSensitivity > 0
 	denoiseDecision := newDenoiserMacroblockDecision()
+	if denoiseActive {
+		denoiseDecision.useSkinGate = true
+	}
 	var loopCtx fastInterModeLoopContext
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)

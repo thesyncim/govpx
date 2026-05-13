@@ -412,11 +412,15 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-8-32x16-noise-sensitivity6", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-32x16", w: 32, h: 16, source: encoderValidationPanningFrame}, noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
 		{name: "realtime-cbr-cpu-8-16x32-noise-sensitivity6", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "panning-16x32", w: 16, h: 32, source: encoderValidationPanningFrame}, noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
 		// Multi-MB denoiser cases cover spatial denoiser edge filtering between
-		// neighboring macroblocks, including COPY/no-filter macroblocks. The
-		// clean prefix pins the spatial-filter fixes while the later-frame
-		// coefficient drift is still being narrowed.
-		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, limit: 9, noiseSensitivity: 1, extraArgs: []string{"--noise-sensitivity=1"}},
-		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity3", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, limit: 9, noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		// neighboring macroblocks, including COPY/no-filter macroblocks and all
+		// public denoiser sensitivity levels.
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 1, extraArgs: []string{"--noise-sensitivity=1"}},
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 2, extraArgs: []string{"--noise-sensitivity=2"}},
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity3", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 4, extraArgs: []string{"--noise-sensitivity=4"}},
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity5", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 5, extraArgs: []string{"--noise-sensitivity=5"}},
+		{name: "realtime-cbr-cpu-3-48x48-noise-sensitivity6", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "realtime-cbr-cpu-3-64x64-noise-sensitivity3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
 		// allkf (kfInterval=1) on small frames — every frame is a key
 		// frame, exercises the keyframe writer path repeatedly.
 		{name: "realtime-cbr-cpu0-16x16-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},

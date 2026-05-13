@@ -408,6 +408,7 @@ type denoiserMacroblockDecision struct {
 	bestSSE              uint32
 	zeroMVReferenceFrame vp8common.MVReferenceFrame
 	zeroMVSSE            uint32
+	useSkinGate          bool
 }
 
 func newDenoiserMacroblockDecision() denoiserMacroblockDecision {
@@ -515,7 +516,8 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		sseThresh = uint32(e.denoiser.params.scaleSSEThresh * denoiserSSEThresholdHigh)
 	}
 	motionThresh := uint32(e.denoiser.params.scaleMotionThresh) * denoiserNoiseMotionThreshold
-	if bestSSE > sseThresh || motionMag > motionThresh || e.denoiserSkinGateBlocksFilter(row, col, cols, index, motionMag) {
+	skinBlocksFilter := d.useSkinGate && e.denoiserSkinGateBlocksFilter(row, col, cols, index, motionMag)
+	if bestSSE > sseThresh || motionMag > motionThresh || skinBlocksFilter {
 		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
