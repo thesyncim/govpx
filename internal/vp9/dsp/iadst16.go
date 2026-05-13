@@ -24,7 +24,7 @@ func iadst16(input, output []int16) {
 	x15 := int64(input[14])
 
 	if x0|x1|x2|x3|x4|x5|x6|x7|x8|x9|x10|x11|x12|x13|x14|x15 == 0 {
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			output[i] = 0
 		}
 		return
@@ -176,16 +176,16 @@ func iadst16(input, output []int16) {
 // kernels are passed in so the caller composes (DCT, ADST) pairs.
 func iht16x16_256Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
 	var out [256]int16
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		rowKernel(input[i*16:i*16+16], out[i*16:i*16+16])
 	}
 	var tempIn, tempOut [16]int16
-	for i := 0; i < 16; i++ {
-		for j := 0; j < 16; j++ {
+	for i := range 16 {
+		for j := range 16 {
 			tempIn[j] = out[j*16+i]
 		}
 		colKernel(tempIn[:], tempOut[:])
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 6))
 		}

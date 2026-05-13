@@ -377,16 +377,16 @@ func idct32(input, output []int16) {
 // full column pass.
 func idct32x32Add(input []int16, dest []uint8, stride, rowLimit int) {
 	var out [1024]int16
-	for i := 0; i < rowLimit; i++ {
+	for i := range rowLimit {
 		idct32(input[i*32:i*32+32], out[i*32:i*32+32])
 	}
 	var tempIn, tempOut [32]int16
-	for i := 0; i < 32; i++ {
-		for j := 0; j < 32; j++ {
+	for i := range 32 {
+		for j := range 32 {
 			tempIn[j] = out[j*32+i]
 		}
 		idct32(tempIn[:], tempOut[:])
-		for j := 0; j < 32; j++ {
+		for j := range 32 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 6))
 		}
@@ -415,9 +415,9 @@ func Idct32x32_1Add(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 6)
-	for j := 0; j < 32; j++ {
+	for j := range 32 {
 		row := j * stride
-		for i := 0; i < 32; i++ {
+		for i := range 32 {
 			dest[row+i] = clipPixelAdd(dest[row+i], a1)
 		}
 	}

@@ -35,7 +35,7 @@ func (p *bitPacker) writeLiteral(v uint32, bits int) {
 // TestReadProfileRoundTrip verifies that ReadProfile correctly decodes
 // every legal profile (0..3) when written with the libvpx encoding.
 func TestReadProfileRoundTrip(t *testing.T) {
-	for p := uint32(0); p < 4; p++ {
+	for p := range uint32(4) {
 		var pk bitPacker
 		// libvpx's vp9_read_profile decoding:
 		//   raw  = bit0 | (bit1 << 1)

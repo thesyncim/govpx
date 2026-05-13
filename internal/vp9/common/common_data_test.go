@@ -7,7 +7,7 @@ import "testing"
 // other. A typo in any one of them would make the partition tree
 // inconsistent in subtle ways at decode time, so it's worth a unit test.
 func TestBlockGeometryConsistent(t *testing.T) {
-	for bs := BlockSize(0); bs < BlockSizes; bs++ {
+	for bs := range BlockSizes {
 		wLog2 := BWidthLog2Lookup[bs]
 		hLog2 := BHeightLog2Lookup[bs]
 
@@ -48,7 +48,7 @@ func TestBlockGeometryConsistent(t *testing.T) {
 // TestSubsizeIdentity ensures PartitionNone recovers the original block
 // size for every shape — this is the contract every parser relies on.
 func TestSubsizeIdentity(t *testing.T) {
-	for bs := BlockSize(0); bs < BlockSizes; bs++ {
+	for bs := range BlockSizes {
 		if got := SubsizeLookup[PartitionNone][bs]; got != bs {
 			t.Errorf("SubsizeLookup[None][%d] = %d, want %d (identity)", bs, got, bs)
 		}
@@ -59,7 +59,7 @@ func TestSubsizeIdentity(t *testing.T) {
 // chroma — projection is the identity for every valid block size,
 // matching libvpx's table layout.
 func TestSsSizeIdentity(t *testing.T) {
-	for bs := BlockSize(0); bs < BlockSizes; bs++ {
+	for bs := range BlockSizes {
 		if got := SsSizeLookup[bs][0][0]; got != bs {
 			t.Errorf("SsSizeLookup[%d][0][0] = %d, want %d (4:4:4 identity)", bs, got, bs)
 		}
@@ -69,7 +69,7 @@ func TestSsSizeIdentity(t *testing.T) {
 // TestMaxTxsizeWithinBlock checks that MaxTxsizeLookup never claims a
 // transform larger than the block can hold.
 func TestMaxTxsizeWithinBlock(t *testing.T) {
-	for bs := BlockSize(0); bs < BlockSizes; bs++ {
+	for bs := range BlockSizes {
 		txDim := uint8(1 << (uint(MaxTxsizeLookup[bs]) + 2)) // Tx4x4 -> 4
 		w := Num4x4BlocksWideLookup[bs] * 4
 		h := Num4x4BlocksHighLookup[bs] * 4

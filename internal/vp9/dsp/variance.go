@@ -11,10 +11,10 @@ package dsp
 func computeVariance(src []uint8, srcOff, srcStride int,
 	ref []uint8, refOff, refStride, w, h int,
 ) (sse uint32, sum int) {
-	for y := 0; y < h; y++ {
+	for y := range h {
 		srcRow := srcOff + y*srcStride
 		refRow := refOff + y*refStride
-		for x := 0; x < w; x++ {
+		for x := range w {
 			diff := int(src[srcRow+x]) - int(ref[refRow+x])
 			sum += diff
 			sse += uint32(diff * diff)
@@ -99,10 +99,10 @@ func VpxMse8x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStrid
 // CS-mode search; mirrors vpx_get4x4sse_cs_c.
 func VpxGet4x4SseCs(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	var d uint32
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		srcRow := srcOff + y*srcStride
 		refRow := refOff + y*refStride
-		for x := 0; x < 4; x++ {
+		for x := range 4 {
 			diff := int(src[srcRow+x]) - int(ref[refRow+x])
 			d += uint32(diff * diff)
 		}
@@ -114,7 +114,7 @@ func VpxGet4x4SseCs(src []uint8, srcOff, srcStride int, ref []uint8, refOff, ref
 // residual buffer; the helper just returns the sum-of-squares.
 func VpxGetMbSs(src []int16) uint32 {
 	var sum uint32
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		sum += uint32(int32(src[i]) * int32(src[i]))
 	}
 	return sum

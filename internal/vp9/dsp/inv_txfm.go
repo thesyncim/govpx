@@ -11,8 +11,8 @@ package dsp
 // Their values are baked into the wire format — changing them changes
 // every reconstructed pixel.
 const (
-	dctConstBits    = 14
-	unitQuantShift  = 2
+	dctConstBits     = 14
+	unitQuantShift   = 2
 	dctConstRounding = 1 << (dctConstBits - 1)
 )
 

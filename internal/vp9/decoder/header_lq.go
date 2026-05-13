@@ -19,8 +19,8 @@ const (
 // emits. Mirrors libvpx's struct loopfilter (just the parser-visible
 // fields).
 type LoopfilterParams struct {
-	FilterLevel        uint8
-	SharpnessLevel     uint8
+	FilterLevel         uint8
+	SharpnessLevel      uint8
 	ModeRefDeltaEnabled bool
 	ModeRefDeltaUpdate  bool
 	RefDeltas           [MaxRefLfDeltas]int8
@@ -44,12 +44,12 @@ func ReadLoopfilter(r *BitReader, lf *LoopfilterParams) {
 	if !lf.ModeRefDeltaUpdate {
 		return
 	}
-	for i := 0; i < MaxRefLfDeltas; i++ {
+	for i := range MaxRefLfDeltas {
 		if r.ReadBit() != 0 {
 			lf.RefDeltas[i] = int8(r.ReadSignedLiteral(6))
 		}
 	}
-	for i := 0; i < MaxModeLfDeltas; i++ {
+	for i := range MaxModeLfDeltas {
 		if r.ReadBit() != 0 {
 			lf.ModeDeltas[i] = int8(r.ReadSignedLiteral(6))
 		}

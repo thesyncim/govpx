@@ -44,14 +44,14 @@ const (
 type ColorSpace uint8
 
 const (
-	CSUnknown ColorSpace = 0
-	CSBT601   ColorSpace = 1
-	CSBT709   ColorSpace = 2
+	CSUnknown  ColorSpace = 0
+	CSBT601    ColorSpace = 1
+	CSBT709    ColorSpace = 2
 	CSSMPTE170 ColorSpace = 3
 	CSSMPTE240 ColorSpace = 4
-	CSBT2020  ColorSpace = 5
+	CSBT2020   ColorSpace = 5
 	CSReserved ColorSpace = 6
-	CSSRGB    ColorSpace = 7
+	CSSRGB     ColorSpace = 7
 )
 
 // ColorRange mirrors vpx_color_range_t — the single bit that selects

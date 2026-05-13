@@ -76,16 +76,16 @@ func idct8(input, output []int16) {
 // ROUND_POWER_OF_TWO(., 5) into clip_pixel_add.
 func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
 	var out [64]int16
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		idct8(input[i*8:i*8+8], out[i*8:i*8+8])
 	}
 	var tempIn, tempOut [8]int16
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
+	for i := range 8 {
+		for j := range 8 {
 			tempIn[j] = out[j*8+i]
 		}
 		idct8(tempIn[:], tempOut[:])
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 5))
 		}
@@ -98,16 +98,16 @@ func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
 // column pass.
 func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
 	var out [64]int16
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		idct8(input[i*8:i*8+8], out[i*8:i*8+8])
 	}
 	var tempIn, tempOut [8]int16
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
+	for i := range 8 {
+		for j := range 8 {
 			tempIn[j] = out[j*8+i]
 		}
 		idct8(tempIn[:], tempOut[:])
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 5))
 		}
@@ -119,9 +119,9 @@ func Idct8x8_1Add(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 5)
-	for j := 0; j < 8; j++ {
+	for j := range 8 {
 		row := j * stride
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			dest[row+i] = clipPixelAdd(dest[row+i], a1)
 		}
 	}

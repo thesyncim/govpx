@@ -177,16 +177,16 @@ func idct16(input, output []int16) {
 // sparse fast paths.
 func idct16x16Add(input []int16, dest []uint8, stride, rowLimit int) {
 	var out [256]int16
-	for i := 0; i < rowLimit; i++ {
+	for i := range rowLimit {
 		idct16(input[i*16:i*16+16], out[i*16:i*16+16])
 	}
 	var tempIn, tempOut [16]int16
-	for i := 0; i < 16; i++ {
-		for j := 0; j < 16; j++ {
+	for i := range 16 {
+		for j := range 16 {
 			tempIn[j] = out[j*16+i]
 		}
 		idct16(tempIn[:], tempOut[:])
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 6))
 		}
@@ -219,9 +219,9 @@ func Idct16x16_1Add(input []int16, dest []uint8, stride int) {
 	out := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 6)
-	for j := 0; j < 16; j++ {
+	for j := range 16 {
 		row := j * stride
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			dest[row+i] = clipPixelAdd(dest[row+i], a1)
 		}
 	}

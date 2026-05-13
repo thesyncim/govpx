@@ -42,16 +42,16 @@ func idct4(input, output []int16) {
 // pixel-add via clip_pixel_add(ROUND_POWER_OF_TWO(., 4)).
 func Idct4x4_16Add(input []int16, dest []uint8, stride int) {
 	var out [16]int16
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		idct4(input[i*4:i*4+4], out[i*4:i*4+4])
 	}
 	var tempIn, tempOut [4]int16
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
+	for i := range 4 {
+		for j := range 4 {
 			tempIn[j] = out[j*4+i]
 		}
 		idct4(tempIn[:], tempOut[:])
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 4))
 		}
@@ -66,7 +66,7 @@ func Idct4x4_1Add(input []int16, dest []uint8, stride int) {
 	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
 	a1 := roundPowerOfTwo(int32(out), 4)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		row := i * stride
 		dest[row+0] = clipPixelAdd(dest[row+0], a1)
 		dest[row+1] = clipPixelAdd(dest[row+1], a1)

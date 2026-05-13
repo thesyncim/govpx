@@ -27,12 +27,12 @@ const (
 	kIdct16_1   = 11
 	// IHT 4x4 / 8x8 with the non-DCT_DCT tx types. DCT_DCT (tx_type=0)
 	// matches the dedicated idct kernels above so we don't re-test it.
-	kIht4AdstDct  = 12
-	kIht4DctAdst  = 13
-	kIht4AdstAdst = 14
-	kIht8AdstDct  = 15
-	kIht8DctAdst  = 16
-	kIht8AdstAdst = 17
+	kIht4AdstDct   = 12
+	kIht4DctAdst   = 13
+	kIht4AdstAdst  = 14
+	kIht8AdstDct   = 15
+	kIht8DctAdst   = 16
+	kIht8AdstAdst  = 17
 	kIdct32_1024   = 18
 	kIdct32_135    = 19
 	kIdct32_34     = 20
@@ -63,21 +63,21 @@ const (
 	convSrcOffset = 16
 
 	// Loop filter records start at 500.
-	kLfBase       = 500
-	kLfHoriz4     = 500
-	kLfVert4      = 501
-	kLfHoriz8     = 502
-	kLfVert8      = 503
-	kLfHoriz16    = 504
-	kLfVert16     = 505
-	kLfHoriz16Dl  = 506
-	kLfVert16Dl   = 507
-	lfPlaneDim    = 32
+	kLfBase      = 500
+	kLfHoriz4    = 500
+	kLfVert4     = 501
+	kLfHoriz8    = 502
+	kLfVert8     = 503
+	kLfHoriz16   = 504
+	kLfVert16    = 505
+	kLfHoriz16Dl = 506
+	kLfVert16Dl  = 507
+	lfPlaneDim   = 32
 
 	// SAD records start at 600. 13 sizes, ids 600..612.
-	kSadBase     = 600
-	sadPlaneDim  = 80
-	sadPlaneOff  = 8
+	kSadBase    = 600
+	sadPlaneDim = 80
+	sadPlaneOff = 8
 
 	// Variance records start at 700. 13 sizes, ids 700..712.
 	kVarBase = 700
@@ -624,10 +624,7 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 			copy(got, dstPre)
 			callConvolve(kernel, filterIdx, x0Q4, y0Q4, w, h, src, got)
 			if !bytes.Equal(got, dstPost) {
-				lim := 16
-				if lim > len(got) {
-					lim = len(got)
-				}
+				lim := min(16, len(got))
 				t.Fatalf("convolve kernel=%d filter=%d x0=%d y0=%d w=%d h=%d: byte mismatch\n  got[:%d]=%v\n want[:%d]=%v",
 					kernel, filterIdx, x0Q4, y0Q4, w, h, lim, got[:lim], lim, dstPost[:lim])
 			}

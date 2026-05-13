@@ -16,10 +16,10 @@ func sad(src []uint8, srcOff, srcStride int,
 	ref []uint8, refOff, refStride, w, h int,
 ) uint32 {
 	var s uint32
-	for y := 0; y < h; y++ {
+	for y := range h {
 		srcRow := srcOff + y*srcStride
 		refRow := refOff + y*refStride
-		for x := 0; x < w; x++ {
+		for x := range w {
 			a, b := src[srcRow+x], ref[refRow+x]
 			if a >= b {
 				s += uint32(a - b)
@@ -34,9 +34,9 @@ func sad(src []uint8, srcOff, srcStride int,
 // compAvgPred mirrors vpx_comp_avg_pred_c — averaging the second
 // prediction with the reference. Used by the *_avg SAD variants.
 func compAvgPred(compPred, secondPred []uint8, w, h int, ref []uint8, refOff, refStride int) {
-	for y := 0; y < h; y++ {
+	for y := range h {
 		refRow := refOff + y*refStride
-		for x := 0; x < w; x++ {
+		for x := range w {
 			compPred[y*w+x] = uint8((int(secondPred[y*w+x]) + int(ref[refRow+x]) + 1) >> 1)
 		}
 	}

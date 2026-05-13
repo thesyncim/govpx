@@ -147,19 +147,19 @@ var TxModeToBiggestTxSize = [TxModes]TxSize{
 // [BlockSize][ss_x][ss_y].
 var SsSizeLookup = [BlockSizes][2][2]BlockSize{
 	// ss_x=0/ss_y=0   ss_x=0/ss_y=1     ss_x=1/ss_y=0     ss_x=1/ss_y=1
-	{{Block4x4, BlockInvalid}, {BlockInvalid, BlockInvalid}},   // 4x4
-	{{Block4x8, Block4x4}, {BlockInvalid, BlockInvalid}},       // 4x8
-	{{Block8x4, BlockInvalid}, {Block4x4, BlockInvalid}},       // 8x4
-	{{Block8x8, Block8x4}, {Block4x8, Block4x4}},               // 8x8
-	{{Block8x16, Block8x8}, {BlockInvalid, Block4x8}},          // 8x16
-	{{Block16x8, BlockInvalid}, {Block8x8, Block8x4}},          // 16x8
-	{{Block16x16, Block16x8}, {Block8x16, Block8x8}},           // 16x16
-	{{Block16x32, Block16x16}, {BlockInvalid, Block8x16}},      // 16x32
-	{{Block32x16, BlockInvalid}, {Block16x16, Block16x8}},      // 32x16
-	{{Block32x32, Block32x16}, {Block16x32, Block16x16}},       // 32x32
-	{{Block32x64, Block32x32}, {BlockInvalid, Block16x32}},     // 32x64
-	{{Block64x32, BlockInvalid}, {Block32x32, Block32x16}},     // 64x32
-	{{Block64x64, Block64x32}, {Block32x64, Block32x32}},       // 64x64
+	{{Block4x4, BlockInvalid}, {BlockInvalid, BlockInvalid}}, // 4x4
+	{{Block4x8, Block4x4}, {BlockInvalid, BlockInvalid}},     // 4x8
+	{{Block8x4, BlockInvalid}, {Block4x4, BlockInvalid}},     // 8x4
+	{{Block8x8, Block8x4}, {Block4x8, Block4x4}},             // 8x8
+	{{Block8x16, Block8x8}, {BlockInvalid, Block4x8}},        // 8x16
+	{{Block16x8, BlockInvalid}, {Block8x8, Block8x4}},        // 16x8
+	{{Block16x16, Block16x8}, {Block8x16, Block8x8}},         // 16x16
+	{{Block16x32, Block16x16}, {BlockInvalid, Block8x16}},    // 16x32
+	{{Block32x16, BlockInvalid}, {Block16x16, Block16x8}},    // 32x16
+	{{Block32x32, Block32x16}, {Block16x32, Block16x16}},     // 32x32
+	{{Block32x64, Block32x32}, {BlockInvalid, Block16x32}},   // 32x64
+	{{Block64x32, BlockInvalid}, {Block32x32, Block32x16}},   // 64x32
+	{{Block64x64, Block64x32}, {Block32x64, Block32x32}},     // 64x64
 }
 
 // UvTxsizeLookup picks the chroma transform size given the luma block

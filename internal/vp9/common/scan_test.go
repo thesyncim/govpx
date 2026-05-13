@@ -10,7 +10,7 @@ import (
 // is a permutation of [0, N) — i.e. each transform-block position appears
 // exactly once. A bad scan table would corrupt every residual block.
 func TestScanIsPermutation(t *testing.T) {
-	for tx := TxSize(0); tx < TxSizes; tx++ {
+	for tx := range TxSizes {
 		so := DefaultScanOrders[tx]
 		seen := make([]bool, len(so.Scan))
 		for i, pos := range so.Scan {

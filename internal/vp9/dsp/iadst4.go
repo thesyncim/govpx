@@ -43,16 +43,16 @@ func Iadst4(input, output []int16) {
 // vp9_iht4x4_16_add_c.
 func iht4x4_16Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
 	var out [16]int16
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		rowKernel(input[i*4:i*4+4], out[i*4:i*4+4])
 	}
 	var tempIn, tempOut [4]int16
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
+	for i := range 4 {
+		for j := range 4 {
 			tempIn[j] = out[j*4+i]
 		}
 		colKernel(tempIn[:], tempOut[:])
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 4))
 		}

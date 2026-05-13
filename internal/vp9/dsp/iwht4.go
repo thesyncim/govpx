@@ -11,7 +11,7 @@ func Iwht4x4_16Add(input []int16, dest []uint8, stride int) {
 
 	ip := input
 	op := output[:]
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		a1 := int64(ip[0]) >> unitQuantShift
 		c1 := int64(ip[1]) >> unitQuantShift
 		d1 := int64(ip[2]) >> unitQuantShift
@@ -31,7 +31,7 @@ func Iwht4x4_16Add(input []int16, dest []uint8, stride int) {
 		op = op[4:]
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		a1 := int64(output[4*0+i])
 		c1 := int64(output[4*1+i])
 		d1 := int64(output[4*2+i])
@@ -63,7 +63,7 @@ func Iwht4x4_1Add(input []int16, dest []uint8, stride int) {
 	tmp[2] = int16(e1)
 	tmp[3] = int16(e1)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		e1 := int64(tmp[i]) >> 1
 		a1 := int64(tmp[i]) - e1
 		dest[stride*0+i] = clipPixelAdd(dest[stride*0+i], int32(a1))

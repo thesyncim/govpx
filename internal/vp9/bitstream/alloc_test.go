@@ -10,7 +10,7 @@ func TestReaderReadZeroAlloc(t *testing.T) {
 	buf := make([]byte, 4096)
 	var w Writer
 	w.Start(buf)
-	for i := 0; i < 8192; i++ {
+	for i := range 8192 {
 		w.Write(uint32(i&1), uint32(100+(i%150)))
 	}
 	size, err := w.Stop()
@@ -23,7 +23,7 @@ func TestReaderReadZeroAlloc(t *testing.T) {
 		if err := r.Init(buf[:size]); err != nil {
 			t.Fatalf("Init: %v", err)
 		}
-		for i := 0; i < 8192; i++ {
+		for i := range 8192 {
 			_ = r.Read(uint32(100 + (i % 150)))
 		}
 	})
@@ -39,7 +39,7 @@ func TestWriterWriteZeroAlloc(t *testing.T) {
 	var w Writer
 	allocs := testing.AllocsPerRun(50, func() {
 		w.Start(dst)
-		for i := 0; i < 8192; i++ {
+		for i := range 8192 {
 			w.Write(uint32(i&1), uint32(100+(i%150)))
 		}
 		if _, err := w.Stop(); err != nil {

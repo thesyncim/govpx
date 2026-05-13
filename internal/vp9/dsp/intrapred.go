@@ -14,13 +14,13 @@ package dsp
 
 func dcPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	sum := 0
-	for i := 0; i < bs; i++ {
+	for i := range bs {
 		sum += int(above[i])
 		sum += int(left[i])
 	}
 	count := 2 * bs
 	expected := uint8((sum + (count >> 1)) / count)
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		row := dst[r*stride : r*stride+bs]
 		for i := range row {
 			row[i] = expected
@@ -31,11 +31,11 @@ func dcPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 func dcLeftPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = above
 	sum := 0
-	for i := 0; i < bs; i++ {
+	for i := range bs {
 		sum += int(left[i])
 	}
 	expected := uint8((sum + (bs >> 1)) / bs)
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		row := dst[r*stride : r*stride+bs]
 		for i := range row {
 			row[i] = expected
@@ -46,11 +46,11 @@ func dcLeftPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 func dcTopPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = left
 	sum := 0
-	for i := 0; i < bs; i++ {
+	for i := range bs {
 		sum += int(above[i])
 	}
 	expected := uint8((sum + (bs >> 1)) / bs)
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		row := dst[r*stride : r*stride+bs]
 		for i := range row {
 			row[i] = expected
@@ -61,7 +61,7 @@ func dcTopPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 func dc128Predictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = above
 	_ = left
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		row := dst[r*stride : r*stride+bs]
 		for i := range row {
 			row[i] = 128
@@ -71,14 +71,14 @@ func dc128Predictor(dst []uint8, stride, bs int, above, left []uint8) {
 
 func vPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = left
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		copy(dst[r*stride:r*stride+bs], above[:bs])
 	}
 }
 
 func hPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = above
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		row := dst[r*stride : r*stride+bs]
 		v := left[r]
 		for i := range row {
@@ -99,7 +99,7 @@ func tmPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	// reslice into the right offset before invoking the helper.
 	topLeft := int(above[0])
 	above = above[1:]
-	for r := 0; r < bs; r++ {
+	for r := range bs {
 		rowL := int(left[r])
 		row := dst[r*stride : r*stride+bs]
 		for c := range row {

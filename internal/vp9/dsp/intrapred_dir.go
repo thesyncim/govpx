@@ -54,7 +54,7 @@ func d207Predictor(dst []uint8, stride, bs int, above, left []uint8) {
 func d63Predictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = left
 	// First two rows are direct averages of the above row.
-	for c := 0; c < bs; c++ {
+	for c := range bs {
 		dst[c] = avg2(int(above[c]), int(above[c+1]))
 		dst[stride+c] = avg3(int(above[c]), int(above[c+1]), int(above[c+2]))
 	}
@@ -98,7 +98,7 @@ func d117Predictor(dst []uint8, stride, bs int, aboveFull, left []uint8) {
 	cornerByte := aboveFull[0]
 	above := aboveFull[1:]
 	// first row
-	for c := 0; c < bs; c++ {
+	for c := range bs {
 		var a0 uint8
 		if c == 0 {
 			a0 = cornerByte
@@ -148,7 +148,7 @@ func d135Predictor(dst []uint8, stride, bs int, aboveFull, left []uint8) {
 	for i := 0; i < bs-2; i++ {
 		border[bs+1+i] = avg3(int(above[i]), int(above[i+1]), int(above[i+2]))
 	}
-	for i := 0; i < bs; i++ {
+	for i := range bs {
 		copy(dst[i*stride:i*stride+bs], border[bs-1-i:])
 	}
 }

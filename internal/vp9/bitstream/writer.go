@@ -103,7 +103,7 @@ func (w *Writer) WriteLiteral(data, bits uint32) {
 // (0b110xxxxx). Returns the number of bytes written into the destination
 // buffer and an error if the buffer overflowed at any point.
 func (w *Writer) Stop() (int, error) {
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		w.WriteBit(0)
 	}
 

@@ -18,15 +18,15 @@ func convolveHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	x0Q4, xStepQ4, w, h, srcOffset int,
 ) {
 	srcStart := srcOffset - (tables.SubpelTaps/2 - 1)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		xQ4 := x0Q4
 		rowSrc := srcStart + y*srcStride
 		rowDst := y * dstStride
-		for x := 0; x < w; x++ {
+		for x := range w {
 			base := rowSrc + (xQ4 >> tables.SubpelBits)
 			filter := &xFilters[xQ4&tables.SubpelMask]
 			sum := 0
-			for k := 0; k < tables.SubpelTaps; k++ {
+			for k := range tables.SubpelTaps {
 				sum += int(src[base+k]) * int(filter[k])
 			}
 			dst[rowDst+x] = clipPixel(roundPowerOfTwo(int32(sum), tables.FilterBits))
@@ -42,13 +42,13 @@ func convolveVert(src []byte, srcStride int, dst []byte, dstStride int,
 	y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
 	srcStart := srcOffset - srcStride*(tables.SubpelTaps/2-1)
-	for x := 0; x < w; x++ {
+	for x := range w {
 		yQ4 := y0Q4
-		for y := 0; y < h; y++ {
+		for y := range h {
 			base := srcStart + (yQ4>>tables.SubpelBits)*srcStride
 			filter := &yFilters[yQ4&tables.SubpelMask]
 			sum := 0
-			for k := 0; k < tables.SubpelTaps; k++ {
+			for k := range tables.SubpelTaps {
 				sum += int(src[base+k*srcStride]) * int(filter[k])
 			}
 			dst[y*dstStride+x] = clipPixel(roundPowerOfTwo(int32(sum), tables.FilterBits))
@@ -66,15 +66,15 @@ func convolveAvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	x0Q4, xStepQ4, w, h, srcOffset int,
 ) {
 	srcStart := srcOffset - (tables.SubpelTaps/2 - 1)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		xQ4 := x0Q4
 		rowSrc := srcStart + y*srcStride
 		rowDst := y * dstStride
-		for x := 0; x < w; x++ {
+		for x := range w {
 			base := rowSrc + (xQ4 >> tables.SubpelBits)
 			filter := &xFilters[xQ4&tables.SubpelMask]
 			sum := 0
-			for k := 0; k < tables.SubpelTaps; k++ {
+			for k := range tables.SubpelTaps {
 				sum += int(src[base+k]) * int(filter[k])
 			}
 			c := int(dst[rowDst+x]) + int(clipPixel(roundPowerOfTwo(int32(sum), tables.FilterBits)))
@@ -89,13 +89,13 @@ func convolveAvgVert(src []byte, srcStride int, dst []byte, dstStride int,
 	y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
 	srcStart := srcOffset - srcStride*(tables.SubpelTaps/2-1)
-	for x := 0; x < w; x++ {
+	for x := range w {
 		yQ4 := y0Q4
-		for y := 0; y < h; y++ {
+		for y := range h {
 			base := srcStart + (yQ4>>tables.SubpelBits)*srcStride
 			filter := &yFilters[yQ4&tables.SubpelMask]
 			sum := 0
-			for k := 0; k < tables.SubpelTaps; k++ {
+			for k := range tables.SubpelTaps {
 				sum += int(src[base+k*srcStride]) * int(filter[k])
 			}
 			c := int(dst[y*dstStride+x]) + int(clipPixel(roundPowerOfTwo(int32(sum), tables.FilterBits)))
@@ -162,7 +162,7 @@ func VpxConvolve8AvgVert(src []byte, srcStride int, dst []byte, dstStride int,
 // VpxConvolveCopy mirrors vpx_convolve_copy_c — a straight memcpy of
 // w x h pixels from src to dst at the given strides.
 func VpxConvolveCopy(src []byte, srcStride int, dst []byte, dstStride, w, h, srcOffset int) {
-	for y := 0; y < h; y++ {
+	for y := range h {
 		copy(dst[y*dstStride:y*dstStride+w], src[srcOffset+y*srcStride:srcOffset+y*srcStride+w])
 	}
 }
@@ -170,8 +170,8 @@ func VpxConvolveCopy(src []byte, srcStride int, dst []byte, dstStride, w, h, src
 // VpxConvolveAvg mirrors vpx_convolve_avg_c — blend src and dst by
 // rounded mean.
 func VpxConvolveAvg(src []byte, srcStride int, dst []byte, dstStride, w, h, srcOffset int) {
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			c := int(src[srcOffset+y*srcStride+x]) + int(dst[y*dstStride+x])
 			dst[y*dstStride+x] = uint8((c + 1) >> 1)
 		}

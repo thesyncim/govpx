@@ -48,7 +48,7 @@ func TestIht4x4ZeroInputIdentity(t *testing.T) {
 	want := [16]uint8{
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 	}
-	for tx := 0; tx < 4; tx++ {
+	for tx := range 4 {
 		dest := want
 		Iht4x4_16Add(input[:], dest[:], 4, tx)
 		if dest != want {

@@ -125,7 +125,7 @@ func filter4(mask int8, thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 in
 // `s` (interpreted as offset within `plane`), each spanning 4 rows
 // above and 4 below.
 func VpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		p3 := plane[s-4*pitch]
 		p2 := plane[s-3*pitch]
 		p1 := plane[s-2*pitch]
@@ -144,7 +144,7 @@ func VpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 // vertically-adjacent edge rows left and right of the cursor pixel `s`,
 // each spanning 4 columns left and 4 right.
 func VpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		p3 := plane[s-4]
 		p2 := plane[s-3]
 		p1 := plane[s-2]
@@ -247,7 +247,7 @@ func filter16(mask int8, thresh uint8, flat, flat2 int8, dst []uint8,
 
 // VpxLpfHorizontal8 mirrors vpx_lpf_horizontal_8_c.
 func VpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		p3 := plane[s-4*pitch]
 		p2 := plane[s-3*pitch]
 		p1 := plane[s-2*pitch]
@@ -267,7 +267,7 @@ func VpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 
 // VpxLpfVertical8 mirrors vpx_lpf_vertical_8_c.
 func VpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		p3 := plane[s-4]
 		p2 := plane[s-3]
 		p1 := plane[s-2]
@@ -330,7 +330,7 @@ func mbLpfHorizontalEdgeW(plane []uint8, s, pitch int, blimit, limit, thresh uin
 // mbLpfVerticalEdgeW mirrors mb_lpf_vertical_edge_w. count is 8 for
 // the 16-pixel filter (covering 8 rows) and 16 for the dual variant.
 func mbLpfVerticalEdgeW(plane []uint8, s, pitch int, blimit, limit, thresh uint8, count int) {
-	for i := 0; i < count; i++ {
+	for range count {
 		p3 := plane[s-4]
 		p2 := plane[s-3]
 		p1 := plane[s-2]

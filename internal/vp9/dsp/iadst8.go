@@ -16,7 +16,7 @@ func iadst8(input, output []int16) {
 	x7 := int64(input[6])
 
 	if x0|x1|x2|x3|x4|x5|x6|x7 == 0 {
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			output[i] = 0
 		}
 		return
@@ -86,16 +86,16 @@ func iadst8(input, output []int16) {
 // (DCT, ADST) pair without this function knowing the dispatch table.
 func iht8x8_64Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
 	var out [64]int16
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		rowKernel(input[i*8:i*8+8], out[i*8:i*8+8])
 	}
 	var tempIn, tempOut [8]int16
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
+	for i := range 8 {
+		for j := range 8 {
 			tempIn[j] = out[j*8+i]
 		}
 		colKernel(tempIn[:], tempOut[:])
-		for j := 0; j < 8; j++ {
+		for j := range 8 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 5))
 		}

@@ -58,11 +58,11 @@ const (
 // read_bitdepth_colorspace_sampling: bit depth, color space, color
 // range, and (subsampling_x, subsampling_y).
 type BitdepthColorspaceSampling struct {
-	BitDepth      uint8
-	ColorSpace    common.ColorSpace
-	ColorRange    common.ColorRange
-	SubsamplingX  uint8
-	SubsamplingY  uint8
+	BitDepth     uint8
+	ColorSpace   common.ColorSpace
+	ColorRange   common.ColorRange
+	SubsamplingX uint8
+	SubsamplingY uint8
 }
 
 // ReadBitdepthColorspaceSampling parses the block after the sync code

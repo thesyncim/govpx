@@ -70,7 +70,7 @@ func TestQuantClamps(t *testing.T) {
 // TestQuantAlloc asserts the lookup is allocation-free.
 func TestQuantAlloc(t *testing.T) {
 	allocs := testing.AllocsPerRun(100, func() {
-		for q := 0; q < 256; q++ {
+		for q := range 256 {
 			_ = DcQuant(q, 0, Bits8)
 			_ = AcQuant(q, 0, Bits10)
 		}
