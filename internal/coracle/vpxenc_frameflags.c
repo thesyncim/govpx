@@ -102,6 +102,7 @@
  *                          screen:N maxintra:N gfboost:N cq:N
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
+ *                          resize:WxH
  *                          setref:{last,golden,altref}:panning:N
  *                          copyref:{last,golden,altref}
  *                          tlid:N tslayers:N tsperiodicity:N
@@ -613,9 +614,32 @@ static int control_value_int(const char *token, const char *prefix) {
   return parse_int(token + strlen(prefix), prefix);
 }
 
+static void parse_resize_token(const char *spec, int *width, int *height) {
+  char buf[64];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) die_msg("resize token too long: %s", spec);
+  memcpy(buf, spec, len + 1);
+  char *sep = strchr(buf, 'x');
+  if (!sep) sep = strchr(buf, 'X');
+  if (!sep) die_msg("resize expects WxH: %s", spec);
+  *sep++ = '\0';
+  int w = parse_int(buf, "resize width");
+  int h = parse_int(sep, "resize height");
+  if (w <= 0 || h <= 0) die_msg("resize dimensions must be positive: %s", spec);
+  *width = w;
+  *height = h;
+}
+
 static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
                                        const char *token, int *need_config) {
-  if (starts_with(token, "bitrate:")) {
+  if (starts_with(token, "resize:")) {
+    int width = 0;
+    int height = 0;
+    parse_resize_token(token + strlen("resize:"), &width, &height);
+    cfg->g_w = (unsigned)width;
+    cfg->g_h = (unsigned)height;
+    *need_config = 1;
+  } else if (starts_with(token, "bitrate:")) {
     cfg->rc_target_bitrate = (unsigned)control_value_int(token, "bitrate:");
     *need_config = 1;
   } else if (starts_with(token, "fps:")) {
@@ -843,9 +867,8 @@ static void codec_token_callback(void *opaque, const char *token) {
 }
 
 static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cfg,
-                                   int *deadline, int mb_rows, int mb_cols,
-                                   const char *entry, int frame_idx,
-                                   FILE *copy_ref_log) {
+                                   int *deadline, const char *entry,
+                                   int frame_idx, FILE *copy_ref_log) {
   struct config_token_context config_ctx = {cfg, deadline, 0};
   for_each_control_token(entry, config_token_callback, &config_ctx);
   if (config_ctx.need_config) {
@@ -853,6 +876,8 @@ static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cf
       die_codec_msg(ctx, "runtime vpx_codec_enc_config_set");
     }
   }
+  int mb_rows = mb_rows_for_height((int)cfg->g_h);
+  int mb_cols = mb_cols_for_width((int)cfg->g_w);
   struct runtime_codec_context codec_ctx = {
       ctx, (int)cfg->g_w, (int)cfg->g_h, mb_rows, mb_cols, frame_idx,
       copy_ref_log};
@@ -1197,21 +1222,48 @@ int main(int argc, char **argv) {
 
   write_ivf_file_header(out, width, height, fps_den, fps_num, frames);
 
-  int uv_w = (width + 1) >> 1;
-  int uv_h = (height + 1) >> 1;
-  size_t y_size = (size_t)width * (size_t)height;
-  size_t uv_size = (size_t)uv_w * (size_t)uv_h;
-  uint8_t *plane_buf = (uint8_t *)malloc(y_size + 2 * uv_size);
-  if (!plane_buf) die_msg("alloc plane buffer");
+  size_t plane_buf_capacity = 0;
+  uint8_t *plane_buf = NULL;
+  int img_width = width;
+  int img_height = height;
 
   vpx_codec_pts_t pts = 0;
   int total_emitted = 0;
   for (int frame_idx = 0; frame_idx <= frames; ++frame_idx) {
     int have_input = frame_idx < frames;
     vpx_image_t *input_img = NULL;
+    if (have_input && frame_idx < control_script_count) {
+      apply_runtime_controls(&ctx, &cfg, &deadline, control_script[frame_idx],
+                             frame_idx, copy_ref_log);
+    }
     if (have_input) {
-      if (fread(plane_buf, 1, y_size + 2 * uv_size, in) !=
-          y_size + 2 * uv_size) {
+      int cur_width = (int)cfg.g_w;
+      int cur_height = (int)cfg.g_h;
+      if (cur_width <= 0 || cur_height <= 0) {
+        die_msg("invalid runtime dimensions at frame %d: %dx%d", frame_idx,
+                cur_width, cur_height);
+      }
+      if (cur_width != img_width || cur_height != img_height) {
+        vpx_img_free(&img);
+        if (!vpx_img_alloc(&img, VPX_IMG_FMT_I420, (unsigned)cur_width,
+                           (unsigned)cur_height, 1)) {
+          die_msg("vpx_img_alloc resize failed");
+        }
+        img_width = cur_width;
+        img_height = cur_height;
+      }
+      int uv_w = (cur_width + 1) >> 1;
+      int uv_h = (cur_height + 1) >> 1;
+      size_t y_size = (size_t)cur_width * (size_t)cur_height;
+      size_t uv_size = (size_t)uv_w * (size_t)uv_h;
+      size_t frame_size = y_size + 2 * uv_size;
+      if (frame_size > plane_buf_capacity) {
+        uint8_t *new_buf = (uint8_t *)realloc(plane_buf, frame_size);
+        if (!new_buf) die_msg("alloc plane buffer");
+        plane_buf = new_buf;
+        plane_buf_capacity = frame_size;
+      }
+      if (fread(plane_buf, 1, frame_size, in) != frame_size) {
         die_msg("short read from %s at frame %d", infile_path, frame_idx);
       }
       /* Copy planes into the libvpx-allocated image so the per-plane
@@ -1219,9 +1271,9 @@ int main(int argc, char **argv) {
       uint8_t *src_y = plane_buf;
       uint8_t *src_u = plane_buf + y_size;
       uint8_t *src_v = plane_buf + y_size + uv_size;
-      for (int row = 0; row < height; ++row) {
+      for (int row = 0; row < cur_height; ++row) {
         memcpy(img.planes[VPX_PLANE_Y] + (ptrdiff_t)row * img.stride[VPX_PLANE_Y],
-               src_y + (ptrdiff_t)row * width, (size_t)width);
+               src_y + (ptrdiff_t)row * cur_width, (size_t)cur_width);
       }
       for (int row = 0; row < uv_h; ++row) {
         memcpy(img.planes[VPX_PLANE_U] + (ptrdiff_t)row * img.stride[VPX_PLANE_U],
@@ -1235,11 +1287,6 @@ int main(int argc, char **argv) {
     unsigned int frame_flags = 0;
     if (have_input && frame_idx < frame_flag_count) {
       frame_flags = per_frame_flags[frame_idx];
-    }
-    if (have_input && frame_idx < control_script_count) {
-      apply_runtime_controls(&ctx, &cfg, &deadline, mb_rows, mb_cols,
-                             control_script[frame_idx], frame_idx,
-                             copy_ref_log);
     }
 
     vpx_codec_err_t enc_err =

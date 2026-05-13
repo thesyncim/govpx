@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -317,6 +319,69 @@ func TestOracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
 			govpx1Resize, govpx2Resize := encodeWithMidStreamResize(t, opts1, w2, h2, seg1, seg2)
 			assertSegmentByteParity(t, "resize-seg1-vs-cold-govpx-"+tc.name, govpx1Resize, govpx1Cold, 0)
 			assertSegmentByteParity(t, "resize-seg2-forced-key-"+tc.name, govpx2Resize, libvpx2, 1)
+		})
+	}
+}
+
+func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize byte-parity gate")
+	}
+	frameFlagsDriver := findVpxencFrameFlags(t)
+
+	const (
+		fps          = 30
+		targetKbps   = 700
+		framesPerSeg = 4
+	)
+	cases := []struct {
+		name     string
+		w1, h1   int
+		w2, h2   int
+		deadline Deadline
+		cpuUsed  int
+		rcMode   RateControlMode
+		limit    int
+	}{
+		// libvpx only permits runtime reconfigures up to the initial
+		// dimensions, so this true vpx_codec_enc_config_set oracle covers
+		// downscale transitions. Public upsize behavior remains covered by
+		// the cold-segment resize matrix above.
+		{name: "64x64-to-32x32-realtime-cpu0-cbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: 0, rcMode: RateControlCBR},
+		{name: "64x64-to-32x32-realtime-cpu-3-cbr", w1: 64, h1: 64, w2: 32, h2: 32, deadline: DeadlineRealtime, cpuUsed: -3, rcMode: RateControlCBR},
+		{name: "65x33-to-33x17-realtime-cpu0-cbr", w1: 65, h1: 33, w2: 33, h2: 17, deadline: DeadlineRealtime, cpuUsed: 0, rcMode: RateControlCBR},
+		{name: "96x96-to-64x64-good-cpu0-vbr", w1: 96, h1: 96, w2: 64, h2: 64, deadline: DeadlineGoodQuality, cpuUsed: 0, rcMode: RateControlVBR},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seg1 := makePanningSources(tc.w1, tc.h1, framesPerSeg, 0)
+			seg2 := makePanningSources(tc.w2, tc.h2, framesPerSeg, framesPerSeg)
+			opts := EncoderOptions{
+				Width:             tc.w1,
+				Height:            tc.h1,
+				FPS:               fps,
+				RateControlMode:   tc.rcMode,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          tc.deadline,
+				CpuUsed:           tc.cpuUsed,
+			}
+			sources := append(append([]Image(nil), seg1...), seg2...)
+			script := make([]string, len(sources))
+			for i := range script {
+				script[i] = "-"
+			}
+			script[framesPerSeg] = fmt.Sprintf("resize:%dx%d", tc.w2, tc.h2)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-"+tc.name, opts, targetKbps, sources, nil, []string{
+				"--control-script=" + strings.Join(script, ","),
+			})
+
+			govpxSeg1, govpxSeg2 := encodeWithMidStreamResize(t, opts, tc.w2, tc.h2, seg1, seg2)
+			govpxFrames := append(append([][]byte(nil), govpxSeg1...), govpxSeg2...)
+			assertSegmentByteParity(t, "runtime-resize-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
 }
