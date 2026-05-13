@@ -299,19 +299,33 @@ func (e *VP9Encoder) writeVP9StubModesTile(bw *bitstream.Writer, miRows, miCols 
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
-	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
+	tile := vp9dec.TileBounds{
+		MiRowStart: 0,
+		MiRowEnd:   miRows,
+		MiColStart: 0,
+		MiColEnd:   miCols,
+	}
+	e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi)
+}
+
+func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
+	tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+) {
+	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
 		}
-		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
 			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol,
-				common.Block64x64, partitionProbs, seg, baseMi)
+				common.Block64x64, tile, partitionProbs, seg, baseMi)
 		}
 	}
 }
 
 func (e *VP9Encoder) writeVP9StubModesSb(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize,
+	bsize common.BlockSize, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
@@ -332,30 +346,30 @@ func (e *VP9Encoder) writeVP9StubModesSb(bw *bitstream.Writer, miRows, miCols, m
 
 	subsize := common.SubsizeLookup[partition][bsize]
 	if subsize < common.Block8x8 {
-		e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+		e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi)
 	} else {
 		switch partition {
 		case common.PartitionNone:
-			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi)
 		case common.PartitionHorz:
-			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi)
 			if miRow+bs < miRows {
-				e.writeVP9StubBlock(bw, miRows, miCols, miRow+bs, miCol, subsize, seg, baseMi)
+				e.writeVP9StubBlock(bw, miRows, miCols, miRow+bs, miCol, subsize, tile, seg, baseMi)
 			}
 		case common.PartitionVert:
-			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, seg, baseMi)
+			e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi)
 			if miCol+bs < miCols {
-				e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol+bs, subsize, seg, baseMi)
+				e.writeVP9StubBlock(bw, miRows, miCols, miRow, miCol+bs, subsize, tile, seg, baseMi)
 			}
 		default:
 			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol,
-				subsize, partitionProbs, seg, baseMi)
+				subsize, tile, partitionProbs, seg, baseMi)
 			e.writeVP9StubModesSb(bw, miRows, miCols, miRow, miCol+bs,
-				subsize, partitionProbs, seg, baseMi)
+				subsize, tile, partitionProbs, seg, baseMi)
 			e.writeVP9StubModesSb(bw, miRows, miCols, miRow+bs, miCol,
-				subsize, partitionProbs, seg, baseMi)
+				subsize, tile, partitionProbs, seg, baseMi)
 			e.writeVP9StubModesSb(bw, miRows, miCols, miRow+bs, miCol+bs,
-				subsize, partitionProbs, seg, baseMi)
+				subsize, tile, partitionProbs, seg, baseMi)
 		}
 	}
 
@@ -397,15 +411,20 @@ func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.Blo
 }
 
 func (e *VP9Encoder) writeVP9StubBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+	bsize common.BlockSize, tile vp9dec.TileBounds,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
 	cur := baseMi
 	cur.SbType = bsize
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
 	encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
 		Seg:       seg,
 		Mi:        &cur,
 		AboveMi:   e.vp9MiAt(miRows, miCols, miRow-1, miCol),
-		LeftMi:    e.vp9MiAt(miRows, miCols, miRow, miCol-1),
+		LeftMi:    left,
 		TxMode:    common.Only4x4,
 		SkipProbs: e.fc.SkipProbs,
 	})

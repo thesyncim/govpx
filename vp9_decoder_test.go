@@ -1,11 +1,16 @@
 package govpx
 
 import (
+	"encoding/binary"
 	"errors"
 	"image"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // TestNewVP9DecoderZeroValueOptions: the zero value of options
@@ -251,6 +256,66 @@ func TestVP9DecoderRejectsMissingModeTile(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderParsesMultiTileModeFrame drives the public decoder
+// through the 4-byte size-prefixed tile layout. The public encoder
+// still emits one tile, so this test packs a two-column keyframe via
+// the internal packer and the same stub mode writer.
+func TestVP9DecoderParsesMultiTileModeFrame(t *testing.T) {
+	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 1024 || h != 64 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (1024, 64)", w, h)
+	}
+}
+
+// TestVP9DecoderRejectsInvalidMultiTilePrefix covers malformed
+// size-prefix framing before the tile mode reader starts.
+func TestVP9DecoderRejectsInvalidMultiTilePrefix(t *testing.T) {
+	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	tileStart, err := vp9TileStartForTest(packet)
+	if err != nil {
+		t.Fatalf("vp9TileStartForTest: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		packet []byte
+	}{
+		{"truncated-prefix", packet[:tileStart+2]},
+		{"oversized-prefix", func() []byte {
+			corrupt := make([]byte, len(packet))
+			copy(corrupt, packet)
+			binary.BigEndian.PutUint32(corrupt[tileStart:tileStart+4], uint32(len(packet)))
+			return corrupt
+		}()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			err = d.Decode(tc.packet)
+			if !errors.Is(err, ErrInvalidVP9Data) {
+				t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
+			}
+			w, h := d.LastFrameSize()
+			if w != 0 || h != 0 {
+				t.Fatalf("LastFrameSize() = (%d, %d), want (0, 0)", w, h)
+			}
+		})
+	}
+}
+
 // TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
 // tile-mode parse path allocation-free after construction.
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
@@ -288,6 +353,90 @@ func vp9TileStartForTest(packet []byte) (int, error) {
 		return 0, err
 	}
 	return br.BytesRead() + int(hdr.FirstPartitionSize), nil
+}
+
+func vp9MultiTileStubPacketForTest(t *testing.T, width, height, log2TileCols int) []byte {
+	t.Helper()
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	w := uint32(width)
+	h := uint32(height)
+	miCols := int((w + 7) >> 3)
+	miRows := int((h + 7) >> 3)
+	vp9dec.ResetFrameContext(&e.fc)
+	e.aboveSegCtx = make([]int8, alignToSb(miCols))
+	e.leftSegCtx = make([]int8, common.MiBlockSize)
+	e.miGrid = make([]vp9dec.NeighborMi, miRows*miCols)
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.KeyFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0xff,
+		Width:                 w,
+		Height:                h,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: true,
+		InterpFilter:          vp9dec.InterpEighttap,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:   vp9dec.Bits8,
+			ColorSpace: common.CSUnknown,
+			ColorRange: common.CRStudioRange,
+		},
+	}
+	header.Quant.BaseQindex = 1
+	header.Tile.Log2TileCols = log2TileCols
+	header.Tile.Log2TileRows = 0
+
+	baseMi := vp9dec.NeighborMi{
+		SbType: common.Block64x64,
+		Mode:   common.DcPred,
+		TxSize: common.Tx4x4,
+		Skip:   1,
+		RefFrame: [2]int8{
+			vp9dec.IntraFrame,
+			vp9dec.NoRefFrame,
+		},
+	}
+	var seg vp9dec.SegmentationParams
+	partitionProbs := tables.KfPartitionProbs
+	tileCols := 1 << uint(log2TileCols)
+	dest := make([]byte, 65536)
+	scratch := make([]byte, 65536)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		Comp: vp9enc.CompressedHeaderInputs{
+			Lossless:           false,
+			TxMode:             common.Only4x4,
+			IntraOnly:          true,
+			InterpFilter:       vp9dec.InterpEighttap,
+			ReferenceMode:      vp9dec.SingleReference,
+			CompoundRefAllowed: false,
+		},
+		TileRows: 1,
+		TileCols: tileCols,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			tile := vp9dec.TileBounds{
+				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, header.Tile.Log2TileRows),
+				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, header.Tile.Log2TileRows),
+				MiColStart: vp9DecoderTileOffset(tileCol, miCols, header.Tile.Log2TileCols),
+				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, header.Tile.Log2TileCols),
+			}
+			e.writeVP9StubModesTileBounds(bw, miRows, miCols, tile,
+				&partitionProbs, &seg, baseMi)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet
 }
 
 // TestVP9DecoderMaxWidthRejectsLargerKeyframe: a header whose width
