@@ -46,6 +46,132 @@ func WriteIntraOnlyUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader
 	return writeUncompressedHeader(w, &tmp, false)
 }
 
+// WriteInterUncompressedHeader writes the uncompressed-header
+// fragment for an inter (non-intra-only, non-key) frame. The inter
+// path adds three (ref_frame_map_idx, ref_sign_bias) tuples, the
+// per-ref "found" cascade in write_frame_size_with_refs, the
+// allow_high_precision_mv bit, and the interp-filter mode.
+//
+// `refDims` returns the (width, height) of the reference frame at
+// the supplied ring slot. The writer consults it for the "found"
+// scan against the current frame size — when a ref matches, the
+// writer skips the explicit (width-1, height-1) literals.
+func WriteInterUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader,
+	refDims func(slot uint8) (uint32, uint32),
+) int {
+	if h.IntraOnly {
+		// Caller misuse; clear the flag.
+		tmp := *h
+		tmp.IntraOnly = false
+		return writeUncompressedHeaderInter(w, &tmp, refDims)
+	}
+	return writeUncompressedHeaderInter(w, h, refDims)
+}
+
+// writeUncompressedHeaderInter is the inter-frame entry. The shape
+// is the same as writeUncompressedHeader's else-arm but routes to
+// the inter (non-intra-only) sub-branch.
+func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
+	refDims func(slot uint8) (uint32, uint32),
+) int {
+	writeFrameMarker(w)
+	writeProfile(w, h.Profile)
+	w.WriteBit(0) // show_existing_frame = 0
+	w.WriteBit(uint32(h.FrameType))
+	bit32(w, h.ShowFrame)
+	bit32(w, h.ErrorResilientMode)
+
+	if !h.ShowFrame {
+		bit32(w, h.IntraOnly) // emit 0 here (caller cleared the flag)
+	}
+	if !h.ErrorResilientMode {
+		w.WriteLiteral(uint32(h.ResetFrameContext), 2)
+	}
+
+	// Inter (non-intra-only) branch.
+	w.WriteLiteral(uint32(h.RefreshFrameFlags), common.RefFrames)
+	for i := 0; i < 3; i++ {
+		w.WriteLiteral(uint32(h.InterRef.RefIndex[i]), 3)
+		w.WriteBit(uint32(h.InterRef.SignBias[i]))
+	}
+	writeFrameSizeWithRefs(w, h, refDims)
+	bit32(w, h.AllowHighPrecisionMv)
+	writeInterpFilter(w, h.InterpFilter)
+
+	if !h.ErrorResilientMode {
+		bit32(w, h.RefreshFrameContext)
+		bit32(w, h.FrameParallelDecoding)
+	}
+	w.WriteLiteral(uint32(h.FrameContextIdx), 2)
+
+	encodeLoopfilter(w, &h.Loopfilter)
+	encodeQuantization(w, &h.Quant)
+	encodeSegmentation(w, &h.Seg)
+	miCols := int((h.Width + 7) >> 3)
+	writeTileInfo(w, &h.Tile, miCols)
+
+	w.WriteLiteral(uint32(h.FirstPartitionSize), 16)
+	return w.BytesWritten()
+}
+
+// writeFrameSizeWithRefs mirrors write_frame_size_with_refs.
+// Walks the three ref slots, writing a 1-bit "found" flag per slot
+// (set when the ref dims match the current frame). The first set
+// flag wins; subsequent flags emit 0. If no flag sets, the explicit
+// (width-1, height-1) literals follow, then the render-flag bit.
+func writeFrameSizeWithRefs(w *BitWriter, h *vp9dec.UncompressedHeader,
+	refDims func(slot uint8) (uint32, uint32),
+) {
+	found := false
+	for i := 0; i < 3; i++ {
+		match := false
+		if !found && refDims != nil {
+			rw, rh := refDims(h.InterRef.RefIndex[i])
+			match = rw == h.Width && rh == h.Height
+		}
+		bit32(w, match)
+		if match {
+			found = true
+			// libvpx breaks here; the remaining "found" bits are
+			// never emitted, so we follow suit.
+			break
+		}
+	}
+	if !found {
+		// Emit the remaining "found=0" flags libvpx skipped via break.
+		// Walking the indices forward: we emitted bits 0..(i_break-1)
+		// already (with i_break being whichever index broke). When no
+		// match happens we always emit 3 flags, so we're done.
+		w.WriteLiteral(h.Width-1, 16)
+		w.WriteLiteral(h.Height-1, 16)
+	}
+	w.WriteBit(0) // render_flag = 0
+}
+
+// writeInterpFilter mirrors write_interp_filter. Bit 0 = "switchable";
+// when not switchable, 2 bits select the per-filter literal.
+func writeInterpFilter(w *BitWriter, f vp9dec.InterpFilter) {
+	if f == vp9dec.InterpSwitchable {
+		w.WriteBit(1)
+		return
+	}
+	w.WriteBit(0)
+	// libvpx's filter_to_literal[]: EIGHTTAP=0 → 1, EIGHTTAP_SMOOTH=1 → 0,
+	// EIGHTTAP_SHARP=2 → 2, BILINEAR=3 → 3.
+	var lit uint32
+	switch f {
+	case vp9dec.InterpEighttap:
+		lit = 1
+	case vp9dec.InterpEighttapSmooth:
+		lit = 0
+	case vp9dec.InterpEighttapSharp:
+		lit = 2
+	case vp9dec.InterpBilinear:
+		lit = 3
+	}
+	w.WriteLiteral(lit, 2)
+}
+
 func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyframe bool) int {
 	writeFrameMarker(w)
 	writeProfile(w, h.Profile)

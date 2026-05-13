@@ -73,12 +73,17 @@ type FrameSizeWithRefs struct {
 // frame buffer pool.
 func ReadFrameSizeWithRefs(r *BitReader, refWidths, refHeights [3]uint32) FrameSizeWithRefs {
 	var out FrameSizeWithRefs
+	// libvpx breaks out of the per-ref loop on the first set "found"
+	// bit; the encoder mirrors this by emitting only one bit when a
+	// match is found. Walking all three slots would consume bits the
+	// encoder never wrote, mis-aligning every downstream field.
 	for i := range 3 {
-		if r.ReadBit() != 0 && !out.Found {
+		if r.ReadBit() != 0 {
 			out.Found = true
 			out.FromRef = i
 			out.Width = refWidths[i]
 			out.Height = refHeights[i]
+			break
 		}
 	}
 	if !out.Found {

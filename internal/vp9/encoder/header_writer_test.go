@@ -147,3 +147,123 @@ func TestIntraOnlyHeaderRoundTrip(t *testing.T) {
 		t.Errorf("FrameContextIdx = %d, want %d", got.FrameContextIdx, want.FrameContextIdx)
 	}
 }
+
+// TestInterHeaderRoundTripNoSizeMatch exercises the inter path with
+// reference frames whose dimensions don't match the current frame —
+// libvpx then emits three "found=0" bits followed by the explicit
+// (width-1, height-1) literals.
+func TestInterHeaderRoundTripNoSizeMatch(t *testing.T) {
+	want := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		ErrorResilientMode:    false,
+		IntraOnly:             false,
+		ResetFrameContext:     1,
+		RefreshFrameFlags:     0x07,
+		Width:                 320,
+		Height:                240,
+		AllowHighPrecisionMv:  true,
+		InterpFilter:          vp9dec.InterpEighttapSmooth,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: false,
+		FrameContextIdx:       0,
+		InterRef: vp9dec.InterRefBlock{
+			RefIndex: [3]uint8{1, 3, 5},
+			SignBias: [3]uint8{0, 1, 0},
+		},
+		FirstPartitionSize: 100,
+	}
+	want.Loopfilter.FilterLevel = 16
+	want.Quant.BaseQindex = 80
+
+	// refDims: every ref slot is a different size from the current
+	// frame, so the "found" scan emits 000 and an explicit size
+	// follows.
+	refDims := func(slot uint8) (uint32, uint32) {
+		return 640, 480 // mismatch
+	}
+
+	buf := make([]byte, 128)
+	w := NewBitWriter(buf)
+	n := WriteInterUncompressedHeader(w, &want, refDims)
+	if n <= 0 {
+		t.Fatalf("WriteInterUncompressedHeader returned %d bytes", n)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(buf[:n])
+	got, err := vp9dec.ReadUncompressedHeader(&br, nil, refDims)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if got.FrameType != common.InterFrame || !got.ShowFrame || got.IntraOnly {
+		t.Errorf("frame flags = (FrameType=%d, ShowFrame=%v, IntraOnly=%v)",
+			got.FrameType, got.ShowFrame, got.IntraOnly)
+	}
+	if got.RefreshFrameFlags != want.RefreshFrameFlags {
+		t.Errorf("RefreshFrameFlags = %#x, want %#x", got.RefreshFrameFlags, want.RefreshFrameFlags)
+	}
+	for i := 0; i < 3; i++ {
+		if got.InterRef.RefIndex[i] != want.InterRef.RefIndex[i] ||
+			got.InterRef.SignBias[i] != want.InterRef.SignBias[i] {
+			t.Errorf("InterRef[%d] = (%d, %d), want (%d, %d)", i,
+				got.InterRef.RefIndex[i], got.InterRef.SignBias[i],
+				want.InterRef.RefIndex[i], want.InterRef.SignBias[i])
+		}
+	}
+	if got.Width != want.Width || got.Height != want.Height {
+		t.Errorf("size = (%d, %d), want (%d, %d)", got.Width, got.Height, want.Width, want.Height)
+	}
+	if !got.AllowHighPrecisionMv {
+		t.Error("AllowHighPrecisionMv lost")
+	}
+	if got.InterpFilter != vp9dec.InterpEighttapSmooth {
+		t.Errorf("InterpFilter = %d, want %d", got.InterpFilter, vp9dec.InterpEighttapSmooth)
+	}
+}
+
+// TestInterHeaderRoundTripWithSizeMatch: when a reference frame
+// matches the current frame's dimensions, the writer emits a 1-bit
+// "found" flag at the matching slot and skips the explicit size.
+func TestInterHeaderRoundTripWithSizeMatch(t *testing.T) {
+	want := vp9dec.UncompressedHeader{
+		Profile:            common.Profile0,
+		FrameType:          common.InterFrame,
+		ShowFrame:          true,
+		Width:              320,
+		Height:             240,
+		InterpFilter:       vp9dec.InterpSwitchable,
+		RefreshFrameFlags:  0x01,
+		FirstPartitionSize: 50,
+	}
+	want.InterRef.RefIndex = [3]uint8{2, 4, 6}
+	want.Loopfilter.FilterLevel = 4
+	want.Quant.BaseQindex = 50
+
+	// refDims: slot 2 (the first ref) matches the current frame, so
+	// the writer emits "found=1" at slot 0 and skips the size.
+	refDims := func(slot uint8) (uint32, uint32) {
+		if slot == 2 {
+			return 320, 240
+		}
+		return 640, 480
+	}
+
+	buf := make([]byte, 128)
+	w := NewBitWriter(buf)
+	n := WriteInterUncompressedHeader(w, &want, refDims)
+
+	var br vp9dec.BitReader
+	br.Init(buf[:n])
+	got, err := vp9dec.ReadUncompressedHeader(&br, nil, refDims)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if got.Width != 320 || got.Height != 240 {
+		t.Errorf("size = (%d, %d), want (320, 240)", got.Width, got.Height)
+	}
+	if got.InterpFilter != vp9dec.InterpSwitchable {
+		t.Errorf("InterpFilter = %d, want Switchable", got.InterpFilter)
+	}
+}
