@@ -918,6 +918,93 @@ func TestVP9DecoderDecodeIntoSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderFrameContextSlotsTrackInterHeaderUpdates keeps VP9's
+// four entropy-context slots separate. A valid-but-unsupported inter
+// frame may update the compressed-header probabilities before the
+// decoder stops at the reconstruction boundary; that update belongs
+// only to the selected frame_context_idx.
+func TestVP9DecoderFrameContextSlotsTrackInterHeaderUpdates(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+
+	packet, wantSkipProb := vp9InterFrameContextUpdatePacketForTest(t, 64, 64, 1, true)
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode inter err = %v, want ErrVP9NotImplemented", err)
+	}
+	if got := d.frameContexts[1].SkipProbs[0]; got != wantSkipProb {
+		t.Fatalf("context 1 skip prob = %d, want %d", got, wantSkipProb)
+	}
+	if got := d.frameContexts[0].SkipProbs[0]; got != tables.DefaultSkipProbs[0] {
+		t.Fatalf("context 0 skip prob = %d, want default %d",
+			got, tables.DefaultSkipProbs[0])
+	}
+}
+
+// TestVP9DecoderFrameContextNoRefreshDoesNotPersistUpdates covers the
+// refresh_frame_context gate: compressed-header updates are still used
+// for the current frame parse, but they must not become the stored slot
+// state when the header clears the refresh bit.
+func TestVP9DecoderFrameContextNoRefreshDoesNotPersistUpdates(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+
+	packet, wantSkipProb := vp9InterFrameContextUpdatePacketForTest(t, 64, 64, 2, false)
+	if wantSkipProb == tables.DefaultSkipProbs[0] {
+		t.Fatalf("test packet did not update skip prob away from default %d", wantSkipProb)
+	}
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode inter err = %v, want ErrVP9NotImplemented", err)
+	}
+	if got := d.frameContexts[2].SkipProbs[0]; got != tables.DefaultSkipProbs[0] {
+		t.Fatalf("context 2 skip prob = %d, want default %d",
+			got, tables.DefaultSkipProbs[0])
+	}
+}
+
+func TestVP9DecoderResetClearsFrameContextSlots(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	packet, wantSkipProb := vp9InterFrameContextUpdatePacketForTest(t, 64, 64, 3, true)
+	err = d.Decode(packet)
+	if !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode inter err = %v, want ErrVP9NotImplemented", err)
+	}
+	if got := d.frameContexts[3].SkipProbs[0]; got != wantSkipProb {
+		t.Fatalf("context 3 skip prob = %d, want %d", got, wantSkipProb)
+	}
+
+	d.Reset()
+	for i := range d.frameContexts {
+		if got := d.frameContexts[i].SkipProbs[0]; got != tables.DefaultSkipProbs[0] {
+			t.Fatalf("context %d skip prob after Reset = %d, want default %d",
+				i, got, tables.DefaultSkipProbs[0])
+		}
+	}
+	if _, ok := d.LastFrameInfo(); ok {
+		t.Fatal("LastFrameInfo after Reset returned ok")
+	}
+}
+
 func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 	t.Helper()
 	assertVP9FilledFrame(t, got, width, height, 128, 128, 128)
@@ -1207,6 +1294,77 @@ func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
 	packet := make([]byte, n)
 	copy(packet, dest[:n])
 	return packet
+}
+
+func vp9InterFrameContextUpdatePacketForTest(t *testing.T, width, height int,
+	contextIdx uint8, refreshFrameContext bool,
+) ([]byte, uint8) {
+	t.Helper()
+	w := uint32(width)
+	h := uint32(height)
+
+	var probs vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&probs)
+	var counts vp9enc.FrameCounts
+	counts.Skip[0] = [2]uint32{1, 4096}
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0,
+		Width:                 w,
+		Height:                h,
+		InterpFilter:          vp9dec.InterpEighttap,
+		RefreshFrameContext:   refreshFrameContext,
+		FrameParallelDecoding: true,
+		FrameContextIdx:       contextIdx,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:     vp9dec.Bits8,
+			ColorSpace:   common.CSUnknown,
+			ColorRange:   common.CRStudioRange,
+			SubsamplingX: 1,
+			SubsamplingY: 1,
+		},
+	}
+	header.Quant.BaseQindex = 1
+
+	dest := make([]byte, 65536)
+	scratch := make([]byte, 65536)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		CountsArgs: &vp9enc.WriteCompressedHeaderFromCountsArgs{
+			Lossless:             false,
+			TxMode:               common.Only4x4,
+			IntraOnly:            false,
+			InterpFilter:         vp9dec.InterpEighttap,
+			ReferenceMode:        vp9dec.SingleReference,
+			CompoundRefAllowed:   false,
+			AllowHighPrecisionMv: false,
+			CoefStepsize:         1,
+			Probs:                &probs,
+			Counts:               &counts,
+		},
+		TileRows: 1,
+		TileCols: 1,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			return nil
+		},
+		RefDims: func(slot uint8) (uint32, uint32) {
+			return w, h
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	if probs.SkipProbs[0] == tables.DefaultSkipProbs[0] {
+		t.Fatalf("compressed-header counts left skip prob at default %d", probs.SkipProbs[0])
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet, probs.SkipProbs[0]
 }
 
 // TestVP9DecoderMaxWidthRejectsLargerKeyframe: a header whose width

@@ -72,10 +72,12 @@ type VP9Decoder struct {
 	opts   VP9DecoderOptions
 	closed bool
 
-	// fc carries the probability tables the compressed header walks
-	// and updates each frame. Seeded with libvpx's default tables
-	// at construction; reset to defaults on every keyframe.
-	fc vp9dec.FrameContext
+	// frameContexts mirrors VP9's four entropy-context slots. fc is the
+	// active scratch copy selected by frame_context_idx for the current
+	// frame; compressed-header updates are committed back only when the
+	// header's refresh_frame_context bit allows it.
+	frameContexts [common.FrameContexts]vp9dec.FrameContext
+	fc            vp9dec.FrameContext
 
 	// lastHeader carries the previous frame's uncompressed-header
 	// state so the parser can seed the fields VP9's wire format
@@ -176,7 +178,7 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 		return nil, err
 	}
 	d := &VP9Decoder{opts: opts}
-	vp9dec.ResetFrameContext(&d.fc)
+	d.resetVP9FrameContexts()
 	d.lfi = vp9dec.NewLoopFilterInfoN()
 	return d, nil
 }
@@ -233,9 +235,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return ErrInvalidVP9Data
 	}
 
-	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly || hdr.ErrorResilientMode {
-		vp9dec.ResetFrameContext(&d.fc)
-	}
+	frameContextIdx := d.prepareVP9FrameContext(&hdr)
 	var cr bitstream.Reader
 	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
 		return ErrInvalidVP9Data
@@ -273,6 +273,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	} else {
 		d.unsupportedReconstruct = true
 	}
+	d.commitVP9FrameContext(&hdr, frameContextIdx)
 
 	d.lastHeader = hdr
 	d.lastHeaderValid = true
@@ -392,6 +393,36 @@ func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo) {
 	d.lastInfo = info
 	d.lastInfoValid = true
 	d.initialized = true
+}
+
+func (d *VP9Decoder) resetVP9FrameContexts() {
+	for i := range d.frameContexts {
+		vp9dec.ResetFrameContext(&d.frameContexts[i])
+	}
+	d.fc = d.frameContexts[0]
+}
+
+func (d *VP9Decoder) prepareVP9FrameContext(hdr *vp9dec.UncompressedHeader) int {
+	idx := int(hdr.FrameContextIdx)
+	if idx >= common.FrameContexts {
+		idx = 0
+	}
+	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly ||
+		hdr.ErrorResilientMode || hdr.ResetFrameContext == 3 {
+		d.resetVP9FrameContexts()
+		idx = 0
+	} else if hdr.ResetFrameContext == 2 {
+		vp9dec.ResetFrameContext(&d.frameContexts[idx])
+	}
+	d.fc = d.frameContexts[idx]
+	return idx
+}
+
+func (d *VP9Decoder) commitVP9FrameContext(hdr *vp9dec.UncompressedHeader, idx int) {
+	if idx < 0 || idx >= common.FrameContexts || !hdr.RefreshFrameContext {
+		return
+	}
+	d.frameContexts[idx] = d.fc
 }
 
 func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHeader) bool {
@@ -545,7 +576,7 @@ func (d *VP9Decoder) Reset() {
 	if d == nil {
 		return
 	}
-	vp9dec.ResetFrameContext(&d.fc)
+	d.resetVP9FrameContexts()
 	d.lastHeader = vp9dec.UncompressedHeader{}
 	d.lastHeaderValid = false
 	d.unsupportedReconstruct = false

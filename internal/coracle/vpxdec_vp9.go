@@ -86,3 +86,48 @@ func VpxdecVP9Decode(ivf []byte) ([]byte, error) {
 	cmd := exec.Command(bin, "--codec=vp9", "--noblit", "--summary", tmp.Name())
 	return cmd.CombinedOutput()
 }
+
+// VpxdecVP9DecodeI420 decodes an IVF-wrapped VP9 stream through libvpx
+// vpxdec and returns the concatenated visible-frame I420 bytes. diag
+// contains combined vpxdec stdout/stderr for failure messages.
+func VpxdecVP9DecodeI420(ivf []byte) (raw []byte, diag []byte, err error) {
+	bin, err := VpxdecVP9Path()
+	if err != nil {
+		return nil, nil, err
+	}
+	in, err := os.CreateTemp("", "govpx-vp9-*.ivf")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.Remove(in.Name())
+	if _, err := in.Write(ivf); err != nil {
+		in.Close()
+		return nil, nil, err
+	}
+	if err := in.Close(); err != nil {
+		return nil, nil, err
+	}
+
+	out, err := os.CreateTemp("", "govpx-vp9-*.i420")
+	if err != nil {
+		return nil, nil, err
+	}
+	outName := out.Name()
+	if err := out.Close(); err != nil {
+		os.Remove(outName)
+		return nil, nil, err
+	}
+	defer os.Remove(outName)
+
+	cmd := exec.Command(bin, "--codec=vp9", "--rawvideo", "--i420",
+		"--output="+outName, in.Name())
+	diag, err = cmd.CombinedOutput()
+	if err != nil {
+		return nil, diag, err
+	}
+	raw, err = os.ReadFile(outName)
+	if err != nil {
+		return nil, diag, err
+	}
+	return raw, diag, nil
+}

@@ -15,6 +15,8 @@ ORACLE := $(CORACLE_BUILD)/govpx-vpx-oracle
 VPXENC := $(CORACLE_BUILD)/vpxenc
 VPXENC_ORACLE := $(CORACLE_BUILD)/vpxenc-oracle
 VPXDEC := $(CORACLE_BUILD)/vpxdec
+VPXDEC_VP9 := $(CORACLE_BUILD)/vpxdec-vp9
+VPXENC_VP9 := $(CORACLE_BUILD)/vpxenc-vp9
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
@@ -32,7 +34,7 @@ VP8_ENCODER_SOURCE_FILES ?= park_joy_90p_8_420.y4m desktopqvga.320_240.yuv
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
+.PHONY: all ci fmtcheck test test-purego pgo-refresh verify verify-production verify-decoder-parity oracle-test decoder-oracle-test oracle-tools vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-encoder-test-data scoreboard scoreboard-update vp9-dsp-oracle
 
 all: ci
 
@@ -80,12 +82,13 @@ pgo-refresh:
 	mv "$(PGO_PROFILE).tmp" "$(PGO_PROFILE)"
 	rm -rf .pgo
 
-oracle-test: oracle-tools fetch-test-data
+oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
 	GOVPX_ORACLE="$(ORACLE)" \
 	GOVPX_VPXDEC="$(VPXDEC)" \
+	GOVPX_VPXDEC_VP9_BIN="$(VPXDEC_VP9)" \
 	GOVPX_VPXENC="$(VPXENC)" \
 	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
@@ -98,7 +101,7 @@ oracle-test: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_REQUIRED=1 \
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
-	$(GO) test . -run 'TestOracle' -count=1 -timeout 10m
+	$(GO) test . -run 'Test(Oracle|VP9DecoderVpxdecOracleMatches)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity
 
@@ -150,6 +153,11 @@ oracle-tools: $(ORACLE)
 	test -x "$(VPXENC_ORACLE)"
 	test -x "$(VPXDEC)"
 	test -x "$(VPX_TEMPORAL_SVC_ENCODER)"
+
+vp9-vpxdec-tools:
+	internal/coracle/build_vpxdec_vp9.sh >/dev/null
+	test -x "$(VPXDEC_VP9)"
+	test -x "$(VPXENC_VP9)"
 
 $(ORACLE): internal/coracle/build_libvpx.sh internal/coracle/vpx_oracle.c
 	internal/coracle/build_libvpx.sh >/dev/null
