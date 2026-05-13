@@ -576,6 +576,35 @@ func TestInterReferenceFrameRateUsesLivePrevFrameProbs(t *testing.T) {
 	}
 }
 
+func TestThreadedHelperRowsUseZeroReferenceFrameRate(t *testing.T) {
+	e := &VP8Encoder{refProbIntra: 63, refProbLast: 200, refProbGolden: 90, probSkipFalse: 200}
+	normalGolden := boolBitCost(200, 1) + boolBitCost(90, 0)
+	if got := e.interReferenceFrameRate(vp8common.GoldenFrame); got != normalGolden {
+		t.Fatalf("normal helper-disabled GOLDEN rate = %d, want %d", got, normalGolden)
+	}
+	if got, want := e.interIntraMacroblockModeRate(), boolBitCost(200, 0)+boolBitCost(63, 0); got != want {
+		t.Fatalf("normal helper-disabled intra MB rate = %d, want %d", got, want)
+	}
+
+	e.threadedHelperRowsActive = true
+	if got := e.interIntraReferenceRate(); got != 0 {
+		t.Fatalf("helper intra-reference rate = %d, want 0", got)
+	}
+	if got := e.interInterReferenceRate(12345); got != 0 {
+		t.Fatalf("helper inter-reference rate = %d, want 0", got)
+	}
+	if got := e.interReferenceFrameRate(vp8common.GoldenFrame); got != 0 {
+		t.Fatalf("helper GOLDEN rate = %d, want 0", got)
+	}
+	ref := interAnalysisReference{Frame: vp8common.GoldenFrame, RefRateSet: true, RefRate: 12345}
+	if got := e.interReferenceFrameRateForReference(ref); got != 0 {
+		t.Fatalf("helper explicit reference rate = %d, want 0", got)
+	}
+	if got, want := e.interIntraMacroblockModeRate(), e.interMacroblockSkipRate(false); got != want {
+		t.Fatalf("helper intra MB rate = %d, want skip-only %d", got, want)
+	}
+}
+
 func TestFirstInterFrameRDProbsResetAfterKeyFrame(t *testing.T) {
 	e := &VP8Encoder{}
 	e.updateRefFrameProbsFromKeyFrame()

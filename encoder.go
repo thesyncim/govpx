@@ -812,6 +812,12 @@ type VP8Encoder struct {
 	// threaded-only search features.
 	threadedRowsActive bool
 
+	// threadedHelperRowsActive marks helper row-worker encoder views. Libvpx's
+	// setup_mbby_copy intentionally does not copy MACROBLOCK.ref_frame_cost
+	// into helper workers, so helper-row RD pickers see zero reference-frame
+	// signalling cost while the main lane uses the frame-initialized costs.
+	threadedHelperRowsActive bool
+
 	// rowWorkers is the row-parallel encoder worker pool. Allocated
 	// only when EncoderOptions.Threads >= 2 so the canonical
 	// Threads=1 path stays zero-cost (no goroutine spawn, no

@@ -66,11 +66,25 @@ func (e *VP8Encoder) interMacroblockSkipRate(skip bool) int {
 	return interMacroblockSkipRateWithProb(e.probSkipFalse, skip)
 }
 
+func (e *VP8Encoder) interIntraReferenceRate() int {
+	if e.threadedHelperRowsActive {
+		return 0
+	}
+	return boolBitCost(e.refProbIntra, 0)
+}
+
+func (e *VP8Encoder) interInterReferenceRate(refRate int) int {
+	if e.threadedHelperRowsActive {
+		return 0
+	}
+	return boolBitCost(e.refProbIntra, 1) + refRate
+}
+
 // interIntraMacroblockModeRate models libvpx vp8_calc_ref_frame_costs for the
 // intra-coded ref-frame branch: skip-bit + intra/inter selector with the
 // previous-frame prob_intra_coded.
 func (e *VP8Encoder) interIntraMacroblockModeRate() int {
-	return e.interMacroblockSkipRate(false) + boolBitCost(e.refProbIntra, 0)
+	return e.interMacroblockSkipRate(false) + e.interIntraReferenceRate()
 }
 
 func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, mbRow int, mbCol int, mbRows int, mbCols int) int {
@@ -78,7 +92,7 @@ func (e *VP8Encoder) interMotionModeRate(mode *vp8enc.InterFrameMacroblockMode, 
 		return 1 << 30
 	}
 	if mode.RefFrame == vp8common.IntraFrame {
-		return boolBitCost(e.refProbIntra, 0)
+		return e.interIntraReferenceRate()
 	}
 	return e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, e.interReferenceFrameRate(mode.RefFrame))
 }
@@ -96,11 +110,10 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndNewMVWeight(mode *vp
 		return 1 << 30
 	}
 	if mode.RefFrame == vp8common.IntraFrame {
-		return boolBitCost(e.refProbIntra, 0)
+		return e.interIntraReferenceRate()
 	}
 	signBias := e.interFrameSignBias()
-	return boolBitCost(e.refProbIntra, 1) +
-		refRate +
+	return e.interInterReferenceRate(refRate) +
 		interPredictionModeRate(mode.Mode, vp8enc.InterFrameModeCounts(above, left, aboveLeft, mode.RefFrame, signBias)) +
 		interMotionModeVectorCostWithNewMVWeightAndSignBias(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, &e.modeProbs.MV, newMVWeight, signBias)
 }
@@ -110,10 +123,9 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndModeContext(mode *vp
 		return 1 << 30
 	}
 	if mode.RefFrame == vp8common.IntraFrame {
-		return boolBitCost(e.refProbIntra, 0)
+		return e.interIntraReferenceRate()
 	}
-	return boolBitCost(e.refProbIntra, 1) +
-		refRate +
+	return e.interInterReferenceRate(refRate) +
 		interPredictionModeRate(mode.Mode, modeCounts) +
 		interMotionModeVectorCostWithBestRefMV(mode, left, above, bestRefMV, &e.modeProbs.MV, newMVWeight)
 }
@@ -122,10 +134,16 @@ func (e *VP8Encoder) interMotionModeRateWithReferenceRateAndModeContext(mode *vp
 // the LAST/GOLDEN/ALTREF tree uses the previous-frame prob_last_coded and
 // prob_gf_coded, NOT a per-frame static 128.
 func (e *VP8Encoder) interReferenceFrameRate(refFrame vp8common.MVReferenceFrame) int {
+	if e.threadedHelperRowsActive {
+		return 0
+	}
 	return interReferenceFrameRateWithProbs(refFrame, e.refProbLast, e.refProbGolden)
 }
 
 func (e *VP8Encoder) interReferenceFrameRateForReference(ref interAnalysisReference) int {
+	if e.threadedHelperRowsActive {
+		return 0
+	}
 	if ref.RefRateSet {
 		return ref.RefRate
 	}

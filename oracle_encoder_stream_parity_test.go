@@ -121,6 +121,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		kfInterval int
 		// fpsOverride overrides the test FPS default.
 		fpsOverride int
+		// timebaseNum/timebaseDen override the caller timebase. The
+		// strict harness drives one tick per frame, so libvpx receives
+		// the reciprocal FPS when a custom timebase is set.
+		timebaseNum int
+		timebaseDen int
 		// lookaheadFrames / autoAltRef mirror the libvpx lag and ARF controls.
 		lookaheadFrames int
 		autoAltRef      bool
@@ -151,6 +156,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// path, distinct from independent partition contexts above.
 		{name: "realtime-cbr-cpu0-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		{name: "realtime-cbr-cpu0-32x32-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		{name: "realtime-cbr-cpu0-32x32-error-resilient-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
 		{name: "realtime-cbr-cpu0-48x48-error-resilient", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		{name: "realtime-cbr-cpu4-16x16-error-resilient", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		{name: "realtime-cbr-cpu4-32x32-error-resilient", deadline: DeadlineRealtime, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
@@ -179,6 +185,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-32x32-gf-cbr-boost50", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, gfCBRBoostPct: 50, extraArgs: []string{"--gf-cbr-boost=50"}},
 		{name: "realtime-cbr-cpu0-32x32-screen-content1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "realtime-cbr-cpu-3-64x64-screen-content2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		{name: "realtime-cbr-cpu-3-17x33-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-17x33", w: 17, h: 33, source: encoderValidationPanningFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "realtime-cbr-cpu0-16x16-screen-content1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "realtime-cbr-cpu0-16x16-screen-content2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "realtime-cbr-cpu-3-64x64-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
@@ -191,8 +198,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu-3-16x16-error-resilient-partitions-8partitions", deadline: DeadlineGoodQuality, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=2", "--token-parts=3"}},
 		{name: "realtime-cbr-cpu0-32x32-threads2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
 		{name: "realtime-cbr-cpu0-48x48-threads2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
+		{name: "realtime-cbr-cpu8-64x64-threads2", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, threads: 2, extraArgs: []string{"--threads=2"}},
 		{name: "realtime-cbr-cpu-3-48x48-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
 		{name: "realtime-cbr-cpu-3-64x64-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, threads: 2, extraArgs: []string{"--threads=2"}},
+		{name: "realtime-cbr-cpu-3-96x96-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning96, threads: 2, extraArgs: []string{"--threads=2"}},
+		{name: "realtime-cbr-cpu-3-64x64-4partitions-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, tokenPartitions: 2, threads: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2", "--threads=2"}},
 		{name: "realtime-cbr-cpu-3-64x64-threads3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, threads: 3, extraArgs: []string{"--threads=3"}},
 		{name: "realtime-cbr-cpu-3-64x64-threads4", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, threads: 4, extraArgs: []string{"--threads=4"}},
 		{name: "realtime-cbr-cpu-3-64x64-error-resilient-partitions-4partitions-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, errorResilientPartitions: true, tokenPartitions: 2, threads: 2, extraArgs: []string{"--error-resilient=2", "--token-parts=2", "--threads=2"}},
@@ -315,6 +325,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu1-32x32", deadline: DeadlineRealtime, cpuUsed: 1, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu2-32x32", deadline: DeadlineRealtime, cpuUsed: 2, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "realtime-cbr-cpu3-32x32", deadline: DeadlineRealtime, cpuUsed: 3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu9-32x32", deadline: DeadlineRealtime, cpuUsed: 9, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
+		{name: "realtime-cbr-cpu15-32x32", deadline: DeadlineRealtime, cpuUsed: 15, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		// Negative-cpu variants on 32x32 — `cpu_used < 0` skips
 		// auto-select entirely, so these probe the static-Speed code path.
 		{name: "realtime-cbr-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
@@ -342,6 +354,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// allkf (kfInterval=1) on small frames — every frame is a key
 		// frame, exercises the keyframe writer path repeatedly.
 		{name: "realtime-cbr-cpu0-16x16-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
+		{name: "good-quality-cbr-cpu4-16x16-allkf", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
 		{name: "realtime-cbr-cpu0-32x32-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
 		{name: "realtime-cbr-cpu0-48x48-allkf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}, kfInterval: 1, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=1"}},
 		{name: "realtime-cbr-cpu-3-32x32-kf4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 4, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=4"}},
@@ -362,6 +375,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-16x16-lookahead2-no-arf", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2},
 		{name: "realtime-cbr-cpu-3-64x64-lookahead4-no-arf", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 4},
 		{name: "good-quality-cbr-cpu4-16x16-lookahead2-no-arf", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2},
+		{name: "good-quality-vbr-cpu4-16x16-lookahead2-no-arf", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, lookaheadFrames: 2, extraArgs: []string{"--end-usage=vbr"}},
+		{name: "realtime-cq-cpu-3-16x16-cq20-lookahead2-no-arf", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, lookaheadFrames: 2, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
 		{name: "realtime-cbr-cpu-3-32x32-lookahead4-no-arf", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 4},
 		{name: "realtime-cbr-cpu-8-64x64-lookahead4-no-arf", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, lookaheadFrames: 4},
 		{name: "realtime-cbr-cpu-8-64x64-lookahead4-no-arf-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, lookaheadFrames: 4, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
@@ -641,6 +656,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// going through splitmv (already covered).
 		{name: "realtime-cbr-cpu-3-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-64x64-timebase-1001-30000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1001, timebaseDen: 30000, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-128x128-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
@@ -888,6 +904,16 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "best-quality-cbr-cpu0-32x32-8partitions", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 		{name: "best-quality-cbr-cpu5-32x32-8partitions", deadline: DeadlineBestQuality, cpuUsed: 5, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 		// Additional direct libvpx control probes.
+		{name: "best-quality-cbr-cpu0-16x16-sharpness7", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
+		{name: "best-quality-cbr-cpu0-16x16-error-resilient-partitions", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
+		{name: "best-quality-cbr-cpu0-16x16-error-resilient3-8partitions", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		{name: "best-quality-cbr-cpu0-16x16-screen-content2", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		{name: "best-quality-cbr-cpu0-16x16-buffer-1000-500-600", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		{name: "best-quality-cbr-cpu0-16x16-lookahead2-no-arf", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2},
+		{name: "good-quality-vbr-cpu4-32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
+		{name: "good-quality-q-cpu4-32x32-q20", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		{name: "good-quality-cq-cpu4-32x32-cq20", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
+		{name: "good-quality-cbr-cpu4-16x16-threads2", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
 		{name: "good-quality-cbr-cpu4-16x16-tune-ssim", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
 		{name: "realtime-cbr-cpu-3-64x64-lookahead4-no-arf-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 4, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
 		{name: "good-quality-cbr-cpu4-16x16-lookahead2-no-arf-8partitions", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 2, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
@@ -927,6 +953,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if tc.fpsOverride > 0 {
 				caseFPS = tc.fpsOverride
 			}
+			optsFPS := caseFPS
+			if tc.timebaseNum > 0 {
+				optsFPS = 0
+			}
 			tuning := TunePSNR
 			if tc.tuningSet {
 				tuning = tc.tuning
@@ -934,7 +964,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			opts := EncoderOptions{
 				Width:                    tc.fx.w,
 				Height:                   tc.fx.h,
-				FPS:                      caseFPS,
+				FPS:                      optsFPS,
+				TimebaseNum:              tc.timebaseNum,
+				TimebaseDen:              tc.timebaseDen,
 				RateControlMode:          rcMode,
 				TargetBitrateKbps:        caseTargetKbps,
 				MinQuantizer:             minQ,
@@ -1107,8 +1139,8 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
+		"--timebase=" + libvpxOracleTimebaseArg(opts),
+		"--fps=" + libvpxOracleFPSArg(opts),
 		"--limit=" + strconv.Itoa(len(sources)),
 		"--output=" + ivfPath,
 	}
@@ -1124,6 +1156,20 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
 	return parseIVFFramePayloads(t, data)
+}
+
+func libvpxOracleTimebaseArg(opts EncoderOptions) string {
+	if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
+		return strconv.Itoa(opts.TimebaseNum) + "/" + strconv.Itoa(opts.TimebaseDen)
+	}
+	return "1/" + strconv.Itoa(opts.FPS)
+}
+
+func libvpxOracleFPSArg(opts EncoderOptions) string {
+	if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
+		return strconv.Itoa(opts.TimebaseDen) + "/" + strconv.Itoa(opts.TimebaseNum)
+	}
+	return strconv.Itoa(opts.FPS) + "/1"
 }
 
 // firstByteDiff returns the byte offset of the first divergence between
