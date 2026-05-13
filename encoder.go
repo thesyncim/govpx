@@ -279,11 +279,11 @@ type EncoderOptions struct {
 	// alt-ref sign bias on the matching deferred show frame. Mirrors
 	// libvpx's oxcf.play_alternate.
 	AutoAltRef bool
-	// AdaptiveKeyFrames enables one-pass scene-cut detection. When a large
-	// source/reference error shift is detected, the frame is promoted to a
-	// keyframe before rate control and mode decision run; non-realtime
-	// one-pass encodes also mirror libvpx's post-inter auto-key recode when
-	// the committed inter-mode map crosses the intra-percentage thresholds.
+	// AdaptiveKeyFrames enables libvpx-compatible one-pass auto-key recode.
+	// Eligible visible inter frames are first encoded as inter frames; when
+	// the committed inter-mode map crosses libvpx's intra-percentage
+	// thresholds, the encoder discards that packet and recodes the same
+	// source as a scene-cut keyframe.
 	AdaptiveKeyFrames bool
 
 	// ErrorResilient writes frames that reset inter-frame entropy adaptation.

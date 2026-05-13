@@ -145,13 +145,12 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		// smooth to trip the scene-cut gate).
 		{name: "adaptive-kf-realtime-vbr-cpu-3-16x16", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, adaptiveKeyFrames: true, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
 		{name: "adaptive-kf-realtime-q-cpu-3-16x16-q20", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, adaptiveKeyFrames: true, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
-		// Positive scene-cut fixture: frames 0..3 are smooth panning,
-		// frame 4 hard-cuts to flat high-luma content. This pins the
-		// current scene-cut parity gap: govpx promotes the cut to a
-		// keyframe while libvpx keeps this one-pass realtime stream
-		// inter-coded. Keep the clean pre-cut prefix strict and log
-		// the post-cut packets until the detector behavior is aligned.
-		{name: "adaptive-kf-hard-cut-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: hardCut32, adaptiveKeyFrames: true, limit: 4, extraArgs: []string{"--kf-min-dist=0", "--kf-max-dist=999"}},
+		// Positive hard-cut fixture: frames 0..3 are smooth panning,
+		// frame 4 hard-cuts to flat high-luma content. libvpx's
+		// one-pass auto-key path does not pre-promote this realtime
+		// speed-0 CBR stream, so the hard cut must remain inter-coded
+		// and byte-identical.
+		{name: "adaptive-kf-hard-cut-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: hardCut32, adaptiveKeyFrames: true, extraArgs: []string{"--kf-min-dist=0", "--kf-max-dist=999"}},
 
 		// KeyFrameInterval=0 + libvpx --disable-kf. This pins the
 		// VPX_KF_DISABLED branch where auto_key is also cleared in

@@ -122,10 +122,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		sceneCutKeyFrame = true
 		twoPassSceneCut = true
 	}
-	if !keyFrame && e.shouldEncodeSceneCutKeyFrame(source, flags, temporalFrame.Enabled, rows, cols) {
-		keyFrame = true
-		sceneCutKeyFrame = true
-	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
 	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ

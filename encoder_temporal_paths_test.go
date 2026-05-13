@@ -762,7 +762,7 @@ func TestEncodeIntoNoReferencesStaysInterFrame(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
+func TestEncodeIntoAdaptiveKeyFramesFollowsLibvpxRealtimeSpeedGate(t *testing.T) {
 	e := newAdaptiveSceneCutTestEncoder(t, true)
 	first := testImage(32, 32)
 	second := testImage(32, 32)
@@ -777,15 +777,15 @@ func TestEncodeIntoAdaptiveKeyFramesDetectsSceneCut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
-	if !result.KeyFrame || !result.SceneCut {
-		t.Fatalf("adaptive result = key:%t sceneCut:%t, want scene-cut keyframe", result.KeyFrame, result.SceneCut)
+	if result.KeyFrame || result.SceneCut {
+		t.Fatalf("adaptive result = key:%t sceneCut:%t, want libvpx realtime-speed interframe", result.KeyFrame, result.SceneCut)
 	}
 	info, err := PeekVP8StreamInfo(result.Data)
 	if err != nil {
 		t.Fatalf("PeekVP8StreamInfo returned error: %v", err)
 	}
-	if !info.KeyFrame {
-		t.Fatalf("packet KeyFrame = false, want keyframe packet")
+	if info.KeyFrame {
+		t.Fatalf("packet KeyFrame = true, want interframe packet")
 	}
 	if oracleTraceBuild && e.oracleTraceMBBufferLenForTest() != 0 {
 		t.Fatalf("discarded inter-attempt MB trace rows = %d, want 0", e.oracleTraceMBBufferLenForTest())

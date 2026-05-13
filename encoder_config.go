@@ -674,9 +674,8 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	return nil
 }
 
-// SetAdaptiveKeyFrames enables or disables one-pass scene-cut key frames.
-// See EncoderOptions.AdaptiveKeyFrames for the libvpx-compatible
-// promotion behavior this controls.
+// SetAdaptiveKeyFrames enables or disables libvpx-compatible one-pass
+// auto-key recode. See EncoderOptions.AdaptiveKeyFrames.
 func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
