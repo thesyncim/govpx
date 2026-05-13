@@ -50,15 +50,15 @@ func TestDefaultCoefProbsMatchLibvpxSource(t *testing.T) {
 		// must equal want[0..8]; bands 1..5 contexts 0..5 must follow.
 		idx := 0
 		mismatch := 0
-		for p := 0; p < 2; p++ {
-			for r := 0; r < 2; r++ {
-				for b := 0; b < 6; b++ {
+		for p := range 2 {
+			for r := range 2 {
+				for b := range 6 {
 					contexts := 6
 					if b == 0 {
 						contexts = 3
 					}
 					for c := 0; c < contexts; c++ {
-						for n := 0; n < 3; n++ {
+						for n := range 3 {
 							if int(tc.got[p][r][b][c][n]) != want[idx] {
 								if mismatch < 3 {
 									t.Errorf("%s: [%d][%d][%d][%d][%d] = %d, want %d",
@@ -78,10 +78,10 @@ func TestDefaultCoefProbsMatchLibvpxSource(t *testing.T) {
 		}
 
 		// Confirm the padded slots (band 0, contexts 3..5) are zero.
-		for p := 0; p < 2; p++ {
-			for r := 0; r < 2; r++ {
+		for p := range 2 {
+			for r := range 2 {
 				for c := 3; c < 6; c++ {
-					for n := 0; n < 3; n++ {
+					for n := range 3 {
 						if tc.got[p][r][0][c][n] != 0 {
 							t.Errorf("%s: band-0 padding slot [%d][%d][0][%d][%d] = %d, want 0",
 								tc.marker, p, r, c, n, tc.got[p][r][0][c][n])

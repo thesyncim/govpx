@@ -25,7 +25,7 @@ func TestReadTreeBinaryDecodes(t *testing.T) {
 	// "1" branch) so the encoder writes 1 bits to reach deeper leaves.
 	probs := []uint8{1, 1, 1}
 
-	for leaf := 0; leaf < 4; leaf++ {
+	for leaf := range 4 {
 		buf := make([]byte, 32)
 		var w Writer
 		w.Start(buf)
