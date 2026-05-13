@@ -209,9 +209,13 @@ func isVP8IVFTestData(t *testing.T, path string) bool {
 		}
 		t.Fatalf("ReadFull %s returned error: %v", path, err)
 	}
-	_, err = testutil.ParseIVFHeader(header)
+	hdr, err := testutil.ParseIVFHeader(header)
 	if err == nil {
-		return true
+		// ParseIVFHeader now accepts VP80 and VP90 fourcc tags. The
+		// VP8 oracle path is byte-parity-tested against the libvpx
+		// VP8 reference; VP90 streams have a different bitstream
+		// shape and aren't compatible with VP8Decode/Encode flows.
+		return hdr.FourCC == [4]byte{'V', 'P', '8', '0'}
 	}
 	if errors.Is(err, testutil.ErrUnsupportedFourCC) {
 		return false
