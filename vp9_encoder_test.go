@@ -39,6 +39,24 @@ func newVP9CheckerYCbCrForTest(width, height int, lo, hi, u, v byte) *image.YCbC
 	return img
 }
 
+func newVP9HorizontalBandsForTest(width, height int, u, v byte) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		value := byte(32 + (y*5)%192)
+		for x := range width {
+			row[x] = value
+		}
+	}
+	for i := range img.Cb {
+		img.Cb[i] = u
+	}
+	for i := range img.Cr {
+		img.Cr[i] = v
+	}
+	return img
+}
+
 func fillVP9YCbCrForTest(img *image.YCbCr, y, u, v byte) {
 	for i := range img.Y {
 		img.Y[i] = y
@@ -568,6 +586,26 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	}
 	if walked != 2 {
 		t.Errorf("walked %d SBs, want 2", walked)
+	}
+}
+
+func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
+	img := newVP9HorizontalBandsForTest(128, 64, 128, 128)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(128, 64)
+	for y := range 64 {
+		copy(e.reconY[y*e.reconFrame.YStride:y*e.reconFrame.YStride+64],
+			img.Y[y*img.YStride:y*img.YStride+64])
+	}
+
+	hdr := vp9dec.UncompressedHeader{Width: 128, Height: 64}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 16}
+	got := e.pickVP9KeyframeMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi)
+	if got != common.HPred {
+		t.Errorf("mode = %d, want HPred", got)
 	}
 }
 

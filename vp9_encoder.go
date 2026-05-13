@@ -99,6 +99,7 @@ type VP9Encoder struct {
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
 	intraScratch vp9dec.IntraPredictorScratch
+	modeScratch  [1024]byte
 
 	reconFrame Image
 	reconYFull []byte
@@ -916,6 +917,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	}
 	if kind == vp9ModeTreeKeyframeSource && key != nil {
 		reconBsize := vp9ModeInfoDecodeBSize(bsize)
+		cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
+			miRow, miCol, reconBsize, &cur)
 		hasResidue := e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 			miRow, miCol, reconBsize, &cur, common.DcPred)
 		if hasResidue {
@@ -970,6 +973,123 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	})
 	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
+}
+
+func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) common.PredictionMode {
+	// VP9 Tx32 is DCT-only, so all intra predictors can reuse the
+	// current transform path. Smaller tx sizes need forward hybrid
+	// ADST kernels before non-DC mode picking can safely expand there.
+	if key == nil || mi == nil || mi.TxSize != common.Tx32x32 {
+		return common.DcPred
+	}
+	bestMode := common.DcPred
+	bestScore, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], bestMode,
+		mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+	if !ok {
+		return bestMode
+	}
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+		score, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], mode,
+			mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		if ok && score < bestScore {
+			bestScore = score
+			bestMode = mode
+		}
+	}
+	return bestMode
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
+) (uint64, bool) {
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
+		return 0, false
+	}
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, false
+	}
+	rows := len(planeData) / stride
+	alignedWidth := vp9AlignTo(int(key.hdr.Width), 8)
+	alignedHeight := vp9AlignTo(int(key.hdr.Height), 8)
+	planeWidth := alignedWidth >> pd.SubsamplingX
+	planeHeight := alignedHeight >> pd.SubsamplingY
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	x0 := baseX + blockCol4x4*4
+	y0 := baseY + blockRow4x4*4
+
+	bs := 4 << uint(txSize)
+	if bs*bs > len(e.modeScratch) || x0+bs > stride || y0+bs > rows {
+		return 0, false
+	}
+
+	bounds := vp9BlockBoundsEdges(miRows, miCols, miRow, miCol, bsize)
+	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
+	left := e.intraScratch.Left[:bs]
+	if leftAvailable {
+		for i := range bs {
+			sy := y0 + i
+			if bounds.MbToBottomEdge < 0 && sy >= planeHeight {
+				sy = planeHeight - 1
+			}
+			left[i] = planeData[sy*stride+x0-1]
+		}
+	}
+
+	edges := vp9dec.IntraEdgeRefs{
+		AboveLeft: 127,
+		Left:      left,
+	}
+	upAvailable := blockRow4x4 != 0 || miRow > 0
+	if upAvailable {
+		edges.Above = planeData[(y0-1)*stride+x0:]
+		if leftAvailable {
+			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
+		}
+	}
+	planeBlock4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	txw := 1 << uint(txSize)
+	rightAvailable := blockCol4x4+txw < planeBlock4x4W
+
+	pred := e.modeScratch[:bs*bs]
+	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
+		Dst:            pred,
+		DstStride:      bs,
+		Mode:           mode,
+		TxSize:         txSize,
+		Edges:          edges,
+		UpAvailable:    upAvailable,
+		LeftAvailable:  leftAvailable,
+		RightAvailable: rightAvailable,
+		FrameWidth:     planeWidth,
+		FrameHeight:    planeHeight,
+		X0:             x0,
+		Y0:             y0,
+		MbToRightEdge:  bounds.MbToRightEdge,
+		MbToBottomEdge: bounds.MbToBottomEdge,
+	}, &e.intraScratch)
+
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	var score uint64
+	for y := 0; y < bs && y0+y < srcH; y++ {
+		srcRow := src[(y0+y)*srcStride:]
+		predRow := pred[y*bs:]
+		for x := 0; x < bs && x0+x < srcW; x++ {
+			diff := int(srcRow[x0+x]) - int(predRow[x])
+			score += uint64(diff * diff)
+		}
+	}
+	return score, true
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
@@ -1122,7 +1242,7 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 		return false
 	}
 	txType := common.DctDct
-	if plane == 0 {
+	if plane == 0 && txSize != common.Tx32x32 {
 		txType = common.IntraModeToTxType[mode]
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
