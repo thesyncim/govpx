@@ -82,13 +82,19 @@ type splitMotionShapeResult struct {
 }
 
 type splitMotionShapeContext struct {
-	src               vp8enc.SourceImage
-	ref               *vp8common.Image
-	refFrame          vp8common.MVReferenceFrame
-	mbRow             int
-	mbCol             int
-	bestRefMV         vp8enc.MotionVector
-	qIndex            int
+	src       vp8enc.SourceImage
+	ref       *vp8common.Image
+	refFrame  vp8common.MVReferenceFrame
+	mbRow     int
+	mbCol     int
+	bestRefMV vp8enc.MotionVector
+	qIndex    int
+	// errorPerBit is the activity-masked x->errorperbit libvpx
+	// vp8_activity_masking publishes per MB before NEW4X4 motion searches
+	// in vp8_rd_pick_best_mbsegmentation. Defaults to zero (no-activity);
+	// callers that want the TuneSSIM lift populate this before calling
+	// selectShape.
+	errorPerBit       int
 	partition         int
 	left              *vp8enc.InterFrameMacroblockMode
 	above             *vp8enc.InterFrameMacroblockMode
@@ -152,6 +158,7 @@ func (ctx *splitMotionShapeContext) selectShape() splitMotionShapeResult {
 		height:             height,
 		bestRefMV:          ctx.bestRefMV,
 		qIndex:             ctx.qIndex,
+		errorPerBit:        ctx.errorPerBit,
 		left:               ctx.left,
 		above:              ctx.above,
 		search:             ctx.search,
@@ -272,14 +279,19 @@ type splitMotionSubsetContext struct {
 	stepParam          int
 	fullSearchFallback bool
 	qIndex             int
-	left               *vp8enc.InterFrameMacroblockMode
-	above              *vp8enc.InterFrameMacroblockMode
-	search             interAnalysisSearchConfig
-	mvProbs            *[2][vp8tables.MVPCount]uint8
-	labelMVThresh      int
-	labelRD            *splitMotionLabelRDEvaluator
-	quant              *vp8enc.MacroblockQuant
-	coefProbs          *vp8tables.CoefficientProbs
+	// errorPerBit is the activity-masked x->errorperbit value libvpx
+	// vp8_activity_masking computes per MB. Zero means the caller did not
+	// thread the activity lift in; helpers default to libvpxErrorPerBit
+	// (qIndex), matching the PSNR-tuned baseline.
+	errorPerBit   int
+	left          *vp8enc.InterFrameMacroblockMode
+	above         *vp8enc.InterFrameMacroblockMode
+	search        interAnalysisSearchConfig
+	mvProbs       *[2][vp8tables.MVPCount]uint8
+	labelMVThresh int
+	labelRD       *splitMotionLabelRDEvaluator
+	quant         *vp8enc.MacroblockQuant
+	coefProbs     *vp8tables.CoefficientProbs
 }
 
 // selectMotion is the per-label inner loop body of rd_check_segment. The
@@ -329,8 +341,12 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		return bestMV, bestMode, bestRD
 	}
 
-	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStep(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs)
-	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVector(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, ctx.search, ctx.mvProbs); ok {
+	errorPerBit := ctx.errorPerBit
+	if errorPerBit <= 0 {
+		errorPerBit = libvpxErrorPerBit(ctx.qIndex)
+	}
+	newMV, _ := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBit(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, ctx.searchCenter, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.stepParam, ctx.fullSearchFallback, ctx.mvProbs)
+	if refinedMV, _, ok := refineInterFrameSplitBlockSubpixelMotionVectorWithErrorPerBit(ctx.src, ctx.ref, ctx.mbRow, ctx.mbCol, block, ctx.width, ctx.height, newMV, ctx.bestRefMV, ctx.qIndex, errorPerBit, ctx.search, ctx.mvProbs); ok {
 		newMV = refinedMV
 	}
 	newRate := splitSubMotionLabelRate(vp8common.New4x4)
@@ -892,18 +908,23 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		if fullCost == 0 {
 			continue
 		}
+		errorPerBit := 0
+		if e != nil {
+			errorPerBit = e.tunedErrorPerBit(qIndex, mbRow, mbCol)
+		}
 		refinedMV, _, _, _, ok := (&interFrameSubpixelSearch{
-			src:       src,
-			ref:       ref.Img,
-			mbRow:     mbRow,
-			mbCol:     mbCol,
-			best:      fullMV,
-			bestRefMV: bestRefMV,
-			qIndex:    qIndex,
-			search:    search,
-			mvProbs:   mvProbs,
-			mvCosts:   mvCosts,
-			stats:     stats,
+			src:         src,
+			ref:         ref.Img,
+			mbRow:       mbRow,
+			mbCol:       mbCol,
+			best:        fullMV,
+			bestRefMV:   bestRefMV,
+			qIndex:      qIndex,
+			errorPerBit: errorPerBit,
+			search:      search,
+			mvProbs:     mvProbs,
+			mvCosts:     mvCosts,
+			stats:       stats,
 		}).refine()
 		if ok && refinedMV != fullMV {
 			count = appendInterAnalysisMotionCandidate(candidates, count, ref, refinedMV)

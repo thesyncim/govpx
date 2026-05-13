@@ -203,10 +203,23 @@ func interMotionSplitBlockSearchVectorCost(mv vp8enc.MotionVector, bestRefMV vp8
 // interMotionSearchErrorVectorCost charges sub-pel MV bits against bestRefMV
 // (libvpx find_best_sub_pixel_step_iteratively in mcomp.c).
 func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
+	return interMotionSearchErrorVectorCostWithErrorPerBit(mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs)
+}
+
+// interMotionSearchErrorVectorCostWithErrorPerBit is the explicit-rate variant
+// of interMotionSearchErrorVectorCost, used by callers that have already
+// applied libvpx's vp8_activity_masking x->errorperbit lift (TuneSSIM) and
+// need to plumb that per-MB scaling through SPLITMV's per-block sub-pel
+// refinement. errorPerBit ≤ 0 falls back to the libvpx default so any
+// caller missing the plumbing still matches the PSNR baseline.
+func interMotionSearchErrorVectorCostWithErrorPerBit(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	if mvProbs == nil {
 		return 0
 	}
-	return vp8enc.MotionVectorErrorCost(mv, bestRefMV, mvProbs, libvpxErrorPerBit(qIndex))
+	if errorPerBit <= 0 {
+		errorPerBit = 1
+	}
+	return vp8enc.MotionVectorErrorCost(mv, bestRefMV, mvProbs, errorPerBit)
 }
 
 // interMotionSubpelCandidateVectorCost charges the sub-pel MV bits like the
@@ -218,8 +231,19 @@ func interMotionSearchErrorVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.M
 // mv_err_cost / vp8_mv_bit_cost variants used for the central cost do not.
 // See MotionVectorSubpelSearchCost for the full derivation.
 func interMotionSubpelCandidateVectorCost(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, qIndex int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
+	return interMotionSubpelCandidateVectorCostWithErrorPerBit(mv, bestRefMV, libvpxErrorPerBit(qIndex), mvProbs)
+}
+
+// interMotionSubpelCandidateVectorCostWithErrorPerBit accepts an
+// activity-masked errorPerBit (libvpx vp8_activity_masking lifts both
+// x->rdmult and x->errorperbit per MB). errorPerBit ≤ 0 floors to 1, matching
+// libvpx's `errorperbit += (errorperbit == 0)` post-clamp.
+func interMotionSubpelCandidateVectorCostWithErrorPerBit(mv vp8enc.MotionVector, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8) int {
 	if mvProbs == nil {
 		return 0
 	}
-	return vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, libvpxErrorPerBit(qIndex))
+	if errorPerBit <= 0 {
+		errorPerBit = 1
+	}
+	return vp8enc.MotionVectorSubpelSearchCost(mv, bestRefMV, mvProbs, errorPerBit)
 }

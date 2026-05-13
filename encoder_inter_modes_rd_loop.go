@@ -64,19 +64,20 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				stats = &motionStats
 			}
 			result := interFrameMotionVectorSearch{
-				src:       src,
-				ref:       ref.Img,
-				mbRow:     mbRow,
-				mbCol:     mbCol,
-				mbRows:    mbRows,
-				mbCols:    mbCols,
-				bestRefMV: bestRefMV,
-				qIndex:    qIndex,
-				search:    search,
-				start:     start,
-				mvProbs:   &e.modeProbs.MV,
-				mvCosts:   e.currentMotionVectorCostTables(),
-				stats:     stats,
+				src:         src,
+				ref:         ref.Img,
+				mbRow:       mbRow,
+				mbCol:       mbCol,
+				mbRows:      mbRows,
+				mbCols:      mbCols,
+				bestRefMV:   bestRefMV,
+				qIndex:      qIndex,
+				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:      search,
+				start:       start,
+				mvProbs:     &e.modeProbs.MV,
+				mvCosts:     e.currentMotionVectorCostTables(),
+				stats:       stats,
 			}.selectRD()
 			mv := result.mv
 			mv = clampInterMotionVectorToModeEdges(mv, mbRow, mbCol, mbRows, mbCols)

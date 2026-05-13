@@ -227,19 +227,20 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				stats = &motionStats
 			}
 			result := interFrameMotionVectorSearch{
-				src:       src,
-				ref:       ref.Img,
-				mbRow:     mbRow,
-				mbCol:     mbCol,
-				mbRows:    mbRows,
-				mbCols:    mbCols,
-				bestRefMV: bestRefMV,
-				qIndex:    qIndex,
-				search:    search,
-				start:     start,
-				mvProbs:   &e.modeProbs.MV,
-				mvCosts:   mvCosts,
-				stats:     stats,
+				src:         src,
+				ref:         ref.Img,
+				mbRow:       mbRow,
+				mbCol:       mbCol,
+				mbRows:      mbRows,
+				mbCols:      mbCols,
+				bestRefMV:   bestRefMV,
+				qIndex:      qIndex,
+				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:      search,
+				start:       start,
+				mvProbs:     &e.modeProbs.MV,
+				mvCosts:     mvCosts,
+				stats:       stats,
 			}.selectFast()
 			mv := clampInterMotionVectorToModeEdges(result.mv, mbRow, mbCol, mbRows, mbCols)
 			if result.haveError && mv == result.mv {
