@@ -71,11 +71,26 @@ func TestCountIVFFrames(t *testing.T) {
 
 func TestParseIVFRejectsUnsupportedFourCC(t *testing.T) {
 	data := makeIVF(16, 16, 30, 1, [][]byte{{1}})
-	copy(data[8:12], []byte("VP90"))
+	// VP80 and VP90 are both accepted; pick an unrelated fourcc to
+	// keep this test's rejection path biting.
+	copy(data[8:12], []byte("AV01"))
 
 	_, err := ParseIVFHeader(data)
 	if !errors.Is(err, ErrUnsupportedFourCC) {
 		t.Fatalf("error = %v, want ErrUnsupportedFourCC", err)
+	}
+}
+
+func TestParseIVFAcceptsVP90(t *testing.T) {
+	data := makeIVF(16, 16, 30, 1, [][]byte{{1}})
+	copy(data[8:12], []byte("VP90"))
+
+	hdr, err := ParseIVFHeader(data)
+	if err != nil {
+		t.Fatalf("VP90 IVF: %v", err)
+	}
+	if hdr.FourCC != [4]byte{'V', 'P', '9', '0'} {
+		t.Errorf("FourCC = %s, want VP90", hdr.FourCC[:])
 	}
 }
 

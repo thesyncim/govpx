@@ -44,7 +44,7 @@ func ParseIVFHeader(data []byte) (IVFHeader, error) {
 
 	var fourcc [4]byte
 	copy(fourcc[:], data[8:12])
-	if fourcc != [4]byte{'V', 'P', '8', '0'} {
+	if fourcc != [4]byte{'V', 'P', '8', '0'} && fourcc != [4]byte{'V', 'P', '9', '0'} {
 		return IVFHeader{}, ErrUnsupportedFourCC
 	}
 
