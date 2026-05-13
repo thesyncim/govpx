@@ -125,7 +125,8 @@ func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
 
 // TestVP9DecoderDecodesEncoderKeyframeModeTile feeds the current
 // encoder stub into the public decoder. The stub is a DC-predicted,
-// zero-residue keyframe, so Decode publishes a neutral I420 frame.
+// zero-residue keyframe, so Decode publishes the expected neutral
+// I420 frame.
 func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
@@ -198,7 +199,7 @@ func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
 
 // TestVP9DecoderDecodesEncoderEdgeClippedModeTiles covers the same
 // partial-SB shapes as the vpxdec oracle, but through the public
-// decoder's tile-mode/residual parser and neutral output path for
+// decoder's tile-mode/residual parser and prediction-only output path for
 // both keyframe and intra-only frames.
 func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 	cases := []struct {
@@ -309,7 +310,7 @@ func TestVP9DecoderDecodesMultiTileModeFrame(t *testing.T) {
 // TestVP9DecoderDecodesZeroResidueKeyframe drives a skip=0 keyframe
 // through the public decoder. The tile body carries all-zero
 // coefficient streams, so Decode must consume residual tokens before
-// publishing a neutral output frame.
+// publishing reconstructed I420 output.
 func TestVP9DecoderDecodesZeroResidueKeyframe(t *testing.T) {
 	packet := vp9SkipZeroKeyframeForTest(t, 64, 64, true)
 
@@ -331,12 +332,36 @@ func TestVP9DecoderDecodesZeroResidueKeyframe(t *testing.T) {
 	assertVP9NeutralFrame(t, frame, 64, 64)
 }
 
-// TestVP9DecoderUnsupportedIntraModeDoesNotPublishFrame keeps the
-// narrow reconstruction contract explicit: non-DC intra prediction
-// parses cleanly, updates stream dimensions, and still stops before
-// output until the full predictor/reconstruct loop is wired.
-func TestVP9DecoderUnsupportedIntraModeDoesNotPublishFrame(t *testing.T) {
+// TestVP9DecoderDecodesVerticalIntraPredictionFrame proves output is
+// reconstructed from parsed intra modes, not special-cased to the
+// public encoder's DC mode. With no above row, VP9's V predictor uses
+// 127 for the visible luma samples.
+func TestVP9DecoderDecodesVerticalIntraPredictionFrame(t *testing.T) {
 	packet := vp9StubPacketForTest(t, 64, 64, 0, common.VPred)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 64 || h != 64 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (64, 64)", w, h)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after V-pred keyframe")
+	}
+	assertVP9FilledFrame(t, frame, 64, 64, 127, 128, 128)
+}
+
+// TestVP9DecoderNonZeroResidueDoesNotPublishFrame keeps the current
+// reconstruction boundary explicit: nonzero coefficient tokens parse,
+// but inverse transform/add is not wired into the public output path yet.
+func TestVP9DecoderNonZeroResidueDoesNotPublishFrame(t *testing.T) {
+	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 8)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -351,7 +376,7 @@ func TestVP9DecoderUnsupportedIntraModeDoesNotPublishFrame(t *testing.T) {
 		t.Fatalf("LastFrameSize() = (%d, %d), want (64, 64)", w, h)
 	}
 	if _, ok := d.NextFrame(); ok {
-		t.Fatal("NextFrame published output for unsupported intra mode")
+		t.Fatal("NextFrame published output for nonzero residue")
 	}
 }
 
@@ -416,7 +441,7 @@ func TestVP9DecoderRejectsInvalidMultiTilePrefix(t *testing.T) {
 }
 
 // TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
-// tile/residual parse and neutral output path allocation-free after
+// tile/residual parse and prediction-only output path allocation-free after
 // construction.
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
@@ -447,15 +472,22 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 
 func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 	t.Helper()
+	assertVP9FilledFrame(t, got, width, height, 128, 128, 128)
+}
+
+func assertVP9FilledFrame(t *testing.T, got Image, width, height int,
+	yValue, uValue, vValue byte,
+) {
+	t.Helper()
 	if got.Width != width || got.Height != height {
 		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
 			got.Width, got.Height, width, height)
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	assertVP9PlaneFilled(t, "Y", got.Y, got.YStride, width, height, 128)
-	assertVP9PlaneFilled(t, "U", got.U, got.UStride, uvWidth, uvHeight, 128)
-	assertVP9PlaneFilled(t, "V", got.V, got.VStride, uvWidth, uvHeight, 128)
+	assertVP9PlaneFilled(t, "Y", got.Y, got.YStride, width, height, yValue)
+	assertVP9PlaneFilled(t, "U", got.U, got.UStride, uvWidth, uvHeight, uValue)
+	assertVP9PlaneFilled(t, "V", got.V, got.VStride, uvWidth, uvHeight, vValue)
 }
 
 func assertVP9PlaneFilled(t *testing.T, name string, plane []byte,
@@ -582,6 +614,13 @@ func vp9StubPacketForTest(t *testing.T, width, height, log2TileCols int,
 
 func vp9SkipZeroKeyframeForTest(t *testing.T, width, height int, writeResidue bool) []byte {
 	t.Helper()
+	return vp9SkipResidueKeyframeForTest(t, width, height, writeResidue, 0)
+}
+
+func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
+	writeResidue bool, dcCoeff int16,
+) []byte {
+	t.Helper()
 	w := uint32(width)
 	h := uint32(height)
 	miCols := int((w + 7) >> 3)
@@ -633,7 +672,8 @@ func vp9SkipZeroKeyframeForTest(t *testing.T, width, height int, writeResidue bo
 			vp9dec.NoRefFrame,
 		},
 	}
-	zeroCoeffs := make([]int16, 1024)
+	coeffs := make([]int16, 1024)
+	coeffs[0] = dcCoeff
 	partitionProbs := tables.KfPartitionProbs
 	aboveSegCtx := make([]int8, alignToSb(miCols))
 	leftSegCtx := make([]int8, common.MiBlockSize)
@@ -689,7 +729,7 @@ func vp9SkipZeroKeyframeForTest(t *testing.T, width, height int, writeResidue bo
 				},
 				Fc: &fc.CoefProbs,
 				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-					return zeroCoeffs[:vp9dec.MaxEobForTxSize(tx)]
+					return coeffs[:vp9dec.MaxEobForTxSize(tx)]
 				},
 			})
 		},

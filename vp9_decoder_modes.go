@@ -10,9 +10,9 @@ import (
 )
 
 // parseVP9IntraModeTiles consumes the tile mode-info and residual-token
-// stream for keyframes and intra-only inter frames. The parser also
-// records whether the frame stays inside the narrow neutral-output
-// reconstruction path supported by the public decoder today.
+// stream for keyframes and intra-only inter frames. For the currently
+// supported zero-residue path, it also reconstructs each transform
+// block from its intra predictor while walking the tile.
 func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
 ) error {
@@ -217,17 +217,22 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 		Above:    above,
 		Left:     left,
 	}, mi)
-	if !vp9NeutralIntraMode(mi, out.UvMode) {
-		d.unsupportedReconstruct = true
-	}
 	if mi.Skip != 0 {
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
+		if !d.unsupportedReconstruct {
+			d.reconstructVP9IntraPredictBlock(hdr, mi, out.UvMode, tile,
+				miRow, miCol, bsize)
+		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
 	}
 	if !d.readVP9IntraResidueBlock(r, hdr, mi, miRow, miCol, bsize) {
 		return false
+	}
+	if !d.unsupportedReconstruct {
+		d.reconstructVP9IntraPredictBlock(hdr, mi, out.UvMode, tile,
+			miRow, miCol, bsize)
 	}
 	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 	return true
@@ -294,19 +299,129 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 	return true
 }
 
-func vp9NeutralIntraMode(mi *vp9dec.NeighborMi, uvMode common.PredictionMode) bool {
-	if uvMode != common.DcPred {
-		return false
-	}
-	if mi.SbType >= common.Block8x8 {
-		return mi.Mode == common.DcPred
-	}
-	for i := range mi.Bmi {
-		if mi.Bmi[i].AsMode != common.DcPred {
-			return false
+func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
+	hdr *vp9dec.UncompressedHeader,
+	mi *vp9dec.NeighborMi,
+	uvMode common.PredictionMode,
+	tile vp9dec.TileBounds,
+	miRow, miCol int,
+	bsize common.BlockSize,
+) {
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &d.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			d.unsupportedReconstruct = true
+			return
+		}
+
+		txSize := mi.TxSize
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		}
+		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		step := 1 << uint(txSize)
+		blockIdx := 0
+		for rr := 0; rr < num4x4H; rr += step {
+			for cc := 0; cc < num4x4W; cc += step {
+				mode := uvMode
+				if plane == 0 {
+					mode = vp9dec.GetYMode(mi, blockIdx)
+				}
+				if !d.reconstructVP9IntraPredictTx(hdr, pd, plane, mode, txSize,
+					tile, miRow, miCol, rr, cc) {
+					d.unsupportedReconstruct = true
+					return
+				}
+				blockIdx += step * step
+			}
 		}
 	}
+}
+
+func (d *VP9Decoder) reconstructVP9IntraPredictTx(
+	hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane,
+	plane int,
+	mode common.PredictionMode,
+	txSize common.TxSize,
+	tile vp9dec.TileBounds,
+	miRow, miCol int,
+	blockRow4x4, blockCol4x4 int,
+) bool {
+	planeData, stride := d.vp9OutputPlane(plane)
+	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
+		return false
+	}
+	rows := len(planeData) / stride
+	planeWidth, planeHeight := vp9dec.FramePlaneDims(int(hdr.Width), int(hdr.Height),
+		pd.SubsamplingX, pd.SubsamplingY)
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	x0 := baseX + blockCol4x4*4
+	y0 := baseY + blockRow4x4*4
+	if x0 >= planeWidth || y0 >= planeHeight {
+		return true
+	}
+
+	bs := 4 << uint(txSize)
+	if x0+bs > stride || y0+bs > rows {
+		return false
+	}
+
+	leftAvailable := x0 > 0 &&
+		x0 > (tile.MiColStart*common.MiSize)>>pd.SubsamplingX
+	left := d.intraScratch.Left[:bs]
+	if leftAvailable {
+		for i := range bs {
+			left[i] = planeData[(y0+i)*stride+x0-1]
+		}
+	}
+
+	edges := vp9dec.IntraEdgeRefs{
+		AboveLeft: 127,
+		Left:      left,
+	}
+	upAvailable := y0 > 0
+	if upAvailable {
+		edges.Above = planeData[(y0-1)*stride+x0:]
+		if leftAvailable {
+			edges.AboveLeft = planeData[(y0-1)*stride+x0-1]
+		}
+	}
+	rightAvailable := x0+2*bs <= planeWidth
+	dst := planeData[y0*stride+x0:]
+	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
+		Dst:            dst,
+		DstStride:      stride,
+		Mode:           mode,
+		TxSize:         txSize,
+		Edges:          edges,
+		UpAvailable:    upAvailable,
+		LeftAvailable:  leftAvailable,
+		RightAvailable: rightAvailable,
+		FrameWidth:     planeWidth,
+		FrameHeight:    planeHeight,
+		X0:             x0,
+		Y0:             y0,
+		MbToRightEdge:  planeWidth - (x0 + bs),
+		MbToBottomEdge: planeHeight - (y0 + bs),
+	}, &d.intraScratch)
 	return true
+}
+
+func (d *VP9Decoder) vp9OutputPlane(plane int) ([]byte, int) {
+	switch plane {
+	case 0:
+		return d.frameY, d.lastFrame.YStride
+	case 1:
+		return d.frameU, d.lastFrame.UStride
+	case 2:
+		return d.frameV, d.lastFrame.VStride
+	default:
+		return nil, 0
+	}
 }
 
 func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {

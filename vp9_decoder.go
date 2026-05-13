@@ -11,10 +11,10 @@ import (
 // VP9DecoderOptions configures a VP9 decoder. Mirrors the VP8 shape
 // so call sites can switch codecs by swapping the constructor.
 //
-// The current VP9 stack supports the minimal 8-bit 4:2:0 intra DC /
-// zero-residue path emitted by the public encoder. Other valid VP9
-// frames parse through the currently ported header, mode-info, and
-// detokenize layers, then return [ErrVP9NotImplemented] at the
+// The current VP9 stack supports 8-bit 4:2:0 intra prediction-only
+// frames: mode-info and residual tokens are parsed, transform blocks
+// with no coefficients are reconstructed from their intra predictors,
+// and other valid frames return [ErrVP9NotImplemented] at the current
 // reconstruct boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
@@ -85,15 +85,16 @@ type VP9Decoder struct {
 	planes  [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	dqcoeff [1024]int16
 
-	// The first public reconstruction slice handles the encoder stub's
-	// neutral intra frames. Unsupported intra modes or nonzero tokens
-	// keep parsing intact but stop before publishing output.
+	// The first public reconstruction slice handles prediction-only
+	// intra frames. Nonzero tokens keep parsing intact but stop before
+	// publishing output.
 	unsupportedReconstruct bool
 	frameReady             bool
 	lastFrame              Image
 	frameY                 []byte
 	frameU                 []byte
 	frameV                 []byte
+	intraScratch           vp9dec.IntraPredictorScratch
 
 	// width and height carry the last keyframe's frame dimensions.
 	// Reset on every keyframe; non-zero only after the first
@@ -128,9 +129,9 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 // Decode is the VP9 entry point. The uncompressed and compressed
 // headers plus intra-only tile mode-info/residual tokens are parsed
 // and validated; malformed frames surface as [ErrInvalidVP9Data].
-// Minimal 8-bit 4:2:0 DC-predicted, zero-residue intra frames decode
-// to neutral I420 output. Other valid packets return
-// [ErrVP9NotImplemented] after parser state is updated.
+// 8-bit 4:2:0 intra frames with no residual coefficients decode to
+// I420 output. Other valid packets return [ErrVP9NotImplemented]
+// after parser state is updated.
 //
 // Side effects on a successful parse: the decoder's stored frame
 // dimensions, loopfilter state, segmentation state, and mode-info
@@ -196,7 +197,10 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 			int(hdr.Loopfilter.FilterLevel))
 
 		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
-			d.unsupportedReconstruct = false
+			d.unsupportedReconstruct = !vp9SupportedOutputFormat(&hdr)
+			if !d.unsupportedReconstruct {
+				d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height))
+			}
 			if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 				return err
 			}
@@ -212,9 +216,8 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 		d.height = int(hdr.Height)
 	}
 	d.frameReady = false
-	if d.vp9CanPublishNeutralFrame(&hdr) {
+	if d.vp9CanPublishReconstructedFrame(&hdr) {
 		if hdr.ShowFrame {
-			d.fillVP9NeutralFrame(int(hdr.Width), int(hdr.Height))
 			d.frameReady = true
 		}
 		return nil
@@ -222,13 +225,17 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 	return ErrVP9NotImplemented
 }
 
-func (d *VP9Decoder) vp9CanPublishNeutralFrame(hdr *vp9dec.UncompressedHeader) bool {
+func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHeader) bool {
 	if hdr.ShowExistingFrame || d.unsupportedReconstruct {
 		return false
 	}
 	if hdr.FrameType != common.KeyFrame && !hdr.IntraOnly {
 		return false
 	}
+	return vp9SupportedOutputFormat(hdr)
+}
+
+func vp9SupportedOutputFormat(hdr *vp9dec.UncompressedHeader) bool {
 	if hdr.BitDepthColor.BitDepth != vp9dec.Bits8 ||
 		hdr.BitDepthColor.SubsamplingX != 1 ||
 		hdr.BitDepthColor.SubsamplingY != 1 {
@@ -237,11 +244,11 @@ func (d *VP9Decoder) vp9CanPublishNeutralFrame(hdr *vp9dec.UncompressedHeader) b
 	return true
 }
 
-func (d *VP9Decoder) fillVP9NeutralFrame(width, height int) {
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
-	yLen := planeLen(width, height, width)
-	uLen := planeLen(uvWidth, uvHeight, uvWidth)
+func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) {
+	yStride, yRows := vp9PaddedPlaneDims(width, height, 0, 0)
+	uvStride, uvRows := vp9PaddedPlaneDims(width, height, 1, 1)
+	yLen := planeLen(yStride, yRows, yStride)
+	uLen := planeLen(uvStride, uvRows, uvStride)
 	if cap(d.frameY) < yLen {
 		d.frameY = make([]byte, yLen)
 	} else {
@@ -266,10 +273,20 @@ func (d *VP9Decoder) fillVP9NeutralFrame(width, height int) {
 		Y:       d.frameY,
 		U:       d.frameU,
 		V:       d.frameV,
-		YStride: width,
-		UStride: uvWidth,
-		VStride: uvWidth,
+		YStride: yStride,
+		UStride: uvStride,
+		VStride: uvStride,
 	}
+}
+
+func vp9PaddedPlaneDims(width, height int, ssX, ssY uint8) (stride, rows int) {
+	miCols := (width + common.MiSize - 1) >> common.MiSizeLog2
+	miRows := (height + common.MiSize - 1) >> common.MiSizeLog2
+	yStride := miCols * common.MiSize
+	yRows := miRows * common.MiSize
+	stride = (yStride + (1 << ssX) - 1) >> ssX
+	rows = (yRows + (1 << ssY) - 1) >> ssY
+	return stride, rows
 }
 
 func fillVP9Plane(buf []byte, value byte) {

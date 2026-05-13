@@ -98,6 +98,14 @@ type BuildIntraPredictorsArgs struct {
 	MbToBottomEdge int
 }
 
+// IntraPredictorScratch holds the temporary above/left edge buffers
+// used by BuildIntraPredictorsWithScratch. Keep it caller-owned on hot
+// paths so per-transform predictor dispatch stays allocation-free.
+type IntraPredictorScratch struct {
+	Left  [32]uint8
+	Above [1 + 64]uint8
+}
+
 // BuildIntraPredictors mirrors libvpx's build_intra_predictors
 // (8-bit profile). Materializes the above-row and left-column border
 // pixels into stack-allocated buffers and dispatches the matching
@@ -108,13 +116,26 @@ type BuildIntraPredictorsArgs struct {
 // Output: a.Dst is overwritten with the prediction; libvpx writes
 // `bs` rows of `bs` bytes each at stride a.DstStride.
 func BuildIntraPredictors(a BuildIntraPredictorsArgs) {
+	var scratch IntraPredictorScratch
+	BuildIntraPredictorsWithScratch(a, &scratch)
+}
+
+// BuildIntraPredictorsWithScratch is BuildIntraPredictors with
+// caller-owned edge storage. It is the public decoder hot-path entry
+// because indirect predictor dispatch can otherwise make local edge
+// arrays escape to the heap.
+func BuildIntraPredictorsWithScratch(a BuildIntraPredictorsArgs, scratch *IntraPredictorScratch) {
 	// aboveData[16] is the slot libvpx writes for above_row[-1]; we
 	// expose it as topLeft and pass aboveRow = aboveData[17:] to the
 	// kernel. Kernels that need the top-left byte read above[-1]; in
 	// Go we synthesize a buffer where index 0 is the corner byte and
 	// index 1..2*bs are the row.
-	var leftCol [32]uint8
-	var aboveBuf [1 + 64]uint8 // [0]=topLeft, [1:]=above row up to 2*bs
+	if scratch == nil {
+		var local IntraPredictorScratch
+		scratch = &local
+	}
+	leftCol := scratch.Left[:]
+	aboveBuf := scratch.Above[:] // [0]=topLeft, [1:]=above row up to 2*bs
 	topLeft := uint8(127)
 	bs := 4 << uint(a.TxSize)
 
