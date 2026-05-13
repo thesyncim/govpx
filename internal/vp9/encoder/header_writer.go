@@ -25,6 +25,28 @@ import (
 // reached after option validation so out-of-range values can't
 // occur in the encoder pipeline.
 func WriteKeyframeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader) int {
+	return writeUncompressedHeader(w, h /*keyframe=*/, true)
+}
+
+// WriteIntraOnlyUncompressedHeader writes the uncompressed-header
+// fragment for an intra-only non-key frame. The intra-only path
+// reuses the keyframe sync code + frame-size emit but threads the
+// 8-bit refresh_frame_flags mask through unchanged and gates the
+// per-profile bitdepth/colorspace bits on profile > 0 (profile-0
+// defaults to 8-bit 4:2:0).
+func WriteIntraOnlyUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader) int {
+	if h.IntraOnly {
+		return writeUncompressedHeader(w, h, false)
+	}
+	// Caller should have set IntraOnly; tolerate it being unset by
+	// emitting the header verbatim — the parser will set IntraOnly
+	// from the wire bit anyway.
+	tmp := *h
+	tmp.IntraOnly = true
+	return writeUncompressedHeader(w, &tmp, false)
+}
+
+func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyframe bool) int {
 	writeFrameMarker(w)
 	writeProfile(w, h.Profile)
 	w.WriteBit(0) // show_existing_frame = 0
@@ -32,10 +54,30 @@ func WriteKeyframeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader)
 	bit32(w, h.ShowFrame)
 	bit32(w, h.ErrorResilientMode)
 
-	if h.FrameType == common.KeyFrame {
+	if keyframe {
 		writeSyncCode(w)
 		writeBitdepthColorspaceSampling(w, h)
 		writeFrameSize(w, h)
+	} else {
+		// Inter / intra-only branch. The default-frame-type bit is
+		// already emitted (cm->frame_type=1 → wrote 1 above), so
+		// here we replay libvpx's else-arm.
+		if !h.ShowFrame {
+			bit32(w, h.IntraOnly)
+		}
+		if !h.ErrorResilientMode {
+			w.WriteLiteral(uint32(h.ResetFrameContext), 2)
+		}
+		if h.IntraOnly {
+			writeSyncCode(w)
+			if h.Profile > common.Profile0 {
+				writeBitdepthColorspaceSampling(w, h)
+			}
+			w.WriteLiteral(uint32(h.RefreshFrameFlags), common.RefFrames)
+			writeFrameSize(w, h)
+		}
+		// The inter (non-intra-only) branch lands when ref-frame
+		// management is wired up.
 	}
 
 	if !h.ErrorResilientMode {
