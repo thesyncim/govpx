@@ -113,6 +113,7 @@ func ReadIntraFrameModeInfo(args IntraFrameDriverArgs, mi *NeighborMi) IntraFram
 
 	segID := ReadIntraSegmentId(args.Reader, args.Seg, args.Maps,
 		args.MiOffset, args.XMis, args.YMis)
+	mi.SegmentID = uint8(segID)
 	mi.SegIDPredicted = uint8(segID)
 
 	mi.Skip = uint8(ReadSkipWithSeg(args.Reader, args.Seg, segID, args.Fc,

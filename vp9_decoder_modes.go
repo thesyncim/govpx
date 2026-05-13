@@ -435,6 +435,7 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 	maps.SegIDPredictedOut = &d.segIDPredictedScratch
 	segID := vp9dec.ReadInterSegmentId(r, &hdr.Seg, maps,
 		miRow*miCols+miCol, xMis, yMis, above, left)
+	mi.SegmentID = uint8(segID)
 	mi.SegIDPredicted = d.segIDPredictedScratch
 	if !hdr.Seg.TemporalUpdate {
 		mi.SegIDPredicted = uint8(segID)

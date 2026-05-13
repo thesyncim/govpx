@@ -87,6 +87,62 @@ func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesLoopFilteredKeyframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	ivf := vp9IVFForTest(64, 64, packet)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, packet)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for loop-filtered keyframe\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	inter := vp9InterResidueFrameLoopFilterForTest(t, 64, 64, 32, 32)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for loop-filtered inter residual stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterNewMvStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for loop-filtered inter newmv stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
 func TestVP9DecoderVpxdecOracleMatchesInterResidualEdgeStream(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

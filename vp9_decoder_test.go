@@ -795,6 +795,22 @@ func TestVP9DecoderDecodesNonZeroResidueKeyframe(t *testing.T) {
 	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
 }
 
+func TestVP9DecoderAppliesLoopFilterKeyframe(t *testing.T) {
+	unfilteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 0)
+	filteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+
+	unfiltered := vp9DecodeLastVisibleFrameForTest(t, unfilteredPacket)
+	filtered := vp9DecodeLastVisibleFrameForTest(t, filteredPacket)
+	if !vp9YRectDiffers(unfiltered, filtered, 28, 0, 12, 64) {
+		t.Fatal("loop-filtered keyframe luma matches unfiltered edge band")
+	}
+	if bytes.Equal(appendVP9YForTest(nil, unfiltered), appendVP9YForTest(nil, filtered)) {
+		t.Fatal("loop-filtered keyframe luma matches unfiltered luma")
+	}
+	assertVP9PlaneFilled(t, "U", filtered.U, filtered.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", filtered.V, filtered.VStride, 32, 32, 128)
+}
+
 // TestVP9DecoderRejectsMissingResidueTokens proves skip=0 blocks now
 // reach the coefficient reader. The packet stops after mode-info,
 // which was enough for the old mode-only parser but is not a complete
@@ -882,6 +898,27 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("Decode steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
+	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("warm Decode loop-filtered keyframe err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(packet)
+	})
+	if err != nil {
+		t.Fatalf("Decode loop-filtered keyframe err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("loop-filtered keyframe steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
@@ -1152,6 +1189,56 @@ func TestVP9DecoderInterResidueSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderLoopFilteredInterResidueSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	inter := vp9InterResidueFrameLoopFilterForTest(t, 64, 64, 32, 32)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode loop-filtered inter residue err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode loop-filtered inter residue err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("loop-filtered inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderLoopFilteredInterMotionSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode loop-filtered inter motion err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode loop-filtered inter motion err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("loop-filtered inter motion steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 func TestVP9DecoderReconstructsInterResidueFrame(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -1215,6 +1302,23 @@ func TestVP9DecoderReconstructsInterResidueEdgeFrame(t *testing.T) {
 	}
 	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 48, 48, 128)
 	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 48, 48, 128)
+}
+
+func TestVP9DecoderAppliesLoopFilterInterMotionFrame(t *testing.T) {
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	unfilteredInter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 0)
+	filteredInter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
+
+	unfiltered := vp9DecodeLastVisibleFrameForTest(t, key, unfilteredInter)
+	filtered := vp9DecodeLastVisibleFrameForTest(t, key, filteredInter)
+	if !vp9YRectDiffers(unfiltered, filtered, 28, 32, 12, 32) {
+		t.Fatal("loop-filtered inter motion luma matches unfiltered prediction edge")
+	}
+	if bytes.Equal(appendVP9YForTest(nil, unfiltered), appendVP9YForTest(nil, filtered)) {
+		t.Fatal("loop-filtered inter motion luma matches unfiltered luma")
+	}
+	assertVP9PlaneFilled(t, "U", filtered.U, filtered.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", filtered.V, filtered.VStride, 32, 32, 128)
 }
 
 func TestVP9DecoderInterNewMvSteadyStateAlloc(t *testing.T) {
@@ -1969,6 +2073,48 @@ func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 	assertVP9FilledFrame(t, got, width, height, 128, 128, 128)
 }
 
+func vp9DecodeLastVisibleFrameForTest(t *testing.T, packets ...[]byte) Image {
+	t.Helper()
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	var last Image
+	ok := false
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		if frame, frameOK := d.NextFrame(); frameOK {
+			last = frame
+			ok = true
+		}
+	}
+	if !ok {
+		t.Fatal("packet sequence did not publish a visible frame")
+	}
+	return last
+}
+
+func appendVP9YForTest(out []byte, img Image) []byte {
+	for row := range img.Height {
+		start := row * img.YStride
+		out = append(out, img.Y[start:start+img.Width]...)
+	}
+	return out
+}
+
+func vp9YRectDiffers(a, b Image, x, y, width, height int) bool {
+	for row := y; row < y+height; row++ {
+		for col := x; col < x+width; col++ {
+			if a.Y[row*a.YStride+col] != b.Y[row*b.YStride+col] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func fillVP9PublicImage(img *Image, value byte) {
 	for i := range img.Y {
 		img.Y[i] = value
@@ -2381,6 +2527,13 @@ func vp9InteriorResidueKeyframeForSubpelTest(t *testing.T) []byte {
 
 func vp9ColumnResidueKeyframeForMotionTest(t *testing.T, width, height int) []byte {
 	t.Helper()
+	return vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, width, height, 0)
+}
+
+func vp9ColumnResidueKeyframeForMotionLoopFilterTest(t *testing.T,
+	width, height int, filterLevel uint8,
+) []byte {
+	t.Helper()
 	w := uint32(width)
 	h := uint32(height)
 	miCols := int((w + 7) >> 3)
@@ -2435,6 +2588,7 @@ func vp9ColumnResidueKeyframeForMotionTest(t *testing.T, width, height int) []by
 		},
 	}
 	header.Quant.BaseQindex = 1
+	header.Loopfilter.FilterLevel = filterLevel
 
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block32x32,
@@ -2551,6 +2705,13 @@ func vp9ColumnResidueKeyframeForMotionTest(t *testing.T, width, height int) []by
 
 func vp9InterResidueFrameForTest(t *testing.T, width, height int, dcCoeff int16) []byte {
 	t.Helper()
+	return vp9InterResidueFrameLoopFilterForTest(t, width, height, dcCoeff, 0)
+}
+
+func vp9InterResidueFrameLoopFilterForTest(t *testing.T,
+	width, height int, dcCoeff int16, filterLevel uint8,
+) []byte {
+	t.Helper()
 	w := uint32(width)
 	h := uint32(height)
 	miCols := int((w + 7) >> 3)
@@ -2602,6 +2763,7 @@ func vp9InterResidueFrameForTest(t *testing.T, width, height int, dcCoeff int16)
 		},
 	}
 	header.Quant.BaseQindex = 1
+	header.Loopfilter.FilterLevel = filterLevel
 
 	mi := vp9dec.NeighborMi{
 		SbType:       common.Block64x64,
@@ -2840,6 +3002,13 @@ func vp9InterSingleNewMvFrameForTest(t *testing.T,
 
 func vp9InterMotionMvFrameForTest(t *testing.T, bottomLeftMode common.PredictionMode) []byte {
 	t.Helper()
+	return vp9InterMotionMvFrameLoopFilterForTest(t, bottomLeftMode, 0)
+}
+
+func vp9InterMotionMvFrameLoopFilterForTest(t *testing.T,
+	bottomLeftMode common.PredictionMode, filterLevel uint8,
+) []byte {
+	t.Helper()
 	const width = 64
 	const height = 64
 	w := uint32(width)
@@ -2882,6 +3051,7 @@ func vp9InterMotionMvFrameForTest(t *testing.T, bottomLeftMode common.Prediction
 		},
 	}
 	header.Quant.BaseQindex = 1
+	header.Loopfilter.FilterLevel = filterLevel
 
 	baseMi := vp9dec.NeighborMi{
 		SbType:       common.Block32x32,

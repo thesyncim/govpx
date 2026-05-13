@@ -42,6 +42,7 @@ type NeighborMi struct {
 	TxSize         common.TxSize
 	InterpFilter   uint8
 	Skip           uint8
+	SegmentID      uint8
 	SegIDPredicted uint8
 	Mode           common.PredictionMode
 	RefFrame       [2]int8 // ref_frame[0..1] — NoRefFrame when unused

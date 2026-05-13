@@ -183,6 +183,7 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 	d := &VP9Decoder{opts: opts}
 	d.resetVP9FrameContexts()
 	d.lfi = vp9dec.NewLoopFilterInfoN()
+	vp9dec.LoopFilterInit(&d.lfi, 0)
 	return d, nil
 }
 
@@ -281,6 +282,11 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		}
 		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
+		}
+	}
+	if !d.unsupportedReconstruct && hdr.Loopfilter.FilterLevel != 0 {
+		if !d.applyVP9LoopFilter(&hdr) {
+			d.unsupportedReconstruct = true
 		}
 	}
 	d.commitVP9FrameContext(&hdr, frameContextIdx)
