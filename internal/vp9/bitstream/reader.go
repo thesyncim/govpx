@@ -103,6 +103,23 @@ func (r *Reader) ReadLiteral(bits int) uint32 {
 	return literal
 }
 
+// ReadTree decodes a value from a binary token tree. `tree` is the
+// VP9 token-tree array (int8 per libvpx's vpx_tree_index): positive
+// entries are next-node indices, non-positive entries are leaf labels
+// stored as the negation of the decoded value. `probs` carries one
+// probability per internal-node index pair. Bit-identical to libvpx's
+// vpx_read_tree in vpx_dsp/bitreader.h.
+func (r *Reader) ReadTree(tree []int8, probs []uint8) int {
+	i := int8(0)
+	for {
+		next := tree[int(i)+int(r.Read(uint32(probs[i>>1])))]
+		if next <= 0 {
+			return -int(next)
+		}
+		i = next
+	}
+}
+
 // HasError mirrors vpx_reader_has_error: 1 iff a bit was requested after
 // the end of stream was reached. Returns a bool here to match Go idiom.
 func (r *Reader) HasError() bool {
