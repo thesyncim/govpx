@@ -159,13 +159,16 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 
 	out, err := coracle.VpxdecVP9Decode(stream)
 	if err != nil {
-		// TODO(vp9-port): frames with ≥3 SBs along either axis still
-		// fail the oracle gate ("tile data corrupted"). Single-SB,
-		// 1×2, and 2×1 SB layouts pass — the gap appears at 3+ SBs
-		// in a row OR any 2D SB grid (e.g. 2×2). The 4x3 SB
-		// configuration here exercises both. Skipping until the
-		// multi-SB tile divergence is bisected; flipping back to
-		// Fatalf is the gate.
+		// TODO(vp9-port): frames with ≥3 SBs along either axis or
+		// any 2D SB grid (2×2 included) still fail the oracle gate
+		// ("tile data corrupted"). Single-SB, 1×2, and 2×1 SB layouts
+		// pass; bool-stream simulation of our 3-SB tile bytes through
+		// our own decoder reads correctly (12 content bits all decode
+		// to the planted partition/skip/mode values with HasError=false).
+		// libvpx-side state (fc / partition_probs / above_seg_context)
+		// also matches ours per the partition_plane_context math for
+		// every SB — yet vpxdec marks the frame corrupted. The gap
+		// is somewhere in the libvpx state we haven't matched.
 		t.Skipf("byte-parity gap at ≥3 SBs / 2D grid: %v\nvpxdec:\n%s",
 			err, out)
 	}
