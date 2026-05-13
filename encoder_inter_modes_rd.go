@@ -58,6 +58,8 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	best := interFrameModeDecision{
 		intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID},
 	}
+	denoiseActive := e.opts.NoiseSensitivity > 0
+	denoiseDecision := newDenoiserMacroblockDecision()
 	var lastStaleY2 staleY2Snapshot
 	var newMVCandidates [3]struct {
 		searched bool
@@ -302,6 +304,19 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
 			lastStaleY2 = candidateStaleY2
 		}
+		if denoiseActive && mbMode != vp8common.SplitMV && !e.denoiserReferenceTooOld(ref.Frame) {
+			candidateSSE := uint32(macroblockLumaSSE(src, ref.Img, mbRow, mbCol, mode.MV))
+			if mbMode == vp8common.ZeroMV && candidateSSE < denoiseDecision.zeroMVSSE {
+				denoiseDecision.zeroMVSSE = candidateSSE
+				denoiseDecision.zeroMVReferenceFrame = ref.Frame
+			}
+			if mbMode == vp8common.NewMV && candidateSSE < denoiseDecision.bestSSE {
+				denoiseDecision.bestSSE = candidateSSE
+				denoiseDecision.bestMode = vp8common.NewMV
+				denoiseDecision.bestMV = mode.MV
+				denoiseDecision.bestReferenceFrame = ref.Frame
+			}
+		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
 		if traceEnabled {
 			improvedStart := interFrameSearchStart{}
@@ -379,5 +394,23 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		e.lowerBestInterRDThreshold(bestModeIndex)
 	}
 	best.predictionError = bestDistortion
+	if denoiseActive {
+		if denoiseDecision.bestReferenceFrame == vp8common.IntraFrame {
+			if best.useIntra {
+				denoiseDecision.bestReferenceFrame = vp8common.IntraFrame
+				denoiseDecision.bestMode = best.intraMode.Mode
+				denoiseDecision.bestMV = best.intraMode.MV
+				if bestDistortion >= 0 {
+					denoiseDecision.bestSSE = uint32(bestDistortion)
+				}
+			} else {
+				denoiseDecision.bestReferenceFrame = best.interMode.RefFrame
+				denoiseDecision.bestMode = best.interMode.Mode
+				denoiseDecision.bestMV = best.interMode.MV
+				denoiseDecision.bestSSE = uint32(macroblockLumaSSE(src, best.ref.Img, mbRow, mbCol, best.interMode.MV))
+			}
+		}
+		best.denoise = denoiseDecision
+	}
 	return best, true
 }

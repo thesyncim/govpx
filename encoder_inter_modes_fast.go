@@ -75,6 +75,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	bestSSE := maxInt()
 	bestModeIndex := -1
 	best := interFrameModeDecision{}
+	denoiseActive := e.opts.NoiseSensitivity > 0
+	denoiseDecision := newDenoiserMacroblockDecision()
 	var loopCtx fastInterModeLoopContext
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
@@ -277,6 +279,19 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if !ok {
 			continue
 		}
+		if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
+			candidateSSE := uint32(sse)
+			if mbMode == vp8common.ZeroMV && candidateSSE < denoiseDecision.zeroMVSSE {
+				denoiseDecision.zeroMVSSE = candidateSSE
+				denoiseDecision.zeroMVReferenceFrame = ref.Frame
+			}
+			if mbMode == vp8common.NewMV && candidateSSE < denoiseDecision.bestSSE {
+				denoiseDecision.bestSSE = candidateSSE
+				denoiseDecision.bestMode = vp8common.NewMV
+				denoiseDecision.bestMV = mode.MV
+				denoiseDecision.bestReferenceFrame = ref.Frame
+			}
+		}
 		becameBest := breakoutSkip || !bestSet || score < bestScore
 		if traceEnabled {
 			e.emitFastPickerInterCandidateTrace(mbRow, mbCol, modeIndex, refSlot, ref.Frame, threshold, bestScoreBefore, bestSSEBefore, becameBest, breakoutSkip, score, rate, distortion, sse, &mode, improvedStart)
@@ -320,6 +335,23 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		if ok {
 			best.intraMode.UVMode = uvMode
 		}
+	}
+	if denoiseActive {
+		if denoiseDecision.bestReferenceFrame == vp8common.IntraFrame {
+			if best.useIntra {
+				denoiseDecision.bestReferenceFrame = vp8common.IntraFrame
+				denoiseDecision.bestMode = best.intraMode.Mode
+				denoiseDecision.bestMV = best.intraMode.MV
+			} else {
+				denoiseDecision.bestReferenceFrame = best.interMode.RefFrame
+				denoiseDecision.bestMode = best.interMode.Mode
+				denoiseDecision.bestMV = best.interMode.MV
+			}
+			if bestSSE >= 0 {
+				denoiseDecision.bestSSE = uint32(bestSSE)
+			}
+		}
+		best.denoise = denoiseDecision
 	}
 	return best, true
 }

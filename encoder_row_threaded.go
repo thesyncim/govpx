@@ -42,6 +42,7 @@ func (e *VP8Encoder) useThreadedKeyFrameRows(rows int, cols int) bool {
 	pool := e.rowWorkers
 	return pool != nil &&
 		len(pool.workers) > 1 &&
+		e.opts.NoiseSensitivity == 0 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
 		(!oracleTraceBuild || !e.oracleTraceEnabled())

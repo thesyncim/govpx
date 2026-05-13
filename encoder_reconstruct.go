@@ -444,6 +444,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
+	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
+	coeffSource := src
+	if denoiseActive {
+		copySourceToFrameBuffer(&e.denoiser.source, src)
+		coeffSource = sourceImageFromVP8(&e.denoiser.source.Img)
+	}
 	totalRate := 0
 	totalPredictionError := int64(0)
 	for row := range rows {
@@ -499,6 +505,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				decision.interMode.SegmentID = 0
 				decision.intraMode.SegmentID = 0
 			}
+			mbSource := src
+			if denoiseActive {
+				e.applyDenoiserToInterMacroblock(coeffSource, coeffSource, rows, cols, row, col, &decision)
+				mbSource = coeffSource
+			}
 			totalRate = addProjectedMacroblockRate(totalRate, decision.projectedRate)
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
@@ -513,7 +524,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					if e.activityMapValid {
 						zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 					}
-					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 					if oracleTraceBuild {
@@ -536,7 +547,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				}
 			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
-				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(src, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
+				(modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
 			if breakoutSkip {
 				clearMacroblockCoefficients(&coeffs[index])
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
@@ -552,13 +563,16 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// and invalidated by reset() before returning so the
 				// next MB's picker run starts fresh.
 				cacheIn := e.consumeInterRDCoeffCache()
+				if denoiseActive {
+					cacheIn = nil
+				}
 				zbinOverQuant := e.rc.currentZbinOverQuant
 				if e.activityMapValid {
 					zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     &e.coefProbs,
-					src:           src,
+					src:           mbSource,
 					mbRow:         row,
 					mbCol:         col,
 					pred:          &e.analysis.Img,
