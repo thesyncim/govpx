@@ -239,8 +239,8 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 // EncodeIntoWithFlags packs the next profile 0 frame into dst while applying
 // the VP9-compatible subset of EncodeFlags: EncodeForceKeyFrame,
 // EncodeNoReference{Last,Golden,AltRef}, EncodeNoUpdate{Last,Golden,AltRef},
-// and EncodeNoUpdateEntropy. Invisible frames and forced GOLDEN / ALTREF
-// refreshes are not implemented by the current profile 0 packet path.
+// EncodeNoUpdateEntropy, EncodeForceGoldenFrame, and EncodeForceAltRefFrame.
+// Invisible frames are not implemented by the current profile 0 packet path.
 //
 // The current packet path emits source-backed keyframes and visible LAST inter
 // frames with fixed-size DCT_DCT residual transforms up to Tx32x32, including
@@ -321,11 +321,12 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		header.RefreshFrameFlags = 0xff
 	} else {
 		header.FrameType = common.InterFrame
-		header.RefreshFrameFlags = 1
-		if flags&EncodeNoUpdateLast != 0 {
-			header.RefreshFrameFlags = 0
+		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
+		header.InterRef.RefIndex = [3]uint8{
+			vp9LastRefSlot,
+			vp9GoldenRefSlot,
+			vp9AltRefSlot,
 		}
-		header.InterRef.RefIndex = [3]uint8{0, 0, 0}
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
 
@@ -445,14 +446,33 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	return n, nil
 }
 
+const (
+	vp9LastRefSlot   = 0
+	vp9GoldenRefSlot = 1
+	vp9AltRefSlot    = 2
+)
+
 const vp9NoUpdateRefFlags = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+
+func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
+	var refresh uint8
+	if flags&EncodeNoUpdateLast == 0 {
+		refresh |= 1 << vp9LastRefSlot
+	}
+	if flags&(EncodeForceGoldenFrame|EncodeNoUpdateGolden) == EncodeForceGoldenFrame {
+		refresh |= 1 << vp9GoldenRefSlot
+	}
+	if flags&(EncodeForceAltRefFrame|EncodeNoUpdateAltRef) == EncodeForceAltRefFrame {
+		refresh |= 1 << vp9AltRefSlot
+	}
+	return refresh
+}
 
 func validateVP9EncodeFlags(flags EncodeFlags) error {
 	if err := validateEncodeFlags(flags); err != nil {
 		return err
 	}
-	const unsupported = EncodeInvisibleFrame | EncodeForceGoldenFrame | EncodeForceAltRefFrame
-	if flags&unsupported != 0 {
+	if flags&EncodeInvisibleFrame != 0 {
 		return ErrInvalidConfig
 	}
 	return nil

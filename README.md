@@ -149,6 +149,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 
 - Use `ForceKeyFrame()` for sticky PLI/FIR. Use `EncodeForceKeyFrame`
   on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
+- VP9 `EncodeIntoWithFlags` supports no-update reference / entropy flags and
+  visible GOLDEN / ALTREF refresh flags; VP9 inter prediction is currently
+  LAST-only.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.

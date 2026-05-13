@@ -854,8 +854,8 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	var br vp9dec.BitReader
 	br.Init(dst[:n])
 	refDims := func(slot uint8) (uint32, uint32) {
-		if slot != 0 {
-			t.Fatalf("inter header requested ref slot %d, want 0", slot)
+		if slot > vp9AltRefSlot {
+			t.Fatalf("inter header requested ref slot %d, want <= %d", slot, vp9AltRefSlot)
 		}
 		return width, height
 	}
@@ -866,6 +866,9 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	if h.FrameType != common.InterFrame {
 		t.Fatalf("frame type = %d, want InterFrame", h.FrameType)
 	}
+	if h.InterRef.RefIndex != [3]uint8{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
+		t.Fatalf("RefIndex = %v, want LAST/GOLDEN/ALTREF slots 0/1/2", h.InterRef.RefIndex)
+	}
 	if h.RefreshFrameFlags != 0 {
 		t.Fatalf("RefreshFrameFlags = %#x, want 0", h.RefreshFrameFlags)
 	}
@@ -874,6 +877,67 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	}
 	if got := e.refFrames[0].img.Y[0]; got != keySrc.Y[0] {
 		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsForceGoldenAltRefRefreshesSlots(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+
+	interSrc := newVP9YCbCrForTest(width, height, 160, 96, 224)
+	packet, err := e.EncodeWithFlags(interSrc, EncodeForceGoldenFrame|EncodeForceAltRefFrame)
+	if err != nil {
+		t.Fatalf("EncodeWithFlags force GF/ARF: %v", err)
+	}
+	info, err := PeekVP9StreamInfo(packet)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo: %v", err)
+	}
+	if info.RefreshFrameFlags != 0x07 {
+		t.Fatalf("RefreshFrameFlags = %#x, want LAST|GOLDEN|ALTREF", info.RefreshFrameFlags)
+	}
+	for _, slot := range []int{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
+		if !e.refValid[slot] || !e.refFrames[slot].valid {
+			t.Fatalf("reference slot %d was not refreshed", slot)
+		}
+	}
+	if got := e.refFrames[vp9GoldenRefSlot].img.Y[0]; got == keySrc.Y[0] {
+		t.Fatalf("GOLDEN ref Y[0] still has keyframe value %d", got)
+	}
+	if got := e.refFrames[vp9AltRefSlot].img.Y[0]; got == keySrc.Y[0] {
+		t.Fatalf("ALTREF ref Y[0] still has keyframe value %d", got)
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+
+	interSrc := newVP9YCbCrForTest(width, height, 196, 96, 224)
+	packet, err := e.EncodeWithFlags(interSrc, EncodeForceGoldenFrame|EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("EncodeWithFlags force GF/no-update-LAST: %v", err)
+	}
+	info, err := PeekVP9StreamInfo(packet)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo: %v", err)
+	}
+	if info.RefreshFrameFlags != 0x02 {
+		t.Fatalf("RefreshFrameFlags = %#x, want GOLDEN only", info.RefreshFrameFlags)
+	}
+	if got := e.refFrames[vp9LastRefSlot].img.Y[0]; got != keySrc.Y[0] {
+		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	}
+	if got := e.refFrames[vp9GoldenRefSlot].img.Y[0]; got == keySrc.Y[0] {
+		t.Fatalf("GOLDEN ref Y[0] still has keyframe value %d", got)
 	}
 }
 
@@ -924,9 +988,9 @@ func TestVP9EncoderEncodeIntoWithFlagsRejectsUnsupportedFlags(t *testing.T) {
 	dst := make([]byte, 65536)
 	for _, flags := range []EncodeFlags{
 		EncodeInvisibleFrame,
-		EncodeForceGoldenFrame,
-		EncodeForceAltRefFrame,
 		EncodeNoUpdateLast,
+		EncodeForceGoldenFrame | EncodeNoUpdateGolden,
+		EncodeForceAltRefFrame | EncodeNoUpdateAltRef,
 	} {
 		if _, err := e.EncodeIntoWithFlags(src, dst, flags); !errors.Is(err, ErrInvalidConfig) {
 			t.Fatalf("flags %#x err = %v, want ErrInvalidConfig", flags, err)
@@ -1012,8 +1076,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	var interBR vp9dec.BitReader
 	interBR.Init(inter)
 	refDims := func(slot uint8) (uint32, uint32) {
-		if slot != 0 {
-			t.Fatalf("inter header requested ref slot %d, want 0", slot)
+		if slot > vp9AltRefSlot {
+			t.Fatalf("inter header requested ref slot %d, want <= %d", slot, vp9AltRefSlot)
 		}
 		return 64, 64
 	}
@@ -1036,8 +1100,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if interHeader.Width != 64 || interHeader.Height != 64 {
 		t.Errorf("size = (%d, %d), want (64, 64)", interHeader.Width, interHeader.Height)
 	}
-	if interHeader.InterRef.RefIndex != [3]uint8{0, 0, 0} {
-		t.Errorf("RefIndex = %v, want [0 0 0]", interHeader.InterRef.RefIndex)
+	if interHeader.InterRef.RefIndex != [3]uint8{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
+		t.Errorf("RefIndex = %v, want LAST/GOLDEN/ALTREF slots 0/1/2", interHeader.InterRef.RefIndex)
 	}
 	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 0} {
 		t.Errorf("SignBias = %v, want [0 0 0]", interHeader.InterRef.SignBias)
