@@ -145,6 +145,59 @@ func countInterFrameRefUsage(modes []vp8enc.InterFrameMacroblockMode) (intra, la
 	return intra, last, golden, alt
 }
 
+func (e *VP8Encoder) resetGFActiveMap(macroblocks int) {
+	if macroblocks <= 0 || len(e.gfActiveMap) == 0 {
+		e.rc.gfActiveCount = 0
+		return
+	}
+	if macroblocks > len(e.gfActiveMap) {
+		macroblocks = len(e.gfActiveMap)
+	}
+	for i := 0; i < macroblocks; i++ {
+		e.gfActiveMap[i] = true
+	}
+	for i := macroblocks; i < len(e.gfActiveMap); i++ {
+		e.gfActiveMap[i] = false
+	}
+	e.rc.gfActiveCount = macroblocks
+}
+
+func (e *VP8Encoder) updateGFActiveMap(refreshGolden bool, modes []vp8enc.InterFrameMacroblockMode) {
+	if e.libvpxTemporalLayerCount() > 1 {
+		return
+	}
+	if refreshGolden {
+		e.resetGFActiveMap(len(modes))
+		return
+	}
+	if len(modes) == 0 || len(e.gfActiveMap) == 0 {
+		e.rc.gfActiveCount = 0
+		return
+	}
+	limit := len(modes)
+	if limit > len(e.gfActiveMap) {
+		limit = len(e.gfActiveMap)
+	}
+	active := 0
+	for i := 0; i < limit; i++ {
+		mode := modes[i]
+		isActive := e.gfActiveMap[i]
+		if mode.RefFrame == vp8common.GoldenFrame || mode.RefFrame == vp8common.AltRefFrame {
+			isActive = true
+		} else if mode.Mode != vp8common.ZeroMV {
+			isActive = false
+		}
+		e.gfActiveMap[i] = isActive
+		if isActive {
+			active++
+		}
+	}
+	for i := limit; i < len(e.gfActiveMap); i++ {
+		e.gfActiveMap[i] = false
+	}
+	e.rc.gfActiveCount = active
+}
+
 func (e *VP8Encoder) shouldRecodeInterAttemptAsKeyFrame(required int, refreshGoldenFrame bool, temporalEnabled bool, invisible bool) (int, bool) {
 	if !e.opts.AdaptiveKeyFrames ||
 		e.twoPass.enabled() ||
@@ -307,6 +360,23 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 		interval = (2 * rows * cols) / refreshCount
 	}
 	return min(max(interval, 6), 40)
+}
+
+func (e *VP8Encoder) libvpxMaxGFInterval() int {
+	maxInterval := int(outputFrameRate(e.timing)/2.0) + 2
+	if maxInterval < 12 {
+		maxInterval = 12
+	}
+	if staticSceneMax := e.opts.KeyFrameInterval >> 1; staticSceneMax > 0 && maxInterval > staticSceneMax {
+		maxInterval = staticSceneMax
+	}
+	if e.opts.AutoAltRef && e.opts.LookaheadFrames > 0 {
+		lagCap := e.opts.LookaheadFrames - 1
+		if maxInterval > lagCap {
+			maxInterval = lagCap
+		}
+	}
+	return maxInterval
 }
 
 // libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame

@@ -131,6 +131,7 @@ func (e *VP8Encoder) reallocateForDimensions(width int, height int) error {
 	e.activeMap = resizeUint8Slice(e.activeMap, mbCount)
 	e.keyFrameModes = resizeKeyFrameModeSlice(e.keyFrameModes, mbCount)
 	e.interFrameModes = resizeInterFrameModeSlice(e.interFrameModes, mbCount)
+	e.gfActiveMap = resizeBoolSlice(e.gfActiveMap, mbCount)
 	e.lastFrameInterModes = resizeInterFrameModeSlice(e.lastFrameInterModes, mbCount)
 	e.lastFrameInterModeBias = resizeBoolSlice(e.lastFrameInterModeBias, mbCount)
 	e.keyFrameCoeffs = resizeKeyFrameCoeffSlice(e.keyFrameCoeffs, mbCount)

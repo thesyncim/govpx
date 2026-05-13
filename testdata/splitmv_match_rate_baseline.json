@@ -3,22 +3,22 @@
     "best-cpu0-vbr": {
       "mode_match_pct": 100,
       "splitmv_pick_match_pct": 100,
-      "partition_match_pct": 90.17857142857143,
-      "block_mv_match_pct": 61.607142857142854,
+      "partition_match_pct": 100,
+      "block_mv_match_pct": 100,
       "segment_id_match_pct": 100
     },
     "good-cpu0-vbr": {
-      "mode_match_pct": 98.21428571428571,
-      "splitmv_pick_match_pct": 98.21428571428571,
-      "partition_match_pct": 73.63636363636364,
-      "block_mv_match_pct": 47.27272727272727,
+      "mode_match_pct": 100,
+      "splitmv_pick_match_pct": 100,
+      "partition_match_pct": 99.10714285714286,
+      "block_mv_match_pct": 99.10714285714286,
       "segment_id_match_pct": 100
     },
     "good-cpu3-vbr": {
-      "mode_match_pct": 92.85714285714286,
-      "splitmv_pick_match_pct": 92.85714285714286,
-      "partition_match_pct": 90.9090909090909,
-      "block_mv_match_pct": 27.272727272727273,
+      "mode_match_pct": 100,
+      "splitmv_pick_match_pct": 100,
+      "partition_match_pct": 96.42857142857143,
+      "block_mv_match_pct": 85.71428571428571,
       "segment_id_match_pct": 100
     }
   }

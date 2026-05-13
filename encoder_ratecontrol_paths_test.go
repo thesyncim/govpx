@@ -219,7 +219,138 @@ func TestEncodeIntoOnePassVBRDoesNotRefreshGoldenImmediatelyAfterKey(t *testing.
 	}
 }
 
-func TestEncodeIntoOnePassVBRRefreshesGoldenOnDefaultInterval(t *testing.T) {
+func TestLibvpxMaxGFIntervalMatchesFramerateAndKeyDistanceCaps(t *testing.T) {
+	cases := []struct {
+		name string
+		opts EncoderOptions
+		want int
+	}{
+		{
+			name: "30fps",
+			opts: EncoderOptions{Width: 64, Height: 64, FPS: 30, RateControlMode: RateControlVBR, TargetBitrateKbps: 700, KeyFrameInterval: 999},
+			want: 17,
+		},
+		{
+			name: "15fps-floor",
+			opts: EncoderOptions{Width: 64, Height: 64, FPS: 15, RateControlMode: RateControlVBR, TargetBitrateKbps: 700, KeyFrameInterval: 999},
+			want: 12,
+		},
+		{
+			name: "key-distance-cap",
+			opts: EncoderOptions{Width: 64, Height: 64, FPS: 30, RateControlMode: RateControlVBR, TargetBitrateKbps: 700, KeyFrameInterval: 8},
+			want: 4,
+		},
+		{
+			name: "altref-lag-cap",
+			opts: EncoderOptions{Width: 64, Height: 64, FPS: 30, RateControlMode: RateControlVBR, TargetBitrateKbps: 700, KeyFrameInterval: 999, LookaheadFrames: 4, AutoAltRef: true},
+			want: 3,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := NewVP8Encoder(tc.opts)
+			if err != nil {
+				t.Fatalf("NewVP8Encoder returned error: %v", err)
+			}
+			if got := e.libvpxMaxGFInterval(); got != tc.want {
+				t.Fatalf("libvpxMaxGFInterval = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCalcGFParamsHalvesRealtimeBoostWhenRecodeLoopIsDisabled(t *testing.T) {
+	base := gfParamsInput{
+		Q:                     127,
+		RecentRefIntra:        1,
+		RecentRefLast:         1,
+		RecentRefGolden:       98,
+		RecentRefAltRef:       0,
+		GFActiveCount:         0,
+		Macroblocks:           100,
+		ThisFramePercentIntra: 0,
+		BaselineGFInterval:    libvpxDefaultGFInterval,
+		MaxGFInterval:         17,
+	}
+	normal := calcGFParams(base)
+	realtime := calcGFParams(gfParamsInput{
+		Q:                     base.Q,
+		RecentRefIntra:        base.RecentRefIntra,
+		RecentRefLast:         base.RecentRefLast,
+		RecentRefGolden:       base.RecentRefGolden,
+		RecentRefAltRef:       base.RecentRefAltRef,
+		GFActiveCount:         base.GFActiveCount,
+		Macroblocks:           base.Macroblocks,
+		ThisFramePercentIntra: base.ThisFramePercentIntra,
+		BaselineGFInterval:    base.BaselineGFInterval,
+		MaxGFInterval:         base.MaxGFInterval,
+		RealtimeNoRecode:      true,
+	})
+	if normal.Boost <= realtime.Boost {
+		t.Fatalf("normal boost = %d, realtime no-recode boost = %d, want realtime lower", normal.Boost, realtime.Boost)
+	}
+	if normal.FramesTillUpdate != 11 {
+		t.Fatalf("normal interval = %d, want high-GF-usage table interval 11", normal.FramesTillUpdate)
+	}
+	if realtime.FramesTillUpdate != 11 {
+		t.Fatalf("realtime no-recode interval = %d, want high-GF-usage table interval 11", realtime.FramesTillUpdate)
+	}
+}
+
+func TestGFActiveMapTracksLibvpxUsageRules(t *testing.T) {
+	e := &VP8Encoder{gfActiveMap: make([]bool, 4)}
+	e.resetGFActiveMap(4)
+	if e.rc.gfActiveCount != 4 {
+		t.Fatalf("initial gfActiveCount = %d, want 4", e.rc.gfActiveCount)
+	}
+
+	e.updateGFActiveMap(false, []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+	})
+	want := []bool{true, false, true, false}
+	for i, wantActive := range want {
+		if e.gfActiveMap[i] != wantActive {
+			t.Fatalf("gfActiveMap[%d] = %t, want %t", i, e.gfActiveMap[i], wantActive)
+		}
+	}
+	if e.rc.gfActiveCount != 2 {
+		t.Fatalf("gfActiveCount after mixed usage = %d, want 2", e.rc.gfActiveCount)
+	}
+
+	e.updateGFActiveMap(false, []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.AltRefFrame, Mode: vp8common.NewMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+	})
+	want = []bool{true, true, false, false}
+	for i, wantActive := range want {
+		if e.gfActiveMap[i] != wantActive {
+			t.Fatalf("second gfActiveMap[%d] = %t, want %t", i, e.gfActiveMap[i], wantActive)
+		}
+	}
+	if e.rc.gfActiveCount != 2 {
+		t.Fatalf("gfActiveCount after reactivation = %d, want 2", e.rc.gfActiveCount)
+	}
+
+	e.updateGFActiveMap(true, make([]vp8enc.InterFrameMacroblockMode, 3))
+	if e.rc.gfActiveCount != 3 {
+		t.Fatalf("gfActiveCount after refresh reset = %d, want 3", e.rc.gfActiveCount)
+	}
+	for i := 0; i < 3; i++ {
+		if !e.gfActiveMap[i] {
+			t.Fatalf("gfActiveMap[%d] after refresh = false, want true", i)
+		}
+	}
+	if e.gfActiveMap[3] {
+		t.Fatalf("gfActiveMap[3] after 3-MB refresh = true, want false")
+	}
+}
+
+func TestEncodeIntoOnePassVBRRefreshesGoldenOnLibvpxIntervals(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:             64,
 		Height:            64,
@@ -248,7 +379,7 @@ func TestEncodeIntoOnePassVBRRefreshesGoldenOnDefaultInterval(t *testing.T) {
 		switch frame {
 		case libvpxDefaultGFInterval, 2 * libvpxDefaultGFInterval:
 			if !state.Refresh.RefreshGolden {
-				t.Fatalf("frame %d VBR refresh_golden = false, want true on default GF interval", frame)
+				t.Fatalf("frame %d VBR refresh_golden = false, want true on libvpx GF interval", frame)
 			}
 			if state.Refresh.CopyBufferToAltRef != 2 {
 				t.Fatalf("frame %d copy-to-alt = %d, want old-GF-to-ARF copy", frame, state.Refresh.CopyBufferToAltRef)

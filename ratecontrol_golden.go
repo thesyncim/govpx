@@ -74,6 +74,7 @@ type gfParamsInput struct {
 	ThisFramePercentIntra int
 	BaselineGFInterval    int
 	MaxGFInterval         int
+	RealtimeNoRecode      bool
 }
 
 // gfParamsOutput is the calc_gf_params result govpx consumes: the GF boost
@@ -90,7 +91,9 @@ type gfParamsOutput struct {
 // the kf_gf_boost_qlimits ceiling and a 110 floor, and computes the
 // frames_till_gf_update_due interval from baseline_gf_interval, last_boost
 // thresholds (>750/>1000/>1250/>=1500), gf_interval_table, and the
-// max_gf_interval cap.
+// max_gf_interval cap. RealtimeNoRecode mirrors libvpx's one-pass safeguard:
+// when compressor_speed==2 and sf.recode_loop==0, the boost is halved before
+// the Q limit and interval logic run.
 func calcGFParams(in gfParamsInput) gfParamsOutput {
 	q := clampQuantizerValue(in.Q, 0, vp8MaxQIndex)
 	totMBs := in.RecentRefIntra + in.RecentRefLast + in.RecentRefGolden + in.RecentRefAltRef
@@ -109,6 +112,10 @@ func calcGFParams(in gfParamsInput) gfParamsOutput {
 	boost := libvpxGFBoostQAdjustment[q]
 	boost = boost * libvpxGFIntraUsageAdjustment[intraIdx] / 100
 	boost = boost * libvpxGFAdjustTable[gfFrameUsage] / 100
+
+	if in.RealtimeNoRecode {
+		boost /= 2
+	}
 
 	boost = min(max(boost, 110), libvpxKFGFBoostQLimits[q])
 
