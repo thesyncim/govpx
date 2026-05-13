@@ -210,18 +210,16 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		// holds when both the temporal denoiser and the row-worker
 		// pool are active simultaneously.
 		//
-		// NEW GAP: All four currently diverge starting at the
-		// keyframe (first_diff=273 on the 48x48 keyframe). The
-		// row-thread fan-out reorders the denoiser's per-MB
-		// sum_diff accumulation versus libvpx's serial reduction,
-		// which propagates into the picker's chosen modes from
-		// frame 0 onward. Pin with limit:-1 so the per-frame log
-		// records the partition-size deltas without regressing
-		// the strict gate.
-		{name: "noise-sensitivity3-threads2-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, limit: -1, noiseSensitivity: 3, threads: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
-		{name: "noise-sensitivity6-threads2-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, limit: -1, noiseSensitivity: 6, threads: 2, extraArgs: []string{"--noise-sensitivity=6", "--threads=2"}},
-		{name: "noise-sensitivity3-threads2-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, noiseSensitivity: 3, threads: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
-		{name: "noise-sensitivity6-threads2-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, noiseSensitivity: 6, threads: 2, extraArgs: []string{"--noise-sensitivity=6", "--threads=2"}},
+		// Closed: wiring the per-MB denoiser into the threaded inter
+		// row loop (matching the serial coeffSource overlay + DCT
+		// cache invalidation) plus letting the threaded keyframe
+		// encode run regardless of NoiseSensitivity now matches
+		// libvpx byte-for-byte across all 16 frames at 48x48 and
+		// 64x64 for both ns3 and ns6.
+		{name: "noise-sensitivity3-threads2-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, noiseSensitivity: 3, threads: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "noise-sensitivity6-threads2-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, noiseSensitivity: 6, threads: 2, extraArgs: []string{"--noise-sensitivity=6", "--threads=2"}},
+		{name: "noise-sensitivity3-threads2-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, noiseSensitivity: 3, threads: 2, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "noise-sensitivity6-threads2-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, noiseSensitivity: 6, threads: 2, extraArgs: []string{"--noise-sensitivity=6", "--threads=2"}},
 
 		// Underrepresented cross-products: screen-content + denoiser.
 		// Both controls flip in the per-MB encode pipeline; running
@@ -242,15 +240,13 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		{name: "sharpness7-q-realtime-cpu-3-16x16-q40", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, sharpness: 7, rcMode: RateControlQ, rcModeSet: true, cqLevel: 40, extraArgs: []string{"--sharpness=7", "--end-usage=q", "--cq-level=40"}},
 
 		// Underrepresented: error-resilient + denoiser combinations.
-		//
-		// NEW GAP (limit=3): error-resilient + ns=3 diverges only at
-		// frame 3 by a 1-byte first-partition-size delta
-		// (govpx_first_part=171, libvpx_first_part=170). Frames
-		// 0,1,2,4..15 byte-match. This is a single-frame entropy
-		// transition gap that fires when the resilience reset and
-		// the denoiser's per-MB filter overlay land on the same
-		// frame. Pin frames 0..2 strict; frame 3 logs only.
-		{name: "error-resilient-noise3-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, limit: 3, errorResilient: true, noiseSensitivity: 3, extraArgs: []string{"--error-resilient=1", "--noise-sensitivity=3"}},
+		// Closed by the threaded-denoiser wiring that also pinned
+		// the noise-sensitivity*-threads2 cases — the prior frame-3
+		// 1-byte first-partition delta was the same coeffSource /
+		// DCT-cache invalidation gap surfacing through the resilience
+		// reset path; it now byte-matches across the full 16-frame
+		// budget.
+		{name: "error-resilient-noise3-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, errorResilient: true, noiseSensitivity: 3, extraArgs: []string{"--error-resilient=1", "--noise-sensitivity=3"}},
 		{name: "error-resilient-partitions-noise3-realtime-cpu-3-48x48", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning48, errorResilientPartitions: true, noiseSensitivity: 3, extraArgs: []string{"--error-resilient=2", "--noise-sensitivity=3"}},
 
 		// Underrepresented: gf-cbr-boost + screen-content. Boost

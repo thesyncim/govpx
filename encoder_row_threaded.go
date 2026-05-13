@@ -11,6 +11,8 @@ import (
 
 type threadedInterRowsArgs struct {
 	src                    vp8enc.SourceImage
+	coeffSource            vp8enc.SourceImage
+	denoiseActive          bool
 	qIndex                 int
 	segmentation           vp8enc.SegmentationConfig
 	preserveSegmentID      bool
@@ -40,9 +42,14 @@ type threadedKeyRowsArgs struct {
 
 func (e *VP8Encoder) useThreadedKeyFrameRows(rows int, cols int) bool {
 	pool := e.rowWorkers
+	// libvpx threads the keyframe encode whenever multi_threaded > 1
+	// regardless of noise_sensitivity (the denoiser only fires on inter
+	// frames per vp8/encoder/onyx_if.c key-frame guard); gating govpx on
+	// NoiseSensitivity == 0 silently kept the keyframe serial and the
+	// resulting first partition diverged at byte 273 from the libvpx
+	// threaded keyframe even though the denoiser itself is inactive.
 	return pool != nil &&
 		len(pool.workers) > 1 &&
-		e.opts.NoiseSensitivity == 0 &&
 		rows > 1 &&
 		cols > pool.syncRange &&
 		(!oracleTraceBuild || !e.oracleTraceEnabled())
@@ -371,8 +378,19 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 		haveFallbackSnapshot = true
 	}
+	// Pick using coeffSource (the denoiser working-copy) when the
+	// denoiser is active so the picker observes the same per-MB
+	// denoised left-edge / above-edge pixel context as libvpx's per-row
+	// encode_mb_row loop. Each row worker owns disjoint MB regions and
+	// the wave-front sync below already guarantees row r-1's denoiser
+	// writes complete before row r reads them, so the per-MB denoiser
+	// overlay is byte-identical to the serial walk.
+	pickSource := args.src
+	if args.denoiseActive {
+		pickSource = args.coeffSource
+	}
 	decision, ok := e.selectInterFrameModeDecision(
-		args.src, args.refs[:], args.refCount,
+		pickSource, args.refs[:], args.refCount,
 		row, col, args.rows, args.cols,
 		args.qIndex, args.segmentation, segmentID,
 		above, left, aboveLeft,
@@ -392,6 +410,18 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		decision.intraMode.SegmentID = 0
 	}
 
+	mbSource := args.src
+	if args.denoiseActive {
+		// vp8_denoiser_denoise_mb overlays the denoised pixels into
+		// coeffSource and updates the per-MB running_avg buffers. The
+		// row worker's encoder view shares the encoder-level denoiser
+		// state (slices alias the backing arrays), so writes here land
+		// in the shared per-MB region just like libvpx's threaded
+		// encode_mb_row.
+		e.applyDenoiserToInterMacroblock(args.coeffSource, args.coeffSource, args.rows, args.cols, row, col, &decision)
+		mbSource = args.coeffSource
+	}
+
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)
 	quant := &args.quants[segmentID&3]
 	if decision.useIntra {
@@ -403,7 +433,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			if e.activityMapValid {
 				zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 			}
-			if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+			if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 				return 0, 0, ErrInvalidConfig
 			}
 		} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -420,7 +450,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	}
 
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
-		(args.modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(args.src, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
+		(args.modes[index].MBSkipCoeff || staticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID)))
 	if breakoutSkip {
 		clearMacroblockCoefficients(&args.coeffs[index])
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
@@ -431,13 +461,21 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// the per-encoder DCT cache slots are per-row-private — no cross-
 		// worker coordination needed.
 		cacheIn := e.consumeInterRDCoeffCache()
+		if args.denoiseActive {
+			// The denoiser may have overwritten the source pixels the
+			// picker fed into its DCT cache, so discard the cached
+			// post-FDCT inputs and let buildPredictedMacroblockCoefficients
+			// recompute from the post-denoiser source. Mirrors the serial
+			// builder's `if denoiseActive { cacheIn = nil }` gate.
+			cacheIn = nil
+		}
 		zbinOverQuant := e.rc.currentZbinOverQuant
 		if e.activityMapValid {
 			zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 		}
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 			coefProbs:     e.pickerCoefProbs(),
-			src:           args.src,
+			src:           mbSource,
 			mbRow:         row,
 			mbCol:         col,
 			pred:          &e.analysis.Img,
