@@ -11,6 +11,11 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
+const (
+	vp9EncoderTxCoeffSlots    = 16
+	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
+)
+
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
@@ -105,8 +110,11 @@ type VP9Encoder struct {
 
 	refFrames [common.RefFrames]vp9ReferenceFrame
 
-	blockCoeffs [vp9dec.MaxMbPlane][256]int16
-	coefScratch [16]int16
+	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	coefScratch    [1024]int16
+	residueScratch [16]int16
+	txCoeffScratch [16]int16
+	dqCoeffScratch [16]int16
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -196,8 +204,8 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 }
 
 // EncodeInto packs the next profile 0 frame into dst. The current packet path
-// emits source-backed keyframes with 4x4 DC residue and visible LAST/ZeroMv
-// inter frames with optional 4x4 DC residue. The compressed header uses the
+// emits source-backed keyframes with 4x4 residuals and visible LAST/ZeroMv
+// inter frames with optional 4x4 residuals. The compressed header uses the
 // no-update path; counts-driven updates land when the encoder's tokenize loop
 // exposes real per-frame counters.
 //
@@ -787,7 +795,6 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
 ) bool {
-	e.clearVP9BlockCoeffs()
 	hasResidue := false
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
@@ -795,6 +802,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 		if planeBsize >= common.BlockSizes {
 			continue
 		}
+		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
 		txSize := mi.TxSize
 		if plane > 0 {
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
@@ -816,10 +824,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				if plane == 0 {
 					mode = vp9dec.GetYMode(mi, blockIdx)
 				}
-				coeff := e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
-					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant[0])
-				e.blockCoeffs[plane][rr*full4x4W+cc] = coeff
-				if coeff != 0 {
+				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
+				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
+					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant, coeffs) {
 					hasResidue = true
 				}
 				blockIdx += blockStep
@@ -834,7 +842,6 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) bool {
-	e.clearVP9BlockCoeffs()
 	if !e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize) {
 		return false
 	}
@@ -845,6 +852,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if planeBsize >= common.BlockSizes {
 			continue
 		}
+		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
 		txSize := mi.TxSize
 		if plane > 0 {
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
@@ -859,10 +867,10 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
-				coeff := e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
-					miRow, miCol, rr, cc, dequant[0])
-				e.blockCoeffs[plane][rr*full4x4W+cc] = coeff
-				if coeff != 0 {
+				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
+				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				if e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant, coeffs) {
 					hasResidue = true
 				}
 			}
@@ -908,81 +916,103 @@ func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	return true
 }
 
-func (e *VP9Encoder) clearVP9BlockCoeffs() {
-	for plane := range vp9dec.MaxMbPlane {
-		for i := range e.blockCoeffs[plane] {
-			e.blockCoeffs[plane][i] = 0
-		}
+func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize) {
+	if plane < 0 || plane >= vp9dec.MaxMbPlane || bsize >= common.BlockSizes {
+		return
+	}
+	n := int(common.Num4x4BlocksWideLookup[bsize]) *
+		int(common.Num4x4BlocksHighLookup[bsize]) * vp9EncoderTxCoeffSlots
+	if n > len(e.blockCoeffs[plane]) {
+		n = len(e.blockCoeffs[plane])
+	}
+	for i := range e.blockCoeffs[plane][:n] {
+		e.blockCoeffs[plane][i] = 0
 	}
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequantDC int16,
-) int16 {
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16, out []int16,
+) bool {
 	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
-	if !ok || dequantDC == 0 {
-		return 0
+	if !ok {
+		return false
+	}
+	txType := common.DctDct
+	if plane == 0 {
+		txType = common.IntraModeToTxType[mode]
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
-	bs := 4 << uint(txSize)
-	sum := 0
-	count := 0
-	for y := 0; y < bs && y0+y < srcH; y++ {
-		srcRow := src[(y0+y)*srcStride:]
-		dstRow := dst[y*stride:]
-		for x := 0; x < bs && x0+x < srcW; x++ {
-			sum += int(srcRow[x0+x]) - int(dstRow[x])
-			count++
-		}
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		return false
 	}
-	if count == 0 {
-		return 0
-	}
-	avgDiff := vp9RoundDivSigned(sum, count)
-	token := vp9RoundDivSigned(avgDiff*32, int(dequantDC))
-	if token == 0 {
-		return 0
-	}
-	coeff := token * int(dequantDC)
-	e.applyVP9KeyframeDcCoeff(dst, stride, txSize, mode, plane, coeff)
-	return int16(coeff)
+	return e.quantizeVP9TxResidual(dst, stride, txSize, txType, dequant, out)
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
-	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequantDC int16,
-) int16 {
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out []int16,
+) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
-	if !ok || dequantDC == 0 {
-		return 0
+	if !ok {
+		return false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		return false
+	}
+	return e.quantizeVP9TxResidual(dst, stride, txSize, common.DctDct, dequant, out)
+}
+
+func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
+	dst []byte, dstStride, x0, y0 int, txSize common.TxSize,
+) bool {
+	for i := range e.residueScratch {
+		e.residueScratch[i] = 0
+	}
 	bs := 4 << uint(txSize)
-	sum := 0
-	count := 0
+	if bs != 4 {
+		return false
+	}
+	hasDiff := false
 	for y := 0; y < bs && y0+y < srcH; y++ {
 		srcRow := src[(y0+y)*srcStride:]
-		dstRow := dst[y*stride:]
+		dstRow := dst[y*dstStride:]
 		for x := 0; x < bs && x0+x < srcW; x++ {
-			sum += int(srcRow[x0+x]) - int(dstRow[x])
-			count++
+			diff := int(srcRow[x0+x]) - int(dstRow[x])
+			e.residueScratch[y*4+x] = int16(diff)
+			if diff != 0 {
+				hasDiff = true
+			}
 		}
 	}
-	if count == 0 {
-		return 0
+	return hasDiff
+}
+
+func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16, out []int16,
+) bool {
+	if txSize != common.Tx4x4 || txType != common.DctDct ||
+		dequant[0] == 0 || dequant[1] == 0 || len(out) < vp9EncoderTxCoeffSlots {
+		return false
 	}
-	avgDiff := vp9RoundDivSigned(sum, count)
-	token := vp9RoundDivSigned(avgDiff*32, int(dequantDC))
-	if token == 0 {
-		return 0
+	for i := range e.txCoeffScratch {
+		e.txCoeffScratch[i] = 0
+		e.dqCoeffScratch[i] = 0
 	}
-	coeff := token * int(dequantDC)
-	e.applyVP9DcCoeff(dst, stride, txSize, common.DctDct, coeff)
-	return int16(coeff)
+	encoder.ForwardDCT4x4(e.residueScratch[:], 4, &e.txCoeffScratch)
+	eob := encoder.QuantizeFP4x4(&e.txCoeffScratch, dequant,
+		common.DefaultScanOrders[common.Tx4x4].Scan, &e.dqCoeffScratch)
+	if eob == 0 {
+		return false
+	}
+	copy(out[:vp9EncoderTxCoeffSlots], e.dqCoeffScratch[:])
+	vp9dec.InverseTransformBlock(out[:vp9EncoderTxCoeffSlots],
+		dst, stride, txSize, txType, eob, false)
+	return true
 }
 
 func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
@@ -1080,28 +1110,6 @@ func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,
 	return planeData[y0*stride+x0:], stride, x0, y0, true
 }
 
-func (e *VP9Encoder) applyVP9KeyframeDcCoeff(dst []byte, stride int,
-	txSize common.TxSize, mode common.PredictionMode, plane, coeff int,
-) {
-	txType := common.DctDct
-	if plane == 0 {
-		txType = common.IntraModeToTxType[mode]
-	}
-	e.applyVP9DcCoeff(dst, stride, txSize, txType, coeff)
-}
-
-func (e *VP9Encoder) applyVP9DcCoeff(dst []byte, stride int,
-	txSize common.TxSize, txType common.TxType, coeff int,
-) {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	coeffs := e.coefScratch[:maxEob]
-	for i := range coeffs {
-		coeffs[i] = 0
-	}
-	coeffs[0] = int16(coeff)
-	vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize, txType, 1, false)
-}
-
 func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 	bsize common.BlockSize, r, c int, tx common.TxSize,
 ) []int16 {
@@ -1118,9 +1126,10 @@ func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 		return coeffs
 	}
 	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-	idx := r*full4x4W + c
-	if idx >= 0 && idx < len(e.blockCoeffs[plane]) {
-		coeffs[0] = e.blockCoeffs[plane][idx]
+	coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+	if tx == common.Tx4x4 && coeffBase >= 0 &&
+		coeffBase+vp9EncoderTxCoeffSlots <= len(e.blockCoeffs[plane]) {
+		copy(coeffs, e.blockCoeffs[plane][coeffBase:coeffBase+vp9EncoderTxCoeffSlots])
 	}
 	return coeffs
 }
@@ -1154,16 +1163,6 @@ func vp9EncoderSourcePlane(img *image.YCbCr, plane int) (
 	default:
 		return nil, 0, 0, 0
 	}
-}
-
-func vp9RoundDivSigned(n, d int) int {
-	if d <= 0 {
-		return 0
-	}
-	if n < 0 {
-		return -((-n + d/2) / d)
-	}
-	return (n + d/2) / d
 }
 
 func (e *VP9Encoder) vp9MiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {

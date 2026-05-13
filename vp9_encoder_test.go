@@ -18,6 +18,27 @@ func newVP9YCbCrForTest(width, height int, y, u, v byte) *image.YCbCr {
 	return img
 }
 
+func newVP9CheckerYCbCrForTest(width, height int, lo, hi, u, v byte) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			if (x+y)&1 == 0 {
+				row[x] = lo
+			} else {
+				row[x] = hi
+			}
+		}
+	}
+	for i := range img.Cb {
+		img.Cb[i] = u
+	}
+	for i := range img.Cr {
+		img.Cr[i] = v
+	}
+	return img
+}
+
 func fillVP9YCbCrForTest(img *image.YCbCr, y, u, v byte) {
 	for i := range img.Y {
 		img.Y[i] = y
@@ -243,6 +264,28 @@ func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
 	assertVP9FilledFrame(t, frame, 96, 80, 91, 143, 37)
 }
 
+func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
+	img := newVP9CheckerYCbCrForTest(32, 32, 48, 208, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after checker keyframe")
+	}
+	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
+}
+
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
 	keySrc := newVP9YCbCrForTest(96, 80, 82, 123, 211)
@@ -276,6 +319,39 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
 	assertVP9FilledFrame(t, frame, 96, 80, 201, 44, 19)
+}
+
+func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
+	keySrc := newVP9YCbCrForTest(32, 32, 128, 128, 128)
+	interSrc := newVP9CheckerYCbCrForTest(32, 32, 48, 208, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after checker inter frame")
+	}
+	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
 }
 
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
@@ -650,6 +726,34 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func assertVP9VisibleYContrast(t *testing.T, got Image, width, height int, minDelta byte) {
+	t.Helper()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, width, height)
+	}
+	if got.YStride < width || len(got.Y) < planeLen(got.YStride, height, width) {
+		t.Fatalf("Y plane shape = len %d stride %d, want %dx%d",
+			len(got.Y), got.YStride, width, height)
+	}
+	lo, hi := byte(255), byte(0)
+	for y := range height {
+		row := got.Y[y*got.YStride:]
+		for x := range width {
+			v := row[x]
+			if v < lo {
+				lo = v
+			}
+			if v > hi {
+				hi = v
+			}
+		}
+	}
+	if hi-lo < minDelta {
+		t.Fatalf("visible Y contrast = %d..%d, want delta >= %d", lo, hi, minDelta)
 	}
 }
 
