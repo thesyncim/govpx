@@ -527,10 +527,135 @@ func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
 				}
 			}
 		}
+		mi.Mv = mi.Bmi[3].AsMv
 		return true
 	}
-	return vp9dec.AssignMv(mi.Mode, &mv, &refMv, &nearNearest,
-		isCompound, hdr.AllowHighPrecisionMv, r, &d.fc) != 0
+	if mi.Mode != common.ZeroMv {
+		halves := 1 + isCompound
+		for ref := range halves {
+			refList, refCount := d.vp9FindInterMvRefs(tile, miRows, miCols,
+				miRow, miCol, mi.SbType, mi.Mode, mi.RefFrame[ref], signBias)
+			best := vp9InterModeMvCandidate(refList, refCount, mi.Mode)
+			vp9dec.LowerMvPrecision(&best, hdr.AllowHighPrecisionMv)
+			refMv[ref] = best
+			nearNearest[ref] = best
+		}
+	}
+	if vp9dec.AssignMv(mi.Mode, &mv, &refMv, &nearNearest,
+		isCompound, hdr.AllowHighPrecisionMv, r, &d.fc) == 0 {
+		return false
+	}
+	mi.Mv = mv
+	return true
+}
+
+func (d *VP9Decoder) vp9FindInterMvRefs(tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	mode common.PredictionMode,
+	refFrame int8,
+	signBias [vp9dec.MaxRefFrames]uint8,
+) ([2]vp9dec.MV, int) {
+	var out [2]vp9dec.MV
+	count := 0
+	differentRefFound := false
+	earlyBreak := mode != common.NearMv
+	search := tables.MvRefBlocks[bsize]
+
+	for i := range search {
+		pos := search[i]
+		if !vp9dec.IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
+			continue
+		}
+		r := miRow + int(pos.Row)
+		c := miCol + int(pos.Col)
+		if r < 0 || c < 0 || r >= miRows || c >= miCols {
+			continue
+		}
+		cand := &d.miGrid[r*miCols+c]
+		differentRefFound = true
+		if cand.RefFrame[0] == refFrame {
+			if vp9AppendMvRef(&out, &count, cand.Mv[0], earlyBreak) {
+				goto done
+			}
+		} else if cand.RefFrame[1] == refFrame {
+			if vp9AppendMvRef(&out, &count, cand.Mv[1], earlyBreak) {
+				goto done
+			}
+		}
+	}
+
+	if differentRefFound {
+		for i := range search {
+			pos := search[i]
+			if !vp9dec.IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
+				continue
+			}
+			r := miRow + int(pos.Row)
+			c := miCol + int(pos.Col)
+			if r < 0 || c < 0 || r >= miRows || c >= miCols {
+				continue
+			}
+			cand := &d.miGrid[r*miCols+c]
+			if cand.RefFrame[0] > vp9dec.IntraFrame && cand.RefFrame[0] != refFrame {
+				mv := vp9ScaleDiffRefMv(cand.Mv[0], cand.RefFrame[0], refFrame, signBias)
+				if vp9AppendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			}
+			if cand.RefFrame[1] > vp9dec.IntraFrame && cand.RefFrame[1] != refFrame &&
+				cand.Mv[1] != cand.Mv[0] {
+				mv := vp9ScaleDiffRefMv(cand.Mv[1], cand.RefFrame[1], refFrame, signBias)
+				if vp9AppendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			}
+		}
+	}
+
+done:
+	return out, count
+}
+
+func vp9AppendMvRef(out *[2]vp9dec.MV, count *int, mv vp9dec.MV, earlyBreak bool) bool {
+	if *count == 0 {
+		out[0] = mv
+		*count = 1
+		return earlyBreak
+	}
+	if mv != out[0] {
+		out[1] = mv
+		*count = 2
+		return true
+	}
+	return false
+}
+
+func vp9ScaleDiffRefMv(mv vp9dec.MV, candRef, refFrame int8,
+	signBias [vp9dec.MaxRefFrames]uint8,
+) vp9dec.MV {
+	if candRef >= 0 && int(candRef) < len(signBias) &&
+		refFrame >= 0 && int(refFrame) < len(signBias) &&
+		signBias[candRef] != signBias[refFrame] {
+		mv.Row = -mv.Row
+		mv.Col = -mv.Col
+	}
+	return mv
+}
+
+func vp9InterModeMvCandidate(refs [2]vp9dec.MV, count int,
+	mode common.PredictionMode,
+) vp9dec.MV {
+	if mode == common.NearMv {
+		if count > 1 {
+			return refs[1]
+		}
+		return vp9dec.MV{}
+	}
+	if count > 0 {
+		return refs[0]
+	}
+	return vp9dec.MV{}
 }
 
 func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
@@ -588,13 +713,25 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		}
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
 		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
-		w := min(bw, min(dstStride-x0, srcStride-x0))
-		h := min(bh, min(dstRows-y0, srcRows-y0))
-		if w <= 0 || h <= 0 {
+		if x0+bw > dstStride || y0+bh > dstRows {
+			d.unsupportedReconstruct = true
+			return true
+		}
+		if mi.Mv[0] == (vp9dec.MV{}) {
+			w := min(bw, min(dstStride-x0, srcStride-x0))
+			h := min(bh, min(dstRows-y0, srcRows-y0))
+			if w <= 0 || h <= 0 {
+				continue
+			}
+			copyPlane(dst[y0*dstStride+x0:], dstStride,
+				src[y0*srcStride+x0:], srcStride, w, h)
 			continue
 		}
-		copyPlane(dst[y0*dstStride+x0:], dstStride,
-			src[y0*srcStride+x0:], srcStride, w, h)
+		if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
+			miRow, miCol, x0, y0, bw, bh,
+			dst, dstStride, dstRows, src, srcStride, srcRows) {
+			return false
+		}
 	}
 	return true
 }
@@ -607,7 +744,55 @@ func vp9CanReconstructInterBlock(mi *vp9dec.NeighborMi) bool {
 		mi.RefFrame[1] != vp9dec.NoRefFrame {
 		return false
 	}
-	return mi.Mode == common.ZeroMv
+	return mi.Mode == common.ZeroMv || mi.Mode == common.NearestMv ||
+		mi.Mode == common.NearMv || mi.Mode == common.NewMv
+}
+
+func (d *VP9Decoder) reconstructVP9InterPredictPlane(
+	hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane,
+	mi *vp9dec.NeighborMi,
+	bsize common.BlockSize,
+	miRow, miCol int,
+	x0, y0, bw, bh int,
+	dst []byte,
+	dstStride, dstRows int,
+	src []byte,
+	srcStride, srcRows int,
+) bool {
+	filterIdx := int(mi.InterpFilter)
+	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
+		d.unsupportedReconstruct = true
+		return true
+	}
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	edges := vp9dec.BlockBoundsEdges{
+		MbToLeftEdge:   -((miCol * common.MiSize) * 8),
+		MbToRightEdge:  ((miCols - int(common.Num8x8BlocksWideLookup[bsize]) - miCol) * common.MiSize) * 8,
+		MbToTopEdge:    -((miRow * common.MiSize) * 8),
+		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
+	}
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mi.Mv[0], bw, bh,
+		int(pd.SubsamplingX), int(pd.SubsamplingY))
+	subpelX := int(mvQ4.Col) & (vp9dec.SubpelShifts - 1)
+	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
+	if subpelX != 0 || subpelY != 0 {
+		d.unsupportedReconstruct = true
+		return true
+	}
+	srcX := x0 + (int(mvQ4.Col) >> vp9dec.SubpelBitsConst)
+	srcY := y0 + (int(mvQ4.Row) >> vp9dec.SubpelBitsConst)
+	if srcX < 0 || srcY < 0 || srcX+bw > srcStride || srcY+bh > srcRows ||
+		x0+bw > dstStride || y0+bh > dstRows {
+		d.unsupportedReconstruct = true
+		return true
+	}
+	vp9dec.InterPredictor(src, srcStride, dst[y0*dstStride+x0:], dstStride,
+		subpelX, subpelY, tables.FilterKernels[filterIdx],
+		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, 0,
+		srcY*srcStride+srcX)
+	return true
 }
 
 func vp9InterReferenceSlot(hdr *vp9dec.UncompressedHeader, ref int8) (int, bool) {

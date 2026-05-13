@@ -12,7 +12,8 @@ import "github.com/thesyncim/govpx/internal/vp9/common"
 // NeighborMi is a lightweight view of the fields these helpers touch
 // inside libvpx's struct MODE_INFO. The full struct carries the
 // motion-vector cache, BMI quartet, and prediction-state flags; here we
-// expose only what the context-context helpers read.
+// expose the subset the parser, context helpers, and first reconstruction
+// slices read.
 //
 // A nil NeighborMi means the neighbor is outside the picture or not
 // yet decoded — libvpx's "one-element border" of zero-initialized
@@ -44,6 +45,7 @@ type NeighborMi struct {
 	SegIDPredicted uint8
 	Mode           common.PredictionMode
 	RefFrame       [2]int8 // ref_frame[0..1] — NoRefFrame when unused
+	Mv             [2]MV
 	Bmi            [4]Bmi
 }
 
