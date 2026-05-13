@@ -266,45 +266,89 @@ func TestOracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
 	driver := findVpxencFrameFlags(t)
 
 	const (
-		fps        = 30
-		targetKbps = 80
-		frames     = 16
-		width      = 64
-		height     = 64
+		fps    = 30
+		frames = 16
+		width  = 64
+		height = 64
 	)
 	sources := make([]Image, frames)
 	for i := range sources {
 		sources[i] = encoderValidationPanningFrame(width, height, i)
 	}
-	opts := EncoderOptions{
-		Width:                  width,
-		Height:                 height,
-		FPS:                    fps,
-		RateControlMode:        RateControlCBR,
-		TargetBitrateKbps:      targetKbps,
-		MinQuantizer:           4,
-		MaxQuantizer:           56,
-		KeyFrameInterval:       999,
-		Deadline:               DeadlineRealtime,
-		CpuUsed:                -3,
-		Tuning:                 TunePSNR,
-		BufferSizeMs:           200,
-		BufferInitialSizeMs:    100,
-		BufferOptimalSizeMs:    150,
-		DropFrameAllowed:       true,
-		DropFrameWaterMark:     60,
-		RTCExternalRateControl: true,
+
+	cases := []struct {
+		name                string
+		targetKbps          int
+		undershootPct       int
+		overshootPct        int
+		bufferSizeMs        int
+		bufferInitialSizeMs int
+		bufferOptimalSizeMs int
+		dropFrameAllowed    bool
+		dropFrameWaterMark  int
+		extraArgs           []string
+	}{
+		{
+			name:                "drop-buffer-low-bitrate",
+			targetKbps:          80,
+			bufferSizeMs:        200,
+			bufferInitialSizeMs: 100,
+			bufferOptimalSizeMs: 150,
+			dropFrameAllowed:    true,
+			dropFrameWaterMark:  60,
+			extraArgs:           []string{"--buf-sz=200", "--buf-initial-sz=100", "--buf-optimal-sz=150", "--drop-frame=60"},
+		},
+		{
+			name:       "default-buffer-mid-bitrate",
+			targetKbps: 700,
+		},
+		{
+			name:          "undershoot-overshoot-edges",
+			targetKbps:    700,
+			undershootPct: 0,
+			overshootPct:  100,
+			extraArgs:     []string{"--undershoot-pct=0", "--overshoot-pct=100"},
+		},
+		{
+			name:                "tight-buffer-mid-bitrate",
+			targetKbps:          400,
+			bufferSizeMs:        200,
+			bufferInitialSizeMs: 100,
+			bufferOptimalSizeMs: 150,
+			dropFrameAllowed:    true,
+			dropFrameWaterMark:  50,
+			extraArgs:           []string{"--buf-sz=200", "--buf-initial-sz=100", "--buf-optimal-sz=150", "--drop-frame=50"},
+		},
 	}
 
-	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
-	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "rtc-external-drop-buffer-low-bitrate", opts, targetKbps, sources, nil, []string{
-		"--end-usage=cbr",
-		"--target-bitrate=80",
-		"--buf-sz=200",
-		"--buf-initial-sz=100",
-		"--buf-optimal-sz=150",
-		"--drop-frame=60",
-		"--rtc-external=1",
-	})
-	assertSegmentByteParity(t, "rtc-external-rate-control", govpxFrames, libvpxFrames, 0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:                  width,
+				Height:                 height,
+				FPS:                    fps,
+				RateControlMode:        RateControlCBR,
+				TargetBitrateKbps:      tc.targetKbps,
+				MinQuantizer:           4,
+				MaxQuantizer:           56,
+				KeyFrameInterval:       999,
+				Deadline:               DeadlineRealtime,
+				CpuUsed:                -3,
+				Tuning:                 TunePSNR,
+				UndershootPct:          tc.undershootPct,
+				OvershootPct:           tc.overshootPct,
+				BufferSizeMs:           tc.bufferSizeMs,
+				BufferInitialSizeMs:    tc.bufferInitialSizeMs,
+				BufferOptimalSizeMs:    tc.bufferOptimalSizeMs,
+				DropFrameAllowed:       tc.dropFrameAllowed,
+				DropFrameWaterMark:     tc.dropFrameWaterMark,
+				RTCExternalRateControl: true,
+			}
+			extraArgs := []string{"--end-usage=cbr", "--rtc-external=1"}
+			extraArgs = append(extraArgs, tc.extraArgs...)
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "rtc-external-"+tc.name, opts, tc.targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, "rtc-external-rate-control-"+tc.name, govpxFrames, libvpxFrames, 0)
+		})
+	}
 }

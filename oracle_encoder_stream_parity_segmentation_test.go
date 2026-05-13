@@ -318,6 +318,128 @@ func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
 	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 1)
 }
 
+func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	}
+
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	cases := []struct {
+		pattern string
+		limit   int
+	}{
+		{pattern: "all", limit: 0},
+		{pattern: "checker", limit: 0},
+		{pattern: "left-off", limit: 0},
+		{pattern: "right-off", limit: 0},
+		{pattern: "border-off", limit: 10},
+		{pattern: "off", limit: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			apply := map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					if tc.pattern == "off" {
+						mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+						return
+					}
+					mustRuntime(t, "SetActiveMap("+tc.pattern+")", e.SetActiveMap(activeMapPattern(tc.pattern, rows, cols), rows, cols))
+				},
+			}
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
+				"--active-map=" + tc.pattern,
+			})
+			assertSegmentByteParity(t, "active-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
+func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+
+	cases := []struct {
+		pattern string
+		limit   int
+	}{
+		{pattern: "checker", limit: -1},
+		{pattern: "left1", limit: -1},
+		{pattern: "border1", limit: 1},
+		{pattern: "off", limit: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			apply := map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap("+tc.pattern+")", e.SetROIMap(roiMapPattern(width, height, tc.pattern)))
+				},
+			}
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
+				"--roi-map=" + tc.pattern,
+			})
+			assertSegmentByteParity(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 func customQuadrantROIMap(width, height int) *ROIMap {
 	roi := quadrantROIMap(width, height)
 	roi.DeltaQuantizer = [4]int{0, -10, 8, -20}

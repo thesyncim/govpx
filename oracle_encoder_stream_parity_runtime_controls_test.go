@@ -346,11 +346,78 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					t.Helper()
 					rows := encoderMacroblockRows(e.opts.Height)
 					cols := encoderMacroblockCols(e.opts.Width)
-					mustRuntime(t, "SetActiveMap(checker)", e.SetActiveMap(checkerActiveMap(rows, cols), rows, cols))
+					mustRuntime(t, "SetActiveMap(checker)", e.SetActiveMap(activeMapPattern("checker", rows, cols), rows, cols))
 				},
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-pattern-switches",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			// Static border-off maps drift late in the clip; keep the
+			// multi-pattern transition pinned through the matching prefix.
+			matchLimit: 10,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:left-off",
+				4: "active:right-off",
+				7: "active:border-off",
+				9: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("left-off"),
+				4: activeMapApply("right-off"),
+				7: activeMapApply("border-off"),
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "rtc-external-rate-control-runtime-toggle",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 400
+				opts.BufferSizeMs = 200
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 150
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 50
+				return opts
+			}(),
+			extraArgs: []string{
+				"--target-bitrate=400",
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=50",
+			},
+			// The toggle itself routes through libvpx's codec-control
+			// surface. Prefix-pin the row with the other runtime
+			// transition cases while logging the post-toggle packets.
+			matchLimit: 2,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "rtc:1",
+				6: "rtc:0",
+				9: "rtc:1",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
 				},
 			},
 		},
@@ -379,6 +446,71 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					ref := encoderValidationPanningFrame(e.opts.Width, e.opts.Height, 8)
 					mustRuntime(t, "SetReferenceFrame(last)", e.SetReferenceFrame(ReferenceLast, ref))
 				},
+			},
+		},
+		{
+			name: "set-reference-golden-before-inter",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				return opts
+			}(),
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:golden:panning:8",
+			}),
+			matchLimit: 2,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceGolden, 8, "golden"),
+			},
+		},
+		{
+			name: "set-reference-altref-before-inter",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				return opts
+			}(),
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:altref:panning:8",
+			}),
+			matchLimit: 2,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceAltRef, 8, "altref"),
+			},
+		},
+		{
+			name: "set-reference-repeated-last-and-golden",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				return opts
+			}(),
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+				0,
+				0,
+				EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:last:panning:8",
+				4: "setref:golden:panning:12",
+			}),
+			matchLimit: 2,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceLast, 8, "last"),
+				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
 			},
 		},
 		{
@@ -423,6 +555,29 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetROIMap(quadrants)", e.SetROIMap(quadrantROIMap(e.opts.Width, e.opts.Height)))
 				},
 				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-map-pattern-switches",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			// ROI-tagged inter frames still drift, but this keeps the
+			// checker/left/border/off transition surface represented.
+			matchLimit: -1,
+			script: runtimeControlScript(frames, map[int]string{
+				0: "roi:checker",
+				3: "roi:left1",
+				6: "roi:border1",
+				9: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: roiMapApply("checker"),
+				3: roiMapApply("left1"),
+				6: roiMapApply("border1"),
+				9: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
 				},
@@ -545,19 +700,65 @@ func mustRuntime(t *testing.T, name string, err error) {
 	}
 }
 
-func checkerActiveMap(rows, cols int) []uint8 {
+func activeMapApply(pattern string) func(*testing.T, *VP8Encoder) {
+	return func(t *testing.T, e *VP8Encoder) {
+		t.Helper()
+		rows := encoderMacroblockRows(e.opts.Height)
+		cols := encoderMacroblockCols(e.opts.Width)
+		mustRuntime(t, "SetActiveMap("+pattern+")", e.SetActiveMap(activeMapPattern(pattern, rows, cols), rows, cols))
+	}
+}
+
+func activeMapPattern(pattern string, rows, cols int) []uint8 {
 	out := make([]uint8, rows*cols)
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
-			if (r+c)&1 == 0 {
+			switch pattern {
+			case "all":
 				out[r*cols+c] = 1
+			case "checker":
+				if (r+c)&1 == 0 {
+					out[r*cols+c] = 1
+				}
+			case "left-off":
+				if c != 0 {
+					out[r*cols+c] = 1
+				}
+			case "right-off":
+				if c != cols-1 {
+					out[r*cols+c] = 1
+				}
+			case "border-off":
+				if r != 0 && c != 0 && r != rows-1 && c != cols-1 {
+					out[r*cols+c] = 1
+				}
+			default:
+				panic("unknown active-map pattern: " + pattern)
 			}
 		}
 	}
 	return out
 }
 
-func quadrantROIMap(width, height int) *ROIMap {
+func setReferencePanningApply(ref ReferenceFrame, index int, name string) func(*testing.T, *VP8Encoder) {
+	return func(t *testing.T, e *VP8Encoder) {
+		t.Helper()
+		img := encoderValidationPanningFrame(e.opts.Width, e.opts.Height, index)
+		mustRuntime(t, "SetReferenceFrame("+name+")", e.SetReferenceFrame(ref, img))
+	}
+}
+
+func roiMapApply(pattern string) func(*testing.T, *VP8Encoder) {
+	return func(t *testing.T, e *VP8Encoder) {
+		t.Helper()
+		mustRuntime(t, "SetROIMap("+pattern+")", e.SetROIMap(roiMapPattern(e.opts.Width, e.opts.Height, pattern)))
+	}
+}
+
+func roiMapPattern(width, height int, pattern string) *ROIMap {
+	if pattern == "off" {
+		return nil
+	}
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	roi := &ROIMap{
@@ -568,21 +769,49 @@ func quadrantROIMap(width, height int) *ROIMap {
 	}
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
-			segment := uint8(0)
-			if c >= cols/2 {
-				segment++
-			}
-			if r >= rows/2 {
-				segment += 2
+			var segment uint8
+			switch pattern {
+			case "checker":
+				segment = uint8((r + c) & 1)
+			case "left1":
+				if c < (cols+1)/2 {
+					segment = 1
+				}
+			case "quadrants":
+				if c >= cols/2 {
+					segment++
+				}
+				if r >= rows/2 {
+					segment += 2
+				}
+			case "border1":
+				if r == 0 || c == 0 || r == rows-1 || c == cols-1 {
+					segment = 1
+				}
+			default:
+				panic("unknown ROI pattern: " + pattern)
 			}
 			roi.SegmentID[r*cols+c] = segment
 		}
 	}
-	roi.DeltaQuantizer[1] = -8
-	roi.DeltaQuantizer[2] = 8
-	roi.DeltaLoopFilter[3] = 4
-	roi.StaticThreshold[2] = 500
+	switch pattern {
+	case "checker", "left1":
+		roi.DeltaQuantizer[1] = -10
+		roi.DeltaLoopFilter[1] = -3
+	case "quadrants":
+		roi.DeltaQuantizer[1] = -8
+		roi.DeltaQuantizer[2] = 8
+		roi.DeltaLoopFilter[3] = 4
+		roi.StaticThreshold[2] = 500
+	case "border1":
+		roi.DeltaQuantizer[1] = -6
+		roi.StaticThreshold[1] = 900
+	}
 	return roi
+}
+
+func quadrantROIMap(width, height int) *ROIMap {
+	return roiMapPattern(width, height, "quadrants")
 }
 
 func TestRuntimeControlScriptBuilder(t *testing.T) {

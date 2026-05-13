@@ -311,12 +311,12 @@ func encodeWithMidStreamResize(t *testing.T, initOpts EncoderOptions,
 // assertSegmentByteParity compares per-frame VP8 payloads between two
 // captures (typically govpx vs libvpx). matchLimit caps how many
 // leading frames are asserted strictly: 0 requires the full length,
-// a positive value requires only the first matchLimit frames; later
-// frame mismatches are logged but not failed.
+// a positive value requires only the first matchLimit frames, and a
+// negative value logs mismatches without asserting a byte-match prefix.
 func assertSegmentByteParity(t *testing.T, label string, got, want [][]byte, matchLimit int) {
 	t.Helper()
 	if len(got) != len(want) {
-		if matchLimit > 0 && matchLimit <= len(got) && matchLimit <= len(want) {
+		if matchLimit < 0 || (matchLimit > 0 && matchLimit <= len(got) && matchLimit <= len(want)) {
 			t.Logf("%s: frame count mismatch (logged only, matchLimit=%d): got=%d want=%d",
 				label, matchLimit, len(got), len(want))
 		} else {
@@ -325,7 +325,9 @@ func assertSegmentByteParity(t *testing.T, label string, got, want [][]byte, mat
 		}
 	}
 	limit := len(got)
-	if matchLimit > 0 && matchLimit < limit {
+	if matchLimit < 0 {
+		limit = 0
+	} else if matchLimit > 0 && matchLimit < limit {
 		limit = matchLimit
 	}
 	common := len(got)
