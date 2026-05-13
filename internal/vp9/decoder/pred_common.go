@@ -32,6 +32,10 @@ const (
 // NeighborMi mirrors the subset of libvpx's MODE_INFO that the
 // neighbor-context helpers read. Field types match libvpx widths so a
 // future full ModeInfo type can embed or alias this view.
+//
+// Bmi[i].AsMode mirrors libvpx's b_mode_info.as_mode quartet —
+// populated for sub-8x8 intra partitions (BLOCK_4X4 / 4X8 / 8X4) and
+// referenced by [[GetYMode]] / [[LeftBlockMode]] / [[AboveBlockMode]].
 type NeighborMi struct {
 	SbType         common.BlockSize
 	TxSize         common.TxSize
@@ -40,6 +44,16 @@ type NeighborMi struct {
 	SegIDPredicted uint8
 	Mode           common.PredictionMode
 	RefFrame       [2]int8 // ref_frame[0..1] — NoRefFrame when unused
+	Bmi            [4]Bmi
+}
+
+// Bmi mirrors libvpx's b_mode_info — the per-4x4-subblock side of a
+// MODE_INFO. Only `as_mode` is needed by the decoder mode-info path;
+// libvpx's full b_mode_info also carries a per-subblock motion vector,
+// which will land alongside this struct when the inter mode-info port
+// pulls it in.
+type Bmi struct {
+	AsMode common.PredictionMode
 }
 
 // isInterBlock mirrors libvpx's is_inter_block(MODE_INFO*).
