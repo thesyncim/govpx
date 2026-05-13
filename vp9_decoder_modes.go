@@ -451,17 +451,25 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 
 	uvMode := common.DcPred
 	if isInter == 0 {
+		d.unsupportedReconstruct = true
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		uvMode = vp9dec.ReadIntraBlockModeInfoInter(r, &d.fc, mi)
-	} else if !d.readVP9InterBlockModeInfo(r, hdr, comp, mi, segID, above, left) {
+	} else if !d.readVP9InterBlockModeInfo(r, hdr, comp, mi, segID, above, left,
+		tile, miRows, miCols, miRow, miCol) {
 		return false
 	}
 
 	if mi.Skip != 0 {
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
+		if isInter != 0 && !d.reconstructVP9InterSkipBlock(hdr, mi, miRow, miCol, bsize) {
+			return false
+		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
+	}
+	if isInter != 0 {
+		d.unsupportedReconstruct = true
 	}
 	if !d.readVP9ResidueBlock(r, hdr, mi, uvMode, tile, miRow, miCol, bsize, segID, isInter) {
 		return false
@@ -474,15 +482,23 @@ func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
 	mi *vp9dec.NeighborMi, segID int,
 	above, left *vp9dec.NeighborMi,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 ) bool {
 	signBias := vp9FrameRefSignBias(hdr)
 	refs := vp9dec.SetupCompoundReferenceMode(signBias)
 	vp9dec.ReadRefFrames(r, comp.ReferenceMode, signBias, refs,
 		&hdr.Seg, segID, &d.fc, above, left, &mi.RefFrame)
+	interModeCtx := vp9dec.InterModeContext(d.miGrid, miCols, tile,
+		miRows, miRow, miCol, mi.SbType)
 
-	if !vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
+	if vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
+		mi.Mode = common.ZeroMv
+		if mi.SbType < common.Block8x8 {
+			return false
+		}
+	} else {
 		if mi.SbType >= common.Block8x8 {
-			mi.Mode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[0])
+			mi.Mode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[interModeCtx])
 		}
 	}
 
@@ -503,7 +519,7 @@ func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
 		for idy := 0; idy < 2; idy += num4x4H {
 			for idx := 0; idx < 2; idx += num4x4W {
 				j := idy*2 + idx
-				mi.Bmi[j].AsMode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[0])
+				mi.Bmi[j].AsMode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[interModeCtx])
 				if vp9dec.AssignMv(mi.Bmi[j].AsMode, &mi.Bmi[j].AsMv,
 					&refMv, &nearNearest, isCompound, hdr.AllowHighPrecisionMv,
 					r, &d.fc) == 0 {
@@ -524,6 +540,99 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 ) bool {
 	return d.readVP9ResidueBlock(r, hdr, mi, uvMode, tile, miRow, miCol, bsize,
 		int(mi.SegIDPredicted), 0)
+}
+
+func (d *VP9Decoder) reconstructVP9InterSkipBlock(
+	hdr *vp9dec.UncompressedHeader,
+	mi *vp9dec.NeighborMi,
+	miRow, miCol int,
+	bsize common.BlockSize,
+) bool {
+	if d.unsupportedReconstruct {
+		return true
+	}
+	if !vp9CanReconstructInterSkipBlock(mi) {
+		d.unsupportedReconstruct = true
+		return true
+	}
+	refSlot, ok := vp9InterReferenceSlot(hdr, mi.RefFrame[0])
+	if !ok {
+		return false
+	}
+	ref := &d.refFrames[refSlot]
+	if !ref.valid {
+		return false
+	}
+	if ref.img.Width != int(hdr.Width) || ref.img.Height != int(hdr.Height) {
+		d.unsupportedReconstruct = true
+		return true
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &d.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			d.unsupportedReconstruct = true
+			return true
+		}
+		dst, dstStride := d.vp9OutputPlane(plane)
+		src, srcStride := vp9ReferencePlane(ref, plane)
+		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
+			return false
+		}
+		dstRows := len(dst) / dstStride
+		srcRows := len(src) / srcStride
+		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+		if x0 >= dstStride || x0 >= srcStride || y0 >= dstRows || y0 >= srcRows {
+			continue
+		}
+		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		w := min(bw, min(dstStride-x0, srcStride-x0))
+		h := min(bh, min(dstRows-y0, srcRows-y0))
+		if w <= 0 || h <= 0 {
+			continue
+		}
+		copyPlane(dst[y0*dstStride+x0:], dstStride,
+			src[y0*srcStride+x0:], srcStride, w, h)
+	}
+	return true
+}
+
+func vp9CanReconstructInterSkipBlock(mi *vp9dec.NeighborMi) bool {
+	if mi == nil || mi.SbType < common.Block8x8 || mi.Skip == 0 {
+		return false
+	}
+	if mi.RefFrame[0] <= vp9dec.IntraFrame || mi.RefFrame[0] > vp9dec.AltrefFrame ||
+		mi.RefFrame[1] != vp9dec.NoRefFrame {
+		return false
+	}
+	return mi.Mode == common.ZeroMv
+}
+
+func vp9InterReferenceSlot(hdr *vp9dec.UncompressedHeader, ref int8) (int, bool) {
+	if ref < vp9dec.LastFrame || ref > vp9dec.AltrefFrame {
+		return 0, false
+	}
+	idx := int(ref - vp9dec.LastFrame)
+	slot := int(hdr.InterRef.RefIndex[idx])
+	if slot < 0 || slot >= common.RefFrames {
+		return 0, false
+	}
+	return slot, true
+}
+
+func vp9ReferencePlane(ref *vp9ReferenceFrame, plane int) ([]byte, int) {
+	switch plane {
+	case 0:
+		return ref.img.Y, ref.img.YStride
+	case 1:
+		return ref.img.U, ref.img.UStride
+	case 2:
+		return ref.img.V, ref.img.VStride
+	default:
+		return nil, 0
+	}
 }
 
 func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,

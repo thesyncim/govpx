@@ -132,6 +132,71 @@ func TestReadUncompressedHeaderShowExisting(t *testing.T) {
 	}
 }
 
+func TestReadUncompressedHeaderInterCarriesBitdepthSampling(t *testing.T) {
+	var pk bitPacker
+	pk.writeLiteral(common.VP9FrameMarker, 2)
+	pk.writeBit(0) // profile bit 0
+	pk.writeBit(0) // profile bit 1
+	pk.writeBit(0) // show_existing_frame
+	pk.writeBit(1) // frame_type = INTER
+	pk.writeBit(1) // show_frame
+	pk.writeBit(0) // error_resilient_mode
+	pk.writeLiteral(0, 2)
+	pk.writeLiteral(0, common.RefFrames)
+	for range 3 {
+		pk.writeLiteral(0, 3)
+		pk.writeBit(0)
+	}
+	pk.writeBit(1) // inherit size from LAST ref
+	pk.writeBit(0) // render size matches coded size
+	pk.writeBit(0) // allow_high_precision_mv
+	pk.writeBit(0) // interp_filter is literal, not switchable
+	pk.writeLiteral(1, 2)
+	pk.writeBit(1) // refresh_frame_context
+	pk.writeBit(1) // frame_parallel_decoding
+	pk.writeLiteral(0, common.FrameContextsLog2)
+	pk.writeLiteral(0, 6) // loopfilter level
+	pk.writeLiteral(0, 3) // loopfilter sharpness
+	pk.writeBit(0)        // loopfilter deltas disabled
+	pk.writeLiteral(1, 8) // base_qindex
+	pk.writeBit(0)        // y dc delta
+	pk.writeBit(0)        // uv dc delta
+	pk.writeBit(0)        // uv ac delta
+	pk.writeBit(0)        // segmentation disabled
+	pk.writeBit(0)        // log2_tile_rows = 0
+	pk.writeLiteral(0, 16)
+	for pk.bitPos&7 != 0 {
+		pk.writeBit(0)
+	}
+
+	prev := UncompressedHeader{
+		BitDepthColor: BitdepthColorspaceSampling{
+			BitDepth:     Bits8,
+			ColorSpace:   common.CSBT601,
+			ColorRange:   common.CRStudioRange,
+			SubsamplingX: 1,
+			SubsamplingY: 1,
+		},
+	}
+	var r BitReader
+	r.Init(pk.buf)
+	h, err := ReadUncompressedHeader(&r, &prev, func(slot uint8) (uint32, uint32) {
+		if slot != 0 {
+			t.Fatalf("refDims slot = %d, want 0", slot)
+		}
+		return 64, 64
+	})
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if h.BitDepthColor != prev.BitDepthColor {
+		t.Fatalf("BitDepthColor = %+v, want carried %+v", h.BitDepthColor, prev.BitDepthColor)
+	}
+	if h.Width != 64 || h.Height != 64 {
+		t.Fatalf("size = (%d, %d), want inherited 64x64", h.Width, h.Height)
+	}
+}
+
 func TestReadUncompressedHeaderBadMarker(t *testing.T) {
 	var r BitReader
 	r.Init([]byte{0x00}) // 0b00 — bad marker

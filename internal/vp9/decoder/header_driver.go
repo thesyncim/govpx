@@ -59,6 +59,7 @@ func ReadUncompressedHeader(r *BitReader, prev *UncompressedHeader,
 	var h UncompressedHeader
 	if prev != nil {
 		// Carry parser-preserved state forward.
+		h.BitDepthColor = prev.BitDepthColor
 		h.Loopfilter = prev.Loopfilter
 		h.Seg = prev.Seg
 		// Tile info and frame size are also re-read every frame, but
