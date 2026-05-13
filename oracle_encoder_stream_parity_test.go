@@ -121,6 +121,11 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		kfInterval int
 		// fpsOverride overrides the test FPS default.
 		fpsOverride int
+		// timebaseNum/timebaseDen override the caller timebase. The
+		// strict harness drives one tick per frame, so libvpx receives
+		// the reciprocal FPS when a custom timebase is set.
+		timebaseNum int
+		timebaseDen int
 		// lookaheadFrames / autoAltRef mirror the libvpx lag and ARF controls.
 		lookaheadFrames int
 		autoAltRef      bool
@@ -651,6 +656,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// going through splitmv (already covered).
 		{name: "realtime-cbr-cpu-3-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-64x64-timebase-1001-30000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, timebaseNum: 1001, timebaseDen: 30000, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-64x64-fps15", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-8-64x64-fps60", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, fpsOverride: 60, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-128x128-fps15", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-128x128", w: 128, h: 128, source: encoderValidationPanningFrame}, fpsOverride: 15, extraArgs: []string{"--end-usage=cbr"}},
@@ -947,6 +953,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			if tc.fpsOverride > 0 {
 				caseFPS = tc.fpsOverride
 			}
+			optsFPS := caseFPS
+			if tc.timebaseNum > 0 {
+				optsFPS = 0
+			}
 			tuning := TunePSNR
 			if tc.tuningSet {
 				tuning = tc.tuning
@@ -954,7 +964,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 			opts := EncoderOptions{
 				Width:                    tc.fx.w,
 				Height:                   tc.fx.h,
-				FPS:                      caseFPS,
+				FPS:                      optsFPS,
+				TimebaseNum:              tc.timebaseNum,
+				TimebaseDen:              tc.timebaseDen,
 				RateControlMode:          rcMode,
 				TargetBitrateKbps:        caseTargetKbps,
 				MinQuantizer:             minQ,
@@ -1127,8 +1139,8 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		"--i420",
 		"--width=" + strconv.Itoa(opts.Width),
 		"--height=" + strconv.Itoa(opts.Height),
-		"--timebase=1/" + strconv.Itoa(opts.FPS),
-		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
+		"--timebase=" + libvpxOracleTimebaseArg(opts),
+		"--fps=" + libvpxOracleFPSArg(opts),
 		"--limit=" + strconv.Itoa(len(sources)),
 		"--output=" + ivfPath,
 	}
@@ -1144,6 +1156,20 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, name string
 		t.Fatalf("read %s: %v", ivfPath, err)
 	}
 	return parseIVFFramePayloads(t, data)
+}
+
+func libvpxOracleTimebaseArg(opts EncoderOptions) string {
+	if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
+		return strconv.Itoa(opts.TimebaseNum) + "/" + strconv.Itoa(opts.TimebaseDen)
+	}
+	return "1/" + strconv.Itoa(opts.FPS)
+}
+
+func libvpxOracleFPSArg(opts EncoderOptions) string {
+	if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
+		return strconv.Itoa(opts.TimebaseDen) + "/" + strconv.Itoa(opts.TimebaseNum)
+	}
+	return strconv.Itoa(opts.FPS) + "/1"
 }
 
 // firstByteDiff returns the byte offset of the first divergence between
