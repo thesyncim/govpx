@@ -704,6 +704,11 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
 			return false
 		}
+		srcWidth := (ref.img.Width + (1 << pd.SubsamplingX) - 1) >> pd.SubsamplingX
+		srcHeight := (ref.img.Height + (1 << pd.SubsamplingY) - 1) >> pd.SubsamplingY
+		if srcWidth <= 0 || srcHeight <= 0 {
+			return false
+		}
 		dstRows := len(dst) / dstStride
 		srcRows := len(src) / srcStride
 		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
@@ -729,7 +734,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		}
 		if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
 			miRow, miCol, x0, y0, bw, bh,
-			dst, dstStride, dstRows, src, srcStride, srcRows) {
+			dst, dstStride, dstRows, src, srcStride, srcRows,
+			srcWidth, srcHeight) {
 			return false
 		}
 	}
@@ -759,6 +765,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	dstStride, dstRows int,
 	src []byte,
 	srcStride, srcRows int,
+	srcWidth, srcHeight int,
 ) bool {
 	filterIdx := int(mi.InterpFilter)
 	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
@@ -779,11 +786,17 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
 	srcX := x0 + (int(mvQ4.Col) >> vp9dec.SubpelBitsConst)
 	srcY := y0 + (int(mvQ4.Row) >> vp9dec.SubpelBitsConst)
+	left, right, top, bottom := vp9InterPredictSourceMargins(subpelX, subpelY)
+	if !vp9InterPredictSourceInBounds(srcX, srcY, bw, bh,
+		srcWidth, srcHeight, subpelX, subpelY) {
+		src, srcStride, srcX, srcY = d.vp9ExtendInterPredictSource(src, srcStride,
+			srcWidth, srcHeight, srcX, srcY, bw, bh, left, right, top, bottom)
+		srcRows = (bh + top + bottom)
+	}
 	if !vp9InterPredictSourceInBounds(srcX, srcY, bw, bh,
 		srcStride, srcRows, subpelX, subpelY) ||
 		x0+bw > dstStride || y0+bh > dstRows {
-		d.unsupportedReconstruct = true
-		return true
+		return false
 	}
 	vp9dec.InterPredictor(src, srcStride, dst[y0*dstStride+x0:], dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
@@ -792,23 +805,63 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	return true
 }
 
+func (d *VP9Decoder) vp9ExtendInterPredictSource(src []byte, srcStride int,
+	srcWidth, srcHeight int,
+	srcX, srcY, bw, bh int,
+	left, right, top, bottom int,
+) ([]byte, int, int, int) {
+	extStride := bw + left + right
+	extRows := bh + top + bottom
+	need := extStride * extRows
+	if cap(d.interPredictScratch) < need {
+		d.interPredictScratch = make([]byte, need)
+	} else {
+		d.interPredictScratch = d.interPredictScratch[:need]
+	}
+	startX := srcX - left
+	startY := srcY - top
+	for y := range extRows {
+		sy := vp9ClampInt(startY+y, 0, srcHeight-1)
+		srcRow := src[sy*srcStride:]
+		dstRow := d.interPredictScratch[y*extStride:]
+		for x := range extStride {
+			sx := vp9ClampInt(startX+x, 0, srcWidth-1)
+			dstRow[x] = srcRow[sx]
+		}
+	}
+	return d.interPredictScratch, extStride, left, top
+}
+
 func vp9InterPredictSourceInBounds(srcX, srcY, bw, bh int,
 	srcStride, srcRows int,
 	subpelX, subpelY int,
 ) bool {
-	left, right := 0, 0
+	left, right, top, bottom := vp9InterPredictSourceMargins(subpelX, subpelY)
+	return srcX >= left && srcY >= top &&
+		srcX+bw+right <= srcStride &&
+		srcY+bh+bottom <= srcRows
+}
+
+func vp9InterPredictSourceMargins(subpelX, subpelY int) (left, right, top, bottom int) {
 	if subpelX != 0 {
 		left = tables.SubpelTaps/2 - 1
 		right = tables.SubpelTaps - left - 1
 	}
-	top, bottom := 0, 0
 	if subpelY != 0 {
 		top = tables.SubpelTaps/2 - 1
 		bottom = tables.SubpelTaps - top - 1
 	}
-	return srcX >= left && srcY >= top &&
-		srcX+bw+right <= srcStride &&
-		srcY+bh+bottom <= srcRows
+	return left, right, top, bottom
+}
+
+func vp9ClampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 func vp9InterReferenceSlot(hdr *vp9dec.UncompressedHeader, ref int8) (int, bool) {

@@ -14,9 +14,9 @@ import (
 // The current VP9 stack supports 8-bit 4:2:0 intra frames plus the
 // first single-reference inter-frame reconstruction paths: zero-MV
 // copy/residual blocks and direct non-scaled motion blocks whose
-// interpolation window stays inside the stored reference. Other valid
-// frame classes return [ErrVP9NotImplemented] at the current
-// reconstruct boundary.
+// interpolation window either stays inside the stored reference or can
+// be satisfied by libvpx-style edge extension. Other valid frame classes
+// return [ErrVP9NotImplemented] at the current reconstruct boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -129,6 +129,7 @@ type VP9Decoder struct {
 	frameU                 []byte
 	frameV                 []byte
 	intraScratch           vp9dec.IntraPredictorScratch
+	interPredictScratch    []byte
 	refFrames              [common.RefFrames]vp9ReferenceFrame
 
 	// width and height carry the most recent decoded frame dimensions.
@@ -626,6 +627,9 @@ func (d *VP9Decoder) Reset() {
 	}
 	if d.lastSegMap != nil {
 		d.lastSegMap = d.lastSegMap[:0]
+	}
+	if d.interPredictScratch != nil {
+		d.interPredictScratch = d.interPredictScratch[:0]
 	}
 }
 
