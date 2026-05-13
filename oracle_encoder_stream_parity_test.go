@@ -977,6 +977,27 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// splitmv-96x96 crossed with controls that have no coverage yet:
+		// sharpness, error-resilient, token-partitions, screen-content,
+		// gf-cbr-boost, max-intra-rate, buffer, threads. The base
+		// fixture byte-matches at the cpu-3/-8 anchors above, so these
+		// pin the SPLITMV-heavy mode picker against extra knobs.
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
+		// splitmv-96x96 + error-resilient has frames 0/1 match,
+		// frames 2-10/12/15 mismatch (transient sub-MB rate gap
+		// driven by the per-token-context-savings reset). Frame
+		// total/first_part are within a few bytes; pin the clean
+		// prefix.
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, limit: 2, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-gf-cbr-boost50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, gfCBRBoostPct: 50, extraArgs: []string{"--gf-cbr-boost=50"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-max-intra-rate100", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, maxIntraBitratePct: 100, extraArgs: []string{"--max-intra-rate=100"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		{name: "realtime-cbr-cpu-3-96x96-splitmv-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
 		// Segmented fixture crossed with controls that have minimal
 		// coverage on this fixture today (sharpness, error-resilient,
 		// token partitions, screen content, drop-frame, undershoot/
