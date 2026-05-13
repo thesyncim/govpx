@@ -110,7 +110,7 @@ returns no more data.
 | --- | --- |
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
-| Inspect a packet header | `PeekVP8StreamInfo` |
+| Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8 one frame) |
