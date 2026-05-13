@@ -96,6 +96,96 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-tune-ssim", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-runtime-vbr-good-cpu-mutations-matches-cold-start", func(t *testing.T) {
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpxMutations(t, baseOpts, warm, afterReset, nil,
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(VBR)", e.SetRateControl(RateControlConfig{
+					Mode:                RateControlVBR,
+					TargetBitrateKbps:   targetKbps,
+					MinQuantizer:        4,
+					MaxQuantizer:        56,
+					UndershootPct:       50,
+					OvershootPct:        50,
+					BufferSizeMs:        6000,
+					BufferInitialSizeMs: 4000,
+					BufferOptimalSizeMs: 5000,
+				}))
+				mustRuntime(t, "SetDeadline(good)", e.SetDeadline(DeadlineGoodQuality))
+				mustRuntime(t, "SetCPUUsed(4)", e.SetCPUUsed(4))
+			})
+		coldOpts := baseOpts
+		coldOpts.RateControlMode = RateControlVBR
+		coldOpts.UndershootPct = 50
+		coldOpts.OvershootPct = 50
+		coldOpts.BufferSizeMs = 6000
+		coldOpts.BufferInitialSizeMs = 4000
+		coldOpts.BufferOptimalSizeMs = 5000
+		coldOpts.Deadline = DeadlineGoodQuality
+		coldOpts.CpuUsed = 4
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-runtime-vbr-good-cpu", coldOpts, targetKbps, afterReset, []string{
+			"--end-usage=vbr",
+			"--undershoot-pct=50",
+			"--overshoot-pct=50",
+			"--buf-sz=6000",
+			"--buf-initial-sz=4000",
+			"--buf-optimal-sz=5000",
+		})
+		// Reset clears warm state and reaches the retained VBR/good/cpu
+		// cold-start keyframe exactly. The following VBR inter frames still
+		// carry the existing good-quality post-key drift, so pin the strict
+		// prefix and keep the transition gap visible in logs.
+		assertSegmentByteParity(t, "post-reset-runtime-vbr-good-cpu", govpxFrames, libvpxFrames, 1)
+	})
+
+	t.Run("reset-after-runtime-cq-arnr-mutations-matches-cold-start", func(t *testing.T) {
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpxMutations(t, baseOpts, warm, afterReset, nil,
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(CQ)", e.SetRateControl(RateControlConfig{
+					Mode:                RateControlCQ,
+					TargetBitrateKbps:   targetKbps,
+					MinQuantizer:        4,
+					MaxQuantizer:        56,
+					CQLevel:             20,
+					UndershootPct:       100,
+					OvershootPct:        100,
+					BufferSizeMs:        6000,
+					BufferInitialSizeMs: 4000,
+					BufferOptimalSizeMs: 5000,
+				}))
+				mustRuntime(t, "SetARNR", e.SetARNR(7, 6, 3))
+			})
+		coldOpts := baseOpts
+		coldOpts.RateControlMode = RateControlCQ
+		coldOpts.CQLevel = 20
+		coldOpts.UndershootPct = 100
+		coldOpts.OvershootPct = 100
+		coldOpts.BufferSizeMs = 6000
+		coldOpts.BufferInitialSizeMs = 4000
+		coldOpts.BufferOptimalSizeMs = 5000
+		coldOpts.ARNRMaxFrames = 7
+		coldOpts.ARNRStrength = 6
+		coldOpts.ARNRType = 3
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-runtime-cq-arnr", coldOpts, targetKbps, afterReset, []string{
+			"--end-usage=cq",
+			"--cq-level=20",
+			"--undershoot-pct=100",
+			"--overshoot-pct=100",
+			"--buf-sz=6000",
+			"--buf-initial-sz=4000",
+			"--buf-optimal-sz=5000",
+			"--arnr-maxframes=7",
+			"--arnr-strength=6",
+			"--arnr-type=3",
+		})
+		assertSegmentByteParity(t, "post-reset-runtime-cq-arnr", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("reset-after-active-map-matches-cold-start", func(t *testing.T) {
 		warm := makePanningSources(64, 64, 6, 0)
 		afterReset := makePanningSources(64, 64, 8, 6)

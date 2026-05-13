@@ -45,6 +45,7 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 	panning32 := fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}
 	panning48 := fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+	hardCut32 := fixture{name: "hard-cut-32x32", w: 32, h: 32, source: encoderValidationHardCutFrame}
 	segmented32 := fixture{name: "segmented-32x32", w: 32, h: 16, source: encoderValidationSegmentedFrame}
 	splitmv64 := fixture{name: "splitmv-64x64", w: 64, h: 64, source: encoderValidationSplitMVQuadrantFrame}
 
@@ -144,6 +145,13 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		// smooth to trip the scene-cut gate).
 		{name: "adaptive-kf-realtime-vbr-cpu-3-16x16", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, adaptiveKeyFrames: true, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}},
 		{name: "adaptive-kf-realtime-q-cpu-3-16x16-q20", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, adaptiveKeyFrames: true, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
+		// Positive scene-cut fixture: frames 0..3 are smooth panning,
+		// frame 4 hard-cuts to flat high-luma content. This pins the
+		// current scene-cut parity gap: govpx promotes the cut to a
+		// keyframe while libvpx keeps this one-pass realtime stream
+		// inter-coded. Keep the clean pre-cut prefix strict and log
+		// the post-cut packets until the detector behavior is aligned.
+		{name: "adaptive-kf-hard-cut-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: hardCut32, adaptiveKeyFrames: true, limit: 4, extraArgs: []string{"--kf-min-dist=0", "--kf-max-dist=999"}},
 
 		// KeyFrameInterval=0 + libvpx --disable-kf. This pins the
 		// VPX_KF_DISABLED branch where auto_key is also cleared in
@@ -453,4 +461,13 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 			}
 		})
 	}
+}
+
+func encoderValidationHardCutFrame(width int, height int, index int) Image {
+	if index < 4 {
+		return encoderValidationPanningFrame(width, height, index)
+	}
+	img := testImage(width, height)
+	fillImage(img, 230, 90, 170)
+	return img
 }
