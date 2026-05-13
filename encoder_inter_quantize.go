@@ -130,6 +130,21 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 }
 
 // optimizeQuantizedBlock ports libvpx v1.16.0 vp8/encoder/encodemb.c optimize_b.
+//
+// KNOWN GAP: on the BestQuality+cpu0 / GoodQuality+cpu0 SPLITMV path, this
+// function emits per-position rates that drift by 2 entropy-bit units from
+// libvpx's optimize_b for byte-identical inputs (coeff, qcoeff_pre, dequant,
+// ctx, rdmult, rddiv all match per pre-IDCT oracle capture). The 2-bit
+// drift propagates through the trellis state machine and flips the `best`
+// choice at one iteration, producing different final EOBs and different
+// tokenized qcoeff values → the 1-3 byte coefficient-partition divergence
+// pinned at small-best-cpu0-16x32 (limit=1) and the parallel
+// 32x32-to-64x64/good-quality-cpu0-{cbr,vbr}/s1 + 64x64-to-96x96/
+// good-quality-cpu0-vbr/s2 resize cold-segment limits. The pre-IDCT
+// qcoeff capture (build_vpxenc_oracle.sh govpx_oracle_capture_qcoeff_early,
+// added by the close-goodquality-cpu0-small-frame investigation) gives a
+// directly-observable side-by-side trellis trace for the followup fix.
+//
 // It walks the quantized block from eob-1 down to skipDC, builds a 2-state
 // Viterbi trellis exploring (keep current value) vs (shift |x| toward 0 when
 // the dequant boundary allows), scores transitions with libvpx's token_costs
