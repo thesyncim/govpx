@@ -109,6 +109,111 @@ func TestPackBitstreamKeyframeRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPackBitstreamCountsPath packs an inter frame through the
+// counts-driven compressed-header path; the decoder reads back the
+// uncompressed header + the counts-driven compressed header byte
+// for byte, with every prob slot landing on the value the
+// savings_search settled on.
+func TestPackBitstreamCountsPath(t *testing.T) {
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		IntraOnly:             false,
+		RefreshFrameFlags:     0,
+		Width:                 320,
+		Height:                240,
+		InterpFilter:          vp9dec.InterpEighttap,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: false,
+		FrameContextIdx:       0,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth: vp9dec.Bits8,
+		},
+	}
+
+	var fc vp9dec.FrameContext
+	seedFrameContext(&fc)
+	counts := FrameCounts{}
+	counts.Skip[0] = [2]uint32{900, 100}
+	counts.IntraInter[0] = [2]uint32{100, 900}
+
+	countsArgs := &WriteCompressedHeaderFromCountsArgs{
+		Lossless:             false,
+		TxMode:               common.Only4x4,
+		IntraOnly:            false,
+		InterpFilter:         vp9dec.InterpEighttap,
+		ReferenceMode:        vp9dec.SingleReference,
+		CompoundRefAllowed:   false,
+		AllowHighPrecisionMv: false,
+		CoefStepsize:         4,
+		Probs:                &fc,
+		Counts:               &counts,
+	}
+
+	dest := make([]byte, 4096)
+	scratch := make([]byte, 4096)
+	args := PackBitstreamArgs{
+		Dest:       dest,
+		Scratch:    scratch,
+		Header:     &header,
+		CountsArgs: countsArgs,
+		TileRows:   1,
+		TileCols:   1,
+		WriteTile: func(bw *bitstream.Writer, r, c int) error {
+			bw.Write(0, 128)
+			return nil
+		},
+		RefDims: func(slot uint8) (uint32, uint32) { return 320, 240 },
+	}
+
+	total, err := PackBitstream(args)
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	if total <= 0 {
+		t.Fatalf("total = %d, want > 0", total)
+	}
+
+	// Re-parse uncompressed header and confirm the counts-driven
+	// compressed header rides correctly.
+	var br vp9dec.BitReader
+	br.Init(dest[:total])
+	got, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	uncSize := br.BytesRead()
+	if got.FirstPartitionSize == 0 {
+		t.Fatal("FirstPartitionSize = 0; counts-driven compressed header didn't land")
+	}
+	compEnd := uncSize + int(got.FirstPartitionSize)
+	if compEnd > total {
+		t.Fatalf("compressed end %d past total %d", compEnd, total)
+	}
+
+	var cr bitstream.Reader
+	if err := cr.Init(dest[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader init: %v", err)
+	}
+	var decFc vp9dec.FrameContext
+	seedFrameContext(&decFc)
+	out := vp9dec.ReadCompressedHeader(&cr, &decFc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:             false,
+		IntraOnly:            false,
+		KeyFrame:             false,
+		InterpFilter:         vp9dec.InterpEighttap,
+		AllowHighPrecisionMv: false,
+		CompoundRefAllowed:   false,
+	})
+	if out.TxMode != common.Only4x4 {
+		t.Errorf("TxMode = %d, want Only4x4", out.TxMode)
+	}
+	if decFc != fc {
+		t.Errorf("decoder FrameContext diverged from encoder after PackBitstream counts path")
+	}
+}
+
 // TestPackBitstreamMultiTilePrefixWidth packs a 2-tile frame and
 // confirms the tile region starts with a 4-byte big-endian size
 // prefix the multi-tile decoder needs to walk past tile 0.

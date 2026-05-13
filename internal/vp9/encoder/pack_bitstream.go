@@ -52,9 +52,19 @@ type PackBitstreamArgs struct {
 	// size before invoking the matching uncompressed-header writer.
 	Header *vp9dec.UncompressedHeader
 
-	// Comp threads the per-frame inputs to the compressed-header
-	// writer (TxMode, lossless, interp filter, reference mode, etc.).
+	// Comp threads the per-frame inputs to the no-update
+	// compressed-header writer (TxMode, lossless, interp filter,
+	// reference mode, etc.). Consulted when CountsArgs is nil.
 	Comp CompressedHeaderInputs
+
+	// CountsArgs, when non-nil, routes the compressed-header pack
+	// through the counts-driven driver (mirroring libvpx's
+	// write_compressed_header). Comp is ignored on this path because
+	// CountsArgs carries the same per-frame gating plus the
+	// FrameContext + FrameCounts payloads. This is the byte-parity
+	// path; callers without per-frame counters fall back to the
+	// no-update fields on Comp.
+	CountsArgs *WriteCompressedHeaderFromCountsArgs
 
 	// TileRows / TileCols set the tile grid (derived from the header's
 	// Tile.Log2TileRows / Log2TileCols by the caller).
@@ -82,7 +92,13 @@ type PackBitstreamArgs struct {
 // uncompressed-header writer + WriteTiles both reach for the
 // caller-owned buffers without intermediate heap allocation.
 func PackBitstream(a PackBitstreamArgs) (int, error) {
-	compSize, err := WriteCompressedHeaderNoUpdate(a.Scratch, a.Comp)
+	var compSize int
+	var err error
+	if a.CountsArgs != nil {
+		compSize, err = WriteCompressedHeaderFromCounts(a.Scratch, *a.CountsArgs)
+	} else {
+		compSize, err = WriteCompressedHeaderNoUpdate(a.Scratch, a.Comp)
+	}
 	if err != nil {
 		return 0, err
 	}
