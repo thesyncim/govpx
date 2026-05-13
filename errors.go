@@ -34,4 +34,12 @@ var (
 	ErrInvalidQuantizer = errors.New("govpx: invalid quantizer")
 	// ErrClosed reports use of a nil or closed encoder/decoder.
 	ErrClosed = errors.New("govpx: codec is closed")
+
+	// ErrInvalidVP9Data reports malformed or unsupported VP9
+	// bitstream data caught by the uncompressed-header parser.
+	// The internal VP9 stack returns a more specific error
+	// (vp9/decoder.ErrInvalidHeader); the public surface flattens
+	// to this sentinel so callers don't take a dependency on the
+	// internal types.
+	ErrInvalidVP9Data = errors.New("govpx: invalid VP9 data")
 )

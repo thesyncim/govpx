@@ -49,13 +49,12 @@ type VP9Decoder struct {
 	// at construction; reset to defaults on every keyframe.
 	fc vp9dec.FrameContext
 
-	// seg carries the segmentation header. Preserved across
-	// non-update frames per libvpx's setup_segmentation contract.
-	seg vp9dec.SegmentationParams
-
-	// lf carries the loopfilter header — filter_level + sharpness +
-	// mode/ref deltas.
-	lf vp9dec.LoopfilterParams
+	// lastHeader carries the previous frame's uncompressed-header
+	// state so the parser can seed the fields VP9's wire format
+	// preserves across frames (loopfilter + segmentation in
+	// particular).
+	lastHeader      vp9dec.UncompressedHeader
+	lastHeaderValid bool
 
 	// lfi is the per-(seg, ref, mode) loopfilter level table built
 	// by LoopFilterFrameInit on every key/show frame.
@@ -94,16 +93,64 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 	return nil
 }
 
-// Decode is the VP9 entry point. While the reconstruct pipeline is
-// still under construction it returns [ErrVP9NotImplemented]; the
-// parser layer is byte-parity tested separately in
-// internal/vp9/decoder.
+// Decode is the VP9 entry point. The uncompressed header is parsed
+// and validated; malformed frames surface as [ErrInvalidVP9Data].
+// The reconstruct pipeline is still under construction — a valid
+// header returns [ErrVP9NotImplemented] for now.
+//
+// Side effects on success-up-to-header: the decoder's stored frame
+// dimensions, loopfilter state, and segmentation state are updated
+// so a subsequent call to LastFrameSize / LastFrameInfo reflects the
+// latest parse.
 func (d *VP9Decoder) Decode(packet []byte) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
-	_ = packet
+	if len(packet) == 0 {
+		return ErrInvalidVP9Data
+	}
+	var br vp9dec.BitReader
+	br.Init(packet)
+	var prev *vp9dec.UncompressedHeader
+	if d.lastHeaderValid {
+		prev = &d.lastHeader
+	}
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, prev, d.refDims)
+	if err != nil {
+		return ErrInvalidVP9Data
+	}
+	if d.opts.MaxWidth > 0 && int(hdr.Width) > d.opts.MaxWidth {
+		return ErrFrameRejected
+	}
+	if d.opts.MaxHeight > 0 && int(hdr.Height) > d.opts.MaxHeight {
+		return ErrFrameRejected
+	}
+	d.lastHeader = hdr
+	d.lastHeaderValid = true
+	if !hdr.ShowExistingFrame {
+		d.width = int(hdr.Width)
+		d.height = int(hdr.Height)
+	}
 	return ErrVP9NotImplemented
+}
+
+// refDims is the placeholder ring-slot dimension lookup. The full
+// implementation will return the (width, height) of the reference
+// frame at the given ring slot; until the frame-buffer manager
+// lands we return the current frame's dimensions, matching the
+// libvpx fast-path when every ref is the same size.
+func (d *VP9Decoder) refDims(uint8) (uint32, uint32) {
+	return uint32(d.width), uint32(d.height)
+}
+
+// LastFrameSize returns the (width, height) of the last successfully
+// parsed key/inter frame. Returns (0, 0) before any successful
+// header parse.
+func (d *VP9Decoder) LastFrameSize() (width, height int) {
+	if d == nil {
+		return 0, 0
+	}
+	return d.width, d.height
 }
 
 // Close releases internal state and marks the decoder as no longer
