@@ -1,0 +1,75 @@
+package tables
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestDefaultProbsMatchLibvpxSource validates the default-probability
+// tables against vp9_entropymode.c byte-for-byte. Uses the existing
+// extractBracedArray + extractScanArray helpers from oracle_test.go.
+func TestDefaultProbsMatchLibvpxSource(t *testing.T) {
+	srcPath := findLibvpxSource("vp9/common/vp9_entropymode.c")
+	if srcPath == "" {
+		t.Skip("libvpx checkout not present under internal/coracle/build")
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read libvpx source: %v", err)
+	}
+	src := string(raw)
+
+	flatten1D := func(t2 []int) []int { return t2 }
+	flatten2DUint8 := func(rows [][]uint8) []int {
+		out := make([]int, 0, len(rows)*len(rows[0]))
+		for _, r := range rows {
+			for _, v := range r {
+				out = append(out, int(v))
+			}
+		}
+		return out
+	}
+	flat1Du8 := func(t []uint8) []int {
+		out := make([]int, len(t))
+		for i, v := range t {
+			out[i] = int(v)
+		}
+		return out
+	}
+
+	cases := []struct {
+		marker string
+		want   []int
+	}{
+		{"default_intra_inter_p[", flat1Du8(DefaultIntraInter[:])},
+		{"default_comp_inter_p[", flat1Du8(DefaultCompInter[:])},
+		{"default_comp_ref_p[", flat1Du8(DefaultCompRef[:])},
+		{"default_single_ref_p[", flatten2DUint8([][]uint8{
+			DefaultSingleRef[0][:], DefaultSingleRef[1][:],
+			DefaultSingleRef[2][:], DefaultSingleRef[3][:], DefaultSingleRef[4][:],
+		})},
+		{"default_skip_probs[", flat1Du8(DefaultSkipProbs[:])},
+	}
+	_ = flatten1D
+
+	for _, tc := range cases {
+		// Strip trailing "[" so extractBracedArray composes correctly.
+		marker := strings.TrimSuffix(tc.marker, "[")
+		got := extractBracedArray(src, marker)
+		if got == nil {
+			t.Errorf("%s: marker not found", tc.marker)
+			continue
+		}
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: got %d entries, want %d", tc.marker, len(got), len(tc.want))
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s[%d] = %d, libvpx says %d", tc.marker, i, tc.want[i], got[i])
+				break
+			}
+		}
+	}
+}
