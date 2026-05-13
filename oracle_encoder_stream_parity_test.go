@@ -81,8 +81,6 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		tuningSet bool
 		// extraArgs is appended to the libvpx vpxenc-oracle command.
 		extraArgs []string
-		// fastLF flips on FastLoopFilterPick.
-		fastLF bool
 		// staticThreshold overrides EncoderOptions.StaticThreshold.
 		staticThreshold int
 		// screenContentMode overrides EncoderOptions.ScreenContentMode.
@@ -257,18 +255,6 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// at this quantizer slice); pin the clean 14-frame prefix so the
 		// CQ50 plumbing stays guarded.
 		{name: "realtime-cq-cpu-3-16x16-cq50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: 14, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=cq", "--cq-level=50"}},
-		// FastLoopFilterPick is now a no-op: the LF-picker gate mirrors
-		// libvpx (speed == 3 || speed > 4 for realtime), so flipping
-		// the opt-in on does not change selection at speed == 4. This
-		// row pins strict 16-frame byte parity with the opt-in
-		// enabled at cpu_used=8 so the public control stays parity-
-		// safe regardless of what callers set it to.
-		{name: "realtime-cbr-cpu8-fastlf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fastLF: true},
-		// At explicit speed=5 libvpx already uses the partial-frame loop-
-		// filter picker, so FastLoopFilterPick=true should be a strict
-		// byte-parity no-op while still exercising the public control.
-		{name: "realtime-cbr-cpu-5-fastlf", deadline: DeadlineRealtime, cpuUsed: -5, fx: panning64, fastLF: true},
-		{name: "realtime-cbr-cpu-6-fastlf", deadline: DeadlineRealtime, cpuUsed: -6, fx: panning64, fastLF: true},
 		// Token partitions (libvpx --token-parts maps log2). 2 = 4 partitions
 		// is one of the WebRTC-relevant settings; pin parity here so the
 		// partitioned writer regressions surface.
@@ -1270,7 +1256,6 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				ErrorResilientPartitions: tc.errorResilientPartitions,
 				Sharpness:                tc.sharpness,
 				NoiseSensitivity:         tc.noiseSensitivity,
-				FastLoopFilterPick:       tc.fastLF,
 				StaticThreshold:          tc.staticThreshold,
 				ScreenContentMode:        tc.screenContentMode,
 				MaxIntraBitratePct:       tc.maxIntraBitratePct,

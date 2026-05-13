@@ -154,14 +154,7 @@ func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	// libvpx vp8/encoder/onyx_if.c vp8_set_speed_features (Mode==2 realtime,
 	// Mode==1 good-quality): sf->RD = 0 (partial-frame picker) flips at
 	// speed > 4 for good-quality and speed == 3 || speed > 4 for
-	// realtime. govpx mirrors that exactly so the LF picker stays
-	// byte-parity with libvpx regardless of the FastLoopFilterPick
-	// opt-in. The opt-in is retained as a public API field for
-	// callers that hard-coded it, but it no longer alters picker
-	// selection (any divergence at speed == 4 would defeat the
-	// strict byte-parity gate the realtime-cbr-cpu8-fastlf row
-	// exercises in oracle_encoder_stream_parity_test.go).
-	_ = e.opts.FastLoopFilterPick
+	// realtime. Mirrored exactly.
 	switch e.opts.Deadline {
 	case DeadlineGoodQuality:
 		return speed > 4
