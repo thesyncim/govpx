@@ -1,5 +1,7 @@
 package encoder
 
+import "github.com/thesyncim/govpx/internal/vp9/tables"
+
 // VP9 cost-of-bits tables and helpers. Ported from libvpx v1.16.0
 // vp9/encoder/vp9_cost.{h,c}. The encoder uses these to compute the
 // rate cost of encoding a stream against a given probability table,
@@ -84,6 +86,74 @@ func ProbDiffUpdateSavingsSearch(ct [2]uint32, oldp uint8, bestp *uint8, upd uin
 		for newp := int(*bestp); newp != int(oldp); newp += step {
 			newB := int64(CostBranch256(ct, uint8(newp)))
 			updateB := int64(ProbDiffUpdateCost(uint8(newp), oldp) + updCost)
+			savings := oldB - newB - updateB
+			if savings > bestSavings {
+				bestSavings = savings
+				bestNewP = uint8(newp)
+			}
+		}
+	}
+	*bestp = bestNewP
+	return bestSavings
+}
+
+// EntropyNodes mirrors libvpx's ENTROPY_NODES — the total number
+// of internal nodes in the coefficient token tree.
+const EntropyNodes = 11
+
+// PivotNode mirrors libvpx's PIVOT_NODE — index of the binary
+// node at which the unconstrained 3-node prefix meets the
+// pareto8-modeled tail. The savings_search_model variant only
+// runs the binary search at this node; the remaining 8 tail
+// nodes are derived from pareto8 lookups against the pivot prob.
+const PivotNode = 2
+
+// ProbDiffUpdateSavingsSearchModel mirrors libvpx's
+// vp9_prob_diff_update_savings_search_model — the pareto8-aware
+// variant of ProbDiffUpdateSavingsSearch the coefficient prob
+// update path runs at the PivotNode. The tail nodes
+// (UnconstrainedNodes..EntropyNodes-1) inherit probabilities from
+// the pareto8 row indexed by the candidate pivot probability, so
+// the search has to walk those costs explicitly for each candidate.
+//
+// `ct` carries the per-node count pairs for all EntropyNodes
+// branches; only the PivotNode entry drives the binary search but
+// the tail costs feed into the savings calculation.
+// `stepsize` matches libvpx's coeff_prob_appx_step speed-feature
+// (typical values 1..4). `bestp` is the seed candidate (caller
+// provides it from get_binary_prob over the pivot counts); the
+// search walks from *bestp toward oldp by `step_sign * stepsize`
+// and keeps the maximum-savings pick.
+func ProbDiffUpdateSavingsSearchModel(ct *[EntropyNodes][2]uint32,
+	oldp uint8, bestp *uint8, upd uint8, stepsize int,
+) int64 {
+	stepSign := int64(1)
+	if int(*bestp) > int(oldp) {
+		stepSign = -1
+	}
+	step := int64(stepsize) * stepSign
+	updCost := int64(VP9CostOne(upd) - VP9CostZero(upd))
+
+	oldPareto := tables.Pareto8Full[oldp-1]
+	oldB := int64(CostBranch256(ct[PivotNode], oldp))
+	for i := UnconstrainedNodes; i < EntropyNodes; i++ {
+		oldB += int64(CostBranch256(ct[i], oldPareto[i-UnconstrainedNodes]))
+	}
+
+	bestSavings := int64(0)
+	bestNewP := oldp
+
+	if oldB > updCost+(MinDelpBits<<VP9ProbCostShift) {
+		for newp := int64(*bestp); (newp-int64(oldp))*stepSign < 0; newp += step {
+			if newp < 1 || newp > 255 {
+				continue
+			}
+			newPareto := tables.Pareto8Full[newp-1]
+			newB := int64(CostBranch256(ct[PivotNode], uint8(newp)))
+			for i := UnconstrainedNodes; i < EntropyNodes; i++ {
+				newB += int64(CostBranch256(ct[i], newPareto[i-UnconstrainedNodes]))
+			}
+			updateB := int64(ProbDiffUpdateCost(uint8(newp), oldp)) + updCost
 			savings := oldB - newB - updateB
 			if savings > bestSavings {
 				bestSavings = savings
