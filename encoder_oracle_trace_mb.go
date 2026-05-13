@@ -240,7 +240,7 @@ func (e *VP8Encoder) emitOracleKeyFrameMBTrace(
 //
 //  1. vp8_quantize_mb runs vp8_fast_quantize_b_c (or
 //     vp8_regular_quantize_b_c) on the Y block with the original (un-zeroed)
-//     dct[0] against Y1DC's zbin/round/quant. If that DC quantizes to
+//     dct[0] against Y1's zbin/round/quant. If that DC quantizes to
 //     non-zero, *d->eob is set to 1 even when every other position is zero.
 //     vp8_dequant_idct_add_y_block later memsets qcoeff[0..1] back to zero,
 //     but eob=1 survives. govpx tracks the would-have-been bit per Y block
@@ -264,7 +264,7 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 	if coeffs == nil || y2Dequant == nil || eob == nil || is4x4 {
 		return
 	}
-	// Path 1: bump from libvpx Y1DC quantize on the original dct[0] of each
+	// Path 1: bump from libvpx Y1 quantize on the original dct[0] of each
 	// Y block. coeffs.OracleY1DCEOB1[block] was populated at quantize time
 	// from the same dct[0] that fed the Y2 forward Walsh.
 	for js := range 16 {
@@ -274,7 +274,7 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 	}
 	// Path 2: bump from libvpx eob_adjust against the inverse-Walsh DC of
 	// the Y2 block. This is the residual case where the post-Walsh DC is
-	// non-zero even though Y1DC quantize produced zero.
+	// non-zero even though Y1 quantize produced zero.
 	var y2DQ [16]int16
 	for i := range 16 {
 		y2DQ[i] = int16(int(coeffs.QCoeff[24][i]) * int(y2Dequant[i]))

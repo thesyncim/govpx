@@ -224,7 +224,7 @@ func TestCyclicRefreshSegmentationUsesPreRecodeQuantizer(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoScreenContentMode2DisablesGoldenRefreshCyclicSegmentation(t *testing.T) {
+func TestEncodeIntoScreenContentMode2KeepsKeyFrameCyclicSegmentation(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -250,8 +250,8 @@ func TestEncodeIntoScreenContentMode2DisablesGoldenRefreshCyclicSegmentation(t *
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
 	keyState := packetState(t, key.Data)
-	if keyState.Segmentation.Enabled || keyState.Segmentation.UpdateMap || keyState.Segmentation.UpdateData {
-		t.Fatalf("screen-content mode 2 key segmentation = %+v, want disabled on golden refresh", keyState.Segmentation)
+	if !keyState.Segmentation.Enabled || !keyState.Segmentation.UpdateMap || !keyState.Segmentation.UpdateData {
+		t.Fatalf("screen-content mode 2 key segmentation = %+v, want map/data update", keyState.Segmentation)
 	}
 }
 

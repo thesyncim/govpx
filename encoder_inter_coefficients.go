@@ -356,14 +356,16 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				if collectOracle {
 					recordOracleY1DCEOB1(coeffs, block, libvpxY1DCWouldQuantizeNonzero(dct[0], &quant.Y1, zbinOverQuant, zbinModeBoost, fastQuant))
 				}
-				dct[0] = 0
 				a := block & 3
 				l := (block & 0x0c) >> 2
 				ctx := 0
 				if needTokenContext {
 					ctx = int(yAbove[a] + yLeft[l])
 				}
-				eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1DC, &coeffs.QCoeff[block], &dq)
+				eob := quantizeEncodedBlock(coefProbs, qIndex, 0, ctx, 1, zbinOverQuant, zbinModeBoost, intra, fastQuant, optimize, dct, &quant.Y1, &coeffs.QCoeff[block], &dq)
+				coeffs.QCoeff[block][0] = 0
+				dq[0] = 0
+				dct[0] = 0
 				coeffs.SetBlockEOB(block, eob)
 				if collectStats {
 					stats.rateY += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &coeffs.QCoeff[block], eob)
