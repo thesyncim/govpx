@@ -617,10 +617,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				}
 				return opts
 			}(),
-			flags:      temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 6),
-			script:     temporalScalabilityReconfigureScript(frames, TemporalLayeringTwoLayers, 6, "tslayers:2+tsperiodicity:2+tsbitrates:420/700+tsdecimators:2/1+tsids:0/1"),
-			extraArgs:  []string{"--temporal-layers=2", "--temporal-bitrates=350,700", "--temporal-decimators=2,1", "--temporal-periodicity=2", "--temporal-layer-ids=0,1"},
-			matchLimit: 6,
+			flags:     temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 6),
+			script:    temporalScalabilityReconfigureScript(frames, TemporalLayeringTwoLayers, 6, "tslayers:2+tsperiodicity:2+tsbitrates:420/700+tsdecimators:2/1+tsids:0/1"),
+			extraArgs: []string{"--temporal-layers=2", "--temporal-bitrates=350,700", "--temporal-decimators=2,1", "--temporal-periodicity=2", "--temporal-layer-ids=0,1"},
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -953,7 +952,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name:       "keyframe-disabled-runtime-toggle",
 			fx:         panning32,
 			opts:       baseOpts(panning32),
-			matchLimit: 3,
+			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "kfdisabled:1+kfmin:0+kfmax:120",
 				8: "kfdisabled:0+kfmin:0+kfmax:4",
@@ -1022,9 +1021,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "active-map-pattern-switches",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// Static border-off maps drift late in the clip; keep the
-			// multi-pattern transition pinned through the matching prefix.
-			matchLimit: 10,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "active:left-off",
 				4: "active:right-off",
