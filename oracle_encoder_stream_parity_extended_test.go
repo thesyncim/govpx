@@ -265,14 +265,19 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		// stress the sub-MV picker that drives the BestQuality frame-14
 		// gap; pinning the smooth-content baseline here makes any
 		// regression near that path obvious.
-		// NEW GAP (limit=2): denoiser-on + SPLITMV-source at
-		// realtime+cpu0 — the existing splitmv-cpu0 parity case
-		// matches the full sequence at NoiseSensitivity=0, and the
-		// existing 48x48 panning + ns=3 case matches too. Crossing
-		// the two (splitmv source AND ns>0) diverges from frame 2
-		// onward (first inter frame with a populated sub-MV picker
-		// state interacting with the denoiser's per-MB filter).
-		{name: "splitmv-realtime-cpu0-64x64-noise3", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, limit: 2, noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		//
+		// Closed: the denoiser-on + SPLITMV-source realtime+cpu0
+		// case diverged from frame 2 because the fast picker's
+		// ZEROMV-LAST rd-adjustment applied the libvpx
+		// pickmode_mv_bias multiplier (0.75x at noise-sensitivity=3)
+		// even on skin MBs. libvpx evaluate_inter_mode resets
+		// rd_adj=100 for skin MBs before the multiply (and
+		// dot_artifact OVERRIDES rd_adj to 150 AFTER the multiply),
+		// so both adjustments are bypassed in those cases. The
+		// missing-on-skin bypass biased govpx toward ZEROMV-LAST
+		// on a skin MB at frame 2 MB(2,3) where libvpx picked
+		// NEWMV-LAST mv=(2,-12).
+		{name: "splitmv-realtime-cpu0-64x64-noise3", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
 		{name: "splitmv-realtime-cpu-3-64x64-noise6", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, noiseSensitivity: 6, extraArgs: []string{"--noise-sensitivity=6"}},
 		{name: "splitmv-realtime-cpu0-64x64-static-thresh100", deadline: DeadlineRealtime, cpuUsed: 0, fx: splitmv64, staticThreshold: 100, extraArgs: []string{"--static-thresh=100"}},
 		{name: "splitmv-realtime-cpu-3-64x64-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: splitmv64, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
