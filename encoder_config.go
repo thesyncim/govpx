@@ -464,6 +464,8 @@ var libvpxAutoSpeedThresh = [17]int{
 	115, 115, 115, 115, 105,
 }
 
+func nowMonotonicNS() int64 { return nanotime() }
+
 // libvpxAutoSelectSpeedActive returns true when the realtime adaptive
 // Speed selector is in charge of cpi->Speed (cpu_used >= 0 in realtime).
 // When cpu_used < 0 libvpx pins Speed=-cpu_used directly per
@@ -554,9 +556,10 @@ func (e *VP8Encoder) beginAutoSpeedTiming() {
 	// libvpx onyx_if.c:5031 starts a wall-clock timer (vpx_usec_timer_start)
 	// before encode_frame_to_data_rate; the corresponding mark/elapsed runs
 	// at line 5105 after the frame finishes to derive duration / duration2.
-	// govpx mirrors the timer state with a flag so the post-encode hook can
-	// distinguish "frame in flight" from "no frame in flight".
-	e.autoSpeedFrameStartNS = 1
+	e.autoSpeedFrameStartNS = nowMonotonicNS()
+	if e.autoSpeedFrameStartNS == 0 {
+		e.autoSpeedFrameStartNS = 1
+	}
 }
 
 func (e *VP8Encoder) cancelAutoSpeedTiming() {
@@ -565,17 +568,18 @@ func (e *VP8Encoder) cancelAutoSpeedTiming() {
 
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
 // encode in realtime, IIR-update avg_encode_time (skipped for keyframes) and
-// avg_pick_mode_time (duration2 = duration/2 by libvpx convention). We keep
-// the timer sample at zero instead of substituting trace-oracle wall-clock
-// costs: uninstrumented libvpx stays in the speed-4 decision band for the
-// realtime bench fixtures, while trace I/O can otherwise push the oracle onto
-// an artificially slow trajectory.
+// avg_pick_mode_time (duration2 = duration/2 by libvpx convention).
 func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 	if e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
 	}
+	durationNS := nowMonotonicNS() - e.autoSpeedFrameStartNS
 	e.autoSpeedFrameStartNS = 0
-	duration, duration2 := 0, 0
+	if durationNS < 0 {
+		durationNS = 0
+	}
+	duration := int(durationNS / 1000)
+	duration2 := duration / 2
 	if !isKeyFrame {
 		if e.avgEncodeTime == 0 {
 			e.avgEncodeTime = duration

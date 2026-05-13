@@ -549,6 +549,7 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 		fmt.Sprintf("--undershoot-pct=%d", parity.UndershootPct),
 		fmt.Sprintf("--overshoot-pct=%d", parity.OvershootPct),
 		fmt.Sprintf("--threads=%d", parity.Threads),
+		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
 		"--noise-sensitivity=0",
 		"--rt",
 		fmt.Sprintf("--cpu-used=%d", parity.CpuUsed),
@@ -561,6 +562,52 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 		if !have[want] {
 			t.Fatalf("parity flags missing %q\nhave: %v", want, flags)
 		}
+	}
+}
+
+func TestParseIVFFrameInfoClassifiesAllKeyframes(t *testing.T) {
+	const (
+		fileHeaderSize  = 32
+		frameHeaderSize = 12
+	)
+	payloads := [][]byte{
+		{0x10, 0x00, 0x9d, 0x01}, // key frame: low bit clear
+		{0x11, 0x00, 0x00, 0x00}, // inter frame: low bit set
+		{0x20, 0x00, 0x9d, 0x01}, // later forced key frame
+	}
+	size := fileHeaderSize
+	for _, payload := range payloads {
+		size += frameHeaderSize + len(payload)
+	}
+	ivf := make([]byte, size)
+	copy(ivf[:4], []byte("DKIF"))
+	binary.LittleEndian.PutUint16(ivf[6:], fileHeaderSize)
+	copy(ivf[8:12], []byte("VP80"))
+	offset := fileHeaderSize
+	for i, payload := range payloads {
+		binary.LittleEndian.PutUint32(ivf[offset:], uint32(len(payload)))
+		binary.LittleEndian.PutUint64(ivf[offset+4:], uint64(i))
+		offset += frameHeaderSize
+		copy(ivf[offset:], payload)
+		offset += len(payload)
+	}
+
+	frames, err := parseIVFFrameInfo(ivf)
+	if err != nil {
+		t.Fatalf("parseIVFFrameInfo returned error: %v", err)
+	}
+	if len(frames) != 3 {
+		t.Fatalf("frames len = %d, want 3", len(frames))
+	}
+	if !frames[0].keyFrame || frames[1].keyFrame || !frames[2].keyFrame {
+		t.Fatalf("key classification = [%v %v %v], want [true false true]", frames[0].keyFrame, frames[1].keyFrame, frames[2].keyFrame)
+	}
+	sizes, err := parseIVFFrameSizes(ivf)
+	if err != nil {
+		t.Fatalf("parseIVFFrameSizes returned error: %v", err)
+	}
+	if !slices.Equal(sizes, []int{4, 4, 4}) {
+		t.Fatalf("sizes = %v, want [4 4 4]", sizes)
 	}
 }
 

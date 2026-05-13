@@ -26,7 +26,7 @@ func TestOracleRealtimeBenchAutoSpeedProductionParity(t *testing.T) {
 		height     = 720
 		fps        = 30
 		targetKbps = 3000
-		frames     = 60
+		frames     = 120
 	)
 	opts := EncoderOptions{
 		Width:               width,

@@ -146,6 +146,23 @@ func writePlane(dst *os.File, plane []byte, stride int, width int, height int) e
 }
 
 func parseIVFFrameSizes(ivf []byte) ([]int, error) {
+	frames, err := parseIVFFrameInfo(ivf)
+	if err != nil {
+		return nil, err
+	}
+	sizes := make([]int, len(frames))
+	for i, frame := range frames {
+		sizes[i] = frame.size
+	}
+	return sizes, nil
+}
+
+type ivfFrameInfo struct {
+	size     int
+	keyFrame bool
+}
+
+func parseIVFFrameInfo(ivf []byte) ([]ivfFrameInfo, error) {
 	const (
 		fileHeaderSize  = 32
 		frameHeaderSize = 12
@@ -154,7 +171,7 @@ func parseIVFFrameSizes(ivf []byte) ([]int, error) {
 		return nil, errors.New("invalid IVF header")
 	}
 	offset := fileHeaderSize
-	var sizes []int
+	var frames []ivfFrameInfo
 	for offset < len(ivf) {
 		if offset+frameHeaderSize > len(ivf) {
 			return nil, errors.New("truncated IVF frame header")
@@ -164,10 +181,16 @@ func parseIVFFrameSizes(ivf []byte) ([]int, error) {
 		if size < 0 || offset+size > len(ivf) {
 			return nil, errors.New("truncated IVF frame payload")
 		}
-		sizes = append(sizes, size)
+		if size < 1 {
+			return nil, errors.New("truncated VP8 frame tag")
+		}
+		frames = append(frames, ivfFrameInfo{
+			size:     size,
+			keyFrame: ivf[offset]&1 == 0,
+		})
 		offset += size
 	}
-	return sizes, nil
+	return frames, nil
 }
 
 func imagePSNR(src govpx.Image, dst govpx.Image) float64 {
