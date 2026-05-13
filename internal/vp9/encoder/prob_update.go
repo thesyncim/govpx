@@ -104,6 +104,40 @@ func CondProbDiffUpdate(bw *bitstream.Writer, oldp, newp uint8) {
 	WriteProbDiffUpdate(bw, newp, oldp)
 }
 
+// CondProbDiffUpdateFromCounts mirrors vp9_cond_prob_diff_update
+// from libvpx v1.16.0 vp9/encoder/vp9_subexp.c — the
+// counts-driven entry the compressed-header writer invokes per
+// probability slot. Walks the full savings-search loop:
+//
+//  1. Derive newp from the (n0, n1) counts via GetBinaryProb.
+//  2. Run ProbDiffUpdateSavingsSearch to choose the cost-optimal
+//     newp (the search mutates newp in place toward the value
+//     that minimizes total bits = update-encode-cost + cumulative
+//     coefficient-cost-under-newp).
+//  3. If savings > 0: emit update bit + sub-exp delta and update
+//     *oldp to the chosen newp.
+//  4. Else: emit no-update bit and leave *oldp unchanged.
+//
+// Returns the (possibly mutated) probability so callers can
+// snapshot it into their frame_context update record. Caller is
+// responsible for keeping *oldp + the returned value coherent
+// across the writer / decoder pair.
+func CondProbDiffUpdateFromCounts(bw *bitstream.Writer, oldp *uint8, ct [2]uint32) uint8 {
+	newp := GetBinaryProb(ct[0], ct[1])
+	if newp < 1 {
+		newp = 1
+	}
+	savings := ProbDiffUpdateSavingsSearch(ct, *oldp, &newp, DiffUpdateProb)
+	if savings > 0 {
+		bw.Write(1, DiffUpdateProb)
+		WriteProbDiffUpdate(bw, newp, *oldp)
+		*oldp = newp
+		return newp
+	}
+	bw.Write(0, DiffUpdateProb)
+	return *oldp
+}
+
 func recenterNonneg(v, m int) int {
 	switch {
 	case v > (m << 1):
