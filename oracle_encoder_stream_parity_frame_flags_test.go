@@ -316,36 +316,75 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 	const (
 		fps        = 30
 		targetKbps = 700
-		frames     = 8
 		width      = 32
 		height     = 16
 	)
-	sources := make([]Image, frames)
-	for i := range sources {
-		sources[i] = encoderValidationPanningFrame(width, height, i)
-	}
-	opts := EncoderOptions{
-		Width:             width,
-		Height:            height,
-		FPS:               fps,
-		RateControlMode:   RateControlCBR,
-		TargetBitrateKbps: targetKbps,
-		MinQuantizer:      4,
-		MaxQuantizer:      56,
-		KeyFrameInterval:  999,
-		Deadline:          DeadlineRealtime,
-		CpuUsed:           0,
-		Tuning:            TunePSNR,
-	}
-	forceFrames := map[int]bool{1: true, 4: true}
-	flags := make([]EncodeFlags, frames)
-	for frame := range forceFrames {
-		flags[frame] = EncodeForceKeyFrame
+
+	cases := []struct {
+		name            string
+		frames          int
+		lookaheadFrames int
+		forceFrames     map[int]bool
+		extraArgs       []string
+		matchLimit      int
+	}{
+		{
+			name:        "no-lookahead-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+		},
+		{
+			name:            "lookahead2-frame1-and4",
+			frames:          8,
+			lookaheadFrames: 2,
+			forceFrames:     map[int]bool{1: true, 4: true},
+			extraArgs:       []string{"--lag-in-frames=2"},
+			// With lookahead, ForceKeyFrame() is sticky until the next
+			// committed output, while libvpx's force flag attaches to the
+			// input slot. Keep the row logged until that scheduling gap is
+			// closed.
+			matchLimit: 1,
+		},
+		{
+			name:            "lookahead4-frame4-and-flush",
+			frames:          10,
+			lookaheadFrames: 4,
+			forceFrames:     map[int]bool{4: true, 9: true},
+			extraArgs:       []string{"--lag-in-frames=4"},
+			matchLimit:      1,
+		},
 	}
 
-	govpxFrames := encodeFramesWithGovpxForceKeySchedule(t, opts, sources, forceFrames)
-	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-32x16", opts, targetKbps, sources, flags, nil)
-	assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, 0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]Image, tc.frames)
+			for i := range sources {
+				sources[i] = encoderValidationPanningFrame(width, height, i)
+			}
+			opts := EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           0,
+				Tuning:            TunePSNR,
+				LookaheadFrames:   tc.lookaheadFrames,
+			}
+			flags := make([]EncodeFlags, tc.frames)
+			for frame := range tc.forceFrames {
+				flags[frame] = EncodeForceKeyFrame
+			}
+
+			govpxFrames := encodeFramesWithGovpxForceKeySchedule(t, opts, sources, tc.forceFrames)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, targetKbps, sources, flags, tc.extraArgs)
+			assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, tc.matchLimit)
+		})
+	}
 }
 
 func encodeFramesWithGovpxForceKeySchedule(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool) [][]byte {

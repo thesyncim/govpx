@@ -293,6 +293,42 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "temporal-scalability-two-to-three-layer-transition",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = TemporalScalabilityConfig{
+					Enabled: true,
+					Mode:    TemporalLayeringTwoLayers,
+					LayerTargetBitrateKbps: [MaxTemporalLayers]int{
+						420, targetKbps,
+					},
+				}
+				return opts
+			}(),
+			flags:  temporalScalabilityTwoToThreeFlags(frames),
+			script: temporalScalabilityTwoToThreeScript(frames),
+			extraArgs: []string{
+				"--temporal-layers=2",
+				"--temporal-bitrates=420,700",
+				"--temporal-decimators=2,1",
+				"--temporal-periodicity=2",
+				"--temporal-layer-ids=0,1",
+			},
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(three-layer)", e.SetTemporalScalability(TemporalScalabilityConfig{
+						Enabled: true,
+						Mode:    TemporalLayeringThreeLayers,
+						LayerTargetBitrateKbps: [MaxTemporalLayers]int{
+							280, 420, targetKbps,
+						},
+					}))
+				},
+			},
+		},
+		{
 			name: "codec-control-surface-toggle",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -797,12 +833,7 @@ func temporalScalabilityEnableDisableFlags(frames int) []EncodeFlags {
 		panic("missing two-layer temporal pattern")
 	}
 	for frame := 2; frame < 6 && frame < frames; frame++ {
-		patternFrame := uint64(frame - 2)
-		flagIndex := int(patternFrame % uint64(pattern.FlagPeriodicity))
-		flags[frame] = pattern.Flags[flagIndex]
-		if patternFrame > 0 && flagIndex == 0 {
-			flags[frame] &^= EncodeForceKeyFrame
-		}
+		flags[frame] = temporalPatternFlag(pattern, uint64(frame-2), TemporalLayeringTwoLayers)
 	}
 	return flags
 }
@@ -825,6 +856,65 @@ func temporalScalabilityEnableDisableScript(frames int) []string {
 		script[6] = "tslayers:1+tsperiodicity:1+tsbitrates:700+tsdecimators:1+tsids:0"
 	}
 	return script
+}
+
+func temporalScalabilityTwoToThreeFlags(frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	twoLayer, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
+	if !ok {
+		panic("missing two-layer temporal pattern")
+	}
+	threeLayer, ok := temporalLayeringPattern(TemporalLayeringThreeLayers)
+	if !ok {
+		panic("missing three-layer temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < 6 {
+			flags[frame] = temporalPatternFlag(twoLayer, uint64(frame), TemporalLayeringTwoLayers)
+			continue
+		}
+		flags[frame] = temporalPatternFlag(threeLayer, uint64(frame-6), TemporalLayeringThreeLayers)
+	}
+	return flags
+}
+
+func temporalScalabilityTwoToThreeScript(frames int) []string {
+	script := runtimeControlScript(frames, nil)
+	twoLayer, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
+	if !ok {
+		panic("missing two-layer temporal pattern")
+	}
+	threeLayer, ok := temporalLayeringPattern(TemporalLayeringThreeLayers)
+	if !ok {
+		panic("missing three-layer temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < 6 {
+			layerID := temporalPatternLayerID(twoLayer, uint64(frame))
+			script[frame] = "tlid:" + strconv.Itoa(layerID)
+			continue
+		}
+		layerID := temporalPatternLayerID(threeLayer, uint64(frame-6))
+		token := "tlid:" + strconv.Itoa(layerID)
+		if frame == 6 {
+			token = "tslayers:3+tsperiodicity:4+tsbitrates:280/420/700+tsdecimators:4/2/1+tsids:0/2/1/2+" + token
+		}
+		script[frame] = token
+	}
+	return script
+}
+
+func temporalPatternFlag(pattern temporalPattern, frameIndex uint64, mode TemporalLayeringMode) EncodeFlags {
+	flagIndex := int(frameIndex % uint64(pattern.FlagPeriodicity))
+	flags := pattern.Flags[flagIndex]
+	if mode != TemporalLayeringFiveLayers && frameIndex > 0 && flagIndex == 0 {
+		flags &^= EncodeForceKeyFrame
+	}
+	return flags
+}
+
+func temporalPatternLayerID(pattern temporalPattern, frameIndex uint64) int {
+	return pattern.LayerID[int(frameIndex%uint64(pattern.Periodicity))]
 }
 
 func encodeFramesWithGovpxRuntimeControls(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
