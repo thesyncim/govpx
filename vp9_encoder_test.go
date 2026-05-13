@@ -165,8 +165,9 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	}
 	uncSize := br.BytesRead()
 
-	// Layer 2: compressed header (no-update body — every prob slot
-	// stays at the libvpx default).
+	// Layer 2: compressed header. The encoder may emit counts-driven
+	// probability updates, so the parsed frame context is the one the
+	// tile body must use.
 	compEnd := uncSize + int(h.FirstPartitionSize)
 	if compEnd > len(got) {
 		t.Fatalf("compressed header end %d past frame %d", compEnd, len(got))
@@ -284,6 +285,25 @@ func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after checker keyframe")
 	}
 	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
+}
+
+func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := newVP9CheckerYCbCrForTest(64, 64, 48, 208, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(packet)
+	h, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if h.FirstPartitionSize <= 2 {
+		t.Fatalf("FirstPartitionSize = %d, want counts-driven compressed header larger than no-update", h.FirstPartitionSize)
+	}
 }
 
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {

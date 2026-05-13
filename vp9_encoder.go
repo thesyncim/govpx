@@ -115,6 +115,7 @@ type VP9Encoder struct {
 	residueScratch [16]int16
 	txCoeffScratch [16]int16
 	dqCoeffScratch [16]int16
+	frameCounts    encoder.FrameCounts
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -205,9 +206,9 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 
 // EncodeInto packs the next profile 0 frame into dst. The current packet path
 // emits source-backed keyframes with 4x4 residuals and visible LAST/ZeroMv
-// inter frames with optional 4x4 residuals. The compressed header uses the
-// no-update path; counts-driven updates land when the encoder's tokenize loop
-// exposes real per-frame counters.
+// inter frames with optional 4x4 residuals. A deterministic prepass walks the
+// same mode tree to collect frame counts before the compressed header, so the
+// real tile is encoded with same-frame counts-driven probability updates.
 //
 // Returns the number of bytes written into dst. Caller sizes dst; leave room
 // for up to 64 KiB to match libvpx's first-partition header bound.
@@ -322,13 +323,19 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		partitionProbs = e.fc.PartitionProb
 	}
 
-	compSize, err := encoder.WriteCompressedHeaderNoUpdate(e.scratch[:], encoder.CompressedHeaderInputs{
+	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
+		&partitionProbs, &seg, baseMi, isKey, header.IntraOnly, keyState, interState)
+
+	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:           false,
 		TxMode:             common.Only4x4,
 		IntraOnly:          isKey || header.IntraOnly,
 		InterpFilter:       vp9dec.InterpEighttap,
 		ReferenceMode:      vp9dec.SingleReference,
 		CompoundRefAllowed: false,
+		CoefStepsize:       4,
+		Probs:              &e.fc,
+		Counts:             counts,
 	})
 	if err != nil {
 		return 0, err
@@ -337,6 +344,9 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		return 0, encoder.ErrCompressedHeaderTooLarge
 	}
 	header.FirstPartitionSize = uint16(compSize)
+	if !isKey {
+		partitionProbs = e.fc.PartitionProb
+	}
 
 	var headerBW encoder.BitWriter
 	headerBW.Init(dst)
@@ -491,6 +501,136 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	}
 }
 
+func (e *VP9Encoder) resetVP9EncoderCodingState(width, height int) {
+	e.prepareVP9EncoderOutputFrame(width, height)
+	for i := range e.aboveSegCtx {
+		e.aboveSegCtx[i] = 0
+	}
+	for i := range e.leftSegCtx {
+		e.leftSegCtx[i] = 0
+	}
+	for i := range e.miGrid {
+		e.miGrid[i] = vp9dec.NeighborMi{}
+	}
+	e.resetVP9EncoderAboveEntropyContexts()
+	e.resetVP9EncoderLeftEntropyContexts()
+}
+
+func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+	isKey, intraOnly bool, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+) *encoder.FrameCounts {
+	counts := &e.frameCounts
+	*counts = encoder.FrameCounts{}
+
+	var countKey *vp9KeyframeEncodeState
+	if key != nil {
+		tmp := *key
+		tmp.counts = counts
+		countKey = &tmp
+	}
+	var countInter *vp9InterEncodeState
+	if inter != nil {
+		tmp := *inter
+		tmp.counts = counts
+		countInter = &tmp
+	}
+
+	var bw bitstream.Writer
+	bw.Start(e.scratch[:])
+	switch {
+	case isKey:
+		e.writeVP9KeyframeSourceModesTile(&bw, miRows, miCols,
+			partitionProbs, seg, baseMi, countKey)
+	case intraOnly:
+		e.writeVP9StubModesTile(&bw, miRows, miCols, partitionProbs, seg, baseMi)
+	default:
+		e.writeVP9InterSourceModesTile(&bw, miRows, miCols,
+			partitionProbs, seg, baseMi, countInter)
+	}
+
+	e.resetVP9EncoderCodingState(width, height)
+	return counts
+}
+
+func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
+	inter *vp9InterEncodeState,
+) *encoder.FrameCounts {
+	if key != nil && key.counts != nil {
+		return key.counts
+	}
+	if inter != nil {
+		return inter.counts
+	}
+	return nil
+}
+
+func countVP9Skip(counts *encoder.FrameCounts, seg *vp9dec.SegmentationParams,
+	segID int, above, left *vp9dec.NeighborMi, skip uint8,
+) {
+	if counts == nil || vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip) {
+		return
+	}
+	ctx := vp9dec.GetSkipContext(above, left)
+	counts.Skip[ctx][skip]++
+}
+
+func countVP9IntraInter(counts *encoder.FrameCounts,
+	seg *vp9dec.SegmentationParams, segID int,
+	above, left *vp9dec.NeighborMi, isInter int,
+) {
+	if counts == nil || vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlRefFrame) {
+		return
+	}
+	ctx := vp9dec.GetIntraInterContext(above, left)
+	counts.IntraInter[ctx][isInter]++
+}
+
+func countVP9SingleRef(counts *encoder.FrameCounts,
+	seg *vp9dec.SegmentationParams, segID int,
+	above, left *vp9dec.NeighborMi, refFrame int8,
+) {
+	if counts == nil || vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlRefFrame) {
+		return
+	}
+	ctx0 := vp9dec.GetPredContextSingleRefP1(above, left)
+	bit0 := 0
+	if refFrame != vp9dec.LastFrame {
+		bit0 = 1
+	}
+	counts.ReferenceMode.SingleRef[ctx0][0][bit0]++
+	if bit0 == 0 {
+		return
+	}
+	ctx1 := vp9dec.GetPredContextSingleRefP2(above, left)
+	bit1 := 0
+	if refFrame != vp9dec.GoldenFrame {
+		bit1 = 1
+	}
+	counts.ReferenceMode.SingleRef[ctx1][1][bit1]++
+}
+
+func countVP9InterMode(counts *encoder.FrameCounts, seg *vp9dec.SegmentationParams,
+	segID int, bsize common.BlockSize, ctx int, mode common.PredictionMode,
+) {
+	if counts == nil || bsize < common.Block8x8 ||
+		vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip) {
+		return
+	}
+	sub := int(mode) - int(common.NearestMv)
+	if sub >= 0 && sub < common.InterModes {
+		counts.InterMode[ctx][sub]++
+	}
+}
+
+func vp9CoefBranchStats(counts *encoder.FrameCounts) *encoder.FrameCoefBranchStats {
+	if counts == nil {
+		return nil
+	}
+	return &counts.CoefBranchStats
+}
+
 func (e *VP9Encoder) writeVP9StubModesTile(bw *bitstream.Writer, miRows, miCols int,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
@@ -539,15 +679,17 @@ const (
 )
 
 type vp9KeyframeEncodeState struct {
-	img *image.YCbCr
-	hdr *vp9dec.UncompressedHeader
-	dq  *vp9dec.DequantTables
+	img    *image.YCbCr
+	hdr    *vp9dec.UncompressedHeader
+	dq     *vp9dec.DequantTables
+	counts *encoder.FrameCounts
 }
 
 type vp9InterEncodeState struct {
-	img *image.YCbCr
-	dq  *vp9dec.DequantTables
-	ref *vp9ReferenceFrame
+	img    *image.YCbCr
+	dq     *vp9dec.DequantTables
+	ref    *vp9ReferenceFrame
+	counts *encoder.FrameCounts
 }
 
 func (e *VP9Encoder) writeVP9ModesTile(bw *bitstream.Writer, miRows, miCols int,
@@ -597,6 +739,11 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	bs := (1 << uint(bsl)) / 4
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, bsize)
 	partition := common.PartitionLookup[bsl][target]
+	if counts := vp9EncodeCountsForState(key, inter); counts != nil {
+		ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+			miRow, miCol, bsize)
+		counts.Partition[ctx][partition]++
+	}
 	encoder.WritePartitionForBlock(bw, encoder.WriteModesSbArgs{
 		AboveSegCtx:    e.aboveSegCtx,
 		LeftSegCtx:     e.leftSegCtx,
@@ -683,6 +830,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	counts := vp9EncodeCountsForState(key, inter)
 	if kind == vp9ModeTreeInterSkip || kind == vp9ModeTreeInterSource {
 		reconBsize := vp9ModeInfoDecodeBSize(bsize)
 		hasResidue := false
@@ -693,6 +841,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				cur.Skip = 0
 			}
 		}
+		segID := int(cur.SegIDPredicted)
+		interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
+			tile, miRows, miRow, miCol, bsize)
+		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
+		countVP9IntraInter(counts, seg, segID, above, left, 1)
+		countVP9SingleRef(counts, seg, segID, above, left, cur.RefFrame[0])
+		countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
 		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
 			Seg:          seg,
 			Mi:           &cur,
@@ -702,8 +857,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			TxMode:       common.Only4x4,
 			FrameRefMode: vp9dec.SingleReference,
 			InterpFilter: vp9dec.InterpEighttap,
-			InterModeCtx: vp9dec.InterModeContext(e.miGrid, miCols,
-				tile, miRows, miRow, miCol, bsize),
+			InterModeCtx: interModeCtx,
 		})
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
@@ -726,7 +880,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 					inter.dq.Uv[0],
 					inter.dq.Uv[0],
 				},
-				Fc: &e.fc.CoefProbs,
+				Fc:              &e.fc.CoefProbs,
+				CoefBranchStats: vp9CoefBranchStats(counts),
 				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 					return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
 				},
@@ -742,6 +897,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if hasResidue {
 			cur.Skip = 0
 		}
+		countVP9Skip(counts, seg, int(cur.SegIDPredicted), above, left, cur.Skip)
 		encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
 			Seg:       seg,
 			Mi:        &cur,
@@ -771,7 +927,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				key.dq.Uv[0],
 				key.dq.Uv[0],
 			},
-			Fc: &e.fc.CoefProbs,
+			Fc:              &e.fc.CoefProbs,
+			CoefBranchStats: vp9CoefBranchStats(counts),
 			GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 				return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
 			},

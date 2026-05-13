@@ -118,14 +118,16 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 
 	frameIsIntraOnly := args.IntraOnly
 	if !frameIsIntraOnly {
+		var interModeScratch [common.InterModes - 1][2]uint32
 		WriteInterModeProbsFromCounts(&bw, &args.Probs.InterModeProbs,
-			&args.Counts.InterMode, scratchPair(common.InterModes-1))
+			&args.Counts.InterMode, interModeScratch[:])
 
 		if args.InterpFilter == vp9dec.InterpSwitchable {
+			var interpScratch [vp9dec.SwitchableFilters - 1][2]uint32
 			WriteSwitchableInterpProbsFromCounts(&bw,
 				&args.Probs.SwitchableInterpProb,
 				&args.Counts.SwitchableInterp,
-				scratchPair(vp9dec.SwitchableFilters-1))
+				interpScratch[:])
 		}
 
 		WriteIntraInterProbsFromCounts(&bw, &args.Probs.IntraInterProb,
@@ -136,24 +138,18 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 			&args.Counts.ReferenceMode, args.ReferenceMode,
 			args.CompoundRefAllowed)
 
+		var yModeScratch [common.IntraModes - 1][2]uint32
 		WriteYModeProbsFromCounts(&bw, &args.Probs.YModeProb,
-			&args.Counts.YMode, scratchPair(common.IntraModes-1))
+			&args.Counts.YMode, yModeScratch[:])
 
+		var partitionScratch [common.PartitionTypes - 1][2]uint32
 		WritePartitionProbsFromCounts(&bw, &args.Probs.PartitionProb,
-			&args.Counts.Partition, scratchPair(int(common.PartitionTypes)-1))
+			&args.Counts.Partition, partitionScratch[:])
 
+		var mvScratch [vp9dec.MvClasses - 1][2]uint32
 		WriteNmvProbsFromCounts(&bw, &args.Probs.Nmvc, &args.Counts.Mv,
-			args.AllowHighPrecisionMv, scratchPair(32))
+			args.AllowHighPrecisionMv, mvScratch[:])
 	}
 
 	return bw.Stop()
-}
-
-// scratchPair allocates a [N][2]uint32 scratch slice for one of the
-// tree-shaped writers. Caller chooses N from the tree's branch count.
-// Today this allocates; subsequent commits add a pooled scratch
-// owned by the encoder. For the current standalone tests of the
-// driver, the per-call allocations don't matter.
-func scratchPair(n int) [][2]uint32 {
-	return make([][2]uint32, n)
 }
