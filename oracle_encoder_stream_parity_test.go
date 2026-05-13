@@ -580,8 +580,9 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu5-16x16", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "good-quality-cbr-cpu5-48x48", deadline: DeadlineGoodQuality, cpuUsed: 5, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},
 		// BestQuality on small frames — probes the full trellis RD picker
-		// against the small-frame baseline. 16x16, 32x32, and 48x48 now
-		// byte-match the full 16-frame sequence.
+		// against the small-frame baseline. Include a non-16-aligned odd
+		// frame to exercise padded-edge SPLITMV decisions.
+		{name: "best-quality-cbr-cpu0-31x17", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-31x17", w: 31, h: 17, source: encoderValidationPanningFrame}},
 		{name: "best-quality-cbr-cpu0-16x16", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}},
 		{name: "best-quality-cbr-cpu0-32x32", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}},
 		{name: "best-quality-cbr-cpu0-48x48", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-48x48", w: 48, h: 48, source: encoderValidationPanningFrame}},

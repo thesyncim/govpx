@@ -303,7 +303,7 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	result, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -321,12 +321,12 @@ func TestEstimateInterIntraModeRDScoreAddsLibvpxPenalty(t *testing.T) {
 	}
 	rate := yRate + uvRate + intraYModeRate(false, vp8common.DCPred) + e.interIntraMacroblockModeRate()
 	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
-	if got != want {
-		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", got, want)
+	if result.score != want {
+		t.Fatalf("inter-intra RD score = %d, want %d with libvpx penalty", result.score, want)
 	}
 	wantYRD := rdModeScoreWithZbin(20, 0, yRate+intraYModeRate(false, vp8common.DCPred), yDist)
-	if gotYRD != wantYRD {
-		t.Fatalf("inter-intra YRD = %d, want libvpx Y-only RD %d", gotYRD, wantYRD)
+	if result.yrd != wantYRD {
+		t.Fatalf("inter-intra YRD = %d, want libvpx Y-only RD %d", result.yrd, wantYRD)
 	}
 }
 
@@ -343,7 +343,7 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
+	result, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.DCPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore returned ok=false")
 	}
@@ -365,12 +365,12 @@ func TestEstimateInterIntraModeRDScoreUsesLiveInterIntraModeProbs(t *testing.T) 
 	}
 	rate := yRate + uvRate + liveYModeRate + e.interIntraMacroblockModeRate()
 	want := rdModeScoreWithZbin(20, 0, rate, yDist+uvDist) + libvpxInterIntraRDPenalty(20)
-	if got != want {
-		t.Fatalf("inter-intra RD score = %d, want %d from live Y/UV mode probabilities", got, want)
+	if result.score != want {
+		t.Fatalf("inter-intra RD score = %d, want %d from live Y/UV mode probabilities", result.score, want)
 	}
 	wantYRD := rdModeScoreWithZbin(20, 0, yRate+liveYModeRate, yDist)
-	if gotYRD != wantYRD {
-		t.Fatalf("inter-intra YRD = %d, want %d from live Y mode probability", gotYRD, wantYRD)
+	if result.yrd != wantYRD {
+		t.Fatalf("inter-intra YRD = %d, want %d from live Y mode probability", result.yrd, wantYRD)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	e.analysis.ExtendBorders()
 	quant := testRegularMacroblockQuant(t, 20)
 
-	_, got, gotYRD, _, _, _, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
+	result, ok := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, vp8common.BPred, maxInt(), nil, nil, &quant)
 	if !ok {
 		t.Fatalf("estimateInterIntraModeRDScore BPred returned ok=false")
 	}
@@ -402,13 +402,13 @@ func TestEstimateInterIntraBPredYRDExcludesUVAndRefCosts(t *testing.T) {
 	}
 	yRate := bRate + intraYModeRate(false, vp8common.BPred)
 	wantYRD := rdModeScoreWithZbin(20, 0, yRate, bDist)
-	if gotYRD != wantYRD {
-		t.Fatalf("BPred YRD = %d, want libvpx Y-only RD %d", gotYRD, wantYRD)
+	if result.yrd != wantYRD {
+		t.Fatalf("BPred YRD = %d, want libvpx Y-only RD %d", result.yrd, wantYRD)
 	}
 	rate := yRate + uvRate + e.interIntraMacroblockModeRate()
 	want := rdModeScoreWithZbin(20, 0, rate, bDist+uvDist) + libvpxInterIntraRDPenalty(20)
-	if got != want {
-		t.Fatalf("BPred RD score = %d, want %d with UV/ref costs and penalty", got, want)
+	if result.score != want {
+		t.Fatalf("BPred RD score = %d, want %d with UV/ref costs and penalty", result.score, want)
 	}
 }
 

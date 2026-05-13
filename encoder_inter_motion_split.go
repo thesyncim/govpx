@@ -382,13 +382,19 @@ func splitBlockSubpixelMotionSearchCandidateCost(src vp8enc.SourceImage, ref *vp
 func splitBlockSubpixelVarianceForQuarterMV(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int) (int, bool) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
-	if baseY < 0 || baseX < 0 || baseY+height > src.Height || baseX+width > src.Width {
+	if baseY < 0 || baseX < 0 {
 		return 0, false
 	}
 	refBaseY := baseY + (row >> 2)
 	refBaseX := baseX + (col >> 2)
 	xOffset := (col & 3) << 1
 	yOffset := (row & 3) << 1
-	variance, _, ok := splitBlockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset)
+	if uint(baseY) <= uint(src.Height-height) && uint(baseX) <= uint(src.Width-width) {
+		variance, _, ok := splitBlockSubpixelVariance(src, ref, baseY, baseX, refBaseY, refBaseX, width, height, xOffset, yOffset)
+		return variance, ok
+	}
+	var srcScratch [16 * 16]byte
+	gatherClampedLumaBlock(src, baseY, baseX, width, height, srcScratch[:], 16)
+	variance, _, ok := splitBlockSubpixelVarianceBlock(ref, refBaseY, refBaseX, width, height, xOffset, yOffset, srcScratch[:], 16)
 	return variance, ok
 }

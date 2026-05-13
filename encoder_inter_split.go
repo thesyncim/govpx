@@ -489,19 +489,16 @@ func predictSplitMotionBlock4x4(ref *vp8common.Image, mbRow int, mbCol int, bloc
 	if xOffset|yOffset != 0 {
 		return predictSplitMotionSubpixelBlock4x4(ref, refBaseY, refBaseX, xOffset, yOffset, out)
 	}
+	// This predictor feeds the SPLITMV label-RD scorer. libvpx scores these
+	// 4x4 labels against the coded-edge samples; final reconstruction still
+	// goes through the decoder predictor path.
 	if uint(refBaseY) <= uint(ref.CodedHeight-4) && uint(refBaseX) <= uint(ref.CodedWidth-4) {
 		for row := range 4 {
 			copy(out[row*4:row*4+4], ref.Y[(refBaseY+row)*ref.YStride+refBaseX:])
 		}
 		return true
 	}
-	for row := range 4 {
-		refY := clampEncodeCoord(refBaseY+row, ref.CodedHeight)
-		for col := range 4 {
-			refX := clampEncodeCoord(refBaseX+col, ref.CodedWidth)
-			out[row*4+col] = ref.Y[refY*ref.YStride+refX]
-		}
-	}
+	gatherCodedClampedRefBlock(ref, refBaseY, refBaseX, 4, 4, out[:], 4)
 	return true
 }
 
@@ -518,6 +515,12 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 	if start < 0 || start+8*ref.YStride+9 > len(ref.YFull) {
 		return false
 	}
+	if refBaseY-2 < 0 || refBaseX-2 < 0 || refBaseY+7 > ref.CodedHeight || refBaseX+7 > ref.CodedWidth {
+		var scratch [(4 + 5) * (4 + 5)]byte
+		gatherCodedClampedRefBlock(ref, refBaseY-2, refBaseX-2, 4+5, 4+5, scratch[:], 4+5)
+		dsp.SixTapPredict4x4(scratch[:], 4+5, xOffset, yOffset, out[:], 4)
+		return true
+	}
 	dsp.SixTapPredict4x4(ref.YFull[start:], ref.YStride, xOffset, yOffset, out[:], 4)
 	return true
 }
@@ -526,11 +529,7 @@ func predictSplitMotionSubpixelBlock4x4(ref *vp8common.Image, refBaseY int, refB
 // ref into dst at dstStride, clamping each source coordinate to the visible
 // extent (ref.Width / ref.Height). This mirrors libvpx's effective state on
 // the bordered Y buffer post vp8_yv12_extend_frame_borders without requiring
-// a full-plane overwrite of the live reconstruction (which would force the
-// decoder side to mirror the change and regresses previously-passing
-// odd-axis fixtures). Only the SPLITMV picker WALK uses this; the actual
-// reconstruction predict path stays on the coded-clamped read shared with
-// the decoder so encoder/decoder consistency is preserved.
+// a full-plane overwrite of the live reconstruction.
 func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
 	visibleH := refVisibleClampDim(ref.Height, ref.CodedHeight)
 	visibleW := refVisibleClampDim(ref.Width, ref.CodedWidth)
@@ -540,6 +539,21 @@ func gatherVisibleClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, wi
 		srcRow := refY * ref.YStride
 		for col := range width {
 			refX := clampEncodeCoord(baseX+col, visibleW)
+			dst[dstRow+col] = ref.Y[srcRow+refX]
+		}
+	}
+}
+
+// gatherCodedClampedRefBlock copies a block from the coded extent. A few
+// libvpx SPLITMV scoring paths still read the coded-edge sample instead of
+// the visible-edge sample on odd-sized frames.
+func gatherCodedClampedRefBlock(ref *vp8common.Image, baseY int, baseX int, width int, height int, dst []byte, dstStride int) {
+	for row := range height {
+		refY := clampEncodeCoord(baseY+row, ref.CodedHeight)
+		dstRow := row * dstStride
+		srcRow := refY * ref.YStride
+		for col := range width {
+			refX := clampEncodeCoord(baseX+col, ref.CodedWidth)
 			dst[dstRow+col] = ref.Y[srcRow+refX]
 		}
 	}

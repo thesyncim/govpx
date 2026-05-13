@@ -312,11 +312,15 @@ func wholeBlockYTransformRD(src vp8enc.SourceImage, pred *vp8common.Image, mbRow
 	for block := range 16 {
 		copy(dct[:], dcts[block*16:block*16+16])
 		y2Input[block] = dct[0]
-		dct[0] = 0
 		a := block & 3
 		l := (block & 0x0c) >> 2
 		ctx := int(yAbove[a] + yLeft[l])
-		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1DC, zbinOverQuant, &qcoeff, &dqcoeff)
+		// libvpx quantizes the Y1 DC coefficient before Y_NO_DC token
+		// costing. The DC token itself is skipped because Y2 carries it,
+		// but the quantized DC still affects zbin zero-run and EOB state.
+		eob := quantizeDecisionBlock(fastQuant, &dct, &quant.Y1, zbinOverQuant, &qcoeff, &dqcoeff)
+		dct[0] = 0
+		dqcoeff[0] = 0
 		rate += coefficientBlockTokenRate(coefProbs, 0, ctx, 1, &qcoeff, eob)
 		mbblockError += transformBlockError(&dct, &dqcoeff)
 		hasCoeffs := uint8(0)

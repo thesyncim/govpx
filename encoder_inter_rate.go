@@ -777,7 +777,9 @@ func splitBlockSubpixelVarianceBlock(ref *vp8common.Image, refBaseY int, refBase
 	case width == 4 && height == 4:
 		if useScratch {
 			var scratch [(4 + 1) * (4 + 1)]byte
-			gatherVisibleClampedRefBlock(ref, refBaseY, refBaseX, 4+1, 4+1, scratch[:], 4+1)
+			// libvpx's 4x4 bilinear variance reads the coded-edge sample here;
+			// using the visible edge changes the tie-breaker on odd-size SPLITMV.
+			gatherCodedClampedRefBlock(ref, refBaseY, refBaseX, 4+1, 4+1, scratch[:], 4+1)
 			variance, sse := dsp.SubpelVariance4x4(scratch[:], 4+1, xOffset, yOffset, srcBlock, srcStride)
 			return variance, sse, true
 		}

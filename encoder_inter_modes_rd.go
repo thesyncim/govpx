@@ -101,7 +101,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			}
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
-			mode, score, yrd, rate, distortion, candidateStaleY2, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			intra, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
 			// libvpx vp8/encoder/rdopt.c B_PRED case (lines 1949-1971):
 			// when rd_pick_intra4x4mby_modes returns tmp_rd >= best_yrd
 			// the case sets `this_rd = INT_MAX, disable_skip = 1` and
@@ -121,9 +121,14 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				e.raiseInterRDThreshold(modeIndex)
 				continue
 			}
-			if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
-				lastStaleY2 = candidateStaleY2
+			if oracleTraceBuild && oracleStaleY2SnapshotSet(intra.staleY2) {
+				lastStaleY2 = intra.staleY2
 			}
+			mode := intra.mode
+			score := intra.score
+			yrd := intra.yrd
+			rate := intra.rate
+			distortion := intra.distortion
 			mode.SegmentID = segmentID
 			becameBest := !bestSet || score < bestScore
 			if traceEnabled {
@@ -144,10 +149,10 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 					Score:           score,
 					YRD:             yrd,
 					Rate:            rate,
-					RateY:           oracleTraceInterCandidateUnknown,
-					RateUV:          oracleTraceInterCandidateUnknown,
-					Distortion:      oracleTraceInterCandidateUnknown,
-					DistortionUV:    oracleTraceInterCandidateUnknown,
+					RateY:           intra.rateY,
+					RateUV:          intra.rateUV,
+					Distortion:      distortion,
+					DistortionUV:    intra.distortionUV,
 					SSE:             oracleTraceInterCandidateUnknown,
 					Skip:            mode.MBSkipCoeff,
 					ModeTrace:       mode,
