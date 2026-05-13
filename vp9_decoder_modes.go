@@ -9,19 +9,22 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
-// parseVP9IntraModeTiles consumes the tile mode-info stream for
-// keyframes and intra-only inter frames. Residual decode and
-// reconstruction still live behind ErrVP9NotImplemented, but this
-// validates the partition + intra-mode layer the current encoder emits.
+// parseVP9IntraModeTiles consumes the tile mode-info and residual-token
+// stream for keyframes and intra-only inter frames. Reconstruction still
+// lives behind ErrVP9NotImplemented, but this validates the partition,
+// intra-mode, and coefficient layers the current encoder emits.
 func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
 ) error {
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
+	vp9dec.SetupBlockPlanes(&d.planes, hdr.BitDepthColor.SubsamplingX,
+		hdr.BitDepthColor.SubsamplingY)
 	d.ensureVP9DecoderModeBuffers(miRows, miCols)
 	for i := range d.aboveSegCtx {
 		d.aboveSegCtx[i] = 0
 	}
+	d.resetVP9AboveEntropyContexts()
 	for i := range d.miGrid {
 		d.miGrid[i] = vp9dec.NeighborMi{}
 	}
@@ -94,6 +97,7 @@ func (d *VP9Decoder) parseVP9IntraModeTile(data []byte,
 		for i := range d.leftSegCtx {
 			d.leftSegCtx[i] = 0
 		}
+		d.resetVP9LeftEntropyContexts()
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
 			if !d.readVP9IntraModeSb(&r, hdr, maps, tile, miRows, miCols,
 				miRow, miCol, common.Block64x64, comp.TxMode, partitionProbs) {
@@ -129,20 +133,32 @@ func (d *VP9Decoder) readVP9IntraModeSb(r *bitstream.Reader,
 	}
 
 	if subsize < common.Block8x8 {
-		d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode)
+		if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode) {
+			return false
+		}
 	} else {
 		switch partition {
 		case common.PartitionNone:
-			d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode)
+			if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode) {
+				return false
+			}
 		case common.PartitionHorz:
-			d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode)
+			if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode) {
+				return false
+			}
 			if miRow+bs < miRows {
-				d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow+bs, miCol, subsize, txMode)
+				if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow+bs, miCol, subsize, txMode) {
+					return false
+				}
 			}
 		case common.PartitionVert:
-			d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode)
+			if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol, subsize, txMode) {
+				return false
+			}
 			if miCol+bs < miCols {
-				d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol+bs, subsize, txMode)
+				if !d.readVP9IntraModeBlock(r, hdr, maps, tile, miRows, miCols, miRow, miCol+bs, subsize, txMode) {
+					return false
+				}
 			}
 		case common.PartitionSplit:
 			if !d.readVP9IntraModeSb(r, hdr, maps, tile, miRows, miCols,
@@ -178,7 +194,7 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, maps *vp9dec.IntraSegmentMaps,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, txMode common.TxMode,
-) {
+) bool {
 	xMis := min(int(common.Num8x8BlocksWideLookup[bsize]), miCols-miCol)
 	yMis := min(int(common.Num8x8BlocksHighLookup[bsize]), miRows-miRow)
 
@@ -201,7 +217,77 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 		Above:    above,
 		Left:     left,
 	}, mi)
+	if mi.Skip != 0 {
+		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
+		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		return true
+	}
+	if !d.readVP9IntraResidueBlock(r, hdr, mi, miRow, miCol, bsize) {
+		return false
+	}
 	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	return true
+}
+
+func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, mi *vp9dec.NeighborMi,
+	miRow, miCol int, bsize common.BlockSize,
+) bool {
+	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
+	segID := int(mi.SegIDPredicted)
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &d.planes[plane]
+		planeType := 0
+		dequant := d.dq.Y[segID]
+		if plane > 0 {
+			planeType = 1
+			dequant = d.dq.Uv[segID]
+		}
+
+		txSize := mi.TxSize
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		}
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return false
+		}
+		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		step := 1 << uint(txSize)
+		aboveBase := aboveOffsets[plane]
+		leftBase := leftOffsets[plane]
+		blockIdx := 0
+
+		for rr := 0; rr < num4x4H; rr += step {
+			for cc := 0; cc < num4x4W; cc += step {
+				aboveCtx := pd.AboveContext[aboveBase+cc : aboveBase+cc+step]
+				leftCtx := pd.LeftContext[leftBase+rr : leftBase+rr+step]
+				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
+				scanOrder := common.GetScan(txSize, planeType, 0,
+					hdr.Quant.Lossless, vp9dec.GetYMode(mi, blockIdx))
+				maxEob := vp9dec.MaxEobForTxSize(txSize)
+				coeffs := d.dqcoeff[:maxEob]
+				for i := range coeffs {
+					coeffs[i] = 0
+				}
+
+				eob := vp9dec.DecodeCoefs(r, txSize, planeType, 0, dequant,
+					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs, coeffs)
+				hasResidue := uint8(0)
+				if eob > 0 {
+					hasResidue = 1
+				}
+				for i := range step {
+					aboveCtx[i] = hasResidue
+					leftCtx[i] = hasResidue
+				}
+				blockIdx += step * step
+			}
+		}
+	}
+	return true
 }
 
 func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
@@ -233,6 +319,55 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 	} else {
 		d.lastSegMap = d.lastSegMap[:miGridLen]
 	}
+
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &d.planes[plane]
+		aboveLen := vp9PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
+		leftLen := vp9PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
+		if cap(pd.AboveContext) < aboveLen {
+			pd.AboveContext = make([]uint8, aboveLen)
+		} else {
+			pd.AboveContext = pd.AboveContext[:aboveLen]
+		}
+		if cap(pd.LeftContext) < leftLen {
+			pd.LeftContext = make([]uint8, leftLen)
+		} else {
+			pd.LeftContext = pd.LeftContext[:leftLen]
+		}
+	}
+}
+
+func vp9PlaneEntropyLen(miCount int, subsampling uint8) int {
+	return (miCount * 2) >> subsampling
+}
+
+func (d *VP9Decoder) resetVP9AboveEntropyContexts() {
+	for plane := range vp9dec.MaxMbPlane {
+		ctx := d.planes[plane].AboveContext
+		for i := range ctx {
+			ctx[i] = 0
+		}
+	}
+}
+
+func (d *VP9Decoder) resetVP9LeftEntropyContexts() {
+	for plane := range vp9dec.MaxMbPlane {
+		ctx := d.planes[plane].LeftContext
+		for i := range ctx {
+			ctx[i] = 0
+		}
+	}
+}
+
+func (d *VP9Decoder) vp9PlaneContextOffsets(miRow, miCol int) (
+	above [vp9dec.MaxMbPlane]int, left [vp9dec.MaxMbPlane]int,
+) {
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &d.planes[plane]
+		above[plane] = (miCol * 2) >> pd.SubsamplingX
+		left[plane] = ((miRow * 2) >> pd.SubsamplingY) % len(pd.LeftContext)
+	}
+	return above, left
 }
 
 func (d *VP9Decoder) vp9DecoderMiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi {

@@ -15,8 +15,8 @@ import (
 // header, compressed header, mode info, detokenize, and DSP kernels
 // are byte-parity tested against libvpx v1.16.0 but the per-block
 // reconstruct pipeline isn't wired yet). VP9Decoder.Decode therefore
-// returns [ErrVP9NotImplemented] until the residual + reconstruct
-// loops land. Constructors and accessors are usable today.
+// returns [ErrVP9NotImplemented] until the reconstruct loops land.
+// Constructors and accessors are usable today.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -79,6 +79,12 @@ type VP9Decoder struct {
 	// id paths on later frames.
 	segMap     []uint8
 	lastSegMap []uint8
+
+	// planes carries the per-plane coefficient entropy contexts the
+	// residual token pass updates. dqcoeff is stack-equivalent decoder
+	// scratch for one 32x32 transform block.
+	planes  [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	dqcoeff [1024]int16
 
 	// width and height carry the last keyframe's frame dimensions.
 	// Reset on every keyframe; non-zero only after the first
