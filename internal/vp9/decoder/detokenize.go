@@ -40,16 +40,35 @@ const cat6Bits8 = 14 // 8-bit profile cat6 magnitude width
 // maxEobForTxSize returns the maximum number of coefficients a given
 // transform contains. Mirrors `max_eob = 16 << (tx_size << 1)`.
 func maxEobForTxSize(tx common.TxSize) int {
+	return MaxEobForTxSize(tx)
+}
+
+// MaxEobForTxSize is the public mirror of maxEobForTxSize — the
+// coefficient count for the given transform shape.
+func MaxEobForTxSize(tx common.TxSize) int {
 	return 16 << (tx << 1)
 }
 
 // bandTranslateForTxSize selects the scan-position → coef-band map.
 // Mirrors get_band_translate in vp9_entropy.h.
 func bandTranslateForTxSize(tx common.TxSize) []uint8 {
+	return BandTranslateForTxSize(tx)
+}
+
+// BandTranslateForTxSize is the public mirror of
+// bandTranslateForTxSize — returns the scan-position → coef-band
+// table for the given transform shape.
+func BandTranslateForTxSize(tx common.TxSize) []uint8 {
 	if tx == common.Tx4x4 {
 		return tables.CoefbandTrans4x4[:]
 	}
 	return tables.CoefbandTrans8x8Plus[:]
+}
+
+// GetCoefContext is the public mirror of getCoefContext — neighbor
+// average of the per-coefficient token cache, +1, >> 1.
+func GetCoefContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
+	return getCoefContext(neighbors, tokenCache, c)
 }
 
 // readCoeffBits pulls `n` raw bits from the boolean coder against the
