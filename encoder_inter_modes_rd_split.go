@@ -60,6 +60,10 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	fastQuant := e.libvpxUseFastQuantForPick()
 	coefProbs := e.pickerCoefProbs()
 
+	errorPerBit := 0
+	if e.activityMapValid {
+		errorPerBit = e.tunedErrorPerBit(ctx.qIndex, ctx.mbRow, ctx.mbCol)
+	}
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
 		labelRD.init(zbinOverQuant, ctx.aboveTok, ctx.leftTok, fastQuant, false)
@@ -81,6 +85,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 			mbCol:             ctx.mbCol,
 			bestRefMV:         ctx.bestRefMV,
 			qIndex:            ctx.qIndex,
+			errorPerBit:       errorPerBit,
 			partition:         partition,
 			left:              ctx.left,
 			above:             ctx.above,

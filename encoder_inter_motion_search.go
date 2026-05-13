@@ -83,11 +83,17 @@ type interFrameMotionVectorSearch struct {
 	mbCols    int
 	bestRefMV vp8enc.MotionVector
 	qIndex    int
-	search    interAnalysisSearchConfig
-	start     interFrameSearchStart
-	mvProbs   *[2][vp8tables.MVPCount]uint8
-	mvCosts   *vp8enc.MotionVectorCostTables
-	stats     *interFrameMotionSearchStats
+	// errorPerBit, when non-zero, overrides libvpxErrorPerBit(qIndex) for
+	// the sub-pel refinement. Populated by per-MB picker dispatches that
+	// apply libvpx's vp8_activity_masking errorperbit adjustment when
+	// TuneSSIM is active; otherwise zero (default keeps the libvpx
+	// qIndex-only baseline that drives the PSNR-tuned path).
+	errorPerBit int
+	search      interAnalysisSearchConfig
+	start       interFrameSearchStart
+	mvProbs     *[2][vp8tables.MVPCount]uint8
+	mvCosts     *vp8enc.MotionVectorCostTables
+	stats       *interFrameMotionSearchStats
 }
 
 type interFrameMotionVectorSearchResult struct {
@@ -129,17 +135,18 @@ func (s interFrameMotionVectorSearch) fullPixel() (vp8enc.MotionVector, int) {
 
 func (s interFrameMotionVectorSearch) subpixel(best vp8enc.MotionVector) interFrameSubpixelSearch {
 	return interFrameSubpixelSearch{
-		src:       s.src,
-		ref:       s.ref,
-		mbRow:     s.mbRow,
-		mbCol:     s.mbCol,
-		best:      best,
-		bestRefMV: s.bestRefMV,
-		qIndex:    s.qIndex,
-		search:    s.search,
-		mvProbs:   s.mvProbs,
-		mvCosts:   s.mvCosts,
-		stats:     s.stats,
+		src:         s.src,
+		ref:         s.ref,
+		mbRow:       s.mbRow,
+		mbCol:       s.mbCol,
+		best:        best,
+		bestRefMV:   s.bestRefMV,
+		qIndex:      s.qIndex,
+		errorPerBit: s.errorPerBit,
+		search:      s.search,
+		mvProbs:     s.mvProbs,
+		mvCosts:     s.mvCosts,
+		stats:       s.stats,
 	}
 }
 

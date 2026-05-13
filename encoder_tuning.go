@@ -225,6 +225,44 @@ func (e *VP8Encoder) tunedRDMultiplier(rdMult int, mbRow int, mbCol int) int {
 	return int(adjusted)
 }
 
+// tunedErrorPerBit mirrors libvpx's per-MB x->errorperbit lift inside
+// vp8_activity_masking. After scaling x->rdmult by (act + 2*avg) /
+// (2*act + avg), libvpx recomputes x->errorperbit = x->rdmult * 100 /
+// (110 * x->rddiv) and floors it at 1. The recompute leans on the same rdMult
+// / rdDiv split the existing libvpxRDConstantsWithZbin() helper produces, so
+// the activity-adjusted rdMult divided by 110 collapses to the same
+// rawRDMultiplier / 110 ratio that libvpxErrorPerBit derives on the
+// PSNR-tuned path — only with the activity-masked raw multiplier.
+//
+// Callers pass qIndex (the base, not segment-adjusted, frame qindex libvpx
+// uses for cpi->RDMULT) so the no-zbin-over-quant fractional motion search
+// rate gets the same scaling libvpx applies. The fast/RD pickers run subpel
+// refinement with the frame-level rd-constant pair, mirroring the libvpx
+// vp8_initialize_rd_consts(cm->base_qindex) → vp8_activity_masking flow.
+//
+// Returns the libvpx-default libvpxErrorPerBit(qIndex) when activity masking
+// is inactive so the PSNR path stays unchanged.
+func (e *VP8Encoder) tunedErrorPerBit(qIndex int, mbRow int, mbCol int) int {
+	if !e.activityMapValid {
+		return libvpxErrorPerBit(qIndex)
+	}
+	rdMult, rdDiv := libvpxRDConstantsWithZbin(qIndex, 0)
+	tuned := e.tunedRDMultiplier(rdMult, mbRow, mbCol)
+	if rdDiv <= 0 {
+		return libvpxErrorPerBit(qIndex)
+	}
+	// x->rdmult * 100 / (110 * x->rddiv), floored at 1 to match libvpx's
+	// errorperbit += (errorperbit == 0) post-fix.
+	value := (int64(tuned) * 100) / (110 * int64(rdDiv))
+	if value < 1 {
+		return 1
+	}
+	if value > int64(maxInt()) {
+		return maxInt()
+	}
+	return int(value)
+}
+
 // tunedZbinOverQuant mirrors libvpx's activity-adjusted zero-bin bias. The
 // returned value is clamped to the regulator's legal zbin-over-quant range.
 func (e *VP8Encoder) tunedZbinOverQuant(zbinOverQuant int, mbRow int, mbCol int) int {

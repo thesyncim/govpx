@@ -15,10 +15,32 @@ type interFrameSubpixelSearch struct {
 	best      vp8enc.MotionVector
 	bestRefMV vp8enc.MotionVector
 	qIndex    int
-	search    interAnalysisSearchConfig
-	mvProbs   *[2][vp8tables.MVPCount]uint8
-	mvCosts   *vp8enc.MotionVectorCostTables
-	stats     *interFrameMotionSearchStats
+	// errorPerBit, when non-zero, overrides the libvpx-default
+	// libvpxErrorPerBit(qIndex) used to scale motion-vector rate into the
+	// fractional-search cost. TuneSSIM's per-MB vp8_activity_masking call in
+	// libvpx (vp8/encoder/encodeframe.c) re-derives x->errorperbit from the
+	// activity-adjusted x->rdmult before each MB's NEWMV search; mirroring
+	// that here is what closes the realtime-cbr-cpu-3-64x64-segmented-tune-
+	// ssim parity gap that remained after the activity probe matched libvpx
+	// byte-for-byte.
+	errorPerBit int
+	search      interAnalysisSearchConfig
+	mvProbs     *[2][vp8tables.MVPCount]uint8
+	mvCosts     *vp8enc.MotionVectorCostTables
+	stats       *interFrameMotionSearchStats
+}
+
+// effectiveErrorPerBit returns the caller-supplied per-MB errorperbit when
+// TuneSSIM activity masking is active, falling back to the libvpx default
+// derived purely from qIndex. The default preserves byte parity for the
+// PSNR-tuned path and for all callers that have not been threaded through
+// to populate errorPerBit yet (the picker and split-MV dispatches that the
+// segmented-tune-ssim fixture exercises do populate it).
+func (s *interFrameSubpixelSearch) effectiveErrorPerBit() int {
+	if s.errorPerBit > 0 {
+		return s.errorPerBit
+	}
+	return libvpxErrorPerBit(s.qIndex)
 }
 
 type subpelCandidateEval struct {
@@ -51,7 +73,7 @@ func (s *interFrameSubpixelSearch) step(quarter bool) (vp8enc.MotionVector, int,
 	if !subCtxOK {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
-	errorPerBit := libvpxErrorPerBit(s.qIndex)
+	errorPerBit := s.effectiveErrorPerBit()
 	bestEval := s.centerEval(&subCtx, bestRow, bestCol, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
@@ -321,7 +343,7 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 	// R15-B: hoist errorPerBit + motion-vector probabilities into the
 	// closure capture so each candidate-cost call collapses to a
 	// SubpelVariance + LUT lookup.
-	errorPerBit := libvpxErrorPerBit(s.qIndex)
+	errorPerBit := s.effectiveErrorPerBit()
 	refRow4 := int(s.bestRefMV.Row) >> 1
 	refCol4 := int(s.bestRefMV.Col) >> 1
 	var cachedRows [48]int
