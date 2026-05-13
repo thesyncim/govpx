@@ -775,18 +775,10 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 	return nil
 }
 
-// applyChromaOnlyLoopFilter dispatches the picker-reuse path's chroma-only
-// loop-filter apply. At Threads=1 (e.rowWorkers == nil) the call collapses to
-// the canonical serial vp8dec.ApplyLoopFilterChromaOnlyPrepared so no atomic
-// loads, channel ops, or goroutine spawns appear on the single-threaded hot
-// path — keeping the zero-alloc, byte-identical contract. At Threads>=2 the
-// per-row chroma apply is partitioned across the row worker pool. Per-row
-// independence: chroma writes for MB row R touch chroma lines R*8-2..R*8+5,
-// while row R+1's MB top edge reads R*8+6..R*8+13, so row stripes can run in
-// parallel without a wave-front barrier.
+// applyChromaOnlyLoopFilter applies the picker-reuse path's chroma-only
+// loop filter in libvpx frame-traversal order. Chroma horizontal edges overlap
+// across adjacent MB rows, so this pass must stay serial even when row workers
+// are available.
 func (e *VP8Encoder) applyChromaOnlyLoopFilter(rows int, cols int, required int, frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, segmentation vp8enc.SegmentationConfig) error {
-	if e.rowWorkers == nil {
-		return vp8dec.ApplyLoopFilterChromaOnlyPrepared(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
-	}
-	return e.applyChromaOnlyLoopFilterThreaded(rows, cols, required, frameType, header, segmentation)
+	return vp8dec.ApplyLoopFilterChromaOnlyPrepared(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
 }

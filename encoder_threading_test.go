@@ -176,6 +176,38 @@ func TestEncoderThreadsProducesIdenticalBitstream(t *testing.T) {
 	}
 }
 
+func TestThreadedKeyFrameReferencesMatchDecoder(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		KeyFrameInterval:  999,
+		Threads:           2,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	src := encoderValidationPanningFrame(64, 64, 0)
+	dst := make([]byte, 64*64*4)
+	result, err := e.EncodeInto(dst, src, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if result.Dropped {
+		t.Fatalf("EncodeInto unexpectedly dropped frame")
+	}
+
+	decoded := decodeSingleFrame(t, result.Data)
+	assertImagesEqual(t, "threaded keyframe current", decoded, publicImageFromVP8(&e.current.Img))
+	assertImagesEqual(t, "threaded keyframe last", decoded, publicImageFromVP8(&e.lastRef.Img))
+}
+
 // TestEncoderThreadsProducesDeterministicAtFixedN verifies the encoder
 // produces a byte-stable bitstream at every fixed Threads value: two
 // runs with identical inputs and identical Threads must yield identical
