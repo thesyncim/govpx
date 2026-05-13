@@ -240,6 +240,23 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cq-cpu-3-32x32-cq40", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 40, extraArgs: []string{"--end-usage=cq", "--cq-level=40"}},
 		{name: "realtime-q-cpu-3-32x32-q20-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, tokenPartitions: 2, extraArgs: []string{"--end-usage=q", "--cq-level=20", "--token-parts=2"}},
 		{name: "realtime-cq-cpu-3-32x32-cq40-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 40, tokenPartitions: 2, extraArgs: []string{"--end-usage=cq", "--cq-level=40", "--token-parts=2"}},
+		// Fill in additional cqLevel values across Q / CQ modes so the
+		// per-Q regulator response is byte-pinned across the
+		// in-range slice, not just at the existing 4/20/40/56 anchors.
+		// cqLevel must lie inside the default minQ=4..maxQ=56 band, so
+		// the q0/q63/cq63 boundaries are owned by the q0-0 / q0-63
+		// quantizer-band rows above; we expand the middle of the
+		// 4..56 range here.
+		{name: "realtime-q-cpu-3-16x16-q10", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 10, extraArgs: []string{"--end-usage=q", "--cq-level=10"}},
+		{name: "realtime-q-cpu-3-16x16-q30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 30, extraArgs: []string{"--end-usage=q", "--cq-level=30"}},
+		{name: "realtime-q-cpu-3-16x16-q50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=q", "--cq-level=50"}},
+		{name: "realtime-cq-cpu-3-16x16-cq10", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 10, extraArgs: []string{"--end-usage=cq", "--cq-level=10"}},
+		{name: "realtime-cq-cpu-3-16x16-cq30", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 30, extraArgs: []string{"--end-usage=cq", "--cq-level=30"}},
+		// cq50 shares the BestQuality-VBR/Q frame-14 SPLITMV label-RD
+		// byte gap (frames 14/15 diverge on the 16x16 single-MB fixture
+		// at this quantizer slice); pin the clean 14-frame prefix so the
+		// CQ50 plumbing stays guarded.
+		{name: "realtime-cq-cpu-3-16x16-cq50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: 14, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=cq", "--cq-level=50"}},
 		// FastLoopFilterPick=true is a deliberate parity-breaking opt-in
 		// that swaps the full-frame loop-filter trial picker for the
 		// partial-frame variant whenever speed >= 4. Pin the divergence
@@ -439,6 +456,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-cbr-cpu4-32x32-kf4", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 4, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=4"}},
 		{name: "best-quality-cbr-cpu0-16x16-kf8", deadline: DeadlineBestQuality, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 8, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=8"}},
 		{name: "realtime-cbr-cpu-8-64x64-kf8", deadline: DeadlineRealtime, cpuUsed: -8, fx: panning64, kfInterval: 8, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=8"}},
+		// Fill in the kfInterval cadence between allkf (1), kf4, and
+		// kf8 so each value libvpx might be configured with at a small
+		// fixture has a strict byte-parity probe.
+		{name: "realtime-cbr-cpu0-32x32-kf2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 2, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=2"}},
+		{name: "realtime-cbr-cpu0-32x32-kf3", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 3, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=3"}},
+		{name: "realtime-cbr-cpu-3-16x16-kf2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 2, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=2"}},
+		{name: "realtime-cbr-cpu-3-32x32-kf5", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, kfInterval: 5, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=5"}},
+		{name: "realtime-cbr-cpu-3-16x16-kf16", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, kfInterval: 16, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=16"}},
 		// 16x16 / 48x48 with token partitions to widen the partitioned-
 		// writer coverage beyond the existing 32x32 site.
 		{name: "realtime-cbr-cpu0-16x16-2partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
@@ -655,6 +680,17 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu0-32x32-sharpness1", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 1, extraArgs: []string{"--sharpness=1"}},
 		{name: "realtime-cbr-cpu0-32x32-sharpness2", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 2, extraArgs: []string{"--sharpness=2"}},
 		{name: "realtime-cbr-cpu0-32x32-sharpness7", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
+		// Fill in the rest of the [0, 7] sharpness range so every level
+		// is pinned by at least one strict byte-parity case (defaults
+		// sharpness=0 implicitly, so the explicit row guards the
+		// libvpx-clamped default path as well).
+		{name: "realtime-cbr-cpu0-32x32-sharpness0", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 0, extraArgs: []string{"--sharpness=0"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness3", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 3, extraArgs: []string{"--sharpness=3"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness5", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 5, extraArgs: []string{"--sharpness=5"}},
+		{name: "realtime-cbr-cpu0-32x32-sharpness6", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 6, extraArgs: []string{"--sharpness=6"}},
+		{name: "realtime-cbr-cpu-3-16x16-sharpness3", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 3, extraArgs: []string{"--sharpness=3"}},
+		{name: "realtime-cbr-cpu-3-16x16-sharpness5", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 5, extraArgs: []string{"--sharpness=5"}},
+		{name: "realtime-cbr-cpu-3-16x16-sharpness6", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 6, extraArgs: []string{"--sharpness=6"}},
 		// cpu-3 + axes on large clean-grid sizes — confirms parity holds
 		// across bitrate/Q axes on 256x144 (4 strict matches) and
 		// 640x480.
