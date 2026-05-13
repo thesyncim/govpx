@@ -52,7 +52,7 @@ const (
 type EncodeFlags uint32
 
 const (
-	// EncodeForceKeyFrame forces the next encoded packet to be a key frame.
+	// EncodeForceKeyFrame forces this input frame to be encoded as a key frame.
 	EncodeForceKeyFrame EncodeFlags = 1 << iota
 
 	// EncodeInvisibleFrame encodes a hidden frame that updates references but

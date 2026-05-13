@@ -762,12 +762,13 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	return nil
 }
 
-// ForceKeyFrame requests that the next frame committed by EncodeInto or
-// FlushInto be a key frame. The request is sticky until satisfied: with
-// lookahead enabled the next visible output is forced; hidden alt-ref
-// emissions in between do not consume it. Use the EncodeForceKeyFrame flag
-// on EncodeInto when only that single call must be a key frame. Calls on a
-// nil or closed encoder are no-ops.
+// ForceKeyFrame requests that the next accepted input frame be a key frame.
+// With lookahead enabled the resulting packet may be emitted by a later
+// EncodeInto or FlushInto call; hidden alt-ref emissions in between do not
+// consume it. If no input is accepted before FlushInto drains queued frames,
+// the next committed output is forced. Use the EncodeForceKeyFrame flag on
+// EncodeInto when only that single call must be a key frame. Calls on a nil
+// or closed encoder are no-ops.
 func (e *VP8Encoder) ForceKeyFrame() {
 	if e == nil || e.closed {
 		return

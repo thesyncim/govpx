@@ -339,11 +339,6 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			lookaheadFrames: 2,
 			forceFrames:     map[int]bool{1: true, 4: true},
 			extraArgs:       []string{"--lag-in-frames=2"},
-			// With lookahead, ForceKeyFrame() is sticky until the next
-			// committed output, while libvpx's force flag attaches to the
-			// input slot. Keep the row logged until that scheduling gap is
-			// closed.
-			matchLimit: 1,
 		},
 		{
 			name:            "lookahead4-frame4-and-flush",
@@ -351,7 +346,6 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			lookaheadFrames: 4,
 			forceFrames:     map[int]bool{4: true, 9: true},
 			extraArgs:       []string{"--lag-in-frames=4"},
-			matchLimit:      1,
 		},
 	}
 

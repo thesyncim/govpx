@@ -42,8 +42,16 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 	if err := validateEncodeFlags(flags); err != nil {
 		return EncodeResult{}, err
 	}
-	if err := e.pushLookahead(sourceImageFromImage(src), pts, duration, flags); err != nil {
+	pushFlags := flags
+	consumeForceKey := e.forceKeyFrame
+	if consumeForceKey {
+		pushFlags |= EncodeForceKeyFrame
+	}
+	if err := e.pushLookahead(sourceImageFromImage(src), pts, duration, pushFlags); err != nil {
 		return EncodeResult{}, err
+	}
+	if consumeForceKey {
+		e.forceKeyFrame = false
 	}
 	if e.lookaheadSize() < e.opts.LookaheadFrames {
 		return EncodeResult{}, ErrFrameNotReady
@@ -56,6 +64,14 @@ func (e *VP8Encoder) encodeLookaheadInto(dst []byte, src Image, pts uint64, dura
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	return result, err
+}
+
+func (e *VP8Encoder) consumeForceKeyFrameForInput(flags EncodeFlags) EncodeFlags {
+	if e.forceKeyFrame {
+		e.forceKeyFrame = false
+		flags |= EncodeForceKeyFrame
+	}
+	return flags
 }
 
 // pushLookahead enqueues a source frame into the lookahead queue. It mirrors

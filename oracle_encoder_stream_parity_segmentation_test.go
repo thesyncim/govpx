@@ -318,6 +318,53 @@ func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
 	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 1)
 }
 
+func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 32
+		height     = 32
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+	govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+		0: func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetROIMap(simple checker)", e.SetROIMap(simpleCheckerROIMap(width, height)))
+		},
+	})
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-simple-dq-32x32", opts, targetKbps, sources, nil, []string{
+		"--roi-map=checker",
+		"--roi-dq=0,-10,0,0",
+		"--roi-dlf=0,0,0,0",
+		"--roi-static=0,0,0,0",
+	})
+	// This narrows the ROI surface to map + delta-Q only. Inter frames
+	// still expose the same ROI segmentation drift as the richer rows.
+	assertSegmentByteParity(t, "roi-map-simple-dq", govpxFrames, libvpxFrames, 1)
+}
+
 func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
@@ -445,5 +492,13 @@ func customQuadrantROIMap(width, height int) *ROIMap {
 	roi.DeltaQuantizer = [4]int{0, -10, 8, -20}
 	roi.DeltaLoopFilter = [4]int{0, -3, 2, 5}
 	roi.StaticThreshold = [4]int{0, 500, 0, 1200}
+	return roi
+}
+
+func simpleCheckerROIMap(width, height int) *ROIMap {
+	roi := roiMapPattern(width, height, "checker")
+	roi.DeltaQuantizer = [4]int{0, -10, 0, 0}
+	roi.DeltaLoopFilter = [4]int{}
+	roi.StaticThreshold = [4]int{}
 	return roi
 }

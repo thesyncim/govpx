@@ -80,6 +80,7 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		source func(w, h, i int) Image
 	}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+	panning32 := fixture{name: "panning-32x32", w: 32, h: 32, source: encoderValidationPanningFrame}
 
 	cases := []struct {
 		name string
@@ -142,6 +143,7 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		// entropy-probability snapshot alignment.
 		{name: "mode5-3layer-20-20-60-cpu0", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 0},
 		{name: "mode5-3layer-20-20-60-cpu-3", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3},
+		{name: "mode5-3layer-20-20-60-cpu-3-32x32", fx: panning32, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3},
 		{name: "mode5-3layer-20-20-60-cpu-8", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 8},
 
 		// ---- Remaining built-in temporal patterns. ----

@@ -64,6 +64,37 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-nondefault", govpxFrames, libvpxFrames, 2)
 	})
 
+	t.Run("reset-after-denoiser-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.NoiseSensitivity = 3
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-denoiser", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3"})
+		assertSegmentByteParity(t, "post-reset-denoiser", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("reset-after-threads-token-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.Threads = 2
+		opts.TokenPartitions = 2
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-threads-token", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--threads=2", "--token-parts=2"})
+		assertSegmentByteParity(t, "post-reset-threads-token", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("reset-after-tune-ssim-matches-cold-start", func(t *testing.T) {
+		opts := baseOpts
+		opts.Tuning = TuneSSIM
+		warm := makePanningSources(64, 64, 6, 0)
+		afterReset := makePanningSources(64, 64, 8, 6)
+		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-tune-ssim", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--tune=ssim"})
+		assertSegmentByteParity(t, "post-reset-tune-ssim", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("reset-after-active-map-matches-cold-start", func(t *testing.T) {
 		warm := makePanningSources(64, 64, 6, 0)
 		afterReset := makePanningSources(64, 64, 8, 6)
@@ -146,6 +177,28 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "flush-lookahead", opts, targetKbps, sources, []string{"--end-usage=cbr"})
 		assertSegmentByteParity(t, "flush-lookahead", govpxFrames, libvpxFrames, 0)
 	})
+
+	t.Run("flush-lookahead-denoiser-threads-token-resume-matches-single-oracle-stream", func(t *testing.T) {
+		opts := baseOpts
+		opts.LookaheadFrames = 2
+		opts.NoiseSensitivity = 3
+		opts.Threads = 2
+		opts.TokenPartitions = 2
+		sources := makePanningSources(64, 64, 10, 0)
+		govpxFrames := encodeWithMidStreamFlush(t, opts, sources, 4)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "flush-lookahead-denoiser-threads-token", opts, targetKbps, sources, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--threads=2", "--token-parts=2"})
+		assertSegmentByteParity(t, "flush-lookahead-denoiser-threads-token", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("flush-lookahead4-auto-alt-ref-resume-matches-single-oracle-stream", func(t *testing.T) {
+		opts := baseOpts
+		opts.LookaheadFrames = 4
+		opts.AutoAltRef = true
+		sources := makePanningSources(64, 64, 12, 0)
+		govpxFrames := encodeWithMidStreamFlush(t, opts, sources, 5)
+		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "flush-lookahead4-auto-alt-ref", opts, targetKbps, sources, []string{"--end-usage=cbr"})
+		assertSegmentByteParity(t, "flush-lookahead4-auto-alt-ref", govpxFrames, libvpxFrames, 0)
+	})
 }
 
 func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
@@ -197,6 +250,19 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	sectionGovpxFrames := encodeFramesWithGovpx(t, sectionGovpxOpts, sources)
 	sectionLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-ramp-sections", sectionOpts, targetKbps, sources)
 	assertSegmentByteParityFrom(t, "twopass-e2e-sections", sectionGovpxFrames, sectionLibvpxFrames, 1)
+
+	panningSources := makePanningSources(64, 64, frames, 0)
+	panningOpts := opts
+	panningOpts.Width = 64
+	panningOpts.Height = 64
+	panningOpts.TargetBitrateKbps = 700
+	panningGovpxOpts := panningOpts
+	panningGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, panningOpts, panningSources)
+	panningGovpxFrames := encodeFramesWithGovpx(t, panningGovpxOpts, panningSources)
+	panningLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-panning64", panningOpts, panningOpts.TargetBitrateKbps, panningSources)
+	// The panning fixture matches through the keyframe and first two
+	// inter frames, then exposes a second-pass content-shape drift.
+	assertSegmentByteParity(t, "twopass-e2e-panning64", panningGovpxFrames, panningLibvpxFrames, 3)
 }
 
 func makePanningSources(w, h, count, offset int) []Image {

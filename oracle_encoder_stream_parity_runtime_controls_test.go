@@ -35,6 +35,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
 	segmented64 := fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}
 	temporalLayerOverrideIDs := []int{0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1}
+	temporalThreeLayerOverrideIDs := []int{0, 2, 1, 2, 0, 1, 2, 0, 2, 1, 0, 2}
 
 	type runtimeCase struct {
 		name       string
@@ -83,6 +84,60 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetBitrateKbps", e.SetBitrateKbps(1200))
+				},
+			},
+		},
+		{
+			name: "buffer-only-two-step",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "bufsz:500+bufinit:100+bufopt:300",
+				7: "bufsz:1000+bufinit:500+bufopt:600",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(buffer-low)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						BufferSizeMs:        500,
+						BufferInitialSizeMs: 100,
+						BufferOptimalSizeMs: 300,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(buffer-default)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						BufferSizeMs:        1000,
+						BufferInitialSizeMs: 500,
+						BufferOptimalSizeMs: 600,
+					}))
+				},
+			},
+		},
+		{
+			name: "q-band-only-two-step",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "minq:10+maxq:50",
+				7: "minq:4+maxq:56",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(q-band-tight)", e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 10, MaxQuantizer: 50}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(q-band-default)", e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 4, MaxQuantizer: 56}))
 				},
 			},
 		},
@@ -194,6 +249,49 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "rate-control-mode-cbr-vbr-cbr-transition",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			// CBR->VBR diverges on the first VBR packet; the return to
+			// CBR recovers. Keep the clean prefix strict and log the
+			// isolated VBR runtime-mode gap.
+			matchLimit: 3,
+			script: runtimeControlScript(frames, map[int]string{
+				3: "endusage:vbr+bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
+				7: "endusage:cbr+bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(VBR)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlVBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(CBR)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+			},
+		},
+		{
 			name: "deadline-best-quality-roundtrip",
 			fx:   panning32,
 			opts: baseOpts(panning32),
@@ -212,6 +310,47 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+				},
+			},
+		},
+		{
+			name: "deadline-good-quality-roundtrip",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "deadline:good",
+				7: "deadline:rt",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(good)", e.SetDeadline(DeadlineGoodQuality))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+				},
+			},
+		},
+		{
+			name: "cpu-used-runtime-roundtrip",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			// The switch to cpu-used=-3 is byte-identical; returning to
+			// cpu-used=0 exposes a post-speed-reset drift.
+			matchLimit: 8,
+			script: runtimeControlScript(frames, map[int]string{
+				3: "cpu:-3",
+				8: "cpu:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
 				},
 			},
 		},
@@ -324,6 +463,38 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 						LayerTargetBitrateKbps: [MaxTemporalLayers]int{
 							280, 420, targetKbps,
 						},
+					}))
+				},
+			},
+		},
+		{
+			name: "temporal-scalability-three-to-two-layer-transition",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = TemporalScalabilityConfig{
+					Enabled:                true,
+					Mode:                   TemporalLayeringThreeLayers,
+					LayerTargetBitrateKbps: [MaxTemporalLayers]int{280, 420, targetKbps},
+				}
+				return opts
+			}(),
+			flags:  temporalScalabilityThreeToTwoFlags(frames),
+			script: temporalScalabilityThreeToTwoScript(frames),
+			extraArgs: []string{
+				"--temporal-layers=3",
+				"--temporal-bitrates=280,420,700",
+				"--temporal-decimators=4,2,1",
+				"--temporal-periodicity=4",
+				"--temporal-layer-ids=0,2,1,2",
+			},
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(two-layer)", e.SetTemporalScalability(TemporalScalabilityConfig{
+						Enabled:                true,
+						Mode:                   TemporalLayeringTwoLayers,
+						LayerTargetBitrateKbps: [MaxTemporalLayers]int{420, targetKbps},
 					}))
 				},
 			},
@@ -531,6 +702,32 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "active-map-checker-toggle-noise3-threads2",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.NoiseSensitivity = 3
+				opts.Threads = 2
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3", "--threads=2"},
+			// The keyframe matches; denoiser/threaded active-map inter
+			// packets still drift and are kept logged as a cross-control
+			// gap.
+			matchLimit: 1,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("checker"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "active-map-pattern-switches",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -625,6 +822,28 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "set-reference-last-before-inter-noise3",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=1200", "--noise-sensitivity=3"},
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:last:panning:8",
+			}),
+			matchLimit: 2,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceLast, 8, "last"),
+			},
+		},
+		{
 			name: "set-reference-golden-before-inter",
 			fx:   panning32,
 			opts: func() EncoderOptions {
@@ -711,6 +930,30 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--temporal-decimators=2,1",
 				"--temporal-periodicity=2",
 				"--temporal-layer-ids=0,1",
+			},
+		},
+		{
+			name: "temporal-layer-id-manual-three-layer-transition",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 1200
+				opts.TemporalScalability = TemporalScalabilityConfig{
+					Enabled:                true,
+					Mode:                   TemporalLayeringThreeLayers,
+					LayerTargetBitrateKbps: [MaxTemporalLayers]int{480, 720, 1200},
+				}
+				return opts
+			}(),
+			flags:  temporalThreeLayerFlags(frames),
+			script: temporalLayerIDScript(frames, temporalThreeLayerOverrideIDs),
+			apply:  temporalLayerIDApply(temporalThreeLayerOverrideIDs),
+			extraArgs: []string{
+				"--temporal-layers=3",
+				"--temporal-bitrates=480,720,1200",
+				"--temporal-decimators=4,2,1",
+				"--temporal-periodicity=4",
+				"--temporal-layer-ids=0,2,1,2",
 			},
 		},
 		{
@@ -804,6 +1047,18 @@ func temporalTwoLayerFlags(frames int) []EncodeFlags {
 	return flags
 }
 
+func temporalThreeLayerFlags(frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	pattern, ok := temporalLayeringPattern(TemporalLayeringThreeLayers)
+	if !ok {
+		panic("missing three-layer temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		flags[frame] = temporalPatternFlag(pattern, uint64(frame), TemporalLayeringThreeLayers)
+	}
+	return flags
+}
+
 func temporalLayerIDScript(frames int, ids []int) []string {
 	script := runtimeControlScript(frames, nil)
 	for frame, id := range ids {
@@ -854,6 +1109,52 @@ func temporalScalabilityEnableDisableScript(frames int) []string {
 	}
 	if frames > 6 {
 		script[6] = "tslayers:1+tsperiodicity:1+tsbitrates:700+tsdecimators:1+tsids:0"
+	}
+	return script
+}
+
+func temporalScalabilityThreeToTwoFlags(frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	threeLayer, ok := temporalLayeringPattern(TemporalLayeringThreeLayers)
+	if !ok {
+		panic("missing three-layer temporal pattern")
+	}
+	twoLayer, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
+	if !ok {
+		panic("missing two-layer temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < 6 {
+			flags[frame] = temporalPatternFlag(threeLayer, uint64(frame), TemporalLayeringThreeLayers)
+			continue
+		}
+		flags[frame] = temporalPatternFlag(twoLayer, uint64(frame-6), TemporalLayeringTwoLayers)
+	}
+	return flags
+}
+
+func temporalScalabilityThreeToTwoScript(frames int) []string {
+	script := runtimeControlScript(frames, nil)
+	threeLayer, ok := temporalLayeringPattern(TemporalLayeringThreeLayers)
+	if !ok {
+		panic("missing three-layer temporal pattern")
+	}
+	twoLayer, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
+	if !ok {
+		panic("missing two-layer temporal pattern")
+	}
+	for frame := 0; frame < frames; frame++ {
+		if frame < 6 {
+			layerID := temporalPatternLayerID(threeLayer, uint64(frame))
+			script[frame] = "tlid:" + strconv.Itoa(layerID)
+			continue
+		}
+		layerID := temporalPatternLayerID(twoLayer, uint64(frame-6))
+		token := "tlid:" + strconv.Itoa(layerID)
+		if frame == 6 {
+			token = "tslayers:2+tsperiodicity:2+tsbitrates:420/700+tsdecimators:2/1+tsids:0/1+" + token
+		}
+		script[frame] = token
 	}
 	return script
 }

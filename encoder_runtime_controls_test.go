@@ -602,3 +602,59 @@ func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 		t.Fatalf("forceKeyFrame = true, want false")
 	}
 }
+
+func TestForceKeyFrameWithLookaheadAttachesToNextInput(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  120,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		LookaheadFrames:   2,
+		AdaptiveKeyFrames: false,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 4096)
+	src := testImage(16, 16)
+
+	if _, err := e.EncodeInto(dst, src, 0, 1, 0); !errors.Is(err, ErrFrameNotReady) {
+		t.Fatalf("first EncodeInto error = %v, want ErrFrameNotReady", err)
+	}
+
+	e.ForceKeyFrame()
+	result, err := e.EncodeInto(dst, src, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("second EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame {
+		t.Fatalf("first emitted packet KeyFrame = false, want bootstrap key frame")
+	}
+	if e.forceKeyFrame {
+		t.Fatalf("forceKeyFrame = true after accepting forced input, want false")
+	}
+
+	result, err = e.EncodeInto(dst, src, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("third EncodeInto returned error: %v", err)
+	}
+	if !result.KeyFrame {
+		t.Fatalf("forced lookahead input KeyFrame = false, want true")
+	}
+
+	result, err = e.EncodeInto(dst, src, 3, 1, 0)
+	if err != nil {
+		t.Fatalf("fourth EncodeInto returned error: %v", err)
+	}
+	if result.KeyFrame {
+		t.Fatalf("following lookahead input KeyFrame = true, want false")
+	}
+}
