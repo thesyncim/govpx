@@ -225,6 +225,26 @@ func (rc *rateControlState) accumulatePostPackAltRefOverspend(actualBits int, er
 // KEY_FRAME_CONTEXT key-frame distances (weights 1..5), with the
 // key_frame_count == 1 bootstrap returning 1 + 2*output_framerate, clamped
 // to key_frame_frequency only when auto-key is active.
+//
+// libvpx semantic: `last_kf_interval` reads `cpi->frames_since_key`, which
+// libvpx increments unconditionally at the *end* of every show frame
+// (vp8/encoder/onyx_if.c:4761, after `vp8_adjust_key_frame_context` has
+// already run inside the encode_frame_to_data_rate body). govpx's
+// `framesSinceKeyframe` mirrors libvpx's `frames_since_key` but only
+// increments on inter frames (ratecontrol_postencode.go line 100) — KFs
+// reset to 0 without a following increment. The result is that at
+// estimate-time the libvpx counter is one ahead of the govpx counter for
+// the same prior-KF distance: libvpx records the KF-to-KF *frame* distance
+// (e.g. 2 for an every-2 forced-KF cadence) while govpx records the
+// intervening *inter-frame* count (1 for the same cadence). Adding 1 here
+// closes the off-by-one so `last_kf_interval` matches libvpx's value
+// at `vp8_adjust_key_frame_context` time. Without this bump, repeated
+// forced KFs spuriously drive estimate_keyframe_frequency to 1 (the
+// weighted average bottoms out one tick early), inflating
+// kf_bitrate_adjustment to the point where the very next inter frame's
+// calc_pframe_target_size drains all of kf_overspend_bits at once and
+// the trailing inter frame's vp8_regulate_q ends up several Q steps
+// above libvpx (close-cyclic-forcekf-splitmv).
 func (rc *rateControlState) estimateKeyFrameFrequency() int {
 	if rc.keyFrameCount == 1 {
 		avg := 1 + rc.outputFrameRate*2
@@ -241,7 +261,7 @@ func (rc *rateControlState) estimateKeyFrameFrequency() int {
 		rc.priorKeyFrameDistance[keyFrameContextSize-1] = avg
 		return avg
 	}
-	last := rc.framesSinceKeyframe
+	last := rc.framesSinceKeyframe + 1
 	if last <= 0 {
 		last = 1
 	}
