@@ -47,11 +47,17 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 	out, err := coracle.VpxdecVP9Decode(stream)
 	if err != nil {
 		// TODO(vp9-port): libvpx VP9 vpxdec still rejects the stub
-		// keyframe's tile data with "Corrupt frame / Failed to decode
-		// tile data" — the uncompressed + compressed headers parse,
-		// but something in the partition or per-block emit diverges
-		// from what libvpx expects. Skip with a captured diagnostic
-		// until that gap is closed.
+		// keyframe with "Corrupt frame / Failed to decode tile data".
+		// Bisect via Frankenstein splices (libvpx headers + our
+		// tile, our headers + libvpx tile) locates the gap squarely
+		// in our tile-data emission: libvpx's vpxdec accepts its own
+		// 28-byte tile against either set of headers but rejects our
+		// 2-byte tile against either. Frame bytes 0..9 are already
+		// byte-identical to vpxenc's reference for a 64x64
+		// grayscale keyframe; the remaining divergence is past the
+		// quant block. Skip with a captured diagnostic until the
+		// tile-data gap closes; flipping back to t.Fatalf is the
+		// byte-parity end-condition.
 		t.Skipf("byte-parity gap (will turn into Fatal once closed): %v\nvpxdec output:\n%s",
 			err, out)
 	}
