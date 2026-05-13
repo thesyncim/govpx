@@ -239,6 +239,9 @@ func extractBracedArray(src, name string) []int {
 		return nil
 	}
 	body := src[open+1 : end]
+	// Strip line comments first so any digits in section headers
+	// (e.g. "// 16x16 -> 8x8") don't leak into the value list.
+	body = regexp.MustCompile(`//[^\n]*`).ReplaceAllString(body, "")
 	tokens := regexp.MustCompile(`-?\d+`).FindAllString(body, -1)
 	out := make([]int, 0, len(tokens))
 	for _, t := range tokens {
