@@ -231,10 +231,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount:     temporalFrame.LayerCount,
 			layerPerFrameBandwidth: temporalFrame.LayerFrameTargetBits,
+			layerOutputFrameRate:   e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing),
 			timing:                 e.timing,
 		})
 	} else {
 		layerPerFrameBandwidth := 0
+		layerOutputFrameRate := 0
 		if temporalFrame.Enabled {
 			// libvpx vp8_restore_layer_context + vp8_new_framerate run
 			// before calc_iframe_target_size on keyframes too; the
@@ -246,12 +248,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// 6147-bit phantom overspend that the post-KF p-frame
 			// drain (now active in TS) tries to recover.
 			layerPerFrameBandwidth = e.temporal.temporalLayerFrameTargetBits(temporalFrame.LayerID, e.timing)
+			layerOutputFrameRate = e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing)
 		}
 		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
 			firstFrame:             e.frameCount == 0,
 			forcedKeyFrame:         forcedKeyFrame,
 			temporalLayerCount:     temporalFrame.LayerCount,
 			layerPerFrameBandwidth: layerPerFrameBandwidth,
+			layerOutputFrameRate:   layerOutputFrameRate,
 			timing:                 e.timing,
 		})
 	}
@@ -519,7 +523,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			finalQuantizer := e.rc.currentQuantizer
 			e.commitInterFrameAttempt(attempt)
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
-			e.saveTemporalLayerCodingState(temporalFrame)
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
 			e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -572,6 +575,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// Keep that ordering here: lastFramePercentIntra captures the
 			// just-encoded frame's value for the next frame's heuristic.
 			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
+			e.saveTemporalLayerCodingState(temporalFrame)
+			e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(attempt.Size))
 			e.temporal.finishFrame(temporalFrame, false, !invisible, temporalReferenceRefresh{
 				Last:   attempt.Config.RefreshLast,
 				Golden: attempt.Config.RefreshGolden,
@@ -659,7 +664,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// (cyclic refresh is already keyframe-reset).
 	e.forceMaxQuantizer = false
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
-	e.saveTemporalLayerCodingState(temporalFrame)
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -709,6 +713,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.lastFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
+	e.saveTemporalLayerCodingState(temporalFrame)
+	e.propagateTemporalLayerCodingState(temporalFrame, encodedSizeBits(keyAttempt.Size))
 	e.temporal.finishFrame(temporalFrame, true, !invisible, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, encodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
 	e.populateTemporalLayerBufferResult(&result, temporalFrame)
 	if oracleTraceBuild {
@@ -806,6 +812,19 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	state := e.temporal.codingState[meta.LayerID]
 	e.loopFilterLevel = state.FilterLevel
 	e.rc.bufferLevelBits = state.BufferLevelBits
+	if state.BufferInitialBits > 0 {
+		e.rc.bufferInitialBits = state.BufferInitialBits
+	}
+	if state.BufferOptimalBits > 0 {
+		e.rc.bufferOptimalBits = state.BufferOptimalBits
+	}
+	if state.MaximumBufferBits > 0 {
+		e.rc.maximumBufferBits = state.MaximumBufferBits
+		e.rc.bufferSizeBits = state.MaximumBufferBits
+	}
+	if state.BitsPerFrame > 0 {
+		e.rc.bitsPerFrame = state.BitsPerFrame
+	}
 	e.rc.totalActualBits = state.TotalActualBits
 	e.rc.rateCorrectionFactor = state.RateCorrectionFactor
 	e.rc.keyFrameCorrectionFactor = state.KeyFrameCorrectionFactor
@@ -843,6 +862,10 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 	e.temporal.codingState[meta.LayerID] = temporalLayerCodingState{
 		FilterLevel:                  e.loopFilterLevel,
 		BufferLevelBits:              e.rc.bufferLevelBits,
+		BufferInitialBits:            e.rc.bufferInitialBits,
+		BufferOptimalBits:            e.rc.bufferOptimalBits,
+		MaximumBufferBits:            e.rc.maximumBufferBits,
+		BitsPerFrame:                 e.rc.bitsPerFrame,
 		TotalActualBits:              e.rc.totalActualBits,
 		RateCorrectionFactor:         e.rc.rateCorrectionFactor,
 		KeyFrameCorrectionFactor:     e.rc.keyFrameCorrectionFactor,
@@ -864,4 +887,72 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 		RecentRefFrameUsageAltRef:    e.rc.recentRefFrameUsageAltRef,
 	}
 	e.temporal.codingValid[meta.LayerID] = true
+}
+
+func (e *VP8Encoder) initializeTemporalLayerCodingStates() {
+	if e == nil || !e.temporal.enabled {
+		return
+	}
+	for layer := 0; layer < e.temporal.pattern.Layers && layer < MaxTemporalLayers; layer++ {
+		e.temporal.codingState[layer] = e.initialTemporalLayerCodingState(layer)
+		e.temporal.codingValid[layer] = true
+	}
+}
+
+func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCodingState {
+	targetKbps := e.temporal.config.LayerTargetBitrateKbps[layer]
+	initialBits := temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
+	optimalBits := temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
+	maximumBits := temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
+	targetBits, ok := checkedMul(targetKbps, 1000)
+	if !ok {
+		targetBits = maxInt()
+	}
+	bitsPerFrame := computeLayerBitsPerFrame(targetBits, e.timing, e.temporal.pattern.RateDecimator[layer], 1)
+	return temporalLayerCodingState{
+		FilterLevel:                  e.loopFilterLevel,
+		BufferLevelBits:              initialBits,
+		BufferInitialBits:            initialBits,
+		BufferOptimalBits:            optimalBits,
+		MaximumBufferBits:            maximumBits,
+		BitsPerFrame:                 bitsPerFrame,
+		RateCorrectionFactor:         1.0,
+		KeyFrameCorrectionFactor:     1.0,
+		GoldenCorrectionFactor:       1.0,
+		AvgFrameQuantizer:            e.rc.maxQuantizer,
+		NormalInterAvgQuantizer:      0,
+		LastQuantizer:                e.rc.lastQuantizer,
+		LastInterQuantizer:           e.rc.lastInterQuantizer,
+		FramesSinceLastDropOvershoot: e.rc.framesSinceLastDropOvershoot,
+		LastFramePercentIntra:        e.lastFramePercentIntra,
+		RecentRefFrameUsageIntra:     e.rc.recentRefFrameUsageIntra,
+		RecentRefFrameUsageLast:      e.rc.recentRefFrameUsageLast,
+		RecentRefFrameUsageGolden:    e.rc.recentRefFrameUsageGolden,
+		RecentRefFrameUsageAltRef:    e.rc.recentRefFrameUsageAltRef,
+	}
+}
+
+func (e *VP8Encoder) propagateTemporalLayerCodingState(meta temporalFrame, encodedBits int) {
+	if !meta.Enabled || encodedBits < 0 {
+		return
+	}
+	for layer := meta.LayerID + 1; layer < meta.LayerCount && layer < MaxTemporalLayers; layer++ {
+		if !e.temporal.codingValid[layer] {
+			continue
+		}
+		state := &e.temporal.codingState[layer]
+		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
+		state.BufferLevelBits = saturatingSub(state.BufferLevelBits, encodedBits)
+		if state.BufferLevelBits > state.MaximumBufferBits {
+			state.BufferLevelBits = state.MaximumBufferBits
+		}
+		if encodedBits > 0 {
+			const maxInt64 = int64(^uint64(0) >> 1)
+			if state.TotalActualBits > maxInt64-int64(encodedBits) {
+				state.TotalActualBits = maxInt64
+			} else {
+				state.TotalActualBits += int64(encodedBits)
+			}
+		}
+	}
 }

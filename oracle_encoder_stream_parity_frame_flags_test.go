@@ -185,6 +185,8 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// the GF/ARF reference from the inter prediction pool. The
 		// picker must fall back to LAST-only, which is what WebRTC
 		// scalability uses to prevent cross-layer dependencies.
+		{name: "no-ref-last-every-inter-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceLast)},
+		{name: "no-ref-last-every3-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: everyNFlag(frames, 3, EncodeNoReferenceLast)},
 		{name: "no-ref-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceGolden)},
 		{name: "no-ref-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceAltRef)},
 		{name: "no-ref-gf-arf-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
@@ -204,16 +206,21 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// requested). libvpxExternalRefreshMask reproduces that.
 		{name: "force-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
 		{name: "force-gf-frame4-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame}},
+		{name: "force-gf-no-upd-last-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame | EncodeNoUpdateLast}},
 		{name: "force-arf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame}},
+		{name: "force-arf-no-upd-last-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden}},
 
 		// EncodeNoUpdateEntropy on every inter frame — keeps the
 		// reference entropy adaptation state frozen.
 		{name: "no-upd-entropy-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
 		{name: "no-upd-entropy-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
+		{name: "no-upd-entropy-realtime-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
 
 		// Force-KF + no-update-GF/ARF (the layer-0 "I-frame anchor"
 		// pattern used by 3-layer SVC mode 4 in libvpx's example).
 		{name: "force-kf-no-upd-gf-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{EncodeForceKeyFrame | EncodeNoUpdateGolden | EncodeNoUpdateAltRef}},
+		{name: "force-kf-frame3-realtime-vbr-cpu-3-16x16", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, rcMode: RateControlVBR, rcModeSet: true, extraArgs: []string{"--end-usage=vbr"}, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}},
+		{name: "force-kf-frame3-realtime-q-cpu-3-16x16-q20", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning16, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, extraArgs: []string{"--end-usage=q", "--cq-level=20"}, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}},
 
 		// Token-partitions=2 / 4 crossed with per-frame flags to
 		// confirm the partitioned writer also honors per-frame refs.
@@ -303,6 +310,19 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 func repeatFlag(n int, f EncodeFlags) []EncodeFlags {
 	out := make([]EncodeFlags, n+1)
 	for i := 1; i <= n; i++ {
+		out[i] = f
+	}
+	return out
+}
+
+// everyNFlag returns a per-frame schedule of length frames, skipping the
+// initial keyframe and setting f on every n-th inter frame.
+func everyNFlag(frames int, n int, f EncodeFlags) []EncodeFlags {
+	out := make([]EncodeFlags, frames)
+	if n <= 0 {
+		return out
+	}
+	for i := n; i < frames; i += n {
 		out[i] = f
 	}
 	return out

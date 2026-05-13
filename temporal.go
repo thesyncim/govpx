@@ -100,10 +100,9 @@ type temporalState struct {
 	// stash these around every encode so each temporal layer sees its own
 	// previous-frame state instead of the trailing layer's. govpx tracks
 	// only the strict subset needed to keep the encoded bitstream
-	// byte-identical (currently filter_level, which seeds the LF picker
-	// bracket midpoint). Additional fields (rate-control state, mode
-	// counts) live in their own per-layer structures and don't need a
-	// separate save/restore hop here.
+	// byte-identical: loop-filter seed state, per-layer buffer geometry,
+	// and the per-layer rate-control scalars that libvpx stores in
+	// LAYER_CONTEXT.
 	codingState [MaxTemporalLayers]temporalLayerCodingState
 	codingValid [MaxTemporalLayers]bool
 }
@@ -140,6 +139,15 @@ type temporalLayerCodingState struct {
 	// encoded since, biasing calc_pframe_target_size and pulling Q in a
 	// different direction than libvpx on the cpu-8 / cpu-3 paths.
 	BufferLevelBits int
+	// BufferInitialBits / BufferOptimalBits / MaximumBufferBits mirror the
+	// layer-specific oxcf buffer geometry restored with LAYER_CONTEXT.
+	// BitsPerFrame is the cumulative layer target divided by that layer's
+	// framerate (libvpx av_per_frame_bandwidth), which updates the current
+	// layer buffer after packetization.
+	BufferInitialBits int
+	BufferOptimalBits int
+	MaximumBufferBits int
+	BitsPerFrame      int
 
 	// TotalActualBits mirrors LAYER_CONTEXT.total_actual_bits. Used by
 	// the percent_low buffer-aware shrink branch
@@ -476,6 +484,24 @@ func (t *temporalState) temporalLayerFrameTargetBits(layerID int, timing timingS
 	num := int64(layerBitrateBits) * int64(timing.timebaseNum) * int64(timing.frameDuration) * int64(current) * int64(prev)
 	den := int64(timing.timebaseDen) * int64(prev-current)
 	return roundedInt(num, den)
+}
+
+func (t *temporalState) temporalLayerOutputFrameRateInt(layerID int, timing timingState) int {
+	if uint(layerID) >= uint(t.pattern.Layers) {
+		return 0
+	}
+	decimator := t.pattern.RateDecimator[layerID]
+	if decimator <= 0 {
+		return 0
+	}
+	fps := outputFrameRate(timing) / float64(decimator)
+	if fps <= 0 {
+		return 0
+	}
+	if fps > float64(maxInt()) {
+		return maxInt()
+	}
+	return int(fps)
 }
 
 type temporalReferenceRefresh struct {

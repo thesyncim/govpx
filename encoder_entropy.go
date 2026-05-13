@@ -193,16 +193,14 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 //	  : refresh_golden_frame  ? &cpi->lfc_g
 //	  : &cpi->lfc_n
 //
-// `lfc_n` was last refreshed by the previous frame (so e.coefProbs already
-// reflects that context — leaving picker probs == e.coefProbs is fine for
-// the no-refresh-boost branch). For golden/altref-refresh frames the picker
-// has to run against a "colder" snapshot (the keyframe-vintage adapted fc),
-// because every intervening inter frame's last-refresh-only updates skipped
-// lfc_g/lfc_a. Without this swap, govpx's RD scoring on golden/altref
-// boost frames runs against e.coefProbs (the heavily-adapted fc) and the
-// resulting low rates spuriously trip rd_threshes[SPLITMV] off, letting
-// NEARESTMV win modes that libvpx reaches via SPLITMV. See
-// parity-close-r3-h-rd-scale.
+// `lfc_n` is a distinct snapshot, not always the same table as cm->fc: temporal
+// enhancement frames can refresh entropy while not refreshing LAST, leaving the
+// live frame context newer than the LAST context that libvpx scores against.
+// Golden/altref-refresh frames likewise score against their own colder
+// snapshots (the keyframe-vintage adapted fc), because intervening
+// last-refresh-only updates skip lfc_g/lfc_a. Without these swaps, RD scoring
+// runs against a too-adapted table and can steer threshold gates and mode
+// choices off libvpx.
 //
 // Returns nil before the first commitKeyFrameEntropy seeds the snapshots
 // (which on a keyframe-led clip is impossible to hit on an inter frame), or
@@ -218,11 +216,7 @@ func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8ta
 	case refreshGolden:
 		return &e.coefProbsGolden
 	default:
-		// LAST snapshot mirrors e.coefProbs already (commitInterFrameEntropy
-		// updates them in lockstep when refresh_last_frame=1). Returning nil
-		// to fall back to e.coefProbs is equivalent and avoids a redundant
-		// pointer indirection on the picker hot path.
-		return nil
+		return &e.coefProbsLast
 	}
 }
 

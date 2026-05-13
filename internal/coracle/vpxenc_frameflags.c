@@ -50,6 +50,7 @@
  *   --overshoot-pct=N    cfg.rc_overshoot_pct.
  *   --buf-sz=N --buf-initial-sz=N --buf-optimal-sz=N
  *                        cfg.rc_buf_* values (ms).
+ *   --drop-frame=N       cfg.rc_dropframe_thresh value.
  *   --lag-in-frames=N    cfg.g_lag_in_frames value.
  *   --auto-alt-ref=N     VP8E_SET_ENABLEAUTOALTREF flag (0|1).
  *   --arnr-maxframes=N --arnr-strength=N --arnr-type=N
@@ -71,6 +72,17 @@
  *                          1<<24 VP8_EFLAG_FORCE_ARF
  *                        Missing entries default to 0 (no per-frame
  *                        flag set).
+ *   --control-script=CSV optional per-frame runtime-control script. Each
+ *                        CSV entry applies before the matching input frame.
+ *                        Use "-" or an empty entry for no change. Multiple
+ *                        controls within one frame are joined by '+':
+ *                          bitrate:N fps:N minq:N maxq:N drop:N
+ *                          bufsz:N bufinit:N bufopt:N undershoot:N
+ *                          overshoot:N endusage:{vbr,cbr,cq,q}
+ *                          deadline:{good,best,rt} cpu:N tune:{psnr,ssim}
+ *                          token:N static:N noise:N sharpness:N
+ *                          screen:N maxintra:N gfboost:N cq:N
+ *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -209,6 +221,41 @@ static int parse_tune(const char *value) {
   return VP8_TUNE_PSNR;
 }
 
+static char **parse_csv_strings(const char *csv, int *out_count,
+                                const char *flag_name) {
+  if (!csv) {
+    *out_count = 0;
+    return NULL;
+  }
+  int count = 1;
+  for (const char *p = csv; *p; ++p) {
+    if (*p == ',') ++count;
+  }
+  char **out = calloc((size_t)count, sizeof(*out));
+  if (!out) die_msg("calloc %s", flag_name);
+  int idx = 0;
+  const char *start = csv;
+  while (1) {
+    const char *end = strchr(start, ',');
+    size_t len = end ? (size_t)(end - start) : strlen(start);
+    out[idx] = malloc(len + 1);
+    if (!out[idx]) die_msg("malloc %s token", flag_name);
+    memcpy(out[idx], start, len);
+    out[idx][len] = '\0';
+    ++idx;
+    if (!end) break;
+    start = end + 1;
+  }
+  *out_count = idx;
+  return out;
+}
+
+static void free_csv_strings(char **tokens, int count) {
+  if (!tokens) return;
+  for (int i = 0; i < count; ++i) free(tokens[i]);
+  free(tokens);
+}
+
 static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
   if (!csv) {
     *out_count = 0;
@@ -241,6 +288,169 @@ static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
   }
   *out_count = idx;
   return out;
+}
+
+static int control_value_int(const char *token, const char *prefix) {
+  return parse_int(token + strlen(prefix), prefix);
+}
+
+static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
+                                       const char *token, int *need_config) {
+  if (starts_with(token, "bitrate:")) {
+    cfg->rc_target_bitrate = (unsigned)control_value_int(token, "bitrate:");
+    *need_config = 1;
+  } else if (starts_with(token, "fps:")) {
+    int fps = control_value_int(token, "fps:");
+    if (fps <= 0) die_msg("fps control must be positive: %s", token);
+    cfg->g_timebase.num = 1;
+    cfg->g_timebase.den = fps;
+    *need_config = 1;
+  } else if (starts_with(token, "minq:")) {
+    cfg->rc_min_quantizer = (unsigned)control_value_int(token, "minq:");
+    *need_config = 1;
+  } else if (starts_with(token, "maxq:")) {
+    cfg->rc_max_quantizer = (unsigned)control_value_int(token, "maxq:");
+    *need_config = 1;
+  } else if (starts_with(token, "drop:")) {
+    cfg->rc_dropframe_thresh = (unsigned)control_value_int(token, "drop:");
+    *need_config = 1;
+  } else if (starts_with(token, "bufsz:")) {
+    cfg->rc_buf_sz = (unsigned)control_value_int(token, "bufsz:");
+    *need_config = 1;
+  } else if (starts_with(token, "bufinit:")) {
+    cfg->rc_buf_initial_sz = (unsigned)control_value_int(token, "bufinit:");
+    *need_config = 1;
+  } else if (starts_with(token, "bufopt:")) {
+    cfg->rc_buf_optimal_sz = (unsigned)control_value_int(token, "bufopt:");
+    *need_config = 1;
+  } else if (starts_with(token, "undershoot:")) {
+    cfg->rc_undershoot_pct = (unsigned)control_value_int(token, "undershoot:");
+    *need_config = 1;
+  } else if (starts_with(token, "overshoot:")) {
+    cfg->rc_overshoot_pct = (unsigned)control_value_int(token, "overshoot:");
+    *need_config = 1;
+  } else if (starts_with(token, "endusage:")) {
+    cfg->rc_end_usage = parse_end_usage(token + strlen("endusage:"));
+    *need_config = 1;
+  } else if (starts_with(token, "threads:")) {
+    cfg->g_threads = (unsigned)control_value_int(token, "threads:");
+    *need_config = 1;
+  } else if (starts_with(token, "error:")) {
+    cfg->g_error_resilient = (unsigned)control_value_int(token, "error:");
+    *need_config = 1;
+  } else if (starts_with(token, "kfmin:")) {
+    cfg->kf_min_dist = (unsigned)control_value_int(token, "kfmin:");
+    *need_config = 1;
+  } else if (starts_with(token, "kfmax:")) {
+    cfg->kf_max_dist = (unsigned)control_value_int(token, "kfmax:");
+    *need_config = 1;
+  } else if (starts_with(token, "kfdisabled:")) {
+    cfg->kf_mode = control_value_int(token, "kfdisabled:") ? VPX_KF_DISABLED : VPX_KF_AUTO;
+    *need_config = 1;
+  } else if (starts_with(token, "deadline:")) {
+    *deadline = parse_deadline(token + strlen("deadline:"));
+  } else if (starts_with(token, "cpu:") || starts_with(token, "tune:") ||
+             starts_with(token, "token:") || starts_with(token, "static:") ||
+             starts_with(token, "noise:") || starts_with(token, "sharpness:") ||
+             starts_with(token, "screen:") || starts_with(token, "maxintra:") ||
+             starts_with(token, "gfboost:") || starts_with(token, "cq:") ||
+             starts_with(token, "autoaltref:") || starts_with(token, "arnrmax:") ||
+             starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:")) {
+    return;
+  } else {
+    die_msg("unknown control token: %s", token);
+  }
+}
+
+static void apply_runtime_codec_token(vpx_codec_ctx_t *ctx, const char *token) {
+  if (starts_with(token, "cpu:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_CPUUSED, control_value_int(token, "cpu:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_CPUUSED");
+  } else if (starts_with(token, "tune:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_TUNING, parse_tune(token + strlen("tune:"))))
+      die_codec_msg(ctx, "runtime VP8E_SET_TUNING");
+  } else if (starts_with(token, "token:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_TOKEN_PARTITIONS, control_value_int(token, "token:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_TOKEN_PARTITIONS");
+  } else if (starts_with(token, "static:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_STATIC_THRESHOLD, control_value_int(token, "static:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_STATIC_THRESHOLD");
+  } else if (starts_with(token, "noise:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_NOISE_SENSITIVITY, control_value_int(token, "noise:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_NOISE_SENSITIVITY");
+  } else if (starts_with(token, "sharpness:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_SHARPNESS, control_value_int(token, "sharpness:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_SHARPNESS");
+  } else if (starts_with(token, "screen:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_SCREEN_CONTENT_MODE, control_value_int(token, "screen:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_SCREEN_CONTENT_MODE");
+  } else if (starts_with(token, "maxintra:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT, control_value_int(token, "maxintra:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_MAX_INTRA_BITRATE_PCT");
+  } else if (starts_with(token, "gfboost:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_GF_CBR_BOOST_PCT, control_value_int(token, "gfboost:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
+  } else if (starts_with(token, "cq:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_CQ_LEVEL, control_value_int(token, "cq:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_CQ_LEVEL");
+  } else if (starts_with(token, "autoaltref:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_ENABLEAUTOALTREF, control_value_int(token, "autoaltref:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_ENABLEAUTOALTREF");
+  } else if (starts_with(token, "arnrmax:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_ARNR_MAXFRAMES, control_value_int(token, "arnrmax:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_MAXFRAMES");
+  } else if (starts_with(token, "arnrstrength:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_ARNR_STRENGTH, control_value_int(token, "arnrstrength:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_STRENGTH");
+  } else if (starts_with(token, "arnrtype:")) {
+    if (vpx_codec_control(ctx, VP8E_SET_ARNR_TYPE, control_value_int(token, "arnrtype:")))
+      die_codec_msg(ctx, "runtime VP8E_SET_ARNR_TYPE");
+  }
+}
+
+static void for_each_control_token(const char *entry,
+                                   void (*fn)(void *opaque, const char *token),
+                                   void *opaque) {
+  if (!entry || !*entry || strcmp(entry, "-") == 0) return;
+  char buf[1024];
+  size_t len = strlen(entry);
+  if (len >= sizeof(buf)) die_msg("control-script entry too long: %s", entry);
+  memcpy(buf, entry, len + 1);
+  char *start = buf;
+  while (1) {
+    char *end = strchr(start, '+');
+    if (end) *end = '\0';
+    if (*start) fn(opaque, start);
+    if (!end) break;
+    start = end + 1;
+  }
+}
+
+struct config_token_context {
+  vpx_codec_enc_cfg_t *cfg;
+  int *deadline;
+  int need_config;
+};
+
+static void config_token_callback(void *opaque, const char *token) {
+  struct config_token_context *ctx = (struct config_token_context *)opaque;
+  apply_runtime_config_token(ctx->cfg, ctx->deadline, token, &ctx->need_config);
+}
+
+static void codec_token_callback(void *opaque, const char *token) {
+  apply_runtime_codec_token((vpx_codec_ctx_t *)opaque, token);
+}
+
+static void apply_runtime_controls(vpx_codec_ctx_t *ctx, vpx_codec_enc_cfg_t *cfg,
+                                   int *deadline, const char *entry) {
+  struct config_token_context config_ctx = {cfg, deadline, 0};
+  for_each_control_token(entry, config_token_callback, &config_ctx);
+  if (config_ctx.need_config) {
+    if (vpx_codec_enc_config_set(ctx, cfg)) {
+      die_codec_msg(ctx, "runtime vpx_codec_enc_config_set");
+    }
+  }
+  for_each_control_token(entry, codec_token_callback, ctx);
 }
 
 int main(int argc, char **argv) {
@@ -277,12 +487,14 @@ int main(int argc, char **argv) {
   int buf_sz = 0, buf_sz_set = 0;
   int buf_init = 0, buf_init_set = 0;
   int buf_opt = 0, buf_opt_set = 0;
+  int drop_frame = 0, drop_frame_set = 0;
   int lag_in_frames = 0;
   int auto_alt_ref = 0;
   int arnr_max = 0, arnr_max_set = 0;
   int arnr_strength = 0, arnr_strength_set = 0;
   int arnr_type = 0, arnr_type_set = 0;
   const char *frame_flags_csv = NULL;
+  const char *control_script_csv = NULL;
 
   for (int i = 1; i < argc; ++i) {
     const char *a = argv[i];
@@ -359,6 +571,9 @@ int main(int argc, char **argv) {
     } else if ((v = flag_value(a, "--buf-optimal-sz"))) {
       buf_opt = parse_int(v, "--buf-optimal-sz");
       buf_opt_set = 1;
+    } else if ((v = flag_value(a, "--drop-frame"))) {
+      drop_frame = parse_int(v, "--drop-frame");
+      drop_frame_set = 1;
     } else if ((v = flag_value(a, "--lag-in-frames"))) {
       lag_in_frames = parse_int(v, "--lag-in-frames");
     } else if ((v = flag_value(a, "--auto-alt-ref"))) {
@@ -374,6 +589,8 @@ int main(int argc, char **argv) {
       arnr_type_set = 1;
     } else if ((v = flag_value(a, "--frame-flags"))) {
       frame_flags_csv = v;
+    } else if ((v = flag_value(a, "--control-script"))) {
+      control_script_csv = v;
     } else {
       die_msg("unknown argument: %s", a);
     }
@@ -386,6 +603,9 @@ int main(int argc, char **argv) {
   int frame_flag_count = 0;
   unsigned int *per_frame_flags =
       parse_frame_flags(frame_flags_csv, &frame_flag_count);
+  int control_script_count = 0;
+  char **control_script =
+      parse_csv_strings(control_script_csv, &control_script_count, "control_script");
 
   vpx_codec_iface_t *iface = vpx_codec_vp8_cx();
   vpx_codec_enc_cfg_t cfg;
@@ -407,6 +627,7 @@ int main(int argc, char **argv) {
   if (buf_sz_set) cfg.rc_buf_sz = (unsigned)buf_sz;
   if (buf_init_set) cfg.rc_buf_initial_sz = (unsigned)buf_init;
   if (buf_opt_set) cfg.rc_buf_optimal_sz = (unsigned)buf_opt;
+  if (drop_frame_set) cfg.rc_dropframe_thresh = (unsigned)drop_frame;
   cfg.kf_min_dist = (unsigned)kf_min_dist;
   cfg.kf_max_dist = (unsigned)kf_max_dist;
   cfg.kf_mode = kf_disabled ? VPX_KF_DISABLED : VPX_KF_AUTO;
@@ -509,6 +730,9 @@ int main(int argc, char **argv) {
     if (have_input && frame_idx < frame_flag_count) {
       frame_flags = per_frame_flags[frame_idx];
     }
+    if (have_input && frame_idx < control_script_count) {
+      apply_runtime_controls(&ctx, &cfg, &deadline, control_script[frame_idx]);
+    }
 
     vpx_codec_err_t enc_err =
         vpx_codec_encode(&ctx, input_img, pts, 1, frame_flags,
@@ -530,6 +754,7 @@ int main(int argc, char **argv) {
   }
 
   free(plane_buf);
+  free_csv_strings(control_script, control_script_count);
   fclose(in);
   fclose(out);
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");

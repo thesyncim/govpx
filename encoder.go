@@ -1074,6 +1074,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 		return nil, err
 	}
 	e.opts.TemporalScalability = e.temporal.config
+	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {

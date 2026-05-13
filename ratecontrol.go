@@ -225,11 +225,15 @@ type rateControlState struct {
 	// layer-specific overhead rather than the encoder-wide one. Zero in
 	// non-TS encodes; callers fall back to rc.bitsPerFrame.
 	currentLayerPerFrameBandwidth int
-	rollingActualBits             int
-	rollingTargetBits             int
-	longRollingActualBits         int
-	longRollingTargetBits         int
-	totalActualBits               int64
+	// currentLayerOutputFrameRate mirrors (int)cpi->output_framerate after
+	// temporal vp8_new_framerate. estimate_keyframe_frequency reads that
+	// layer framerate when spreading TS key-frame overspend.
+	currentLayerOutputFrameRate int
+	rollingActualBits           int
+	rollingTargetBits           int
+	longRollingActualBits       int
+	longRollingTargetBits       int
+	totalActualBits             int64
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
@@ -533,7 +537,10 @@ type rateControlFrameContext struct {
 	// vp8_new_framerate(cpi, lc->framerate) when TS is active. For non-TS or
 	// when zero, callers fall back to rc.bitsPerFrame / baseTargetBits.
 	layerPerFrameBandwidth int
-	timing                 timingState
+	// layerOutputFrameRate mirrors (int)cpi->output_framerate after
+	// vp8_new_framerate(cpi, lc->framerate) when TS is active.
+	layerOutputFrameRate int
+	timing               timingState
 }
 
 func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
@@ -546,8 +553,10 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		} else {
 			rc.currentLayerPerFrameBandwidth = 0
 		}
+		rc.currentLayerOutputFrameRate = ctx.layerOutputFrameRate
 	} else {
 		rc.currentLayerPerFrameBandwidth = 0
+		rc.currentLayerOutputFrameRate = 0
 	}
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
@@ -597,9 +606,7 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			}
 		}
 		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits, perFrameBandwidth)
-		if ctx.temporalLayerCount <= 1 {
-			targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
-		}
+		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
 	}
 	if rc.mode == RateControlCQ {
 		if rc.currentQuantizer < rc.cqLevel {

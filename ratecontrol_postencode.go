@@ -179,7 +179,12 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 				rc.kfOverspendBits = saturatingAdd(rc.kfOverspendBits, overspend*7/8)
 				rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, overspend/8)
 			}
+			outputFrameRate := rc.outputFrameRate
+			if rc.currentTemporalLayers > 1 && rc.currentLayerOutputFrameRate > 0 {
+				rc.outputFrameRate = rc.currentLayerOutputFrameRate
+			}
 			kfFreq := rc.estimateKeyFrameFrequency()
+			rc.outputFrameRate = outputFrameRate
 			if kfFreq <= 0 {
 				kfFreq = 1
 			}
@@ -200,18 +205,16 @@ func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame
 	if !goldenFrame {
 		return
 	}
-	// libvpx onyx_if.c update_golden_frame_stats: only accumulate gf
-	// overspend on non-key non-altref-active golden refreshes. govpx's
-	// CBR oracle does not currently model an active alt-ref, so treat
-	// every golden refresh as the non-altref case (matches libvpx
-	// behaviour when source_alt_ref_active is 0).
+	// libvpx onyx_if.c update_golden_frame_stats: accumulate the signed
+	// delta against inter_frame_target on non-key non-altref-active golden
+	// refreshes. govpx's CBR oracle does not currently model an active
+	// alt-ref, so treat every golden refresh as the non-altref case
+	// (matches libvpx behaviour when source_alt_ref_active is 0).
 	interTarget := rc.interFrameTarget
 	if interTarget <= 0 {
 		interTarget = perFrameBandwidth
 	}
-	if actualBits > interTarget {
-		rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
-	}
+	rc.gfOverspendBits = saturatingAdd(rc.gfOverspendBits, actualBits-interTarget)
 	if rc.framesTillGFUpdateDue > 0 {
 		rc.nonGFBitrateAdjustment = rc.gfOverspendBits / rc.framesTillGFUpdateDue
 	}

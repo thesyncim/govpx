@@ -33,22 +33,24 @@ import (
 // layer frame-by-frame.
 //
 // Coverage axes (one row per combination):
-//   - libvpx layering_mode in {0, 2, 3, 5}:
+//   - libvpx layering_mode in {0..11}:
 //     mode 0 = 1-layer pass-through (the TS code path with a
 //     single layer; pins the "TS off / pattern 0" route).
+//     mode 1 = 2-layer 2-frame period.
 //     mode 2 = 2-layer 3-frame period; cumulative target split
 //     60% / 100% over 4 frames is 60/40 per layer.
 //     mode 3 = 3-layer 6-frame period {0,2,2,1,2,2}; rate
 //     decimators {6,3,1} produce roughly a 25/25/50 split.
+//     mode 4 = 3-layer 4-frame period with no inter-layer prediction.
 //     mode 5 = 3-layer 4-frame period {0,2,1,2}; rate decimators
 //     {4,2,1} produce 25/25/50 (mode 4's intra-layer
 //     disabled twin); the libvpx example calls this the
 //     "intra-layer prediction enabled in layer 1, disabled
 //     in layer 2" route used by typical WebRTC stacks.
-//     (We also add the 3-layers 4-frame mode 6 cross — the
-//     "TemporalLayeringThreeLayers" default — for symmetry with
-//     the existing TemporalSVCParity scoreboard, but only on
-//     cpu_used=-3 to keep the matrix small.)
+//     mode 6 = default 3-layer 4-frame pattern.
+//     mode 7 = 5-layer 16-frame pattern.
+//     modes 8..11 cover sync-frame, alt-ref-backed sync, and
+//     one-reference temporal patterns.
 //   - cpu_used in {0, -3, -8}: the libvpx example takes speed=|cpu|
 //     and runs VP8E_SET_CPUUSED(-speed); so we drive govpx with
 //     CpuUsed=-3, -8 directly and CpuUsed=0 with speed=0.
@@ -122,41 +124,49 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode2-2layer-60-40-cpu-3", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
 		{name: "mode2-2layer-60-40-cpu-8", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8},
 
+		// ---- Mode 1: 2-layer 2-frame period, 60/40 split. ----
+		{name: "mode1-2layer-60-40-cpu-3", fx: panning64, layeringMode: 1, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
+
 		// ---- Mode 3: 3-layer 6-frame period, 25/25/50 split. ----
-		// cpu0 and cpu-8 byte-match the full clip after the per-layer
-		// RC + LF restore landed and the kf/gf overspend drain in TS
-		// mode (close-ts-overspend-drain) wired through the per-layer
-		// per_frame_bandwidth and stopped layer-anchor ARF refreshes
-		// from spuriously accumulating into gf_overspend_bits. cpu-3
-		// still carries a deeper L0 first-inter divergence that is
-		// independent of filter_level AND of layer-context state
-		// (cpu_used=-3 inter mode-search path divergence).
+		// All speeds byte-match the full clip with per-layer RC/LF restore,
+		// signed gf_overspend_bits, layer-rate key-frame overspend drain,
+		// and the libvpx lfc_n entropy-probability snapshot for regular
+		// inter-frame RD scoring.
 		{name: "mode3-3layer-25-25-50-cpu0", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 0},
-		{name: "mode3-3layer-25-25-50-cpu-3", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 3, limit: 1},
+		{name: "mode3-3layer-25-25-50-cpu-3", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 3},
 		{name: "mode3-3layer-25-25-50-cpu-8", fx: panning64, layeringMode: 3, numLayers: 3, bitratesKbps: [5]int{175, 350, 700}, speed: 8},
 
 		// ---- Mode 5: 3-layer 4-frame period, 20/20/60 split. ----
-		// cpu0 byte-matches the full clip after explicit NO_REF_*
-		// layer masks bypass the post-keyframe LAST/GOLDEN/ALTREF alias
-		// filter, matching libvpx's vp8_use_as_reference path. cpu-3
-		// and cpu-8 still diverge at frame 2 in the speed-specific
-		// inter mode-search paths.
+		// All speeds byte-match the full clip after the TS reference masks,
+		// per-layer coding snapshots, signed overspend accounting, and
+		// entropy-probability snapshot alignment.
 		{name: "mode5-3layer-20-20-60-cpu0", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 0},
-		{name: "mode5-3layer-20-20-60-cpu-3", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, limit: 2},
-		{name: "mode5-3layer-20-20-60-cpu-8", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 8, limit: 2},
+		{name: "mode5-3layer-20-20-60-cpu-3", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3},
+		{name: "mode5-3layer-20-20-60-cpu-8", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 8},
+
+		// ---- Remaining built-in temporal patterns. ----
+		{name: "mode4-3layer-no-inter-pred-cpu-3", fx: panning64, layeringMode: 4, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3},
+		{name: "mode6-3layer-default-cpu-3", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		// Mode 7 exposes a known 5-layer reference-cadence gap after the
+		// first output packet in non-base layer streams. Keep the row in
+		// the oracle matrix so all later drift stays logged.
+		{name: "mode7-5layer-cpu-3", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, limit: 1},
+		{name: "mode8-2layer-sync-cpu-3", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
+		{name: "mode9-3layer-sync-cpu-3", fx: panning64, layeringMode: 9, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode10-3layer-altref-sync-cpu-3", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode11-3layer-one-reference-cpu-3", fx: panning64, layeringMode: 11, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
 
 		// ---- ErrorResilient cross (mode 5 = the standard WebRTC SVC pattern). ----
 		// mode 5 + ER and mode 2 + ER are fully byte-identical.
 		{name: "mode5-3layer-cpu-3-error-resilient", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, errorResilient: true},
 		{name: "mode2-2layer-cpu-3-error-resilient", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, errorResilient: true},
+		{name: "mode10-3layer-altref-sync-cpu-3-error-resilient", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3, errorResilient: true},
 
 		// ---- Threads=2 cross. ----
-		// mode 5 + threads=2 first diverges at frame 2 (same
-		// underlying mode-5 sync-frame gap, this time amplified by
-		// the parallel row-worker entropy state). mode 2 + threads=2
-		// byte-matches the full clip.
-		{name: "mode5-3layer-cpu-3-threads2", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, threads: 2, limit: 2},
+		// Both threaded crosses byte-match the full clip.
+		{name: "mode5-3layer-cpu-3-threads2", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, threads: 2},
 		{name: "mode2-2layer-cpu-3-threads2", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, threads: 2},
+		{name: "mode7-5layer-cpu-3-threads2", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, threads: 2, limit: 1},
 	}
 
 	for _, tc := range cases {

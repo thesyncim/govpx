@@ -491,15 +491,6 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 				refreshed = append(refreshed, i)
 			}
 		}
-		if frame == 0 {
-			if len(refreshed) != 0 {
-				t.Fatalf("inter 0 refreshed set = %v, want empty after key-frame dirty-map update", refreshed)
-			}
-			if _, ok := d.NextFrame(); !ok {
-				t.Fatalf("inter %d NextFrame returned no frame", frame)
-			}
-			continue
-		}
 		if len(refreshed) == 0 {
 			t.Fatalf("inter %d refreshed set empty, want cyclic refresh activity", frame)
 		}

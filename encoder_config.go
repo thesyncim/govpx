@@ -358,6 +358,7 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	}
 	e.temporal = nextTemporal
 	e.opts.TemporalScalability = nextTemporal.config
+	e.initializeTemporalLayerCodingStates()
 	return nil
 }
 
