@@ -95,6 +95,59 @@ func ProbDiffUpdateSavingsSearch(ct [2]uint32, oldp uint8, bestp *uint8, upd uin
 	return bestSavings
 }
 
+// TreedCost mirrors libvpx's treed_cost inline helper. Walks a
+// token tree against the supplied probability row, accumulating
+// the bit cost for the encoded leaf bit-pattern (`bits` consumed
+// MSB-first, `length` bits total).
+func TreedCost(tree []int8, probs []uint8, bits, length int) int {
+	cost := 0
+	i := int8(0)
+	for length > 0 {
+		length--
+		bit := (bits >> uint(length)) & 1
+		cost += VP9CostBit(probs[i>>1], bit)
+		i = tree[int(i)+bit]
+	}
+	return cost
+}
+
+// VP9CostTokens mirrors libvpx's vp9_cost_tokens — populates the
+// `costs` slice with the bit cost of every leaf in `tree` under the
+// supplied probability row.
+//
+// The leaf labels in libvpx's token trees are encoded as negative
+// values, so `costs[-leaf]` is the slot for a given leaf value. The
+// caller sizes `costs` to one entry per possible leaf.
+func VP9CostTokens(costs []int, probs []uint8, tree []int8) {
+	costTokensRec(costs, tree, probs, 0, 0)
+}
+
+// VP9CostTokensSkip mirrors vp9_cost_tokens_skip — the variant
+// libvpx uses when the first tree decision is fixed to "go right".
+// The first leaf gets vp9_cost_bit(probs[0], 0) and the rest are
+// computed starting from tree[2].
+func VP9CostTokensSkip(costs []int, probs []uint8, tree []int8) {
+	// libvpx asserts tree[0] <= 0 && tree[1] > 0.
+	if tree[0] > 0 || tree[1] <= 0 {
+		return
+	}
+	costs[-int(tree[0])] = VP9CostBit(probs[0], 0)
+	costTokensRec(costs, tree, probs, 2, 0)
+}
+
+func costTokensRec(costs []int, tree []int8, probs []uint8, i, c int) {
+	prob := probs[i>>1]
+	for b := 0; b <= 1; b++ {
+		cc := c + VP9CostBit(prob, b)
+		next := tree[i+b]
+		if next <= 0 {
+			costs[-int(next)] = cc
+			continue
+		}
+		costTokensRec(costs, tree, probs, int(next), cc)
+	}
+}
+
 // GetBinaryProb mirrors libvpx's get_binary_prob — the canonical
 // "what probability best fits these counts?" projection. The MV
 // and prob update paths both hand this through to the savings

@@ -120,6 +120,56 @@ func TestGetBinaryProbBounds(t *testing.T) {
 	}
 }
 
+// TestVP9CostTokensTreeDepth walks a 4-leaf right-skewed binary
+// tree under p=128 (every bit costs equally), so each leaf's cost
+// equals its tree depth times VP9CostBit(128, 0). Tree
+// `{2, -0, 4, -1, -2, -3}` puts leaf 0 at depth 1, leaf 1 at depth
+// 2, and leaves 2 and 3 at depth 3.
+func TestVP9CostTokensTreeDepth(t *testing.T) {
+	tree := []int8{2, -0, 4, -1, -2, -3}
+	probs := []uint8{128, 128, 128}
+	costs := make([]int, 4)
+	VP9CostTokens(costs, probs, tree)
+	bit := VP9CostBit(128, 0)
+	wants := []int{1 * bit, 2 * bit, 3 * bit, 3 * bit}
+	for i, c := range costs {
+		if c != wants[i] {
+			t.Errorf("costs[%d] = %d, want %d", i, c, wants[i])
+		}
+	}
+}
+
+// TestVP9CostTokensSkewedProb anchors a degenerate case: with prob
+// 1 (almost always emits 1), the left-most leaf (path 00) should be
+// dramatically cheaper than the right-most leaf (path 11).
+func TestVP9CostTokensSkewedProb(t *testing.T) {
+	tree := []int8{2, -0, 4, -1, -2, -3}
+	probs := []uint8{1, 1, 1}
+	costs := make([]int, 4)
+	VP9CostTokens(costs, probs, tree)
+	// Leaf 0 takes a single "go right" decision (bit=1, prob=1 → very cheap).
+	// Leaf 3 takes "go left, go left" then to leaf 3 — expensive bits.
+	if costs[0] >= costs[3] {
+		t.Errorf("skew direction inverted: leaf0=%d leaf3=%d", costs[0], costs[3])
+	}
+}
+
+// TestTreedCostMatchesCostTokens walks a known leaf bit-pattern
+// through TreedCost and compares against the matching
+// VP9CostTokens output for that leaf.
+func TestTreedCostMatchesCostTokens(t *testing.T) {
+	tree := []int8{2, -0, 4, -1, -2, -3}
+	probs := []uint8{128, 128, 128}
+	costs := make([]int, 4)
+	VP9CostTokens(costs, probs, tree)
+	// Walk: idx 0 with bit=0 → tree[0]=2 (next-idx). At idx 2 with
+	// bit=1 → tree[3]=-1 (leaf 1). So leaf 1 = path "01".
+	got := TreedCost(tree, probs, 0b01, 2)
+	if got != costs[1] {
+		t.Errorf("TreedCost = %d, VP9CostTokens leaf 1 = %d", got, costs[1])
+	}
+}
+
 // findVP9EncoderSource walks up to find the libvpx checkout.
 func findVP9EncoderSource(rel string) string {
 	_, here, _, _ := runtime.Caller(0)
