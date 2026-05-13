@@ -217,11 +217,19 @@ type rateControlState struct {
 
 	framesSinceKeyframe   int
 	currentTemporalLayers int
-	rollingActualBits     int
-	rollingTargetBits     int
-	longRollingActualBits int
-	longRollingTargetBits int
-	totalActualBits       int64
+	// currentLayerPerFrameBandwidth mirrors libvpx's cpu->per_frame_bandwidth
+	// after vp8_new_framerate(cpi, lc->framerate) when TS is active: it is
+	// the current layer's `target_bandwidth / framerate`. It feeds the
+	// post-pack overspend accumulation (vp8_adjust_key_frame_context /
+	// update_golden_frame_stats), so kf/gf_overspend_bits track the
+	// layer-specific overhead rather than the encoder-wide one. Zero in
+	// non-TS encodes; callers fall back to rc.bitsPerFrame.
+	currentLayerPerFrameBandwidth int
+	rollingActualBits             int
+	rollingTargetBits             int
+	longRollingActualBits         int
+	longRollingTargetBits         int
+	totalActualBits               int64
 
 	maxIntraBitratePct int
 	gfCBRBoostPct      int
@@ -511,11 +519,26 @@ type rateControlFrameContext struct {
 	firstFrame         bool
 	forcedKeyFrame     bool
 	temporalLayerCount int
-	timing             timingState
+	// layerPerFrameBandwidth mirrors libvpx's cpi->per_frame_bandwidth after
+	// vp8_new_framerate(cpi, lc->framerate) when TS is active. For non-TS or
+	// when zero, callers fall back to rc.bitsPerFrame / baseTargetBits.
+	layerPerFrameBandwidth int
+	timing                 timingState
 }
 
 func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTargetBits int, ctx rateControlFrameContext) {
 	rc.currentTemporalLayers = ctx.temporalLayerCount
+	if ctx.temporalLayerCount > 1 {
+		if ctx.layerPerFrameBandwidth > 0 {
+			rc.currentLayerPerFrameBandwidth = ctx.layerPerFrameBandwidth
+		} else if baseTargetBits > 0 {
+			rc.currentLayerPerFrameBandwidth = baseTargetBits
+		} else {
+			rc.currentLayerPerFrameBandwidth = 0
+		}
+	} else {
+		rc.currentLayerPerFrameBandwidth = 0
+	}
 	targetBits := baseTargetBits
 	if targetBits <= 0 {
 		targetBits = rc.bitsPerFrame
@@ -537,9 +560,36 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 			}
 		}
 	}
-	if !keyFrame && ctx.temporalLayerCount <= 1 {
-		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits)
-		targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
+	if !keyFrame {
+		// libvpx's calc_pframe_target_size always runs the
+		// kf_overspend_bits / gf_overspend_bits drain; only
+		// cpi->per_frame_bandwidth is swapped to the per-layer
+		// avg_frame_size_for_layer when current_layer > 0
+		// (vp8/encoder/ratectrl.c:557). Mirror that here so the
+		// shared overspend counter drains in TS mode against the
+		// layer's per-frame bandwidth. For non-TS the drain
+		// consults decimationBoostedBitsPerFrame(), the pre-pick
+		// mutation libvpx applies before this branch.
+		perFrameBandwidth := rc.decimationBoostedBitsPerFrame()
+		if ctx.temporalLayerCount > 1 {
+			// libvpx swaps cpi->per_frame_bandwidth to the per-layer
+			// avg_frame_size_for_layer when current_layer > 0 (line 557
+			// of vp8/encoder/ratectrl.c); for current_layer == 0 it
+			// keeps the value just refreshed by vp8_new_framerate
+			// against lc->framerate, which equals
+			// avg_frame_size_for_layer[0]. Either way the layer's own
+			// per-frame bandwidth is what feeds the drain.
+			switch {
+			case ctx.layerPerFrameBandwidth > 0:
+				perFrameBandwidth = ctx.layerPerFrameBandwidth
+			case baseTargetBits > 0:
+				perFrameBandwidth = baseTargetBits
+			}
+		}
+		targetBits = rc.applyOnePassPFrameOverspendRecovery(targetBits, perFrameBandwidth)
+		if ctx.temporalLayerCount <= 1 {
+			targetBits = rc.bufferAdjustedFrameTargetBits(targetBits)
+		}
 	}
 	if rc.mode == RateControlCQ {
 		if rc.currentQuantizer < rc.cqLevel {
@@ -557,15 +607,19 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 // clamping to min_frame_target = max(min_frame_bandwidth, per_frame_bandwidth/4).
 // inter_frame_target is captured after recovery (libvpx records it on every
 // non-altref normal frame).
-func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int) int {
+func (rc *rateControlState) applyOnePassPFrameOverspendRecovery(targetBits int, perFrameBandwidth int) int {
 	if targetBits <= 0 {
 		return targetBits
 	}
 	// Mirror libvpx: the per_frame_bandwidth used for min_frame_target's
 	// quarter-floor is the just-boosted (post-vp8_check_drop_buffer) value
-	// when decimation is active. We mirror that by consulting
-	// decimationBoostedBitsPerFrame() instead of the raw bitsPerFrame.
-	perFrameBandwidth := rc.decimationBoostedBitsPerFrame()
+	// when decimation is active. Callers pass that in directly so this
+	// helper can also serve the temporal-layer branch where libvpx swaps
+	// per_frame_bandwidth to layer_context[current_layer].avg_frame_size_for_layer
+	// (vp8/encoder/ratectrl.c:557).
+	if perFrameBandwidth <= 0 {
+		perFrameBandwidth = rc.decimationBoostedBitsPerFrame()
+	}
 	if perFrameBandwidth <= 0 {
 		return targetBits
 	}
