@@ -199,7 +199,7 @@ func validateRateControlConfig(cfg RateControlConfig) error {
 func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 	minQ := opts.MinQuantizer
 	maxQ := opts.MaxQuantizer
-	if minQ == 0 && maxQ == 0 {
+	if minQ == 0 && maxQ == 0 && !opts.QuantizerRangeSet {
 		minQ = 4
 		maxQ = 56
 	}

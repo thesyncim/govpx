@@ -152,7 +152,11 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		ProbSkipFalse: 255,
 	}
 	phase = e.phaseStart()
-	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratch(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch)
+	var prebuiltKeyCoefCounts *vp8enc.InterCoefficientTokenCounts
+	if e.keyFrameCoefTokenCountsValid && !cfg.IndependentContexts {
+		prebuiltKeyCoefCounts = &e.keyFrameCoefTokenCounts
+	}
+	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch, prebuiltKeyCoefCounts)
 	e.phaseEnd(encoderPhasePacketWrite, phase)
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
@@ -704,7 +708,21 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 			return 0
 		}
 		if e.opts.ErrorResilientPartitions {
+			if e.keyFrameCoefTokenCountsValid {
+				savings, err := vp8enc.CoefficientEntropySavingsIndependentFromPrebuiltCounts(&vp8tables.DefaultCoefProbs, &e.keyFrameCoefTokenCounts, true)
+				if err != nil {
+					return 0
+				}
+				return savings
+			}
 			savings, err := vp8enc.KeyFrameCoefficientEntropySavingsIndependent(rows, cols, e.keyFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs)
+			if err != nil {
+				return 0
+			}
+			return savings
+		}
+		if e.keyFrameCoefTokenCountsValid {
+			savings, err := vp8enc.CoefficientEntropySavingsFromPrebuiltCounts(&vp8tables.DefaultCoefProbs, &e.keyFrameCoefTokenCounts)
 			if err != nil {
 				return 0
 			}
@@ -720,7 +738,21 @@ func (e *VP8Encoder) coefficientEntropySavingsBits(keyFrame bool, macroblocks in
 		return 0
 	}
 	if e.opts.ErrorResilientPartitions {
+		if e.interCoefTokenCountsValid {
+			savings, err := vp8enc.CoefficientEntropySavingsIndependentFromPrebuiltCounts(&e.coefProbs, &e.interCoefTokenCounts, false)
+			if err != nil {
+				return 0
+			}
+			return savings
+		}
 		savings, err := vp8enc.InterCoefficientEntropySavingsIndependent(rows, cols, e.interFrameModes[:macroblocks], e.keyFrameCoeffs[:macroblocks], e.tokenAbove[:cols], &e.coefProbs)
+		if err != nil {
+			return 0
+		}
+		return savings
+	}
+	if e.interCoefTokenCountsValid {
+		savings, err := vp8enc.CoefficientEntropySavingsFromPrebuiltCounts(&e.coefProbs, &e.interCoefTokenCounts)
 		if err != nil {
 			return 0
 		}

@@ -538,16 +538,40 @@ func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 	if got := e.mbsZeroLastDotSuppress; got != 51 {
 		t.Fatalf("mbsZeroLastDotSuppress = %d, want summed 51", got)
 	}
-	if got := e.interRDThreshMult[modeIndex]; got != 200 {
-		t.Fatalf("rd thresh mult = %d, want primary state unchanged", got)
+	if got := e.interRDThreshMult[modeIndex]; got != 123 {
+		t.Fatalf("rd thresh mult = %d, want main-lane state", got)
 	}
 	if !e.interRDThreshTouched[modeIndex] {
-		t.Fatalf("rd thresh touched = %v, want primary state unchanged", e.interRDThreshTouched[modeIndex])
+		t.Fatalf("rd thresh touched = %v, want main-lane state", e.interRDThreshTouched[modeIndex])
 	}
 	for i, want := range []bool{true, true, true, false} {
 		if got := e.dotArtifactChecked[i]; got != want {
 			t.Fatalf("dotArtifactChecked[%d] = %v, want %v", i, got, want)
 		}
+	}
+}
+
+func TestRowWorkerResetPreservesHelperModeTestHits(t *testing.T) {
+	modeIndex := libvpxThrNew2
+	e := &VP8Encoder{dotArtifactChecked: make([]bool, 1)}
+	e.interModeTestHitCounts[modeIndex] = 3
+	e.interMBsTestedSoFar = 0
+
+	var worker rowEncoderState
+	worker.enc.interModeTestHitCounts[modeIndex] = 7
+	worker.enc.interMBsTestedSoFar = 99
+	worker.reset(e, 1, true)
+
+	if got := worker.enc.interModeTestHitCounts[modeIndex]; got != 7 {
+		t.Fatalf("helper mode test hits = %d, want preserved 7", got)
+	}
+	if got := worker.enc.interMBsTestedSoFar; got != 0 {
+		t.Fatalf("helper mbs_tested_so_far = %d, want frame reset 0", got)
+	}
+
+	worker.reset(e, 1, false)
+	if got := worker.enc.interModeTestHitCounts[modeIndex]; got != 3 {
+		t.Fatalf("main-lane mode test hits = %d, want copied primary 3", got)
 	}
 }
 

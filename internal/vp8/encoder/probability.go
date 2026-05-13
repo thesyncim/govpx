@@ -134,6 +134,20 @@ func KeyFrameCoefficientEntropySavings(rows int, cols int, modes []KeyFrameMacro
 	return coefficientEntropySavingsFromTokenCounts(base, &counts), nil
 }
 
+func CoefficientEntropySavingsFromPrebuiltCounts(base *tables.CoefficientProbs, counts *InterCoefficientTokenCounts) (int, error) {
+	if base == nil || counts == nil {
+		return 0, ErrInvalidPacketConfig
+	}
+	return coefficientEntropySavingsFromTokenCounts(base, counts), nil
+}
+
+func CoefficientEntropySavingsIndependentFromPrebuiltCounts(base *tables.CoefficientProbs, counts *InterCoefficientTokenCounts, keyFrame bool) (int, error) {
+	if base == nil || counts == nil {
+		return 0, ErrInvalidPacketConfig
+	}
+	return coefficientEntropySavingsFromTokenCountsIndependent(base, counts, keyFrame), nil
+}
+
 // KeyFrameCoefficientEntropySavingsIndependent ports the
 // VPX_ERROR_RESILIENT_PARTITIONS coefficient-savings branch used by libvpx for
 // key frames. It uses the same default_coef_counts independent-context model
