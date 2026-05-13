@@ -108,6 +108,27 @@ func TestWriteMvRoundTripDelta(t *testing.T) {
 	}
 }
 
+func TestMvCostChargesComponentsAndHighPrecision(t *testing.T) {
+	ctx := defaultNmvContextForEnc()
+	ref := vp9dec.MV{Row: 4, Col: -2}
+	identity := MvCost(ref, ref, &ctx, true)
+	delta := MvCost(vp9dec.MV{Row: 7, Col: -9}, ref, &ctx, true)
+	if delta <= identity {
+		t.Fatalf("delta MV cost = %d, want greater than identity cost %d",
+			delta, identity)
+	}
+
+	noHP := MvComponentCost(3, &ctx.Comps[0], false)
+	withHP := MvComponentCost(3, &ctx.Comps[0], true)
+	if noHP <= 0 {
+		t.Fatalf("component cost without HP = %d, want positive", noHP)
+	}
+	if withHP <= noHP {
+		t.Fatalf("component cost with HP = %d, want greater than no-HP %d",
+			withHP, noHP)
+	}
+}
+
 // TestWriteMvComponentRoundTripFuzz walks a spread of magnitudes
 // through WriteMvComponent.
 func TestWriteMvComponentRoundTripFuzz(t *testing.T) {

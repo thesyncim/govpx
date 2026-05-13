@@ -113,7 +113,7 @@ returns no more data.
 | Inspect a packet header | `PeekVP8StreamInfo` |
 | Encode one frame | `EncodeInto` |
 | Drain delayed encoder output | `FlushInto` |
-| Force a keyframe | `ForceKeyFrame` (sticky) or the `EncodeForceKeyFrame` flag (one frame) |
+| Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
 | Toggle frame dropping only | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
 | Runtime rate-control replacement | `SetRateControl` |

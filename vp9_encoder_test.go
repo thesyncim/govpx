@@ -751,6 +751,70 @@ func TestVP9EncoderInterUsesPreviousFrameMvRefs(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderForceKeyFrameIsStickyUntilCommitted(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode initial keyframe: %v", err)
+	}
+	if e.IsKeyFrameNext() {
+		t.Fatal("IsKeyFrameNext = true after initial keyframe, want false")
+	}
+
+	e.ForceKeyFrame()
+	if !e.IsKeyFrameNext() {
+		t.Fatal("IsKeyFrameNext = false after ForceKeyFrame, want true")
+	}
+	if _, err := e.EncodeInto(src, nil); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("EncodeInto nil err = %v, want ErrBufferTooSmall", err)
+	}
+	if !e.IsKeyFrameNext() {
+		t.Fatal("ForceKeyFrame was consumed by failed EncodeInto")
+	}
+
+	forced, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode forced keyframe: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(forced)
+	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader forced keyframe: %v", perr)
+	}
+	if h.FrameType != common.KeyFrame {
+		t.Fatalf("forced frame type = %d, want KeyFrame", h.FrameType)
+	}
+	if e.IsKeyFrameNext() {
+		t.Fatal("IsKeyFrameNext still true after forced keyframe commit")
+	}
+}
+
+func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+
+	zeroRate := vp9InterModeRateCost(&fc, 0, common.ZeroMv,
+		vp9dec.MV{}, vp9dec.MV{})
+	newRate := vp9InterModeRateCost(&fc, 0, common.NewMv,
+		vp9dec.MV{Col: 64}, vp9dec.MV{})
+	if newRate <= zeroRate {
+		t.Fatalf("NEWMV rate = %d, want greater than ZEROMV rate %d",
+			newRate, zeroRate)
+	}
+	if got, wantGreater := vp9InterModeScore(0, newRate, 1),
+		vp9InterModeScore(0, zeroRate, 1); got <= wantGreater {
+		t.Fatalf("equal-SAD NEWMV score = %d, want greater than ZEROMV score %d",
+			got, wantGreater)
+	}
+	if got, wantLess := vp9InterModeScore(0, newRate, 1),
+		vp9InterModeScore(4096, zeroRate, 1); got >= wantLess {
+		t.Fatalf("large-gain NEWMV score = %d, want less than ZEROMV score %d",
+			got, wantLess)
+	}
+}
+
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
 // second-frame path: a visible LAST/ZeroMv skipped inter frame whose
 // reference dimensions come from the preceding keyframe.

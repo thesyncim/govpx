@@ -43,6 +43,27 @@ func WriteMv(bw *bitstream.Writer, mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, al
 	}
 }
 
+// MvCost returns the entropy cost of WriteMv in VP9 cost units
+// (bits << VP9ProbCostShift) without touching a bitstream. The mode
+// picker uses this to compare NEWMV against predictor modes using the
+// same tree walks as the writer.
+func MvCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHp bool) int {
+	dRow := int(mv.Row - ref.Row)
+	dCol := int(mv.Col - ref.Col)
+	useHp := allowHp && useMvHpRef(ref)
+
+	joint := mvJoint(dRow, dCol)
+	jenc := mvJointEncoding(joint)
+	cost := TreedCost(tables.MvJointTree[:], ctx.Joints[:], jenc.value, jenc.length)
+	if mvJointVertical(joint) {
+		cost += MvComponentCost(dRow, &ctx.Comps[0], useHp)
+	}
+	if mvJointHorizontal(joint) {
+		cost += MvComponentCost(dCol, &ctx.Comps[1], useHp)
+	}
+	return cost
+}
+
 // WriteMvComponent mirrors libvpx's encode_mv_component. Emits a
 // single axis of an MV delta: sign + class + integer + fractional
 // + optional eighth-pel bit.
@@ -97,6 +118,51 @@ func WriteMvComponent(bw *bitstream.Writer, comp int, c *vp9dec.NmvComponent, us
 		}
 		bw.Write(uint32(hp), uint32(hpProb))
 	}
+}
+
+// MvComponentCost returns the entropy cost of WriteMvComponent in VP9
+// cost units. comp must be non-zero, matching WriteMvComponent's
+// caller contract.
+func MvComponentCost(comp int, c *vp9dec.NmvComponent, usehp bool) int {
+	if comp == 0 {
+		return 0
+	}
+	sign := 0
+	mag := comp
+	if comp < 0 {
+		sign = 1
+		mag = -comp
+	}
+	mvClass, _ := classifyMvForEnc(mag)
+	offset := mag - 1 - mvClassBase(mvClass)
+	d := offset >> 3
+	fr := (offset >> 1) & 3
+	hp := offset & 1
+
+	cost := VP9CostBit(c.Sign, sign)
+	cenc := mvClassEncoding(mvClass)
+	cost += TreedCost(tables.MvClassTree[:], c.Classes[:], cenc.value, cenc.length)
+
+	if mvClass == tables.MvClass0 {
+		cost += VP9CostBit(c.Class0[0], d)
+		fpEnc := mvFpEncoding(fr)
+		cost += TreedCost(tables.MvFpTree[:], c.Class0Fp[d][:], fpEnc.value, fpEnc.length)
+		if usehp {
+			cost += VP9CostBit(c.Class0Hp, hp)
+		}
+		return cost
+	}
+
+	n := mvClass + 1 - 1
+	for i := range n {
+		cost += VP9CostBit(c.Bits[i], (d>>uint(i))&1)
+	}
+	fpEnc := mvFpEncoding(fr)
+	cost += TreedCost(tables.MvFpTree[:], c.Fp[:], fpEnc.value, fpEnc.length)
+	if usehp {
+		cost += VP9CostBit(c.Hp, hp)
+	}
+	return cost
 }
 
 // classifyMvForEnc mirrors decoder's classifyMv. Returns the
