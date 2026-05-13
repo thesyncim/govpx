@@ -11,12 +11,11 @@ import (
 // VP9DecoderOptions configures a VP9 decoder. Mirrors the VP8 shape
 // so call sites can switch codecs by swapping the constructor.
 //
-// The current VP9 stack is parser-only (see internal/vp9 — uncompressed
-// header, compressed header, mode info, detokenize, and DSP kernels
-// are byte-parity tested against libvpx v1.16.0 but the per-block
-// reconstruct pipeline isn't wired yet). VP9Decoder.Decode therefore
-// returns [ErrVP9NotImplemented] until the reconstruct loops land.
-// Constructors and accessors are usable today.
+// The current VP9 stack supports the minimal 8-bit 4:2:0 intra DC /
+// zero-residue path emitted by the public encoder. Other valid VP9
+// frames parse through the currently ported header, mode-info, and
+// detokenize layers, then return [ErrVP9NotImplemented] at the
+// reconstruct boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -34,8 +33,8 @@ type VP9DecoderOptions struct {
 	RejectResolutionChange bool
 }
 
-// ErrVP9NotImplemented is returned by VP9Decoder.Decode while the
-// per-block reconstruct pipeline is still being ported.
+// ErrVP9NotImplemented is returned by VP9Decoder.Decode for valid VP9
+// frames whose reconstruction path has not been ported yet.
 var ErrVP9NotImplemented = errors.New("govpx: VP9 reconstruct pipeline not yet implemented")
 
 // VP9Decoder is the public entry point for VP9 stream decoding. The
@@ -86,6 +85,16 @@ type VP9Decoder struct {
 	planes  [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	dqcoeff [1024]int16
 
+	// The first public reconstruction slice handles the encoder stub's
+	// neutral intra frames. Unsupported intra modes or nonzero tokens
+	// keep parsing intact but stop before publishing output.
+	unsupportedReconstruct bool
+	frameReady             bool
+	lastFrame              Image
+	frameY                 []byte
+	frameU                 []byte
+	frameV                 []byte
+
 	// width and height carry the last keyframe's frame dimensions.
 	// Reset on every keyframe; non-zero only after the first
 	// successful keyframe parse.
@@ -117,10 +126,11 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 }
 
 // Decode is the VP9 entry point. The uncompressed and compressed
-// headers plus intra-only tile mode-info are parsed and validated;
-// malformed frames surface as [ErrInvalidVP9Data]. The reconstruct
-// pipeline is still under construction — a valid packet returns
-// [ErrVP9NotImplemented] for now.
+// headers plus intra-only tile mode-info/residual tokens are parsed
+// and validated; malformed frames surface as [ErrInvalidVP9Data].
+// Minimal 8-bit 4:2:0 DC-predicted, zero-residue intra frames decode
+// to neutral I420 output. Other valid packets return
+// [ErrVP9NotImplemented] after parser state is updated.
 //
 // Side effects on a successful parse: the decoder's stored frame
 // dimensions, loopfilter state, segmentation state, and mode-info
@@ -186,9 +196,12 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 			int(hdr.Loopfilter.FilterLevel))
 
 		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+			d.unsupportedReconstruct = false
 			if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 				return err
 			}
+		} else {
+			d.unsupportedReconstruct = true
 		}
 	}
 
@@ -198,7 +211,71 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 		d.width = int(hdr.Width)
 		d.height = int(hdr.Height)
 	}
+	d.frameReady = false
+	if d.vp9CanPublishNeutralFrame(&hdr) {
+		if hdr.ShowFrame {
+			d.fillVP9NeutralFrame(int(hdr.Width), int(hdr.Height))
+			d.frameReady = true
+		}
+		return nil
+	}
 	return ErrVP9NotImplemented
+}
+
+func (d *VP9Decoder) vp9CanPublishNeutralFrame(hdr *vp9dec.UncompressedHeader) bool {
+	if hdr.ShowExistingFrame || d.unsupportedReconstruct {
+		return false
+	}
+	if hdr.FrameType != common.KeyFrame && !hdr.IntraOnly {
+		return false
+	}
+	if hdr.BitDepthColor.BitDepth != vp9dec.Bits8 ||
+		hdr.BitDepthColor.SubsamplingX != 1 ||
+		hdr.BitDepthColor.SubsamplingY != 1 {
+		return false
+	}
+	return true
+}
+
+func (d *VP9Decoder) fillVP9NeutralFrame(width, height int) {
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	yLen := planeLen(width, height, width)
+	uLen := planeLen(uvWidth, uvHeight, uvWidth)
+	if cap(d.frameY) < yLen {
+		d.frameY = make([]byte, yLen)
+	} else {
+		d.frameY = d.frameY[:yLen]
+	}
+	if cap(d.frameU) < uLen {
+		d.frameU = make([]byte, uLen)
+	} else {
+		d.frameU = d.frameU[:uLen]
+	}
+	if cap(d.frameV) < uLen {
+		d.frameV = make([]byte, uLen)
+	} else {
+		d.frameV = d.frameV[:uLen]
+	}
+	fillVP9Plane(d.frameY, 128)
+	fillVP9Plane(d.frameU, 128)
+	fillVP9Plane(d.frameV, 128)
+	d.lastFrame = Image{
+		Width:   width,
+		Height:  height,
+		Y:       d.frameY,
+		U:       d.frameU,
+		V:       d.frameV,
+		YStride: width,
+		UStride: uvWidth,
+		VStride: uvWidth,
+	}
+}
+
+func fillVP9Plane(buf []byte, value byte) {
+	for i := range buf {
+		buf[i] = value
+	}
 }
 
 // refDims is the placeholder ring-slot dimension lookup. The full
@@ -218,6 +295,20 @@ func (d *VP9Decoder) LastFrameSize() (width, height int) {
 		return 0, 0
 	}
 	return d.width, d.height
+}
+
+// NextFrame returns the most recent visible VP9 frame decoded by the
+// currently supported reconstruction path and consumes it. Subsequent
+// calls return false until the next visible frame is decoded.
+//
+// The returned image aliases decoder-owned storage. That storage stays
+// valid until the next Decode or Close call.
+func (d *VP9Decoder) NextFrame() (Image, bool) {
+	if d == nil || d.closed || !d.frameReady {
+		return Image{}, false
+	}
+	d.frameReady = false
+	return d.lastFrame, true
 }
 
 // Close releases internal state and marks the decoder as no longer

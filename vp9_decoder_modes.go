@@ -10,9 +10,9 @@ import (
 )
 
 // parseVP9IntraModeTiles consumes the tile mode-info and residual-token
-// stream for keyframes and intra-only inter frames. Reconstruction still
-// lives behind ErrVP9NotImplemented, but this validates the partition,
-// intra-mode, and coefficient layers the current encoder emits.
+// stream for keyframes and intra-only inter frames. The parser also
+// records whether the frame stays inside the narrow neutral-output
+// reconstruction path supported by the public decoder today.
 func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
 ) error {
@@ -205,7 +205,7 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 	if miCol > tile.MiColStart {
 		left = d.vp9DecoderMiAt(miRows, miCols, miRow, miCol-1)
 	}
-	vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
+	out := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
 		Reader:   r,
 		Fc:       &d.fc,
 		Seg:      &hdr.Seg,
@@ -217,6 +217,9 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 		Above:    above,
 		Left:     left,
 	}, mi)
+	if !vp9NeutralIntraMode(mi, out.UvMode) {
+		d.unsupportedReconstruct = true
+	}
 	if mi.Skip != 0 {
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
@@ -278,6 +281,7 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 				hasResidue := uint8(0)
 				if eob > 0 {
 					hasResidue = 1
+					d.unsupportedReconstruct = true
 				}
 				for i := range step {
 					aboveCtx[i] = hasResidue
@@ -285,6 +289,21 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 				}
 				blockIdx += step * step
 			}
+		}
+	}
+	return true
+}
+
+func vp9NeutralIntraMode(mi *vp9dec.NeighborMi, uvMode common.PredictionMode) bool {
+	if uvMode != common.DcPred {
+		return false
+	}
+	if mi.SbType >= common.Block8x8 {
+		return mi.Mode == common.DcPred
+	}
+	for i := range mi.Bmi {
+		if mi.Bmi[i].AsMode != common.DcPred {
+			return false
 		}
 	}
 	return true

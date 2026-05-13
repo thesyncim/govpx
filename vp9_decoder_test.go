@@ -123,11 +123,10 @@ func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesEncoderKeyframeModeTile feeds the current
-// encoder stub into the public decoder. Decode parses uncompressed /
-// compressed headers plus the keyframe tile mode-info stream, updates
-// frame dimensions, then stops at the reconstruct boundary.
-func TestVP9DecoderParsesEncoderKeyframeModeTile(t *testing.T) {
+// TestVP9DecoderDecodesEncoderKeyframeModeTile feeds the current
+// encoder stub into the public decoder. The stub is a DC-predicted,
+// zero-residue keyframe, so Decode publishes a neutral I420 frame.
+func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	packet, err := e.Encode(img)
@@ -139,21 +138,29 @@ func TestVP9DecoderParsesEncoderKeyframeModeTile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	err = d.Decode(packet)
-	if !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
 	}
 	w, h := d.LastFrameSize()
 	if w != 96 || h != 96 {
 		t.Errorf("LastFrameSize() = (%d, %d), want (96, 96)", w, h)
 	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible keyframe")
+	}
+	assertVP9NeutralFrame(t, frame, 96, 96)
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame returned a second frame without another Decode")
+	}
 }
 
-// TestVP9DecoderParsesEncoderIntraOnlyModeTile covers the second-frame
+// TestVP9DecoderDecodesEncoderIntraOnlyModeTile covers the second-frame
 // fallback path. It depends on the first keyframe parse to seed
 // preserved header state before the intra-only inter header,
-// compressed header, and tile mode-info stream are read.
-func TestVP9DecoderParsesEncoderIntraOnlyModeTile(t *testing.T) {
+// compressed header, and tile mode-info stream are read. The fallback
+// is non-show, so it decodes successfully without queuing output.
+func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	key, err := e.Encode(img)
@@ -169,11 +176,19 @@ func TestVP9DecoderParsesEncoderIntraOnlyModeTile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(key); !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode keyframe err = %v, want ErrVP9NotImplemented", err)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe err = %v, want nil", err)
 	}
-	if err := d.Decode(inter); !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode intra-only err = %v, want ErrVP9NotImplemented", err)
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible keyframe")
+	}
+	assertVP9NeutralFrame(t, frame, 96, 96)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode intra-only err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame queued output for non-show intra-only frame")
 	}
 	w, h := d.LastFrameSize()
 	if w != 96 || h != 96 {
@@ -181,10 +196,11 @@ func TestVP9DecoderParsesEncoderIntraOnlyModeTile(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesEncoderEdgeClippedModeTiles covers the same
+// TestVP9DecoderDecodesEncoderEdgeClippedModeTiles covers the same
 // partial-SB shapes as the vpxdec oracle, but through the public
-// decoder's tile-mode parser for both keyframe and intra-only frames.
-func TestVP9DecoderParsesEncoderEdgeClippedModeTiles(t *testing.T) {
+// decoder's tile-mode/residual parser and neutral output path for
+// both keyframe and intra-only frames.
+func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 	cases := []struct {
 		name string
 		w, h int
@@ -212,11 +228,19 @@ func TestVP9DecoderParsesEncoderEdgeClippedModeTiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewVP9Decoder: %v", err)
 			}
-			if err := d.Decode(key); !errors.Is(err, ErrVP9NotImplemented) {
-				t.Fatalf("Decode keyframe err = %v, want ErrVP9NotImplemented", err)
+			if err := d.Decode(key); err != nil {
+				t.Fatalf("Decode keyframe err = %v, want nil", err)
 			}
-			if err := d.Decode(inter); !errors.Is(err, ErrVP9NotImplemented) {
-				t.Fatalf("Decode intra-only err = %v, want ErrVP9NotImplemented", err)
+			frame, ok := d.NextFrame()
+			if !ok {
+				t.Fatal("NextFrame returned !ok after visible keyframe")
+			}
+			assertVP9NeutralFrame(t, frame, tc.w, tc.h)
+			if err := d.Decode(inter); err != nil {
+				t.Fatalf("Decode intra-only err = %v, want nil", err)
+			}
+			if _, ok := d.NextFrame(); ok {
+				t.Fatal("NextFrame queued output for non-show intra-only frame")
 			}
 			w, h := d.LastFrameSize()
 			if w != tc.w || h != tc.h {
@@ -256,11 +280,11 @@ func TestVP9DecoderRejectsMissingModeTile(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesMultiTileModeFrame drives the public decoder
+// TestVP9DecoderDecodesMultiTileModeFrame drives the public decoder
 // through the 4-byte size-prefixed tile layout. The public encoder
 // still emits one tile, so this test packs a two-column keyframe via
 // the internal packer and the same stub mode writer.
-func TestVP9DecoderParsesMultiTileModeFrame(t *testing.T) {
+func TestVP9DecoderDecodesMultiTileModeFrame(t *testing.T) {
 	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -268,21 +292,51 @@ func TestVP9DecoderParsesMultiTileModeFrame(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	err = d.Decode(packet)
-	if !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	if err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
 	}
 	w, h := d.LastFrameSize()
 	if w != 1024 || h != 64 {
 		t.Fatalf("LastFrameSize() = (%d, %d), want (1024, 64)", w, h)
 	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible multi-tile keyframe")
+	}
+	assertVP9NeutralFrame(t, frame, 1024, 64)
 }
 
-// TestVP9DecoderParsesZeroResidueKeyframe drives a skip=0 keyframe
+// TestVP9DecoderDecodesZeroResidueKeyframe drives a skip=0 keyframe
 // through the public decoder. The tile body carries all-zero
 // coefficient streams, so Decode must consume residual tokens before
-// stopping at the reconstruct boundary.
-func TestVP9DecoderParsesZeroResidueKeyframe(t *testing.T) {
+// publishing a neutral output frame.
+func TestVP9DecoderDecodesZeroResidueKeyframe(t *testing.T) {
 	packet := vp9SkipZeroKeyframeForTest(t, 64, 64, true)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 64 || h != 64 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (64, 64)", w, h)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after zero-residue keyframe")
+	}
+	assertVP9NeutralFrame(t, frame, 64, 64)
+}
+
+// TestVP9DecoderUnsupportedIntraModeDoesNotPublishFrame keeps the
+// narrow reconstruction contract explicit: non-DC intra prediction
+// parses cleanly, updates stream dimensions, and still stops before
+// output until the full predictor/reconstruct loop is wired.
+func TestVP9DecoderUnsupportedIntraModeDoesNotPublishFrame(t *testing.T) {
+	packet := vp9StubPacketForTest(t, 64, 64, 0, common.VPred)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -295,6 +349,9 @@ func TestVP9DecoderParsesZeroResidueKeyframe(t *testing.T) {
 	w, h := d.LastFrameSize()
 	if w != 64 || h != 64 {
 		t.Fatalf("LastFrameSize() = (%d, %d), want (64, 64)", w, h)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame published output for unsupported intra mode")
 	}
 }
 
@@ -359,7 +416,8 @@ func TestVP9DecoderRejectsInvalidMultiTilePrefix(t *testing.T) {
 }
 
 // TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
-// tile-mode parse path allocation-free after construction.
+// tile/residual parse and neutral output path allocation-free after
+// construction.
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
@@ -372,18 +430,52 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(packet); !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("warm Decode err = %v, want ErrVP9NotImplemented", err)
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("warm Decode err = %v, want nil", err)
 	}
 
 	allocs := testing.AllocsPerRun(100, func() {
 		err = d.Decode(packet)
 	})
-	if !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	if err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
 	}
 	if allocs != 0 {
 		t.Fatalf("Decode steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
+	t.Helper()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, width, height)
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	assertVP9PlaneFilled(t, "Y", got.Y, got.YStride, width, height, 128)
+	assertVP9PlaneFilled(t, "U", got.U, got.UStride, uvWidth, uvHeight, 128)
+	assertVP9PlaneFilled(t, "V", got.V, got.VStride, uvWidth, uvHeight, 128)
+}
+
+func assertVP9PlaneFilled(t *testing.T, name string, plane []byte,
+	stride, width, height int, want byte,
+) {
+	t.Helper()
+	if stride < width {
+		t.Fatalf("%s stride = %d, want at least %d", name, stride, width)
+	}
+	if len(plane) < planeLen(stride, height, width) {
+		t.Fatalf("%s plane len = %d, want at least %d",
+			name, len(plane), planeLen(stride, height, width))
+	}
+	for row := range height {
+		for col := range width {
+			if got := plane[row*stride+col]; got != want {
+				t.Fatalf("%s[%d,%d] = %d, want %d",
+					name, row, col, got, want)
+			}
+		}
 	}
 }
 
@@ -398,6 +490,13 @@ func vp9TileStartForTest(packet []byte) (int, error) {
 }
 
 func vp9MultiTileStubPacketForTest(t *testing.T, width, height, log2TileCols int) []byte {
+	t.Helper()
+	return vp9StubPacketForTest(t, width, height, log2TileCols, common.DcPred)
+}
+
+func vp9StubPacketForTest(t *testing.T, width, height, log2TileCols int,
+	yMode common.PredictionMode,
+) []byte {
 	t.Helper()
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
@@ -434,7 +533,7 @@ func vp9MultiTileStubPacketForTest(t *testing.T, width, height, log2TileCols int
 
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
-		Mode:   common.DcPred,
+		Mode:   yMode,
 		TxSize: common.Tx4x4,
 		Skip:   1,
 		RefFrame: [2]int8{
@@ -604,8 +703,8 @@ func vp9SkipZeroKeyframeForTest(t *testing.T, width, height int, writeResidue bo
 }
 
 // TestVP9DecoderMaxWidthRejectsLargerKeyframe: a header whose width
-// exceeds the configured MaxWidth gets rejected before
-// ErrVP9NotImplemented surfaces.
+// exceeds the configured MaxWidth gets rejected before tile parsing or
+// output publication.
 func TestVP9DecoderMaxWidthRejectsLargerKeyframe(t *testing.T) {
 	var pk vp9BitPacker
 	pk.writeLiteral(2, 2)
