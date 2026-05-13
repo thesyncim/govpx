@@ -4,15 +4,25 @@ const (
 	fdctDctConstBits     = 14
 	fdctDctConstRounding = 1 << (fdctDctConstBits - 1)
 
+	fdctCospi4_64  = 16069
 	fdctCospi8_64  = 15137
+	fdctCospi12_64 = 13623
 	fdctCospi16_64 = 11585
+	fdctCospi20_64 = 9102
 	fdctCospi24_64 = 6270
+	fdctCospi28_64 = 3196
 )
 
 // ForwardDCT4x4 mirrors libvpx v1.16.0 vpx_fdct4x4_c. Input is a 4x4
 // residual block with caller-provided stride; output is raster-order
 // transform coefficients.
 func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
+	ForwardDCT4x4Into(input, stride, output[:])
+}
+
+// ForwardDCT4x4Into is the slice-backed form of ForwardDCT4x4. output must
+// hold at least 16 coefficients.
+func ForwardDCT4x4Into(input []int16, stride int, output []int16) {
 	var intermediate [16]int
 	var final [16]int
 
@@ -56,19 +66,93 @@ func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
 	}
 }
 
+// ForwardDCT8x8 mirrors libvpx v1.16.0 vpx_fdct8x8_c. Input is an 8x8
+// residual block with caller-provided stride; output is raster-order
+// transform coefficients.
+func ForwardDCT8x8(input []int16, stride int, output *[64]int16) {
+	ForwardDCT8x8Into(input, stride, output[:])
+}
+
+// ForwardDCT8x8Into is the slice-backed form of ForwardDCT8x8. output must
+// hold at least 64 coefficients.
+func ForwardDCT8x8Into(input []int16, stride int, output []int16) {
+	var intermediate [64]int
+	var final [64]int
+
+	for pass := 0; pass < 2; pass++ {
+		for i := 0; i < 8; i++ {
+			var s0, s1, s2, s3, s4, s5, s6, s7 int
+			if pass == 0 {
+				s0 = (int(input[0*stride+i]) + int(input[7*stride+i])) * 4
+				s1 = (int(input[1*stride+i]) + int(input[6*stride+i])) * 4
+				s2 = (int(input[2*stride+i]) + int(input[5*stride+i])) * 4
+				s3 = (int(input[3*stride+i]) + int(input[4*stride+i])) * 4
+				s4 = (int(input[3*stride+i]) - int(input[4*stride+i])) * 4
+				s5 = (int(input[2*stride+i]) - int(input[5*stride+i])) * 4
+				s6 = (int(input[1*stride+i]) - int(input[6*stride+i])) * 4
+				s7 = (int(input[0*stride+i]) - int(input[7*stride+i])) * 4
+			} else {
+				s0 = intermediate[0*8+i] + intermediate[7*8+i]
+				s1 = intermediate[1*8+i] + intermediate[6*8+i]
+				s2 = intermediate[2*8+i] + intermediate[5*8+i]
+				s3 = intermediate[3*8+i] + intermediate[4*8+i]
+				s4 = intermediate[3*8+i] - intermediate[4*8+i]
+				s5 = intermediate[2*8+i] - intermediate[5*8+i]
+				s6 = intermediate[1*8+i] - intermediate[6*8+i]
+				s7 = intermediate[0*8+i] - intermediate[7*8+i]
+			}
+
+			x0 := s0 + s3
+			x1 := s1 + s2
+			x2 := s1 - s2
+			x3 := s0 - s3
+
+			base := i * 8
+			out := intermediate[:]
+			if pass == 1 {
+				out = final[:]
+			}
+			out[base+0] = fdctRoundShift((x0 + x1) * fdctCospi16_64)
+			out[base+2] = fdctRoundShift(x2*fdctCospi24_64 + x3*fdctCospi8_64)
+			out[base+4] = fdctRoundShift((x0 - x1) * fdctCospi16_64)
+			out[base+6] = fdctRoundShift(-x2*fdctCospi8_64 + x3*fdctCospi24_64)
+
+			t0 := (s6 - s5) * fdctCospi16_64
+			t1 := (s6 + s5) * fdctCospi16_64
+			t2 := fdctRoundShift(t0)
+			t3 := fdctRoundShift(t1)
+
+			x0 = s4 + t2
+			x1 = s4 - t2
+			x2 = s7 - t3
+			x3 = s7 + t3
+
+			out[base+1] = fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64)
+			out[base+3] = fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64)
+			out[base+5] = fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64)
+			out[base+7] = fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64)
+		}
+	}
+
+	for i := range 64 {
+		output[i] = int16(final[i] / 2)
+	}
+}
+
 func fdctRoundShift(input int) int {
 	return (input + fdctDctConstRounding) >> fdctDctConstBits
 }
 
-// QuantizeFP4x4 mirrors libvpx's vp9_quantize_fp_c for a 4x4 transform.
+// QuantizeFP mirrors libvpx's vp9_quantize_fp_c for non-32x32 transforms.
 // dqcoeff receives dequantized coefficients in raster order, which is the
 // representation consumed by WriteCoefBlock. The return value is the scan-order
 // EOB position.
-func QuantizeFP4x4(coeff *[16]int16, dequant [2]int16, scan []int16, dqcoeff *[16]int16) int {
+func QuantizeFP(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
 	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
 	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
 	eob := -1
-	for i := range 16 {
+	n := min(len(coeff), min(len(scan), len(dqcoeff)))
+	for i := range n {
 		rc := int(scan[i])
 		slot := 0
 		if rc != 0 {
@@ -91,6 +175,11 @@ func QuantizeFP4x4(coeff *[16]int16, dequant [2]int16, scan []int16, dqcoeff *[1
 		}
 	}
 	return eob + 1
+}
+
+// QuantizeFP4x4 mirrors libvpx's vp9_quantize_fp_c for a 4x4 transform.
+func QuantizeFP4x4(coeff *[16]int16, dequant [2]int16, scan []int16, dqcoeff *[16]int16) int {
+	return QuantizeFP(coeff[:], dequant, scan, dqcoeff[:])
 }
 
 func clampInt16(v int) int {

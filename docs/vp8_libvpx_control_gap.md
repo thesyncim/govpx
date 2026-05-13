@@ -343,7 +343,7 @@ decode.
 | `VPXD_SET_DECRYPTOR` / `VP8D_SET_DECRYPTOR` | Decryption is transport/application policy. Prefer decrypting before `Decode`. |
 | `g_profile` for VP8 encode | govpx always emits profile/version 0. Nonzero VP8 versions are mostly compatibility/special-path behavior and are rarely desirable for new encodes. Decoder already supports profiles 0..3. |
 | `vpx_codec_enc_init_multi` / VP8 multi-resolution encode | This is a libvpx-specific multi-encoder API and not a small VP8 control. |
-| VP9-prefixed controls in `vp8cx.h` / `vp8dx.h` | Out of scope. govpx is VP8-only. |
+| VP9-prefixed controls in `vp8cx.h` / `vp8dx.h` | Out of scope for this VP8 control-gap document. |
 | `rc_scaled_width` / `rc_scaled_height` | Present in common config but not meaningfully wired for VP8 in `set_vp8e_config`; `VP8E_SET_SCALEMODE` and resize watermarks are the real VP8 path. |
 | `rc_firstpass_mb_stats_in` / FPMB stats packets | Present in common headers, but no meaningful VP8 control path in the inspected v1.16.0 implementation. |
 | Vizier/external experiment fields in `vpx_codec_enc_cfg_t` | VP8 validates denominators but does not wire them into the VP8 config in v1.16.0. |

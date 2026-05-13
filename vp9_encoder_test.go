@@ -184,8 +184,8 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 		KeyFrame:     true,
 		InterpFilter: vp9dec.InterpEighttap,
 	})
-	if out.TxMode != common.Only4x4 {
-		t.Errorf("TxMode = %d, want Only4x4", out.TxMode)
+	if out.TxMode != common.Allow8x8 {
+		t.Errorf("TxMode = %d, want Allow8x8", out.TxMode)
 	}
 
 	// Layer 3: tile body. The 1-tile case has no size prefix; the
@@ -225,7 +225,7 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 		Fc:       &fc,
 		Seg:      &seg,
 		Maps:     &maps,
-		TxMode:   common.Only4x4,
+		TxMode:   out.TxMode,
 		MiOffset: 0,
 		XMis:     8, YMis: 8,
 	}, leafMi)
@@ -234,6 +234,9 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	}
 	if leafMi.Skip != 1 {
 		t.Errorf("Skip = %d, want 1", leafMi.Skip)
+	}
+	if leafMi.TxSize != common.Tx8x8 {
+		t.Errorf("TxSize = %d, want Tx8x8", leafMi.TxSize)
 	}
 	if mode.UvMode != common.DcPred {
 		t.Errorf("UV mode = %d, want DcPred", mode.UvMode)
@@ -464,8 +467,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if cr.HasError() {
 		t.Fatal("compressed header reader reported over-read")
 	}
-	if out.TxMode != common.Only4x4 {
-		t.Errorf("TxMode = %d, want Only4x4", out.TxMode)
+	if out.TxMode != common.Allow8x8 {
+		t.Errorf("TxMode = %d, want Allow8x8", out.TxMode)
 	}
 	if out.ReferenceMode != vp9dec.SingleReference {
 		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
@@ -496,7 +499,7 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	vp9dec.ResetFrameContext(&fc)
 	var cr bitstream.Reader
 	cr.Init(got[uncSize:compEnd])
-	vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
 		Lossless: false, IntraOnly: true, KeyFrame: true,
 		InterpFilter: vp9dec.InterpEighttap,
 	})
@@ -545,7 +548,7 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 		leafMi := &vp9dec.NeighborMi{SbType: common.Block64x64}
 		mode := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
 			Reader: &tr, Fc: &fc, Seg: &seg, Maps: &maps,
-			TxMode:   common.Only4x4,
+			TxMode:   out.TxMode,
 			MiOffset: miCol, XMis: common.MiBlockSize, YMis: common.MiBlockSize,
 			Above: miAt(-1, miCol),
 			Left:  miAt(0, miCol-1),
@@ -553,6 +556,9 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 		if leafMi.Mode != common.DcPred || mode.UvMode != common.DcPred {
 			t.Errorf("SB at miCol=%d: Y=%d UV=%d, want DcPred/DcPred",
 				miCol, leafMi.Mode, mode.UvMode)
+		}
+		if leafMi.TxSize != common.Tx8x8 {
+			t.Errorf("SB at miCol=%d: TxSize = %d, want Tx8x8", miCol, leafMi.TxSize)
 		}
 		fillMi(0, miCol, common.Block64x64, *leafMi)
 		// Update partition context (decoder side mirror of encoder stamp).

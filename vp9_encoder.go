@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	vp9EncoderTxCoeffSlots    = 16
+	vp9EncoderTxCoeffSlots    = 64
 	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
 )
 
@@ -112,9 +112,9 @@ type VP9Encoder struct {
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch    [1024]int16
-	residueScratch [16]int16
-	txCoeffScratch [16]int16
-	dqCoeffScratch [16]int16
+	residueScratch [64]int16
+	txCoeffScratch [64]int16
+	dqCoeffScratch [64]int16
 	frameCounts    encoder.FrameCounts
 }
 
@@ -275,10 +275,11 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
 
+	txMode := common.Allow8x8
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
-		TxSize: common.Tx4x4,
+		TxSize: common.Tx8x8,
 		Skip:   1,
 		RefFrame: [2]int8{
 			vp9dec.IntraFrame,
@@ -328,7 +329,7 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:           false,
-		TxMode:             common.Only4x4,
+		TxMode:             txMode,
 		IntraOnly:          isKey || header.IntraOnly,
 		InterpFilter:       vp9dec.InterpEighttap,
 		ReferenceMode:      vp9dec.SingleReference,
@@ -564,6 +565,13 @@ func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
 		return inter.counts
 	}
 	return nil
+}
+
+func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
+	if mi.TxSize >= common.Tx8x8 {
+		return common.Allow8x8
+	}
+	return common.Only4x4
 }
 
 func countVP9Skip(counts *encoder.FrameCounts, seg *vp9dec.SegmentationParams,
@@ -854,7 +862,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			AboveMi:      above,
 			LeftMi:       left,
 			Fc:           &e.fc,
-			TxMode:       common.Only4x4,
+			TxMode:       txModeForMi(cur),
 			FrameRefMode: vp9dec.SingleReference,
 			InterpFilter: vp9dec.InterpEighttap,
 			InterModeCtx: interModeCtx,
@@ -868,7 +876,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 			_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
 				BSize:        reconBsize,
-				MiTxSize:     common.Tx4x4,
+				MiTxSize:     cur.TxSize,
 				IsInter:      1,
 				Lossless:     false,
 				Mi:           &cur,
@@ -903,7 +911,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			Mi:        &cur,
 			AboveMi:   above,
 			LeftMi:    left,
-			TxMode:    common.Only4x4,
+			TxMode:    txModeForMi(cur),
 			SkipProbs: e.fc.SkipProbs,
 		})
 		encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
@@ -915,7 +923,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		}
 		_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
 			BSize:        reconBsize,
-			MiTxSize:     common.Tx4x4,
+			MiTxSize:     cur.TxSize,
 			IsInter:      0,
 			Lossless:     false,
 			Mi:           &cur,
@@ -941,7 +949,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		Mi:        &cur,
 		AboveMi:   above,
 		LeftMi:    left,
-		TxMode:    common.Only4x4,
+		TxMode:    txModeForMi(cur),
 		SkipProbs: e.fc.SkipProbs,
 	})
 	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
@@ -1127,12 +1135,12 @@ func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 	dst []byte, dstStride, x0, y0 int, txSize common.TxSize,
 ) bool {
-	for i := range e.residueScratch {
-		e.residueScratch[i] = 0
-	}
 	bs := 4 << uint(txSize)
-	if bs != 4 {
+	if bs*bs > len(e.residueScratch) {
 		return false
+	}
+	for i := range e.residueScratch[:bs*bs] {
+		e.residueScratch[i] = 0
 	}
 	hasDiff := false
 	for y := 0; y < bs && y0+y < srcH; y++ {
@@ -1140,7 +1148,7 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		dstRow := dst[y*dstStride:]
 		for x := 0; x < bs && x0+x < srcW; x++ {
 			diff := int(srcRow[x0+x]) - int(dstRow[x])
-			e.residueScratch[y*4+x] = int16(diff)
+			e.residueScratch[y*bs+x] = int16(diff)
 			if diff != 0 {
 				hasDiff = true
 			}
@@ -1152,22 +1160,30 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, out []int16,
 ) bool {
-	if txSize != common.Tx4x4 || txType != common.DctDct ||
-		dequant[0] == 0 || dequant[1] == 0 || len(out) < vp9EncoderTxCoeffSlots {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txType != common.DctDct || maxEob > vp9EncoderTxCoeffSlots ||
+		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
 		return false
 	}
-	for i := range e.txCoeffScratch {
+	for i := range e.txCoeffScratch[:maxEob] {
 		e.txCoeffScratch[i] = 0
 		e.dqCoeffScratch[i] = 0
 	}
-	encoder.ForwardDCT4x4(e.residueScratch[:], 4, &e.txCoeffScratch)
-	eob := encoder.QuantizeFP4x4(&e.txCoeffScratch, dequant,
-		common.DefaultScanOrders[common.Tx4x4].Scan, &e.dqCoeffScratch)
+	switch txSize {
+	case common.Tx4x4:
+		encoder.ForwardDCT4x4Into(e.residueScratch[:], 4, e.txCoeffScratch[:maxEob])
+	case common.Tx8x8:
+		encoder.ForwardDCT8x8Into(e.residueScratch[:], 8, e.txCoeffScratch[:maxEob])
+	default:
+		return false
+	}
+	eob := encoder.QuantizeFP(e.txCoeffScratch[:maxEob], dequant,
+		common.DefaultScanOrders[txSize].Scan, e.dqCoeffScratch[:maxEob])
 	if eob == 0 {
 		return false
 	}
-	copy(out[:vp9EncoderTxCoeffSlots], e.dqCoeffScratch[:])
-	vp9dec.InverseTransformBlock(out[:vp9EncoderTxCoeffSlots],
+	copy(out[:maxEob], e.dqCoeffScratch[:maxEob])
+	vp9dec.InverseTransformBlock(out[:maxEob],
 		dst, stride, txSize, txType, eob, false)
 	return true
 }
@@ -1284,9 +1300,10 @@ func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 	}
 	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
-	if tx == common.Tx4x4 && coeffBase >= 0 &&
-		coeffBase+vp9EncoderTxCoeffSlots <= len(e.blockCoeffs[plane]) {
-		copy(coeffs, e.blockCoeffs[plane][coeffBase:coeffBase+vp9EncoderTxCoeffSlots])
+	maxEob := vp9dec.MaxEobForTxSize(tx)
+	if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
+		coeffBase+maxEob <= len(e.blockCoeffs[plane]) {
+		copy(coeffs, e.blockCoeffs[plane][coeffBase:coeffBase+maxEob])
 	}
 	return coeffs
 }
