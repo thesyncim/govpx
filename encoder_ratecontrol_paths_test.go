@@ -241,9 +241,13 @@ func TestLibvpxMaxGFIntervalMatchesFramerateAndKeyDistanceCaps(t *testing.T) {
 			want: 4,
 		},
 		{
-			name: "altref-lag-cap",
+			// One-pass auto-ARF: libvpx forces oxcf->lag_in_frames=0 in
+			// vp8/vp8_cx_iface.c set_vp8e_config when g_pass == VPX_RC_ONE_PASS,
+			// so vp8_new_framerate's `play_alternate && lag_in_frames` cap is
+			// never entered. max_gf_interval stays at the framerate cap (17).
+			name: "altref-onepass-no-lag-cap",
 			opts: EncoderOptions{Width: 64, Height: 64, FPS: 30, RateControlMode: RateControlVBR, TargetBitrateKbps: 700, KeyFrameInterval: 999, LookaheadFrames: 4, AutoAltRef: true},
-			want: 3,
+			want: 17,
 		},
 	}
 	for _, tc := range cases {

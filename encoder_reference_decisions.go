@@ -370,7 +370,16 @@ func (e *VP8Encoder) libvpxMaxGFInterval() int {
 	if staticSceneMax := e.opts.KeyFrameInterval >> 1; staticSceneMax > 0 && maxInterval > staticSceneMax {
 		maxInterval = staticSceneMax
 	}
-	if e.opts.AutoAltRef && e.opts.LookaheadFrames > 0 {
+	// libvpx vp8/encoder/onyx_if.c vp8_new_framerate applies the
+	// `play_alternate && lag_in_frames` cap to `cpi->max_gf_interval`, but
+	// vp8/vp8_cx_iface.c set_vp8e_config forces `oxcf->lag_in_frames = 0`
+	// when `g_pass == VPX_RC_ONE_PASS`. The result: in one-pass mode the
+	// lag cap is never applied even when the application requested
+	// `--lag-in-frames=4`, so `max_gf_interval` retains the framerate /
+	// static-scene cap (e.g. 17 at 30fps). Only the two-pass setup keeps
+	// the user-visible lag_in_frames available to `vp8_new_framerate`, so
+	// mirror that gating here.
+	if e.twoPass.enabled() && e.opts.AutoAltRef && e.opts.LookaheadFrames > 0 {
 		lagCap := e.opts.LookaheadFrames - 1
 		if maxInterval > lagCap {
 			maxInterval = lagCap
