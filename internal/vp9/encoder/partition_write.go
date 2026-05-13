@@ -119,7 +119,14 @@ func WriteModesSb(bw *bitstream.Writer, a WriteModesSbArgs,
 
 	if bsize >= common.Block8x8 &&
 		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
+		// libvpx's dec_update_partition_context stamps the full block
+		// width (num_8x8_wh = 1 << n8x8_l2 = 2*bs in our indexing), not
+		// the half-step bs the recursion uses for partition geometry.
+		// Passing bs here matches the SUB-block coverage and leaves
+		// the [miCol+bs..miCol+2bs) range stale, which the decoder
+		// observes on the NEXT SB's partition_plane_context lookup
+		// and rejects the frame.
 		vp9dec.UpdatePartitionContext(a.AboveSegCtx, a.LeftSegCtx,
-			miRow, miCol, subsize, bs)
+			miRow, miCol, subsize, 2*bs)
 	}
 }
