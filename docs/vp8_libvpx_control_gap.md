@@ -12,8 +12,9 @@ Primary sources:
 - `internal/coracle/build/libvpx-v1.16.0/vp8/vp8_dx_iface.c`
 
 This document tracks VP8-relevant libvpx controls and the govpx APIs that cover
-them. It is not a plan to recreate the libvpx C ABI. VP9 controls and VP9
-profiles beyond profile 0 are out of scope.
+them. It is not a plan to recreate the libvpx C ABI. VP9-only libvpx C-control
+parity, VP9 profiles 1/2/3, high bit depth, chroma variants outside 8-bit
+4:2:0, and AV1 are out of scope for this gap list.
 
 ## Summary
 

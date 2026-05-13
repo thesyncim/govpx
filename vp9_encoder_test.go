@@ -58,6 +58,26 @@ func newVP9HorizontalBandsForTest(width, height int, u, v byte) *image.YCbCr {
 	return img
 }
 
+func newVP9ChromaHorizontalBandsForTest(width, height int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for i := range img.Y {
+		img.Y[i] = 128
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		cbValue := byte(32 + (y*7)%192)
+		crValue := byte(48 + (y*11)%176)
+		for x := range uvWidth {
+			cb[x] = cbValue
+			cr[x] = crValue
+		}
+	}
+	return img
+}
+
 func newVP9MotionYCbCrForTest(width, height int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	for y := range height {
@@ -1178,6 +1198,55 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframePicksHorizontalUvModeFromLeftContext(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
+	img := newVP9ChromaHorizontalBandsForTest(128, 64)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(128, 64)
+	for y := range 32 {
+		copy(e.reconU[y*e.reconFrame.UStride:y*e.reconFrame.UStride+32],
+			img.Cb[y*img.CStride:y*img.CStride+32])
+		copy(e.reconV[y*e.reconFrame.VStride:y*e.reconFrame.VStride+32],
+			img.Cr[y*img.CStride:y*img.CStride+32])
+	}
+
+	hdr := vp9dec.UncompressedHeader{Width: 128, Height: 64}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	mi := vp9dec.NeighborMi{
+		SbType: common.Block64x64,
+		Mode:   common.DcPred,
+		TxSize: common.Tx32x32,
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 16}
+	got := e.pickVP9KeyframeUvMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi)
+	if got != common.HPred {
+		t.Errorf("UV mode = %d, want HPred", got)
+	}
+}
+
+func TestVP9EncoderKeyframeChromaBandsRoundTrip(t *testing.T) {
+	const width, height = 128, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9ChromaHorizontalBandsForTest(width, height)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after chroma keyframe")
+	}
+	assertVP9VisibleChromaContrast(t, frame, width, height, 48)
+}
+
 // TestVP9EncoderIVFRoundTrip wraps the encoded keyframe in an IVF
 // container and round-trips it through the existing IVF parser.
 // Confirms the encoder's output is a valid VP9-IVF stream — the
@@ -1387,6 +1456,40 @@ func assertVP9VisibleYContrast(t *testing.T, got Image, width, height int, minDe
 	}
 	if hi-lo < minDelta {
 		t.Fatalf("visible Y contrast = %d..%d, want delta >= %d", lo, hi, minDelta)
+	}
+}
+
+func assertVP9VisibleChromaContrast(t *testing.T, got Image, width, height int, minDelta byte) {
+	t.Helper()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, width, height)
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	if got.UStride < uvWidth || got.VStride < uvWidth ||
+		len(got.U) < planeLen(got.UStride, uvHeight, uvWidth) ||
+		len(got.V) < planeLen(got.VStride, uvHeight, uvWidth) {
+		t.Fatalf("UV plane shape = U len %d stride %d, V len %d stride %d, want %dx%d",
+			len(got.U), got.UStride, len(got.V), got.VStride, uvWidth, uvHeight)
+	}
+	lo, hi := byte(255), byte(0)
+	for y := range uvHeight {
+		uRow := got.U[y*got.UStride:]
+		vRow := got.V[y*got.VStride:]
+		for x := range uvWidth {
+			for _, v := range [...]byte{uRow[x], vRow[x]} {
+				if v < lo {
+					lo = v
+				}
+				if v > hi {
+					hi = v
+				}
+			}
+		}
+	}
+	if hi-lo < minDelta {
+		t.Fatalf("visible UV contrast = %d..%d, want delta >= %d", lo, hi, minDelta)
 	}
 }
 

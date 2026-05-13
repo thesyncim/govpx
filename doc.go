@@ -1,11 +1,13 @@
 // Package govpx is a pure-Go VP8 and VP9 profile 0 codec package.
 //
 // It produces and consumes raw VP8 frame payloads and raw VP9 packets; VP9
-// packets may be superframes. Transport framing is the caller's responsibility.
+// packets may be superframes. RTP/WebRTC payload compatibility is in scope for
+// both VP8 and VP9. Transport framing is the caller's responsibility.
 //
-// VP9 scope is full profile 0 support only: 8-bit 4:2:0 VP9. Profiles 1, 2,
-// and 3, high bit depth, non-4:2:0 chroma, alpha, WebM/container behavior,
-// AV1, and libvpx C API compatibility are outside scope.
+// VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw packets and valid
+// superframes. Profiles 1, 2, and 3, high bit depth, non-4:2:0 chroma
+// variants, alpha, WebM/container behavior, AV1, and libvpx C ABI
+// compatibility are outside scope.
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go

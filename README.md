@@ -3,16 +3,17 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 support and VP9 profile 0 support for raw VPx payloads.
+Pure-Go VP8 and VP9 profile 0 support for raw VPx payloads.
 
 govpx is for Go programs that need VP8 or VP9 profile 0 without cgo and without
 a libvpx runtime dependency. It produces and consumes raw VP8 frame payloads and
 raw VP9 profile 0 packets for RTP/WebRTC-compatible transport.
 
-VP9 scope is full profile 0 only: 8-bit 4:2:0 raw VP9 packets and valid
+VP9 scope is full profile 0 only: 8-bit 4:2:0 raw packets and valid
 superframes. VP9 profiles 1, 2, and 3 are out of scope. High bit depth,
-non-4:2:0 chroma, alpha, containers, AV1, and libvpx C API compatibility are
-out of scope. RTP/WebRTC payload compatibility is in scope for both VP8 and VP9.
+non-4:2:0 chroma variants, alpha, containers, AV1, and libvpx C ABI
+compatibility are out of scope. RTP/WebRTC payload compatibility is in scope
+for both VP8 and VP9.
 
 Validation uses a pinned libvpx v1.16.0 oracle. VP9 oracle coverage is
 profile 0 only.
@@ -184,8 +185,8 @@ make verify-production       # full encoder + decoder oracle gate
 
 `verify-production` builds pinned libvpx tools, fetches conformance data,
 and runs the supported oracle gate. VP9 checks are profile 0 only: valid VP90
-profile 0 IVF streams are strict, and non-profile0 streams are rejected as
-unsupported. Use `make verify-decoder-parity` for decoder-only changes.
+profile 0 IVF streams must pass, and non-profile0 streams are unsupported.
+Use `make verify-decoder-parity` for decoder-only changes.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
 build tag or in `*_test.go` files. `UPSTREAM.md` documents the exact

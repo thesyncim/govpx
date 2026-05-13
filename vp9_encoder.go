@@ -1087,8 +1087,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		reconBsize := vp9ModeInfoDecodeBSize(bsize)
 		cur.Mode = e.pickVP9KeyframeMode(key, tile, miRows, miCols,
 			miRow, miCol, reconBsize, &cur)
+		uvMode := e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
+			miRow, miCol, reconBsize, &cur)
 		hasResidue := e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
-			miRow, miCol, reconBsize, &cur, common.DcPred)
+			miRow, miCol, reconBsize, &cur, uvMode)
 		if hasResidue {
 			cur.Skip = 0
 		}
@@ -1101,7 +1103,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			TxMode:    txModeForMi(cur),
 			SkipProbs: e.fc.SkipProbs,
 		})
-		encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
+		encoder.WriteKeyframeUvMode(bw, uvMode, cur.Mode)
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		if !hasResidue {
 			vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
@@ -1155,13 +1157,13 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	}
 	bestMode := common.DcPred
 	bestScore, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], bestMode,
-		mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		0, mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
 	if !ok {
 		return bestMode
 	}
 	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
 		score, ok := e.scoreVP9KeyframeTxPrediction(key, &e.planes[0], mode,
-			mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+			0, mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
 		if ok && score < bestScore {
 			bestScore = score
 			bestMode = mode
@@ -1170,12 +1172,62 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	return bestMode
 }
 
+func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) common.PredictionMode {
+	if key == nil || mi == nil {
+		return common.DcPred
+	}
+	uvProbs := tables.KfUvModeProb[mi.Mode]
+	var uvModeCosts [common.IntraModes]int
+	encoder.VP9CostTokens(uvModeCosts[:], uvProbs[:], common.IntraModeTree[:])
+	qindex := e.vp9EncoderModeDecisionQIndex()
+
+	bestMode := common.DcPred
+	bestScore, ok := e.scoreVP9KeyframeUvPrediction(key, bestMode,
+		uvModeCosts[bestMode], qindex, tile, miRows, miCols, miRow, miCol,
+		bsize, mi)
+	if !ok {
+		return bestMode
+	}
+	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+		score, ok := e.scoreVP9KeyframeUvPrediction(key, mode,
+			uvModeCosts[mode], qindex, tile, miRows, miCols, miRow, miCol,
+			bsize, mi)
+		if ok && score < bestScore {
+			bestScore = score
+			bestMode = mode
+		}
+	}
+	return bestMode
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeUvPrediction(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rate, qindex int, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) (uint64, bool) {
+	var distortion uint64
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		txSize := vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
+			txSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		if !ok {
+			return 0, false
+		}
+		distortion += score
+	}
+	return vp9ModeDecisionScore(distortion, rate, qindex), true
+}
+
 func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode,
-	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	plane int, txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
 ) (uint64, bool) {
-	planeData, stride := e.vp9EncoderReconPlane(0)
+	planeData, stride := e.vp9EncoderReconPlane(plane)
 	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
 		return 0, false
 	}
@@ -1244,7 +1296,7 @@ func (e *VP9Encoder) scoreVP9KeyframeTxPrediction(key *vp9KeyframeEncodeState,
 		MbToBottomEdge: bounds.MbToBottomEdge,
 	}, &e.intraScratch)
 
-	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
 	if len(src) == 0 || srcStride <= 0 {
 		return 0, false
 	}
@@ -1610,6 +1662,10 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 }
 
 func vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
+	return vp9ModeDecisionScore(sad, rate, qindex)
+}
+
+func vp9ModeDecisionScore(distortion uint64, rate, qindex int) uint64 {
 	if rate < 0 {
 		rate = 0
 	}
@@ -1617,7 +1673,7 @@ func vp9InterModeScore(sad uint64, rate, qindex int) uint64 {
 	if qindex > 0 {
 		lambda += qindex / 32
 	}
-	return (sad << encoder.VP9ProbCostShift) + uint64(rate*lambda)
+	return (distortion << encoder.VP9ProbCostShift) + uint64(rate*lambda)
 }
 
 func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,
