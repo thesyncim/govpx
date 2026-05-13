@@ -17,10 +17,12 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxdec-vp9"
 vpxdec_vp9_bin=${GOVPX_VPXDEC_VP9_BIN:-"$build_dir/vpxdec-vp9"}
+vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-decoder-tools-optimized
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized
 src_dir=$src_dir
-vpxdec_vp9_bin=$vpxdec_vp9_bin"
+vpxdec_vp9_bin=$vpxdec_vp9_bin
+vpxenc_vp9_bin=$vpxenc_vp9_bin"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -52,7 +54,7 @@ if [ -f "$config_stamp" ]; then
 	current_config=$(cat "$config_stamp")
 fi
 
-if [ ! -x "$src_dir/vpxdec" ] || [ "$current_config" != "$want_config" ]; then
+if [ ! -x "$src_dir/vpxdec" ] || [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
 	if [ "$current_config" != "$want_config" ]; then
 		fetch_source
 	fi
@@ -67,7 +69,7 @@ if [ ! -x "$src_dir/vpxdec" ] || [ "$current_config" != "$want_config" ]; then
 			--disable-vp8 \
 			--enable-vp9 \
 			--enable-vp9_decoder \
-			--disable-vp9_encoder \
+			--enable-vp9_encoder \
 			--disable-vp9-highbitdepth \
 			--disable-postproc
 		make -j"$jobs"
@@ -77,4 +79,7 @@ fi
 
 cp "$src_dir/vpxdec" "$vpxdec_vp9_bin"
 chmod +x "$vpxdec_vp9_bin"
+cp "$src_dir/vpxenc" "$vpxenc_vp9_bin"
+chmod +x "$vpxenc_vp9_bin"
 printf '%s\n' "$vpxdec_vp9_bin"
+printf '%s\n' "$vpxenc_vp9_bin"

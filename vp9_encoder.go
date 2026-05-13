@@ -187,12 +187,12 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 		Width:                 width,
 		Height:                height,
 		RefreshFrameContext:   true,
-		FrameParallelDecoding: false,
+		FrameParallelDecoding: true,
 		FrameContextIdx:       0,
 		InterpFilter:          vp9dec.InterpEighttap,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
-			ColorSpace: common.CSBT601,
+			ColorSpace: common.CSUnknown,
 			ColorRange: common.CRStudioRange,
 		},
 	}
