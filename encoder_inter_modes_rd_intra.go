@@ -13,17 +13,19 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	pickerProbs := e.pickerCoefProbs()
+	// libvpx propagates x->rdmult (activity-masked under --tune=ssim) into
+	// every per-block RDCOST inside vp8/encoder/rdopt.c
+	// rd_pick_intra4x4block, rd_pick_intra_mbuv_mode, and the whole-block
+	// intra Y picker. Pre-compute the activity-tuned (rdMult, rdDiv) pair
+	// once for this MB and thread it through the per-sub-block 4x4 picker
+	// AND the UV picker so all the intra mode comparisons agree with
+	// libvpx's tuned-rdmult winners.
+	rdMult, rdDiv := 0, 0
+	if e.activityMapValid {
+		rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
+		rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
+	}
 	if mbMode == vp8common.BPred {
-		// libvpx: rd_pick_intra4x4block scores each 4x4 candidate with
-		// RDCOST(x->rdmult, x->rddiv, rate, distortion), where x->rdmult is
-		// activity-masked when --tune=ssim. Thread the tuned (rdMult, rdDiv)
-		// here so the per-sub-block intra mode picker matches libvpx's
-		// activity-tuned per-block decisions.
-		rdMult, rdDiv := 0, 0
-		if e.activityMapValid {
-			rdMult, rdDiv = libvpxRDConstantsWithZbin(qIndex, zbinOverQuant)
-			rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
-		}
 		bModes, bRate, bDist, ok := predictBestBPredLumaModeRDWithRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, nil, nil, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, bestRD, pickerProbs, fastQuant, rdMult, rdDiv)
 		if !ok {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
@@ -46,7 +48,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		if bestRD > 0 && yrd >= bestRD {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 		}
-		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
+		uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 		if !ok {
 			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 		}
@@ -66,7 +68,7 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 	}
 	yRate, yDist, y2EOB, y2QCoeff := wholeBlockYTransformRD(src, &e.analysis.Img, mbRow, mbCol, zbinOverQuant, aboveTok, leftTok, quant, pickerProbs, fastQuant)
-	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbs(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant)
+	uvMode, uvRate, uvDist, ok := predictBestIntraChromaModeRDWithProbsAndRDConstants(src, qIndex, zbinOverQuant, false, mbRow, mbCol, aboveTok, leftTok, quant, &e.analysis.Img, &e.reconstructScratch, pickerProbs, e.modeProbs.UVMode[:], fastQuant, rdMult, rdDiv)
 	if !ok {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, staleY2Snapshot{}, false
 	}

@@ -1021,12 +1021,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-segmented-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-kf4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, kfInterval: 4, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=4"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
-		// Tune=SSIM on the segmented fixture has only the keyframe
-		// byte-matching; every inter frame diverges in mode-RD because
-		// the activity-tuned RD multiplier picks a different SPLITMV
-		// / NEW shape at the segment boundary. Pin the keyframe-only
-		// prefix while the activity-tune SSIM RD gap is open.
-		{name: "realtime-cbr-cpu-3-64x64-segmented-tune-ssim", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 1, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
+		// Tune=SSIM on the segmented fixture byte-matches across the
+		// full 16-frame stream once libvpx's activity-masked x->rdmult
+		// is threaded into the per-4x4 intra picker, the whole-block
+		// intra Y picker, and the chroma UV picker. Without that, the
+		// untuned RDCOST inside rd_pick_intra_mbuv_mode flipped the
+		// inter-frame DC/V/H/TM UV-mode winner and rippled into the
+		// UV-adler + token coefficient prob stream.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-tune-ssim", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
 		// cpu-3 / cpu-8 splitmv 96x96 q-range + bitrate-extreme probes
 		// — the splitmv-96x96 fixture byte-matches at fps=30 default Q,
 		// so q10-30, q40-60, bitrate-200, bitrate-2000 close out the
