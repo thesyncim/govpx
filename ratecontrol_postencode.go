@@ -36,6 +36,15 @@ type rateControlPostEncodeContext struct {
 	// frame-2 regulator one Q step high (12 vs 11), cascading into intra
 	// coefficient eob_sum mismatches across the SPLITMV-heavy intra MBs.
 	errorResilient bool
+	// autoAltRef mirrors libvpx oxcf.play_alternate (the public
+	// VP8E_SET_ENABLEAUTOALTREF / cfg.kf_mode-driven flag). libvpx gates
+	// update_alt_ref_frame_stats on it (onyx_if.c:4725) so layer-anchor ARF
+	// refreshes in TS mode (which set cm->refresh_alt_ref_frame=1 but run
+	// with play_alternate=0) do NOT accumulate gf_overspend_bits via the
+	// alt-ref branch. Without this gate, govpx in TS treats L2 layer-anchor
+	// refreshes as if they were hidden ARFs and pumps the whole frame size
+	// into gf_overspend_bits, biasing the p-frame target drain.
+	autoAltRef bool
 }
 
 func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx rateControlPostEncodeContext) {
@@ -69,7 +78,15 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 	// accumulate post-pack overspend before the next frame's
 	// calc_pframe_target_size runs. Pass2 skips this one-pass bookkeeping.
 	if !ctx.skipPostPackOverspend {
-		if ctx.altRefFrame && !ctx.keyFrame {
+		if ctx.altRefFrame && !ctx.keyFrame && ctx.autoAltRef {
+			// libvpx onyx_if.c:4725 gates update_alt_ref_frame_stats on
+			// oxcf.play_alternate. TS layer-anchor refreshes (L2 in
+			// modes 3/5/etc.) set cm->refresh_alt_ref_frame=1 but the
+			// vp8_temporal_svc_encoder example leaves
+			// enable_auto_alt_ref at its default 0, so libvpx falls
+			// through to update_golden_frame_stats and the
+			// layer-anchor frame contributes nothing to
+			// gf_overspend_bits via the alt-ref branch.
 			rc.accumulatePostPackAltRefOverspend(actualBits, ctx.errorResilient)
 		} else {
 			rc.accumulatePostPackOverspend(actualBits, ctx.keyFrame, ctx.goldenFrame, ctx.errorResilient)
@@ -140,7 +157,16 @@ func (rc *rateControlState) postEncodeFrameWithPacketContext(sizeBytes int, ctx 
 // intra coefficient eob_sum mismatches on every B_PRED/DC_PRED MB in
 // frames 2-10, 12, and 15.
 func (rc *rateControlState) accumulatePostPackOverspend(actualBits int, keyFrame bool, goldenFrame bool, errorResilient bool) {
-	perFrameBandwidth := rc.bitsPerFrame
+	// libvpx vp8_adjust_key_frame_context and update_golden_frame_stats both
+	// read cpi->per_frame_bandwidth, which is the just-swapped per-layer
+	// value when TS is active (vp8_new_framerate(cpi, lc->framerate) ran
+	// right after vp8_restore_layer_context). govpx mirrors that via
+	// currentLayerPerFrameBandwidth, falling back to the encoder-wide
+	// rc.bitsPerFrame in non-TS encodes.
+	perFrameBandwidth := rc.currentLayerPerFrameBandwidth
+	if perFrameBandwidth <= 0 {
+		perFrameBandwidth = rc.bitsPerFrame
+	}
 	if perFrameBandwidth <= 0 {
 		return
 	}

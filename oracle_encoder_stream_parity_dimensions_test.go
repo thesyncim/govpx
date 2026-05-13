@@ -101,12 +101,7 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "small-good-cpu0-16x16", deadline: DeadlineGoodQuality, cpuUsed: 0, fx: mk(16, 16)},
 		{name: "small-good-cpu4-16x32", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(16, 32)},
 		{name: "small-good-cpu4-32x16", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: mk(32, 16)},
-		// BestQuality 16x32 diverges starting at frame 1: the BestQuality
-		// picker explores splitmv on the bottom MB row and produces a
-		// 1-byte first-partition delta. Same gap as the existing
-		// splitmv+denoiser cluster pinned in the extended matrix —
-		// keyframe (frame 0) byte-matches.
-		{name: "small-best-cpu0-16x32", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(16, 32), limit: 1},
+		{name: "small-best-cpu0-16x32", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(16, 32)},
 		{name: "small-best-cpu0-32x16", deadline: DeadlineBestQuality, cpuUsed: 0, fx: mk(32, 16)},
 
 		// (2) Asymmetric small. Each picks a representative cpu_used to
@@ -170,13 +165,15 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid169-rt-cpu4-854x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu8-854x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu4-1024x576", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1024, 576)},
-		// 1024x576 cpu8, 1280x720 cpu4/cpu8 all diverge at frame 1
-		// because the realtime row-cost feedback differs once the MB
-		// grid grows past ~3.5k MBs — same as the `cpu-8-128x128-undershoot`
-		// cluster pinned in the existing matrix. Keyframes match.
-		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576), limit: 1},
-		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720), limit: 1},
-		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720), limit: 1},
+		// 1024x576 cpu8, 1280x720 cpu4/cpu8: previously diverged at frame 1
+		// because the realtime auto-speed timer in libvpx-oracle drifted off
+		// govpx's deterministic synthetic timing (see
+		// largeMBRealtimeAutoSpeedSynthetic in encoder_config.go). Pinned
+		// after wiring the same synthetic into the oracle binary's
+		// vp8_auto_select_speed timer feedback (see onyx_if.c shim).
+		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576)},
+		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720)},
+		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720)},
 
 		// (5) Mid-range 4:3. Up to VGA we can afford cpu_used=0; SVGA
 		// stays at the fast band.
@@ -187,9 +184,12 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid43-rt-cpu4-640x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu4-800x600", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(800, 600)},
-		// 800x600 cpu8: same realtime-row-cost gap as the 1024x576
-		// cpu8 / 1280x720 cluster above. Frame 0 (keyframe) matches.
-		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600), limit: 1},
+		// 800x600 cpu8: previously gated by the same realtime auto-speed
+		// timer drift as the 1024x576/1280x720 cluster above. Pinned by
+		// the libvpx-oracle synthetic-timing shim (see vp8_auto_select_speed
+		// override in internal/coracle/build/libvpx-v1.16.0-vpxenc-oracle/
+		// vp8/encoder/onyx_if.c).
+		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600)},
 
 		// (6) Square. Up to 400x400 we can run cpu_used=0; the picker
 		// path matters more than the sheer pixel count here.

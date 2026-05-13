@@ -434,10 +434,31 @@ func (e *VP8Encoder) emitOracleFrameTrace(summary oracleTraceFrameSummary) {
 	// Mirror libvpx's default-coef gate: only the independent-partitions bit
 	// takes the keyframe reset branch.
 	defaultCoefReset := e.opts.ErrorResilientPartitions && keyFrame
+	// Align oracle "frame" row q_index with libvpx's
+	// build_vpxenc_oracle.sh emission semantics: the libvpx-side helper
+	// writes `cm->base_qindex` for q_index (the per-frame Q that lands
+	// in the bitstream), NOT the post-adjust
+	// `cpi->active_worst_quality` that the next frame's regulator picks
+	// up. govpx's e.rc.currentQuantizer reflects libvpx's post-adjust
+	// value at the trace emission point, because postEncodeFrameWith-
+	// PacketContext has already run adjustQuantizerWithContext between
+	// the bitstream commit and this row. Emitting that instead of
+	// summary.BaseQIndex masquerades as a +/-1 trace q_index divergence
+	// on every frame where adjustQuantizerWithContext fires
+	// (over/undershoot of the frame-size bounds), even when the
+	// encoded bitstream byte-matches libvpx exactly. Diagnosed on
+	// screen-content2-panning-256x144-realtime-cpu-3 where bitstream
+	// frame 1 byte-matched libvpx (len=410, first_part=112) but the
+	// trace row showed q_index=105 (govpx post-adjust) vs 106 (libvpx
+	// base_qindex), spuriously surfacing as a Q gap in the parity
+	// comparator. The actual residual divergence at frames 2+ is in
+	// the per-MB picker rate sum (totalrate >> 8 diverges 2x despite
+	// identical Q / reference / probability state) and is tracked
+	// separately.
 	row := oracleTraceFrameRow{
 		Type:                 "frame",
 		FrameIndex:           e.frameCount,
-		QIndex:               e.rc.currentQuantizer,
+		QIndex:               summary.BaseQIndex,
 		BaseQIndex:           summary.BaseQIndex,
 		LoopFilter:           summary.LoopFilter,
 		SharpnessLevel:       summary.SharpnessLevel,

@@ -130,21 +130,6 @@ func dequantizeQuantizedBlock(quant *vp8enc.BlockQuant, qcoeff *[16]int16, dqcoe
 }
 
 // optimizeQuantizedBlock ports libvpx v1.16.0 vp8/encoder/encodemb.c optimize_b.
-//
-// KNOWN GAP: on the BestQuality+cpu0 / GoodQuality+cpu0 SPLITMV path, this
-// function emits per-position rates that drift by 2 entropy-bit units from
-// libvpx's optimize_b for byte-identical inputs (coeff, qcoeff_pre, dequant,
-// ctx, rdmult, rddiv all match per pre-IDCT oracle capture). The 2-bit
-// drift propagates through the trellis state machine and flips the `best`
-// choice at one iteration, producing different final EOBs and different
-// tokenized qcoeff values → the 1-3 byte coefficient-partition divergence
-// pinned at small-best-cpu0-16x32 (limit=1) and the parallel
-// 32x32-to-64x64/good-quality-cpu0-{cbr,vbr}/s1 + 64x64-to-96x96/
-// good-quality-cpu0-vbr/s2 resize cold-segment limits. The pre-IDCT
-// qcoeff capture (build_vpxenc_oracle.sh govpx_oracle_capture_qcoeff_early,
-// added by the close-goodquality-cpu0-small-frame investigation) gives a
-// directly-observable side-by-side trellis trace for the followup fix.
-//
 // It walks the quantized block from eob-1 down to skipDC, builds a 2-state
 // Viterbi trellis exploring (keep current value) vs (shift |x| toward 0 when
 // the dequant boundary allows), scores transitions with libvpx's token_costs
@@ -392,18 +377,31 @@ func dctValueToken(x int) int {
 }
 
 // dctValueBaseCostLUT precomputes libvpx's dct_value_cost table for every
-// |coefficient| in [0, DCTMaxValue]: sign bit cost (always boolBitCost(128, 0))
-// plus the extra-bits subtree cost for the value's token category. The
-// per-coefficient hot-path lookup is then a single bounded array load,
-// replacing a token-category resolve + a per-bit loop over extra.Len.
+// signed coefficient in [-DCTMaxValue, DCTMaxValue]: extra-bits subtree
+// cost plus sign-bit cost. Indexed by abs(x) * 2 + sign_bit so positive
+// and negative values share the magnitude-dependent extra-bits cost but
+// pick up the correct sign-cost (libvpx's vp8_cost_bit(vp8_prob_half,
+// sign_bit) differs by 2 entropy-bit units between sign=0 and sign=1).
+// Without the per-sign cost, optimize_b's per-position rate on negative
+// coefficients was 2 units below libvpx's, flipping the trellis `best`
+// choice on the small-best-cpu0-16x32 SPLITMV path. The per-coefficient
+// hot-path lookup is still a single bounded array load.
 var dctValueBaseCostLUT = buildDCTValueBaseCostLUT()
 
-func buildDCTValueBaseCostLUT() [vp8tables.DCTMaxValue + 1]int32 {
-	var lut [vp8tables.DCTMaxValue + 1]int32
-	signCost := boolBitCost(128, 0)
+func buildDCTValueBaseCostLUT() [2 * (vp8tables.DCTMaxValue + 1)]int32 {
+	var lut [2 * (vp8tables.DCTMaxValue + 1)]int32
+	// signCostPositive / signCostNegative mirror libvpx's
+	// vp8_cost_bit(vp8_prob_half=128, sign_bit) — positive coefficients
+	// emit sign_bit=0 (ProbCost[128]), negative coefficients emit
+	// sign_bit=1 (ProbCost[127]). The 2-unit gap is libvpx's actual
+	// signed-cost behavior; matching it is required for trellis parity.
+	signCostPositive := boolBitCost(128, 0)
+	signCostNegative := boolBitCost(128, 1)
 	for abs := 1; abs <= vp8tables.DCTMaxValue; abs++ {
 		token := int(coefficientTokenLUT[abs])
-		lut[abs] = int32(signCost + coefficientExtraBitsRate(token, abs))
+		extra := coefficientExtraBitsRate(token, abs)
+		lut[abs*2+0] = int32(signCostPositive + extra)
+		lut[abs*2+1] = int32(signCostNegative + extra)
 	}
 	return lut
 }
@@ -417,7 +415,9 @@ func dctValueBaseCost(x int) int {
 	if uint(abs) > uint(vp8tables.DCTMaxValue) {
 		return maxInt() / 4
 	}
-	return int(dctValueBaseCostLUT[abs])
+	// mask is 0 for x>=0, -1 for x<0. (mask & 1) is 0 / 1 — selects
+	// the positive- or negative-sign slot in the LUT.
+	return int(dctValueBaseCostLUT[abs*2+(mask&1)])
 }
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodemb.c

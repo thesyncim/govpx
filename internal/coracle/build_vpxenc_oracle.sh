@@ -1857,6 +1857,52 @@ if overshoot_anchor not in text:
     sys.stderr.write('build_vpxenc_oracle.sh: drop overshoot anchor missing in onyx_if.c\n')
     sys.exit(2)
 text = text.replace(overshoot_anchor, overshoot_replacement, 1)
+
+# Anchor 5: pin the realtime auto-speed timer measurements to a deterministic
+# synthetic value for large-MB realtime+positive-cpu_used fixtures. Without
+# this shim, vp8_auto_select_speed feeds off vpx_usec_timer_elapsed, which
+# fluctuates with host load and (more importantly) with whether
+# GOVPX_ORACLE_TRACE_OUT is set — the trace I/O lives inside the timer scope
+# so the oracle binary's avg_pick_mode_time drifts when tracing is enabled.
+# The drift drives cpi->Speed onto a different trajectory than govpx's
+# deterministic mirror produces, breaking byte parity on the large-MB
+# realtime fixtures and making the trace-derived inter-mode distribution
+# scoreboard compare against a different libvpx behavior than the byte-
+# parity gate. The gate mirrors govpx's largeMBRealtimeAutoSpeedSynthetic
+# exactly (>=3000 MBs at any cpu_used, or cpu_used>=8 with >=1700 MBs).
+autospeed_sentinel = '/* govpx oracle determinism shim: replace the wall-clock measurement'
+if autospeed_sentinel not in text:
+    autospeed_anchor = ('    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+                        '    duration2 = (unsigned int)((double)duration / 2);\n'
+                        '\n'
+                        '    if (cm->frame_type != KEY_FRAME) {')
+    if autospeed_anchor not in text:
+        sys.stderr.write('build_vpxenc_oracle.sh: autospeed timer anchor missing in onyx_if.c\n')
+        sys.exit(2)
+    autospeed_replacement = (
+        '    duration = (int)(vpx_usec_timer_elapsed(&ticktimer));\n'
+        '    duration2 = (unsigned int)((double)duration / 2);\n'
+        '\n'
+        '    ' + autospeed_sentinel + '\n'
+        '     * with a synthetic deterministic value for realtime+positive-cpu_used\n'
+        '     * fixtures whose MB count crosses the threshold where govpx\'s\n'
+        '     * largeMBRealtimeAutoSpeedSynthetic gate fires. Mirrors the\n'
+        '     * Go-side threshold exactly so both sides evolve cpi->Speed on\n'
+        '     * the same trajectory. */\n'
+        '    if (cpi->oxcf.cpu_used >= 0) {\n'
+        '      int n_mb = cm->mb_rows * cm->mb_cols;\n'
+        '      int gate = 0;\n'
+        '      if (n_mb >= 3000) gate = 1;\n'
+        '      else if (cpi->oxcf.cpu_used >= 8 && n_mb >= 1700) gate = 1;\n'
+        '      if (gate) {\n'
+        '        duration = 4000000;\n'
+        '        duration2 = 2000000;\n'
+        '      }\n'
+        '    }\n'
+        '\n'
+        '    if (cm->frame_type != KEY_FRAME) {')
+    text = text.replace(autospeed_anchor, autospeed_replacement, 1)
+
 with io.open(path, 'w', encoding='utf-8') as f:
     f.write(text)
 GOVPX_ONYX_PY

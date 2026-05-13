@@ -229,15 +229,30 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	if temporalFrame.Enabled && !keyFrame {
 		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
-			temporalLayerCount: temporalFrame.LayerCount,
-			timing:             e.timing,
+			temporalLayerCount:     temporalFrame.LayerCount,
+			layerPerFrameBandwidth: temporalFrame.LayerFrameTargetBits,
+			timing:                 e.timing,
 		})
 	} else {
+		layerPerFrameBandwidth := 0
+		if temporalFrame.Enabled {
+			// libvpx vp8_restore_layer_context + vp8_new_framerate run
+			// before calc_iframe_target_size on keyframes too; the
+			// per-frame bandwidth seen by vp8_adjust_key_frame_context
+			// is the current layer's `target_bandwidth / framerate`
+			// rather than the encoder-wide rc.bitsPerFrame. Without
+			// this, govpx KFs in TS mode accumulate kf_overspend_bits
+			// against the encoder-wide 23 kbps/frame, leaving a
+			// 6147-bit phantom overspend that the post-KF p-frame
+			// drain (now active in TS) tries to recover.
+			layerPerFrameBandwidth = e.temporal.temporalLayerFrameTargetBits(temporalFrame.LayerID, e.timing)
+		}
 		e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
-			firstFrame:         e.frameCount == 0,
-			forcedKeyFrame:     forcedKeyFrame,
-			temporalLayerCount: temporalFrame.LayerCount,
-			timing:             e.timing,
+			firstFrame:             e.frameCount == 0,
+			forcedKeyFrame:         forcedKeyFrame,
+			temporalLayerCount:     temporalFrame.LayerCount,
+			layerPerFrameBandwidth: layerPerFrameBandwidth,
+			timing:                 e.timing,
 		})
 	}
 	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
@@ -461,9 +476,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// reset the rest of the golden-frame/alt-ref lifecycle.
 			e.sourceAltRefActive = false
 			e.resetOracleMBTraceBuffer()
+			layerPerFrameBandwidthRecode := 0
+			if temporalFrame.Enabled {
+				layerPerFrameBandwidthRecode = e.temporal.temporalLayerFrameTargetBits(temporalFrame.LayerID, e.timing)
+			}
 			e.rc.beginFrameWithTargetAndContext(true, e.rc.decimationBoostedBitsPerFrame(), rateControlFrameContext{
-				temporalLayerCount: temporalFrame.LayerCount,
-				timing:             e.timing,
+				temporalLayerCount:     temporalFrame.LayerCount,
+				layerPerFrameBandwidth: layerPerFrameBandwidthRecode,
+				timing:                 e.timing,
 			})
 			twoPassTargetBits = e.twoPass.frameTargetBits(e.frameCount, true, e.rc.frameTargetBits)
 			if twoPassTargetBits > 0 {
@@ -510,6 +530,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 				skipPostPackOverspend: e.twoPass.enabled(),
 				alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
 				errorResilient:        e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
+				autoAltRef:            e.opts.AutoAltRef,
 			})
 			if hiddenAltRefFrame {
 				e.twoPass.chargeAltRefFrameBits(encodedSizeBits(attempt.Size))
