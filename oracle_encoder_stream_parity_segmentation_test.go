@@ -107,19 +107,9 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 		{name: "screen-content1-panning-256x144-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning256x144, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "screen-content2-panning-256x144-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning256x144, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
-		// screen-content2-panning-256x144 at cpu-3: govpx now matches
-		// libvpx's drop pattern after wiring the picker's pre-pack
-		// totalrate>>8 (PickerProjectedSizeBytes) into
-		// vp8_drop_encodedframe_overshoot instead of the packed payload
-		// size — the gate's rate threshold compares against
-		// `cpi->projected_frame_size` *before* the entropy-savings
-		// subtraction at onyx_if.c:3986. Frame counts match (15 each:
-		// libvpx drops the first inter frame after the fat keyframe,
-		// govpx now drops the same one), and the KF + the first emitted
-		// inter frame match byte-for-byte. limit:2 pins those two while
-		// the post-drop per-frame byte parity stays under the broader
-		// screen-content byte-parity gap.
-		{name: "screen-content2-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 2, limit: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		// screen-content2-panning-256x144 at cpu-3 covers the overshoot-drop
+		// path, screen-content cyclic refresh, and key-frame refresh-map state.
+		{name: "screen-content2-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "screen-content2-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},

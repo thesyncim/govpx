@@ -475,7 +475,8 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 	}
 
 	var prevRefreshed []int
-	for frame := range 3 {
+	nonEmptyRefreshes := 0
+	for frame := range 4 {
 		src := publicImageFromVP8(&e.lastRef.Img)
 		inter, err := e.EncodeInto(packet, src, uint64(frame+1), 1, 0)
 		if err != nil {
@@ -490,10 +491,19 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 				refreshed = append(refreshed, i)
 			}
 		}
+		if frame == 0 {
+			if len(refreshed) != 0 {
+				t.Fatalf("inter 0 refreshed set = %v, want empty after key-frame dirty-map update", refreshed)
+			}
+			if _, ok := d.NextFrame(); !ok {
+				t.Fatalf("inter %d NextFrame returned no frame", frame)
+			}
+			continue
+		}
 		if len(refreshed) == 0 {
 			t.Fatalf("inter %d refreshed set empty, want cyclic refresh activity", frame)
 		}
-		if frame > 0 && len(refreshed) == len(prevRefreshed) {
+		if nonEmptyRefreshes > 0 && len(refreshed) == len(prevRefreshed) {
 			same := true
 			for i := range refreshed {
 				if refreshed[i] != prevRefreshed[i] {
@@ -506,9 +516,13 @@ func TestEncodeIntoStaticThresholdRotatesCyclicRefreshSegments(t *testing.T) {
 			}
 		}
 		prevRefreshed = append(prevRefreshed[:0], refreshed...)
+		nonEmptyRefreshes++
 		if _, ok := d.NextFrame(); !ok {
 			t.Fatalf("inter %d NextFrame returned no frame", frame)
 		}
+	}
+	if nonEmptyRefreshes < 2 {
+		t.Fatalf("non-empty refresh frames = %d, want at least 2 to verify rotation", nonEmptyRefreshes)
 	}
 }
 
@@ -564,6 +578,31 @@ func TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames(t *testing.T) {
 	}
 	if e.cyclicRefreshIndex != beforeKey {
 		t.Fatalf("cyclicRefreshIndex after key frame = %d, want libvpx-preserved %d", e.cyclicRefreshIndex, beforeKey)
+	}
+}
+
+func TestCommitKeyFrameCyclicRefreshMapMarksKeyBlocksDirty(t *testing.T) {
+	e := &VP8Encoder{
+		cyclicRefreshMap:        make([]int8, 4),
+		cyclicRefreshAttemptMap: make([]int8, 4),
+	}
+	modes := []vp8enc.KeyFrameMacroblockMode{
+		{SegmentID: 0},
+		{SegmentID: 1},
+		{SegmentID: 0},
+		{SegmentID: 0},
+	}
+
+	e.commitKeyFrameCyclicRefreshMap(2, 2, modes, true)
+
+	want := []int8{1, -1, 1, 1}
+	for i := range want {
+		if e.cyclicRefreshMap[i] != want[i] {
+			t.Fatalf("cyclicRefreshMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshMap[i], want[i], e.cyclicRefreshMap)
+		}
+		if e.cyclicRefreshAttemptMap[i] != want[i] {
+			t.Fatalf("cyclicRefreshAttemptMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshAttemptMap[i], want[i], e.cyclicRefreshAttemptMap)
+		}
 	}
 }
 

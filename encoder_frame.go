@@ -445,6 +445,11 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// always populated by encodeInterFrameAttempt so the gate evaluates
 		// even when the recode loop is disabled at realtime.
 		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.PickerProjectedSizeBytes, required, false) {
+			// The overshoot decision runs after vp8_encode_frame has walked
+			// MBs and converted their reference counts. Libvpx discards the
+			// packet and reference refresh, but the converted ref-frame
+			// probabilities remain live for the next frame's picker rates.
+			e.updateRefFrameProbsFromAttempt(attempt)
 			e.finishAutoSpeedTiming(false)
 			e.twoPass.finishFrame(0)
 			result.Dropped = true
@@ -681,6 +686,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// frame_type != KEY_FRAME gate around the loop at line 534). The
 	// persistent index is preserved so the first inter frame after each
 	// keyframe continues the rolling refresh from where it left off.
+	e.commitKeyFrameCyclicRefreshMap(rows, cols, e.keyFrameModes[:required], keyAttempt.SegmentationEnabled)
 	clearUint8Map(e.consecZeroLast)
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)

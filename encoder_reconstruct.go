@@ -493,6 +493,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			e.beginInterRDModeDecisionMacroblock()
 			var fallbackSnapshot interMacroblockImageSnapshot
 			haveFallbackSnapshot := false
+			cyclicRefreshFallback := false
 			// Snapshot only the reconstructed pixels for cyclic-refresh
 			// quantizer fallback. Libvpx still keeps the picker-side
 			// rd_thresh_mult / mode-test mutations from the original
@@ -518,6 +519,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if haveFallbackSnapshot {
 					restoreInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				}
+				cyclicRefreshFallback = true
 				segmentID = 0
 				decision.interMode.SegmentID = 0
 				decision.intraMode.SegmentID = 0
@@ -527,7 +529,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				e.applyDenoiserToInterMacroblock(coeffSource, coeffSource, rows, cols, row, col, &decision)
 				mbSource = coeffSource
 			}
-			totalRate = addProjectedMacroblockRate(totalRate, decision.projectedRate)
+			projectedRate := decision.projectedRate
 			totalPredictionError += int64(decision.predictionError)
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID&3]
@@ -638,6 +640,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// compiler cannot prove dead.
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
+			if cyclicRefreshFallback && e.interAnalysisUsesRDModeDecision() && modes[index].RefFrame != vp8common.IntraFrame {
+				projectedRate = e.acceptedInterFrameRDProjectedRate(&modes[index], above, left, aboveLeft, &aboveTok[col], &leftTok, &coeffs[index], decision.ref, row, col, rows, cols, is4x4)
+			}
+			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
 			if modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode == vp8common.BPred {
 				if err := updateInterAnalysisTokenContextAndCount(&e.interCoefTokenCounts, &e.interCoefTokenRecords, &aboveTok[col], &leftTok, is4x4, modes[index].MBSkipCoeff, &coeffs[index]); err != nil {
 					return 0, ErrInvalidConfig
@@ -651,7 +657,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// diverge.
 				if traceEnabled {
 					e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-					e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, decision.projectedRate, totalRate)
+					e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, projectedRate, totalRate)
 				}
 				continue
 			}
@@ -669,7 +675,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			if traceEnabled {
 				e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, decision.projectedRate, totalRate)
+				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, projectedRate, totalRate)
 			}
 		}
 		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)
@@ -692,6 +698,14 @@ func updateInterAnalysisTokenContext(above *vp8enc.TokenContextPlanes, left *vp8
 		return
 	}
 	vp8enc.UpdateTokenContextPlanesFromCoefficients(above, left, is4x4, coeffs)
+}
+
+func (e *VP8Encoder) acceptedInterFrameRDProjectedRate(mode *vp8enc.InterFrameMacroblockMode, above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, coeffs *vp8enc.MacroblockCoefficients, ref interAnalysisReference, mbRow int, mbCol int, mbRows int, mbCols int, is4x4 bool) int {
+	modeRate := e.interMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, e.interReferenceFrameRateForReference(ref))
+	if mode.MBSkipCoeff {
+		return modeRate + e.interMacroblockSkipRate(true)
+	}
+	return modeRate + e.interMacroblockSkipRate(false) + macroblockCoefficientTokenRateWithContext(e.pickerCoefProbs(), is4x4, aboveTok, leftTok, coeffs)
 }
 
 // updateInterAnalysisTokenContextAndCount mirrors updateInterAnalysisTokenContext

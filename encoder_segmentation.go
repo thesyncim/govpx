@@ -303,6 +303,21 @@ func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, mode
 	e.cyclicRefreshIndex = nextIndex
 }
 
+func (e *VP8Encoder) commitKeyFrameCyclicRefreshMap(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode, segmentationEnabled bool) {
+	count := rows * cols
+	if count <= 0 || !segmentationEnabled || e.roi.enabled || len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count || len(modes) < count {
+		return
+	}
+	for index := range count {
+		if modes[index].SegmentID != 0 {
+			e.cyclicRefreshMap[index] = -1
+		} else {
+			e.cyclicRefreshMap[index] = 1
+		}
+	}
+	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
+}
+
 func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMode, refreshMap []int8) {
 	count := min(len(modes), len(refreshMap))
 	for index := range count {
