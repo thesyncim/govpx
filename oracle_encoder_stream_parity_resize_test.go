@@ -87,6 +87,12 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 		// only one macroblock, so segment one exercises the
 		// single-row path; segment two re-enters the multi-row path.
 		{name: "16x16-to-64x64", w1: 16, h1: 16, w2: 64, h2: 64},
+		// Odd asymmetric resize: both visible dimensions and chroma
+		// half-rounding change while the MB grid grows.
+		{name: "33x17-to-65x33", w1: 33, h1: 17, w2: 65, h2: 33},
+		// Odd asymmetric downscale: same surfaces as above, but with
+		// buffer reslicing from a larger odd MB grid to a smaller one.
+		{name: "65x33-to-33x17", w1: 65, h1: 33, w2: 33, h2: 17},
 	}
 
 	// rcMode + deadline + cpu_used cross product. Limited to the
