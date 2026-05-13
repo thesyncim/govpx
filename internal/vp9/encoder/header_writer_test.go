@@ -204,7 +204,7 @@ func TestInterHeaderRoundTripNoSizeMatch(t *testing.T) {
 	if got.RefreshFrameFlags != want.RefreshFrameFlags {
 		t.Errorf("RefreshFrameFlags = %#x, want %#x", got.RefreshFrameFlags, want.RefreshFrameFlags)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got.InterRef.RefIndex[i] != want.InterRef.RefIndex[i] ||
 			got.InterRef.SignBias[i] != want.InterRef.SignBias[i] {
 			t.Errorf("InterRef[%d] = (%d, %d), want (%d, %d)", i,

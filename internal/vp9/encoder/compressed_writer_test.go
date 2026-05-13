@@ -50,7 +50,7 @@ func TestCompressedHeaderRoundTripKeyframeAllow32x32(t *testing.T) {
 	}
 	// Every probability table should round-trip identical because
 	// no "update?" bit was set.
-	for ctx := 0; ctx < skipContexts; ctx++ {
+	for ctx := range skipContexts {
 		if fc.SkipProbs[ctx] != pre.SkipProbs[ctx] {
 			t.Errorf("SkipProbs[%d] = %d, want %d (no-update)", ctx,
 				fc.SkipProbs[ctx], pre.SkipProbs[ctx])
@@ -129,14 +129,14 @@ func seedFC(fc *vp9dec.FrameContext) {
 	// Seed Nmvc joints + components from canonical defaults so the
 	// MV-prob update walk has something to read against.
 	copy(fc.Nmvc.Joints[:], tables.DefaultNmvJoints[:])
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		src := &tables.DefaultNmvComps[i]
 		dst := &fc.Nmvc.Comps[i]
 		dst.Sign = src.Sign
 		copy(dst.Classes[:], src.Classes[:])
 		copy(dst.Class0[:], src.Class0[:])
 		copy(dst.Bits[:], src.Bits[:])
-		for j := 0; j < vp9dec.Class0Size; j++ {
+		for j := range vp9dec.Class0Size {
 			copy(dst.Class0Fp[j][:], src.Class0Fp[j][:])
 		}
 		copy(dst.Fp[:], src.Fp[:])

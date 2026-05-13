@@ -90,7 +90,7 @@ func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 
 	// Inter (non-intra-only) branch.
 	w.WriteLiteral(uint32(h.RefreshFrameFlags), common.RefFrames)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w.WriteLiteral(uint32(h.InterRef.RefIndex[i]), 3)
 		w.WriteBit(uint32(h.InterRef.SignBias[i]))
 	}
@@ -123,7 +123,7 @@ func writeFrameSizeWithRefs(w *BitWriter, h *vp9dec.UncompressedHeader,
 	refDims func(slot uint8) (uint32, uint32),
 ) {
 	found := false
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		match := false
 		if !found && refDims != nil {
 			rw, rh := refDims(h.InterRef.RefIndex[i])
@@ -301,13 +301,13 @@ func encodeLoopfilter(w *BitWriter, lf *vp9dec.LoopfilterParams) {
 	if !lf.ModeRefDeltaUpdate {
 		return
 	}
-	for i := 0; i < vp9dec.MaxRefLfDeltas; i++ {
+	for i := range vp9dec.MaxRefLfDeltas {
 		// libvpx emits a per-slot "changed" bit + the new value;
 		// we don't track last_ref_deltas yet so emit unchanged.
 		w.WriteBit(1)
 		writeAbsSigned6(w, int32(lf.RefDeltas[i]))
 	}
-	for i := 0; i < vp9dec.MaxModeLfDeltas; i++ {
+	for i := range vp9dec.MaxModeLfDeltas {
 		w.WriteBit(1)
 		writeAbsSigned6(w, int32(lf.ModeDeltas[i]))
 	}
@@ -371,7 +371,7 @@ func encodeSegmentation(w *BitWriter, seg *vp9dec.SegmentationParams) {
 func writeTileInfo(w *BitWriter, t *vp9dec.TileInfo, miCols int) {
 	minLog2, maxLog2 := tileNBits(miCols)
 	ones := t.Log2TileCols - minLog2
-	for i := 0; i < ones; i++ {
+	for range ones {
 		w.WriteBit(1)
 	}
 	if t.Log2TileCols < maxLog2 {

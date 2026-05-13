@@ -73,7 +73,7 @@ func WriteMvComponent(bw *bitstream.Writer, comp int, c *vp9dec.NmvComponent, us
 		bw.Write(uint32(d), uint32(c.Class0[0]))
 	} else {
 		n := mvClass + 1 - 1 // CLASS0_BITS = 1 → n = mvClass + 0 = mvClass
-		for i := 0; i < n; i++ {
+		for i := range n {
 			bw.Write(uint32((d>>uint(i))&1), uint32(c.Bits[i]))
 		}
 	}

@@ -88,26 +88,26 @@ func WriteCompressedHeaderNoUpdate(dst []byte, in CompressedHeaderInputs) (int, 
 	writeCoefProbsNoUpdate(&bw, in.Lossless, in.TxMode)
 
 	// 3) Skip probs (3 slots).
-	for i := 0; i < skipContexts; i++ {
+	for range skipContexts {
 		bw.Write(0, DiffUpdateProb)
 	}
 
 	frameIsIntraOnly := in.IntraOnly
 	if !frameIsIntraOnly {
 		// 4) Inter-mode probs (7 contexts × 3 nodes each).
-		for i := 0; i < common.InterModeContexts; i++ {
+		for range common.InterModeContexts {
 			writeProbTreeNoUpdate(&bw, common.InterModes-1)
 		}
 
 		// 5) Switchable-interp probs (4 contexts × 2 nodes).
 		if in.InterpFilter == vp9dec.InterpSwitchable {
-			for i := 0; i < switchableFilterContexts; i++ {
+			for range switchableFilterContexts {
 				writeProbTreeNoUpdate(&bw, switchableFilters-1)
 			}
 		}
 
 		// 6) Intra/inter probs (4 contexts).
-		for i := 0; i < intraInterContexts; i++ {
+		for range intraInterContexts {
 			bw.Write(0, DiffUpdateProb)
 		}
 
@@ -116,12 +116,12 @@ func WriteCompressedHeaderNoUpdate(dst []byte, in CompressedHeaderInputs) (int, 
 		writeFrameReferenceModeProbs(&bw, in.ReferenceMode)
 
 		// 8) Y-mode probs (4 size groups × 9 nodes).
-		for i := 0; i < blockSizeGroups; i++ {
+		for range blockSizeGroups {
 			writeProbTreeNoUpdate(&bw, common.IntraModes-1)
 		}
 
 		// 9) Partition probs (16 contexts × 3 nodes).
-		for i := 0; i < common.PartitionContexts; i++ {
+		for range common.PartitionContexts {
 			writeProbTreeNoUpdate(&bw, int(common.PartitionTypes)-1)
 		}
 
@@ -148,13 +148,13 @@ func writeTxMode(bw *bitstream.Writer, m common.TxMode) {
 // per-slot vp9_cond_prob_diff_update calls.
 func writeTxProbsNoUpdate(bw *bitstream.Writer) {
 	// p8x8: 2 ctx × 1 node, p16x16: 2 ctx × 2 nodes, p32x32: 2 ctx × 3 nodes.
-	for i := 0; i < 2*1; i++ {
+	for range 2 * 1 {
 		bw.Write(0, DiffUpdateProb)
 	}
-	for i := 0; i < 2*2; i++ {
+	for range 2 * 2 {
 		bw.Write(0, DiffUpdateProb)
 	}
-	for i := 0; i < 2*3; i++ {
+	for range 2 * 3 {
 		bw.Write(0, DiffUpdateProb)
 	}
 }
@@ -182,7 +182,7 @@ func writeCoefProbsNoUpdate(bw *bitstream.Writer, lossless bool, m common.TxMode
 // writeProbTreeNoUpdate emits `n` 0-bit "update?" bits — one per
 // node in a tree-shaped probability table.
 func writeProbTreeNoUpdate(bw *bitstream.Writer, n int) {
-	for i := 0; i < n; i++ {
+	for range n {
 		bw.Write(0, DiffUpdateProb)
 	}
 }
@@ -214,18 +214,18 @@ func writeFrameReferenceMode(bw *bitstream.Writer, m vp9dec.ReferenceMode, compA
 // comp_ref) emits one 0 bit per slot.
 func writeFrameReferenceModeProbs(bw *bitstream.Writer, m vp9dec.ReferenceMode) {
 	if m == vp9dec.ReferenceModeSelect {
-		for i := 0; i < common.CompInterContexts; i++ {
+		for range common.CompInterContexts {
 			bw.Write(0, DiffUpdateProb)
 		}
 	}
 	if m != vp9dec.CompoundReference {
-		for i := 0; i < common.RefContexts; i++ {
+		for range common.RefContexts {
 			bw.Write(0, DiffUpdateProb)
 			bw.Write(0, DiffUpdateProb)
 		}
 	}
 	if m != vp9dec.SingleReference {
-		for i := 0; i < common.RefContexts; i++ {
+		for range common.RefContexts {
 			bw.Write(0, DiffUpdateProb)
 		}
 	}
@@ -237,35 +237,35 @@ func writeFrameReferenceModeProbs(bw *bitstream.Writer, m vp9dec.ReferenceMode) 
 // per-axis (class0_hp, hp).
 func writeMvProbsNoUpdate(bw *bitstream.Writer, allowHp bool) {
 	// joints: 3 slots.
-	for i := 0; i < vp9dec.MvJoints-1; i++ {
+	for range vp9dec.MvJoints - 1 {
 		bw.Write(0, MvUpdateProbConst)
 	}
 	// Per axis: sign (1), classes (10), class0 (1), bits (10).
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		bw.Write(0, MvUpdateProbConst)
-		for j := 0; j < vp9dec.MvClasses-1; j++ {
+		for range vp9dec.MvClasses - 1 {
 			bw.Write(0, MvUpdateProbConst)
 		}
-		for j := 0; j < vp9dec.Class0Size-1; j++ {
+		for range vp9dec.Class0Size - 1 {
 			bw.Write(0, MvUpdateProbConst)
 		}
-		for j := 0; j < vp9dec.MvOffsetBits; j++ {
+		for range vp9dec.MvOffsetBits {
 			bw.Write(0, MvUpdateProbConst)
 		}
 	}
 	// Per axis: class0_fp (Class0Size × MvFpSize-1), fp (MvFpSize-1).
-	for i := 0; i < 2; i++ {
-		for j := 0; j < vp9dec.Class0Size; j++ {
-			for k := 0; k < vp9dec.MvFpSize-1; k++ {
+	for range 2 {
+		for range vp9dec.Class0Size {
+			for range vp9dec.MvFpSize - 1 {
 				bw.Write(0, MvUpdateProbConst)
 			}
 		}
-		for j := 0; j < vp9dec.MvFpSize-1; j++ {
+		for range vp9dec.MvFpSize - 1 {
 			bw.Write(0, MvUpdateProbConst)
 		}
 	}
 	if allowHp {
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			bw.Write(0, MvUpdateProbConst)
 			bw.Write(0, MvUpdateProbConst)
 		}

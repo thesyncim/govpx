@@ -27,6 +27,13 @@ type WriteCoefBlockArgs struct {
 
 	// Fc carries the active per-frame coefficient probabilities.
 	Fc *vp9dec.FrameCoefProbs
+
+	// InitCtx is the band-0 coefficient context derived from the
+	// above/left entropy-context cache via GetEntropyContext. Mirrors
+	// libvpx's get_entropy_context result (0..2). Zero is correct
+	// only when there's no neighbor residue (top-left of the SB or
+	// directly after a skip block).
+	InitCtx int
 }
 
 // WriteCoefBlock emits the wire fragment for one transform block's
@@ -47,7 +54,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 
 	// Find EOB position: one past the last non-zero coefficient.
 	eob := 0
-	for i := 0; i < maxEob; i++ {
+	for i := range maxEob {
 		if a.Coeffs[a.Scan[i]] != 0 {
 			eob = i + 1
 		}
@@ -55,7 +62,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 
 	coefModel := &a.Fc[a.TxSize][a.PlaneType][a.IsInter]
 	var tokenCache [1024]uint8
-	ctx := 0
+	ctx := a.InitCtx
 	bandIdx := 0
 
 	c := 0

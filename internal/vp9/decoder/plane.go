@@ -42,6 +42,30 @@ func GetUvTxSize(sbType common.BlockSize, lumaTxSize common.TxSize, pd *Macroblo
 	return common.UvTxsizeLookup[sbType][lumaTxSize][pd.SubsamplingX][pd.SubsamplingY]
 }
 
+// GetEntropyContext mirrors libvpx's get_entropy_context. Combines
+// the above and left entropy-context windows for the given tx size
+// — non-zero in any byte makes that axis "1", and the result is the
+// sum across axes (0..2). The window width is (1 << txSize) bytes
+// (1 for 4x4, 2 for 8x8, 4 for 16x16, 8 for 32x32).
+func GetEntropyContext(txSize common.TxSize, aboveCtx, leftCtx []uint8) int {
+	n := 1 << uint(txSize)
+	above := 0
+	for i := 0; i < n && i < len(aboveCtx); i++ {
+		if aboveCtx[i] != 0 {
+			above = 1
+			break
+		}
+	}
+	left := 0
+	for i := 0; i < n && i < len(leftCtx); i++ {
+		if leftCtx[i] != 0 {
+			left = 1
+			break
+		}
+	}
+	return above + left
+}
+
 // ResetSkipContext mirrors reset_skip_context. After a skip block,
 // libvpx zeros the matching window of the above + left entropy
 // context buffers so the coefficient-context cache doesn't carry

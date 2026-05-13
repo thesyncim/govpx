@@ -60,7 +60,7 @@ func TestWriteInterModeRoundTrip(t *testing.T) {
 // has-rows-and-cols case.
 func TestWritePartitionRoundTrip(t *testing.T) {
 	probs := []uint8{128, 128, 128}
-	for p := common.PartitionType(0); p < common.PartitionTypes; p++ {
+	for p := range common.PartitionTypes {
 		buf := make([]byte, 32)
 		var bw bitstream.Writer
 		bw.Start(buf)

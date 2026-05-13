@@ -19,7 +19,7 @@ func TestWriteSegmentIdRoundTrip(t *testing.T) {
 	for i := range seg.TreeProbs {
 		seg.TreeProbs[i] = 128
 	}
-	for id := 0; id < 8; id++ {
+	for id := range 8 {
 		buf := make([]byte, 32)
 		var bw bitstream.Writer
 		bw.Start(buf)
@@ -153,14 +153,14 @@ func TestWriteMvComponentRoundTripFuzz(t *testing.T) {
 func defaultNmvContextForEnc() vp9dec.NmvContext {
 	var ctx vp9dec.NmvContext
 	copy(ctx.Joints[:], tables.DefaultNmvJoints[:])
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		src := &tables.DefaultNmvComps[i]
 		dst := &ctx.Comps[i]
 		dst.Sign = src.Sign
 		copy(dst.Classes[:], src.Classes[:])
 		copy(dst.Class0[:], src.Class0[:])
 		copy(dst.Bits[:], src.Bits[:])
-		for j := 0; j < vp9dec.Class0Size; j++ {
+		for j := range vp9dec.Class0Size {
 			copy(dst.Class0Fp[j][:], src.Class0Fp[j][:])
 		}
 		copy(dst.Fp[:], src.Fp[:])

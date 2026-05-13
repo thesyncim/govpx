@@ -75,7 +75,7 @@ func TestCondProbDiffUpdateRoundTrip(t *testing.T) {
 // through the writer + decoder to confirm the prefix-code + uniform
 // tail handle every magnitude bucket.
 func TestEncodeTermSubexpRoundTripFuzz(t *testing.T) {
-	for word := 0; word < 255; word++ {
+	for word := range 255 {
 		dst := make([]byte, 64)
 		var bw bitstream.Writer
 		bw.Start(dst)
