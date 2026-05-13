@@ -7,6 +7,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
@@ -1599,6 +1600,12 @@ func vp9InterModeRateCost(fc *vp9dec.FrameContext, ctx int,
 func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int, limit uint64,
 ) uint64 {
+	if limit == ^uint64(0) {
+		if sad, ok := vp9BlockSADNoLimit(src, srcStride, ref, refStride,
+			srcX, srcY, refX, refY, w, h); ok {
+			return uint64(sad)
+		}
+	}
 	var sad uint64
 	for y := range h {
 		srcRow := src[(srcY+y)*srcStride+srcX:]
@@ -1615,6 +1622,43 @@ func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 		}
 	}
 	return sad
+}
+
+func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) (uint32, bool) {
+	srcOff := srcY*srcStride + srcX
+	refOff := refY*refStride + refX
+	switch {
+	case w == 64 && h == 64:
+		return vp9dsp.VpxSad64x64(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 64 && h == 32:
+		return vp9dsp.VpxSad64x32(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 32 && h == 64:
+		return vp9dsp.VpxSad32x64(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 32 && h == 32:
+		return vp9dsp.VpxSad32x32(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 32 && h == 16:
+		return vp9dsp.VpxSad32x16(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 16 && h == 32:
+		return vp9dsp.VpxSad16x32(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 16 && h == 16:
+		return vp9dsp.VpxSad16x16(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 16 && h == 8:
+		return vp9dsp.VpxSad16x8(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 8 && h == 16:
+		return vp9dsp.VpxSad8x16(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 8 && h == 8:
+		return vp9dsp.VpxSad8x8(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 8 && h == 4:
+		return vp9dsp.VpxSad8x4(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 4 && h == 8:
+		return vp9dsp.VpxSad4x8(src, srcOff, srcStride, ref, refOff, refStride), true
+	case w == 4 && h == 4:
+		return vp9dsp.VpxSad4x4(src, srcOff, srcStride, ref, refOff, refStride), true
+	default:
+		return 0, false
+	}
 }
 
 func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,

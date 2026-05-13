@@ -815,6 +815,32 @@ func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 	}
 }
 
+func TestVP9BlockSADNoLimitMatchesScalar(t *testing.T) {
+	const stride = 80
+	src := make([]byte, stride*80)
+	ref := make([]byte, stride*80)
+	for i := range src {
+		src[i] = byte((i*17 + i/7) & 0xff)
+		ref[i] = byte((i*29 + 11) & 0xff)
+	}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {64, 32}, {32, 64}, {32, 32}, {32, 16},
+		{16, 32}, {16, 16}, {16, 8}, {8, 16}, {8, 8},
+		{8, 4}, {4, 8}, {4, 4},
+	}
+	for _, tc := range cases {
+		got := vp9BlockSAD(src, stride, ref, stride,
+			3, 5, 7, 11, tc.w, tc.h, ^uint64(0))
+		want := vp9BlockSAD(src, stride, ref, stride,
+			3, 5, 7, 11, tc.w, tc.h, 1<<63)
+		if got != want {
+			t.Fatalf("%dx%d SAD = %d, want scalar %d", tc.w, tc.h, got, want)
+		}
+	}
+}
+
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
 // second-frame path: a visible LAST/ZeroMv skipped inter frame whose
 // reference dimensions come from the preceding keyframe.
