@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"image"
 	"testing"
 )
 
@@ -63,11 +64,10 @@ func TestVP9DecoderDecodeEmptyPacket(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesValidKeyframeHeader: a well-formed 320x240
-// profile-0 keyframe header makes it through the parser; Decode
-// returns ErrVP9NotImplemented (header valid, reconstruct pending),
-// and LastFrameSize reports the parsed dimensions.
-func TestVP9DecoderParsesValidKeyframeHeader(t *testing.T) {
+// TestVP9DecoderRejectsTruncatedCompressedHeader: a well-formed
+// profile-0 keyframe header whose first_partition_size points past
+// the packet end is rejected before the reconstruct boundary.
+func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
 	var pk vp9BitPacker
 	pk.writeLiteral(2, 2)    // frame_marker = 0b10
 	pk.writeLiteral(0, 2)    // profile = 0
@@ -107,12 +107,70 @@ func TestVP9DecoderParsesValidKeyframeHeader(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	err = d.Decode(packet)
+	if !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 0 || h != 0 {
+		t.Errorf("LastFrameSize() = (%d, %d), want (0, 0) after rejection", w, h)
+	}
+}
+
+// TestVP9DecoderParsesEncoderKeyframeCompressedHeader feeds the
+// current encoder stub into the public decoder. Decode parses both
+// uncompressed and compressed headers, updates frame dimensions, then
+// stops at the reconstruct boundary.
+func TestVP9DecoderParsesEncoderKeyframeCompressedHeader(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	err = d.Decode(packet)
 	if !errors.Is(err, ErrVP9NotImplemented) {
 		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
 	}
 	w, h := d.LastFrameSize()
-	if w != 320 || h != 240 {
-		t.Errorf("LastFrameSize() = (%d, %d), want (320, 240)", w, h)
+	if w != 96 || h != 96 {
+		t.Errorf("LastFrameSize() = (%d, %d), want (96, 96)", w, h)
+	}
+}
+
+// TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader covers the
+// second-frame fallback path. It depends on the first keyframe parse
+// to seed preserved header state before the intra-only inter header
+// and compressed header are read.
+func TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode keyframe err = %v, want ErrVP9NotImplemented", err)
+	}
+	if err := d.Decode(inter); !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode intra-only err = %v, want ErrVP9NotImplemented", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 96 || h != 96 {
+		t.Errorf("LastFrameSize() = (%d, %d), want (96, 96)", w, h)
 	}
 }
 

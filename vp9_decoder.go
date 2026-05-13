@@ -3,6 +3,8 @@ package govpx
 import (
 	"errors"
 
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -79,6 +81,7 @@ func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 		return nil, err
 	}
 	d := &VP9Decoder{opts: opts}
+	vp9dec.ResetFrameContext(&d.fc)
 	d.lfi = vp9dec.NewLoopFilterInfoN()
 	return d, nil
 }
@@ -93,10 +96,11 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 	return nil
 }
 
-// Decode is the VP9 entry point. The uncompressed header is parsed
-// and validated; malformed frames surface as [ErrInvalidVP9Data].
-// The reconstruct pipeline is still under construction — a valid
-// header returns [ErrVP9NotImplemented] for now.
+// Decode is the VP9 entry point. The uncompressed and compressed
+// headers are parsed and validated; malformed frames surface as
+// [ErrInvalidVP9Data]. The reconstruct pipeline is still under
+// construction — a valid header pair returns [ErrVP9NotImplemented]
+// for now.
 //
 // Side effects on success-up-to-header: the decoder's stored frame
 // dimensions, loopfilter state, and segmentation state are updated
@@ -125,6 +129,44 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 	if d.opts.MaxHeight > 0 && int(hdr.Height) > d.opts.MaxHeight {
 		return ErrFrameRejected
 	}
+
+	if !hdr.ShowExistingFrame {
+		uncSize := br.BytesRead()
+		compEnd := uncSize + int(hdr.FirstPartitionSize)
+		if compEnd > len(packet) {
+			return ErrInvalidVP9Data
+		}
+
+		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly || hdr.ErrorResilientMode {
+			vp9dec.ResetFrameContext(&d.fc)
+		}
+		var cr bitstream.Reader
+		if err := cr.Init(packet[uncSize:compEnd]); err != nil {
+			return ErrInvalidVP9Data
+		}
+		vp9dec.ReadCompressedHeader(&cr, &d.fc, vp9dec.ReadCompressedHeaderArgs{
+			Lossless:             hdr.Quant.Lossless,
+			IntraOnly:            hdr.IntraOnly,
+			KeyFrame:             hdr.FrameType == common.KeyFrame,
+			InterpFilter:         hdr.InterpFilter,
+			AllowHighPrecisionMv: hdr.AllowHighPrecisionMv,
+			CompoundRefAllowed:   false,
+		})
+		if cr.HasError() {
+			return ErrInvalidVP9Data
+		}
+
+		vp9dec.SetupSegmentationDequant(&hdr.Seg, vp9dec.SetupSegmentationDequantArgs{
+			BaseQindex: int(hdr.Quant.BaseQindex),
+			YDcDeltaQ:  int(hdr.Quant.YDcDeltaQ),
+			UvDcDeltaQ: int(hdr.Quant.UvDcDeltaQ),
+			UvAcDeltaQ: int(hdr.Quant.UvAcDeltaQ),
+			BitDepth:   vp9dec.BitDepth(hdr.BitDepthColor.BitDepth),
+		}, &d.dq)
+		vp9dec.LoopFilterFrameInit(&d.lfi, &hdr.Loopfilter, &hdr.Seg,
+			int(hdr.Loopfilter.FilterLevel))
+	}
+
 	d.lastHeader = hdr
 	d.lastHeaderValid = true
 	if !hdr.ShowExistingFrame {
