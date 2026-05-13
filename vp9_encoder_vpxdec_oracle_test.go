@@ -261,3 +261,61 @@ func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
 			err, out)
 	}
 }
+
+// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedIntraOnlyInter keeps the
+// second-frame fallback covered on the same edge-clipped dimensions as
+// keyframes. The uncompressed header is different for intra-only inter
+// frames, but the tile-body partition / MI-context requirements are
+// identical.
+func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedIntraOnlyInter(t *testing.T) {
+	if _, err := coracle.VpxdecVP9Path(); err != nil {
+		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
+			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+		}
+		t.Fatalf("VpxdecVP9Path: %v", err)
+	}
+
+	cases := []struct {
+		name          string
+		width, height int
+	}{
+		{"right-edge", 96, 64},
+		{"bottom-edge", 64, 96},
+		{"corner-edge", 96, 96},
+		{"sub-sb", 32, 32},
+		{"odd-visible", 70, 70},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: tc.width, Height: tc.height})
+			img := image.NewYCbCr(image.Rect(0, 0, tc.width, tc.height), image.YCbCrSubsampleRatio420)
+			key, err := e.Encode(img)
+			if err != nil {
+				t.Fatalf("Encode keyframe: %v", err)
+			}
+			inter, err := e.Encode(img)
+			if err != nil {
+				t.Fatalf("Encode inter: %v", err)
+			}
+
+			header := testutil.IVFHeader{
+				FourCC:              [4]byte{'V', 'P', '9', '0'},
+				Width:               tc.width,
+				Height:              tc.height,
+				TimebaseDenominator: 30,
+				TimebaseNumerator:   1,
+				FrameCount:          2,
+			}
+			stream := append(testutil.WriteIVFHeader(header),
+				testutil.WriteIVFFrame(key, 0)...)
+			stream = append(stream, testutil.WriteIVFFrame(inter, 1)...)
+
+			out, err := coracle.VpxdecVP9Decode(stream)
+			if err != nil {
+				t.Fatalf("vpxdec-vp9 rejected %dx%d intra-only inter: %v\nvpxdec:\n%s",
+					tc.width, tc.height, err, out)
+			}
+		})
+	}
+}
