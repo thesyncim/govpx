@@ -869,7 +869,7 @@ func TestVP9DecoderVpxdecOracleMatchesShowExistingStream(t *testing.T) {
 
 	got := vp9DecodeVisibleI420ForTest(t, packets...)
 	if !bytes.Equal(got, want) {
-		t.Fatalf("I420 mismatch for key/hidden/show-existing stream\nlibvpx=%s\ngovpx=%s",
+		t.Fatalf("I420 mismatch for key/inter/show-existing stream\nlibvpx=%s\ngovpx=%s",
 			testutil.MD5Hex(md5.Sum(want)),
 			testutil.MD5Hex(md5.Sum(got)))
 	}
@@ -886,7 +886,7 @@ func TestVP9DecoderVpxdecOracleMatchesDecodeIntoShowExistingStream(t *testing.T)
 
 	got := vp9DecodeIntoVisibleI420ForTest(t, 96, 96, packets...)
 	if !bytes.Equal(got, want) {
-		t.Fatalf("DecodeInto I420 mismatch for key/hidden/show-existing stream\nlibvpx=%s\ngovpx=%s",
+		t.Fatalf("DecodeInto I420 mismatch for key/inter/show-existing stream\nlibvpx=%s\ngovpx=%s",
 			testutil.MD5Hex(md5.Sum(want)),
 			testutil.MD5Hex(md5.Sum(got)))
 	}
@@ -910,13 +910,13 @@ func vp9ShowExistingOracleStreamForTest(t *testing.T, width, height int) ([][]by
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	hidden, err := e.Encode(img)
+	inter, err := e.Encode(img)
 	if err != nil {
-		t.Fatalf("Encode hidden intra-only: %v", err)
+		t.Fatalf("Encode inter: %v", err)
 	}
 	packets := [][]byte{
 		key,
-		hidden,
+		inter,
 		vp9ShowExistingFramePacketForTest(5),
 	}
 	return packets, vp9IVFForTest(width, height, packets...)

@@ -241,12 +241,11 @@ func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderDecodesEncoderIntraOnlyModeTile covers the second-frame
-// fallback path. It depends on the first keyframe parse to seed
-// preserved header state before the intra-only inter header,
-// compressed header, and tile mode-info stream are read. The fallback
-// is non-show, so it decodes successfully without queuing output.
-func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
+// TestVP9DecoderDecodesEncoderInterSkipModeTile covers the second-frame
+// public encoder path. It depends on the first keyframe parse to seed
+// reference state before the visible LAST/ZeroMv skip inter header,
+// compressed header, and tile mode-info stream are read.
+func TestVP9DecoderDecodesEncoderInterSkipModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	key, err := e.Encode(img)
@@ -271,11 +270,13 @@ func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
 	}
 	assertVP9NeutralFrame(t, frame, 96, 96)
 	if err := d.Decode(inter); err != nil {
-		t.Fatalf("Decode intra-only err = %v, want nil", err)
+		t.Fatalf("Decode inter err = %v, want nil", err)
 	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatal("NextFrame queued output for non-show intra-only frame")
+	frame, ok = d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
+	assertVP9NeutralFrame(t, frame, 96, 96)
 	w, h := d.LastFrameSize()
 	if w != 96 || h != 96 {
 		t.Errorf("LastFrameSize() = (%d, %d), want (96, 96)", w, h)
@@ -285,8 +286,7 @@ func TestVP9DecoderDecodesEncoderIntraOnlyModeTile(t *testing.T) {
 // TestVP9DecoderShowExistingFrameUsesReferenceSlot covers the first
 // reference-frame-manager behavior: keyframes refresh the VP9 ring, a
 // show-existing packet displays a stored slot, and that packet must not
-// disturb the preserved header state needed by the following intra-only
-// inter header.
+// disturb the preserved header state needed by the following inter header.
 func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
@@ -296,7 +296,7 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	}
 	inter, err := e.Encode(img)
 	if err != nil {
-		t.Fatalf("Encode intra-only: %v", err)
+		t.Fatalf("Encode inter: %v", err)
 	}
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -320,11 +320,13 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	assertVP9NeutralFrame(t, frame, 96, 96)
 
 	if err := d.Decode(inter); err != nil {
-		t.Fatalf("Decode intra-only after show-existing err = %v, want nil", err)
+		t.Fatalf("Decode inter after show-existing err = %v, want nil", err)
 	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatal("NextFrame queued output for non-show intra-only frame")
+	frame, ok = d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
+	assertVP9NeutralFrame(t, frame, 96, 96)
 }
 
 // TestVP9DecoderRejectsShowExistingMissingReference rejects a show-
@@ -377,10 +379,9 @@ func TestVP9DecoderDecodeIntoCopiesVisibleFrame(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched covers
-// non-show intra-only packets: they refresh references but do not copy
-// pixels into the caller-owned output image.
-func TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched(t *testing.T) {
+// TestVP9DecoderDecodeIntoInterFrameCopiesDestination covers visible public
+// encoder inter packets copied directly into caller-owned output.
+func TestVP9DecoderDecodeIntoInterFrameCopiesDestination(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	key, err := e.Encode(img)
@@ -389,7 +390,7 @@ func TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched(t *testing.T)
 	}
 	inter, err := e.Encode(img)
 	if err != nil {
-		t.Fatalf("Encode intra-only: %v", err)
+		t.Fatalf("Encode inter: %v", err)
 	}
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -405,16 +406,16 @@ func TestVP9DecoderDecodeIntoHiddenFrameLeavesDestinationUntouched(t *testing.T)
 	fillVP9PublicImage(&dst, 77)
 	info, err := d.DecodeInto(inter, &dst)
 	if err != nil {
-		t.Fatalf("DecodeInto hidden intra-only err = %v, want nil", err)
+		t.Fatalf("DecodeInto inter err = %v, want nil", err)
 	}
 	if info.Width != 96 || info.Height != 96 ||
-		info.KeyFrame || info.ShowFrame || info.ShowExistingFrame ||
+		info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
 		info.Quantizer != 1 || info.RefreshFrameFlags != 1 {
-		t.Fatalf("DecodeInto hidden info = %+v, want hidden intra-only metadata", info)
+		t.Fatalf("DecodeInto inter info = %+v, want visible inter metadata", info)
 	}
-	assertVP9FilledFrame(t, dst, 96, 96, 77, 77, 77)
+	assertVP9NeutralFrame(t, dst, 96, 96)
 	if _, ok := d.NextFrame(); ok {
-		t.Fatal("DecodeInto queued output for hidden frame")
+		t.Fatal("DecodeInto queued output for visible inter frame")
 	}
 }
 
@@ -482,8 +483,8 @@ func TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode(t *testing.T)
 	}
 }
 
-// TestVP9DecoderLastFrameInfoTracksDecodedPackets covers the Decode
-// metadata path across visible, hidden, and show-existing packets.
+// TestVP9DecoderLastFrameInfoTracksDecodedPackets covers the Decode metadata
+// path across key, inter, and show-existing packets.
 func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
@@ -493,7 +494,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	}
 	inter, err := e.Encode(img)
 	if err != nil {
-		t.Fatalf("Encode intra-only: %v", err)
+		t.Fatalf("Encode inter: %v", err)
 	}
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -521,16 +522,16 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 	}
 
 	if err := d.DecodeWithPTS(inter, 200); err != nil {
-		t.Fatalf("DecodeWithPTS intra-only err = %v, want nil", err)
+		t.Fatalf("DecodeWithPTS inter err = %v, want nil", err)
 	}
 	info, ok = d.LastFrameInfo()
 	if !ok {
-		t.Fatal("LastFrameInfo after hidden intra-only returned !ok")
+		t.Fatal("LastFrameInfo after inter returned !ok")
 	}
 	if info.Width != 96 || info.Height != 96 ||
-		info.KeyFrame || info.ShowFrame || info.ShowExistingFrame ||
+		info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
 		info.Quantizer != 1 || info.RefreshFrameFlags != 1 || info.PTS != 200 {
-		t.Fatalf("hidden LastFrameInfo = %+v, want hidden intra-only metadata", info)
+		t.Fatalf("inter LastFrameInfo = %+v, want visible inter metadata", info)
 	}
 
 	if err := d.DecodeWithPTS(vp9ShowExistingFramePacketForTest(5), 300); err != nil {
@@ -693,7 +694,7 @@ func TestVP9DecoderResetClearsFrameState(t *testing.T) {
 // TestVP9DecoderDecodesEncoderEdgeClippedModeTiles covers the same
 // partial-SB shapes as the vpxdec oracle, but through the public
 // decoder's tile-mode/residual parser and prediction-only output path for
-// both keyframe and intra-only frames.
+// both keyframe and visible inter frames.
 func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 	cases := []struct {
 		name string
@@ -715,7 +716,7 @@ func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 			}
 			inter, err := e.Encode(img)
 			if err != nil {
-				t.Fatalf("Encode intra-only: %v", err)
+				t.Fatalf("Encode inter: %v", err)
 			}
 
 			d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -731,11 +732,13 @@ func TestVP9DecoderDecodesEncoderEdgeClippedModeTiles(t *testing.T) {
 			}
 			assertVP9NeutralFrame(t, frame, tc.w, tc.h)
 			if err := d.Decode(inter); err != nil {
-				t.Fatalf("Decode intra-only err = %v, want nil", err)
+				t.Fatalf("Decode inter err = %v, want nil", err)
 			}
-			if _, ok := d.NextFrame(); ok {
-				t.Fatal("NextFrame queued output for non-show intra-only frame")
+			frame, ok = d.NextFrame()
+			if !ok {
+				t.Fatal("NextFrame returned !ok after visible inter frame")
 			}
+			assertVP9NeutralFrame(t, frame, tc.w, tc.h)
 			w, h := d.LastFrameSize()
 			if w != tc.w || h != tc.h {
 				t.Fatalf("LastFrameSize() = (%d, %d), want (%d, %d)",

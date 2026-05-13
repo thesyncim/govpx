@@ -214,12 +214,10 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter runs the structural gate
-// against the second frame produced by the encoder — an
-// intra-only inter frame (FrameType=InterFrame + IntraOnly=true)
-// emitted after the keyframe. The gate confirms that fallback frame is also
-// valid VP9.
-func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
+// TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip runs the structural gate
+// against the second frame produced by the encoder: a visible LAST/ZeroMv
+// skipped inter frame emitted after the keyframe.
+func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
 			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
@@ -229,7 +227,7 @@ func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
-	// Frame 0 = keyframe, frame 1 = intra-only inter.
+	// Frame 0 = keyframe, frame 1 = visible inter skip.
 	key, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -253,7 +251,7 @@ func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
 
 	out, err := coracle.VpxdecVP9Decode(stream)
 	if err != nil {
-		t.Fatalf("vpxdec-vp9 rejected the intra-only inter frame: %v\nvpxdec:\n%s",
+		t.Fatalf("vpxdec-vp9 rejected the public inter skip frame: %v\nvpxdec:\n%s",
 			err, out)
 	}
 }
@@ -290,12 +288,10 @@ func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedIntraOnlyInter keeps the
-// second-frame fallback covered on the same edge-clipped dimensions as
-// keyframes. The uncompressed header is different for intra-only inter
-// frames, but the tile-body partition / MI-context requirements are
-// identical.
-func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedIntraOnlyInter(t *testing.T) {
+// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip keeps the
+// public second-frame inter skip path covered on the same edge-clipped
+// dimensions as keyframes.
+func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip(t *testing.T) {
 	if _, err := coracle.VpxdecVP9Path(); err != nil {
 		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
 			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
@@ -341,7 +337,7 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedIntraOnlyInter(t *testing.T) {
 
 			out, err := coracle.VpxdecVP9Decode(stream)
 			if err != nil {
-				t.Fatalf("vpxdec-vp9 rejected %dx%d intra-only inter: %v\nvpxdec:\n%s",
+				t.Fatalf("vpxdec-vp9 rejected %dx%d public inter skip: %v\nvpxdec:\n%s",
 					tc.width, tc.height, err, out)
 			}
 		})

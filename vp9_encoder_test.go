@@ -203,6 +203,107 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	}
 }
 
+// TestVP9EncoderInterSkipProducesParseableBitstream covers the public
+// second-frame path: a visible LAST/ZeroMv skipped inter frame whose
+// reference dimensions come from the preceding keyframe.
+func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	if len(inter) == 0 {
+		t.Fatal("Encode returned empty inter frame")
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(key)
+	keyHeader, perr := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader keyframe: %v", perr)
+	}
+
+	var interBR vp9dec.BitReader
+	interBR.Init(inter)
+	refDims := func(slot uint8) (uint32, uint32) {
+		if slot != 0 {
+			t.Fatalf("inter header requested ref slot %d, want 0", slot)
+		}
+		return 64, 64
+	}
+	interHeader, perr := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader, refDims)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", perr)
+	}
+	if interHeader.FrameType != common.InterFrame {
+		t.Errorf("FrameType = %d, want InterFrame", interHeader.FrameType)
+	}
+	if !interHeader.ShowFrame {
+		t.Error("ShowFrame = false, want true")
+	}
+	if interHeader.IntraOnly {
+		t.Error("IntraOnly = true, want false")
+	}
+	if interHeader.RefreshFrameFlags != 1 {
+		t.Errorf("RefreshFrameFlags = %#x, want 0x1", interHeader.RefreshFrameFlags)
+	}
+	if interHeader.Width != 64 || interHeader.Height != 64 {
+		t.Errorf("size = (%d, %d), want (64, 64)", interHeader.Width, interHeader.Height)
+	}
+	if interHeader.InterRef.RefIndex != [3]uint8{0, 0, 0} {
+		t.Errorf("RefIndex = %v, want [0 0 0]", interHeader.InterRef.RefIndex)
+	}
+	if interHeader.InterRef.SignBias != [3]uint8{0, 0, 0} {
+		t.Errorf("SignBias = %v, want [0 0 0]", interHeader.InterRef.SignBias)
+	}
+	if interHeader.AllowHighPrecisionMv {
+		t.Error("AllowHighPrecisionMv = true, want false")
+	}
+	if interHeader.InterpFilter != vp9dec.InterpEighttap {
+		t.Errorf("InterpFilter = %d, want Eighttap", interHeader.InterpFilter)
+	}
+	if interHeader.FirstPartitionSize == 0 {
+		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")
+	}
+
+	uncSize := interBR.BytesRead()
+	compEnd := uncSize + int(interHeader.FirstPartitionSize)
+	if compEnd > len(inter) {
+		t.Fatalf("compressed header end %d past frame %d", compEnd, len(inter))
+	}
+	var cr bitstream.Reader
+	if err := cr.Init(inter[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader Init: %v", err)
+	}
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:             false,
+		IntraOnly:            false,
+		KeyFrame:             false,
+		InterpFilter:         vp9dec.InterpEighttap,
+		AllowHighPrecisionMv: false,
+		CompoundRefAllowed:   false,
+	})
+	if cr.HasError() {
+		t.Fatal("compressed header reader reported over-read")
+	}
+	if out.TxMode != common.Only4x4 {
+		t.Errorf("TxMode = %d, want Only4x4", out.TxMode)
+	}
+	if out.ReferenceMode != vp9dec.SingleReference {
+		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
+	}
+	if compEnd >= len(inter) {
+		t.Fatal("inter frame has no tile payload")
+	}
+}
+
 // TestVP9EncoderKeyframeMultiSb: 128x64 frame → 2 SBs side-by-side.
 // Confirms the SB walker emits 2 PartitionNone leaves in row-major
 // order and both decode through the per-block keyframe driver.
@@ -383,6 +484,38 @@ func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+// TestVP9EncoderEncodeIntoInterSteadyStateAlloc verifies that visible
+// inter-frame header/mode emission reuses the keyframe-allocated scratch,
+// partition contexts, and MI grid.
+func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm inter EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(100, func() {
+		e.frameIndex = 1
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto inter steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 
