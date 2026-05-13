@@ -791,6 +791,129 @@ func TestVP9EncoderForceKeyFrameIsStickyUntilCommitted(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderEncodeIntoWithFlagsForceKeyFrameOneShot(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode initial keyframe: %v", err)
+	}
+	dst := make([]byte, 65536)
+	n, err := e.EncodeIntoWithFlags(src, dst, EncodeForceKeyFrame)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithFlags force keyframe: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(dst[:n])
+	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader forced keyframe: %v", perr)
+	}
+	if h.FrameType != common.KeyFrame {
+		t.Fatalf("forced frame type = %d, want KeyFrame", h.FrameType)
+	}
+	if e.IsKeyFrameNext() {
+		t.Fatal("EncodeForceKeyFrame acted sticky; next frame should be inter")
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	dst := make([]byte, 65536)
+	n, err := e.EncodeIntoWithFlags(interSrc, dst, EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithFlags no-update-LAST: %v", err)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(dst[:n])
+	refDims := func(slot uint8) (uint32, uint32) {
+		if slot != 0 {
+			t.Fatalf("inter header requested ref slot %d, want 0", slot)
+		}
+		return width, height
+	}
+	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, refDims)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", perr)
+	}
+	if h.FrameType != common.InterFrame {
+		t.Fatalf("frame type = %d, want InterFrame", h.FrameType)
+	}
+	if h.RefreshFrameFlags != 0 {
+		t.Fatalf("RefreshFrameFlags = %#x, want 0", h.RefreshFrameFlags)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST ref became invalid after no-update-LAST")
+	}
+	if got := e.refFrames[0].img.Y[0]; got != keySrc.Y[0] {
+		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsNoUpdateEntropyRestoresFrameContext(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9CheckerYCbCrForTest(width, height, 0, 255, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	before := e.fc
+	interSrc := newVP9CheckerYCbCrForTest(width, height, 255, 0, 128, 128)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithFlags(interSrc, dst, EncodeNoUpdateEntropy); err != nil {
+		t.Fatalf("EncodeIntoWithFlags no-update-entropy: %v", err)
+	}
+	if e.fc != before {
+		t.Fatal("frame context changed after EncodeNoUpdateEntropy")
+	}
+}
+
+func TestVP9EncoderErrorResilientRestoresDefaultFrameContext(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width: width, Height: height, ErrorResilient: true,
+	})
+	src := newVP9CheckerYCbCrForTest(width, height, 0, 255, 128, 128)
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode error-resilient keyframe: %v", err)
+	}
+	var want vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&want)
+	if e.fc != want {
+		t.Fatal("frame context changed after error-resilient keyframe")
+	}
+	if _, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 255, 0, 128, 128)); err != nil {
+		t.Fatalf("Encode error-resilient inter: %v", err)
+	}
+	if e.fc != want {
+		t.Fatal("frame context changed after error-resilient inter frame")
+	}
+}
+
+func TestVP9EncoderEncodeIntoWithFlagsRejectsUnsupportedFlags(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 96, 128, 128)
+	dst := make([]byte, 65536)
+	for _, flags := range []EncodeFlags{
+		EncodeInvisibleFrame,
+		EncodeForceGoldenFrame,
+		EncodeForceAltRefFrame,
+		EncodeNoUpdateLast,
+	} {
+		if _, err := e.EncodeIntoWithFlags(src, dst, flags); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("flags %#x err = %v, want ErrInvalidConfig", flags, err)
+		}
+	}
+}
+
 func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 	var fc vp9dec.FrameContext
 	vp9dec.ResetFrameContext(&fc)

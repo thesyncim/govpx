@@ -227,19 +227,33 @@ func (e *VP9Encoder) ForceKeyFrame() {
 	e.forceKeyFrame = true
 }
 
-// EncodeInto packs the next profile 0 frame into dst. The current packet path
-// emits source-backed keyframes and visible LAST inter frames with fixed-size
-// DCT_DCT residual transforms up to Tx32x32, including bounded rate-aware
-// LAST-frame motion search with quarter-pel refinement. A deterministic prepass
-// walks the same mode tree to collect frame counts before the compressed
-// header, so the real tile is encoded with same-frame counts-driven probability
-// updates.
+// EncodeInto packs the next profile 0 frame into dst. It is equivalent to
+// EncodeIntoWithFlags with no flags.
 //
 // Returns the number of bytes written into dst. Caller sizes dst; leave room
 // for up to 64 KiB to match libvpx's first-partition header bound.
 func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
+	return e.EncodeIntoWithFlags(img, dst, 0)
+}
+
+// EncodeIntoWithFlags packs the next profile 0 frame into dst while applying
+// the VP9-compatible subset of EncodeFlags: EncodeForceKeyFrame,
+// EncodeNoReference{Last,Golden,AltRef}, EncodeNoUpdate{Last,Golden,AltRef},
+// and EncodeNoUpdateEntropy. Invisible frames and forced GOLDEN / ALTREF
+// refreshes are not implemented by the current profile 0 packet path.
+//
+// The current packet path emits source-backed keyframes and visible LAST inter
+// frames with fixed-size DCT_DCT residual transforms up to Tx32x32, including
+// bounded rate-aware LAST-frame motion search with quarter-pel refinement. A
+// deterministic prepass walks the same mode tree to collect frame counts before
+// the compressed header, so the real tile is encoded with same-frame
+// counts-driven probability updates.
+func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
+	}
+	if err := validateVP9EncodeFlags(flags); err != nil {
+		return 0, err
 	}
 	if err := e.validateVP9EncoderSource(img); err != nil {
 		return 0, err
@@ -255,13 +269,25 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
 
-	isKey := e.IsKeyFrameNext()
+	isKey := e.vp9ShouldEncodeKeyFrame(flags)
 	if !isKey && !e.refFrames[0].valid {
 		isKey = true
 	}
+	if isKey && flags&vp9NoUpdateRefFlags != 0 {
+		return 0, ErrInvalidConfig
+	}
 	if isKey {
 		vp9dec.ResetFrameContext(&e.fc)
+	} else if e.opts.ErrorResilient {
+		vp9dec.ResetFrameContext(&e.fc)
 	}
+	frameContextSeed := e.fc
+	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
+	defer func() {
+		if restoreFrameContext {
+			e.fc = frameContextSeed
+		}
+	}()
 	e.prepareVP9EncoderOutputFrame(int(width), int(height))
 
 	header := vp9dec.UncompressedHeader{
@@ -270,7 +296,7 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		ErrorResilientMode:    e.opts.ErrorResilient,
 		Width:                 width,
 		Height:                height,
-		RefreshFrameContext:   true,
+		RefreshFrameContext:   flags&EncodeNoUpdateEntropy == 0,
 		FrameParallelDecoding: true,
 		FrameContextIdx:       0,
 		InterpFilter:          vp9dec.InterpEighttap,
@@ -296,6 +322,9 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	} else {
 		header.FrameType = common.InterFrame
 		header.RefreshFrameFlags = 1
+		if flags&EncodeNoUpdateLast != 0 {
+			header.RefreshFrameFlags = 0
+		}
 		header.InterRef.RefIndex = [3]uint8{0, 0, 0}
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
@@ -414,6 +443,29 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		e.forceKeyFrame = false
 	}
 	return n, nil
+}
+
+const vp9NoUpdateRefFlags = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+
+func validateVP9EncodeFlags(flags EncodeFlags) error {
+	if err := validateEncodeFlags(flags); err != nil {
+		return err
+	}
+	const unsupported = EncodeInvisibleFrame | EncodeForceGoldenFrame | EncodeForceAltRefFrame
+	if flags&unsupported != 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func (e *VP9Encoder) vp9ShouldEncodeKeyFrame(flags EncodeFlags) bool {
+	if e == nil || e.closed {
+		return false
+	}
+	if flags&EncodeForceKeyFrame != 0 || flags&EncodeNoReferenceLast != 0 {
+		return true
+	}
+	return e.IsKeyFrameNext()
 }
 
 func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
@@ -2047,11 +2099,16 @@ func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockS
 // upfront so EncodeInto can never overflow the compressed-header staging
 // buffer.
 func (e *VP9Encoder) Encode(img *image.YCbCr) ([]byte, error) {
+	return e.EncodeWithFlags(img, 0)
+}
+
+// EncodeWithFlags is the alloc-returning wrapper around EncodeIntoWithFlags.
+func (e *VP9Encoder) EncodeWithFlags(img *image.YCbCr, flags EncodeFlags) ([]byte, error) {
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
 	dst := make([]byte, 65536)
-	n, err := e.EncodeInto(img, dst)
+	n, err := e.EncodeIntoWithFlags(img, dst, flags)
 	if err != nil {
 		return nil, err
 	}

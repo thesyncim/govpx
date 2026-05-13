@@ -111,9 +111,9 @@ returns no more data.
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
-| Encode one frame | `EncodeInto` |
+| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 flag subset) |
 | Drain delayed encoder output | `FlushInto` |
-| Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8 one frame) |
+| Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
 | Toggle frame dropping only | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
 | Runtime rate-control replacement | `SetRateControl` |
@@ -146,8 +146,8 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 })
 ```
 
-- Use `ForceKeyFrame()` or the `EncodeForceKeyFrame` flag on the next
-  `EncodeInto` for PLI/FIR.
+- Use `ForceKeyFrame()` for sticky PLI/FIR. Use `EncodeForceKeyFrame`
+  on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.

@@ -87,6 +87,25 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 64, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	inter, err := e.EncodeWithFlags(interSrc, EncodeNoUpdateLast)
+	if err != nil {
+		t.Fatalf("Encode no-update-LAST inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 
