@@ -1,6 +1,10 @@
 package decoder
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+)
 
 // expectedThresh mirrors libvpx's update_sharpness exactly so the
 // test can compare against it side-by-side.
@@ -116,6 +120,49 @@ func TestLoopFilterFrameInitSegAltLf(t *testing.T) {
 	LoopFilterFrameInit(&lfi, lf, seg, 25)
 	if got := lfi.Lvl[3][0][0]; got != 10 {
 		t.Errorf("seg=3 absdata got %d want 10", got)
+	}
+}
+
+// TestModeLfLutClassification anchors every intra/inter mode pick
+// against the libvpx source table. Intra modes (0..9) and ZEROMV
+// (12) → 0; NEARESTMV, NEARMV, NEWMV → 1.
+func TestModeLfLutClassification(t *testing.T) {
+	for m := common.DcPred; m <= common.TmPred; m++ {
+		if ModeLfLut[m] != 0 {
+			t.Errorf("intra %d: got %d want 0", m, ModeLfLut[m])
+		}
+	}
+	if ModeLfLut[common.NearestMv] != 1 || ModeLfLut[common.NearMv] != 1 {
+		t.Errorf("NEAREST/NEAR: got (%d, %d) want (1, 1)",
+			ModeLfLut[common.NearestMv], ModeLfLut[common.NearMv])
+	}
+	if ModeLfLut[common.ZeroMv] != 0 {
+		t.Errorf("ZEROMV got %d want 0", ModeLfLut[common.ZeroMv])
+	}
+	if ModeLfLut[common.NewMv] != 1 {
+		t.Errorf("NEWMV got %d want 1", ModeLfLut[common.NewMv])
+	}
+}
+
+// TestGetFilterLevelDispatch covers the per-block byte fetch through
+// the seg / ref / mode_lut triple.
+func TestGetFilterLevelDispatch(t *testing.T) {
+	lfi := NewLoopFilterInfoN()
+	lfi.Lvl[2][LastFrame][1] = 42
+	lfi.Lvl[2][LastFrame][0] = 11
+	// Inter NEWMV → mode_lut[NEWMV]=1 → slot [2][Last][1].
+	if got := GetFilterLevel(&lfi, 2, LastFrame, common.NewMv); got != 42 {
+		t.Errorf("NEWMV got %d want 42", got)
+	}
+	// Inter ZEROMV → mode_lut[ZEROMV]=0 → slot [2][Last][0].
+	if got := GetFilterLevel(&lfi, 2, LastFrame, common.ZeroMv); got != 11 {
+		t.Errorf("ZEROMV got %d want 11", got)
+	}
+	// Intra HPred → mode_lut[HPred]=0 → slot [2][Last][0] (LF doesn't
+	// distinguish intra ref-frame from inter for indexing; it's whatever
+	// the caller stored at [seg][ref_frame[0]][0]).
+	if got := GetFilterLevel(&lfi, 2, LastFrame, common.HPred); got != 11 {
+		t.Errorf("HPred got %d want 11", got)
 	}
 }
 

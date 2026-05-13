@@ -1,5 +1,7 @@
 package decoder
 
+import "github.com/thesyncim/govpx/internal/vp9/common"
+
 // VP9 per-frame loopfilter init. Ported from libvpx v1.16.0
 // vp9/common/vp9_loopfilter.c — vp9_loop_filter_init,
 // vp9_loop_filter_frame_init, and update_sharpness.
@@ -116,6 +118,26 @@ func clampLfLvl(v int) int {
 		return MaxLoopFilter
 	}
 	return v
+}
+
+// ModeLfLut mirrors libvpx's mode_lf_lut[MB_MODE_COUNT]. Indexes
+// the 2-element mode_deltas[] axis of LoopFilterInfoN.Lvl:
+//
+//   - All intra modes (DC..TM) → 0.
+//   - NEARESTMV, NEARMV, NEWMV → 1.
+//   - ZEROMV → 0 (libvpx comment: "ZEROMV == 0").
+//
+// Inter-mode classification matches the C source byte-for-byte.
+var ModeLfLut = [14]uint8{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // intra modes 0..9
+	1, 1, 0, 1, // NEARESTMV, NEARMV, ZEROMV, NEWMV
+}
+
+// GetFilterLevel mirrors libvpx's get_filter_level. Reduces the
+// per-block loopfilter pick to a single byte fetch out of
+// LoopFilterInfoN.Lvl, indexed by (segment, ref-frame[0], mode-lut).
+func GetFilterLevel(lfi *LoopFilterInfoN, segID int, refFrame int8, mode common.PredictionMode) uint8 {
+	return lfi.Lvl[segID][refFrame][ModeLfLut[mode]]
 }
 
 // updateSharpness mirrors libvpx's static update_sharpness. For each
