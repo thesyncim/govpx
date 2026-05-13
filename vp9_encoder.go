@@ -8,6 +8,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // VP9EncoderOptions configures a VP9 encoder. Mirrors the subset of
@@ -222,6 +223,13 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 	miGet := func(r, c int) *vp9dec.NeighborMi { return mi }
 	var seg vp9dec.SegmentationParams // disabled — no map / no data update
 
+	// libvpx swaps in vp9_kf_partition_probs (not fc->partition_prob)
+	// for keyframe / intra-only frames — see set_partition_probs in
+	// vp9/common/vp9_onyxc_int.h. The two tables have the same shape
+	// but different probabilities, so the bool stream desyncs if the
+	// encoder uses the wrong one.
+	partitionProbs := tables.KfPartitionProbs
+
 	args := encoder.PackBitstreamArgs{
 		Dest:    dst,
 		Scratch: e.scratch[:],
@@ -242,7 +250,7 @@ func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 				LeftSegCtx:     e.leftSegCtx,
 				MiRows:         miRows,
 				MiCols:         miCols,
-				PartitionProbs: &e.fc.PartitionProb,
+				PartitionProbs: &partitionProbs,
 				GetMi:          miGet,
 				WriteB: func(bw *bitstream.Writer, miRow, miCol int, bsize common.BlockSize) {
 					encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{

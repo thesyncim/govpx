@@ -9,6 +9,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // TestNewVP9EncoderRequiresDimensions: Width and Height must both be
@@ -142,7 +143,9 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	bsl := int(common.BWidthLog2Lookup[common.Block64x64])
 	bs := (1 << uint(bsl)) / 4
 	ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, 0, common.Block64x64)
-	probs := fc.PartitionProb[ctx][:]
+	// Keyframes use vp9_kf_partition_probs, not fc.PartitionProb —
+	// see set_partition_probs in libvpx's vp9_onyxc_int.h.
+	probs := tables.KfPartitionProbs[ctx][:]
 	miRows := int((h.Height + 7) >> 3)
 	miCols := int((h.Width + 7) >> 3)
 	hasRows := bs < miRows
@@ -219,7 +222,7 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	walked := 0
 	for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 		ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, miCol, common.Block64x64)
-		probs := fc.PartitionProb[ctx][:]
+		probs := tables.KfPartitionProbs[ctx][:]
 		hasRows := (0 + hbs) < miRows
 		hasCols := (miCol + hbs) < miCols
 		p := vp9dec.ReadPartition(&tr, probs, hasRows, hasCols)
