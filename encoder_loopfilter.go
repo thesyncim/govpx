@@ -106,6 +106,15 @@ func (e *VP8Encoder) forceLFDeltaUpdates() bool {
 	return e.opts.ErrorResilient || e.opts.ErrorResilientPartitions
 }
 
+// forceNextLFDeltaUpdate mirrors libvpx vp8_change_config, which routes
+// runtime encoder config updates through set_default_lf_deltas and leaves
+// xd->mode_ref_lf_delta_update set for the next packed frame. The default
+// delta values usually do not change, so this is distinct from comparing
+// the current deltas to the last signaled snapshot.
+func (e *VP8Encoder) forceNextLFDeltaUpdate() {
+	e.lfDeltasSignaledOnce = false
+}
+
 // updateLastSignaledLFDeltas commits the per-frame loop-filter delta
 // snapshot that future frames compare against to decide whether to set
 // mode_ref_lf_delta_update. Called from the keyframe / inter-frame commit

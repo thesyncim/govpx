@@ -103,7 +103,9 @@
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
  *                          setref:{last,golden,altref}:panning:N
- *                          tlid:N
+ *                          tlid:N tslayers:N tsperiodicity:N
+ *                          tsbitrates:A/B[/...] tsdecimators:A/B[/...]
+ *                          tsids:A/B[/...]
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -280,6 +282,27 @@ static void parse_int_csv_exact(const char *csv, int *out, int expected,
   }
   for (int i = 0; i < expected; ++i) out[i] = parse_int(tokens[i], flag_name);
   free_csv_strings(tokens, count);
+}
+
+static int parse_slash_ints(const char *spec, int *out, int max_count,
+                            const char *flag_name) {
+  char buf[256];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) die_msg("%s token too long: %s", flag_name, spec);
+  memcpy(buf, spec, len + 1);
+
+  int count = 0;
+  char *start = buf;
+  while (1) {
+    if (count >= max_count) die_msg("%s has too many entries", flag_name);
+    char *end = strchr(start, '/');
+    if (end) *end = '\0';
+    if (!*start) die_msg("%s contains an empty entry", flag_name);
+    out[count++] = parse_int(start, flag_name);
+    if (!end) break;
+    start = end + 1;
+  }
+  return count;
 }
 
 static unsigned char *alloc_active_map_pattern(const char *pattern, int rows,
@@ -593,6 +616,49 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
     *need_config = 1;
   } else if (starts_with(token, "deadline:")) {
     *deadline = parse_deadline(token + strlen("deadline:"));
+  } else if (starts_with(token, "tslayers:")) {
+    int layers = control_value_int(token, "tslayers:");
+    if (layers <= 0 || layers > VPX_TS_MAX_LAYERS)
+      die_msg("tslayers out of range: %s", token);
+    cfg->ts_number_layers = (unsigned int)layers;
+    *need_config = 1;
+  } else if (starts_with(token, "tsperiodicity:")) {
+    int periodicity = control_value_int(token, "tsperiodicity:");
+    if (periodicity <= 0 || periodicity > VPX_TS_MAX_PERIODICITY)
+      die_msg("tsperiodicity out of range: %s", token);
+    cfg->ts_periodicity = (unsigned int)periodicity;
+    *need_config = 1;
+  } else if (starts_with(token, "tsbitrates:")) {
+    int values[VPX_TS_MAX_LAYERS] = {0};
+    int count = parse_slash_ints(token + strlen("tsbitrates:"), values,
+                                 VPX_TS_MAX_LAYERS, "tsbitrates");
+    for (int i = 0; i < VPX_TS_MAX_LAYERS; ++i) cfg->ts_target_bitrate[i] = 0;
+    for (int i = 0; i < count; ++i) {
+      if (values[i] <= 0) die_msg("tsbitrates values must be positive");
+      cfg->ts_target_bitrate[i] = (unsigned int)values[i];
+    }
+    *need_config = 1;
+  } else if (starts_with(token, "tsdecimators:")) {
+    int values[VPX_TS_MAX_LAYERS] = {0};
+    int count = parse_slash_ints(token + strlen("tsdecimators:"), values,
+                                 VPX_TS_MAX_LAYERS, "tsdecimators");
+    for (int i = 0; i < VPX_TS_MAX_LAYERS; ++i) cfg->ts_rate_decimator[i] = 0;
+    for (int i = 0; i < count; ++i) {
+      if (values[i] <= 0) die_msg("tsdecimators values must be positive");
+      cfg->ts_rate_decimator[i] = (unsigned int)values[i];
+    }
+    *need_config = 1;
+  } else if (starts_with(token, "tsids:")) {
+    int values[VPX_TS_MAX_PERIODICITY] = {0};
+    int count = parse_slash_ints(token + strlen("tsids:"), values,
+                                 VPX_TS_MAX_PERIODICITY, "tsids");
+    for (int i = 0; i < VPX_TS_MAX_PERIODICITY; ++i) cfg->ts_layer_id[i] = 0;
+    for (int i = 0; i < count; ++i) {
+      if (values[i] < 0 || values[i] >= VPX_TS_MAX_LAYERS)
+        die_msg("tsids entry out of range");
+      cfg->ts_layer_id[i] = (unsigned int)values[i];
+    }
+    *need_config = 1;
   } else if (starts_with(token, "cpu:") || starts_with(token, "tune:") ||
              starts_with(token, "token:") || starts_with(token, "static:") ||
              starts_with(token, "noise:") || starts_with(token, "sharpness:") ||

@@ -22,6 +22,7 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	e.temporal = nextTemporal
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.TemporalScalability = nextTemporal.config
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -61,6 +62,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
 	e.opts.GFCBRBoostPct = cfg.GFCBRBoostPct
 	e.opts.TemporalScalability = nextTemporal.config
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -87,6 +89,7 @@ func (e *VP8Encoder) SetCQLevel(level int) error {
 		e.rc.lastQuantizer = qIndex
 		e.rc.lastInterQuantizer = qIndex
 	}
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -102,6 +105,7 @@ func (e *VP8Encoder) SetMaxIntraBitratePct(pct int) error {
 	}
 	e.rc.maxIntraBitratePct = pct
 	e.opts.MaxIntraBitratePct = pct
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -117,6 +121,7 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	}
 	e.rc.gfCBRBoostPct = pct
 	e.opts.GFCBRBoostPct = pct
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -131,6 +136,7 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.TokenPartitions = partitions
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -144,6 +150,7 @@ func (e *VP8Encoder) SetSharpness(sharpness int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.Sharpness = sharpness
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -158,6 +165,7 @@ func (e *VP8Encoder) SetStaticThreshold(threshold int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.StaticThreshold = threshold
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -172,6 +180,7 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.ScreenContentMode = mode
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -195,6 +204,7 @@ func (e *VP8Encoder) SetFrameDropAllowed(enabled bool) error {
 		return ErrClosed
 	}
 	e.setFrameDropAllowed(enabled)
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -329,6 +339,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.temporal = nextTemporal
 		e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 		e.opts.TemporalScalability = nextTemporal.config
+		e.forceNextLFDeltaUpdate()
 		return nil
 	}
 	nextRC := e.rc
@@ -341,6 +352,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	e.rc = nextRC
 	e.temporal = nextTemporal
 	e.opts.TemporalScalability = nextTemporal.config
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -359,6 +371,7 @@ func (e *VP8Encoder) SetTemporalScalability(cfg TemporalScalabilityConfig) error
 	e.temporal = nextTemporal
 	e.opts.TemporalScalability = nextTemporal.config
 	e.initializeTemporalLayerCodingStates()
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -401,6 +414,7 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -416,6 +430,7 @@ func (e *VP8Encoder) SetTuning(tuning Tuning) error {
 	}
 	e.opts.Tuning = tuning
 	e.activityMapValid = false
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -646,6 +661,7 @@ func (e *VP8Encoder) SetKeyFrameInterval(frames int) error {
 	e.opts.KeyFrameInterval = frames
 	// Mirror libvpx oxcf.key_freq for estimate_keyframe_frequency.
 	e.rc.keyFrameFrequency = frames
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -658,6 +674,7 @@ func (e *VP8Encoder) SetAdaptiveKeyFrames(enabled bool) error {
 	}
 	e.opts.AdaptiveKeyFrames = enabled
 	e.rc.autoKeyFrames = enabled
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -708,6 +725,7 @@ func (e *VP8Encoder) SetNoiseSensitivity(level int) error {
 	if level == 0 {
 		e.denoiser.reset()
 	}
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 
@@ -725,6 +743,7 @@ func (e *VP8Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	e.opts.ARNRMaxFrames = maxFrames
 	e.opts.ARNRStrength = strength
 	e.opts.ARNRType = filterType
+	e.forceNextLFDeltaUpdate()
 	return nil
 }
 

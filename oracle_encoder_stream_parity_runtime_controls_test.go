@@ -69,9 +69,8 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			fx:   panning64,
 			opts: baseOpts(panning64),
 			// Direct bitrate changes use vpx_codec_enc_config_set under
-			// libvpx. Pin the clean prefix while the transition-packet
-			// header drift remains visible in logs.
-			matchLimit: 3,
+			// libvpx. The next packet must carry the same forced LF-delta
+			// update bit libvpx emits after vp8_change_config.
 			script: runtimeControlScript(frames, map[int]string{
 				3: "bitrate:300",
 				7: "bitrate:1200",
@@ -99,8 +98,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			extraArgs:  []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
-			matchLimit: 3,
+			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
 			script: runtimeControlScript(frames, map[int]string{
 				3: "drop:60",
 				8: "drop:0",
@@ -120,10 +118,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "bitrate-fps-q-buffer-drop-two-step",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// The static prefix matches. Frames that apply vpx_codec_enc_config_set
-			// still expose a header/first-partition transition gap, so pin the
-			// last known-good frame before the first runtime update.
-			matchLimit: 3,
+			// This bundles the vpx_codec_enc_config_set fields that WebRTC
+			// senders change together on BWE updates. Each transition packet
+			// must match, including the LF-delta update bit.
 			script: runtimeControlScript(frames, map[int]string{
 				3: "bitrate:300+fps:15+minq:10+maxq:50+drop:60+bufsz:500+bufinit:100+bufopt:300",
 				7: "bitrate:1200+fps:30+minq:4+maxq:56+drop:0+bufsz:1000+bufinit:500+bufopt:600",
@@ -150,12 +147,157 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "rate-control-mode-cbr-cq-q-transition",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			// The static matrix covers CBR/CQ/Q as construction-time
+			// choices; this row pins the runtime vpx_codec_enc_config_set
+			// path between all three modes. The first CQ/Q packets still
+			// have a small first-partition drift, so this asserts the
+			// clean prefix and logs the remaining mode-switch gap.
+			matchLimit: 3,
+			script: runtimeControlScript(frames, map[int]string{
+				3: "endusage:cq+cq:30+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
+				7: "endusage:q+cq:20+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(CQ)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCQ,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						CQLevel:             30,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(Q)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlQ,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						CQLevel:             20,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+			},
+		},
+		{
+			name: "deadline-best-quality-roundtrip",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			// SetDeadline affects the per-call encode deadline rather than
+			// codec cfg. The runtime path needs a direct best<->realtime
+			// transition because the older row only covered good<->realtime.
+			script: runtimeControlScript(frames, map[int]string{
+				2: "deadline:best",
+				7: "deadline:rt",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(best)", e.SetDeadline(DeadlineBestQuality))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+				},
+			},
+		},
+		{
+			name: "max-intra-runtime-force-keyframe",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: []EncodeFlags{
+				0, 0, 0,
+				EncodeForceKeyFrame,
+				0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "maxintra:100",
+				7: "maxintra:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetMaxIntraBitratePct(100)", e.SetMaxIntraBitratePct(100))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetMaxIntraBitratePct(0)", e.SetMaxIntraBitratePct(0))
+				},
+			},
+		},
+		{
+			name: "gf-cbr-boost-runtime-force-golden",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: []EncodeFlags{
+				0, 0, 0,
+				EncodeForceGoldenFrame,
+				0, 0, 0,
+				EncodeForceGoldenFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "gfboost:50",
+				7: "gfboost:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetGFCBRBoostPct(50)", e.SetGFCBRBoostPct(50))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetGFCBRBoostPct(0)", e.SetGFCBRBoostPct(0))
+				},
+			},
+		},
+		{
+			name:   "temporal-scalability-enable-disable-transition",
+			fx:     panning64,
+			opts:   baseOpts(panning64),
+			flags:  temporalScalabilityEnableDisableFlags(frames),
+			script: temporalScalabilityEnableDisableScript(frames),
+			// The enable transition keyframe matches. Subsequent layer
+			// packets still expose temporal layer-context drift, and the
+			// disable transition logs the recovery surface.
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(two-layer)", e.SetTemporalScalability(TemporalScalabilityConfig{
+						Enabled: true,
+						Mode:    TemporalLayeringTwoLayers,
+						LayerTargetBitrateKbps: [MaxTemporalLayers]int{
+							420, targetKbps,
+						},
+					}))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		},
+		{
 			name: "codec-control-surface-toggle",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// Runtime codec controls apply before frame 2; the prior prefix
-			// must stay byte-identical while transition frames remain logged.
-			matchLimit: 2,
+			// Runtime codec controls route through libvpx update_extracfg,
+			// which forces an LF-delta update on the next packet.
 			script: runtimeControlScript(frames, map[int]string{
 				2: "sharpness:4+static:1+screen:1+gfboost:50+maxintra:100+token:2",
 				6: "sharpness:0+static:0+screen:0+gfboost:0+maxintra:0+token:0",
@@ -190,7 +332,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				opts.CQLevel = 20
 				return opts
 			}(),
-			matchLimit: 4,
 			script: runtimeControlScript(frames, map[int]string{
 				4: "cq:35+minq:4+maxq:56",
 				8: "cq:20",
@@ -211,9 +352,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "deadline-rc-mode-key-interval-transition",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// The deadline/config transition itself has the same first-packet
-			// header drift as the other runtime config rows; the prefix and
-			// post-transition recovery remain pinned by the row.
+			// Switching deadline plus keyframe cadence still has a small
+			// first-partition drift around the forced keyframe; the return
+			// to realtime recovers to strict byte parity.
 			matchLimit: 3,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "deadline:good+endusage:vbr+kfmin:4+kfmax:4+undershoot:50+overshoot:50+bufsz:6000+bufinit:4000+bufopt:5000",
@@ -262,7 +403,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				0, 0, 0, 0,
 				EncodeForceKeyFrame,
 			},
-			matchLimit: 3,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "cpu:-3+tune:ssim+noise:3",
 				8: "cpu:0+tune:psnr+noise:0",
@@ -648,6 +788,43 @@ func temporalLayerIDApply(ids []int) map[int]func(*testing.T, *VP8Encoder) {
 		}
 	}
 	return apply
+}
+
+func temporalScalabilityEnableDisableFlags(frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	pattern, ok := temporalLayeringPattern(TemporalLayeringTwoLayers)
+	if !ok {
+		panic("missing two-layer temporal pattern")
+	}
+	for frame := 2; frame < 6 && frame < frames; frame++ {
+		patternFrame := uint64(frame - 2)
+		flagIndex := int(patternFrame % uint64(pattern.FlagPeriodicity))
+		flags[frame] = pattern.Flags[flagIndex]
+		if patternFrame > 0 && flagIndex == 0 {
+			flags[frame] &^= EncodeForceKeyFrame
+		}
+	}
+	return flags
+}
+
+func temporalScalabilityEnableDisableScript(frames int) []string {
+	script := runtimeControlScript(frames, nil)
+	if frames > 2 {
+		script[2] = "tslayers:2+tsperiodicity:2+tsbitrates:420/700+tsdecimators:2/1+tsids:0/1+tlid:0"
+	}
+	if frames > 3 {
+		script[3] = "tlid:1"
+	}
+	if frames > 4 {
+		script[4] = "tlid:0"
+	}
+	if frames > 5 {
+		script[5] = "tlid:1"
+	}
+	if frames > 6 {
+		script[6] = "tslayers:1+tsperiodicity:1+tsbitrates:700+tsdecimators:1+tsids:0"
+	}
+	return script
 }
 
 func encodeFramesWithGovpxRuntimeControls(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
