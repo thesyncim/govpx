@@ -75,6 +75,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsThreaded(args thre
 		clear(e.dotArtifactChecked[:required])
 	}
 
+	previousDotArtifactBudget := e.threadedDotArtifactBudget
+	e.threadedDotArtifactBudget = &pool.dotArtifactBudget
+	defer func() {
+		e.threadedDotArtifactBudget = previousDotArtifactBudget
+	}()
+
 	pool.encoder = e
 	pool.job = rowWorkerJobInterFrame
 	pool.args = args

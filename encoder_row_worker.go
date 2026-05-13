@@ -304,6 +304,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	}
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
+	worker.enc.threadedHelperRowsActive = workerIndex > 0
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.args.rows; row += workerCount {
@@ -328,6 +329,7 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 	}
 	worker := &p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
+	worker.enc.threadedHelperRowsActive = workerIndex > 0
 	defer worker.finish()
 	var err error
 	for row := workerIndex; row < p.keyArgs.rows; row += workerCount {

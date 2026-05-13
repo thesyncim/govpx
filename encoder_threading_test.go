@@ -646,7 +646,11 @@ func TestMergeThreadedInterFrameCoefCountsOmitsHelperEOBOnly(t *testing.T) {
 
 func TestRowWorkerResetPreservesHelperModeTestHits(t *testing.T) {
 	modeIndex := libvpxThrNew2
-	e := &VP8Encoder{dotArtifactChecked: make([]bool, 1)}
+	pool := &rowWorkerPool{}
+	e := &VP8Encoder{
+		dotArtifactChecked:        make([]bool, 1),
+		threadedDotArtifactBudget: &pool.dotArtifactBudget,
+	}
 	e.interModeTestHitCounts[modeIndex] = 3
 	e.interMBsTestedSoFar = 0
 
@@ -660,6 +664,9 @@ func TestRowWorkerResetPreservesHelperModeTestHits(t *testing.T) {
 	}
 	if got := worker.enc.interMBsTestedSoFar; got != 0 {
 		t.Fatalf("helper mbs_tested_so_far = %d, want frame reset 0", got)
+	}
+	if worker.enc.threadedDotArtifactBudget != e.threadedDotArtifactBudget {
+		t.Fatalf("helper threadedDotArtifactBudget pointer was not preserved")
 	}
 
 	worker.reset(e, 1, false)

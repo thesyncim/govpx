@@ -95,7 +95,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	}
 
 	modeRate := e.interMotionModeRateWithReferenceRateAndModeContext(ctx.mode, ctx.left, ctx.above, ctx.refRate, ctx.modeCounts, ctx.bestRefMV, libvpxRDNewMVBitCostWeight)
-	refCost := boolBitCost(e.refProbIntra, 1) + ctx.refRate
+	refCost := e.interInterReferenceRate(ctx.refRate)
 	otherCost := e.interMacroblockSkipRate(false)
 	if breakout, predictionDist := staticInterRDEncodeBreakoutDistortion(ctx.src, &e.analysis.Img, ctx.mbRow, ctx.mbCol, ctx.quant, e.interStaticThresholdForSegment(ctx.segmentID)); breakout {
 		rd := rdModeScoreWithZbin(ctx.qIndex, zbinOverQuant, 500, predictionDist)

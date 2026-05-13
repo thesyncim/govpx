@@ -56,7 +56,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	variance, sse := macroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
-	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(mbMode)
+	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	score := rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)
 	if e.activityMapValid {
@@ -116,7 +116,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	quantY1 := &quant.Y1
 	var modes [16]vp8common.BPredictionMode
 	var predictor [256]byte
-	rate := boolBitCost(e.refProbIntra, 0) + e.interIntraYModeRate(vp8common.BPred)
+	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(vp8common.BPred)
 	distortion := 0
 	for block := range 16 {
 		bestMode := vp8common.BModeCount
