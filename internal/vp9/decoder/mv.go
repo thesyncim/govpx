@@ -102,9 +102,9 @@ func mvJointHorizontal(joint int) bool {
 	return joint == tables.MvJointHnzVz || joint == tables.MvJointHnzVnz
 }
 
-// COMPANDED_MVREF_THRESH from vp9_entropymv.h — the magnitude at which
-// libvpx drops to quarter-pel even when high-precision MV is allowed.
-const compandedMvrefThresh = 8
+// kMvRefThresh from vp9_entropymv.h. MV units are eighth-pel, so libvpx
+// keeps the high-precision bit for references within eight pixels.
+const compandedMvrefThresh = 64
 
 // useMvHp mirrors use_mv_hp from vp9_entropymv.h: high-precision MVs
 // are only enabled when the reference is close enough to the origin.

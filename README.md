@@ -9,6 +9,9 @@ govpx is for Go programs that need VP8 or VP9 without cgo and without a
 libvpx runtime dependency. The package scope is the libvpx codec surface
 only: no AV1, no WebM muxer, no RTP packetizer, no libvpx C API
 compatibility layer. Transport framing is the caller's responsibility.
+VP9 scope is full profile 0 support only: 8-bit 4:2:0 raw VP9 packets,
+including valid VP9 superframes. Profiles 1, 2, and 3, high bit depth,
+non-4:2:0 chroma, alpha, and container behavior remain out of scope.
 
 Behavior is validated against a pinned libvpx v1.16.0 oracle with 100%
 byte parity required on the supported configurations — bit-identical
@@ -56,6 +59,11 @@ Decoder features: configurable threading, error concealment, granular
 postprocess (deblock, demacroblock, MFQE, additive noise), maximum
 dimensions, resolution-change rejection, frame metadata, and LAST /
 GOLDEN / ALTREF reference-buffer set/copy.
+
+Use `NewVP9Decoder` for raw VP9 profile 0 packets. A VP9 packet may contain
+a superframe index; the decoder consumes each contained profile 0 frame in
+packet order and publishes the final visible output through `NextFrame`.
+Valid non-profile0 VP9 packets return `ErrVP9NotImplemented`.
 
 ## Encode
 

@@ -2,8 +2,12 @@
 //
 // The package scope is the libvpx codec surface only: no AV1, no WebM muxer,
 // no RTP packetizer, and no libvpx C API compatibility layer. It produces and
-// consumes raw VP8 or VP9 frame payloads — one frame per packet — and leaves
-// transport framing to the caller.
+// consumes raw VP8 frame payloads and raw VP9 packets; VP9 packets may be
+// superframes. Transport framing is the caller's responsibility.
+//
+// VP9 scope is full profile 0 support only: 8-bit 4:2:0 VP9. Profiles 1, 2,
+// and 3, high bit depth, and non-4:2:0 chroma are intentionally outside
+// scope.
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go

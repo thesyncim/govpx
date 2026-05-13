@@ -2,7 +2,10 @@ package govpx
 
 import (
 	"errors"
+	"fmt"
+	"os"
 
+	"github.com/thesyncim/govpx/internal/vp8/mem"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -11,12 +14,10 @@ import (
 // VP9DecoderOptions configures a VP9 decoder. Mirrors the VP8 shape
 // so call sites can switch codecs by swapping the constructor.
 //
-// The current VP9 stack supports 8-bit 4:2:0 intra frames plus the
-// first inter-frame reconstruction paths: zero-MV copy/residual blocks,
-// direct single-reference motion blocks, scaled zero-MV/NEWMV blocks,
-// and compound motion blocks covered by the oracle tests. Other valid
-// frame classes return [ErrVP9NotImplemented] at the current reconstruct
-// boundary.
+// The VP9 implementation scope is full profile 0 support: 8-bit 4:2:0
+// raw VP9 packets, including valid superframes. Profiles 1, 2, and 3
+// are intentionally outside the package scope and return
+// [ErrVP9NotImplemented] when their headers are otherwise valid.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
 	// rows. 0 and 1 use the serial path. The threaded path mirrors
@@ -62,8 +63,8 @@ type VP9FrameInfo struct {
 }
 
 // ErrVP9NotImplemented is returned by VP9Decoder.Decode for valid VP9
-// frames whose reconstruction path has not been ported yet.
-var ErrVP9NotImplemented = errors.New("govpx: VP9 reconstruct pipeline not yet implemented")
+// packets outside the implemented profile 0 reconstruction surface.
+var ErrVP9NotImplemented = errors.New("govpx: VP9 packet outside implemented profile 0 scope")
 
 // VP9Decoder is the public entry point for VP9 stream decoding. The
 // internal/vp9 package carries the parser and DSP kernels; this type
@@ -128,9 +129,21 @@ type VP9Decoder struct {
 	frameY                 []byte
 	frameU                 []byte
 	frameV                 []byte
+	frameYFull             []byte
+	frameUFull             []byte
+	frameVFull             []byte
+	frameYOrigin           int
+	frameUOrigin           int
+	frameVOrigin           int
 	intraScratch           vp9dec.IntraPredictorScratch
 	interPredictScratch    []byte
 	refFrames              [common.RefFrames]vp9ReferenceFrame
+	prevFrameMvs           []vp9MvRef
+	curFrameMvs            []vp9MvRef
+	prevFrameMvRows        int
+	prevFrameMvCols        int
+	usePrevFrameMvs        bool
+	counts                 vp9FrameCounts
 
 	// width and height carry the most recent decoded frame dimensions.
 	// They stay zero until the first successful frame parse.
@@ -144,6 +157,11 @@ type vp9ReferenceFrame struct {
 	u     []byte
 	v     []byte
 	valid bool
+}
+
+type vp9MvRef struct {
+	RefFrame [2]int8
+	Mv       [2]vp9dec.MV
 }
 
 func (f *vp9ReferenceFrame) store(src Image) {
@@ -203,13 +221,13 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 	return d.DecodeWithPTS(packet, 0)
 }
 
-// DecodeWithPTS decodes one raw VP9 frame payload. The uncompressed and
-// compressed headers plus tile mode-info/residual tokens are parsed and
-// validated; malformed frames surface as [ErrInvalidVP9Data]. 8-bit 4:2:0
-// intra frames and the currently supported single-reference inter frames
-// decode to I420 output. Other valid packets return
-// [ErrVP9NotImplemented] after parser state is updated. pts is echoed
-// back through [VP9Decoder.LastFrameInfo].
+// DecodeWithPTS decodes one raw VP9 packet payload in the profile 0 scope.
+// Packets with a valid VP9 superframe index are split and decoded in order.
+// The uncompressed and compressed headers plus tile mode-info/residual tokens
+// are parsed and validated; malformed frames surface as [ErrInvalidVP9Data].
+// Supported profile 0 frames decode to I420 output. Valid packets outside
+// profile 0 return [ErrVP9NotImplemented]. pts is echoed back through
+// [VP9Decoder.LastFrameInfo].
 //
 // Side effects on a successful parse: the decoder's stored frame
 // dimensions, loopfilter state, segmentation state, mode-info buffers,
@@ -218,6 +236,22 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if d == nil || d.closed {
 		return ErrClosed
 	}
+	sf, err := vp9ParseSuperframe(packet)
+	if err != nil {
+		return err
+	}
+	if sf.count == 0 {
+		return d.decodeVP9FrameWithPTS(packet, pts)
+	}
+	for i := 0; i < sf.count; i++ {
+		if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *VP9Decoder) decodeVP9FrameWithPTS(packet []byte, pts uint64) error {
 	hdr, uncSize, err := d.readVP9UncompressedHeader(packet)
 	if err != nil {
 		return err
@@ -252,6 +286,9 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	}
 
 	frameContextIdx := d.prepareVP9FrameContext(&hdr)
+	if !hdr.FrameParallelDecoding {
+		d.counts = vp9FrameCounts{}
+	}
 	var cr bitstream.Reader
 	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
 		return ErrInvalidVP9Data
@@ -291,15 +328,18 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		if !d.unsupportedReconstruct {
 			d.prepareVP9OutputFrame(int(hdr.Width), int(hdr.Height))
 		}
+		d.prepareVP9CurrentFrameMvs(&hdr)
 		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
 		}
 	}
 	if !d.unsupportedReconstruct && hdr.Loopfilter.FilterLevel != 0 {
 		if !d.applyVP9LoopFilter(&hdr) {
+			d.traceVP9Unsupported("loopfilter")
 			d.unsupportedReconstruct = true
 		}
 	}
+	d.adaptVP9FrameContext(&hdr, compHeader, frameContextIdx)
 	d.commitVP9FrameContext(&hdr, frameContextIdx)
 
 	d.lastHeader = hdr
@@ -308,6 +348,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		d.width = int(hdr.Width)
 		d.height = int(hdr.Height)
 	}
+	d.finishVP9CurrentFrameMvs(&hdr)
 	d.frameReady = false
 	if d.vp9CanPublishReconstructedFrame(&hdr) {
 		d.refreshVP9ReferenceFrames(&hdr)
@@ -318,6 +359,52 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return nil
 	}
 	return ErrVP9NotImplemented
+}
+
+type vp9SuperframeIndex struct {
+	frames [8][]byte
+	count  int
+}
+
+func vp9ParseSuperframe(packet []byte) (vp9SuperframeIndex, error) {
+	var sf vp9SuperframeIndex
+	if len(packet) == 0 {
+		return sf, ErrInvalidVP9Data
+	}
+	marker := packet[len(packet)-1]
+	if marker&0xe0 != 0xc0 {
+		return sf, nil
+	}
+
+	frames := int(marker&0x7) + 1
+	sizeBytes := int((marker>>3)&0x3) + 1
+	indexSize := 2 + frames*sizeBytes
+	if len(packet) < indexSize {
+		return sf, ErrInvalidVP9Data
+	}
+	indexStart := len(packet) - indexSize
+	if packet[indexStart] != marker {
+		return sf, ErrInvalidVP9Data
+	}
+
+	offset := 0
+	sizeOffset := indexStart + 1
+	for i := 0; i < frames; i++ {
+		frameSize := 0
+		for j := 0; j < sizeBytes; j++ {
+			frameSize |= int(packet[sizeOffset+i*sizeBytes+j]) << (8 * j)
+		}
+		if frameSize <= 0 || frameSize > indexStart-offset {
+			return sf, ErrInvalidVP9Data
+		}
+		sf.frames[i] = packet[offset : offset+frameSize]
+		offset += frameSize
+	}
+	if offset != indexStart {
+		return sf, ErrInvalidVP9Data
+	}
+	sf.count = frames
+	return sf, nil
 }
 
 // DecodeInto decodes one raw VP9 frame payload. If the packet is a
@@ -335,6 +422,29 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	}
 	if dst == nil {
 		return VP9FrameInfo{}, ErrInvalidConfig
+	}
+	sf, err := vp9ParseSuperframe(packet)
+	if err != nil {
+		return VP9FrameInfo{}, err
+	}
+	if sf.count != 0 {
+		for i := 0; i < sf.count; i++ {
+			if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
+				return VP9FrameInfo{}, err
+			}
+		}
+		info := d.lastInfo
+		if !d.lastInfoValid {
+			return VP9FrameInfo{}, ErrInvalidVP9Data
+		}
+		d.frameReady = false
+		if info.ShowFrame {
+			if !dst.validForEncode(info.Width, info.Height) {
+				return VP9FrameInfo{}, ErrInvalidConfig
+			}
+			copyVP9ImageToPublic(dst, d.lastFrame)
+		}
+		return info, nil
 	}
 	hdr, _, err := d.readVP9UncompressedHeader(packet)
 	if err != nil {
@@ -460,12 +570,19 @@ func (d *VP9Decoder) vp9CanPublishReconstructedFrame(hdr *vp9dec.UncompressedHea
 }
 
 func vp9SupportedOutputFormat(hdr *vp9dec.UncompressedHeader) bool {
-	if hdr.BitDepthColor.BitDepth != vp9dec.Bits8 ||
+	if hdr.Profile != common.Profile0 ||
+		hdr.BitDepthColor.BitDepth != vp9dec.Bits8 ||
 		hdr.BitDepthColor.SubsamplingX != 1 ||
 		hdr.BitDepthColor.SubsamplingY != 1 {
 		return false
 	}
 	return true
+}
+
+func (d *VP9Decoder) traceVP9Unsupported(reason string) {
+	if os.Getenv("GOVPX_TRACE_UNSUPPORTED") != "" {
+		fmt.Fprintf(os.Stderr, "vp9 unsupported: %s\n", reason)
+	}
 }
 
 func vp9FrameRefSignBias(hdr *vp9dec.UncompressedHeader) [vp9dec.MaxRefFrames]uint8 {
@@ -505,6 +622,47 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	}
 }
 
+func (d *VP9Decoder) prepareVP9CurrentFrameMvs(hdr *vp9dec.UncompressedHeader) {
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	need := miRows * miCols
+	if cap(d.curFrameMvs) < need {
+		d.curFrameMvs = make([]vp9MvRef, need)
+	} else {
+		d.curFrameMvs = d.curFrameMvs[:need]
+		for i := range d.curFrameMvs {
+			d.curFrameMvs[i] = vp9MvRef{}
+		}
+	}
+	d.usePrevFrameMvs = d.lastHeaderValid &&
+		!hdr.ErrorResilientMode &&
+		hdr.Width == d.lastHeader.Width &&
+		hdr.Height == d.lastHeader.Height &&
+		!d.lastHeader.IntraOnly &&
+		d.lastHeader.ShowFrame &&
+		d.lastHeader.FrameType != common.KeyFrame &&
+		d.prevFrameMvRows == miRows &&
+		d.prevFrameMvCols == miCols &&
+		len(d.prevFrameMvs) >= need
+}
+
+func (d *VP9Decoder) finishVP9CurrentFrameMvs(hdr *vp9dec.UncompressedHeader) {
+	if hdr.ShowExistingFrame || hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+		d.usePrevFrameMvs = false
+		return
+	}
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	if len(d.curFrameMvs) < miRows*miCols {
+		d.usePrevFrameMvs = false
+		return
+	}
+	d.prevFrameMvs, d.curFrameMvs = d.curFrameMvs, d.prevFrameMvs
+	d.prevFrameMvRows = miRows
+	d.prevFrameMvCols = miCols
+	d.usePrevFrameMvs = false
+}
+
 func copyVP9ImageToPublic(dst *Image, src Image) {
 	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
@@ -514,48 +672,79 @@ func copyVP9ImageToPublic(dst *Image, src Image) {
 }
 
 func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) {
-	yStride, yRows := vp9PaddedPlaneDims(width, height, 0, 0)
-	uvStride, uvRows := vp9PaddedPlaneDims(width, height, 1, 1)
-	yLen := planeLen(yStride, yRows, yStride)
-	uLen := planeLen(uvStride, uvRows, uvStride)
-	if cap(d.frameY) < yLen {
-		d.frameY = make([]byte, yLen)
-	} else {
-		d.frameY = d.frameY[:yLen]
-	}
-	if cap(d.frameU) < uLen {
-		d.frameU = make([]byte, uLen)
-	} else {
-		d.frameU = d.frameU[:uLen]
-	}
-	if cap(d.frameV) < uLen {
-		d.frameV = make([]byte, uLen)
-	} else {
-		d.frameV = d.frameV[:uLen]
-	}
-	fillVP9Plane(d.frameY, 128)
-	fillVP9Plane(d.frameU, 128)
-	fillVP9Plane(d.frameV, 128)
+	layout := vp9FrameBufferLayout(width, height)
+	d.frameYFull = ensureVP9AlignedPlaneCapacity(d.frameYFull, layout.yFullLen)
+	d.frameUFull = ensureVP9AlignedPlaneCapacity(d.frameUFull, layout.uvFullLen)
+	d.frameVFull = ensureVP9AlignedPlaneCapacity(d.frameVFull, layout.uvFullLen)
+	fillVP9Plane(d.frameYFull, 128)
+	fillVP9Plane(d.frameUFull, 128)
+	fillVP9Plane(d.frameVFull, 128)
+	d.frameYOrigin = layout.yOrigin
+	d.frameUOrigin = layout.uvOrigin
+	d.frameVOrigin = layout.uvOrigin
+	d.frameY = d.frameYFull[layout.yOrigin:]
+	d.frameU = d.frameUFull[layout.uvOrigin:]
+	d.frameV = d.frameVFull[layout.uvOrigin:]
 	d.lastFrame = Image{
 		Width:   width,
 		Height:  height,
 		Y:       d.frameY,
 		U:       d.frameU,
 		V:       d.frameV,
-		YStride: yStride,
-		UStride: uvStride,
-		VStride: uvStride,
+		YStride: layout.yStride,
+		UStride: layout.uvStride,
+		VStride: layout.uvStride,
 	}
 }
 
-func vp9PaddedPlaneDims(width, height int, ssX, ssY uint8) (stride, rows int) {
-	miCols := (width + common.MiSize - 1) >> common.MiSizeLog2
-	miRows := (height + common.MiSize - 1) >> common.MiSizeLog2
-	yStride := miCols * common.MiSize
-	yRows := miRows * common.MiSize
-	stride = (yStride + (1 << ssX) - 1) >> ssX
-	rows = (yRows + (1 << ssY) - 1) >> ssY
-	return stride, rows
+type vp9FrameLayout struct {
+	yStride   int
+	uvStride  int
+	yWidth    int
+	yHeight   int
+	uvWidth   int
+	uvHeight  int
+	yOrigin   int
+	uvOrigin  int
+	yFullLen  int
+	uvFullLen int
+}
+
+func vp9FrameBufferLayout(width, height int) vp9FrameLayout {
+	const border = 32 // VP9_DEC_BORDER_IN_PIXELS in libvpx vpx_scale/yv12config.h.
+	alignedWidth := vp9AlignTo(width, 8)
+	alignedHeight := vp9AlignTo(height, 8)
+	yStride := vp9AlignTo(alignedWidth+2*border, 32)
+	uvWidth := alignedWidth >> 1
+	uvHeight := alignedHeight >> 1
+	uvStride := yStride >> 1
+	uvBorder := border >> 1
+	return vp9FrameLayout{
+		yStride:   yStride,
+		uvStride:  uvStride,
+		yWidth:    alignedWidth,
+		yHeight:   alignedHeight,
+		uvWidth:   uvWidth,
+		uvHeight:  uvHeight,
+		yOrigin:   border*yStride + border,
+		uvOrigin:  uvBorder*uvStride + uvBorder,
+		yFullLen:  yStride * (alignedHeight + 2*border),
+		uvFullLen: uvStride * (uvHeight + 2*uvBorder),
+	}
+}
+
+func ensureVP9AlignedPlaneCapacity(buf []byte, n int) []byte {
+	if cap(buf) < n {
+		return mem.NewAligned(n, 32)
+	}
+	return buf[:n]
+}
+
+func vp9AlignTo(v, align int) int {
+	if align <= 1 {
+		return v
+	}
+	return (v + align - 1) &^ (align - 1)
 }
 
 func fillVP9Plane(buf []byte, value byte) {
@@ -629,6 +818,15 @@ func (d *VP9Decoder) Reset() {
 	for i := range d.refFrames {
 		d.refFrames[i].img = Image{}
 		d.refFrames[i].valid = false
+	}
+	d.usePrevFrameMvs = false
+	d.prevFrameMvRows = 0
+	d.prevFrameMvCols = 0
+	if d.prevFrameMvs != nil {
+		d.prevFrameMvs = d.prevFrameMvs[:0]
+	}
+	if d.curFrameMvs != nil {
+		d.curFrameMvs = d.curFrameMvs[:0]
 	}
 	if d.aboveSegCtx != nil {
 		d.aboveSegCtx = d.aboveSegCtx[:0]

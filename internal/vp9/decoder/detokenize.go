@@ -37,6 +37,28 @@ const (
 
 const cat6Bits8 = 14 // 8-bit profile cat6 magnitude width
 
+const (
+	zeroToken     = 0
+	oneToken      = 1
+	twoToken      = 2
+	eobModelToken = 3
+)
+
+// FrameCoefCounts mirrors libvpx's FRAME_COUNTS.coef slab:
+// [TX_SIZES][PLANE_TYPES][REF_TYPES][COEF_BANDS][COEFF_CONTEXTS]
+// [UNCONSTRAINED_NODES + EOB_MODEL_TOKEN].
+type FrameCoefCounts [common.TxSizes][CoefPlaneTypes][CoefRefTypes][CoefBands][CoefContexts][UnconstrainedNodes + 1]uint32
+
+// FrameEobBranchCounts mirrors libvpx's FRAME_COUNTS.eob_branch slab.
+type FrameEobBranchCounts [common.TxSizes][CoefPlaneTypes][CoefRefTypes][CoefBands][CoefContexts]uint32
+
+// CoefCounts carries the coefficient-count state needed by libvpx's
+// counts-driven non-frame-parallel probability adaptation.
+type CoefCounts struct {
+	Coef      FrameCoefCounts
+	EobBranch FrameEobBranchCounts
+}
+
 // maxEobForTxSize returns the maximum number of coefficients a given
 // transform contains. Mirrors `max_eob = 16 << (tx_size << 1)`.
 func maxEobForTxSize(tx common.TxSize) int {
@@ -121,6 +143,24 @@ func DecodeCoefs(
 	fc *FrameCoefProbs,
 	dqcoeff []int16,
 ) int {
+	return DecodeCoefsWithCounts(r, txSize, planeType, isInter, dequant, ctx,
+		scan, neighbors, fc, nil, dqcoeff)
+}
+
+// DecodeCoefsWithCounts is DecodeCoefs plus libvpx FRAME_COUNTS updates.
+// Passing nil counts preserves the historical DecodeCoefs behavior.
+func DecodeCoefsWithCounts(
+	r *bitstream.Reader,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	scan, neighbors []int16,
+	fc *FrameCoefProbs,
+	counts *CoefCounts,
+	dqcoeff []int16,
+) int {
 	maxEob := maxEobForTxSize(txSize)
 	bandTrans := bandTranslateForTxSize(txSize)
 	dqShift := uint(0)
@@ -141,12 +181,21 @@ func DecodeCoefs(
 		probs := &coefModel[band][ctx]
 
 		// EOB node — bail out of the loop entirely if the bit is 0.
+		if counts != nil {
+			counts.EobBranch[txSize][planeType][isInter][band][ctx]++
+		}
 		if r.Read(uint32(probs[eobContextNode])) == 0 {
+			if counts != nil {
+				counts.Coef[txSize][planeType][isInter][band][ctx][eobModelToken]++
+			}
 			break
 		}
 
 		// ZERO node — runs of zero tokens.
 		for r.Read(uint32(probs[zeroContextNode])) == 0 {
+			if counts != nil {
+				counts.Coef[txSize][planeType][isInter][band][ctx][zeroToken]++
+			}
 			dqv = dequant[1]
 			tokenCache[scan[c]] = 0
 			c++
@@ -162,6 +211,9 @@ func DecodeCoefs(
 		var val int
 		if r.Read(uint32(probs[oneContextNode])) != 0 {
 			// Token >= 2 — read the Pareto8 tail.
+			if counts != nil {
+				counts.Coef[txSize][planeType][isInter][band][ctx][twoToken]++
+			}
 			p := &tables.Pareto8Full[probs[pivotNode]-1]
 			if r.Read(uint32(p[0])) != 0 {
 				if r.Read(uint32(p[3])) != 0 {
@@ -212,6 +264,9 @@ func DecodeCoefs(
 			}
 		} else {
 			// Token == 1 — magnitude is exactly the AC/DC dequant value.
+			if counts != nil {
+				counts.Coef[txSize][planeType][isInter][band][ctx][oneToken]++
+			}
 			tokenCache[scan[c]] = 1
 			v := int(dqv) >> dqShift
 			if r.Read(128) != 0 {

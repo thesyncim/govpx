@@ -1,4 +1,8 @@
-// Package decoder implements the VP9 decode pipeline.
+// Package decoder implements the VP9 profile 0 decode pipeline.
+//
+// The package parses enough profile-family header state to reject valid
+// non-profile0 bitstreams cleanly, but reconstruction support is scoped to
+// 8-bit 4:2:0 profile 0 only.
 //
 // Stages, in order: superframe split, uncompressed header (frame type,
 // profile, bit depth, color space, size, render size, reference frames,

@@ -72,6 +72,90 @@ func TestVP9DecoderDecodeEmptyPacket(t *testing.T) {
 	}
 }
 
+func TestVP9SuperframeIndexSplitsFrames(t *testing.T) {
+	wantFrames := [][]byte{
+		{0x82, 0x49, 0x83},
+		{0x04, 0x05, 0x06, 0x07},
+		{0x08},
+	}
+	packet := vp9SuperframePacketForTest(wantFrames...)
+	sf, err := vp9ParseSuperframe(packet)
+	if err != nil {
+		t.Fatalf("vp9ParseSuperframe returned error: %v", err)
+	}
+	if sf.count != len(wantFrames) {
+		t.Fatalf("superframe count = %d, want %d", sf.count, len(wantFrames))
+	}
+	for i := range wantFrames {
+		if !bytes.Equal(sf.frames[i], wantFrames[i]) {
+			t.Fatalf("frame %d = %v, want %v", i, sf.frames[i], wantFrames[i])
+		}
+	}
+}
+
+func TestVP9SuperframeIndexRejectsInvalidMarker(t *testing.T) {
+	if _, err := vp9ParseSuperframe([]byte{0x01, 0xc0}); !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	}
+}
+
+func TestVP9SuperframeIndexRejectsSizeMismatch(t *testing.T) {
+	packet := vp9SuperframePacketForTest([]byte{0x01}, []byte{0x02})
+	marker := packet[len(packet)-1]
+	indexSize := 2 + (int(marker&0x7)+1)*(int((marker>>3)&0x3)+1)
+	indexStart := len(packet) - indexSize
+	bad := append([]byte{}, packet[:indexStart]...)
+	bad = append(bad, 0xff)
+	bad = append(bad, packet[indexStart:]...)
+
+	if _, err := vp9ParseSuperframe(bad); !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	}
+}
+
+func TestVP9DecoderRejectsNonProfile0AsNotImplemented(t *testing.T) {
+	var pk vp9BitPacker
+	pk.writeLiteral(2, 2)    // frame_marker = 0b10
+	pk.writeLiteral(1, 2)    // profile = 1
+	pk.writeBit(0)           // show_existing_frame
+	pk.writeBit(0)           // frame_type = KEY
+	pk.writeBit(1)           // show_frame
+	pk.writeBit(0)           // error_resilient
+	pk.writeLiteral(0x49, 8) // sync code 0
+	pk.writeLiteral(0x83, 8) // sync code 1
+	pk.writeLiteral(0x42, 8) // sync code 2
+	pk.writeLiteral(2, 3)    // color_space = CSBT601
+	pk.writeBit(0)           // color_range = StudioRange
+	pk.writeBit(0)           // subsampling_x = 0
+	pk.writeBit(0)           // subsampling_y = 0
+	pk.writeBit(0)           // reserved bit
+	pk.writeLiteral(15, 16)  // width - 1
+	pk.writeLiteral(15, 16)  // height - 1
+	pk.writeBit(0)           // render_flag
+	pk.writeBit(1)           // refresh_frame_context
+	pk.writeBit(0)           // frame_parallel_decoding
+	pk.writeLiteral(0, 2)    // frame_context_idx
+	pk.writeLiteral(0, 6)    // loopfilter filter_level
+	pk.writeLiteral(0, 3)    // loopfilter sharpness
+	pk.writeBit(0)           // mode_ref_delta_enabled
+	pk.writeLiteral(1, 8)    // base_qindex
+	pk.writeBit(0)           // y_dc_delta_q
+	pk.writeBit(0)           // uv_dc_delta_q
+	pk.writeBit(0)           // uv_ac_delta_q
+	pk.writeBit(0)           // seg.enabled
+	pk.writeBit(0)           // log2_tile_rows
+	pk.writeLiteral(0, 16)   // first_partition_size
+	pk.flushByte()
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(pk.buf); !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode profile 1 err = %v, want ErrVP9NotImplemented", err)
+	}
+}
+
 // TestVP9DecoderRejectsTruncatedCompressedHeader: a well-formed
 // profile-0 keyframe header whose first_partition_size points past
 // the packet end is rejected before the reconstruct boundary.
@@ -3150,8 +3234,8 @@ func TestVP9DecoderFindsCompoundInterMvRefs(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("compound mv ref count = %d, want 2", count)
 	}
-	if got := vp9InterModeMvCandidate(refs, count, common.NearestMv); got != (vp9dec.MV{Col: 160}) {
-		t.Fatalf("compound nearest candidate = %+v, want ALTREF col 160", got)
+	if got := vp9InterModeMvCandidate(refs, count, common.NearestMv); got != (vp9dec.MV{Col: 128}) {
+		t.Fatalf("compound nearest candidate = %+v, want clamped ALTREF col 128", got)
 	}
 	if got := vp9InterModeMvCandidate(refs, count, common.NearMv); got != (vp9dec.MV{Col: 96}) {
 		t.Fatalf("compound near candidate = %+v, want ALTREF col 96", got)
@@ -6442,6 +6526,33 @@ func vp9ShowExistingFramePacketForTest(slot uint8) []byte {
 	pk.writeLiteral(uint32(slot&7), 3) // frame_to_show_map_idx
 	pk.flushByte()
 	return pk.buf
+}
+
+func vp9SuperframePacketForTest(frames ...[]byte) []byte {
+	maxSize := 0
+	total := 0
+	for _, frame := range frames {
+		maxSize = max(maxSize, len(frame))
+		total += len(frame)
+	}
+	sizeBytes := 1
+	for maxSize >= 1<<(8*sizeBytes) && sizeBytes < 4 {
+		sizeBytes++
+	}
+	marker := byte(0xc0 | byte((sizeBytes-1)<<3) | byte(len(frames)-1))
+	packet := make([]byte, 0, total+2+sizeBytes*len(frames))
+	for _, frame := range frames {
+		packet = append(packet, frame...)
+	}
+	packet = append(packet, marker)
+	for _, frame := range frames {
+		size := len(frame)
+		for i := 0; i < sizeBytes; i++ {
+			packet = append(packet, byte(size>>(8*i)))
+		}
+	}
+	packet = append(packet, marker)
+	return packet
 }
 
 // TestVP9DecoderClose marks the decoder as closed; subsequent Decode

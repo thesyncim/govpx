@@ -441,25 +441,25 @@ func vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol int, lfm *vp9LoopFilte
 func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miRow, miCol int,
 	lfm *vp9LoopFilterMask,
 ) bool {
-	if !d.vp9FilterLoopBlockPlaneSS00(d.lastFrame.Y, d.lastFrame.YStride,
+	if !d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
 		miRows, miRow, miCol, lfm) {
 		return false
 	}
-	if !d.vp9FilterLoopBlockPlaneSS11(d.lastFrame.U, d.lastFrame.UStride,
+	if !d.vp9FilterLoopBlockPlaneSS11(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
 		miRows, miRow, miCol, lfm) {
 		return false
 	}
-	return d.vp9FilterLoopBlockPlaneSS11(d.lastFrame.V, d.lastFrame.VStride,
+	return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
 		miRows, miRow, miCol, lfm)
 }
 
-func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS00(plane []byte, stride int,
+func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS00(plane []byte, origin, stride int,
 	miRows, miRow, miCol int, lfm *vp9LoopFilterMask,
 ) bool {
 	if stride <= 0 || len(plane) == 0 {
 		return false
 	}
-	base := miRow*common.MiSize*stride + miCol*common.MiSize
+	base := origin + miRow*common.MiSize*stride + miCol*common.MiSize
 	if base < 0 || base >= len(plane) {
 		return false
 	}
@@ -504,13 +504,13 @@ func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS00(plane []byte, stride int,
 	return true
 }
 
-func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS11(plane []byte, stride int,
+func (d *VP9Decoder) vp9FilterLoopBlockPlaneSS11(plane []byte, origin, stride int,
 	miRows, miRow, miCol int, lfm *vp9LoopFilterMask,
 ) bool {
 	if stride <= 0 || len(plane) == 0 {
 		return false
 	}
-	base := (miRow*(common.MiSize>>1))*stride + miCol*(common.MiSize>>1)
+	base := origin + (miRow*(common.MiSize>>1))*stride + miCol*(common.MiSize>>1)
 	if base < 0 || base >= len(plane) {
 		return false
 	}

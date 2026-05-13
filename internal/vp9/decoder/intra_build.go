@@ -149,12 +149,16 @@ func BuildIntraPredictorsWithScratch(a BuildIntraPredictorsArgs, scratch *IntraP
 					copy(leftCol[:bs], ref[:bs])
 				} else {
 					extendBottom := min(a.FrameHeight-a.Y0, len(ref))
-					copy(leftCol[:extendBottom], ref[:extendBottom])
 					last := uint8(0)
-					if extendBottom > 0 {
+					if extendBottom <= 0 {
+						if len(ref) > 0 {
+							last = ref[0]
+						}
+					} else {
+						copy(leftCol[:extendBottom], ref[:extendBottom])
 						last = ref[extendBottom-1]
 					}
-					for i := extendBottom; i < bs; i++ {
+					for i := max(extendBottom, 0); i < bs; i++ {
 						leftCol[i] = last
 					}
 				}

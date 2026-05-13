@@ -26,14 +26,14 @@ func TestLowerMvPrecisionRoundsOddBits(t *testing.T) {
 }
 
 // TestLowerMvPrecisionHpGate confirms that when the magnitude is at
-// or above COMPANDED_MVREF_THRESH=8, the high-precision bit is
-// dropped regardless of `allowHp`.
+// or above kMvRefThresh=64, the high-precision bit is dropped
+// regardless of `allowHp`.
 func TestLowerMvPrecisionHpGate(t *testing.T) {
-	// ref row=8 → useMvHp returns false (|8| < 8 is false).
-	mv := MV{Row: 9, Col: 11}
+	// ref row=64 -> useMvHp returns false (|64| < 64 is false).
+	mv := MV{Row: 65, Col: 67}
 	LowerMvPrecision(&mv, true)
-	if mv.Row != 8 || mv.Col != 10 {
-		t.Errorf("got (%d,%d) want (8,10)", mv.Row, mv.Col)
+	if mv.Row != 64 || mv.Col != 66 {
+		t.Errorf("got (%d,%d) want (64,66)", mv.Row, mv.Col)
 	}
 }
 
