@@ -183,6 +183,25 @@ func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatches16x8InterMotion(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 32, 8
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

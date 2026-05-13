@@ -563,6 +563,53 @@ func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterPicksNewMvFor16x8Block(t *testing.T) {
+	const (
+		width  = 32
+		height = 8
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after 16x8 inter frame")
+	}
+	got := d.miGrid[0]
+	if got.SbType != common.Block16x8 {
+		t.Fatalf("top-left block size = %d, want Block16x8", got.SbType)
+	}
+	want := vp9dec.MV{Col: 64}
+	if got.Mode != common.NewMv || got.Mv[0] != want {
+		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
+			got.Mode, got.Mv[0], want)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after 16x8 NEWMV inter frame")
+	}
+}
+
 func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 	const (
 		width  = 128

@@ -1677,7 +1677,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		refFrame <= vp9dec.IntraFrame {
 		return vp9InterModeDecision{}, false
 	}
-	if bsize < common.Block16x16 {
+	if bsize < common.Block8x8 {
 		return vp9InterModeDecision{}, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
@@ -1751,7 +1751,7 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return vp9dec.MV{}, 0, false
 	}
-	if bsize < common.Block16x16 {
+	if bsize < common.Block8x8 {
 		return vp9dec.MV{}, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
