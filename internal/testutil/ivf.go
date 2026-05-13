@@ -120,3 +120,34 @@ type errString string
 func (e errString) Error() string {
 	return string(e)
 }
+
+// WriteIVFHeader writes the 32-byte IVF file header for one of the
+// supported codecs ("VP80" or "VP90"). Mirrors the layout libvpx's
+// IVF writer emits — required for vpxdec --codec=vp9 to recognize
+// the stream.
+func WriteIVFHeader(h IVFHeader) []byte {
+	var buf [IVFFileHeaderSize]byte
+	buf[0], buf[1], buf[2], buf[3] = 'D', 'K', 'I', 'F'
+	binary.LittleEndian.PutUint16(buf[4:6], 0)                  // version
+	binary.LittleEndian.PutUint16(buf[6:8], IVFFileHeaderSize)  // header_size
+	copy(buf[8:12], h.FourCC[:])                                // fourcc
+	binary.LittleEndian.PutUint16(buf[12:14], uint16(h.Width))  // width
+	binary.LittleEndian.PutUint16(buf[14:16], uint16(h.Height)) // height
+	binary.LittleEndian.PutUint32(buf[16:20], h.TimebaseDenominator)
+	binary.LittleEndian.PutUint32(buf[20:24], h.TimebaseNumerator)
+	binary.LittleEndian.PutUint32(buf[24:28], h.FrameCount)
+	// buf[28:32] reserved, leave zeroed.
+	return buf[:]
+}
+
+// WriteIVFFrame writes the 12-byte per-frame header followed by
+// the frame payload. Mirrors libvpx's vpxenc IVF emit shape:
+//
+//	[ size_uint32_le ][ pts_uint64_le ][ payload[size] ]
+func WriteIVFFrame(payload []byte, pts uint64) []byte {
+	out := make([]byte, IVFFrameHeaderSize+len(payload))
+	binary.LittleEndian.PutUint32(out[0:4], uint32(len(payload)))
+	binary.LittleEndian.PutUint64(out[4:12], pts)
+	copy(out[12:], payload)
+	return out
+}
