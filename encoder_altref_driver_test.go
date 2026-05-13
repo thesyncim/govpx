@@ -9,16 +9,39 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
-// newAutoAltRefTestEncoder constructs a small CBR encoder with the auto-ARF
-// driver enabled and lookahead deep enough that the libvpx-aligned default
-// section interval (DEFAULT_GF_INTERVAL=7) can fire at least once.
+// newAutoAltRefTestEncoder constructs a small two-pass VBR encoder with the
+// auto-ARF driver enabled and lookahead deep enough that the libvpx-aligned
+// default section interval (DEFAULT_GF_INTERVAL=7) can fire at least once.
+//
+// libvpx vp8/encoder/ratectrl.c calc_pframe_target_size resets
+// source_alt_ref_pending=0 on every one-pass frame, so hidden ARF emission is
+// gated by `twoPass.enabled()`. The test feeds a synthetic FIRSTPASS_STATS
+// section with high IntraError/CodedError ratio + high PcntInter so
+// pass2DetectARFPending arms the schedule (the same shape used by
+// TestPass2ARFPendingTriggersFromHighMotionSection).
 func newAutoAltRefTestEncoder(tb testing.TB) *VP8Encoder {
 	tb.Helper()
+	const sectionLen = 32
+	stats := make([]FirstPassFrameStats, sectionLen)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+			Duration:      1,
+		}
+	}
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               32,
 		Height:              32,
 		FPS:                 30,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     RateControlVBR,
 		TargetBitrateKbps:   1500,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
@@ -30,6 +53,7 @@ func newAutoAltRefTestEncoder(tb testing.TB) *VP8Encoder {
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
+		TwoPassStats:        FinalizeFirstPassStats(stats),
 	})
 	if err != nil {
 		tb.Fatalf("NewVP8Encoder returned error: %v", err)
@@ -436,7 +460,30 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 }
 
 func TestOnePassHiddenAltRefAccumulatesFullPostPackOverspend(t *testing.T) {
-	e := newAutoAltRefTestEncoder(t)
+	// One-pass-specific accounting probe. The auto-ARF driver itself is
+	// gated on two-pass (see autoAltRefDriverEnabled), but the
+	// `encodeSourceInto` post-pack accounting that this test pins runs on
+	// any caller-driven hidden ARF emission regardless of pass count.
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               32,
+		Height:              32,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		KeyFrameInterval:    240,
+		LookaheadFrames:     8,
+		AutoAltRef:          true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
 	dst := make([]byte, 1<<16)
 	keySrc := sourceImageFromImage(movingBarTestImage(32, 32, 0))
 	altSrc := sourceImageFromImage(movingBarTestImage(32, 32, 1))

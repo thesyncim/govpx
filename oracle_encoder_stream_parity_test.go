@@ -511,12 +511,14 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// libvpx's visible-only path.
 		{name: "realtime-cbr-cpu-3-64x64-auto-alt-ref-no-lag", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "realtime-cbr-cpu-3-64x64-lookahead1-auto-alt-ref", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 1, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
-		// Real ARF scheduling currently has a packet-count gap before
-		// byte comparison: realtime emits one extra local hidden packet,
-		// while good-quality VBR below under-emits locally. Keep these
-		// controls in the oracle matrix as known gaps.
-		{name: "realtime-cbr-cpu-3-64x64-lookahead4-auto-alt-ref", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
-		{name: "realtime-cbr-cpu-3-64x64-lookahead8-auto-alt-ref-arnr-strength6-type3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, lookaheadFrames: 8, autoAltRef: true, arnrMaxFrames: 7, arnrStrength: 6, arnrType: 3, extraArgs: []string{"--end-usage=cbr", "--arnr-maxframes=7", "--arnr-strength=6", "--arnr-type=3"}},
+		// Auto-ARF with usable lag in one-pass mode: libvpx's
+		// vp8/encoder/ratectrl.c calc_pframe_target_size resets
+		// source_alt_ref_pending to 0 on every one-pass frame, so the
+		// hidden ARF stream stays empty and govpx now mirrors that.
+		// good-quality VBR retains a small bitstream divergence
+		// unrelated to ARF scheduling; keep it as a known gap.
+		{name: "realtime-cbr-cpu-3-64x64-lookahead4-auto-alt-ref", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
+		{name: "realtime-cbr-cpu-3-64x64-lookahead8-auto-alt-ref-arnr-strength6-type3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, lookaheadFrames: 8, autoAltRef: true, arnrMaxFrames: 7, arnrStrength: 6, arnrType: 3, extraArgs: []string{"--end-usage=cbr", "--arnr-maxframes=7", "--arnr-strength=6", "--arnr-type=3"}},
 		{name: "good-quality-cbr-cpu4-16x16-auto-alt-ref-no-lag", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "good-quality-cbr-cpu4-16x16-lookahead1-auto-alt-ref", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, lookaheadFrames: 1, autoAltRef: true, extraArgs: []string{"--end-usage=cbr"}},
 		{name: "good-quality-vbr-cpu4-16x16-lookahead4-auto-alt-ref", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: -1, rcMode: RateControlVBR, rcModeSet: true, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=vbr"}},
@@ -1211,7 +1213,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "good-quality-q-cpu4-16x16-q20-lookahead2-no-arf", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlQ, rcModeSet: true, cqLevel: 20, lookaheadFrames: 2, extraArgs: []string{"--end-usage=q", "--cq-level=20"}},
 		{name: "good-quality-cq-cpu4-16x16-cq20-lookahead2-no-arf", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 20, lookaheadFrames: 2, extraArgs: []string{"--end-usage=cq", "--cq-level=20"}},
 		{name: "realtime-cbr-cpu-3-64x64-lookahead4-auto-alt-ref-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, errorResilient: true, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=cbr", "--error-resilient=1"}},
-		{name: "realtime-cbr-cpu-3-64x64-lookahead4-auto-alt-ref-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, errorResilientPartitions: true, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=cbr", "--error-resilient=2"}},
+		{name: "realtime-cbr-cpu-3-64x64-lookahead4-auto-alt-ref-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, errorResilientPartitions: true, lookaheadFrames: 4, autoAltRef: true, extraArgs: []string{"--end-usage=cbr", "--error-resilient=2"}},
 		{name: "realtime-cbr-cpu-3-64x64-drop-frame1", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, dropFrameAllowed: true, dropFrameWaterMark: 1, extraArgs: []string{"--drop-frame=1"}},
 		{name: "realtime-cbr-cpu-3-64x64-gf-cbr-boost1", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, gfCBRBoostPct: 1, extraArgs: []string{"--gf-cbr-boost=1"}},
 		{name: "realtime-cbr-cpu-3-64x64-gf-cbr-boost1000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, gfCBRBoostPct: 1000, extraArgs: []string{"--gf-cbr-boost=1000"}},
