@@ -103,7 +103,7 @@ oracle-test: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_REQUIRED=1 \
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
-	$(GO) test . -run 'Test(Oracle|VP9DecoderVpxdecOracleMatches)' -count=1 -timeout 10m
+	$(GO) test . -run 'Test(Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches)' -count=1 -timeout 10m
 
 SCOREBOARD_TESTS := TestOracleReconstructionAdler32Match|TestOracleRecodeRowParity|TestOracleARNRBufferAdler|TestOracleEncoderQHistogramScoreboard|TestOracleInterDecisionMatchRate|TestOracleSplitMVDecisionMatchRate|TestOracleEncoderTraceInterCandidateScoreboard|TestOracle128x128InterQDriftScoreboard|TestOracleLoopFilterHeaderMatchRate|TestOracleSecondPassAllocationCompare|TestOracleChromaSubpelScoreboard|TestOracleImprovedMVScoreboard|TestOracleCBRDropFrameScoreboard|TestOracleCandidateRateScoreboard|TestOracleInterModeDistributionScoreboard|TestOracleTemporalSVCParity
 

@@ -111,6 +111,106 @@ func (d *VP9Decoder) parseVP9IntraModeTile(data []byte,
 	return nil
 }
 
+func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+) error {
+	miRows := int((hdr.Height + 7) >> 3)
+	miCols := int((hdr.Width + 7) >> 3)
+	vp9dec.SetupBlockPlanes(&d.planes, hdr.BitDepthColor.SubsamplingX,
+		hdr.BitDepthColor.SubsamplingY)
+	d.ensureVP9DecoderModeBuffers(miRows, miCols)
+	for i := range d.aboveSegCtx {
+		d.aboveSegCtx[i] = 0
+	}
+	d.resetVP9AboveEntropyContexts()
+	for i := range d.miGrid {
+		d.miGrid[i] = vp9dec.NeighborMi{}
+	}
+	for i := range d.segMap {
+		d.segMap[i] = 0
+	}
+
+	maps := vp9dec.InterSegmentMaps{
+		IntraSegmentMaps: vp9dec.IntraSegmentMaps{
+			CurrentFrameSegMap: d.segMap,
+			LastFrameSegMap:    d.lastSegMap,
+			MiCols:             miCols,
+		},
+	}
+	partitionProbs := &d.fc.PartitionProb
+	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
+	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
+	nTiles := tileRows * tileCols
+	offset := 0
+
+	for tileRow := range tileRows {
+		for tileCol := range tileCols {
+			idx := tileRow*tileCols + tileCol
+			isLast := idx == nTiles-1
+			tileSize := len(tileData) - offset
+			if !isLast {
+				if len(tileData)-offset < 4 {
+					return ErrInvalidVP9Data
+				}
+				size := binary.BigEndian.Uint32(tileData[offset : offset+4])
+				offset += 4
+				if size > uint32(len(tileData)-offset) {
+					return ErrInvalidVP9Data
+				}
+				tileSize = int(size)
+			}
+			if tileSize < 0 || offset+tileSize > len(tileData) {
+				return ErrInvalidVP9Data
+			}
+
+			tile := vp9dec.TileBounds{
+				MiRowStart: vp9DecoderTileOffset(tileRow, miRows, hdr.Tile.Log2TileRows),
+				MiRowEnd:   vp9DecoderTileOffset(tileRow+1, miRows, hdr.Tile.Log2TileRows),
+				MiColStart: vp9DecoderTileOffset(tileCol, miCols, hdr.Tile.Log2TileCols),
+				MiColEnd:   vp9DecoderTileOffset(tileCol+1, miCols, hdr.Tile.Log2TileCols),
+			}
+			if err := d.parseVP9InterModeTile(tileData[offset:offset+tileSize],
+				hdr, comp, &maps, tile, miRows, miCols, partitionProbs); err != nil {
+				return err
+			}
+			offset += tileSize
+		}
+	}
+	if offset != len(tileData) {
+		return ErrInvalidVP9Data
+	}
+	d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+	return nil
+}
+
+func (d *VP9Decoder) parseVP9InterModeTile(data []byte,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.InterSegmentMaps, tile vp9dec.TileBounds,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) error {
+	var r bitstream.Reader
+	if err := r.Init(data); err != nil {
+		return ErrInvalidVP9Data
+	}
+	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+		for i := range d.leftSegCtx {
+			d.leftSegCtx[i] = 0
+		}
+		d.resetVP9LeftEntropyContexts()
+		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			if !d.readVP9InterModeSb(&r, hdr, comp, maps, tile, miRows, miCols,
+				miRow, miCol, common.Block64x64, partitionProbs) {
+				return ErrInvalidVP9Data
+			}
+		}
+	}
+	if r.HasError() {
+		return ErrInvalidVP9Data
+	}
+	return nil
+}
+
 func (d *VP9Decoder) readVP9IntraModeSb(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, maps *vp9dec.IntraSegmentMaps,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
@@ -190,6 +290,86 @@ func (d *VP9Decoder) readVP9IntraModeSb(r *bitstream.Reader,
 	return true
 }
 
+func (d *VP9Decoder) readVP9InterModeSb(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.InterSegmentMaps, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) bool {
+	if miRow >= miRows || miCol >= miCols {
+		return true
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << uint(bsl)) / 4
+	ctx := vp9dec.PartitionPlaneContext(d.aboveSegCtx, d.leftSegCtx, miRow, miCol, bsize)
+	probs := partitionProbs[ctx][:]
+	hasRows := miRow+bs < miRows
+	hasCols := miCol+bs < miCols
+	partition := vp9dec.ReadPartition(r, probs, hasRows, hasCols)
+	subsize := common.SubsizeLookup[partition][bsize]
+	if subsize >= common.BlockSizes {
+		return false
+	}
+
+	if subsize < common.Block8x8 {
+		if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow, miCol, subsize) {
+			return false
+		}
+	} else {
+		switch partition {
+		case common.PartitionNone:
+			if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow, miCol, subsize) {
+				return false
+			}
+		case common.PartitionHorz:
+			if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow, miCol, subsize) {
+				return false
+			}
+			if miRow+bs < miRows {
+				if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow+bs, miCol, subsize) {
+					return false
+				}
+			}
+		case common.PartitionVert:
+			if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow, miCol, subsize) {
+				return false
+			}
+			if miCol+bs < miCols {
+				if !d.readVP9InterModeBlock(r, hdr, comp, maps, tile, miRows, miCols, miRow, miCol+bs, subsize) {
+					return false
+				}
+			}
+		case common.PartitionSplit:
+			if !d.readVP9InterModeSb(r, hdr, comp, maps, tile, miRows, miCols,
+				miRow, miCol, subsize, partitionProbs) {
+				return false
+			}
+			if !d.readVP9InterModeSb(r, hdr, comp, maps, tile, miRows, miCols,
+				miRow, miCol+bs, subsize, partitionProbs) {
+				return false
+			}
+			if !d.readVP9InterModeSb(r, hdr, comp, maps, tile, miRows, miCols,
+				miRow+bs, miCol, subsize, partitionProbs) {
+				return false
+			}
+			if !d.readVP9InterModeSb(r, hdr, comp, maps, tile, miRows, miCols,
+				miRow+bs, miCol+bs, subsize, partitionProbs) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+
+	if bsize >= common.Block8x8 &&
+		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
+		vp9dec.UpdatePartitionContext(d.aboveSegCtx, d.leftSegCtx,
+			miRow, miCol, subsize, 2*bs)
+	}
+	return true
+}
+
 func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, maps *vp9dec.IntraSegmentMaps,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
@@ -234,13 +414,124 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 	return true
 }
 
+func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.InterSegmentMaps, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) bool {
+	xMis := min(int(common.Num8x8BlocksWideLookup[bsize]), miCols-miCol)
+	yMis := min(int(common.Num8x8BlocksHighLookup[bsize]), miRows-miRow)
+
+	mi := &d.miGrid[miRow*miCols+miCol]
+	*mi = vp9dec.NeighborMi{SbType: bsize}
+	above := d.vp9DecoderMiAt(miRows, miCols, miRow-1, miCol)
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = d.vp9DecoderMiAt(miRows, miCols, miRow, miCol-1)
+	}
+
+	d.segIDPredictedScratch = 0
+	maps.SegIDPredictedOut = &d.segIDPredictedScratch
+	segID := vp9dec.ReadInterSegmentId(r, &hdr.Seg, maps,
+		miRow*miCols+miCol, xMis, yMis, above, left)
+	mi.SegIDPredicted = d.segIDPredictedScratch
+	if !hdr.Seg.TemporalUpdate {
+		mi.SegIDPredicted = uint8(segID)
+	}
+	mi.Skip = uint8(vp9dec.ReadSkipWithSeg(r, &hdr.Seg, segID, &d.fc, above, left))
+	isInter := vp9dec.ReadIsInterBlock(r, &hdr.Seg, segID, &d.fc, above, left)
+
+	if bsize >= common.Block8x8 && comp.TxMode == common.TxModeSelect &&
+		!(isInter != 0 && mi.Skip != 0) {
+		mi.TxSize = vp9dec.ReadTxSize(r, &d.fc, comp.TxMode, bsize, above, left, true)
+	} else {
+		mi.TxSize = vp9dec.ReadTxSize(r, &d.fc, comp.TxMode, bsize, above, left, false)
+	}
+
+	uvMode := common.DcPred
+	if isInter == 0 {
+		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+		uvMode = vp9dec.ReadIntraBlockModeInfoInter(r, &d.fc, mi)
+	} else if !d.readVP9InterBlockModeInfo(r, hdr, comp, mi, segID, above, left) {
+		return false
+	}
+
+	if mi.Skip != 0 {
+		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
+		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		return true
+	}
+	if !d.readVP9ResidueBlock(r, hdr, mi, uvMode, tile, miRow, miCol, bsize, segID, isInter) {
+		return false
+	}
+	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	return true
+}
+
+func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	mi *vp9dec.NeighborMi, segID int,
+	above, left *vp9dec.NeighborMi,
+) bool {
+	signBias := vp9FrameRefSignBias(hdr)
+	refs := vp9dec.SetupCompoundReferenceMode(signBias)
+	vp9dec.ReadRefFrames(r, comp.ReferenceMode, signBias, refs,
+		&hdr.Seg, segID, &d.fc, above, left, &mi.RefFrame)
+
+	if !vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
+		if mi.SbType >= common.Block8x8 {
+			mi.Mode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[0])
+		}
+	}
+
+	if hdr.InterpFilter == vp9dec.InterpSwitchable {
+		mi.InterpFilter = uint8(vp9dec.ReadSwitchableInterpFilter(r, &d.fc, above, left))
+	} else {
+		mi.InterpFilter = uint8(hdr.InterpFilter)
+	}
+
+	isCompound := 0
+	if mi.RefFrame[1] > vp9dec.IntraFrame {
+		isCompound = 1
+	}
+	var mv, refMv, nearNearest [2]vp9dec.MV
+	if mi.SbType < common.Block8x8 {
+		num4x4W := int(common.Num4x4BlocksWideLookup[mi.SbType])
+		num4x4H := int(common.Num4x4BlocksHighLookup[mi.SbType])
+		for idy := 0; idy < 2; idy += num4x4H {
+			for idx := 0; idx < 2; idx += num4x4W {
+				j := idy*2 + idx
+				mi.Bmi[j].AsMode = vp9dec.ReadInterMode(r, d.fc.InterModeProbs[0])
+				if vp9dec.AssignMv(mi.Bmi[j].AsMode, &mi.Bmi[j].AsMv,
+					&refMv, &nearNearest, isCompound, hdr.AllowHighPrecisionMv,
+					r, &d.fc) == 0 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return vp9dec.AssignMv(mi.Mode, &mv, &refMv, &nearNearest,
+		isCompound, hdr.AllowHighPrecisionMv, r, &d.fc) != 0
+}
+
 func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, mi *vp9dec.NeighborMi,
 	uvMode common.PredictionMode, tile vp9dec.TileBounds,
 	miRow, miCol int, bsize common.BlockSize,
 ) bool {
+	return d.readVP9ResidueBlock(r, hdr, mi, uvMode, tile, miRow, miCol, bsize,
+		int(mi.SegIDPredicted), 0)
+}
+
+func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, mi *vp9dec.NeighborMi,
+	uvMode common.PredictionMode, tile vp9dec.TileBounds,
+	miRow, miCol int, bsize common.BlockSize, segID int, isInter int,
+) bool {
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
-	segID := int(mi.SegIDPredicted)
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
 		planeType := 0
@@ -274,7 +565,7 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 				aboveCtx := pd.AboveContext[aboveBase+cc : aboveBase+cc+step]
 				leftCtx := pd.LeftContext[leftBase+rr : leftBase+rr+step]
 				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
-				scanOrder := common.GetScan(txSize, planeType, 0,
+				scanOrder := common.GetScan(txSize, planeType, isInter,
 					hdr.Quant.Lossless, mode)
 				maxEob := vp9dec.MaxEobForTxSize(txSize)
 				coeffs := d.dqcoeff[:maxEob]
@@ -284,7 +575,7 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 
 				eob := vp9dec.DecodeCoefs(r, txSize, planeType, 0, dequant,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs, coeffs)
-				if !d.unsupportedReconstruct {
+				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
 						mode, txSize, tile, miRow, miCol, rr, cc)
 					if !ok {

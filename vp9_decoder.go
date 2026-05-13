@@ -111,8 +111,9 @@ type VP9Decoder struct {
 	// planes carries the per-plane coefficient entropy contexts the
 	// residual token pass updates. dqcoeff is stack-equivalent decoder
 	// scratch for one 32x32 transform block.
-	planes  [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
-	dqcoeff [1024]int16
+	planes                [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	dqcoeff               [1024]int16
+	segIDPredictedScratch uint8
 
 	// The first public reconstruction slice handles intra frames.
 	// Unsupported frame classes keep parsing intact but stop before
@@ -246,7 +247,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		KeyFrame:             hdr.FrameType == common.KeyFrame,
 		InterpFilter:         hdr.InterpFilter,
 		AllowHighPrecisionMv: hdr.AllowHighPrecisionMv,
-		CompoundRefAllowed:   false,
+		CompoundRefAllowed:   vp9CompoundReferenceAllowed(&hdr),
 	})
 	if cr.HasError() {
 		return ErrInvalidVP9Data
@@ -272,6 +273,9 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		}
 	} else {
 		d.unsupportedReconstruct = true
+		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
+			return err
+		}
 	}
 	d.commitVP9FrameContext(&hdr, frameContextIdx)
 
@@ -442,6 +446,21 @@ func vp9SupportedOutputFormat(hdr *vp9dec.UncompressedHeader) bool {
 		return false
 	}
 	return true
+}
+
+func vp9FrameRefSignBias(hdr *vp9dec.UncompressedHeader) [vp9dec.MaxRefFrames]uint8 {
+	var signBias [vp9dec.MaxRefFrames]uint8
+	for i := range common.RefsPerFrame {
+		signBias[vp9dec.LastFrame+i] = hdr.InterRef.SignBias[i]
+	}
+	return signBias
+}
+
+func vp9CompoundReferenceAllowed(hdr *vp9dec.UncompressedHeader) bool {
+	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+		return false
+	}
+	return vp9dec.CompoundReferenceAllowed(vp9FrameRefSignBias(hdr))
 }
 
 func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) error {

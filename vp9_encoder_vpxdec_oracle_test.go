@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
@@ -258,6 +259,38 @@ func TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter(t *testing.T) {
 	out, err := coracle.VpxdecVP9Decode(stream)
 	if err != nil {
 		t.Fatalf("vpxdec-vp9 rejected the intra-only inter frame: %v\nvpxdec:\n%s",
+			err, out)
+	}
+}
+
+// TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame covers the first
+// non-intra inter tile shape the public decoder now parses: one
+// LAST/ZeroMv skipped block referencing the prior keyframe.
+func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
+	if _, err := coracle.VpxdecVP9Path(); err != nil {
+		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
+			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+		}
+		t.Fatalf("VpxdecVP9Path: %v", err)
+	}
+
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	inter := vp9InterSkipFrameForTest(t, 64, 64)
+	header := testutil.IVFHeader{
+		FourCC:              [4]byte{'V', 'P', '9', '0'},
+		Width:               64,
+		Height:              64,
+		TimebaseDenominator: 30,
+		TimebaseNumerator:   1,
+		FrameCount:          2,
+	}
+	stream := append(testutil.WriteIVFHeader(header),
+		testutil.WriteIVFFrame(key, 0)...)
+	stream = append(stream, testutil.WriteIVFFrame(inter, 1)...)
+
+	out, err := coracle.VpxdecVP9Decode(stream)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 rejected the inter skip frame: %v\nvpxdec:\n%s",
 			err, out)
 	}
 }
