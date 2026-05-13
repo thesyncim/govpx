@@ -75,7 +75,25 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.updateLastSignaledLFDeltas(attempt.Config.LFDeltaEnabled, attempt.Config.RefLFDeltas, attempt.Config.ModeLFDeltas)
 	// Track libvpx update_golden_frame_stats / update_alt_ref_frame_stats
 	// counters used by applyLibvpxRdRefFrameProbRefreshAdjustments next frame.
-	e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
+	//
+	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate gates BOTH
+	// branches (update_alt_ref_frame_stats and update_golden_frame_stats) on
+	// `if (!cpi->oxcf.error_resilient_mode)` at line 4724. When either
+	// VPX_ERROR_RESILIENT_DEFAULT or VPX_ERROR_RESILIENT_PARTITIONS is set,
+	// neither function runs, so `cpi->frames_since_golden` is frozen at 0 for
+	// the entire clip (it is zero-initialized by vp8_create_compressor and
+	// never reset). The next frame's update_rd_ref_frame_probs therefore
+	// takes the `frames_since_golden == 0` branch on every inter frame and
+	// forces prob_last_coded = 214 in the picker's vp8_calc_ref_frame_costs
+	// dispatch. Without this gate, govpx incremented framesSinceGolden every
+	// inter frame and the picker saw the post-rfct-derived prob_last_coded
+	// (typically much smaller than 214 once LAST dominated), which biased
+	// the ref_frame_cost in favor of GOLDEN on knife-edge mb decisions and
+	// surfaced as a frame-3 1-byte first_partition diff on the
+	// realtime-cbr-cpu-3-64x64-error-resilient3 panning fixture.
+	if !e.opts.ErrorResilient && !e.opts.ErrorResilientPartitions {
+		e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
+	}
 	if attempt.ZeroReference {
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 	} else {
@@ -234,7 +252,19 @@ func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
 	if attempt.Config.RefreshAltRef {
 		e.coefProbsAltRef = e.coefProbs
 	}
-	if attempt.Config.RefreshGolden {
+	// libvpx onyx_if.c: `update_golden_frame_stats` (line 2629) sets
+	// `cm->refresh_golden_frame = 0` BEFORE the `if (refresh_golden) lfc_g
+	// = cm->fc` snapshot at line 5155 runs. update_golden_frame_stats is
+	// itself gated on `!error_resilient_mode` at line 4741, so in error
+	// resilient encodes the flag survives and lfc_g IS refreshed. govpx
+	// mirrors the same gate (see commitInterFrameAttempt's
+	// updateGoldenFrameStats call) so the picker's coefProbsGolden snapshot
+	// stays frozen at the keyframe-seeded default in non-resilient mode,
+	// matching libvpx's lfc_g. Without this gate the SPLITMV picker on the
+	// next golden-refresh inter frame fed fill_token_costs the adapted
+	// post-keyframe table, which inflated label costs by ~10000 and let
+	// LEFT4X4 beat NEW4X4 (see close-splitmv-frame14).
+	if attempt.Config.RefreshGolden && (e.opts.ErrorResilient || e.opts.ErrorResilientPartitions) {
 		e.coefProbsGolden = e.coefProbs
 	}
 	if attempt.Config.RefreshLast {
@@ -277,7 +307,29 @@ func (e *VP8Encoder) applyLibvpxRdRefFrameProbRefreshAdjustments(refreshAltRef b
 // govpx counterpart to vp8/encoder/onyx_if.c update_golden_frame_stats minus
 // the auto-arf bookkeeping that govpx's flag-driven alt-ref does not exercise.
 func (e *VP8Encoder) updateGoldenFrameStats(refreshGolden bool, refreshAltRef bool) {
-	if refreshAltRef {
+	// libvpx vp8/encoder/onyx_if.c dispatches between update_alt_ref_frame_stats
+	// and update_golden_frame_stats at lines 4724-4732:
+	//
+	//   if (!cpi->oxcf.error_resilient_mode) {
+	//       if (cpi->oxcf.play_alternate && cm->refresh_alt_ref_frame &&
+	//           (cm->frame_type != KEY_FRAME)) {
+	//           update_alt_ref_frame_stats(cpi);
+	//       } else {
+	//           update_golden_frame_stats(cpi);
+	//       }
+	//   }
+	//
+	// `update_alt_ref_frame_stats` is the only path that asserts
+	// `cpi->source_alt_ref_active = 1`; when play_alternate (AutoAltRef) is
+	// disabled libvpx routes refresh_alt_ref_frame=1 through
+	// `update_golden_frame_stats` instead, which clears source_alt_ref_active
+	// unless an ARF schedule is pending. Without the AutoAltRef gate, a user
+	// passing VP8_EFLAG_NO_UPD_LAST (which libvpx maps to
+	// refresh_alt_ref_frame=1, refresh_golden_frame=1 via the
+	// vp8_update_reference upd-mask) would incorrectly mark
+	// source_alt_ref_active in govpx and shift the prob_gf_coded picker
+	// adjustment to the auto-ARF branch on the next frame.
+	if refreshAltRef && e.opts.AutoAltRef {
 		e.framesSinceGolden = 0
 		e.sourceAltRefActive = true
 		// libvpx vp8/encoder/onyx_if.c update_alt_ref_frame_stats clears

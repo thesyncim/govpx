@@ -151,23 +151,10 @@ func (e *VP8Encoder) loopFilterUsesFastSearchForFrame() bool {
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
 	speed := e.libvpxCPUUsed()
-	// The FastLoopFilterPick opt-in drops the partial-frame picker gate
-	// to speed >= 4 so the libvpx-cold-start realtime+positive-cpu_used
-	// case (sf->RD = 0 at speed=4, never bumped on short corpora) stops
-	// burning ~25% of EncodeInto on 5 full-frame loop-filter trials per
-	// frame. Default off so the gate exactly mirrors libvpx (sf->RD
-	// switches at speed > 4 for good-quality, speed == 3 || > 4 for
-	// realtime).
-	if e.opts.FastLoopFilterPick {
-		switch e.opts.Deadline {
-		case DeadlineGoodQuality:
-			return speed >= 4
-		case DeadlineRealtime:
-			return speed == 3 || speed >= 4
-		default:
-			return false
-		}
-	}
+	// libvpx vp8/encoder/onyx_if.c vp8_set_speed_features (Mode==2 realtime,
+	// Mode==1 good-quality): sf->RD = 0 (partial-frame picker) flips at
+	// speed > 4 for good-quality and speed == 3 || speed > 4 for
+	// realtime. Mirrored exactly.
 	switch e.opts.Deadline {
 	case DeadlineGoodQuality:
 		return speed > 4

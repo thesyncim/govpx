@@ -19,6 +19,15 @@ const autoAltRefHiddenFlags = EncodeForceAltRefFrame |
 // !cpi->oxcf.error_resilient_mode && cpi->oxcf.lag_in_frames` guard. The driver
 // also requires LookaheadFrames > 1 because LookaheadFrames == 1 leaves no
 // future entries to peek at the schedule's offset.
+//
+// Additionally, libvpx vp8/encoder/ratectrl.c `calc_pframe_target_size`
+// explicitly sets `cpi->source_alt_ref_pending = 0` on every one-pass
+// (`cpi->pass != 2`) frame, with the only one-pass arming path
+// (`update_golden_frame_stats`) gated on `cpi->oxcf.fixed_q >= 0`. Govpx does
+// not support libvpx's fixed-Q mode, so in one-pass mode the hidden ARF stream
+// must stay empty for byte parity with vpxenc. The schedule+emit cycle is
+// therefore gated on `twoPass.enabled()`; the two-pass arming path lives in
+// `pass2MaybeArmAltRefPending`.
 func (e *VP8Encoder) autoAltRefDriverEnabled() bool {
 	if !e.opts.AutoAltRef {
 		return false
@@ -27,6 +36,9 @@ func (e *VP8Encoder) autoAltRefDriverEnabled() bool {
 		return false
 	}
 	if e.opts.LookaheadFrames <= 1 {
+		return false
+	}
+	if !e.twoPass.enabled() {
 		return false
 	}
 	return e.lookaheadEnabled()

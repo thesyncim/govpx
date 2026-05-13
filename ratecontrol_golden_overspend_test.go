@@ -364,7 +364,7 @@ func TestRateControlAccumulatesPostPackAltRefOverspend(t *testing.T) {
 		framesTillGFUpdateDue: 10,
 	}
 	// 4000 bits goes fully into gf_overspend_bits.
-	rc.accumulatePostPackAltRefOverspend(4000)
+	rc.accumulatePostPackAltRefOverspend(4000, false)
 	if rc.gfOverspendBits != 4000 {
 		t.Fatalf("gf_overspend_bits after ARF = %d, want 4000", rc.gfOverspendBits)
 	}
@@ -379,7 +379,7 @@ func TestRateControlAccumulatesPostPackAltRefOverspend(t *testing.T) {
 // non_gf_bitrate_adjustment update.
 func TestRateControlAccumulatesPostPackAltRefOverspendNoUpdateDueZeroDrain(t *testing.T) {
 	rc := rateControlState{framesTillGFUpdateDue: 0}
-	rc.accumulatePostPackAltRefOverspend(4000)
+	rc.accumulatePostPackAltRefOverspend(4000, false)
 	if rc.gfOverspendBits != 4000 {
 		t.Fatalf("gf_overspend_bits = %d, want 4000", rc.gfOverspendBits)
 	}
@@ -393,7 +393,7 @@ func TestRateControlAccumulatesPostPackAltRefOverspendNoUpdateDueZeroDrain(t *te
 // the libvpx `if (actualBits > 0)` guard.
 func TestRateControlAccumulatesPostPackAltRefOverspendIgnoresZeroBits(t *testing.T) {
 	rc := rateControlState{framesTillGFUpdateDue: 10}
-	rc.accumulatePostPackAltRefOverspend(0)
+	rc.accumulatePostPackAltRefOverspend(0, false)
 	if rc.gfOverspendBits != 0 {
 		t.Fatalf("zero ARF bits should not accumulate: %d", rc.gfOverspendBits)
 	}

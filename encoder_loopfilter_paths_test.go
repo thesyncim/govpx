@@ -419,12 +419,6 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	if !fast.loopFilterUsesFastSearchForFrame() {
 		t.Fatalf("realtime explicit speed=5 did not use fast loop-filter search")
 	}
-	// FastLoopFilterPick opt-in lowers the gate to speed >= 4 so the
-	// cold-start auto-speed=4 path picks the partial-frame search.
-	optIn := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, FastLoopFilterPick: true}}
-	if !optIn.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("FastLoopFilterPick opt-in did not use fast loop-filter search at speed=4")
-	}
 }
 
 func TestLoopFilterPartialFrameWindowMirrorsLibvpxMiddleSlice(t *testing.T) {

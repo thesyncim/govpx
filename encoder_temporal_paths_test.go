@@ -920,9 +920,26 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 	// source (gated on `cpi->source_alt_ref_pending`). govpx mirrors that by
 	// running ARNR only when the encode flags carry the hidden-ARF combo
 	// (EncodeForceAltRefFrame|EncodeInvisibleFrame). Drive the encoder with
-	// AutoAltRef=true so the auto-ARF driver schedules a hidden frame on the
-	// libvpx-faithful path; on that hidden frame both ARNR and the spatial
-	// denoiser report having run.
+	// AutoAltRef=true and a synthetic two-pass stats section so the auto-ARF
+	// driver schedules a hidden frame on the libvpx-faithful path
+	// (calc_pframe_target_size clears source_alt_ref_pending on every
+	// one-pass frame, so ARF only ever schedules in two-pass mode); on that
+	// hidden frame both ARNR and the spatial denoiser report having run.
+	stats := make([]FirstPassFrameStats, 32)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:    20000,
+			CodedError:    200,
+			PcntInter:     0.95,
+			PcntMotion:    0.4,
+			PcntSecondRef: 0.0,
+			PcntNeutral:   0.0,
+			MVrAbs:        5,
+			MVcAbs:        5,
+			Count:         1,
+			Duration:      1,
+		}
+	}
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:             16,
 		Height:            16,
@@ -938,6 +955,7 @@ func TestEncodeIntoARNRAndSpatialDenoiserReportPreprocessing(t *testing.T) {
 		ARNRStrength:      6,
 		ARNRType:          2,
 		NoiseSensitivity:  2,
+		TwoPassStats:      FinalizeFirstPassStats(stats),
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)

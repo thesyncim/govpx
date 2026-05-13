@@ -365,8 +365,23 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
 
+	// Mirror the serial denoiser setup: when noise_sensitivity > 0 the
+	// picker and per-MB reconstructor must read from coeffSource (the
+	// denoiser's working-copy buffer the per-MB denoise overlay writes
+	// into), not the raw frame. Without this the threaded path skipped
+	// vp8_denoiser_denoise_mb entirely and the per-frame running_avg
+	// stream drifted from libvpx starting at the first inter frame.
+	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
+	coeffSource := src
+	if denoiseActive {
+		copySourceToFrameBuffer(&e.denoiser.source, src)
+		coeffSource = codedSourceImageFromVP8(&e.denoiser.source.Img)
+	}
+
 	args := threadedInterRowsArgs{
 		src:                    src,
+		coeffSource:            coeffSource,
+		denoiseActive:          denoiseActive,
 		qIndex:                 qIndex,
 		segmentation:           segmentation,
 		preserveSegmentID:      preserveSegmentID,
