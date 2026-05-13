@@ -419,11 +419,13 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	if !fast.loopFilterUsesFastSearchForFrame() {
 		t.Fatalf("realtime explicit speed=5 did not use fast loop-filter search")
 	}
-	// FastLoopFilterPick opt-in lowers the gate to speed >= 4 so the
-	// cold-start auto-speed=4 path picks the partial-frame search.
+	// FastLoopFilterPick is now a no-op: the picker gate mirrors
+	// libvpx exactly so flipping it on at the cold-start speed=4
+	// path must NOT switch to the fast picker (doing so re-opens the
+	// realtime-cbr-cpu8-fastlf byte-parity gap).
 	optIn := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, FastLoopFilterPick: true}}
-	if !optIn.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("FastLoopFilterPick opt-in did not use fast loop-filter search at speed=4")
+	if optIn.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("FastLoopFilterPick opt-in incorrectly switched to fast loop-filter search at speed=4 (gate must mirror libvpx)")
 	}
 }
 

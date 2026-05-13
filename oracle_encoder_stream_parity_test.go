@@ -257,34 +257,13 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// at this quantizer slice); pin the clean 14-frame prefix so the
 		// CQ50 plumbing stays guarded.
 		{name: "realtime-cq-cpu-3-16x16-cq50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, limit: 14, rcMode: RateControlCQ, rcModeSet: true, cqLevel: 50, extraArgs: []string{"--end-usage=cq", "--cq-level=50"}},
-		// FastLoopFilterPick=true is a deliberate parity-breaking opt-in
-		// that swaps the full-frame loop-filter trial picker for the
-		// partial-frame variant whenever speed >= 4. Pin the divergence
-		// here so we can spot any frame that happens to byte-match (=
-		// libvpx's full picker happened to pick the same level as the
-		// partial picker for that fixture).
-		//
-		// Characterization (panning64 corpus, CBR, cpu_used=8 -> Speed=4
-		// cold-start). Captured 2026-05-13 via a probe that JSON-traces
-		// loop_filter_level / base_qindex on both sides:
-		//   - All 16 frames diverge byte-for-byte.
-		//   - Q index is 4 on both sides every frame (no Q drift).
-		//   - Loop-filter level: govpx fast picker = 2 every frame;
-		//     libvpx full picker = 1 every frame. Uniform +1 offset.
-		//   - non_tag_diff = 6 byte-aligned diff index on all inter
-		//     frames, which is the first partition byte that flips
-		//     when the encoded filter_level field changes; everything
-		//     downstream cascades through the bool coder.
-		// Conclusion: the gap is entirely the LF-picker algorithm
-		// choice that the opt-in selects (fast vs full). Mode / MV /
-		// Q decisions stay aligned. There are no frames where the
-		// partial-frame picker happens to converge on the full
-		// picker's output for this fixture, so no byte-parity prefix
-		// is recoverable while keeping the opt-in's perf benefit.
-		// Closing the gap would require reimplementing
-		// vp8cx_pick_filter_level inside the fast path, defeating the
-		// opt-in. By-design, kept as a visibility-only pin.
-		{name: "realtime-cbr-cpu8-fastlf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, limit: -1, fastLF: true},
+		// FastLoopFilterPick is now a no-op: the LF-picker gate mirrors
+		// libvpx (speed == 3 || speed > 4 for realtime), so flipping
+		// the opt-in on does not change selection at speed == 4. This
+		// row pins strict 16-frame byte parity with the opt-in
+		// enabled at cpu_used=8 so the public control stays parity-
+		// safe regardless of what callers set it to.
+		{name: "realtime-cbr-cpu8-fastlf", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, fastLF: true},
 		// At explicit speed=5 libvpx already uses the partial-frame loop-
 		// filter picker, so FastLoopFilterPick=true should be a strict
 		// byte-parity no-op while still exercising the public control.
