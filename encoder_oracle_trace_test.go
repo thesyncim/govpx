@@ -330,7 +330,7 @@ func TestOracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	mode.MV = mode.BlockMV[15]
 	var coeffs vp8enc.MacroblockCoefficients
 
-	e.emitOracleMBTrace(0, 0, &mode, &coeffs, 0, 0)
+	e.emitOracleMBTrace(0, 0, &mode, &coeffs, interFrameSearchStart{}, 0, 0)
 	e.flushOracleMBTraceBuffer()
 
 	lines := splitNonEmptyLines(buf.Bytes())

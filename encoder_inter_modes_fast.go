@@ -212,9 +212,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		case vp8common.NewMV:
 			search := loopCtx.searchConfig(e)
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
-			if traceEnabled {
-				improvedStart = start
-			}
+			improvedStart = start
 			mvCosts := loopCtx.mvCosts
 			if mvCosts == nil {
 				mvCosts = e.currentMotionVectorCostTables()
@@ -271,6 +269,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 				interMode:       mode,
 				intraMode:       vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred},
 				projectedRate:   rate,
+				improvedMVStart: improvedStart,
 				predictionError: 0,
 			}
 			break
@@ -304,7 +303,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 			bestSSE = sse
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = breakoutSkip
-			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate, predictionError: distortion}
+			best = interFrameModeDecision{ref: ref, interMode: mode, projectedRate: rate, improvedMVStart: improvedStart, predictionError: distortion}
 		} else {
 			e.raiseInterRDThreshold(modeIndex)
 		}

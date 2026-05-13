@@ -318,11 +318,11 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			}
 		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
+		improvedStart := interFrameSearchStart{}
+		if mbMode == vp8common.NewMV && uint(refIndex) < uint(len(newMVCandidates)) {
+			improvedStart = newMVCandidates[refIndex].start
+		}
 		if traceEnabled {
-			improvedStart := interFrameSearchStart{}
-			if mbMode == vp8common.NewMV && uint(refIndex) < uint(len(newMVCandidates)) {
-				improvedStart = newMVCandidates[refIndex].start
-			}
 			e.emitOracleInterCandidateTrace(oracleTraceInterCandidateSummary{
 				Picker:          "rd",
 				MBRow:           mbRow,
@@ -365,7 +365,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestDistortion = distortion
 			bestModeIndex = modeIndex
 			mode.MBSkipCoeff = mbSkipCoeff || mode.MBSkipCoeff
-			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, predictionError: distortion}
+			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, improvedMVStart: improvedStart, predictionError: distortion}
 			if mode.Mode == vp8common.SplitMV {
 				best.staleY2 = lastStaleY2
 			}

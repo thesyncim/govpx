@@ -43,12 +43,13 @@ func selectInterFrameReferenceMotionVectorWithSearch(src vp8enc.SourceImage, ref
 }
 
 type interFrameModeDecision struct {
-	ref           interAnalysisReference
-	interMode     vp8enc.InterFrameMacroblockMode
-	useIntra      bool
-	intraMode     vp8enc.InterFrameMacroblockMode
-	projectedRate int
-	staleY2       staleY2Snapshot
+	ref             interAnalysisReference
+	interMode       vp8enc.InterFrameMacroblockMode
+	useIntra        bool
+	intraMode       vp8enc.InterFrameMacroblockMode
+	projectedRate   int
+	staleY2         staleY2Snapshot
+	improvedMVStart interFrameSearchStart
 	// predictionError is the picker `distortion` scalar returned through
 	// vp8_encode_inter_macroblock and accumulated into mb.prediction_error.
 	predictionError int
