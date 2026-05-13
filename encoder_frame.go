@@ -406,7 +406,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// the common non-screen-content / drop-disabled config it just
 		// advances frames_since_last_drop_overshoot so the rcf-watchdog
 		// branch can arm next time.
-		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.Size, required, false) {
+		// libvpx vp8/encoder/onyx_if.c:3977 calls
+		// vp8_drop_encodedframe_overshoot with cpi->projected_frame_size set
+		// to the picker's pre-pack totalrate>>8 from
+		// vp8/encoder/encodeframe.c:946. The overshoot drop's rate threshold
+		// compares against THAT picker estimate, not the packed bitstream
+		// size — passing attempt.Size (which is the final packed payload in
+		// bytes) systematically underfeeds the gate and lets govpx encode
+		// frames that libvpx drops (e.g. the first inter frame after a fat
+		// keyframe on screen-content mode 2). PickerProjectedSizeBytes is
+		// always populated by encodeInterFrameAttempt so the gate evaluates
+		// even when the recode loop is disabled at realtime.
+		if !invisible && e.vp8DropEncodedframeOvershoot(e.rc.currentQuantizer, attempt.PickerProjectedSizeBytes, required, false) {
 			e.finishAutoSpeedTiming(false)
 			e.twoPass.finishFrame(0)
 			result.Dropped = true

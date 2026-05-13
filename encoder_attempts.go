@@ -295,18 +295,25 @@ func (e *VP8Encoder) libvpxKeyFrameRecodeLoopActive() bool {
 // EncoderOptions.RTCExternalRateControl.
 //
 // The inner drop test requires `pred_err_mb > thresh_pred_err_mb` and
-// `pred_err_mb > 2 * cpi->last_pred_err_mb`. govpx does not yet
-// accumulate `cpi->mb.prediction_error` during inter mode picking, so
-// `lastPredErrorMB` is permanently 0 and the inner gate currently never
-// fires. The outer state management
-// (frames_since_last_drop_overshoot increment, force_maxqp clears) runs
-// regardless and matches libvpx for the common no-drop case; that keeps
-// the gate ready for a future pred-err-tracking patch.
+// `pred_err_mb > 2 * cpi->last_pred_err_mb`. govpx's
+// encoder_reconstruct.go accumulates the per-MB residual sum into
+// `framePredictionError` and the caller writes back `lastPredErrorMB`
+// after a non-drop inter frame, mirroring libvpx
+// onyx_if.c:3982-3983.
 //
 // Inputs: Q is the frame's chosen quantizer, projectedSizeBytes is the
-// final packed bitstream length (libvpx's
-// `cpi->projected_frame_size = (*size) << 3` post-pack value, here in
-// bytes for convenience), macroblocks is the frame MB count, and
+// libvpx `cpi->projected_frame_size` byte count, which is the pre-pack
+// rate estimate `totalrate >> 8` from vp8_encode_frame
+// (vp8/encoder/encodeframe.c:946) — NOT the final packed bitstream
+// size. libvpx applies the entropy-savings subtraction at
+// onyx_if.c:3986, AFTER vp8_drop_encodedframe_overshoot consumes the
+// value. The caller in encoder_frame.go therefore forwards
+// `attempt.PickerProjectedSizeBytes`, which mirrors the pre-savings
+// picker total. Comparing the packed size here under-feeds the gate
+// (the packed size is dominated by coef tokens and shrinks well below
+// the picker estimate at low Q), and lets govpx encode frames that
+// libvpx drops (e.g. the first inter frame after a fat keyframe on
+// screen-content mode 2). macroblocks is the frame MB count, and
 // keyFrame skips the gate so libvpx's `frame_type != KEY_FRAME` check
 // is honored. Returns true when the caller must discard the frame.
 func (e *VP8Encoder) vp8DropEncodedframeOvershoot(Q int, projectedSizeBytes int, macroblocks int, keyFrame bool) bool {
@@ -479,7 +486,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 			if err != nil {
 				return interFrameEncodeAttempt{}, translateEncoderError(err)
 			}
-			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ProjectedSizeBits: encodedSizeBits(n), ZeroReference: true}, nil
+			return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: e.coefProbs, FrameYModeProbs: e.modeProbs.YMode, FrameUVModeProbs: e.modeProbs.UVMode, FrameMVProbs: e.modeProbs.MV, RefFrame: refFrame, Ref: ref, Size: n, ProjectedSizeBits: encodedSizeBits(n), PickerProjectedSizeBytes: n, ZeroReference: true}, nil
 		}
 	}
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
@@ -628,7 +635,14 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		coefSavings = packetResult.CoefSavingsBits
 		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
-	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
+	// libvpx vp8/encoder/encodeframe.c:946 sets
+	// cpi->projected_frame_size = totalrate >> 8 *before*
+	// vp8_drop_encodedframe_overshoot consumes it
+	// (vp8/encoder/onyx_if.c:3977). The entropy-savings subtraction at
+	// onyx_if.c:3986 happens AFTER the overshoot drop, so the overshoot
+	// gate's "projected" input must be the raw picker rate in bytes.
+	pickerProjectedBytes := projectedRate >> 8
+	return interFrameEncodeAttempt{Config: cfg, FrameCoefProbs: packetResult.FrameCoefProbs, FrameYModeProbs: packetResult.FrameYModeProbs, FrameUVModeProbs: packetResult.FrameUVModeProbs, FrameMVProbs: packetResult.FrameMVProbs, Size: n, ProjectedSizeBits: projectedBits, PickerProjectedSizeBytes: pickerProjectedBytes, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, CyclicRefresh: cyclicRefreshEnabled, CyclicRefreshNextIndex: cyclicRefreshNextIndex}, nil
 }
 
 func (e *VP8Encoder) updateQuantizerForProjectedFrameSize(projectedBits int, keyFrame bool, goldenFrame bool, macroblocks int, recode *frameSizeRecodeState) bool {
