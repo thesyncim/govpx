@@ -83,8 +83,8 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	}
 	// Mirror libvpx onyx_if.c update_reference_frames denoiser branch: copy
 	// the denoised running_avg[INTRA] into LAST/GOLDEN/ALTREF running_avg
-	// buffers per the frame's refresh policy.
-	e.copyDenoiserAvgForRefresh(attempt.Config.RefreshLast, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
+	// buffers per the frame's refresh/copy policy.
+	e.copyDenoiserAvgForRefresh(attempt.Config)
 	e.rememberLastFrameInterModes(interFrameStateConfigSignBias(attempt.Config))
 	// Once an inter frame has been encoded under the post-drop max-Q gate,
 	// clear it; libvpx leaves force_maxqp set only until the next frame
