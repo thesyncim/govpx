@@ -1201,8 +1201,9 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	}
 	mi.Mode = common.ZeroMv
 	mi.Mv = [2]vp9dec.MV{}
-	if mv, ok := e.pickVP9InterIntegerMv(inter, miRows, miCols, miRow, miCol, bsize, tile); ok {
-		mi.Mode = common.NewMv
+	if mv, ok := e.pickVP9InterIntegerMv(inter, miRows, miCols, miRow, miCol, bsize); ok {
+		mi.Mode = e.pickVP9InterMvMode(tile, miRows, miCols,
+			miRow, miCol, bsize, mi.RefFrame[0], mv)
 		mi.Mv[0] = mv
 	}
 	return e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize, mi.Mv[0])
@@ -1210,7 +1211,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 
 func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, _ vp9dec.TileBounds,
+	bsize common.BlockSize,
 ) (vp9dec.MV, bool) {
 	if inter == nil || inter.ref == nil || !inter.ref.valid || !e.lastEncodedKey {
 		return vp9dec.MV{}, false
@@ -1295,6 +1296,21 @@ func (e *VP9Encoder) pickVP9InterIntegerMv(inter *vp9InterEncodeState,
 	return mv, true
 }
 
+func (e *VP9Encoder) pickVP9InterMvMode(tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	refFrame int8, mv vp9dec.MV,
+) common.PredictionMode {
+	if cand, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+		miRow, miCol, bsize, common.NearestMv, refFrame); ok && cand == mv {
+		return common.NearestMv
+	}
+	if cand, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+		miRow, miCol, bsize, common.NearMv, refFrame); ok && cand == mv {
+		return common.NearMv
+	}
+	return common.NewMv
+}
+
 func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int, limit uint64,
 ) uint64 {
@@ -1324,13 +1340,34 @@ func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
 	if mi == nil || mi.Mode == common.ZeroMv || mi.RefFrame[0] <= vp9dec.IntraFrame {
 		return best
 	}
+	if cand, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+		miRow, miCol, bsize, mi.Mode, mi.RefFrame[0]); ok {
+		best[0] = cand
+	}
+	return best
+}
+
+func (e *VP9Encoder) vp9EncoderInterModeCandidateMv(tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8,
+) (vp9dec.MV, bool) {
+	if mode == common.ZeroMv || refFrame <= vp9dec.IntraFrame {
+		return vp9dec.MV{}, false
+	}
 	refFinder := VP9Decoder{miGrid: e.miGrid}
 	signBias := [vp9dec.MaxRefFrames]uint8{}
 	refList, refCount := refFinder.vp9FindInterMvRefs(tile, miRows, miCols,
-		miRow, miCol, bsize, mi.Mode, mi.RefFrame[0], signBias)
-	best[0] = vp9InterModeMvCandidate(refList, refCount, mi.Mode)
-	vp9dec.LowerMvPrecision(&best[0], false)
-	return best
+		miRow, miCol, bsize, mode, refFrame, signBias)
+	if mode == common.NearMv {
+		if refCount <= 1 {
+			return vp9dec.MV{}, false
+		}
+	} else if refCount == 0 {
+		return vp9dec.MV{}, false
+	}
+	mv := vp9InterModeMvCandidate(refList, refCount, mode)
+	vp9dec.LowerMvPrecision(&mv, false)
+	return mv, true
 }
 
 func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
