@@ -110,10 +110,16 @@ type temporalState struct {
 
 // temporalLayerCodingState captures the per-layer pieces of libvpx
 // LAYER_CONTEXT that survive a frame boundary and feed the next encode of
-// the same layer. Only fields that demonstrably move the encoded bitstream
-// are tracked here; the rest stay shared with the encoder's global state
-// (libvpx itself shares them across the recode loop and only splits them
-// per-layer for save/restore).
+// the same layer. Mirrors libvpx vp8_save_layer_context /
+// vp8_restore_layer_context (vp8/encoder/onyx_if.c) for the subset of
+// LAYER_CONTEXT fields that demonstrably move the encoded bitstream.
+//
+// libvpx itself shares many rate-control scalars across the recode loop
+// and only splits them per-layer at the save/restore hop; the same
+// approach applies here. Fields not in this struct are intentionally
+// shared (e.g. rolling_actual_bits / rolling_target_bits, which libvpx
+// also leaves shared — they get updated post-encode for every frame
+// regardless of layer).
 type temporalLayerCodingState struct {
 	// FilterLevel mirrors LAYER_CONTEXT.filter_level. The LF picker
 	// (encoder_loopfilter.go pickFull / pickFast) uses the previous
@@ -124,6 +130,87 @@ type temporalLayerCodingState struct {
 	// the bracketed search down a different branch and drifts the
 	// uncompressed LF header byte for the next L1/L2 frame.
 	FilterLevel uint8
+
+	// BufferLevelBits mirrors LAYER_CONTEXT.buffer_level / bits_off_target.
+	// govpx folds the two libvpx fields into a single rc.bufferLevelBits
+	// (see ratecontrol_postencode.go); libvpx itself keeps buffer_level
+	// per-layer so the per-layer regulator sees its layer's drain history,
+	// not the trailing layer's. Without this snapshot the next L0 frame
+	// observes a buffer that has been drained by all the L1/L2 frames
+	// encoded since, biasing calc_pframe_target_size and pulling Q in a
+	// different direction than libvpx on the cpu-8 / cpu-3 paths.
+	BufferLevelBits int
+
+	// TotalActualBits mirrors LAYER_CONTEXT.total_actual_bits. Used by
+	// the percent_low buffer-aware shrink branch
+	// (ratecontrol_util.go: 100 * -bufferLevelBits / totalActualBits).
+	TotalActualBits int64
+
+	// Rate-correction factors mirror LAYER_CONTEXT.rate_correction_factor,
+	// .key_frame_rate_correction_factor, .gf_rate_correction_factor.
+	// These chain across frames inside a single layer via libvpx's
+	// vp8_update_rate_correction_factors, and the regulator's per-frame
+	// Q pick reads them; mixing them across layers drifts the Q ladder
+	// for the next same-layer encode by several steps under cpu-8.
+	RateCorrectionFactor     float64
+	KeyFrameCorrectionFactor float64
+	GoldenCorrectionFactor   float64
+
+	// AvgFrameQuantizer mirrors LAYER_CONTEXT.avg_frame_qindex.
+	// NormalInterAvgQuantizer/NormalInterFrames/NormalInterQuantizerTotal
+	// mirror LAYER_CONTEXT.ni_av_qi / ni_frames / ni_tot_qi. These feed
+	// the post-encode running-average Q estimator and the key-frame
+	// boost target formula (ratecontrol.go laterKeyFrameTargetBits reads
+	// normalInterAvgQuantizer).
+	AvgFrameQuantizer         int
+	NormalInterAvgQuantizer   int
+	NormalInterFrames         int
+	NormalInterQuantizerTotal int
+
+	// LastQuantizer / LastInterQuantizer mirror LAYER_CONTEXT.last_q[0]
+	// (key-frame Q) and last_q[1] (inter-frame Q). The regulator uses
+	// these for the previous-frame Q delta tracking.
+	LastQuantizer      int
+	LastInterQuantizer int
+
+	// CurrentZbinOverQuant mirrors LAYER_CONTEXT.zbin_over_quant. This is
+	// the post-recode overshoot zbin boost: when the recode loop hits
+	// the worst-Q ceiling it cranks zbin_over_quant to recover, and that
+	// boost survives to the next frame at the same layer.
+	CurrentZbinOverQuant int
+
+	// FramesSinceLastDropOvershoot mirrors
+	// LAYER_CONTEXT.frames_since_last_drop_overshoot. Gates the
+	// vp8_drop_encodedframe_overshoot drop decision: drops only fire
+	// when frames_since_last_drop_overshoot > framerate.
+	FramesSinceLastDropOvershoot int
+
+	// ForceMaxQuantizer mirrors LAYER_CONTEXT.force_maxqp. Set when an
+	// overshoot drop forces the next inter frame at the same layer to
+	// be encoded at worst-Q.
+	ForceMaxQuantizer bool
+
+	// LastFramePercentIntra mirrors LAYER_CONTEXT.last_frame_percent_intra.
+	// Feeds decide_key_frame (encoder_scenecut.go) and the auto_gold
+	// branch of calc_pframe_target_size.
+	LastFramePercentIntra int
+
+	// InterFrameTarget mirrors LAYER_CONTEXT.inter_frame_target. Recorded
+	// on every non-altref normal frame by
+	// applyOnePassPFrameOverspendRecovery and consumed by the GF
+	// scheduler's libvpxGoldenFrameTargetBits formula on the next GF
+	// refresh.
+	InterFrameTarget int
+
+	// RecentRefFrameUsage* mirror LAYER_CONTEXT.count_mb_ref_frame_usage[].
+	// libvpx accumulates per-MB ref-frame counts across the GF section
+	// and the calc_gf_params / auto_gold decision reads them; the counts
+	// are reset on GF refresh. Each layer accumulates its own running
+	// total in libvpx, so the snapshot lives in the layer context.
+	RecentRefFrameUsageIntra  int
+	RecentRefFrameUsageLast   int
+	RecentRefFrameUsageGolden int
+	RecentRefFrameUsageAltRef int
 }
 
 type temporalFrame struct {
