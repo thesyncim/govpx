@@ -94,6 +94,36 @@ type temporalState struct {
 	refLayer        [temporalReferenceCount]int
 	accounting      [MaxTemporalLayers]temporalLayerAccounting
 	buffersSet      bool
+	// codingState mirrors the subset of libvpx LAYER_CONTEXT fields that
+	// influence subsequent-frame byte output. libvpx
+	// vp8_save_layer_context / vp8_restore_layer_context (vp8/encoder/onyx_if.c)
+	// stash these around every encode so each temporal layer sees its own
+	// previous-frame state instead of the trailing layer's. govpx tracks
+	// only the strict subset needed to keep the encoded bitstream
+	// byte-identical (currently filter_level, which seeds the LF picker
+	// bracket midpoint). Additional fields (rate-control state, mode
+	// counts) live in their own per-layer structures and don't need a
+	// separate save/restore hop here.
+	codingState [MaxTemporalLayers]temporalLayerCodingState
+	codingValid [MaxTemporalLayers]bool
+}
+
+// temporalLayerCodingState captures the per-layer pieces of libvpx
+// LAYER_CONTEXT that survive a frame boundary and feed the next encode of
+// the same layer. Only fields that demonstrably move the encoded bitstream
+// are tracked here; the rest stay shared with the encoder's global state
+// (libvpx itself shares them across the recode loop and only splits them
+// per-layer for save/restore).
+type temporalLayerCodingState struct {
+	// FilterLevel mirrors LAYER_CONTEXT.filter_level. The LF picker
+	// (encoder_loopfilter.go pickFull / pickFast) uses the previous
+	// frame's filter_level as the bracket midpoint, and that bracket
+	// midpoint chains across frames at the same temporal layer in
+	// libvpx. Without per-layer tracking the L1/L2 LF picker seeds with
+	// whatever the most-recently-encoded L0 frame chose, which steers
+	// the bracketed search down a different branch and drifts the
+	// uncompressed LF header byte for the next L1/L2 frame.
+	FilterLevel uint8
 }
 
 type temporalFrame struct {
@@ -155,6 +185,8 @@ func (t *temporalState) configure(cfg TemporalScalabilityConfig, totalBitrateKbp
 	t.refLayer = [temporalReferenceCount]int{}
 	t.accounting = [MaxTemporalLayers]temporalLayerAccounting{}
 	t.buffersSet = false
+	t.codingState = [MaxTemporalLayers]temporalLayerCodingState{}
+	t.codingValid = [MaxTemporalLayers]bool{}
 	return nil
 }
 

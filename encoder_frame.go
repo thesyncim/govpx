@@ -95,6 +95,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if temporalFrame.Enabled {
 		e.currentTemporalLayer = temporalFrame.LayerID
 	}
+	// libvpx vp8/encoder/onyx_if.c vp8_restore_layer_context pulls
+	// LAYER_CONTEXT.filter_level back into cpi->common.filter_level for the
+	// upcoming frame so the per-layer LF picker bracket starts at the same
+	// midpoint as the previous frame at this temporal layer. Without this
+	// hook govpx's single shared `e.loopFilterLevel` carries the most
+	// recently committed level from a DIFFERENT layer, which feeds a
+	// different `filtMid` into the pickFull bracket; for low-motion CBR
+	// content where the picker bottoms out at zero on most frames but a
+	// non-zero level surfaces every few periods, the trailing-layer seed
+	// re-emerges several frames later and emits a different LF level
+	// literal in the uncompressed header (byte 3 of the bool coder).
+	e.restoreTemporalLayerCodingState(temporalFrame)
 	e.mbsZeroLastDotSuppress = 0
 	forcedKeyFrame := e.forceKeyFrameRequested(flags)
 	rows := encoderMacroblockRows(e.opts.Height)
@@ -482,6 +494,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			finalQuantizer := e.rc.currentQuantizer
 			e.commitInterFrameAttempt(attempt)
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
+			e.saveTemporalLayerCodingState(temporalFrame)
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
 			e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -620,6 +633,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// (cyclic refresh is already keyframe-reset).
 	e.forceMaxQuantizer = false
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
+	e.saveTemporalLayerCodingState(temporalFrame)
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
 	e.setEncodeResultQuantizer(&result, finalQuantizer)
@@ -743,4 +757,43 @@ func (e *VP8Encoder) temporalBufferConfig() temporalBufferConfig {
 		bufferInitialSizeMs: e.rc.bufferInitialSizeMs,
 		bufferSizeMs:        e.rc.bufferSizeMs,
 	}
+}
+
+// restoreTemporalLayerCodingState pulls per-layer state captured by the
+// previous encode of `meta.LayerID` back into the encoder's frame-shared
+// state. Mirrors libvpx vp8_restore_layer_context for the subset that
+// influences subsequent-frame byte output. No-op for non-TS encodes and
+// for layers that have not yet emitted a frame (the initial encoder
+// state already represents the libvpx layer-context init values).
+func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
+	if !meta.Enabled {
+		return
+	}
+	if uint(meta.LayerID) >= uint(MaxTemporalLayers) {
+		return
+	}
+	if !e.temporal.codingValid[meta.LayerID] {
+		return
+	}
+	state := e.temporal.codingState[meta.LayerID]
+	e.loopFilterLevel = state.FilterLevel
+}
+
+// saveTemporalLayerCodingState captures the per-layer state that needs to
+// survive to this layer's next encode. Mirrors libvpx
+// vp8_save_layer_context for the subset that drives byte parity. Called
+// after both the inter-frame commit and the key-frame commit so the next
+// frame at the same layer restores the right seed (a key frame at layer 0
+// also seeds layer 0's filter-level for the next L0).
+func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
+	if !meta.Enabled {
+		return
+	}
+	if uint(meta.LayerID) >= uint(MaxTemporalLayers) {
+		return
+	}
+	e.temporal.codingState[meta.LayerID] = temporalLayerCodingState{
+		FilterLevel: e.loopFilterLevel,
+	}
+	e.temporal.codingValid[meta.LayerID] = true
 }
