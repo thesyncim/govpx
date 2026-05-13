@@ -164,6 +164,28 @@ unsigned int vpx_sad32x32_c(const uint8_t *, int, const uint8_t *, int);
 unsigned int vpx_sad32x64_c(const uint8_t *, int, const uint8_t *, int);
 unsigned int vpx_sad64x32_c(const uint8_t *, int, const uint8_t *, int);
 unsigned int vpx_sad64x64_c(const uint8_t *, int, const uint8_t *, int);
+
+typedef uint32_t (*var_fn)(const uint8_t *src, int src_stride,
+                           const uint8_t *ref, int ref_stride, uint32_t *sse);
+uint32_t vpx_variance4x4_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance4x8_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance8x4_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance8x8_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance8x16_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance16x8_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance16x16_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance16x32_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance32x16_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance32x32_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance32x64_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance64x32_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_variance64x64_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_mse8x8_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_mse8x16_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_mse16x8_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_mse16x16_c(const uint8_t *, int, const uint8_t *, int, uint32_t *);
+uint32_t vpx_get4x4sse_cs_c(const uint8_t *, int, const uint8_t *, int);
+uint32_t vpx_get_mb_ss_c(const int16_t *);
 void vpx_idct32x32_1024_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_135_add_c(const tran_low_t *input, uint8_t *dest, int stride);
 void vpx_idct32x32_34_add_c(const tran_low_t *input, uint8_t *dest, int stride);
@@ -380,6 +402,49 @@ static const int sad_sizes[13][2] = {
 	{4, 4}, {4, 8}, {8, 4}, {8, 8}, {8, 16}, {16, 8},
 	{16, 16}, {16, 32}, {32, 16}, {32, 32}, {32, 64}, {64, 32}, {64, 64},
 };
+// Variance/MSE oracle record format (little-endian):
+//   u32 kernel_id   (700..712 = variance{4x4..64x64}; 713..716 = MSE; 717 = get4x4sse_cs)
+//   u32 w
+//   u32 h
+//   u32 src_stride (= 80)
+//   u32 ref_stride (= 80)
+//   80*80 src bytes
+//   80*80 ref bytes
+//   u32 variance result
+//   u32 sse
+static var_fn const var_table[13] = {
+	vpx_variance4x4_c,   vpx_variance4x8_c,   vpx_variance8x4_c,
+	vpx_variance8x8_c,   vpx_variance8x16_c,  vpx_variance16x8_c,
+	vpx_variance16x16_c, vpx_variance16x32_c, vpx_variance32x16_c,
+	vpx_variance32x32_c, vpx_variance32x64_c, vpx_variance64x32_c,
+	vpx_variance64x64_c,
+};
+
+static void run_variance(int kind_idx) {
+	int w = sad_sizes[kind_idx][0];
+	int h = sad_sizes[kind_idx][1];
+	static uint8_t src[SAD_PLANE_DIM * SAD_PLANE_DIM];
+	static uint8_t ref[SAD_PLANE_DIM * SAD_PLANE_DIM];
+	for (int i = 0; i < SAD_PLANE_DIM * SAD_PLANE_DIM; i++) {
+		src[i] = prng_pixel();
+		ref[i] = prng_pixel();
+	}
+	const uint8_t *src_p = src + SAD_PLANE_OFF * SAD_PLANE_DIM + SAD_PLANE_OFF;
+	const uint8_t *ref_p = ref + SAD_PLANE_OFF * SAD_PLANE_DIM + SAD_PLANE_OFF;
+	uint32_t sse = 0;
+	uint32_t var = var_table[kind_idx](src_p, SAD_PLANE_DIM, ref_p, SAD_PLANE_DIM, &sse);
+
+	emit_u32((uint32_t)(700 + kind_idx));
+	emit_u32((uint32_t)w);
+	emit_u32((uint32_t)h);
+	emit_u32((uint32_t)SAD_PLANE_DIM);
+	emit_u32((uint32_t)SAD_PLANE_DIM);
+	emit_bytes(src, sizeof src);
+	emit_bytes(ref, sizeof ref);
+	emit_u32(var);
+	emit_u32(sse);
+}
+
 static void run_sad(int kind_idx) {
 	int w = sad_sizes[kind_idx][0];
 	int h = sad_sizes[kind_idx][1];
@@ -744,6 +809,10 @@ int main(void) {
 	// SAD — 13 block sizes × 2 random cases.
 	for (int s = 0; s < 13; s++) {
 		for (int i = 0; i < 2; i++) run_sad(s);
+	}
+	// Variance — 13 block sizes × 2 random cases.
+	for (int s = 0; s < 13; s++) {
+		for (int i = 0; i < 2; i++) run_variance(s);
 	}
 
 	return 0;

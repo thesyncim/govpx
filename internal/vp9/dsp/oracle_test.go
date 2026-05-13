@@ -78,6 +78,9 @@ const (
 	kSadBase     = 600
 	sadPlaneDim  = 80
 	sadPlaneOff  = 8
+
+	// Variance records start at 700. 13 sizes, ids 700..712.
+	kVarBase = 700
 )
 
 const (
@@ -219,6 +222,45 @@ func readSadRecord(b []byte) (kernelID, w, h, srcStride, refStride int,
 	result = read32()
 	consumed := len(b) - r.Len()
 	return kernelID, w, h, srcStride, refStride, src, ref, result, consumed
+}
+
+// readVarRecord decodes one variance record (id in 700..712).
+func readVarRecord(b []byte) (kernelID, w, h, srcStride, refStride int,
+	src, ref []byte, variance, sse uint32, n int) {
+	r := bytes.NewReader(b)
+	read32 := func() uint32 {
+		var v uint32
+		_ = binary.Read(r, binary.LittleEndian, &v)
+		return v
+	}
+	kernelID = int(read32())
+	w = int(read32())
+	h = int(read32())
+	srcStride = int(read32())
+	refStride = int(read32())
+	src = make([]byte, sadPlaneDim*sadPlaneDim)
+	_, _ = io.ReadFull(r, src)
+	ref = make([]byte, sadPlaneDim*sadPlaneDim)
+	_, _ = io.ReadFull(r, ref)
+	variance = read32()
+	sse = read32()
+	consumed := len(b) - r.Len()
+	return kernelID, w, h, srcStride, refStride, src, ref, variance, sse, consumed
+}
+
+var varTable = [13]func(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32{
+	VpxVariance4x4, VpxVariance4x8, VpxVariance8x4,
+	VpxVariance8x8, VpxVariance8x16, VpxVariance16x8,
+	VpxVariance16x16, VpxVariance16x32, VpxVariance32x16,
+	VpxVariance32x32, VpxVariance32x64, VpxVariance64x32, VpxVariance64x64,
+}
+
+func callVariance(kernelID int, src, ref []byte) (uint32, uint32) {
+	idx := kernelID - kVarBase
+	off := sadPlaneOff*sadPlaneDim + sadPlaneOff
+	var sse uint32
+	v := varTable[idx](src, off, sadPlaneDim, ref, off, sadPlaneDim, &sse)
+	return v, sse
 }
 
 // sadTable parallels the C oracle's sad_table ordering.
@@ -522,10 +564,23 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	blob := loadOracle(t)
 
 	counts := make(map[int]int)
-	var nCases, nIntra, nConv, nLf, nSad int
+	var nCases, nIntra, nConv, nLf, nSad, nVar int
 
 	for len(blob) > 0 {
 		id := peekKernelID(blob)
+		if id >= kVarBase {
+			kernel, w, h, _, _, src, ref, wantVar, wantSse, consumed := readVarRecord(blob)
+			blob = blob[consumed:]
+			nCases++
+			nVar++
+			counts[kernel]++
+			gotVar, gotSse := callVariance(kernel, src, ref)
+			if gotVar != wantVar || gotSse != wantSse {
+				t.Fatalf("variance kernel=%d w=%d h=%d: got (var=%d, sse=%d) want (var=%d, sse=%d)",
+					kernel, w, h, gotVar, gotSse, wantVar, wantSse)
+			}
+			continue
+		}
 		if id >= kSadBase {
 			kernel, w, h, _, _, src, ref, want, consumed := readSadRecord(blob)
 			blob = blob[consumed:]
@@ -676,8 +731,9 @@ func TestDSPMatchesLibvpx(t *testing.T) {
 	}
 	_ = nLf
 	_ = nSad
-	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d, lf=%d, sad=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
-		nCases, nCases-nIntra-nConv-nLf-nSad, nIntra, nConv, nLf, nSad,
+	_ = nVar
+	t.Logf("verified %d records (transforms=%d, intra=%d, conv=%d, lf=%d, sad=%d, var=%d): idct4x4_16=%d idct4x4_1=%d iwht4x4_16=%d iwht4x4_1=%d idct8x8_64=%d idct8x8_12=%d idct8x8_1=%d idct16x16_256=%d idct16x16_38=%d idct16x16_10=%d idct16x16_1=%d iht4=%d/%d/%d iht8=%d/%d/%d iht16=%d/%d/%d idct32x32_1024=%d idct32x32_135=%d idct32x32_34=%d idct32x32_1=%d conv_horiz=%d conv_vert=%d conv_avg_h=%d conv_avg_v=%d conv_copy=%d conv_avg=%d",
+		nCases, nCases-nIntra-nConv-nLf-nSad-nVar, nIntra, nConv, nLf, nSad, nVar,
 		counts[kIdct4_16], counts[kIdct4_1], counts[kIwht4_16], counts[kIwht4_1],
 		counts[kIdct8_64], counts[kIdct8_12], counts[kIdct8_1],
 		counts[kIdct16_256], counts[kIdct16_38], counts[kIdct16_10], counts[kIdct16_1],
