@@ -157,18 +157,21 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode9-3layer-sync-cpu-3", fx: panning64, layeringMode: 9, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
 		{name: "mode10-3layer-altref-sync-cpu-3", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
 		{name: "mode11-3layer-one-reference-cpu-3", fx: panning64, layeringMode: 11, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
+		{name: "mode12-3layer-no-sync-cpu-3", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
 
 		// ---- ErrorResilient cross (mode 5 = the standard WebRTC SVC pattern). ----
 		// mode 5 + ER and mode 2 + ER are fully byte-identical.
 		{name: "mode5-3layer-cpu-3-error-resilient", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, errorResilient: true},
 		{name: "mode2-2layer-cpu-3-error-resilient", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, errorResilient: true},
 		{name: "mode10-3layer-altref-sync-cpu-3-error-resilient", fx: panning64, layeringMode: 10, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3, errorResilient: true},
+		{name: "mode12-3layer-no-sync-cpu-3-error-resilient", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3, errorResilient: true},
 
 		// ---- Threads=2 cross. ----
 		// Both threaded crosses byte-match the full clip.
 		{name: "mode5-3layer-cpu-3-threads2", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, threads: 2},
 		{name: "mode2-2layer-cpu-3-threads2", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, threads: 2},
 		{name: "mode7-5layer-cpu-3-threads2", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, threads: 2, limit: 1},
+		{name: "mode12-3layer-no-sync-cpu-3-threads2", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3, threads: 2},
 	}
 
 	for _, tc := range cases {
@@ -269,6 +272,8 @@ func govpxModeForLibvpxLayeringMode(libvpxMode int) (TemporalLayeringMode, bool)
 		return TemporalLayeringThreeLayersAltRefWithSync, true
 	case 11:
 		return TemporalLayeringThreeLayersOneReference, true
+	case 12:
+		return TemporalLayeringThreeLayersNoSync, true
 	}
 	return 0, false
 }

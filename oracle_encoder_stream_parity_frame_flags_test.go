@@ -135,17 +135,19 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
 
 	cases := []struct {
-		name       string
-		deadline   Deadline
-		cpuUsed    int
-		fx         fixture
-		limit      int
-		flags      []EncodeFlags // per-frame; missing indices default to 0.
-		rcMode     RateControlMode
-		rcModeSet  bool
-		cqLevel    int
-		tokenParts int
-		extraArgs  []string // appended to libvpx driver argv.
+		name                     string
+		deadline                 Deadline
+		cpuUsed                  int
+		fx                       fixture
+		limit                    int
+		flags                    []EncodeFlags // per-frame; missing indices default to 0.
+		rcMode                   RateControlMode
+		rcModeSet                bool
+		cqLevel                  int
+		tokenParts               int
+		errorResilient           bool
+		errorResilientPartitions bool
+		extraArgs                []string // appended to libvpx driver argv.
 	}{
 		// Force-keyframe at frame 3. Both implementations must emit
 		// a keyframe at index 3; the surrounding frames must
@@ -180,6 +182,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "no-upd-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateGolden)},
 		{name: "no-upd-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateAltRef)},
 		{name: "no-upd-gf-arf-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "no-upd-all-every-inter-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 
 		// EncodeNoReferenceGolden / EncodeNoReferenceAltRef — drop
 		// the GF/ARF reference from the inter prediction pool. The
@@ -190,6 +193,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "no-ref-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceGolden)},
 		{name: "no-ref-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceAltRef)},
 		{name: "no-ref-gf-arf-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "no-ref-all-every-inter-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 1, flags: repeatFlag(frames-1, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
 
 		// Combined no-update-Last+no-reference-Golden, the canonical
 		// "base temporal layer" pattern from libvpx's
@@ -211,12 +215,17 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "force-arf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame}},
 		{name: "force-arf-no-upd-last-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden}},
 		{name: "force-arf-every3-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: everyNFlag(frames, 3, EncodeForceAltRefFrame)},
+		{name: "force-gf-arf-same-frame-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame | EncodeForceAltRefFrame}},
 
 		// EncodeNoUpdateEntropy on every inter frame — keeps the
 		// reference entropy adaptation state frozen.
 		{name: "no-upd-entropy-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
 		{name: "no-upd-entropy-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
 		{name: "no-upd-entropy-realtime-cpu0-32x32-4partitions", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy)},
+		{name: "force-kf-no-upd-last-entropy-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, limit: 3, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame | EncodeNoUpdateLast | EncodeNoUpdateEntropy}},
+		{name: "no-upd-entropy-no-upd-all-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "no-upd-all-er2-token8-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "no-upd-entropy-no-upd-all-er3-token8-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 
 		// Force-KF + no-update-GF/ARF (the layer-0 "I-frame anchor"
 		// pattern used by 3-layer SVC mode 4 in libvpx's example).
@@ -246,19 +255,21 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 				rcMode = RateControlCBR
 			}
 			opts := EncoderOptions{
-				Width:             tc.fx.w,
-				Height:            tc.fx.h,
-				FPS:               fps,
-				RateControlMode:   rcMode,
-				TargetBitrateKbps: targetKbps,
-				MinQuantizer:      4,
-				MaxQuantizer:      56,
-				CQLevel:           tc.cqLevel,
-				KeyFrameInterval:  999,
-				Deadline:          tc.deadline,
-				CpuUsed:           tc.cpuUsed,
-				Tuning:            TunePSNR,
-				TokenPartitions:   tc.tokenParts,
+				Width:                    tc.fx.w,
+				Height:                   tc.fx.h,
+				FPS:                      fps,
+				RateControlMode:          rcMode,
+				TargetBitrateKbps:        targetKbps,
+				MinQuantizer:             4,
+				MaxQuantizer:             56,
+				CQLevel:                  tc.cqLevel,
+				KeyFrameInterval:         999,
+				Deadline:                 tc.deadline,
+				CpuUsed:                  tc.cpuUsed,
+				Tuning:                   TunePSNR,
+				TokenPartitions:          tc.tokenParts,
+				ErrorResilient:           tc.errorResilient,
+				ErrorResilientPartitions: tc.errorResilientPartitions,
 			}
 
 			govpxFrames := encodeFramesWithGovpxFrameFlags(t, opts, sources, tc.flags)

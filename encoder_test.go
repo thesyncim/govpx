@@ -236,6 +236,32 @@ func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
 	}
 }
 
+func TestSetCPUUsedMirrorsRuntimeSpeedReset(t *testing.T) {
+	e := newTestEncoder(t)
+	e.autoSpeed = 9
+
+	if err := e.SetCPUUsed(-3); err != nil {
+		t.Fatalf("SetCPUUsed(-3) returned error: %v", err)
+	}
+	if e.autoSpeed != -3 {
+		t.Fatalf("autoSpeed after SetCPUUsed(-3) = %d, want -3", e.autoSpeed)
+	}
+
+	e.autoSpeed = 3
+	e.avgPickModeTime = 1000
+	e.avgEncodeTime = 2000
+	e.autoSpeedFrameStartNS = 3000
+	if err := e.SetCPUUsed(0); err != nil {
+		t.Fatalf("SetCPUUsed(0) returned error: %v", err)
+	}
+	if e.autoSpeed != 0 {
+		t.Fatalf("autoSpeed after SetCPUUsed(0) = %d, want 0", e.autoSpeed)
+	}
+	if e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
+		t.Fatalf("auto-speed timers after SetCPUUsed(0) = pick:%d encode:%d start:%d, want reset", e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+}
+
 func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	e := newSizedTestEncoder(t, 1280, 720)
 	e.opts.CpuUsed = 8

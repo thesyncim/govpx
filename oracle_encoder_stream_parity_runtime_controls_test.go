@@ -142,6 +142,64 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "fps-only-two-step",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "fps:15",
+				7: "fps:30",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(fps15)", e.SetRealtimeTarget(RealtimeTarget{FPS: 15}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(fps30)", e.SetRealtimeTarget(RealtimeTarget{FPS: 30}))
+				},
+			},
+		},
+		{
+			name: "undershoot-overshoot-only-two-step",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "undershoot:10+overshoot:90",
+				7: "undershoot:100+overshoot:100",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(under10-over90)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       10,
+						OvershootPct:        90,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(under100-over100)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   targetKbps,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						UndershootPct:       100,
+						OvershootPct:        100,
+						BufferSizeMs:        6000,
+						BufferInitialSizeMs: 4000,
+						BufferOptimalSizeMs: 5000,
+					}))
+				},
+			},
+		},
+		{
 			name: "frame-drop-allowed-toggle-default-watermark",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -333,11 +391,30 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "keyframe-interval-only-two-step",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "kfmin:4+kfmax:4",
+				7: "kfmin:999+kfmax:999",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(4)", e.SetKeyFrameInterval(4))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
+				},
+			},
+		},
+		{
 			name: "cpu-used-runtime-roundtrip",
 			fx:   panning32,
 			opts: baseOpts(panning32),
 			// The switch to cpu-used=-3 is byte-identical; returning to
-			// cpu-used=0 exposes a post-speed-reset drift.
+			// cpu-used=0 still exposes a post-speed-reset drift.
 			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "cpu:-3",
@@ -351,6 +428,35 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				8: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
+				},
+			},
+		},
+		{
+			name: "token-partitions-runtime-roundtrip",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "token:1",
+				4: "token:2",
+				6: "token:3",
+				9: "token:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(1)", e.SetTokenPartitions(1))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(2)", e.SetTokenPartitions(2))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(3)", e.SetTokenPartitions(3))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(0)", e.SetTokenPartitions(0))
 				},
 			},
 		},
@@ -527,6 +633,120 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetGFCBRBoostPct", e.SetGFCBRBoostPct(0))
 					mustRuntime(t, "SetMaxIntraBitratePct", e.SetMaxIntraBitratePct(0))
 					mustRuntime(t, "SetTokenPartitions", e.SetTokenPartitions(0))
+				},
+			},
+		},
+		{
+			name: "sharpness-only-two-step",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "sharpness:4",
+				6: "sharpness:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetSharpness(4)", e.SetSharpness(4))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetSharpness(0)", e.SetSharpness(0))
+				},
+			},
+		},
+		{
+			name: "static-threshold-only-two-step",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "static:500",
+				6: "static:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetStaticThreshold(0)", e.SetStaticThreshold(0))
+				},
+			},
+		},
+		{
+			name: "screen-content-1-2-roundtrip",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "screen:1",
+				5: "screen:2",
+				8: "screen:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetScreenContentMode(1)", e.SetScreenContentMode(1))
+				},
+				5: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetScreenContentMode(0)", e.SetScreenContentMode(0))
+				},
+			},
+		},
+		{
+			name: "tuning-ssim-roundtrip",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "tune:ssim",
+				7: "tune:psnr",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTuning(TuneSSIM)", e.SetTuning(TuneSSIM))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTuning(TunePSNR)", e.SetTuning(TunePSNR))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-1-3-6-roundtrip",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			// Level 1 matches; escalating to chroma denoise levels exposes
+			// an existing denoiser-state drift, so keep the clean prefix
+			// strict while logging levels 3/6 and teardown.
+			matchLimit: 4,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "noise:1",
+				4: "noise:3",
+				6: "noise:6",
+				9: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(1)", e.SetNoiseSensitivity(1))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(6)", e.SetNoiseSensitivity(6))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
 				},
 			},
 		},

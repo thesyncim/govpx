@@ -414,6 +414,15 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
+	// libvpx routes VP8E_SET_CPUUSED through vp8_change_config, whose tail
+	// assigns cpi->Speed = oxcf.cpu_used. This matters when switching from a
+	// pinned realtime speed (negative cpu_used) back to auto-speed: the next
+	// vp8_auto_select_speed starts from the new config value, not the prior
+	// pinned speed.
+	e.autoSpeed = e.opts.CpuUsed
+	e.avgPickModeTime = 0
+	e.avgEncodeTime = 0
+	e.autoSpeedFrameStartNS = 0
 	e.forceNextLFDeltaUpdate()
 	return nil
 }
