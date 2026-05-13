@@ -3,6 +3,11 @@ package govpx
 import (
 	"errors"
 	"image"
+
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // VP9EncoderOptions configures a VP9 encoder. Mirrors the subset of
@@ -63,6 +68,21 @@ type VP9Encoder struct {
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
 	frameIndex int
+
+	// fc carries the per-frame entropy context across frames.
+	// Reset on every keyframe via ResetFrameContext.
+	fc vp9dec.FrameContext
+
+	// scratch is the reusable compressed-header staging buffer that
+	// PackBitstream consults. Sized to 64KB so libvpx's
+	// first_partition_size 16-bit cap can never overflow.
+	scratch [65536]byte
+
+	// aboveSegCtx / leftSegCtx are the partition-history arrays the
+	// per-SB walker stamps. Sized to the frame's mi_cols at first
+	// EncodeInto.
+	aboveSegCtx []int8
+	leftSegCtx  []int8
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -119,24 +139,155 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 	return e.frameIndex%cadence == 0
 }
 
-// EncodeInto is the planned EncodeInto entry. It currently returns
-// ErrVP9EncoderNotImplemented while the bitstream emit path is being
-// ported. The signature mirrors VP8Encoder.EncodeInto so callers can
-// switch codecs by swapping the constructor.
-func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, _ []byte) (int, error) {
+// EncodeInto packs the next frame into dst. The current shape covers
+// the keyframe-only stub path: every block emits as a Block64x64
+// DC-pred intra with skip=1, so the residue walker short-circuits and
+// the output is a valid VP9 frame whose Y/UV planes decode to the
+// DC predictor (gray). The compressed header rides the no-update
+// path; counts-driven updates land when the encoder's tokenize loop
+// exposes real per-frame counters.
+//
+// Returns the number of bytes written into dst. Caller sizes dst —
+// the keyframe header + an empty body is well under 256 bytes for
+// modest frame dimensions, but the caller should leave room for
+// up to ~64 KB to match libvpx's worst-case header.
+func (e *VP9Encoder) EncodeInto(_ *image.YCbCr, dst []byte) (int, error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
 	}
-	return 0, ErrVP9EncoderNotImplemented
+
+	width := uint32(e.opts.Width)
+	height := uint32(e.opts.Height)
+	miCols := int((width + 7) >> 3)
+	miRows := int((height + 7) >> 3)
+	miColsAligned := alignToSb(miCols)
+	if cap(e.aboveSegCtx) < miColsAligned {
+		e.aboveSegCtx = make([]int8, miColsAligned)
+	} else {
+		e.aboveSegCtx = e.aboveSegCtx[:miColsAligned]
+		for i := range e.aboveSegCtx {
+			e.aboveSegCtx[i] = 0
+		}
+	}
+	if cap(e.leftSegCtx) < common.MiBlockSize {
+		e.leftSegCtx = make([]int8, common.MiBlockSize)
+	} else {
+		e.leftSegCtx = e.leftSegCtx[:common.MiBlockSize]
+	}
+
+	isKey := e.IsKeyFrameNext()
+	if isKey {
+		vp9dec.ResetFrameContext(&e.fc)
+	}
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		ShowFrame:             true,
+		ErrorResilientMode:    e.opts.ErrorResilient,
+		Width:                 width,
+		Height:                height,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: false,
+		FrameContextIdx:       0,
+		InterpFilter:          vp9dec.InterpEighttap,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:   vp9dec.Bits8,
+			ColorSpace: common.CSBT601,
+			ColorRange: common.CRStudioRange,
+		},
+	}
+	if isKey {
+		header.FrameType = common.KeyFrame
+		header.RefreshFrameFlags = 0xff
+	} else {
+		// Inter / intra-only path not wired yet — fall back to an
+		// intra-only frame so the decoder doesn't need ref-frame state.
+		header.FrameType = common.InterFrame
+		header.IntraOnly = true
+		header.RefreshFrameFlags = 1
+	}
+
+	mi := &vp9dec.NeighborMi{
+		SbType: common.Block64x64,
+		Mode:   common.DcPred,
+		TxSize: common.Tx4x4,
+		Skip:   1,
+	}
+	miGet := func(r, c int) *vp9dec.NeighborMi { return mi }
+	var seg vp9dec.SegmentationParams // disabled — no map / no data update
+
+	args := encoder.PackBitstreamArgs{
+		Dest:    dst,
+		Scratch: e.scratch[:],
+		Header:  &header,
+		Comp: encoder.CompressedHeaderInputs{
+			Lossless:           false,
+			TxMode:             common.Only4x4,
+			IntraOnly:          true,
+			InterpFilter:       vp9dec.InterpEighttap,
+			ReferenceMode:      vp9dec.SingleReference,
+			CompoundRefAllowed: false,
+		},
+		TileRows: 1,
+		TileCols: 1,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			sbArgs := encoder.WriteModesSbArgs{
+				AboveSegCtx:    e.aboveSegCtx,
+				LeftSegCtx:     e.leftSegCtx,
+				MiRows:         miRows,
+				MiCols:         miCols,
+				PartitionProbs: &e.fc.PartitionProb,
+				GetMi:          miGet,
+				WriteB: func(bw *bitstream.Writer, miRow, miCol int, bsize common.BlockSize) {
+					encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
+						Seg:       &seg,
+						Mi:        mi,
+						TxMode:    common.Only4x4,
+						SkipProbs: e.fc.SkipProbs,
+					})
+					encoder.WriteKeyframeUvMode(bw, common.DcPred, mi.Mode)
+					// skip=1 → no residue walk.
+				},
+			}
+			encoder.WriteModesTile(bw, encoder.WriteModesTileArgs{
+				WriteModesSbArgs: sbArgs,
+				MiRowStart:       0,
+				MiRowEnd:         miRows,
+				MiColStart:       0,
+				MiColEnd:         miCols,
+			})
+			return nil
+		},
+	}
+
+	n, err := encoder.PackBitstream(args)
+	if err != nil {
+		return n, err
+	}
+	e.frameIndex++
+	return n, nil
 }
 
-// Encode is the planned alloc-returning entry. It currently returns
-// ErrVP9EncoderNotImplemented.
-func (e *VP9Encoder) Encode(_ *image.YCbCr) ([]byte, error) {
+// Encode is the alloc-returning wrapper around EncodeInto. Sizes
+// dst at 64 KB upfront so EncodeInto can never overflow the
+// compressed-header staging buffer for the stub keyframe body.
+func (e *VP9Encoder) Encode(img *image.YCbCr) ([]byte, error) {
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
-	return nil, ErrVP9EncoderNotImplemented
+	dst := make([]byte, 65536)
+	n, err := e.EncodeInto(img, dst)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, n)
+	copy(out, dst[:n])
+	return out, nil
+}
+
+func alignToSb(miCols int) int {
+	const mask = common.MiBlockSize - 1
+	return (miCols + mask) &^ mask
 }
 
 // Close releases internal state and marks the encoder as no longer

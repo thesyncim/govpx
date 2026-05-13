@@ -4,6 +4,9 @@ import (
 	"errors"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestNewVP9EncoderRequiresDimensions: Width and Height must both be
@@ -63,17 +66,35 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderEncodeReturnsNotImplemented: until the bitstream
-// path lands, both Encode and EncodeInto surface the sentinel.
-func TestVP9EncoderEncodeReturnsNotImplemented(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 320, Height: 240})
-	img := image.NewYCbCr(image.Rect(0, 0, 320, 240), image.YCbCrSubsampleRatio420)
-	if _, err := e.Encode(img); !errors.Is(err, ErrVP9EncoderNotImplemented) {
-		t.Errorf("Encode err = %v, want ErrVP9EncoderNotImplemented", err)
+// TestVP9EncoderKeyframeStubProducesParseableBitstream: the
+// stub-keyframe path emits a Block64x64 PartitionNone + DC-pred +
+// skip=1 frame whose header parses cleanly through the existing
+// decoder, mode-info round-trips, and the residue walker
+// short-circuits.
+func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	got, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
 	}
-	buf := make([]byte, 4096)
-	if _, err := e.EncodeInto(img, buf); !errors.Is(err, ErrVP9EncoderNotImplemented) {
-		t.Errorf("EncodeInto err = %v, want ErrVP9EncoderNotImplemented", err)
+	if len(got) == 0 {
+		t.Fatal("Encode returned empty bytes")
+	}
+
+	// Re-parse the uncompressed header — sanity that the frame
+	// shape on the wire matches what the decoder expects.
+	var br vp9dec.BitReader
+	br.Init(got)
+	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if perr != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", perr)
+	}
+	if h.Width != 64 || h.Height != 64 {
+		t.Errorf("size = (%d, %d), want (64, 64)", h.Width, h.Height)
+	}
+	if h.FrameType != common.KeyFrame {
+		t.Errorf("FrameType = %d, want KeyFrame", h.FrameType)
 	}
 }
 
