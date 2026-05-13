@@ -981,6 +981,56 @@ func TestVP9DecoderInterTileParseSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderInterIntraSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	inter := vp9InterIntraFrameForTest(t, common.VPred, common.DcPred, true, 0)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode inter-intra err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode inter-intra err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("inter-intra steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderCompoundInterSteadyStateAlloc(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	inter := vp9CompoundInterSkipFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("warm Decode compound inter err = %v, want nil", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(inter)
+	})
+	if err != nil {
+		t.Fatalf("Decode compound inter err = %v, want nil", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("compound inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 // TestVP9DecoderFrameContextSlotsTrackInterHeaderUpdates keeps VP9's
 // four entropy-context slots separate. A valid inter frame may update
 // the compressed-header probabilities while reconstructing through the
@@ -1131,6 +1181,87 @@ func TestVP9DecoderReconstructsInterSkipFrame(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatal("inter skip frame did not copy the LAST reference pixels")
 	}
+}
+
+func TestVP9DecoderReconstructsCompoundInterSkipFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	keyFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("keyframe did not publish output")
+	}
+	want := appendVP9I420(nil, keyFrame)
+
+	inter := vp9CompoundInterSkipFrameForTest(t)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode compound inter skip frame: %v", err)
+	}
+	gotFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("compound inter skip frame did not publish output")
+	}
+	got := appendVP9I420(nil, gotFrame)
+	if !bytes.Equal(got, want) {
+		t.Fatal("compound inter skip frame did not average matching references back to the source pixels")
+	}
+}
+
+func TestVP9DecoderReconstructsInterIntraSkipFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("keyframe did not publish output")
+	}
+
+	inter := vp9InterIntraFrameForTest(t, common.VPred, common.DcPred, true, 0)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter-intra skip frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("inter-intra skip frame did not publish output")
+	}
+	assertVP9FilledFrame(t, frame, 64, 64, 127, 128, 128)
+}
+
+func TestVP9DecoderReconstructsInterIntraResidueFrame(t *testing.T) {
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("keyframe did not publish output")
+	}
+
+	inter := vp9InterIntraFrameForTest(t, common.DcPred, common.DcPred, false, 32)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter-intra residue frame: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("inter-intra residue frame did not publish output")
+	}
+	if got := frame.Y[0]; got <= 128 {
+		t.Fatalf("inter-intra residue Y[0,0] = %d, want residual above predictor", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
 }
 
 func TestVP9DecoderDecodeIntoCopiesInterSkipFrame(t *testing.T) {
@@ -2703,6 +2834,165 @@ func vp9ColumnResidueKeyframeForMotionLoopFilterTest(t *testing.T,
 	return packet
 }
 
+func vp9InterIntraFrameForTest(t *testing.T,
+	yMode, uvMode common.PredictionMode, skip bool, dcCoeff int16,
+) []byte {
+	t.Helper()
+	const width = 64
+	const height = 64
+	w := uint32(width)
+	h := uint32(height)
+	miCols := miColsForSize(w)
+	miRows := miColsForSize(h)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var seg vp9dec.SegmentationParams
+	var dq vp9dec.DequantTables
+	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: 1,
+		BitDepth:   vp9dec.Bits8,
+	}, &dq)
+	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	vp9dec.SetupBlockPlanes(&planes, 1, 1)
+	planes[0].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 0))
+	planes[0].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 0))
+	planes[1].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
+	planes[1].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+	planes[2].AboveContext = make([]uint8, vp9PlaneEntropyLen(alignToSb(miCols), 1))
+	planes[2].LeftContext = make([]uint8, vp9PlaneEntropyLen(common.MiBlockSize, 1))
+
+	partitionProbs := fc.PartitionProb
+	aboveSegCtx := make([]int8, alignToSb(miCols))
+	leftSegCtx := make([]int8, common.MiBlockSize)
+	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
+	zeroCoeffs := make([]int16, 1024)
+	coeffs := make([]int16, 1024)
+	coeffs[0] = dcCoeff
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0,
+		Width:                 w,
+		Height:                h,
+		InterpFilter:          vp9dec.InterpEighttap,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: true,
+		FrameContextIdx:       0,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:     vp9dec.Bits8,
+			ColorSpace:   common.CSUnknown,
+			ColorRange:   common.CRStudioRange,
+			SubsamplingX: 1,
+			SubsamplingY: 1,
+		},
+	}
+	header.Quant.BaseQindex = 1
+
+	skipFlag := uint8(0)
+	if skip {
+		skipFlag = 1
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:   common.Block64x64,
+		Mode:     yMode,
+		TxSize:   common.Tx4x4,
+		Skip:     skipFlag,
+		RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame},
+	}
+	dest := make([]byte, 65536)
+	scratch := make([]byte, 65536)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		Comp: vp9enc.CompressedHeaderInputs{
+			Lossless:             false,
+			TxMode:               common.Only4x4,
+			IntraOnly:            false,
+			InterpFilter:         vp9dec.InterpEighttap,
+			ReferenceMode:        vp9dec.SingleReference,
+			CompoundRefAllowed:   false,
+			AllowHighPrecisionMv: false,
+		},
+		TileRows: 1,
+		TileCols: 1,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			tile := vp9dec.TileBounds{
+				MiRowStart: 0,
+				MiRowEnd:   miRows,
+				MiColStart: 0,
+				MiColEnd:   miCols,
+			}
+			bsl := int(common.BWidthLog2Lookup[common.Block64x64])
+			bs := (1 << uint(bsl)) / 4
+			vp9enc.WritePartitionForBlock(bw, vp9enc.WriteModesSbArgs{
+				AboveSegCtx:    aboveSegCtx,
+				LeftSegCtx:     leftSegCtx,
+				MiRows:         miRows,
+				MiCols:         miCols,
+				PartitionProbs: &partitionProbs,
+			}, 0, 0, common.PartitionNone, common.Block64x64, bs)
+			vp9enc.WriteInterBlock(bw, vp9enc.WriteInterBlockArgs{
+				Seg:          &seg,
+				Mi:           &mi,
+				Fc:           &fc,
+				TxMode:       common.Only4x4,
+				FrameRefMode: vp9dec.SingleReference,
+				InterpFilter: vp9dec.InterpEighttap,
+				InterModeCtx: vp9dec.InterModeContext(miGrid, miCols, tile,
+					miRows, 0, 0, common.Block64x64),
+				UvMode: uvMode,
+			})
+			if skip {
+				fillVP9MiGridForTest(miGrid, miRows, miCols, 0, 0, common.Block64x64, mi)
+				return nil
+			}
+			aboveOffsets, leftOffsets := vp9PlaneContextOffsetsForTest(&planes, 0, 0)
+			if err := vp9enc.WriteCoefSb(bw, vp9enc.WriteCoefSbArgs{
+				BSize:        common.Block64x64,
+				MiTxSize:     common.Tx4x4,
+				IsInter:      0,
+				Lossless:     false,
+				Mi:           &mi,
+				Planes:       &planes,
+				AboveOffsets: aboveOffsets,
+				LeftOffsets:  leftOffsets,
+				PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+					dq.Y[0],
+					dq.Uv[0],
+					dq.Uv[0],
+				},
+				Fc: &fc.CoefProbs,
+				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+					if dcCoeff != 0 && plane == 0 && r == 0 && c == 0 {
+						return coeffs[:vp9dec.MaxEobForTxSize(tx)]
+					}
+					if dcCoeff == 0 {
+						return coeffs[:vp9dec.MaxEobForTxSize(tx)]
+					}
+					return zeroCoeffs[:vp9dec.MaxEobForTxSize(tx)]
+				},
+			}); err != nil {
+				return err
+			}
+			fillVP9MiGridForTest(miGrid, miRows, miCols, 0, 0, common.Block64x64, mi)
+			return nil
+		},
+		RefDims: func(slot uint8) (uint32, uint32) {
+			return w, h
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet
+}
+
 func vp9InterResidueFrameForTest(t *testing.T, width, height int, dcCoeff int16) []byte {
 	t.Helper()
 	return vp9InterResidueFrameLoopFilterForTest(t, width, height, dcCoeff, 0)
@@ -3500,6 +3790,118 @@ func vp9PlaneContextOffsetsForTest(planes *[vp9dec.MaxMbPlane]vp9dec.Macroblockd
 		left[plane] = ((miRow * 2) >> pd.SubsamplingY) % len(pd.LeftContext)
 	}
 	return above, left
+}
+
+func vp9CompoundInterSkipFrameForTest(t *testing.T) []byte {
+	t.Helper()
+	const width = 64
+	const height = 64
+	w := uint32(width)
+	h := uint32(height)
+	miCols := miColsForSize(w)
+	miRows := miColsForSize(h)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var seg vp9dec.SegmentationParams
+	partitionProbs := fc.PartitionProb
+	aboveSegCtx := make([]int8, alignToSb(miCols))
+	leftSegCtx := make([]int8, common.MiBlockSize)
+	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
+
+	header := vp9dec.UncompressedHeader{
+		Profile:               common.Profile0,
+		FrameType:             common.InterFrame,
+		ShowFrame:             true,
+		RefreshFrameFlags:     0,
+		Width:                 w,
+		Height:                h,
+		InterpFilter:          vp9dec.InterpEighttap,
+		RefreshFrameContext:   true,
+		FrameParallelDecoding: true,
+		FrameContextIdx:       0,
+		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
+			BitDepth:     vp9dec.Bits8,
+			ColorSpace:   common.CSUnknown,
+			ColorRange:   common.CRStudioRange,
+			SubsamplingX: 1,
+			SubsamplingY: 1,
+		},
+	}
+	header.Quant.BaseQindex = 1
+	header.InterRef.RefIndex = [3]uint8{0, 0, 0}
+	header.InterRef.SignBias = [3]uint8{0, 0, 1}
+	signBias := vp9FrameRefSignBias(&header)
+	refs := vp9dec.SetupCompoundReferenceMode(signBias)
+
+	mi := vp9dec.NeighborMi{
+		SbType:       common.Block64x64,
+		Mode:         common.ZeroMv,
+		TxSize:       common.Tx4x4,
+		InterpFilter: uint8(vp9dec.InterpEighttap),
+		Skip:         1,
+		RefFrame:     [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame},
+	}
+	dest := make([]byte, 65536)
+	scratch := make([]byte, 65536)
+	n, err := vp9enc.PackBitstream(vp9enc.PackBitstreamArgs{
+		Dest:    dest,
+		Scratch: scratch,
+		Header:  &header,
+		Comp: vp9enc.CompressedHeaderInputs{
+			Lossless:             false,
+			TxMode:               common.Only4x4,
+			IntraOnly:            false,
+			InterpFilter:         vp9dec.InterpEighttap,
+			ReferenceMode:        vp9dec.CompoundReference,
+			CompoundRefAllowed:   true,
+			AllowHighPrecisionMv: false,
+		},
+		TileRows: 1,
+		TileCols: 1,
+		WriteTile: func(bw *bitstream.Writer, tileRow, tileCol int) error {
+			tile := vp9dec.TileBounds{
+				MiRowStart: 0,
+				MiRowEnd:   miRows,
+				MiColStart: 0,
+				MiColEnd:   miCols,
+			}
+			bsl := int(common.BWidthLog2Lookup[common.Block64x64])
+			bs := (1 << uint(bsl)) / 4
+			vp9enc.WritePartitionForBlock(bw, vp9enc.WriteModesSbArgs{
+				AboveSegCtx:    aboveSegCtx,
+				LeftSegCtx:     leftSegCtx,
+				MiRows:         miRows,
+				MiCols:         miCols,
+				PartitionProbs: &partitionProbs,
+			}, 0, 0, common.PartitionNone, common.Block64x64, bs)
+			vp9enc.WriteInterBlock(bw, vp9enc.WriteInterBlockArgs{
+				Seg:              &seg,
+				Mi:               &mi,
+				Fc:               &fc,
+				TxMode:           common.Only4x4,
+				FrameRefMode:     vp9dec.CompoundReference,
+				InterpFilter:     vp9dec.InterpEighttap,
+				CompFixedRef:     refs.CompFixedRef,
+				CompVarRef:       refs.CompVarRef,
+				RefFrameSignBias: signBias,
+				InterModeCtx: vp9dec.InterModeContext(miGrid, miCols, tile,
+					miRows, 0, 0, common.Block64x64),
+				IsCompound: true,
+			})
+			fillVP9MiGridForTest(miGrid, miRows, miCols, 0, 0, common.Block64x64, mi)
+			return nil
+		},
+		RefDims: func(slot uint8) (uint32, uint32) {
+			return w, h
+		},
+	})
+	if err != nil {
+		t.Fatalf("PackBitstream: %v", err)
+	}
+	packet := make([]byte, n)
+	copy(packet, dest[:n])
+	return packet
 }
 
 func vp9InterSkipFrameForTest(t *testing.T, width, height int) []byte {

@@ -452,7 +452,6 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 
 	uvMode := common.DcPred
 	if isInter == 0 {
-		d.unsupportedReconstruct = true
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		uvMode = vp9dec.ReadIntraBlockModeInfoInter(r, &d.fc, mi)
 	} else if !d.readVP9InterBlockModeInfo(r, hdr, comp, mi, segID, above, left,
@@ -463,8 +462,15 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 	if mi.Skip != 0 {
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], bsize, aboveOffsets[:], leftOffsets[:])
-		if isInter != 0 && !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
-			return false
+		if !d.unsupportedReconstruct {
+			if isInter != 0 {
+				if !d.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize) {
+					return false
+				}
+			} else {
+				d.reconstructVP9IntraPredictBlock(hdr, mi, uvMode, tile,
+					miRow, miCol, bsize)
+			}
 		}
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
@@ -681,17 +687,9 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		d.unsupportedReconstruct = true
 		return true
 	}
-	refSlot, ok := vp9InterReferenceSlot(hdr, mi.RefFrame[0])
-	if !ok {
-		return false
-	}
-	ref := &d.refFrames[refSlot]
-	if !ref.valid {
-		return false
-	}
-	if ref.img.Width != int(hdr.Width) || ref.img.Height != int(hdr.Height) {
-		d.unsupportedReconstruct = true
-		return true
+	nrefs := 1
+	if mi.RefFrame[1] > vp9dec.IntraFrame {
+		nrefs = 2
 	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
@@ -701,20 +699,13 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			return true
 		}
 		dst, dstStride := d.vp9OutputPlane(plane)
-		src, srcStride := vp9ReferencePlane(ref, plane)
-		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
-			return false
-		}
-		srcWidth := (ref.img.Width + (1 << pd.SubsamplingX) - 1) >> pd.SubsamplingX
-		srcHeight := (ref.img.Height + (1 << pd.SubsamplingY) - 1) >> pd.SubsamplingY
-		if srcWidth <= 0 || srcHeight <= 0 {
+		if dstStride <= 0 || len(dst) == 0 {
 			return false
 		}
 		dstRows := len(dst) / dstStride
-		srcRows := len(src) / srcStride
 		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
 		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
-		if x0 >= dstStride || x0 >= srcStride || y0 >= dstRows || y0 >= srcRows {
+		if x0 >= dstStride || y0 >= dstRows {
 			continue
 		}
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
@@ -723,21 +714,54 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			d.unsupportedReconstruct = true
 			return true
 		}
-		if mi.Mv[0] == (vp9dec.MV{}) {
-			w := min(bw, min(dstStride-x0, srcStride-x0))
-			h := min(bh, min(dstRows-y0, srcRows-y0))
-			if w <= 0 || h <= 0 {
+		for refIdx := range nrefs {
+			refSlot, ok := vp9InterReferenceSlot(hdr, mi.RefFrame[refIdx])
+			if !ok {
+				return false
+			}
+			ref := &d.refFrames[refSlot]
+			if !ref.valid {
+				return false
+			}
+			if ref.img.Width != int(hdr.Width) || ref.img.Height != int(hdr.Height) {
+				d.unsupportedReconstruct = true
+				return true
+			}
+			src, srcStride := vp9ReferencePlane(ref, plane)
+			if srcStride <= 0 || len(src) == 0 {
+				return false
+			}
+			srcRows := len(src) / srcStride
+			if x0 >= srcStride || y0 >= srcRows {
 				continue
 			}
-			copyPlane(dst[y0*dstStride+x0:], dstStride,
-				src[y0*srcStride+x0:], srcStride, w, h)
-			continue
-		}
-		if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
-			miRow, miCol, x0, y0, bw, bh,
-			dst, dstStride, dstRows, src, srcStride, srcRows,
-			srcWidth, srcHeight) {
-			return false
+			srcWidth := (ref.img.Width + (1 << pd.SubsamplingX) - 1) >> pd.SubsamplingX
+			srcHeight := (ref.img.Height + (1 << pd.SubsamplingY) - 1) >> pd.SubsamplingY
+			if srcWidth <= 0 || srcHeight <= 0 {
+				return false
+			}
+			avg := refIdx == 1
+			if mi.Mv[refIdx] == (vp9dec.MV{}) {
+				w := min(bw, min(dstStride-x0, srcStride-x0))
+				h := min(bh, min(dstRows-y0, srcRows-y0))
+				if w <= 0 || h <= 0 {
+					continue
+				}
+				if avg {
+					avgPlane(dst[y0*dstStride+x0:], dstStride,
+						src[y0*srcStride+x0:], srcStride, w, h)
+				} else {
+					copyPlane(dst[y0*dstStride+x0:], dstStride,
+						src[y0*srcStride+x0:], srcStride, w, h)
+				}
+				continue
+			}
+			if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
+				miRow, miCol, x0, y0, bw, bh,
+				dst, dstStride, dstRows, src, srcStride, srcRows,
+				srcWidth, srcHeight, mi.Mv[refIdx], vp9BoolInt(avg)) {
+				return false
+			}
 		}
 	}
 	return true
@@ -747,8 +771,11 @@ func vp9CanReconstructInterBlock(mi *vp9dec.NeighborMi) bool {
 	if mi == nil || mi.SbType < common.Block8x8 {
 		return false
 	}
-	if mi.RefFrame[0] <= vp9dec.IntraFrame || mi.RefFrame[0] > vp9dec.AltrefFrame ||
-		mi.RefFrame[1] != vp9dec.NoRefFrame {
+	if mi.RefFrame[0] <= vp9dec.IntraFrame || mi.RefFrame[0] > vp9dec.AltrefFrame {
+		return false
+	}
+	if mi.RefFrame[1] != vp9dec.NoRefFrame &&
+		(mi.RefFrame[1] <= vp9dec.IntraFrame || mi.RefFrame[1] > vp9dec.AltrefFrame) {
 		return false
 	}
 	return mi.Mode == common.ZeroMv || mi.Mode == common.NearestMv ||
@@ -767,6 +794,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	src []byte,
 	srcStride, srcRows int,
 	srcWidth, srcHeight int,
+	mv vp9dec.MV,
+	avg int,
 ) bool {
 	filterIdx := int(mi.InterpFilter)
 	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
@@ -781,7 +810,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 		MbToTopEdge:    -((miRow * common.MiSize) * 8),
 		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
 	}
-	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mi.Mv[0], bw, bh,
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mv, bw, bh,
 		int(pd.SubsamplingX), int(pd.SubsamplingY))
 	subpelX := int(mvQ4.Col) & (vp9dec.SubpelShifts - 1)
 	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
@@ -801,7 +830,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	}
 	vp9dec.InterPredictor(src, srcStride, dst[y0*dstStride+x0:], dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
-		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, 0,
+		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, avg,
 		srcY*srcStride+srcX)
 	return true
 }
@@ -863,6 +892,13 @@ func vp9ClampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+func vp9BoolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func vp9InterReferenceSlot(hdr *vp9dec.UncompressedHeader, ref int8) (int, bool) {

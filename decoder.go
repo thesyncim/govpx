@@ -1058,6 +1058,16 @@ func copyPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, 
 	}
 }
 
+func avgPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
+	for row := range height {
+		dstRow := dst[row*dstStride:]
+		srcRow := src[row*srcStride:]
+		for col := range width {
+			dstRow[col] = byte((int(dstRow[col]) + int(srcRow[col]) + 1) >> 1)
+		}
+	}
+}
+
 func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	cols := (width + 15) >> 4
 	rows := (height + 15) >> 4

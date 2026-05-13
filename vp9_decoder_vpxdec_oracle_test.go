@@ -49,6 +49,63 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesCompoundInterSkipStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	inter := vp9CompoundInterSkipFrameForTest(t)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for compound skipped inter stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterIntraSkipStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	inter := vp9InterIntraFrameForTest(t, common.VPred, common.DcPred, true, 0)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inter-intra skip stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesInterIntraResidualStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	inter := vp9InterIntraFrameForTest(t, common.DcPred, common.DcPred, false, 32)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for inter-intra residual stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
 func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

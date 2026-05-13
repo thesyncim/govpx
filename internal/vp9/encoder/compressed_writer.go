@@ -187,23 +187,21 @@ func writeProbTreeNoUpdate(bw *bitstream.Writer, n int) {
 	}
 }
 
-// writeFrameReferenceMode mirrors the reference_mode header bit
-// shape: 1-bit "compound prediction allowed", then if allowed a
-// 1-bit "select", then if not select a 1-bit "is compound".
+// writeFrameReferenceMode mirrors the reference_mode header bit shape:
+// if compound prediction is not allowed, no bits are emitted. Otherwise
+// the first bit selects single-vs-non-single reference mode; a second
+// bit distinguishes compound from per-block reference-mode select.
 func writeFrameReferenceMode(bw *bitstream.Writer, m vp9dec.ReferenceMode, compAllowed bool) {
-	useCompound := compAllowed
-	if useCompound {
-		bw.WriteBit(1)
-		if m == vp9dec.ReferenceModeSelect {
-			bw.WriteBit(1)
-			return
-		}
+	if !compAllowed {
+		return
+	}
+	if m == vp9dec.SingleReference {
 		bw.WriteBit(0)
-		if m == vp9dec.CompoundReference {
-			bw.WriteBit(1)
-		} else {
-			bw.WriteBit(0)
-		}
+		return
+	}
+	bw.WriteBit(1)
+	if m == vp9dec.ReferenceModeSelect {
+		bw.WriteBit(1)
 		return
 	}
 	bw.WriteBit(0)
