@@ -9,6 +9,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -618,6 +619,35 @@ func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after quarter-pel inter frame")
+	}
+}
+
+func TestVP9EncoderCountsNewMvSymbols(t *testing.T) {
+	var counts vp9enc.FrameCounts
+	countVP9NewMv(&counts, vp9dec.MV{Col: 58}, vp9dec.MV{Col: 2})
+
+	if counts.Mv.Joints[tables.MvJointHnzVz] != 1 {
+		t.Fatalf("horizontal joint count = %d, want 1",
+			counts.Mv.Joints[tables.MvJointHnzVz])
+	}
+	for joint, got := range counts.Mv.Joints {
+		if joint != tables.MvJointHnzVz && got != 0 {
+			t.Fatalf("Joints[%d] = %d, want 0", joint, got)
+		}
+	}
+	if counts.Mv.Comps[0].Sign != [2]uint32{} {
+		t.Fatalf("row component counts = %v, want zero", counts.Mv.Comps[0].Sign)
+	}
+	col := counts.Mv.Comps[1]
+	if col.Sign != [2]uint32{1, 0} {
+		t.Fatalf("col sign counts = %v, want [1 0]", col.Sign)
+	}
+	classTotal := uint32(0)
+	for _, got := range col.Classes {
+		classTotal += got
+	}
+	if classTotal != 1 {
+		t.Fatalf("col class total = %d, want 1", classTotal)
 	}
 }
 

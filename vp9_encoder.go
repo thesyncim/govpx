@@ -689,6 +689,56 @@ func countVP9InterMode(counts *encoder.FrameCounts, seg *vp9dec.SegmentationPara
 	}
 }
 
+func countVP9NewMv(counts *encoder.FrameCounts, mv, refMv vp9dec.MV) {
+	if counts == nil {
+		return
+	}
+	diff := vp9dec.MV{
+		Row: mv.Row - refMv.Row,
+		Col: mv.Col - refMv.Col,
+	}
+	vp9IncEncoderMv(diff, &counts.Mv)
+}
+
+func vp9IncEncoderMv(mv vp9dec.MV, counts *encoder.NmvContextCounts) {
+	joint := vp9GetMvJoint(mv)
+	counts.Joints[joint]++
+	if joint == tables.MvJointHzVnz || joint == tables.MvJointHnzVnz {
+		vp9IncEncoderMvComponent(mv.Row, &counts.Comps[0])
+	}
+	if joint == tables.MvJointHnzVz || joint == tables.MvJointHnzVnz {
+		vp9IncEncoderMvComponent(mv.Col, &counts.Comps[1])
+	}
+}
+
+func vp9IncEncoderMvComponent(v int16, counts *encoder.NmvComponentCounts) {
+	sign := 0
+	zv := int(v)
+	if zv < 0 {
+		sign = 1
+		zv = -zv
+	}
+	counts.Sign[sign]++
+	z := zv - 1
+	cls, offset := vp9GetMvClass(z)
+	counts.Classes[cls]++
+	d := offset >> 3
+	f := (offset >> 1) & 3
+	hp := offset & 1
+	if cls == tables.MvClass0 {
+		counts.Class0[d]++
+		counts.Class0Fp[d][f]++
+		counts.Class0Hp[hp]++
+		return
+	}
+	nBits := cls + vp9dec.Class0Bits - 1
+	for i := 0; i < nBits; i++ {
+		counts.Bits[i][(d>>i)&1]++
+	}
+	counts.Fp[f]++
+	counts.Hp[hp]++
+}
+
 func vp9CoefBranchStats(counts *encoder.FrameCounts) *encoder.FrameCoefBranchStats {
 	if counts == nil {
 		return nil
@@ -916,6 +966,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
 			miRow, miCol, bsize, &cur)
+		if cur.Mode == common.NewMv {
+			countVP9NewMv(counts, cur.Mv[0], bestRefMv[0])
+		}
 		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
 			Seg:          seg,
 			Mi:           &cur,
