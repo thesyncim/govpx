@@ -110,11 +110,11 @@ The VP9 port is in progress on the `vp9-port` branch. Tracking layout:
 | Module scaffolding | complete: `internal/vp9/{bitstream,common,decoder,dsp,encoder,mem,tables}` |
 | Bitstream (range coder reader + writer) | complete with round-trip + zero-alloc tests; carry-fixup walk and 64-bit big-endian fill path mirror libvpx vpx_dsp/bitreader.c + bitwriter.c byte-for-byte |
 | Common tables (entropy / scan / quant / MV / pred) | scan + iscan + neighbors (30 tables, auto-generated from vp9_scan.c + libvpx-source oracle); quant DC/AC × 8/10/12-bit (libvpx-source oracle); vpx_norm + common-data geometry/partition/chroma projection; entropy-mode and entropymv probability tables not yet ported |
-| DSP (idct, intra pred, inter convolve, loop filter, SAD, variance) | inverse transforms complete: IDCT 4x4 / 8x8 / 16x16 / 32x32 (full + sparse fast paths + DC-only), IWHT 4x4 (full + DC), IADST 4 / 8 / 16, and the Iht4 / Iht8 / Iht16 dispatches across all 4 TxTypes — all with byte-parity oracle (845 records vs libvpx). Intra prediction, convolve, loop filter, SAD, variance not yet ported |
+| DSP (idct, intra pred, inter convolve, loop filter, SAD, variance) | inverse transforms (IDCT 4/8/16/32, IWHT4, IADST 4/8/16, IHT dispatches), intra prediction (DC/V/H/TM × 4 sizes + 6 directional × 3 sizes + 10 hand-coded 4x4), convolve (8-tap subpel horiz/vert + avg + copy/avg pass-through), loop filter (4/8/16-pixel + dual), SAD (13 block sizes), variance (13 block sizes + MSE + get4x4sse_cs) — all with byte-parity oracle (1415 records vs libvpx) |
 | Decoder (uncompressed + compressed header, tile, detok, recon) | not started |
 | Encoder | not started |
-| Oracle harness (vp90 IVF corpus + vpxenc/vpxdec gates) | DSP oracle complete: `internal/coracle/build_libvpx_vp9.sh` builds a VP9-decoder-only libvpx variant + the DSP oracle binary, which emits a deterministic 845-record byte-parity corpus checked in under `internal/vp9/dsp/testdata/dsp_oracle.bin`. IVF / vpxdec gate not yet wired |
-| Byte parity gate | inverse-transform DSP kernels: 845/845 records byte-identical to libvpx v1.16.0; rest TBD |
+| Oracle harness (vp90 IVF corpus + vpxenc/vpxdec gates) | DSP oracle complete: `internal/coracle/build_libvpx_vp9.sh` builds a VP9-decoder+encoder libvpx variant + the DSP oracle binary, which emits a deterministic 1415-record byte-parity corpus checked in under `internal/vp9/dsp/testdata/dsp_oracle.bin`. IVF / vpxdec gate not yet wired |
+| Byte parity gate | DSP kernels: 1415/1415 records byte-identical to libvpx v1.16.0 (inverse transforms + intra + convolve + loop filter + SAD + variance); decoder/encoder paths TBD |
 | Hot-path allocation guards | bitstream Reader.Read / Writer.Write, idct4x4 / idct8x8 / idct16x16 hot paths |
 | SIMD/assembly | not started |
 
