@@ -397,6 +397,214 @@ func TestVP9DecoderDecodeIntoRejectsInvalidDestinationBeforeDecode(t *testing.T)
 	}
 }
 
+// TestVP9DecoderLastFrameInfoTracksDecodedPackets covers the Decode
+// metadata path across visible, hidden, and show-existing packets.
+func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode intra-only: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if _, ok := d.LastFrameInfo(); ok {
+		t.Fatal("LastFrameInfo before decode returned ok")
+	}
+
+	if err := d.DecodeWithPTS(key, 100); err != nil {
+		t.Fatalf("DecodeWithPTS keyframe err = %v, want nil", err)
+	}
+	info, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after keyframe returned !ok")
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		!info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
+		info.Quantizer != 1 || info.RefreshFrameFlags != 0xff || info.PTS != 100 {
+		t.Fatalf("key LastFrameInfo = %+v, want visible keyframe metadata", info)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+
+	if err := d.DecodeWithPTS(inter, 200); err != nil {
+		t.Fatalf("DecodeWithPTS intra-only err = %v, want nil", err)
+	}
+	info, ok = d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after hidden intra-only returned !ok")
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		info.KeyFrame || info.ShowFrame || info.ShowExistingFrame ||
+		info.Quantizer != 1 || info.RefreshFrameFlags != 1 || info.PTS != 200 {
+		t.Fatalf("hidden LastFrameInfo = %+v, want hidden intra-only metadata", info)
+	}
+
+	if err := d.DecodeWithPTS(vp9ShowExistingFramePacketForTest(5), 300); err != nil {
+		t.Fatalf("DecodeWithPTS show-existing err = %v, want nil", err)
+	}
+	info, ok = d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after show-existing returned !ok")
+	}
+	if info.Width != 96 || info.Height != 96 ||
+		info.KeyFrame || !info.ShowFrame || !info.ShowExistingFrame ||
+		info.ExistingFrameSlot != 5 || info.PTS != 300 {
+		t.Fatalf("show-existing LastFrameInfo = %+v, want slot 5 metadata", info)
+	}
+}
+
+// TestVP9DecoderDecodeIntoUpdatesLastFrameInfoWithPTS keeps DecodeInto
+// and Decode on the same metadata path.
+func TestVP9DecoderDecodeIntoUpdatesLastFrameInfoWithPTS(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	dst := newTestImage(96, 96)
+	if _, err := d.DecodeIntoWithPTS(packet, &dst, 77); err != nil {
+		t.Fatalf("DecodeIntoWithPTS err = %v, want nil", err)
+	}
+	info, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatal("LastFrameInfo after DecodeIntoWithPTS returned !ok")
+	}
+	if info.PTS != 77 || !info.KeyFrame || !info.ShowFrame {
+		t.Fatalf("LastFrameInfo = %+v, want DecodeIntoWithPTS metadata", info)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeIntoWithPTS queued output for NextFrame")
+	}
+}
+
+// TestVP9DecoderRejectsConfiguredResolutionChange wires the VP9
+// RejectResolutionChange option through header validation.
+func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
+	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
+	img64 := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	img96 := image.NewYCbCr(image.Rect(0, 0, 96, 64), image.YCbCrSubsampleRatio420)
+	key64, err := e64.Encode(img64)
+	if err != nil {
+		t.Fatalf("Encode 64x64 keyframe: %v", err)
+	}
+	key96, err := e96.Encode(img96)
+	if err != nil {
+		t.Fatalf("Encode 96x64 keyframe: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{RejectResolutionChange: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key64); err != nil {
+		t.Fatalf("Decode initial keyframe err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after initial keyframe")
+	}
+	err = d.Decode(key96)
+	if !errors.Is(err, ErrFrameRejected) {
+		t.Fatalf("resolution-change Decode err = %v, want ErrFrameRejected", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 64 || h != 64 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want initial 64x64", w, h)
+	}
+}
+
+// TestVP9DecoderAcceptsResolutionChangeByDefault preserves the default
+// libvpx-style reallocating behavior for VP9 keyframe size changes.
+func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
+	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
+	img64 := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
+	img96 := image.NewYCbCr(image.Rect(0, 0, 96, 64), image.YCbCrSubsampleRatio420)
+	key64, err := e64.Encode(img64)
+	if err != nil {
+		t.Fatalf("Encode 64x64 keyframe: %v", err)
+	}
+	key96, err := e96.Encode(img96)
+	if err != nil {
+		t.Fatalf("Encode 96x64 keyframe: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key64); err != nil {
+		t.Fatalf("Decode initial keyframe err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after initial keyframe")
+	}
+	if err := d.Decode(key96); err != nil {
+		t.Fatalf("Decode resolution-change keyframe err = %v, want nil", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after resolution-change keyframe")
+	}
+	assertVP9NeutralFrame(t, frame, 96, 64)
+}
+
+// TestVP9DecoderResetClearsFrameState keeps VP9 reset semantics aligned
+// with the VP8 decoder API.
+func TestVP9DecoderResetClearsFrameState(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.DecodeWithPTS(packet, 33); err != nil {
+		t.Fatalf("DecodeWithPTS err = %v, want nil", err)
+	}
+	if _, ok := d.LastFrameInfo(); !ok {
+		t.Fatal("LastFrameInfo after decode returned !ok")
+	}
+	d.Reset()
+	if w, h := d.LastFrameSize(); w != 0 || h != 0 {
+		t.Fatalf("LastFrameSize() after Reset = (%d, %d), want (0, 0)", w, h)
+	}
+	if _, ok := d.LastFrameInfo(); ok {
+		t.Fatal("LastFrameInfo after Reset returned ok")
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame after Reset returned ok")
+	}
+	if err := d.Decode(vp9ShowExistingFramePacketForTest(0)); !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("show-existing after Reset err = %v, want ErrInvalidVP9Data", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode after Reset err = %v, want nil", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame after Decode following Reset returned !ok")
+	}
+}
+
 // TestVP9DecoderDecodesEncoderEdgeClippedModeTiles covers the same
 // partial-SB shapes as the vpxdec oracle, but through the public
 // decoder's tile-mode/residual parser and prediction-only output path for
