@@ -182,20 +182,38 @@ func (rc *rateControlState) libvpxActiveWorstQuantizer() int {
 	return activeWorst
 }
 
+// libvpxCBRFullBufferActiveWorst ports the
+// `(end_usage == USAGE_STREAM_FROM_SERVER) && (buffer_level >= optimal) &&
+// buffered_mode` arm at vp8/encoder/onyx_if.c:3585-3614. The caller already
+// gated on `buffer_level >= optimal`; this routine computes the
+// active-worst-Q drop that libvpx applies when the buffer is at or above
+// optimal. The inner `if (buffer_level < maximum_buffer_size)` branch is
+// the only place libvpx scales the adjustment by buffer fullness; when the
+// buffer is at or above maximum (including the degenerate
+// max==optimal==buffer_level case the 1ms buffer model produces), libvpx
+// skips that branch and subtracts the full `active_worst_quality / 4`. The
+// old govpx guard `if maximumBufferBits <= bufferOptimalBits { return }`
+// short-circuited that path, leaving active_worst pinned at the user
+// max-Q (oracle parity gap on buffer-1-1-1).
 func (rc *rateControlState) libvpxCBRFullBufferActiveWorst(activeWorst int) int {
-	if rc.maximumBufferBits <= rc.bufferOptimalBits {
-		return activeWorst
-	}
 	adjustment := activeWorst / 4
 	if adjustment <= 0 {
 		return activeWorst
 	}
 	if rc.bufferLevelBits < rc.maximumBufferBits {
-		bufferLevelStep := (rc.maximumBufferBits - rc.bufferOptimalBits) / adjustment
-		if bufferLevelStep > 0 {
-			adjustment = (rc.bufferLevelBits - rc.bufferOptimalBits) / bufferLevelStep
-		} else {
+		if rc.maximumBufferBits <= rc.bufferOptimalBits {
+			// Degenerate band (max <= optimal) but buffer below max:
+			// libvpx's `(max - optimal) / Adjustment` would underflow
+			// or trip a divide-by-zero. Mirror the buff_lvl_step==0
+			// fall-through by zeroing the adjustment.
 			adjustment = 0
+		} else {
+			bufferLevelStep := (rc.maximumBufferBits - rc.bufferOptimalBits) / adjustment
+			if bufferLevelStep > 0 {
+				adjustment = (rc.bufferLevelBits - rc.bufferOptimalBits) / bufferLevelStep
+			} else {
+				adjustment = 0
+			}
 		}
 	}
 	return activeWorst - adjustment

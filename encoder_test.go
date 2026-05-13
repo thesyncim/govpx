@@ -169,20 +169,35 @@ func TestLibvpxSpeedFeatureCPUUsedMirrorsRealtimeAutoSelect(t *testing.T) {
 func TestEncoderRateControlBitsPerFrame(t *testing.T) {
 	e := newTestEncoder(t)
 
-	if e.rc.bitsPerFrame != 40000 {
-		t.Fatalf("bitsPerFrame = %d, want 40000", e.rc.bitsPerFrame)
+	// newTestEncoder constructs a 16x16/30fps@1200kbps encoder. libvpx
+	// caps the *internal* target_bandwidth at the raw-24bpp envelope
+	// (Width*Height*8*3*fps/1000 = 184 kbps for 16x16/30fps), so the
+	// per-frame budget is 184_000/30 = 6133 bits/frame, not the
+	// 1200kbps-derived 40000 bits/frame the original test asserted.
+	// libvpxClampToRawTargetRate mirrors that clamp; the user-facing
+	// targetBitrateKbps is still 1200.
+	if e.rc.targetBitrateKbps != 1200 {
+		t.Fatalf("targetBitrateKbps = %d, want user-facing 1200", e.rc.targetBitrateKbps)
+	}
+	if e.rc.bitsPerFrame != 6133 {
+		t.Fatalf("bitsPerFrame = %d, want raw-capped 6133", e.rc.bitsPerFrame)
 	}
 	if err := e.SetRealtimeTarget(RealtimeTarget{FPS: 60}); err != nil {
 		t.Fatalf("SetRealtimeTarget returned error: %v", err)
 	}
-	if e.rc.bitsPerFrame != 20000 {
-		t.Fatalf("bitsPerFrame = %d, want 20000", e.rc.bitsPerFrame)
+	// At 60fps the raw-target-rate cap rises to 16*16*8*3*60/1000 = 368
+	// kbps, still below the requested 1200 kbps so the cap clips.
+	// 368_000 / 60 = 6133 bits/frame (matches libvpx's truncation).
+	if e.rc.bitsPerFrame != 6133 {
+		t.Fatalf("60fps bitsPerFrame = %d, want raw-capped 6133", e.rc.bitsPerFrame)
 	}
 	if err := e.SetBitrateKbps(600); err != nil {
 		t.Fatalf("SetBitrateKbps returned error: %v", err)
 	}
-	if e.rc.bitsPerFrame != 10000 {
-		t.Fatalf("bitsPerFrame = %d, want 10000", e.rc.bitsPerFrame)
+	// 600 kbps requested but cap is still 368 kbps, so the per-frame
+	// budget stays at the cap.
+	if e.rc.bitsPerFrame != 6133 {
+		t.Fatalf("post-SetBitrateKbps bitsPerFrame = %d, want raw-capped 6133", e.rc.bitsPerFrame)
 	}
 }
 

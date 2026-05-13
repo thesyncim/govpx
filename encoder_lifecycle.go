@@ -143,7 +143,11 @@ func (e *VP8Encoder) Reset() {
 	e.resetOracleTraceState()
 	// Rate-control: zero the entire struct then re-apply config so every
 	// field NewVP8Encoder ever touches lands at the cold-start value.
+	// Reseed the cached frame dimensions before applyConfig so the
+	// libvpx raw-target-rate cap inside setBitrateKbps survives the
+	// rateControlState zeroing (see libvpxClampToRawTargetRate).
 	e.rc = rateControlState{}
+	e.rc.setFrameDimensions(e.opts.Width, e.opts.Height)
 	cfg := defaultRateControlConfig(e.opts)
 	_ = e.rc.applyConfig(cfg, e.timing)
 	e.rc.keyFrameFrequency = e.opts.KeyFrameInterval

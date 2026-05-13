@@ -92,6 +92,13 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 	// Two-pass per-frame budgets depend on MB count.
 	e.twoPass.configureFrameDims(width, height)
 
+	// Refresh the rate-control raw-target-rate cap for the new
+	// dimensions. setBitrateKbps reads frameWidth / frameHeight when
+	// the cap is recomputed (any subsequent SetBitrateKbps /
+	// SetRateControl call), so leaving the cached dims stale would
+	// leak the old cap into the post-resize bitrate envelope.
+	e.rc.setFrameDimensions(width, height)
+
 	// Force the next frame to be a key frame at the new size. The
 	// encode path also treats "no references available" as a
 	// keyframe trigger via shouldEncodeKeyFrame, but setting the

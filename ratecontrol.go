@@ -151,6 +151,33 @@ type rateControlState struct {
 	minBitrateKbps      int
 	maxBitrateKbps      int
 
+	// effectiveBitrateKbps mirrors libvpx's internal
+	// `cpi->oxcf.target_bandwidth` after the raw-target-rate clamp at
+	// vp8/encoder/onyx_if.c:set_oxcf (around line 1580):
+	//
+	//   raw_target_rate = Width * Height * 8 * 3 * framerate / 1000
+	//   if (target_bandwidth > raw_target_rate)
+	//       target_bandwidth = raw_target_rate
+	//
+	// libvpx keeps the user-facing `cfg.rc_target_bitrate` unchanged
+	// (so VPX_E_GET_LAST_PKT and the bounds APIs still see the
+	// requested value); the clamp only affects the internal
+	// buffer-model / per-frame-budget arithmetic. govpx mirrors that
+	// split: `targetBitrateKbps` reports the user's requested rate
+	// (the field validated against MinBitrateKbps / MaxBitrateKbps)
+	// while `effectiveBitrateKbps` drives `targetBandwidthBits`,
+	// `bitsPerFrame`, `bufferSizeBits`, `bufferInitialBits` and
+	// `bufferOptimalBits` so the tight 1ms buffer model used by
+	// `buffer-1-1-1` lands on the same per-frame budget as libvpx.
+	//
+	// frameWidth / frameHeight cache the dimensions used to compute
+	// the cap; the encoder updates them at construction via
+	// `setFrameDimensions` so SetBitrateKbps / SetRateControl can
+	// re-derive the cap without re-running through normalizeOptions.
+	effectiveBitrateKbps int
+	frameWidth           int
+	frameHeight          int
+
 	minQuantizer       int
 	maxQuantizer       int
 	cqLevel            int
@@ -387,13 +414,22 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	if rc.maxBitrateKbps > 0 && kbps > rc.maxBitrateKbps {
 		return ErrInvalidBitrate
 	}
-	targetBits := kbps * 1000
-	if targetBits/1000 != kbps {
+	// libvpx vp8/encoder/onyx_if.c set_oxcf clamps the *internal*
+	// target_bandwidth to a raw 24bpp uncompressed envelope (raw rate =
+	// Width * Height * 8 * 3 * framerate / 1000 kbps); the user-facing
+	// rc_target_bitrate is left untouched. Mirror that split so the
+	// public bitrate field (targetBitrateKbps) keeps reporting the
+	// requested value while the buffer-model / per-frame-budget
+	// arithmetic uses the capped effective rate.
+	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, timing)
+	targetBits := effectiveKbps * 1000
+	if targetBits/1000 != effectiveKbps {
 		return ErrInvalidBitrate
 	}
 
 	initializing := rc.targetBitrateKbps == 0
 	rc.targetBitrateKbps = kbps
+	rc.effectiveBitrateKbps = effectiveKbps
 	rc.targetBandwidthBits = targetBits
 	rc.bitsPerFrame = computeBitsPerFrame(targetBits, timing)
 	if rc.bitsPerFrame <= 0 {
@@ -401,15 +437,15 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	}
 
 	var ok bool
-	rc.bufferSizeBits, ok = checkedMul(kbps, rc.bufferSizeMs)
+	rc.bufferSizeBits, ok = checkedMul(effectiveKbps, rc.bufferSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	rc.bufferInitialBits, ok = checkedMul(kbps, rc.bufferInitialSizeMs)
+	rc.bufferInitialBits, ok = checkedMul(effectiveKbps, rc.bufferInitialSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	rc.bufferOptimalBits, ok = checkedMul(kbps, rc.bufferOptimalSizeMs)
+	rc.bufferOptimalBits, ok = checkedMul(effectiveKbps, rc.bufferOptimalSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
@@ -421,6 +457,50 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	rc.clampBuffer()
 	rc.clampQuantizer()
 	return nil
+}
+
+// libvpxClampToRawTargetRate returns kbps capped to the libvpx
+// raw-target-rate envelope (Width*Height*8*3*fps/1000 kbps). When the
+// configured frame dimensions or framerate are zero the clamp is a
+// no-op so callers that have not yet configured dimensions get the
+// pre-clamp value (matching the old govpx behavior the cap had to be
+// retrofitted onto).
+func (rc *rateControlState) libvpxClampToRawTargetRate(kbps int, timing timingState) int {
+	if kbps <= 0 || rc.frameWidth <= 0 || rc.frameHeight <= 0 {
+		return kbps
+	}
+	fps := outputFrameRate(timing)
+	if fps <= 0 {
+		return kbps
+	}
+	rawBits := int64(rc.frameWidth) * int64(rc.frameHeight) * 8 * 3
+	if rawBits <= 0 {
+		return kbps
+	}
+	rawKbpsF := float64(rawBits) * fps / 1000.0
+	if rawKbpsF <= 0 {
+		return kbps
+	}
+	// libvpx casts the raw_target_rate float through `unsigned int`,
+	// which truncates toward zero. Mirror that truncation.
+	rawKbps := int(rawKbpsF)
+	if rawKbps <= 0 {
+		return kbps
+	}
+	if kbps > rawKbps {
+		return rawKbps
+	}
+	return kbps
+}
+
+// setFrameDimensions caches the configured frame width/height so
+// setBitrateKbps can apply the libvpx raw-target-rate cap. The encoder
+// lifecycle must call this before any setBitrateKbps; subsequent
+// resolution changes (SetResolution / Reset) update the cached
+// dimensions so SetBitrateKbps re-derives the cap correctly.
+func (rc *rateControlState) setFrameDimensions(width int, height int) {
+	rc.frameWidth = width
+	rc.frameHeight = height
 }
 
 func (rc *rateControlState) beginFrame(keyFrame bool) {

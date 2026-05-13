@@ -509,8 +509,13 @@ func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	if key.TargetBitrateKbps != 1200 || key.FrameTargetBits != 240000 {
-		t.Fatalf("key target = kbps:%d bits:%d, want 1200/240000", key.TargetBitrateKbps, key.FrameTargetBits)
+	// User-facing kbps stays at 1200 (the requested value); the
+	// internal effective rate is clipped to libvpx's raw-target-rate
+	// envelope (16*16*8*3*30/1000 = 184 kbps), so the first-frame KF
+	// target is starting_buffer_level/2 = 184_000bps * 400ms / 2 =
+	// 36_800 bits (was 240_000 before the raw-rate cap landed).
+	if key.TargetBitrateKbps != 1200 || key.FrameTargetBits != 36800 {
+		t.Fatalf("key target = kbps:%d bits:%d, want 1200/36800", key.TargetBitrateKbps, key.FrameTargetBits)
 	}
 
 	if err := e.SetBitrateKbps(600); err != nil {
