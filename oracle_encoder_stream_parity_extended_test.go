@@ -69,7 +69,6 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 		tuning                   Tuning
 		tuningSet                bool
 		extraArgs                []string
-		fastLF                   bool
 		staticThreshold          int
 		screenContentMode        int
 		maxIntraBitratePct       int
@@ -376,7 +375,6 @@ func TestOracleEncoderStreamByteParityExtended(t *testing.T) {
 				ErrorResilientPartitions: tc.errorResilientPartitions,
 				Sharpness:                tc.sharpness,
 				NoiseSensitivity:         tc.noiseSensitivity,
-				FastLoopFilterPick:       tc.fastLF,
 				StaticThreshold:          tc.staticThreshold,
 				ScreenContentMode:        tc.screenContentMode,
 				MaxIntraBitratePct:       tc.maxIntraBitratePct,
