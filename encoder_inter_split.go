@@ -804,7 +804,27 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	// (block_type=3) and rd_inter4x4_uv reports rate_uv/distortion_uv via
 	// 8 4x4 chroma blocks (block_type=2).
 	decision := interSplitMVRDDecision{Mode: mode}
-	stats := buildPredictedMacroblockCoefficientsRD(coefProbs, src, mbRow, mbCol, pred, aboveTok, leftTok, quant, qIndex, zbinOverQuant, splitInterModeZbinBoost, true, false, fastQuant, optimize, &decision.Coeffs)
+	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:           coefProbs,
+		src:                 src,
+		mbRow:               mbRow,
+		mbCol:               mbCol,
+		pred:                pred,
+		aboveTok:            aboveTok,
+		leftTok:             leftTok,
+		quant:               quant,
+		qIndex:              qIndex,
+		zbinOverQuant:       zbinOverQuant,
+		zbinModeBoost:       splitInterModeZbinBoost,
+		is4x4:               true,
+		splitPartitionValid: true,
+		splitPartition:      mode.Partition,
+		intra:               false,
+		fastQuant:           fastQuant,
+		optimize:            optimize,
+		collectStats:        true,
+		coeffs:              &decision.Coeffs,
+	})
 	decision.YRate = stats.rateY
 	decision.YDist = stats.distortionY
 	decision.UVRate = stats.rateUV
@@ -830,6 +850,38 @@ func selectInterFrameSplitMotionDecisionRDWithThreshold(src vp8enc.SourceImage, 
 	decision.RD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.TotalRate, totalDist)
 	decision.YRD = rdModeScoreWithZbin(qIndex, zbinOverQuant, decision.YRate, decision.YDist)
 	return decision, true
+}
+
+func splitMotionPartitionLumaDistortionFromSums(labelErrors [16]int, partition uint8) int {
+	if partition >= vp8tables.NumMBSplits {
+		total := 0
+		for _, err := range labelErrors {
+			total += err
+		}
+		return total >> 2
+	}
+	total := 0
+	labelCount := int(vp8tables.MBSplitCount[partition&3])
+	for subset := range labelCount {
+		total += labelErrors[subset&15] >> 2
+	}
+	return total
+}
+
+func splitMotionPartitionLumaDistortionFromBlocks(blockErrors [16]int, partition uint8) int {
+	var labelErrors [16]int
+	if partition >= vp8tables.NumMBSplits {
+		total := 0
+		for _, err := range blockErrors {
+			total += err
+		}
+		return total >> 2
+	}
+	for block, err := range blockErrors {
+		subset := int(vp8tables.MBSplits[partition&3][block&15])
+		labelErrors[subset&15] += err
+	}
+	return splitMotionPartitionLumaDistortionFromSums(labelErrors, partition)
 }
 
 func splitMotionPartitionBlockSize(partition int) (int, int) {

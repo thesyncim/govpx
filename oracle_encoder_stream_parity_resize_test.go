@@ -125,9 +125,7 @@ func TestOracleEncoderStreamByteParityResize(t *testing.T) {
 	// 1-byte first-partition drift that survives the dctValueBaseCost
 	// sign-split trellis fix (encoder_inter_quantize.go). The 32x32 s1
 	// limits previously here were lifted by that fix.
-	coldSegLimit := map[string]int{
-		"64x64-to-96x96/good-quality-cpu0-vbr/s2": 7,
-	}
+	coldSegLimit := map[string]int{}
 
 	for _, pair := range pairs {
 		for _, combo := range combos {
