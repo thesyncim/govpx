@@ -1006,6 +1006,44 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate200", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=200"}, targetKbpsOverride: 200},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, extraArgs: []string{"--end-usage=cbr", "--target-bitrate=2000"}, targetKbpsOverride: 2000},
+		// Segmented fixture crossed with controls that have minimal
+		// coverage on this fixture today (sharpness, error-resilient,
+		// token partitions, screen content, drop-frame, undershoot/
+		// overshoot, gf-cbr-boost, max-intra-rate, buffer-size,
+		// keyframe cadence, threads, tune). Each row holds at strict
+		// 16-frame byte parity.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
+		{name: "realtime-cbr-cpu-8-64x64-segmented-sharpness4", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		// Error-resilient mode on the segmented fixture has a frame-2+
+		// per-token-context-savings divergence (the fixture's
+		// segment-boundary EOB pattern triggers a coef-prob backup
+		// path the panning-64x64 row doesn't exercise). Pin the
+		// keyframe + frame 1 prefix; the tail is a fresh gap to
+		// investigate.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 2, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		// Error-resilient-partitions on segmented byte-matches frames
+		// 0-2, then has a 3-frame transient divergence at frames 3-5
+		// (the segment boundary triggers a per-MB mode-rate flip),
+		// and recovers to byte-parity for frames 6-15. Pin the clean
+		// prefix.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 3, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-drop-frame60", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, dropFrameAllowed: true, dropFrameWaterMark: 60, extraArgs: []string{"--drop-frame=60"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-undershoot50-overshoot50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, undershootPct: 50, overshootPct: 50, extraArgs: []string{"--undershoot-pct=50", "--overshoot-pct=50"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-gf-cbr-boost50", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, gfCBRBoostPct: 50, extraArgs: []string{"--gf-cbr-boost=50"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-max-intra-rate100", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, maxIntraBitratePct: 100, extraArgs: []string{"--max-intra-rate=100"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-buffer-1000-500-600", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, bufferSizeMs: 1000, bufferInitialSizeMs: 500, bufferOptimalSizeMs: 600, extraArgs: []string{"--buf-sz=1000", "--buf-initial-sz=500", "--buf-optimal-sz=600"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-kf4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, kfInterval: 4, extraArgs: []string{"--end-usage=cbr", "--kf-min-dist=0", "--kf-max-dist=4"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, threads: 2, extraArgs: []string{"--threads=2"}},
+		// Tune=SSIM on the segmented fixture has only the keyframe
+		// byte-matching; every inter frame diverges in mode-RD because
+		// the activity-tuned RD multiplier picks a different SPLITMV
+		// / NEW shape at the segment boundary. Pin the keyframe-only
+		// prefix while the activity-tune SSIM RD gap is open.
+		{name: "realtime-cbr-cpu-3-64x64-segmented-tune-ssim", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 1, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--tune=ssim"}},
 		// cpu-3 / cpu-8 splitmv 96x96 q-range + bitrate-extreme probes
 		// — the splitmv-96x96 fixture byte-matches at fps=30 default Q,
 		// so q10-30, q40-60, bitrate-200, bitrate-2000 close out the
