@@ -20,6 +20,7 @@ type FrameContext struct {
 	IntraInterProb       [common.IntraInterContexts]uint8
 	ReferenceModeProbs   FrameReferenceModeProbs
 	YModeProb            [BlockSizeGroups][common.IntraModes - 1]uint8
+	UvModeProb           [common.IntraModes][common.IntraModes - 1]uint8
 	PartitionProb        [common.PartitionContexts][common.PartitionTypes - 1]uint8
 	Nmvc                 NmvContext
 }
