@@ -6,11 +6,14 @@
     "commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
     "source_url": "https://chromium.googlesource.com/webm/libvpx/+/refs/tags/v1.16.0"
   },
-  "codec_scope": "VP8 only",
+  "codec_scope": "VP8 plus VP9 full profile 0 only",
   "included_directories": [
     "vp8/common",
     "vp8/decoder",
     "vp8/encoder",
+    "vp9/common",
+    "vp9/decoder",
+    "vp9/encoder",
     "vpx",
     "vpx_dsp",
     "vpx_mem",
@@ -19,10 +22,6 @@
     "vpx_util"
   ],
   "excluded_directories": [
-    {
-      "path": "vp9",
-      "reason": "VP9 is explicitly out of scope"
-    },
     {
       "path": "av1",
       "reason": "AV1 is explicitly out of scope"
@@ -75,5 +74,34 @@
     "vp8/encoder/segmentation.c",
     "vp8/encoder/tokenize.c"
   ],
-  "status": "active pure-Go VP8 scalar port in progress; decoder, packet writer, DSP, postprocess, and initial encoder analysis paths are ported against libvpx v1.16.0 references"
+  "representative_vp9_files": [
+    "vp9/common/vp9_alloccommon.c",
+    "vp9/common/vp9_blockd.c",
+    "vp9/common/vp9_common_data.c",
+    "vp9/common/vp9_entropymode.c",
+    "vp9/common/vp9_entropy.c",
+    "vp9/common/vp9_idct.c",
+    "vp9/common/vp9_loopfilter.c",
+    "vp9/common/vp9_mvref_common.c",
+    "vp9/common/vp9_onyxc_int.h",
+    "vp9/common/vp9_pred_common.c",
+    "vp9/common/vp9_quant_common.c",
+    "vp9/common/vp9_reconinter.c",
+    "vp9/common/vp9_reconintra.c",
+    "vp9/common/vp9_scan.c",
+    "vp9/common/vp9_seg_common.c",
+    "vp9/decoder/vp9_decodeframe.c",
+    "vp9/decoder/vp9_decodemv.c",
+    "vp9/decoder/vp9_decoder.c",
+    "vp9/decoder/vp9_detokenize.c",
+    "vp9/encoder/vp9_bitstream.c",
+    "vp9/encoder/vp9_encodeframe.c",
+    "vp9/encoder/vp9_encodemb.c",
+    "vp9/encoder/vp9_encoder.c",
+    "vp9/encoder/vp9_quantize.c",
+    "vp9/encoder/vp9_ratectrl.c",
+    "vp9/encoder/vp9_rdopt.c",
+    "vp9/encoder/vp9_tokenize.c"
+  ],
+  "status": "active pure-Go VP8 and VP9 profile 0 port in progress; VP9 scope excludes profiles 1/2/3, high bit depth, non-4:2:0 chroma, alpha, containers, AV1, and libvpx C API compatibility; RTP/WebRTC payload compatibility is in scope for both VP8 and VP9"
 }

@@ -132,12 +132,16 @@ func WriteCompressedHeaderNoUpdate(dst []byte, in CompressedHeaderInputs) (int, 
 	return bw.Stop()
 }
 
-// writeTxMode mirrors write_tx_mode. Two-bit cap + an optional 1-bit
-// extension when the selected mode is TxModeSelect.
+// writeTxMode mirrors write_tx_mode. Allow32x32 and TxModeSelect share the
+// two-bit cap; the following extension bit distinguishes fixed vs selected.
 func writeTxMode(bw *bitstream.Writer, m common.TxMode) {
-	if m == common.TxModeSelect {
+	if m >= common.Allow32x32 {
 		bw.WriteLiteral(uint32(common.Allow32x32), 2)
-		bw.WriteBit(1)
+		bit := uint32(0)
+		if m == common.TxModeSelect {
+			bit = 1
+		}
+		bw.WriteBit(bit)
 		return
 	}
 	bw.WriteLiteral(uint32(m), 2)

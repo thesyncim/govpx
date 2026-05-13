@@ -119,7 +119,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 			absCoeff = -absCoeff
 			sign = 1
 		}
-		absVal := (int(absCoeff) << dqShift) / int(dqv)
+		absVal := coefTokenAbsVal(absCoeff, dqv, dqShift)
 		writeTokenForCoeff(bw, probs[:], absVal, sign, branchStats)
 
 		switch {
@@ -140,6 +140,15 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		}
 	}
 	return nil
+}
+
+func coefTokenAbsVal(absCoeff, dqv int16, dqShift uint) int {
+	num := int(absCoeff) << dqShift
+	den := int(dqv)
+	if dqShift != 0 {
+		return (num + den - 1) / den
+	}
+	return num / den
 }
 
 func coefBranchStatsSlot(

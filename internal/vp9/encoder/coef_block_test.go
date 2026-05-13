@@ -225,6 +225,42 @@ func TestWriteCoefBlockCat2UsesLibvpxEnergyClass(t *testing.T) {
 	}
 }
 
+func TestWriteCoefBlockTx32CeilsHalfDequantToken(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan32x32[:]
+	neigh := tables.DefaultScan32x32Neighbors[:]
+	dq := [2]int16{7, 9}
+
+	coeffs := make([]int16, 1024)
+	coeffs[scan[0]] = dq[0] >> 1
+
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+		TxSize:    common.Tx32x32,
+		DequantDC: dq[0],
+		DequantAC: dq[1],
+		Scan:      scan,
+		Neighbors: neigh,
+		Coeffs:    coeffs,
+		Fc:        &fc,
+	}); err != nil {
+		t.Fatalf("WriteCoefBlock: %v", err)
+	}
+	size, _ := bw.Stop()
+	var r bitstream.Reader
+	r.Init(buf[:size])
+	dqcoeff := make([]int16, 1024)
+	got := vp9dec.DecodeCoefs(&r, common.Tx32x32, 0, 0, dq, 0, scan, neigh, &fc, dqcoeff)
+	if got != 1 {
+		t.Errorf("eob got %d want 1", got)
+	}
+	if dqcoeff[scan[0]] != coeffs[scan[0]] {
+		t.Errorf("dqcoeff[scan[0]] = %d want %d", dqcoeff[scan[0]], coeffs[scan[0]])
+	}
+}
+
 func TestWriteCoefBlockBranchStatsIncludeParetoTail(t *testing.T) {
 	fc := seedDefaultCoefProbsForEnc()
 	scan := tables.DefaultScan4x4[:]

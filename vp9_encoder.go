@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	vp9EncoderTxCoeffSlots    = 256
+	vp9EncoderTxCoeffSlots    = 1024
 	vp9EncoderBlockCoeffSlots = 256 * vp9EncoderTxCoeffSlots
 )
 
@@ -112,9 +112,9 @@ type VP9Encoder struct {
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch    [1024]int16
-	residueScratch [256]int16
-	txCoeffScratch [256]int16
-	dqCoeffScratch [256]int16
+	residueScratch [1024]int16
+	txCoeffScratch [1024]int16
+	dqCoeffScratch [1024]int16
 	frameCounts    encoder.FrameCounts
 }
 
@@ -205,10 +205,11 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 }
 
 // EncodeInto packs the next profile 0 frame into dst. The current packet path
-// emits source-backed keyframes with 4x4 residuals and visible LAST/ZeroMv
-// inter frames with optional 4x4 residuals. A deterministic prepass walks the
-// same mode tree to collect frame counts before the compressed header, so the
-// real tile is encoded with same-frame counts-driven probability updates.
+// emits source-backed keyframes and visible LAST/ZeroMv inter frames with
+// fixed-size DCT_DCT residual transforms up to Tx32x32. A deterministic
+// prepass walks the same mode tree to collect frame counts before the
+// compressed header, so the real tile is encoded with same-frame counts-driven
+// probability updates.
 //
 // Returns the number of bytes written into dst. Caller sizes dst; leave room
 // for up to 64 KiB to match libvpx's first-partition header bound.
@@ -275,11 +276,11 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
 
-	txMode := common.Allow16x16
+	txMode := common.Allow32x32
 	baseMi := vp9dec.NeighborMi{
 		SbType: common.Block64x64,
 		Mode:   common.DcPred,
-		TxSize: common.Tx16x16,
+		TxSize: common.Tx32x32,
 		Skip:   1,
 		RefFrame: [2]int8{
 			vp9dec.IntraFrame,
@@ -568,6 +569,9 @@ func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
 }
 
 func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
+	if mi.TxSize >= common.Tx32x32 {
+		return common.Allow32x32
+	}
 	if mi.TxSize >= common.Tx16x16 {
 		return common.Allow16x16
 	}
@@ -1188,11 +1192,20 @@ func (e *VP9Encoder) quantizeVP9TxResidual(dst []byte, stride int,
 		encoder.ForwardDCT8x8Into(e.residueScratch[:], 8, e.txCoeffScratch[:maxEob])
 	case common.Tx16x16:
 		encoder.ForwardDCT16x16Into(e.residueScratch[:], 16, e.txCoeffScratch[:maxEob])
+	case common.Tx32x32:
+		encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
 	default:
 		return false
 	}
-	eob := encoder.QuantizeFP(e.txCoeffScratch[:maxEob], dequant,
-		common.DefaultScanOrders[txSize].Scan, e.dqCoeffScratch[:maxEob])
+	scan := common.DefaultScanOrders[txSize].Scan
+	eob := 0
+	if txSize == common.Tx32x32 {
+		eob = encoder.QuantizeFP32x32(e.txCoeffScratch[:maxEob], dequant,
+			scan, e.dqCoeffScratch[:maxEob])
+	} else {
+		eob = encoder.QuantizeFP(e.txCoeffScratch[:maxEob], dequant,
+			scan, e.dqCoeffScratch[:maxEob])
+	}
 	if eob == 0 {
 		return false
 	}

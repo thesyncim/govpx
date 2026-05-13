@@ -48,6 +48,9 @@ func TestCompressedHeaderRoundTripKeyframeAllow32x32(t *testing.T) {
 	if out.TxMode != common.Allow32x32 {
 		t.Errorf("TxMode = %d, want Allow32x32", out.TxMode)
 	}
+	if br.HasError() {
+		t.Fatal("compressed header reader reported over-read")
+	}
 	// Every probability table should round-trip identical because
 	// no "update?" bit was set.
 	for ctx := range skipContexts {

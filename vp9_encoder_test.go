@@ -184,8 +184,8 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 		KeyFrame:     true,
 		InterpFilter: vp9dec.InterpEighttap,
 	})
-	if out.TxMode != common.Allow16x16 {
-		t.Errorf("TxMode = %d, want Allow16x16", out.TxMode)
+	if out.TxMode != common.Allow32x32 {
+		t.Errorf("TxMode = %d, want Allow32x32", out.TxMode)
 	}
 
 	// Layer 3: tile body. The 1-tile case has no size prefix; the
@@ -235,8 +235,8 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	if leafMi.Skip != 1 {
 		t.Errorf("Skip = %d, want 1", leafMi.Skip)
 	}
-	if leafMi.TxSize != common.Tx16x16 {
-		t.Errorf("TxSize = %d, want Tx16x16", leafMi.TxSize)
+	if leafMi.TxSize != common.Tx32x32 {
+		t.Errorf("TxSize = %d, want Tx32x32", leafMi.TxSize)
 	}
 	if mode.UvMode != common.DcPred {
 		t.Errorf("UV mode = %d, want DcPred", mode.UvMode)
@@ -467,8 +467,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if cr.HasError() {
 		t.Fatal("compressed header reader reported over-read")
 	}
-	if out.TxMode != common.Allow16x16 {
-		t.Errorf("TxMode = %d, want Allow16x16", out.TxMode)
+	if out.TxMode != common.Allow32x32 {
+		t.Errorf("TxMode = %d, want Allow32x32", out.TxMode)
 	}
 	if out.ReferenceMode != vp9dec.SingleReference {
 		t.Errorf("ReferenceMode = %d, want SingleReference", out.ReferenceMode)
@@ -557,8 +557,8 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 			t.Errorf("SB at miCol=%d: Y=%d UV=%d, want DcPred/DcPred",
 				miCol, leafMi.Mode, mode.UvMode)
 		}
-		if leafMi.TxSize != common.Tx16x16 {
-			t.Errorf("SB at miCol=%d: TxSize = %d, want Tx16x16", miCol, leafMi.TxSize)
+		if leafMi.TxSize != common.Tx32x32 {
+			t.Errorf("SB at miCol=%d: TxSize = %d, want Tx32x32", miCol, leafMi.TxSize)
 		}
 		fillMi(0, miCol, common.Block64x64, *leafMi)
 		// Update partition context (decoder side mirror of encoder stamp).
