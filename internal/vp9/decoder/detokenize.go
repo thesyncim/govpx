@@ -75,7 +75,7 @@ func GetCoefContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
 // supplied per-bit probabilities, MSB first. Mirrors read_coeff.
 func readCoeffBits(r *bitstream.Reader, probs []uint8, n int) int {
 	val := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		val = (val << 1) | int(r.Read(uint32(probs[i])))
 	}
 	return val

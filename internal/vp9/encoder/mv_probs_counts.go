@@ -96,7 +96,7 @@ func WriteNmvProbsFromCounts(bw *bitstream.Writer,
 	writeMvUpdate(bw, tables.MvJointTree[:], probs.Joints[:],
 		counts.Joints[:], scratch)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		comp := &probs.Comps[i]
 		ccnt := &counts.Comps[i]
 		UpdateMv(bw, ccnt.Sign, &comp.Sign)
@@ -104,15 +104,15 @@ func WriteNmvProbsFromCounts(bw *bitstream.Writer,
 			ccnt.Classes[:], scratch)
 		writeMvUpdate(bw, tables.MvClass0Tree[:], comp.Class0[:],
 			ccnt.Class0[:], scratch)
-		for j := 0; j < vp9dec.MvOffsetBits; j++ {
+		for j := range vp9dec.MvOffsetBits {
 			UpdateMv(bw, ccnt.Bits[j], &comp.Bits[j])
 		}
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		comp := &probs.Comps[i]
 		ccnt := &counts.Comps[i]
-		for j := 0; j < vp9dec.Class0Size; j++ {
+		for j := range vp9dec.Class0Size {
 			writeMvUpdate(bw, tables.MvFpTree[:], comp.Class0Fp[j][:],
 				ccnt.Class0Fp[j][:], scratch)
 		}
@@ -121,7 +121,7 @@ func WriteNmvProbsFromCounts(bw *bitstream.Writer,
 	}
 
 	if useHp {
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			comp := &probs.Comps[i]
 			ccnt := &counts.Comps[i]
 			UpdateMv(bw, ccnt.Class0Hp, &comp.Class0Hp)

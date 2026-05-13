@@ -77,7 +77,7 @@ func seedFrameContext(fc *vp9dec.FrameContext) {
 	for i := range fc.Nmvc.Joints {
 		fc.Nmvc.Joints[i] = 128
 	}
-	for c := 0; c < 2; c++ {
+	for c := range 2 {
 		cc := &fc.Nmvc.Comps[c]
 		cc.Sign = 128
 		for i := range cc.Classes {

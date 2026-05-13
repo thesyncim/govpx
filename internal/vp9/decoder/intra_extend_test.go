@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -171,11 +172,11 @@ func splitTopLevelCommas(body string) []string {
 }
 
 func stripSpaces(s string) string {
-	out := ""
+	var out strings.Builder
 	for _, ch := range s {
 		if ch != ' ' && ch != '\t' && ch != '\n' {
-			out += string(ch)
+			out.WriteString(string(ch))
 		}
 	}
-	return out
+	return out.String()
 }

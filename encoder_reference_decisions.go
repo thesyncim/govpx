@@ -174,10 +174,7 @@ func (e *VP8Encoder) updateGFActiveMap(refreshGolden bool, modes []vp8enc.InterF
 		e.rc.gfActiveCount = 0
 		return
 	}
-	limit := len(modes)
-	if limit > len(e.gfActiveMap) {
-		limit = len(e.gfActiveMap)
-	}
+	limit := min(len(modes), len(e.gfActiveMap))
 	active := 0
 	for i := 0; i < limit; i++ {
 		mode := modes[i]
@@ -363,10 +360,7 @@ func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 }
 
 func (e *VP8Encoder) libvpxMaxGFInterval() int {
-	maxInterval := int(outputFrameRate(e.timing)/2.0) + 2
-	if maxInterval < 12 {
-		maxInterval = 12
-	}
+	maxInterval := max(int(outputFrameRate(e.timing)/2.0)+2, 12)
 	if staticSceneMax := e.opts.KeyFrameInterval >> 1; staticSceneMax > 0 && maxInterval > staticSceneMax {
 		maxInterval = staticSceneMax
 	}

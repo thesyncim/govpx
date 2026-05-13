@@ -67,7 +67,7 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 	planes[2].AboveContext[0] = 0
 	planes[2].LeftContext[0] = 0
 	dqcoeff := make([]int16, 16)
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &planes[plane]
 		var txSize common.TxSize
 		if plane == 0 {
@@ -97,7 +97,7 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 				if eob != 0 {
 					t.Errorf("plane=%d (rr,cc)=(%d,%d) eob=%d, want 0", plane, rr, cc, eob)
 				}
-				for j := 0; j < step; j++ {
+				for j := range step {
 					pd.AboveContext[cc+j] = 0
 					pd.LeftContext[rr+j] = 0
 				}
@@ -181,7 +181,7 @@ func TestWriteCoefSbIntraScanPick(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 	dqcoeff := make([]int16, 64)
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &planes[plane]
 		var txSize common.TxSize
 		if plane == 0 {
@@ -225,7 +225,7 @@ func TestWriteCoefSbIntraScanPick(t *testing.T) {
 				if eob > 0 {
 					hr = 1
 				}
-				for j := 0; j < step; j++ {
+				for j := range step {
 					pd.AboveContext[cc+j] = hr
 					pd.LeftContext[rr+j] = hr
 				}
@@ -254,7 +254,7 @@ func TestWriteCoefSbBlock8x8WithResidue(t *testing.T) {
 	// Y has 4 tx blocks at (0,0), (0,2), (2,0), (2,2). Stamp non-zero
 	// DC on the first one only.
 	blockCoeffs := map[[3]int][]int16{}
-	for plane := 0; plane < 3; plane++ {
+	for plane := range 3 {
 		for r := 0; r < 2; r += 1 {
 			for c := 0; c < 2; c += 1 {
 				blockCoeffs[[3]int{plane, r, c}] = make([]int16, 16)
@@ -319,7 +319,7 @@ func TestWriteCoefSbBlock8x8WithResidue(t *testing.T) {
 		planes[2].LeftContext[i] = 0
 	}
 	dqcoeff := make([]int16, 16)
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &planes[plane]
 		var txSize common.TxSize
 		if plane == 0 {
@@ -362,7 +362,7 @@ func TestWriteCoefSbBlock8x8WithResidue(t *testing.T) {
 				if eob > 0 {
 					hr = 1
 				}
-				for j := 0; j < step; j++ {
+				for j := range step {
 					pd.AboveContext[cc+j] = hr
 					pd.LeftContext[rr+j] = hr
 				}

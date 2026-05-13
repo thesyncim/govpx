@@ -89,7 +89,7 @@ func TestWriteReferenceModeProbsFromCountsSingleOnly(t *testing.T) {
 	// Both 0-th single_ref probs should have moved away from 128
 	// given the bias.
 	moved := false
-	for i := 0; i < common.RefContexts; i++ {
+	for i := range common.RefContexts {
 		if writerProbs.SingleRefProb[i][0] != 128 {
 			moved = true
 		}

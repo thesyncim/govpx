@@ -77,12 +77,12 @@ func ResetSkipContext(planes []MacroblockdPlane, bsize common.BlockSize, aboveOf
 		bw := int(common.Num4x4BlocksWideLookup[planeBsize])
 		bh := int(common.Num4x4BlocksHighLookup[planeBsize])
 		if i < len(aboveOffsets) && len(pd.AboveContext) >= aboveOffsets[i]+bw {
-			for j := 0; j < bw; j++ {
+			for j := range bw {
 				pd.AboveContext[aboveOffsets[i]+j] = 0
 			}
 		}
 		if i < len(leftOffsets) && len(pd.LeftContext) >= leftOffsets[i]+bh {
-			for j := 0; j < bh; j++ {
+			for j := range bh {
 				pd.LeftContext[leftOffsets[i]+j] = 0
 			}
 		}

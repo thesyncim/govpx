@@ -123,8 +123,8 @@ func TestReadIntraSegmentIdRead(t *testing.T) {
 	if got != want {
 		t.Errorf("got %d, want %d", got, want)
 	}
-	for y := 0; y < 2; y++ {
-		for x := 0; x < 2; x++ {
+	for y := range 2 {
+		for x := range 2 {
 			if maps.CurrentFrameSegMap[y*4+x] != uint8(want) {
 				t.Errorf("seg map [%d,%d] not written", y, x)
 			}

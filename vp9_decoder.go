@@ -66,6 +66,20 @@ type VP9Decoder struct {
 	// SetupSegmentationDequant.
 	dq vp9dec.DequantTables
 
+	// aboveSegCtx / leftSegCtx are the partition-history arrays the
+	// tile mode-info pass stamps while walking SBs. miGrid mirrors the
+	// decoder-visible MODE_INFO grid at 8x8 granularity so above/left
+	// mode contexts match libvpx across SB and tile edges.
+	aboveSegCtx []int8
+	leftSegCtx  []int8
+	miGrid      []vp9dec.NeighborMi
+
+	// segMap is the current-frame segmentation map used by the
+	// mode-info readers; lastSegMap is kept for copy/predicted segment
+	// id paths on later frames.
+	segMap     []uint8
+	lastSegMap []uint8
+
 	// width and height carry the last keyframe's frame dimensions.
 	// Reset on every keyframe; non-zero only after the first
 	// successful keyframe parse.
@@ -97,15 +111,14 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 }
 
 // Decode is the VP9 entry point. The uncompressed and compressed
-// headers are parsed and validated; malformed frames surface as
-// [ErrInvalidVP9Data]. The reconstruct pipeline is still under
-// construction — a valid header pair returns [ErrVP9NotImplemented]
-// for now.
+// headers plus intra-only tile mode-info are parsed and validated;
+// malformed frames surface as [ErrInvalidVP9Data]. The reconstruct
+// pipeline is still under construction — a valid packet returns
+// [ErrVP9NotImplemented] for now.
 //
-// Side effects on success-up-to-header: the decoder's stored frame
-// dimensions, loopfilter state, and segmentation state are updated
-// so a subsequent call to LastFrameSize / LastFrameInfo reflects the
-// latest parse.
+// Side effects on a successful parse: the decoder's stored frame
+// dimensions, loopfilter state, segmentation state, and mode-info
+// buffers are updated so LastFrameSize reflects the latest frame.
 func (d *VP9Decoder) Decode(packet []byte) error {
 	if d == nil || d.closed {
 		return ErrClosed
@@ -144,7 +157,7 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 		if err := cr.Init(packet[uncSize:compEnd]); err != nil {
 			return ErrInvalidVP9Data
 		}
-		vp9dec.ReadCompressedHeader(&cr, &d.fc, vp9dec.ReadCompressedHeaderArgs{
+		compHeader := vp9dec.ReadCompressedHeader(&cr, &d.fc, vp9dec.ReadCompressedHeaderArgs{
 			Lossless:             hdr.Quant.Lossless,
 			IntraOnly:            hdr.IntraOnly,
 			KeyFrame:             hdr.FrameType == common.KeyFrame,
@@ -165,6 +178,12 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 		}, &d.dq)
 		vp9dec.LoopFilterFrameInit(&d.lfi, &hdr.Loopfilter, &hdr.Seg,
 			int(hdr.Loopfilter.FilterLevel))
+
+		if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+			if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
+				return err
+			}
+		}
 	}
 
 	d.lastHeader = hdr

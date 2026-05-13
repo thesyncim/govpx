@@ -29,7 +29,7 @@ func seedDefaultModeProbs(fc *FrameContext) {
 func TestReadIntraModeYInter(t *testing.T) {
 	var fc FrameContext
 	seedDefaultModeProbs(&fc)
-	for sg := 0; sg < 4; sg++ {
+	for sg := range 4 {
 		want := common.D135Pred
 		row := fc.YModeProb[sg]
 		buf := make([]byte, 32)

@@ -191,7 +191,7 @@ func TestReadIntraBlockModeInfoBlock4x4(t *testing.T) {
 	// libvpx walks blocks in order; the i==1,3 cases use the just-decoded
 	// `cur.bmi[i-1]` as the left neighbor for the next iteration. The
 	// encoder mirrors this by recomputing the probs row per block.
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		row := GetYModeProbs(cur, nil, nil, i)
 		emitIntraMode(t, &w, row, int(subs[i]))
 		cur.Bmi[i].AsMode = subs[i]

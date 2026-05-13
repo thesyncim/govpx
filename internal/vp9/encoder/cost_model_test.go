@@ -67,10 +67,7 @@ func TestProbDiffUpdateSavingsSearchModelRoundTrip(t *testing.T) {
 	ct[PivotNode] = [2]uint32{800, 50}
 
 	oldp := uint8(128)
-	bestp := GetBinaryProb(ct[PivotNode][0], ct[PivotNode][1])
-	if bestp < 1 {
-		bestp = 1
-	}
+	bestp := max(GetBinaryProb(ct[PivotNode][0], ct[PivotNode][1]), 1)
 	savings := ProbDiffUpdateSavingsSearchModel(&ct, oldp, &bestp, DiffUpdateProb, 4)
 	if savings <= 0 {
 		t.Skipf("savings=%d, no update path to round-trip", savings)

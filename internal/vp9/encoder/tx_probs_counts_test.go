@@ -13,7 +13,7 @@ import (
 // updated probabilities the savings_search settled on.
 func TestWriteTxModeProbsFromCountsRoundTrip(t *testing.T) {
 	probs := vp9dec.TxProbs{}
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		probs.P8x8[i][0] = 128
 		for j := range probs.P16x16[i] {
 			probs.P16x16[i][j] = 128
@@ -57,15 +57,15 @@ func TestWriteTxModeProbsFromCountsRoundTrip(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 	decProbs := probs
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		vp9dec.VpxDiffUpdateProb(&r, &decProbs.P8x8[i][0])
 	}
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		for j := range decProbs.P16x16[i] {
 			vp9dec.VpxDiffUpdateProb(&r, &decProbs.P16x16[i][j])
 		}
 	}
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		for j := range decProbs.P32x32[i] {
 			vp9dec.VpxDiffUpdateProb(&r, &decProbs.P32x32[i][j])
 		}
@@ -75,7 +75,7 @@ func TestWriteTxModeProbsFromCountsRoundTrip(t *testing.T) {
 	}
 	// Confirm at least one prob moved away from 128.
 	moved := false
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		if writerProbs.P8x8[i][0] != 128 {
 			moved = true
 		}

@@ -55,9 +55,9 @@ func TestLoopFilterFrameInitDefaultNoDeltas(t *testing.T) {
 	lf := &LoopfilterParams{}
 	seg := &SegmentationParams{}
 	LoopFilterFrameInit(&lfi, lf, seg, 25)
-	for s := 0; s < MaxSegments; s++ {
-		for r := 0; r < MaxRefFrames; r++ {
-			for m := 0; m < MaxModeLfDeltas; m++ {
+	for s := range MaxSegments {
+		for r := range MaxRefFrames {
+			for m := range MaxModeLfDeltas {
 				if lfi.Lvl[s][r][m] != 25 {
 					t.Errorf("Lvl[%d][%d][%d]=%d want 25", s, r, m, lfi.Lvl[s][r][m])
 				}

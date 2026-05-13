@@ -75,7 +75,7 @@ func LoopFilterFrameInit(lfi *LoopFilterInfoN, lf *LoopfilterParams,
 	}
 	scale := 1 << uint(defaultFiltLvl>>5)
 
-	for segID := 0; segID < MaxSegments; segID++ {
+	for segID := range MaxSegments {
 		lvlSeg := defaultFiltLvl
 		if SegFeatureActive(seg, segID, SegLvlAltLf) {
 			data := int(GetSegData(seg, segID, SegLvlAltLf))
@@ -87,8 +87,8 @@ func LoopFilterFrameInit(lfi *LoopFilterInfoN, lf *LoopfilterParams,
 		}
 
 		if !lf.ModeRefDeltaEnabled {
-			for ref := 0; ref < MaxRefFrames; ref++ {
-				for mode := 0; mode < MaxModeLfDeltas; mode++ {
+			for ref := range MaxRefFrames {
+				for mode := range MaxModeLfDeltas {
 					lfi.Lvl[segID][ref][mode] = uint8(lvlSeg)
 				}
 			}
@@ -100,7 +100,7 @@ func LoopFilterFrameInit(lfi *LoopFilterInfoN, lf *LoopfilterParams,
 		// libvpx leaves [INTRA_FRAME][1] untouched; we follow suit.
 
 		for ref := LastFrame; ref < MaxRefFrames; ref++ {
-			for mode := 0; mode < MaxModeLfDeltas; mode++ {
+			for mode := range MaxModeLfDeltas {
 				interLvl := lvlSeg +
 					int(lf.RefDeltas[ref])*scale +
 					int(lf.ModeDeltas[mode])*scale

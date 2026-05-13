@@ -61,8 +61,8 @@ func TestDetokTablesMatchLibvpxSource(t *testing.T) {
 	if len(wantP) != 255*8 {
 		t.Fatalf("vp9_pareto8_full: got %d values from source, want 2040", len(wantP))
 	}
-	for r := 0; r < 255; r++ {
-		for c := 0; c < 8; c++ {
+	for r := range 255 {
+		for c := range 8 {
 			if int(Pareto8Full[r][c]) != wantP[r*8+c] {
 				t.Fatalf("Pareto8Full[%d][%d] = %d, libvpx says %d",
 					r, c, Pareto8Full[r][c], wantP[r*8+c])

@@ -126,7 +126,7 @@ func TestUpdatePartitionContext(t *testing.T) {
 	UpdatePartitionContext(above, left, 5, 3, common.Block16x16, 2)
 	wantAbove := common.PartitionContextLookup[common.Block16x16].Above
 	wantLeft := common.PartitionContextLookup[common.Block16x16].Left
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if above[3+i] != wantAbove {
 			t.Errorf("above[%d]=%d want %d", 3+i, above[3+i], wantAbove)
 		}

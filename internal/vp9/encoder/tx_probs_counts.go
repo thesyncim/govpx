@@ -41,13 +41,13 @@ func WriteTxModeProbsFromCounts(bw *bitstream.Writer,
 	probs *vp9dec.TxProbs, counts *TxModeCounts,
 ) {
 	// p8x8: one branch per context — Tx4x4 vs Tx8x8.
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		ct := [2]uint32{counts.P8x8[i][0], counts.P8x8[i][1]}
 		CondProbDiffUpdateFromCounts(bw, &probs.P8x8[i][0], ct)
 	}
 	// p16x16: two branches per context — (Tx4x4, Tx8x8+Tx16x16) and
 	// (Tx8x8, Tx16x16).
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		c := counts.P16x16[i]
 		CondProbDiffUpdateFromCounts(bw, &probs.P16x16[i][0],
 			[2]uint32{c[0], c[1] + c[2]})
@@ -55,7 +55,7 @@ func WriteTxModeProbsFromCounts(bw *bitstream.Writer,
 			[2]uint32{c[1], c[2]})
 	}
 	// p32x32: three branches per context.
-	for i := 0; i < vp9dec.TxSizeContexts; i++ {
+	for i := range vp9dec.TxSizeContexts {
 		c := counts.P32x32[i]
 		CondProbDiffUpdateFromCounts(bw, &probs.P32x32[i][0],
 			[2]uint32{c[0], c[1] + c[2] + c[3]})

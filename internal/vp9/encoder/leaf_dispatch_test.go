@@ -99,7 +99,7 @@ func TestWriteModesBKeyframeNoResidue(t *testing.T) {
 		planes[2].LeftContext[i] = 0
 	}
 	dqcoeff := make([]int16, 16)
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &planes[plane]
 		var txSize common.TxSize
 		if plane == 0 {

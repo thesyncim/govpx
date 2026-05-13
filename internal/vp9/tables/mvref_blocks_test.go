@@ -26,8 +26,8 @@ func TestMvRefBlocksMatchLibvpxSource(t *testing.T) {
 		t.Fatalf("got %d ints from source, want %d", len(want), rows*cols*2)
 	}
 	idx := 0
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			if int(MvRefBlocks[r][c].Row) != want[idx] ||
 				int(MvRefBlocks[r][c].Col) != want[idx+1] {
 				t.Fatalf("MvRefBlocks[%d][%d] = (%d,%d), libvpx says (%d,%d)",

@@ -127,10 +127,7 @@ func BuildIntraPredictors(a BuildIntraPredictorsArgs) {
 				if a.Y0+bs <= a.FrameHeight {
 					copy(leftCol[:bs], ref[:bs])
 				} else {
-					extendBottom := a.FrameHeight - a.Y0
-					if extendBottom > len(ref) {
-						extendBottom = len(ref)
-					}
+					extendBottom := min(a.FrameHeight-a.Y0, len(ref))
 					copy(leftCol[:extendBottom], ref[:extendBottom])
 					last := uint8(0)
 					if extendBottom > 0 {

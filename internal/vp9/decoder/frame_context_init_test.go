@@ -54,7 +54,7 @@ func TestResetFrameContextSeedsAllFields(t *testing.T) {
 	if fc.Nmvc.Joints != tables.DefaultNmvJoints {
 		t.Errorf("Nmvc.Joints mismatch")
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		src := &tables.DefaultNmvComps[i]
 		got := &fc.Nmvc.Comps[i]
 		if got.Sign != src.Sign || got.Classes != src.Classes ||

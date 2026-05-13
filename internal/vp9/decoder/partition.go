@@ -36,7 +36,7 @@ func PartitionPlaneContext(aboveSegCtx, leftSegCtx []int8, miRow, miCol int, bsi
 // `bw` is the count of 8x8 columns the subsize spans (1, 2, 4, or 8).
 func UpdatePartitionContext(aboveSegCtx, leftSegCtx []int8, miRow, miCol int, subsize common.BlockSize, bw int) {
 	ent := common.PartitionContextLookup[subsize]
-	for i := 0; i < bw; i++ {
+	for i := range bw {
 		aboveSegCtx[miCol+i] = int8(ent.Above)
 		leftSegCtx[(miRow&common.MiMask)+i] = int8(ent.Left)
 	}

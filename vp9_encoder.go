@@ -385,14 +385,8 @@ var vp9StubBlockSizeOrder = [...]common.BlockSize{
 func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.BlockSize) common.BlockSize {
 	maxW := int(common.Num8x8BlocksWideLookup[root])
 	maxH := int(common.Num8x8BlocksHighLookup[root])
-	availW := miCols - miCol
-	if availW > maxW {
-		availW = maxW
-	}
-	availH := miRows - miRow
-	if availH > maxH {
-		availH = maxH
-	}
+	availW := min(miCols-miCol, maxW)
+	availH := min(miRows-miRow, maxH)
 	for _, bsize := range vp9StubBlockSizeOrder {
 		if int(common.Num8x8BlocksWideLookup[bsize]) <= availW &&
 			int(common.Num8x8BlocksHighLookup[bsize]) <= availH {

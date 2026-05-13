@@ -47,7 +47,7 @@ func ReadIntraModeUvInter(r *bitstream.Reader, fc *FrameContext, yMode common.Pr
 func ReadIntraBlockModeInfoInter(r *bitstream.Reader, fc *FrameContext, out *NeighborMi) (uvMode common.PredictionMode) {
 	switch out.SbType {
 	case common.Block4x4:
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			out.Bmi[i].AsMode = ReadIntraModeYInter(r, fc, 0)
 		}
 		out.Mode = out.Bmi[3].AsMode

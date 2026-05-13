@@ -66,12 +66,12 @@ func updateCoefProbsTxSize(bw *bitstream.Writer,
 	// Dry run.
 	var totalSavings int64
 	updateCount := 0
-	for i := 0; i < vp9dec.CoefPlaneTypes; i++ {
-		for j := 0; j < vp9dec.CoefRefTypes; j++ {
-			for k := 0; k < vp9dec.CoefBands; k++ {
+	for i := range vp9dec.CoefPlaneTypes {
+		for j := range vp9dec.CoefRefTypes {
+			for k := range vp9dec.CoefBands {
 				bcc := vp9dec.BandCoefContexts(k)
-				for l := 0; l < bcc; l++ {
-					for t := 0; t < UnconstrainedNodes; t++ {
+				for l := range bcc {
+					for t := range UnconstrainedNodes {
 						s, _ := coefSlotSavings(probs, counts, i, j, k, l, t, stepsize)
 						if s > 0 {
 							totalSavings += s - int64(VP9CostZero(DiffUpdateProb))
@@ -92,12 +92,12 @@ func updateCoefProbsTxSize(bw *bitstream.Writer,
 	bw.WriteBit(1)
 
 	// Emit pass.
-	for i := 0; i < vp9dec.CoefPlaneTypes; i++ {
-		for j := 0; j < vp9dec.CoefRefTypes; j++ {
-			for k := 0; k < vp9dec.CoefBands; k++ {
+	for i := range vp9dec.CoefPlaneTypes {
+		for j := range vp9dec.CoefRefTypes {
+			for k := range vp9dec.CoefBands {
 				bcc := vp9dec.BandCoefContexts(k)
-				for l := 0; l < bcc; l++ {
-					for t := 0; t < UnconstrainedNodes; t++ {
+				for l := range bcc {
+					for t := range UnconstrainedNodes {
 						s, newp := coefSlotSavings(probs, counts, i, j, k, l, t, stepsize)
 						oldp := probs[i][j][k][l][t]
 						if s > 0 && newp != oldp {
@@ -122,10 +122,7 @@ func coefSlotSavings(probs *vp9dec.CoefProbsModel,
 	counts *CoefBranchStatsPerTx, i, j, k, l, t int, stepsize int,
 ) (int64, uint8) {
 	oldp := probs[i][j][k][l][t]
-	newp := GetBinaryProb(counts[i][j][k][l][t][0], counts[i][j][k][l][t][1])
-	if newp < 1 {
-		newp = 1
-	}
+	newp := max(GetBinaryProb(counts[i][j][k][l][t][0], counts[i][j][k][l][t][1]), 1)
 	var s int64
 	if t == PivotNode {
 		s = ProbDiffUpdateSavingsSearchModel(&counts[i][j][k][l],

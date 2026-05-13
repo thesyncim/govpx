@@ -105,7 +105,7 @@ type SetupSegmentationDequantArgs struct {
 // cares (we follow suit).
 func SetupSegmentationDequant(seg *SegmentationParams, args SetupSegmentationDequantArgs, out *DequantTables) {
 	if seg.Enabled {
-		for i := 0; i < MaxSegments; i++ {
+		for i := range MaxSegments {
 			qindex := GetSegmentQindex(seg, i, args.BaseQindex)
 			out.Y[i][0] = VpxDcQuant(qindex, args.YDcDeltaQ, args.BitDepth)
 			out.Y[i][1] = VpxAcQuant(qindex, 0, args.BitDepth)

@@ -42,13 +42,13 @@ func WriteReferenceModeProbsFromCounts(bw *bitstream.Writer,
 	mode vp9dec.ReferenceMode, compoundAllowed bool,
 ) {
 	if compoundAllowed && mode == vp9dec.ReferenceModeSelect {
-		for i := 0; i < common.CompInterContexts; i++ {
+		for i := range common.CompInterContexts {
 			CondProbDiffUpdateFromCounts(bw, &probs.CompInterProb[i],
 				counts.CompInter[i])
 		}
 	}
 	if mode != vp9dec.CompoundReference {
-		for i := 0; i < common.RefContexts; i++ {
+		for i := range common.RefContexts {
 			CondProbDiffUpdateFromCounts(bw, &probs.SingleRefProb[i][0],
 				counts.SingleRef[i][0])
 			CondProbDiffUpdateFromCounts(bw, &probs.SingleRefProb[i][1],
@@ -56,7 +56,7 @@ func WriteReferenceModeProbsFromCounts(bw *bitstream.Writer,
 		}
 	}
 	if mode != vp9dec.SingleReference {
-		for i := 0; i < common.RefContexts; i++ {
+		for i := range common.RefContexts {
 			CondProbDiffUpdateFromCounts(bw, &probs.CompRefProb[i],
 				counts.CompRef[i])
 		}

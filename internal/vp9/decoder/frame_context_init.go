@@ -46,7 +46,7 @@ func ResetFrameContext(fc *FrameContext) {
 
 	// NMV context.
 	fc.Nmvc.Joints = tables.DefaultNmvJoints
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		src := &tables.DefaultNmvComps[i]
 		dst := &fc.Nmvc.Comps[i]
 		dst.Sign = src.Sign

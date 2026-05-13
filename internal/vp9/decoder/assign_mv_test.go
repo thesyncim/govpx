@@ -219,7 +219,7 @@ func writeComponentToWriter(t *testing.T, w *bitstream.Writer, c *NmvComponent, 
 		w.Write(uint32(d), uint32(c.Class0[0]))
 	} else {
 		n := mvClass + Class0Bits - 1
-		for i := 0; i < n; i++ {
+		for i := range n {
 			w.Write(uint32((d>>uint(i))&1), uint32(c.Bits[i]))
 		}
 	}

@@ -116,7 +116,7 @@ func ReadIntraBlockModeInfo(r *bitstream.Reader, out *NeighborMi,
 ) (uvMode common.PredictionMode) {
 	switch out.SbType {
 	case common.Block4x4:
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			out.Bmi[i].AsMode = ReadIntraMode(r, GetYModeProbs(out, aboveMi, leftMi, i))
 		}
 		out.Mode = out.Bmi[3].AsMode

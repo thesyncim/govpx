@@ -94,7 +94,7 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 // above/left context bytes from (eob > 0) after each block so the
 // next neighbor read sees the right state.
 func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &a.Planes[plane]
 		planeType := 0
 		if plane > 0 {
@@ -164,7 +164,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 				if eob > 0 {
 					hasResidue = 1
 				}
-				for j := 0; j < step; j++ {
+				for j := range step {
 					aboveCtx[j] = hasResidue
 					leftCtx[j] = hasResidue
 				}

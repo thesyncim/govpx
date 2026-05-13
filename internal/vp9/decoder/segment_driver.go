@@ -20,8 +20,8 @@ import (
 // `currentSeg`, indexing both with miCols stride. Both arguments
 // alias the per-frame segment-id raster maps.
 func CopySegmentId(currentSeg, lastSeg []uint8, miCols, miOffset, xMis, yMis int) {
-	for y := 0; y < yMis; y++ {
-		for x := 0; x < xMis; x++ {
+	for y := range yMis {
+		for x := range xMis {
 			off := miOffset + y*miCols + x
 			if lastSeg != nil {
 				currentSeg[off] = lastSeg[off]
@@ -36,8 +36,8 @@ func CopySegmentId(currentSeg, lastSeg []uint8, miCols, miOffset, xMis, yMis int
 // every entry of the [yMis × xMis] window.
 func SetSegmentId(currentSeg []uint8, miCols, miOffset, xMis, yMis, segID int) {
 	v := uint8(segID)
-	for y := 0; y < yMis; y++ {
-		for x := 0; x < xMis; x++ {
+	for y := range yMis {
+		for x := range xMis {
 			currentSeg[miOffset+y*miCols+x] = v
 		}
 	}

@@ -123,10 +123,7 @@ func CondProbDiffUpdate(bw *bitstream.Writer, oldp, newp uint8) {
 // responsible for keeping *oldp + the returned value coherent
 // across the writer / decoder pair.
 func CondProbDiffUpdateFromCounts(bw *bitstream.Writer, oldp *uint8, ct [2]uint32) uint8 {
-	newp := GetBinaryProb(ct[0], ct[1])
-	if newp < 1 {
-		newp = 1
-	}
+	newp := max(GetBinaryProb(ct[0], ct[1]), 1)
 	savings := ProbDiffUpdateSavingsSearch(ct, *oldp, &newp, DiffUpdateProb)
 	if savings > 0 {
 		bw.Write(1, DiffUpdateProb)

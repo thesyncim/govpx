@@ -340,7 +340,7 @@ func TestGFActiveMapTracksLibvpxUsageRules(t *testing.T) {
 	if e.rc.gfActiveCount != 3 {
 		t.Fatalf("gfActiveCount after refresh reset = %d, want 3", e.rc.gfActiveCount)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !e.gfActiveMap[i] {
 			t.Fatalf("gfActiveMap[%d] after refresh = false, want true", i)
 		}

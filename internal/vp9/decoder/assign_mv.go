@@ -61,7 +61,7 @@ func AssignMv(
 	case common.NewMv:
 		ret := 1
 		halves := 1 + isCompound
-		for i := 0; i < halves; i++ {
+		for i := range halves {
 			ReadMv(r, &mv[i], &refMv[i], &fc.Nmvc, allowHp)
 			if !IsMvValid(mv[i]) {
 				ret = 0

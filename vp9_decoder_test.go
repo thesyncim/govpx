@@ -4,6 +4,8 @@ import (
 	"errors"
 	"image"
 	"testing"
+
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestNewVP9DecoderZeroValueOptions: the zero value of options
@@ -116,11 +118,11 @@ func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesEncoderKeyframeCompressedHeader feeds the
-// current encoder stub into the public decoder. Decode parses both
-// uncompressed and compressed headers, updates frame dimensions, then
-// stops at the reconstruct boundary.
-func TestVP9DecoderParsesEncoderKeyframeCompressedHeader(t *testing.T) {
+// TestVP9DecoderParsesEncoderKeyframeModeTile feeds the current
+// encoder stub into the public decoder. Decode parses uncompressed /
+// compressed headers plus the keyframe tile mode-info stream, updates
+// frame dimensions, then stops at the reconstruct boundary.
+func TestVP9DecoderParsesEncoderKeyframeModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	packet, err := e.Encode(img)
@@ -142,11 +144,11 @@ func TestVP9DecoderParsesEncoderKeyframeCompressedHeader(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader covers the
-// second-frame fallback path. It depends on the first keyframe parse
-// to seed preserved header state before the intra-only inter header
-// and compressed header are read.
-func TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader(t *testing.T) {
+// TestVP9DecoderParsesEncoderIntraOnlyModeTile covers the second-frame
+// fallback path. It depends on the first keyframe parse to seed
+// preserved header state before the intra-only inter header,
+// compressed header, and tile mode-info stream are read.
+func TestVP9DecoderParsesEncoderIntraOnlyModeTile(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
 	key, err := e.Encode(img)
@@ -174,8 +176,83 @@ func TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderDecodeSteadyStateAlloc keeps the public compressed-
-// header parse path allocation-free after construction.
+// TestVP9DecoderParsesEncoderEdgeClippedModeTiles covers the same
+// partial-SB shapes as the vpxdec oracle, but through the public
+// decoder's tile-mode parser for both keyframe and intra-only frames.
+func TestVP9DecoderParsesEncoderEdgeClippedModeTiles(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h int
+	}{
+		{"right-edge", 96, 64},
+		{"bottom-edge", 64, 96},
+		{"corner-edge", 96, 96},
+		{"sub-sb", 32, 32},
+		{"odd-visible", 70, 70},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: tc.w, Height: tc.h})
+			img := image.NewYCbCr(image.Rect(0, 0, tc.w, tc.h), image.YCbCrSubsampleRatio420)
+			key, err := e.Encode(img)
+			if err != nil {
+				t.Fatalf("Encode keyframe: %v", err)
+			}
+			inter, err := e.Encode(img)
+			if err != nil {
+				t.Fatalf("Encode intra-only: %v", err)
+			}
+
+			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			if err != nil {
+				t.Fatalf("NewVP9Decoder: %v", err)
+			}
+			if err := d.Decode(key); !errors.Is(err, ErrVP9NotImplemented) {
+				t.Fatalf("Decode keyframe err = %v, want ErrVP9NotImplemented", err)
+			}
+			if err := d.Decode(inter); !errors.Is(err, ErrVP9NotImplemented) {
+				t.Fatalf("Decode intra-only err = %v, want ErrVP9NotImplemented", err)
+			}
+			w, h := d.LastFrameSize()
+			if w != tc.w || h != tc.h {
+				t.Fatalf("LastFrameSize() = (%d, %d), want (%d, %d)",
+					w, h, tc.w, tc.h)
+			}
+		})
+	}
+}
+
+// TestVP9DecoderRejectsMissingModeTile ensures a packet with valid
+// headers but no tile body fails in the mode-info pass before the
+// decoder publishes the new frame size.
+func TestVP9DecoderRejectsMissingModeTile(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	tileStart, err := vp9TileStartForTest(packet)
+	if err != nil {
+		t.Fatalf("vp9TileStartForTest: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	err = d.Decode(packet[:tileStart])
+	if !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 0 || h != 0 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (0, 0)", w, h)
+	}
+}
+
+// TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
+// tile-mode parse path allocation-free after construction.
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
 	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
@@ -201,6 +278,16 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("Decode steady state: got %v allocs/op, want 0", allocs)
 	}
+}
+
+func vp9TileStartForTest(packet []byte) (int, error) {
+	var br vp9dec.BitReader
+	br.Init(packet)
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	return br.BytesRead() + int(hdr.FirstPartitionSize), nil
 }
 
 // TestVP9DecoderMaxWidthRejectsLargerKeyframe: a header whose width

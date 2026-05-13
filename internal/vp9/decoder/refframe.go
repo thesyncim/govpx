@@ -127,8 +127,8 @@ func ReadRefFrames(r *bitstream.Reader,
 // asserts < MaxSegments in caller scope.
 func DecGetSegmentId(segmentIDs []uint8, miCols, miOffset, xMis, yMis int) int {
 	segID := MaxSegments
-	for y := 0; y < yMis; y++ {
-		for x := 0; x < xMis; x++ {
+	for y := range yMis {
+		for x := range xMis {
 			v := int(segmentIDs[miOffset+y*miCols+x])
 			if v < segID {
 				segID = v
