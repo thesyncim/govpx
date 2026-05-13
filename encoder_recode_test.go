@@ -204,6 +204,7 @@ func TestRecodeForcedKeyFrameRetriesAtAdjustedQ(t *testing.T) {
 	// outcome depends on the encoded SS error, but the loop must terminate
 	// and the loop counter must be at least 1.
 	enc := newTestEncoder(t)
+	enableOracleTraceForTest(enc)
 	enc.thisKeyFrameForced = true
 	enc.ambientErr = 1
 	enc.frameCount = 1
