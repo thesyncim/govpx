@@ -305,10 +305,22 @@ func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, g
 	last = flags&EncodeNoReferenceLast == 0
 	golden = flags&EncodeNoReferenceGolden == 0
 	alt = flags&EncodeNoReferenceAltRef == 0
-	if e.goldenRefAliasesLast {
+	// Reference-alias deduplication: when two reference buffers hold
+	// the same pixel data the picker only needs to consider the
+	// primary one. The primary is LAST when reachable; otherwise we
+	// fall through to GOLDEN as the surviving slot. Mirrors libvpx's
+	// vp8/encoder/onyx_if.c picker behaviour for the NO_REF_LAST
+	// boundary right after a keyframe: cpi->ref_frame_flags masks LAST
+	// out but GOLDEN/ALTREF (which point at the just-refreshed KF
+	// reconstruction) remain valid picker candidates, so libvpx codes
+	// an inter frame whose MBs naturally fall back to zero-MV against
+	// the KF-aliased GOLDEN. Disabling the aliased slot unconditionally
+	// here would mask every reference and push govpx onto the
+	// keyframe-promotion path, which diverges from libvpx.
+	if e.goldenRefAliasesLast && last {
 		golden = false
 	}
-	if e.altRefAliasesLast || e.goldenRefAliasesAlt {
+	if (e.altRefAliasesLast && last) || (e.goldenRefAliasesAlt && golden) {
 		alt = false
 	}
 	return last, golden, alt
