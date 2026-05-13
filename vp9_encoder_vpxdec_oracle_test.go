@@ -10,6 +10,7 @@ import (
 	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
@@ -97,6 +98,26 @@ func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 7, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
+func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 128, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := predictedVP9ReferenceYCbCrForTest(t,
+		e.refFrames[0].img, vp9dec.MV{Col: 58})
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)

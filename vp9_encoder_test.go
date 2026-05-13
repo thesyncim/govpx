@@ -99,6 +99,51 @@ func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
 	return img
 }
 
+func predictedVP9ReferenceYCbCrForTest(t *testing.T, ref Image, mv vp9dec.MV) *image.YCbCr {
+	t.Helper()
+	var d VP9Decoder
+	vp9dec.SetupBlockPlanes(&d.planes, 1, 1)
+	d.prepareVP9OutputFrame(ref.Width, ref.Height)
+	d.refFrames[0].store(ref)
+	hdr := vp9dec.UncompressedHeader{
+		Width:  uint32(ref.Width),
+		Height: uint32(ref.Height),
+		InterRef: vp9dec.InterRefBlock{
+			RefIndex: [3]uint8{0, 0, 0},
+		},
+		InterpFilter: vp9dec.InterpEighttap,
+	}
+	miRows := (ref.Height + 7) >> 3
+	miCols := (ref.Width + 7) >> 3
+	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
+		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+			bsize := vp9StubBlockSizeForRegion(miRows, miCols,
+				miRow, miCol, common.Block64x64)
+			mi := vp9dec.NeighborMi{
+				SbType:       bsize,
+				Mode:         common.NewMv,
+				InterpFilter: uint8(vp9dec.InterpEighttap),
+				RefFrame: [2]int8{
+					vp9dec.LastFrame,
+					vp9dec.NoRefFrame,
+				},
+				Mv: [2]vp9dec.MV{mv},
+			}
+			if !d.reconstructVP9InterPredictBlock(&hdr, &mi,
+				miRow, miCol, vp9ModeInfoDecodeBSize(bsize)) {
+				t.Fatalf("reconstruct predictor block at mi %d,%d failed", miRow, miCol)
+			}
+		}
+	}
+	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
+	copyPlane(img.Y, img.YStride, d.lastFrame.Y, d.lastFrame.YStride, ref.Width, ref.Height)
+	uvWidth := (ref.Width + 1) >> 1
+	uvHeight := (ref.Height + 1) >> 1
+	copyPlane(img.Cb, img.CStride, d.lastFrame.U, d.lastFrame.UStride, uvWidth, uvHeight)
+	copyPlane(img.Cr, img.CStride, d.lastFrame.V, d.lastFrame.VStride, uvWidth, uvHeight)
+	return img
+}
+
 func clampVP9IntForTest(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -533,6 +578,46 @@ func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after odd-MV inter frame")
+	}
+}
+
+func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9MotionYCbCrForTest(width, height)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	want := vp9dec.MV{Col: 58}
+	interSrc := predictedVP9ReferenceYCbCrForTest(t, e.refFrames[0].img, want)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode inter: %v", err)
+	}
+	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
+		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
+			got.Mode, got.Mv[0], want)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after quarter-pel inter frame")
 	}
 }
 
