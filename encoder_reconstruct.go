@@ -636,7 +636,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// diverge.
 				if traceEnabled {
 					e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-					e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+					e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, decision.projectedRate, totalRate)
 				}
 				continue
 			}
@@ -654,7 +654,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			if traceEnabled {
 				e.emitOracleInterReconstructedTrace(row, col, &e.analysis.Img)
-				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.projectedRate, totalRate)
+				e.emitOracleMBTrace(row, col, &modes[index], &coeffs[index], decision.improvedMVStart, decision.projectedRate, totalRate)
 			}
 		}
 		vp8enc.MarkInterCoefficientTokenRecordRowEnd(&e.interCoefTokenRecords, row)

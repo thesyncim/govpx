@@ -108,6 +108,7 @@ func (e *VP8Encoder) emitOracleMBTrace(
 	mbRow int, mbCol int,
 	mode *vp8enc.InterFrameMacroblockMode,
 	coeffs *vp8enc.MacroblockCoefficients,
+	improvedStart interFrameSearchStart,
 	mbRate int, aggregatedRate int,
 ) {
 	if !e.oracleTraceEnabled() || mode == nil || coeffs == nil {
@@ -130,6 +131,13 @@ func (e *VP8Encoder) emitOracleMBTrace(
 
 		MBRate:         mbRate,
 		AggregatedRate: aggregatedRate,
+	}
+	if improvedStart.ok {
+		row.ImprovedMVStart = true
+		row.ImprovedMVNearSADIndex = improvedStart.nearSADIndex
+		row.ImprovedMVRow = improvedStart.mv.Row
+		row.ImprovedMVCol = improvedStart.mv.Col
+		row.ImprovedMVSR = improvedStart.sr
 	}
 	if mode.Mode == vp8common.SplitMV {
 		partition := int(mode.Partition)
