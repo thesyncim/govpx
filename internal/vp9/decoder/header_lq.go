@@ -97,7 +97,7 @@ type TileInfo struct {
 // to pick the valid (min, max) tile column range. Returns ErrInvalid
 // Header if tile_cols exceeds 6 (the VP9 spec limit).
 func ReadTileInfo(r *BitReader, miCols int, tile *TileInfo) error {
-	minLog2, maxLog2 := tileNBits(miCols)
+	minLog2, maxLog2 := TileNBits(miCols)
 
 	tile.Log2TileCols = minLog2
 	for n := maxLog2 - minLog2; n > 0; n-- {
@@ -117,9 +117,9 @@ func ReadTileInfo(r *BitReader, miCols int, tile *TileInfo) error {
 	return nil
 }
 
-// tileNBits mirrors vp9_get_tile_n_bits. Returns (min, max) for the
+// TileNBits mirrors vp9_get_tile_n_bits. Returns (min, max) for the
 // log2_tile_cols range based on the frame's mode-info column count.
-func tileNBits(miCols int) (minLog2, maxLog2 int) {
+func TileNBits(miCols int) (minLog2, maxLog2 int) {
 	const (
 		miBlockSizeLog2 = common.MiBlockSizeLog2
 		minTileWidthB64 = 4

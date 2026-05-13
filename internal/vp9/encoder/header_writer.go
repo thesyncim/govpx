@@ -108,7 +108,7 @@ func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 	encodeQuantization(w, &h.Quant)
 	encodeSegmentation(w, &h.Seg)
 	miCols := int((h.Width + 7) >> 3)
-	writeTileInfo(w, &h.Tile, miCols)
+	WriteTileInfo(w, &h.Tile, miCols)
 
 	w.WriteLiteral(uint32(h.FirstPartitionSize), 16)
 	return w.BytesWritten()
@@ -216,7 +216,7 @@ func writeUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader, keyfram
 	encodeQuantization(w, &h.Quant)
 	encodeSegmentation(w, &h.Seg)
 	miCols := int((h.Width + 7) >> 3)
-	writeTileInfo(w, &h.Tile, miCols)
+	WriteTileInfo(w, &h.Tile, miCols)
 
 	w.WriteLiteral(uint32(h.FirstPartitionSize), 16)
 	return w.BytesWritten()
@@ -364,12 +364,15 @@ func encodeSegmentation(w *BitWriter, seg *vp9dec.SegmentationParams) {
 	w.WriteBit(0) // update_data
 }
 
-// writeTileInfo mirrors write_tile_info. Compute (min, max) log2
-// tile-cols from mi_cols, emit (current - min) one-bits + a zero if
-// we're not at max, then 1 bit for log2_tile_rows != 0 and (if so) a
-// second bit for log2_tile_rows != 1.
-func writeTileInfo(w *BitWriter, t *vp9dec.TileInfo, miCols int) {
-	minLog2, maxLog2 := tileNBits(miCols)
+// WriteTileInfo mirrors libvpx's write_tile_info inline in
+// vp9/encoder/vp9_bitstream.c. Computes (min, max) log2 tile-cols
+// from the frame's mi_cols (via vp9dec.TileNBits, the canonical
+// source already shared with the decoder), emits (current - min)
+// one-bits + a zero terminator if we're not at max, then 1 bit for
+// log2_tile_rows != 0 and (if so) a second bit for log2_tile_rows
+// != 1. The bit pattern round-trips through ReadTileInfo.
+func WriteTileInfo(w *BitWriter, t *vp9dec.TileInfo, miCols int) {
+	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
 	ones := t.Log2TileCols - minLog2
 	for range ones {
 		w.WriteBit(1)
@@ -387,26 +390,4 @@ func writeTileInfo(w *BitWriter, t *vp9dec.TileInfo, miCols int) {
 	} else {
 		w.WriteBit(0)
 	}
-}
-
-func tileNBits(miCols int) (minLog2, maxLog2 int) {
-	const (
-		miBlockSizeLog2 = common.MiBlockSizeLog2
-		minTileWidthB64 = 4
-		maxTileWidthB64 = 64
-	)
-	sb64Cols := alignPowerOfTwo(miCols, miBlockSizeLog2) >> miBlockSizeLog2
-	for (maxTileWidthB64 << minLog2) < sb64Cols {
-		minLog2++
-	}
-	maxLog2 = 1
-	for (sb64Cols >> maxLog2) >= minTileWidthB64 {
-		maxLog2++
-	}
-	maxLog2--
-	return
-}
-
-func alignPowerOfTwo(value, n int) int {
-	return (value + (1 << uint(n)) - 1) &^ ((1 << uint(n)) - 1)
 }

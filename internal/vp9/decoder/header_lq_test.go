@@ -126,7 +126,7 @@ func TestTileNBits(t *testing.T) {
 		{8, 0, 0},
 	}
 	for _, c := range cases {
-		minLog, maxLog := tileNBits(c.miCols)
+		minLog, maxLog := TileNBits(c.miCols)
 		if minLog != c.minLog || maxLog != c.maxLog {
 			t.Errorf("miCols=%d: got (min=%d, max=%d), want (min=%d, max=%d)",
 				c.miCols, minLog, maxLog, c.minLog, c.maxLog)
