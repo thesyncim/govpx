@@ -42,6 +42,26 @@ func TestInterPredictorCopyAvg(t *testing.T) {
 	}
 }
 
+// TestInterPredictorScaledHorizDispatchHitsKernel catches the scaled-ref
+// integer-origin path: subpel offsets are zero, but x_step_q4 != 16 must
+// still dispatch through the horizontal convolve kernel instead of copy.
+func TestInterPredictorScaledHorizDispatchHitsKernel(t *testing.T) {
+	src := make([]byte, 24*4)
+	for i := range src {
+		src[i] = byte((i*7 + 3) % 251)
+	}
+	dst1 := make([]byte, 4*4)
+	dst2 := make([]byte, 4*4)
+	srcOffset := 3
+	InterPredictor(src, 24, dst1, 4, 0, 0, &tables.SubPelFilters8, 32, 16, 4, 4, 0, srcOffset)
+	dsp.VpxConvolve8Horiz(src, 24, dst2, 4, &tables.SubPelFilters8, 0, 32, 0, 16, 4, 4, srcOffset)
+	for i := range dst1 {
+		if dst1[i] != dst2[i] {
+			t.Errorf("[%d]: got %d want %d", i, dst1[i], dst2[i])
+		}
+	}
+}
+
 // TestInterPredictorHorizDispatchHitsKernel routes a hasHoriz=1 call
 // through VpxConvolve8Horiz and matches a direct call output.
 func TestInterPredictorHorizDispatchHitsKernel(t *testing.T) {

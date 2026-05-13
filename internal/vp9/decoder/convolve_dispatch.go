@@ -85,11 +85,11 @@ func InterPredictor(
 	srcOffset int,
 ) {
 	hx := 0
-	if subpelX != 0 {
+	if subpelX != 0 || xStepQ4 != SubpelShifts {
 		hx = 1
 	}
 	hy := 0
-	if subpelY != 0 {
+	if subpelY != 0 || yStepQ4 != SubpelShifts {
 		hy = 1
 	}
 	PredictTable[hx][hy][ref](src, srcStride, dst, dstStride, filter,

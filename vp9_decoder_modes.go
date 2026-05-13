@@ -723,7 +723,10 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if !ref.valid {
 				return false
 			}
-			if ref.img.Width != int(hdr.Width) || ref.img.Height != int(hdr.Height) {
+			var sf vp9dec.ScaleFactors
+			vp9dec.SetupScaleFactorsForFrame(&sf, ref.img.Width, ref.img.Height,
+				int(hdr.Width), int(hdr.Height))
+			if !sf.IsValidScale() {
 				d.unsupportedReconstruct = true
 				return true
 			}
@@ -741,7 +744,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				return false
 			}
 			avg := refIdx == 1
-			if mi.Mv[refIdx] == (vp9dec.MV{}) {
+			if !sf.IsScaled() && mi.Mv[refIdx] == (vp9dec.MV{}) {
 				w := min(bw, min(dstStride-x0, srcStride-x0))
 				h := min(bh, min(dstRows-y0, srcRows-y0))
 				if w <= 0 || h <= 0 {
@@ -759,7 +762,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
 				miRow, miCol, x0, y0, bw, bh,
 				dst, dstStride, dstRows, src, srcStride, srcRows,
-				srcWidth, srcHeight, mi.Mv[refIdx], vp9BoolInt(avg)) {
+				srcWidth, srcHeight, &sf, mi.Mv[refIdx], vp9BoolInt(avg)) {
 				return false
 			}
 		}
@@ -794,6 +797,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	src []byte,
 	srcStride, srcRows int,
 	srcWidth, srcHeight int,
+	sf *vp9dec.ScaleFactors,
 	mv vp9dec.MV,
 	avg int,
 ) bool {
@@ -812,44 +816,83 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	}
 	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mv, bw, bh,
 		int(pd.SubsamplingX), int(pd.SubsamplingY))
-	subpelX := int(mvQ4.Col) & (vp9dec.SubpelShifts - 1)
-	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
-	srcX := x0 + (int(mvQ4.Col) >> vp9dec.SubpelBitsConst)
-	srcY := y0 + (int(mvQ4.Row) >> vp9dec.SubpelBitsConst)
-	left, right, top, bottom := vp9InterPredictSourceMargins(subpelX, subpelY)
-	if !vp9InterPredictSourceInBounds(srcX, srcY, bw, bh,
-		srcWidth, srcHeight, subpelX, subpelY) {
-		src, srcStride, srcX, srcY = d.vp9ExtendInterPredictSource(src, srcStride,
-			srcWidth, srcHeight, srcX, srcY, bw, bh, left, right, top, bottom)
-		srcRows = (bh + top + bottom)
+	srcX := x0
+	srcY := y0
+	srcX16 := srcX << vp9dec.SubpelBitsConst
+	srcY16 := srcY << vp9dec.SubpelBitsConst
+	scaledMV := vp9dec.MV32{Row: int32(mvQ4.Row), Col: int32(mvQ4.Col)}
+	xStepQ4 := vp9dec.SubpelShifts
+	yStepQ4 := vp9dec.SubpelShifts
+	scaled := sf != nil && sf.IsScaled()
+	if scaled {
+		srcX16 = sf.ScaleValueX(srcX16)
+		srcY16 = sf.ScaleValueY(srcY16)
+		srcX = sf.ScaleValueX(srcX)
+		srcY = sf.ScaleValueY(srcY)
+		scaledMV = vp9dec.ScaleMv(mvQ4, miCol*common.MiSize, miRow*common.MiSize, sf)
+		xStepQ4 = sf.XStepQ4
+		yStepQ4 = sf.YStepQ4
 	}
-	if !vp9InterPredictSourceInBounds(srcX, srcY, bw, bh,
-		srcStride, srcRows, subpelX, subpelY) ||
-		x0+bw > dstStride || y0+bh > dstRows {
+	subpelX := int(scaledMV.Col) & (vp9dec.SubpelShifts - 1)
+	subpelY := int(scaledMV.Row) & (vp9dec.SubpelShifts - 1)
+	srcX += int(scaledMV.Col) >> vp9dec.SubpelBitsConst
+	srcY += int(scaledMV.Row) >> vp9dec.SubpelBitsConst
+	srcX16 += int(scaledMV.Col)
+	srcY16 += int(scaledMV.Row)
+
+	srcOffset := srcY*srcStride + srcX
+	if scaled || scaledMV.Col != 0 || scaledMV.Row != 0 ||
+		(srcWidth&0x7) != 0 || (srcHeight&0x7) != 0 {
+		x1 := ((srcX16 + (bw-1)*xStepQ4) >> vp9dec.SubpelBitsConst) + 1
+		y1 := ((srcY16 + (bh-1)*yStepQ4) >> vp9dec.SubpelBitsConst) + 1
+		extX0, extY0 := srcX, srcY
+		xPad, yPad := 0, 0
+		if subpelX != 0 || xStepQ4 != vp9dec.SubpelShifts {
+			extX0 -= vp9dec.VP9InterpExtend - 1
+			x1 += vp9dec.VP9InterpExtend
+			xPad = 1
+		}
+		if subpelY != 0 || yStepQ4 != vp9dec.SubpelShifts {
+			extY0 -= vp9dec.VP9InterpExtend - 1
+			y1 += vp9dec.VP9InterpExtend
+			yPad = 1
+		}
+		if extX0 < 0 || extX0 > srcWidth-1 || x1 < 0 || x1 > srcWidth-1 ||
+			extY0 < 0 || extY0 > srcHeight-1 || y1 < 0 || y1 > srcHeight-1 {
+			extW := x1 - extX0 + 1
+			extH := y1 - extY0 + 1
+			if extW <= 0 || extH <= 0 {
+				return false
+			}
+			borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
+				xPad*(vp9dec.VP9InterpExtend-1)
+			src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(
+				src, srcStride, srcWidth, srcHeight, extX0, extY0, extW, extH,
+				borderOffset)
+			srcRows = extH
+		}
+	}
+	if srcOffset < 0 || srcOffset >= len(src) ||
+		x0+bw > dstStride || y0+bh > dstRows || srcRows <= 0 {
 		return false
 	}
 	vp9dec.InterPredictor(src, srcStride, dst[y0*dstStride+x0:], dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
-		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, avg,
-		srcY*srcStride+srcX)
+		xStepQ4, yStepQ4, bw, bh, avg, srcOffset)
 	return true
 }
 
 func (d *VP9Decoder) vp9ExtendInterPredictSource(src []byte, srcStride int,
 	srcWidth, srcHeight int,
-	srcX, srcY, bw, bh int,
-	left, right, top, bottom int,
-) ([]byte, int, int, int) {
-	extStride := bw + left + right
-	extRows := bh + top + bottom
+	startX, startY, extStride, extRows int,
+	srcOffset int,
+) ([]byte, int, int) {
 	need := extStride * extRows
 	if cap(d.interPredictScratch) < need {
 		d.interPredictScratch = make([]byte, need)
 	} else {
 		d.interPredictScratch = d.interPredictScratch[:need]
 	}
-	startX := srcX - left
-	startY := srcY - top
 	for y := range extRows {
 		sy := vp9ClampInt(startY+y, 0, srcHeight-1)
 		srcRow := src[sy*srcStride:]
@@ -859,7 +902,7 @@ func (d *VP9Decoder) vp9ExtendInterPredictSource(src []byte, srcStride int,
 			dstRow[x] = srcRow[sx]
 		}
 	}
-	return d.interPredictScratch, extStride, left, top
+	return d.interPredictScratch, extStride, srcOffset
 }
 
 func vp9InterPredictSourceInBounds(srcX, srcY, bw, bh int,

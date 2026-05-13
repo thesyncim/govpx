@@ -30,6 +30,24 @@ func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderVpxdecOracleMatchesSegmentedAltQKeyframe(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	packet := vp9SegmentedAltQKeyframeForTest(t)
+	ivf := vp9IVFForTest(64, 64, packet)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, packet)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for segmented alt-q keyframe\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
 func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 
@@ -44,6 +62,68 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipStream(t *testing.T) {
 	got := vp9DecodeVisibleI420ForTest(t, key, inter)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("I420 mismatch for skipped inter stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesScaledZeroMvInterStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9SegmentedAltQKeyframeForTest(t)
+	inter := vp9ScaledZeroMvInterFrameForTest(t, 32, 32, 64, 64)
+	ivf := vp9IVFForTest(64, 64, key, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for scaled zero-mv inter stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterSkipStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
+		1<<uint(vp9CompoundAltrefSlotForTest), 96)
+	inter := vp9SegmentedAltrefInterSkipFrameForTest(t)
+	ivf := vp9IVFForTest(64, 64, key, hidden, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, hidden, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for segmented altref inter skip stream\nlibvpx=%s\ngovpx=%s",
+			testutil.MD5Hex(md5.Sum(want)),
+			testutil.MD5Hex(md5.Sum(got)))
+	}
+}
+
+func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterMapReuseStream(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
+		1<<uint(vp9CompoundAltrefSlotForTest), 96)
+	seed := vp9SegmentedAltrefInterSkipFrameForTest(t)
+	inter := vp9SegmentedAltrefInterSkipMapReuseFrameForTest(t)
+	ivf := vp9IVFForTest(64, 64, key, hidden, seed, inter)
+	want, diag, err := coracle.VpxdecVP9DecodeI420(ivf)
+	if err != nil {
+		t.Fatalf("vpxdec-vp9 decode failed: %v\n%s", err, diag)
+	}
+
+	got := vp9DecodeVisibleI420ForTest(t, key, hidden, seed, inter)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("I420 mismatch for segmented altref inter map-reuse stream\nlibvpx=%s\ngovpx=%s",
 			testutil.MD5Hex(md5.Sum(want)),
 			testutil.MD5Hex(md5.Sum(got)))
 	}
