@@ -34,6 +34,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	panning32 := fixture{name: "panning-32x32", w: 32, h: 32, source: encoderValidationPanningFrame}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
 	segmented64 := fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}
+	temporalLayerOverrideIDs := []int{0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1}
 
 	type runtimeCase struct {
 		name       string
@@ -381,6 +382,30 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "temporal-layer-id-manual-transition",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 1200
+				opts.TemporalScalability = TemporalScalabilityConfig{
+					Enabled:                true,
+					Mode:                   TemporalLayeringTwoLayers,
+					LayerTargetBitrateKbps: [MaxTemporalLayers]int{720, 1200},
+				}
+				return opts
+			}(),
+			flags:  temporalTwoLayerFlags(frames),
+			script: temporalLayerIDScript(frames, temporalLayerOverrideIDs),
+			apply:  temporalLayerIDApply(temporalLayerOverrideIDs),
+			extraArgs: []string{
+				"--temporal-layers=2",
+				"--temporal-bitrates=720,1200",
+				"--temporal-decimators=2,1",
+				"--temporal-periodicity=2",
+				"--temporal-layer-ids=0,1",
+			},
+		},
+		{
 			name: "roi-map-quadrants-toggle",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
@@ -431,6 +456,43 @@ func runtimeControlScript(frames int, updates map[int]string) []string {
 		}
 	}
 	return script
+}
+
+func temporalTwoLayerFlags(frames int) []EncodeFlags {
+	flags := make([]EncodeFlags, frames)
+	for i := range flags {
+		if i%2 == 0 {
+			flags[i] = EncodeNoUpdateGolden | EncodeNoUpdateAltRef | EncodeNoReferenceGolden | EncodeNoReferenceAltRef
+			if i == 0 {
+				flags[i] |= EncodeForceKeyFrame
+			}
+			continue
+		}
+		flags[i] = EncodeNoUpdateAltRef | EncodeNoUpdateLast | EncodeNoReferenceAltRef
+	}
+	return flags
+}
+
+func temporalLayerIDScript(frames int, ids []int) []string {
+	script := runtimeControlScript(frames, nil)
+	for frame, id := range ids {
+		if frame >= 0 && frame < frames {
+			script[frame] = "tlid:" + strconv.Itoa(id)
+		}
+	}
+	return script
+}
+
+func temporalLayerIDApply(ids []int) map[int]func(*testing.T, *VP8Encoder) {
+	apply := make(map[int]func(*testing.T, *VP8Encoder), len(ids))
+	for frame, id := range ids {
+		layerID := id
+		apply[frame] = func(t *testing.T, e *VP8Encoder) {
+			t.Helper()
+			mustRuntime(t, "SetTemporalLayerID", e.SetTemporalLayerID(layerID))
+		}
+	}
+	return apply
 }
 
 func encodeFramesWithGovpxRuntimeControls(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {

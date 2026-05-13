@@ -64,6 +64,15 @@
  *                        quadrants | border1 | off.
  *   --roi-dq=CSV4 --roi-dlf=CSV4 --roi-static=CSV4
  *                        ROI segment deltas/static thresholds.
+ *   --temporal-layers=N  cfg.ts_number_layers.
+ *   --temporal-bitrates=CSV
+ *                        cumulative cfg.ts_target_bitrate entries.
+ *   --temporal-decimators=CSV
+ *                        cfg.ts_rate_decimator entries.
+ *   --temporal-periodicity=N
+ *                        cfg.ts_periodicity.
+ *   --temporal-layer-ids=CSV
+ *                        cfg.ts_layer_id entries.
  *   --frame-flags=CSV    comma-separated 32-bit unsigned values, one
  *                        per encode call. The value is passed
  *                        verbatim to vpx_codec_encode as the
@@ -94,6 +103,7 @@
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
  *                          setref:{last,golden,altref}:panning:N
+ *                          tlid:N
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -257,6 +267,19 @@ static void parse_uint4_csv(const char *csv, unsigned int out[4],
     if (tmp[i] < 0) die_msg("%s value must be non-negative", flag_name);
     out[i] = (unsigned int)tmp[i];
   }
+}
+
+static void parse_int_csv_exact(const char *csv, int *out, int expected,
+                                const char *flag_name) {
+  char **tokens = NULL;
+  int count = 0;
+  tokens = parse_csv_strings(csv, &count, flag_name);
+  if (count != expected) {
+    die_msg("%s expects exactly %d comma-separated integers", flag_name,
+            expected);
+  }
+  for (int i = 0; i < expected; ++i) out[i] = parse_int(tokens[i], flag_name);
+  free_csv_strings(tokens, count);
 }
 
 static unsigned char *alloc_active_map_pattern(const char *pattern, int rows,
@@ -578,7 +601,8 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
              starts_with(token, "autoaltref:") || starts_with(token, "arnrmax:") ||
              starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:") ||
              starts_with(token, "rtc:") || starts_with(token, "active:") ||
-             starts_with(token, "roi:") || starts_with(token, "setref:")) {
+             starts_with(token, "roi:") || starts_with(token, "setref:") ||
+             starts_with(token, "tlid:")) {
     return;
   } else {
     die_msg("unknown control token: %s", token);
@@ -654,6 +678,10 @@ static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
   } else if (starts_with(token, "setref:")) {
     apply_set_reference_token(ctx->ctx, ctx->width, ctx->height,
                               token + strlen("setref:"));
+  } else if (starts_with(token, "tlid:")) {
+    int layer_id = parse_int(token + strlen("tlid:"), "tlid");
+    if (vpx_codec_control(ctx->ctx, VP8E_SET_TEMPORAL_LAYER_ID, layer_id))
+      die_codec_msg(ctx->ctx, "VP8E_SET_TEMPORAL_LAYER_ID");
   }
 }
 
@@ -751,6 +779,11 @@ int main(int argc, char **argv) {
   const char *roi_dq_csv = NULL;
   const char *roi_dlf_csv = NULL;
   const char *roi_static_csv = NULL;
+  int temporal_layers = 0;
+  const char *temporal_bitrates_csv = NULL;
+  const char *temporal_decimators_csv = NULL;
+  int temporal_periodicity = 0;
+  const char *temporal_layer_ids_csv = NULL;
   const char *frame_flags_csv = NULL;
   const char *control_script_csv = NULL;
 
@@ -861,6 +894,16 @@ int main(int argc, char **argv) {
       roi_dlf_csv = v;
     } else if ((v = flag_value(a, "--roi-static"))) {
       roi_static_csv = v;
+    } else if ((v = flag_value(a, "--temporal-layers"))) {
+      temporal_layers = parse_int(v, "--temporal-layers");
+    } else if ((v = flag_value(a, "--temporal-bitrates"))) {
+      temporal_bitrates_csv = v;
+    } else if ((v = flag_value(a, "--temporal-decimators"))) {
+      temporal_decimators_csv = v;
+    } else if ((v = flag_value(a, "--temporal-periodicity"))) {
+      temporal_periodicity = parse_int(v, "--temporal-periodicity");
+    } else if ((v = flag_value(a, "--temporal-layer-ids"))) {
+      temporal_layer_ids_csv = v;
     } else if ((v = flag_value(a, "--frame-flags"))) {
       frame_flags_csv = v;
     } else if ((v = flag_value(a, "--control-script"))) {
@@ -907,6 +950,39 @@ int main(int argc, char **argv) {
   cfg.kf_min_dist = (unsigned)kf_min_dist;
   cfg.kf_max_dist = (unsigned)kf_max_dist;
   cfg.kf_mode = kf_disabled ? VPX_KF_DISABLED : VPX_KF_AUTO;
+  if (temporal_layers > 0) {
+    if (temporal_layers > VPX_TS_MAX_LAYERS)
+      die_msg("--temporal-layers exceeds VPX_TS_MAX_LAYERS");
+    if (temporal_periodicity <= 0 ||
+        temporal_periodicity > VPX_TS_MAX_PERIODICITY)
+      die_msg("--temporal-periodicity out of range");
+    if (!temporal_bitrates_csv || !temporal_decimators_csv ||
+        !temporal_layer_ids_csv) {
+      die_msg("temporal config requires bitrates, decimators, and layer IDs");
+    }
+    int bitrates[VPX_TS_MAX_LAYERS] = {0};
+    int decimators[VPX_TS_MAX_LAYERS] = {0};
+    int layer_ids[VPX_TS_MAX_PERIODICITY] = {0};
+    parse_int_csv_exact(temporal_bitrates_csv, bitrates, temporal_layers,
+                        "--temporal-bitrates");
+    parse_int_csv_exact(temporal_decimators_csv, decimators, temporal_layers,
+                        "--temporal-decimators");
+    parse_int_csv_exact(temporal_layer_ids_csv, layer_ids,
+                        temporal_periodicity, "--temporal-layer-ids");
+    cfg.ts_number_layers = (unsigned int)temporal_layers;
+    cfg.ts_periodicity = (unsigned int)temporal_periodicity;
+    for (int i = 0; i < temporal_layers; ++i) {
+      if (bitrates[i] <= 0) die_msg("--temporal-bitrates must be positive");
+      if (decimators[i] <= 0) die_msg("--temporal-decimators must be positive");
+      cfg.ts_target_bitrate[i] = (unsigned int)bitrates[i];
+      cfg.ts_rate_decimator[i] = (unsigned int)decimators[i];
+    }
+    for (int i = 0; i < temporal_periodicity; ++i) {
+      if (layer_ids[i] < 0 || layer_ids[i] >= temporal_layers)
+        die_msg("--temporal-layer-ids entry out of range");
+      cfg.ts_layer_id[i] = (unsigned int)layer_ids[i];
+    }
+  }
 
   vpx_codec_ctx_t ctx;
   if (vpx_codec_enc_init(&ctx, iface, &cfg, 0)) {
