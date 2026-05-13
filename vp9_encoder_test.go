@@ -5,6 +5,7 @@ import (
 	"image"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -68,9 +69,8 @@ func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
 
 // TestVP9EncoderKeyframeStubProducesParseableBitstream: the
 // stub-keyframe path emits a Block64x64 PartitionNone + DC-pred +
-// skip=1 frame whose header parses cleanly through the existing
-// decoder, mode-info round-trips, and the residue walker
-// short-circuits.
+// skip=1 frame whose every layer parses cleanly through the
+// existing decoder primitives.
 func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
@@ -82,8 +82,7 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 		t.Fatal("Encode returned empty bytes")
 	}
 
-	// Re-parse the uncompressed header — sanity that the frame
-	// shape on the wire matches what the decoder expects.
+	// Layer 1: uncompressed header.
 	var br vp9dec.BitReader
 	br.Init(got)
 	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, nil)
@@ -95,6 +94,154 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	}
 	if h.FrameType != common.KeyFrame {
 		t.Errorf("FrameType = %d, want KeyFrame", h.FrameType)
+	}
+	if h.FirstPartitionSize == 0 {
+		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")
+	}
+	uncSize := br.BytesRead()
+
+	// Layer 2: compressed header (no-update body — every prob slot
+	// stays at the libvpx default).
+	compEnd := uncSize + int(h.FirstPartitionSize)
+	if compEnd > len(got) {
+		t.Fatalf("compressed header end %d past frame %d", compEnd, len(got))
+	}
+	var cr bitstream.Reader
+	if err := cr.Init(got[uncSize:compEnd]); err != nil {
+		t.Fatalf("compressed reader Init: %v", err)
+	}
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless:     false,
+		IntraOnly:    true,
+		KeyFrame:     true,
+		InterpFilter: vp9dec.InterpEighttap,
+	})
+	if out.TxMode != common.Only4x4 {
+		t.Errorf("TxMode = %d, want Only4x4", out.TxMode)
+	}
+
+	// Layer 3: tile body. The 1-tile case has no size prefix; the
+	// SB walk starts immediately after the compressed header.
+	var tr bitstream.Reader
+	if err := tr.Init(got[compEnd:]); err != nil {
+		t.Fatalf("tile reader Init: %v", err)
+	}
+	aboveCtx := make([]int8, 16)
+	leftCtx := make([]int8, common.MiBlockSize)
+	maps := vp9dec.IntraSegmentMaps{
+		CurrentFrameSegMap: make([]uint8, 64),
+		MiCols:             8,
+	}
+	var seg vp9dec.SegmentationParams
+
+	// Single SB at Block64x64 with PartitionNone — walk the
+	// partition + read the per-block intra mode.
+	bsl := int(common.BWidthLog2Lookup[common.Block64x64])
+	bs := (1 << uint(bsl)) / 4
+	ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, 0, common.Block64x64)
+	probs := fc.PartitionProb[ctx][:]
+	miRows := int((h.Height + 7) >> 3)
+	miCols := int((h.Width + 7) >> 3)
+	hasRows := bs < miRows
+	hasCols := bs < miCols
+	partition := vp9dec.ReadPartition(&tr, probs, hasRows, hasCols)
+	if partition != common.PartitionNone {
+		t.Errorf("root partition = %d, want PartitionNone", partition)
+	}
+
+	leafMi := &vp9dec.NeighborMi{SbType: common.Block64x64}
+	mode := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
+		Reader:   &tr,
+		Fc:       &fc,
+		Seg:      &seg,
+		Maps:     &maps,
+		TxMode:   common.Only4x4,
+		MiOffset: 0,
+		XMis:     8, YMis: 8,
+	}, leafMi)
+	if leafMi.Mode != common.DcPred {
+		t.Errorf("Y mode = %d, want DcPred", leafMi.Mode)
+	}
+	if leafMi.Skip != 1 {
+		t.Errorf("Skip = %d, want 1", leafMi.Skip)
+	}
+	if mode.UvMode != common.DcPred {
+		t.Errorf("UV mode = %d, want DcPred", mode.UvMode)
+	}
+	if leafMi.RefFrame[0] != vp9dec.IntraFrame {
+		t.Errorf("RefFrame[0] = %d, want IntraFrame", leafMi.RefFrame[0])
+	}
+}
+
+// TestVP9EncoderKeyframeMultiSb: 128x64 frame → 2 SBs side-by-side.
+// Confirms the SB walker emits 2 PartitionNone leaves in row-major
+// order and both decode through the per-block keyframe driver.
+func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
+	img := image.NewYCbCr(image.Rect(0, 0, 128, 64), image.YCbCrSubsampleRatio420)
+	got, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(got)
+	h, _ := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	uncSize := br.BytesRead()
+	compEnd := uncSize + int(h.FirstPartitionSize)
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	var cr bitstream.Reader
+	cr.Init(got[uncSize:compEnd])
+	vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
+		Lossless: false, IntraOnly: true, KeyFrame: true,
+		InterpFilter: vp9dec.InterpEighttap,
+	})
+
+	var tr bitstream.Reader
+	tr.Init(got[compEnd:])
+	miRows := int((h.Height + 7) >> 3)
+	miCols := int((h.Width + 7) >> 3)
+	aboveCtx := make([]int8, miCols)
+	leftCtx := make([]int8, common.MiBlockSize)
+	maps := vp9dec.IntraSegmentMaps{
+		CurrentFrameSegMap: make([]uint8, miRows*miCols),
+		MiCols:             miCols,
+	}
+	var seg vp9dec.SegmentationParams
+
+	// Half-step (hbs) for Block64x64 in mi units: (1 << bsl) / 4 = 4.
+	const hbs = 4
+	walked := 0
+	for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+		ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, miCol, common.Block64x64)
+		probs := fc.PartitionProb[ctx][:]
+		hasRows := (0 + hbs) < miRows
+		hasCols := (miCol + hbs) < miCols
+		p := vp9dec.ReadPartition(&tr, probs, hasRows, hasCols)
+		if p != common.PartitionNone {
+			t.Errorf("SB at miCol=%d: partition = %d, want PartitionNone", miCol, p)
+		}
+		leafMi := &vp9dec.NeighborMi{SbType: common.Block64x64}
+		mode := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
+			Reader: &tr, Fc: &fc, Seg: &seg, Maps: &maps,
+			TxMode:   common.Only4x4,
+			MiOffset: miCol, XMis: common.MiBlockSize, YMis: common.MiBlockSize,
+		}, leafMi)
+		if leafMi.Mode != common.DcPred || mode.UvMode != common.DcPred {
+			t.Errorf("SB at miCol=%d: Y=%d UV=%d, want DcPred/DcPred",
+				miCol, leafMi.Mode, mode.UvMode)
+		}
+		// Update partition context (decoder side mirror of encoder stamp).
+		vp9dec.UpdatePartitionContext(aboveCtx, leftCtx, 0, miCol,
+			common.Block64x64, common.MiBlockSize)
+		walked++
+	}
+	if walked != 2 {
+		t.Errorf("walked %d SBs, want 2", walked)
 	}
 }
 
