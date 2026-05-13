@@ -984,11 +984,10 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// pin the SPLITMV-heavy mode picker against extra knobs.
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
-		// splitmv-96x96 + error-resilient has frames 0/1 match,
-		// frames 2-10/12/15 mismatch (transient sub-MB rate gap
-		// driven by the per-token-context-savings reset). Frame
-		// total/first_part are within a few bytes; pin the clean
-		// prefix.
+		// splitmv-96x96 + error-resilient byte-matches the keyframe +
+		// first inter, then has a long transient mismatch span
+		// (frames 2-10, 12, 15 diverge while 11, 13, 14 happen to
+		// re-match). Pin the clean prefix only.
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, limit: 2, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-3-96x96-splitmv-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "splitmv-96x96", w: 96, h: 96, source: encoderValidationSplitMVQuadrantFrame}, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--token-parts=2"}},
@@ -1007,19 +1006,8 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-64x64-segmented-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-sharpness7", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
 		{name: "realtime-cbr-cpu-8-64x64-segmented-sharpness4", deadline: DeadlineRealtime, cpuUsed: -8, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
-		// Error-resilient mode on the segmented fixture has a frame-2+
-		// per-token-context-savings divergence (the fixture's
-		// segment-boundary EOB pattern triggers a coef-prob backup
-		// path the panning-64x64 row doesn't exercise). Pin the
-		// keyframe + frame 1 prefix; the tail is a fresh gap to
-		// investigate.
-		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 2, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
-		// Error-resilient-partitions on segmented byte-matches frames
-		// 0-2, then has a 3-frame transient divergence at frames 3-5
-		// (the segment boundary triggers a per-MB mode-rate flip),
-		// and recovers to byte-parity for frames 6-15. Pin the clean
-		// prefix.
-		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, limit: 3, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, errorResilient: true, extraArgs: []string{"--error-resilient=1"}},
+		{name: "realtime-cbr-cpu-3-64x64-segmented-error-resilient-partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-2partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, tokenPartitions: 1, extraArgs: []string{"--end-usage=cbr", "--token-parts=1"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-8partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, tokenPartitions: 3, extraArgs: []string{"--end-usage=cbr", "--token-parts=3"}},
 		{name: "realtime-cbr-cpu-3-64x64-segmented-screen-content1", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
