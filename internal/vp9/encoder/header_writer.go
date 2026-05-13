@@ -289,8 +289,25 @@ func writeFrameSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
 
 // encodeLoopfilter mirrors encode_loopfilter. The mode_ref_delta
 // update path emits change-mask bits + the per-slot magnitude/sign;
-// when delta_update is off we emit just the enabled bit.
+// when delta_update is off we emit just the enabled bit. Delegates
+// to EncodeLoopfilterWithPrev with prevRef/prevMode = nil so every
+// slot is treated as new (changed-bit=1) — the right shape for the
+// first frame after a context reset. Frame-to-frame tracking goes
+// through the WithPrev entry.
 func encodeLoopfilter(w *BitWriter, lf *vp9dec.LoopfilterParams) {
+	EncodeLoopfilterWithPrev(w, lf, nil, nil)
+}
+
+// EncodeLoopfilterWithPrev mirrors libvpx's encode_loopfilter
+// exactly: per-slot "changed" bit against the previous frame's
+// last_ref_deltas / last_mode_deltas, plus the new 6-bit
+// magnitude + sign when changed. `prevRef` / `prevMode`, when
+// non-nil, supply the previous-frame snapshot; passing nil falls
+// back to "every slot is new" — the post-context-reset path.
+func EncodeLoopfilterWithPrev(w *BitWriter, lf *vp9dec.LoopfilterParams,
+	prevRef *[vp9dec.MaxRefLfDeltas]int8,
+	prevMode *[vp9dec.MaxModeLfDeltas]int8,
+) {
 	w.WriteLiteral(uint32(lf.FilterLevel), 6)
 	w.WriteLiteral(uint32(lf.SharpnessLevel), 3)
 	bit32(w, lf.ModeRefDeltaEnabled)
@@ -302,14 +319,18 @@ func encodeLoopfilter(w *BitWriter, lf *vp9dec.LoopfilterParams) {
 		return
 	}
 	for i := range vp9dec.MaxRefLfDeltas {
-		// libvpx emits a per-slot "changed" bit + the new value;
-		// we don't track last_ref_deltas yet so emit unchanged.
-		w.WriteBit(1)
-		writeAbsSigned6(w, int32(lf.RefDeltas[i]))
+		changed := prevRef == nil || prevRef[i] != lf.RefDeltas[i]
+		bit32(w, changed)
+		if changed {
+			writeAbsSigned6(w, int32(lf.RefDeltas[i]))
+		}
 	}
 	for i := range vp9dec.MaxModeLfDeltas {
-		w.WriteBit(1)
-		writeAbsSigned6(w, int32(lf.ModeDeltas[i]))
+		changed := prevMode == nil || prevMode[i] != lf.ModeDeltas[i]
+		bit32(w, changed)
+		if changed {
+			writeAbsSigned6(w, int32(lf.ModeDeltas[i]))
+		}
 	}
 }
 
