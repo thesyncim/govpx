@@ -26,12 +26,13 @@ type interSplitModeRDContext struct {
 }
 
 type interSplitModeRDResult struct {
-	mode       vp8enc.InterFrameMacroblockMode
-	rd         int
-	yrd        int
-	rate       int
-	distortion int
-	rdLoopSkip bool
+	mode        vp8enc.InterFrameMacroblockMode
+	rd          int
+	yrd         int
+	rate        int
+	distortion  int
+	rdLoopSkip  bool
+	mbSkipCoeff bool
 }
 
 func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDContext) (interSplitModeRDResult, bool) {
@@ -162,12 +163,13 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 		return interSplitModeRDResult{}, false
 	}
 	return interSplitModeRDResult{
-		mode:       bestMode,
-		rd:         acct.rd,
-		yrd:        acct.yrd,
-		rate:       acct.rate2,
-		distortion: acct.distortion2,
-		rdLoopSkip: acct.rdLoopSkip,
+		mode:        bestMode,
+		rd:          acct.rd,
+		yrd:         acct.yrd,
+		rate:        acct.rate2,
+		distortion:  acct.distortion2,
+		rdLoopSkip:  acct.rdLoopSkip,
+		mbSkipCoeff: acct.mbSkipCoeff,
 	}, true
 }
 
