@@ -1032,6 +1032,12 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
 		return nil, err
 	}
+	// Cache frame dimensions on the rate-control state before
+	// applyConfig so setBitrateKbps can apply the libvpx
+	// raw-target-rate cap to the internal effective bitrate (see
+	// libvpxClampToRawTargetRate). The user-facing
+	// `targetBitrateKbps` is unaffected.
+	e.rc.setFrameDimensions(normalized.Width, normalized.Height)
 	if err := e.rc.applyConfig(cfg, timing); err != nil {
 		return nil, err
 	}

@@ -77,18 +77,14 @@ func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
 
 		// 1b. Near-zero buffer. 1/1/1 stresses the path where
 		// libvpx clamps tiny buffer values inside the
-		// vp8_rc_init_minq_luts allocator. NEW GAP (limit=-1):
-		// govpx and libvpx diverge from frame 0 here — the
-		// extreme buffer underflow makes the rate-control loop
-		// hit branches the matrix never previously pinned
-		// (per-frame budget collapses to single-digit bits, the
-		// active-quant clamp engages immediately, the
-		// drop-frame gate is disabled but the buffer-level
-		// arithmetic still wraps). The per-frame status log
-		// keeps the divergence visible while the gap is
-		// investigated.
-		{name: "buffer-1-1-1-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, limit: -1, bufferSizeMs: 1, bufferInitialSizeMs: 1, bufferOptimalSizeMs: 1, extraArgs: []string{"--buf-sz=1", "--buf-initial-sz=1", "--buf-optimal-sz=1"}},
-		{name: "buffer-1-1-1-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, limit: -1, bufferSizeMs: 1, bufferInitialSizeMs: 1, bufferOptimalSizeMs: 1, extraArgs: []string{"--buf-sz=1", "--buf-initial-sz=1", "--buf-optimal-sz=1"}},
+		// vp8_rc_init_minq_luts allocator. Pinned at strict
+		// byte parity (was a divergence gap until the
+		// CBR-full-buffer active-worst arithmetic and
+		// raw-target-rate cap were ported; see
+		// libvpxCBRFullBufferActiveWorst and
+		// libvpxRawTargetRateCapKbps).
+		{name: "buffer-1-1-1-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, bufferSizeMs: 1, bufferInitialSizeMs: 1, bufferOptimalSizeMs: 1, extraArgs: []string{"--buf-sz=1", "--buf-initial-sz=1", "--buf-optimal-sz=1"}},
+		{name: "buffer-1-1-1-realtime-cpu-3-64x64", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, bufferSizeMs: 1, bufferInitialSizeMs: 1, bufferOptimalSizeMs: 1, extraArgs: []string{"--buf-sz=1", "--buf-initial-sz=1", "--buf-optimal-sz=1"}},
 
 		// 2. Very large buffer (10000/5000/7500). Pins the
 		// buffer-saturation path where the rate controller has

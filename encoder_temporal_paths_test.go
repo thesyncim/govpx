@@ -28,7 +28,13 @@ func TestEncodeIntoAppliesTemporalScalabilityMode1(t *testing.T) {
 	wantLayerID := []int{0, 1, 0, 1}
 	wantTL0 := []uint8{0, 0, 1, 1}
 	wantLayerSync := []bool{false, true, false, false}
-	wantTargetBits := []int{240000, 32000, 48000, 32000}
+	// Frame[0] is the initial key frame so its target is
+	// starting_buffer_level/2 = effective_kbps * 1000 * initial_buffer_ms / 2 / 1000.
+	// libvpx's raw-target-rate cap (16*16*8*3*30/1000 = 184 kbps) clips
+	// the configured 1200 kbps, so the KF target lands at
+	// 184_000 * 400ms / 2 = 36_800 bits (the user-facing kbps is still
+	// 1200 — only the internal effective rate is clamped).
+	wantTargetBits := []int{36800, 32000, 48000, 32000}
 	wantLayerBitrate := []int{720, 480, 720, 480}
 	wantCumulativeBitrate := []int{720, 1200, 720, 1200}
 	for i := range results {

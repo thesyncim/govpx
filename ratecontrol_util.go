@@ -246,6 +246,71 @@ func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
 	}
 }
 
+// libvpxRawTargetRateCapKbps mirrors the raw-target-rate clamp in
+// libvpx's vp8/encoder/onyx_if.c (set_oxcf, around line 1580):
+//
+//	raw_target_rate = Width * Height * 8 * 3 * framerate / 1000
+//	if (target_bandwidth > raw_target_rate) target_bandwidth = raw_target_rate
+//
+// target_bandwidth (in kbps) cannot exceed the raw 24bpp uncompressed
+// rate at the configured fps. Without this clamp, govpx fed e.g. 700 kbps
+// at 32x16/30fps would keep budgeting per-frame against a 700 kbps
+// envelope while libvpx is internally working against the 368 kbps
+// envelope, producing immediate per-frame target / buffer-level
+// divergence (oracle parity gap on buffer-1-1-1-realtime-cpu-3-32x32).
+//
+// Frames per second comes from the timing field on libvpx; here we
+// reconstruct it from EncoderOptions which mirror the same inputs
+// (either FPS, or TimebaseDen/TimebaseNum/FrameDuration). When the
+// frame rate cannot be determined (zero dimensions or zero fps) the
+// cap is skipped so the request flows through unchanged, matching
+// libvpx's behavior for degenerate sequences (the validator in
+// normalizeEncoderOptions has already rejected invalid combinations).
+func libvpxRawTargetRateCapKbps(opts EncoderOptions) int {
+	if opts.TargetBitrateKbps <= 0 || opts.Width <= 0 || opts.Height <= 0 {
+		return opts.TargetBitrateKbps
+	}
+	fps := float64(opts.FPS)
+	if fps <= 0 {
+		// Fall back to timebase: framerate = timebase_den / timebase_num
+		// when fps is unset (e.g. callers using TimebaseNum/TimebaseDen).
+		// Skip when timebase is degenerate; the encoder normalizer will
+		// have already rejected invalid combinations.
+		if opts.TimebaseNum > 0 && opts.TimebaseDen > 0 {
+			fps = float64(opts.TimebaseDen) / float64(opts.TimebaseNum)
+		}
+	}
+	if fps <= 0 {
+		return opts.TargetBitrateKbps
+	}
+	// libvpx computes raw_target_rate as a floating point value, then
+	// casts to (unsigned int). The float arithmetic is `Width * Height *
+	// 8 * 3 * framerate / 1000.0` in kbps. Mirror that truncation with
+	// integer math to stay deterministic; for typical inputs the value
+	// fits well within int64.
+	rawBits := int64(opts.Width) * int64(opts.Height) * 8 * 3
+	if rawBits <= 0 {
+		return opts.TargetBitrateKbps
+	}
+	rawKbpsF := float64(rawBits) * fps / 1000.0
+	if rawKbpsF <= 0 {
+		return opts.TargetBitrateKbps
+	}
+	// Truncate-to-int the same way libvpx's cast to unsigned int does.
+	rawKbps := int(rawKbpsF)
+	if rawKbps <= 0 {
+		// Sub-1 kbps raw rate: refuse to clamp below the libvpx
+		// minimum to avoid wedging the rate-control config. The
+		// existing minQ ceiling already handles the extreme bitstarve
+		// path.
+		return opts.TargetBitrateKbps
+	}
+	if opts.TargetBitrateKbps > rawKbps {
+		return rawKbps
+	}
+	return opts.TargetBitrateKbps
+}
+
 func boostedFrameTargetBits(baseTargetBits int, boostPct int) int {
 	if baseTargetBits <= 0 || boostPct <= 0 {
 		return baseTargetBits
