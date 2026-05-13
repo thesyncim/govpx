@@ -11,14 +11,31 @@ const (
 	UpstreamLibvpxVersion = "v1.16.0"
 )
 
-// Codec identifies a codec family supported by govpx. Reserved for
-// future multi-codec selection; for now the package only implements VP8.
+// Codec identifies a codec family supported by govpx.
 type Codec int
 
 const (
 	// CodecVP8 selects the VP8 bitstream format.
 	CodecVP8 Codec = iota + 1
+	// CodecVP9 selects the VP9 bitstream format. The VP9 surface is
+	// still under construction (see internal/vp9 / UPSTREAM.md);
+	// callers should treat this as a build-time gate, not a runtime
+	// feature flag.
+	CodecVP9
 )
+
+// String returns the canonical lowercase name for a Codec, matching
+// libvpx's vpx_codec_iface_name short tags. Useful for log lines and
+// error messages.
+func (c Codec) String() string {
+	switch c {
+	case CodecVP8:
+		return "vp8"
+	case CodecVP9:
+		return "vp9"
+	}
+	return "unknown"
+}
 
 const (
 	maxVP8Dimension = 16383
