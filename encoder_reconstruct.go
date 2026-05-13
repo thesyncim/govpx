@@ -526,7 +526,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					if e.activityMapValid {
 						zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 					}
-					if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
+					if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), mbSource, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 						return 0, ErrInvalidConfig
 					}
 					if oracleTraceBuild {
@@ -573,7 +573,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-					coefProbs:     &e.coefProbs,
+					coefProbs:     e.pickerCoefProbs(),
 					src:           mbSource,
 					mbRow:         row,
 					mbCol:         col,
