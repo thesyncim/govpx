@@ -634,6 +634,10 @@ type VP8Encoder struct {
 
 	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
 	interFrameModes []vp8enc.InterFrameMacroblockMode
+	// Mirrors libvpx's gf_active_flags map used by calc_gf_params. Each
+	// macroblock stays active while it either uses GOLDEN/ALTREF or keeps a
+	// LAST/ZEROMV prediction; non-zero/intra choices clear the flag.
+	gfActiveMap []bool
 	// libvpx's improved MV predictor reads the previous inter frame's
 	// MODE_INFO grid (lfmv/lf_ref_frame) when the last coded frame was inter.
 	lastFrameInterModes      []vp8enc.InterFrameMacroblockMode

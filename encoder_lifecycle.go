@@ -87,6 +87,7 @@ func (e *VP8Encoder) Reset() {
 	for i := range e.interFrameModes {
 		e.interFrameModes[i] = vp8enc.InterFrameMacroblockMode{}
 	}
+	clearBoolMap(e.gfActiveMap)
 	for i := range e.lastFrameInterModes {
 		e.lastFrameInterModes[i] = vp8enc.InterFrameMacroblockMode{}
 	}

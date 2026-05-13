@@ -155,7 +155,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			gfMaxInterval = gfInterval
 		} else {
 			gfBaselineInterval = libvpxDefaultGFInterval
-			gfMaxInterval = libvpxDefaultGFInterval
+			gfMaxInterval = e.libvpxMaxGFInterval()
 		}
 	}
 	// libvpx vp8/encoder/onyx_if.c vp8_check_drop_buffer adjusts
@@ -271,6 +271,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			ThisFramePercentIntra: e.rc.thisFramePercentIntra,
 			BaselineGFInterval:    gfBaselineInterval,
 			MaxGFInterval:         gfMaxInterval,
+			RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
 		})
 		e.rc.lastBoost = gfOut.Boost
 		if e.rc.mode == RateControlCBR {
@@ -499,6 +500,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
 			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
 			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+			e.updateGFActiveMap(attempt.Config.RefreshGolden, e.interFrameModes[:required])
 			// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
 			// per-frame ref usage so calc_gf_params and the auto_gold
 			// refresh decision read the same `recent_ref_frame_usage`
@@ -640,6 +642,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// recent_ref_frame_usage counters to 1 each (the same as a GF
 	// refresh) so the next GF section starts with a clean baseline.
 	e.rc.resetRecentRefFrameUsage(required)
+	e.resetGFActiveMap(required)
 	if e.rc.framesTillGFUpdateDue > 0 {
 		e.rc.currentGFInterval = e.rc.framesTillGFUpdateDue
 		e.rc.framesTillGFUpdateDue--
