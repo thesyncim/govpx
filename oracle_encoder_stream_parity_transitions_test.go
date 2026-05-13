@@ -380,6 +380,30 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	// The panning fixture matches through the keyframe and first two
 	// inter frames, then exposes a second-pass content-shape drift.
 	assertSegmentByteParity(t, "twopass-e2e-panning64", panningGovpxFrames, panningLibvpxFrames, 3)
+
+	kf4Opts := opts
+	kf4Opts.KeyFrameInterval = 4
+	kf4GovpxOpts := kf4Opts
+	kf4GovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, kf4Opts, sources)
+	kf4GovpxFrames := encodeFramesWithGovpx(t, kf4GovpxOpts, sources)
+	kf4LibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-kf4", kf4Opts, targetKbps, sources)
+	// Short GOP two-pass exposes a periodic keyframe/header drift; keep the
+	// row in the matrix so the cadence-specific gap is logged.
+	assertSegmentByteParity(t, "twopass-e2e-kf4", kf4GovpxFrames, kf4LibvpxFrames, -1)
+
+	segmentedSources := make([]Image, frames)
+	for i := range segmentedSources {
+		segmentedSources[i] = encoderValidationSegmentedFrame(64, 64, i)
+	}
+	segmentedOpts := opts
+	segmentedOpts.Width = 64
+	segmentedOpts.Height = 64
+	segmentedOpts.TargetBitrateKbps = 700
+	segmentedGovpxOpts := segmentedOpts
+	segmentedGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, segmentedOpts, segmentedSources)
+	segmentedGovpxFrames := encodeFramesWithGovpx(t, segmentedGovpxOpts, segmentedSources)
+	segmentedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64", segmentedOpts, segmentedOpts.TargetBitrateKbps, segmentedSources)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64", segmentedGovpxFrames, segmentedLibvpxFrames, 0)
 }
 
 func makePanningSources(w, h, count, offset int) []Image {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -255,6 +256,72 @@ func TestOracleEncoderStreamByteParityBuffer(t *testing.T) {
 					gFP, lFP, gIsKey, lIsKey,
 					hex.EncodeToString(gHash[:8]), hex.EncodeToString(lHash[:8]))
 			}
+		})
+	}
+}
+
+func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps    = 30
+		frames = 30
+		width  = 64
+		height = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	cases := []struct {
+		name        string
+		targetKbps  int
+		drop        int
+		rtcExternal bool
+		limit       int
+	}{
+		{name: "drop-frame90-low-bitrate25-tight-buffer-frames30", targetKbps: 25, drop: 90},
+		{name: "drop-frame60-low-bitrate50-buffer-200-100-150-frames30", targetKbps: 50, drop: 60},
+		{name: "rtc-external-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, rtcExternal: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:                  width,
+				Height:                 height,
+				FPS:                    fps,
+				RateControlMode:        RateControlCBR,
+				TargetBitrateKbps:      tc.targetKbps,
+				MinQuantizer:           4,
+				MaxQuantizer:           56,
+				KeyFrameInterval:       999,
+				Deadline:               DeadlineRealtime,
+				CpuUsed:                -3,
+				Tuning:                 TunePSNR,
+				BufferSizeMs:           200,
+				BufferInitialSizeMs:    100,
+				BufferOptimalSizeMs:    150,
+				DropFrameAllowed:       true,
+				DropFrameWaterMark:     tc.drop,
+				RTCExternalRateControl: tc.rtcExternal,
+			}
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			extraArgs := []string{
+				"--target-bitrate=" + strconv.Itoa(tc.targetKbps),
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=" + strconv.Itoa(tc.drop),
+			}
+			if tc.rtcExternal {
+				extraArgs = append(extraArgs, "--rtc-external=1")
+			}
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, opts, tc.targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
 }

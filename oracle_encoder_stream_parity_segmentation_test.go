@@ -365,6 +365,106 @@ func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 	assertSegmentByteParity(t, "roi-map-simple-dq", govpxFrames, libvpxFrames, 1)
 }
 
+func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 32
+		height     = 32
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+
+	cases := []struct {
+		name      string
+		roi       func() *ROIMap
+		extraArgs []string
+		limit     int
+	}{
+		{
+			name: "simple-delta-lf",
+			roi: func() *ROIMap {
+				roi := roiMapPattern(width, height, "checker")
+				roi.DeltaQuantizer = [4]int{}
+				roi.DeltaLoopFilter = [4]int{0, -3, 0, 0}
+				roi.StaticThreshold = [4]int{}
+				return roi
+			},
+			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,0,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
+			limit:     1,
+		},
+		{
+			name: "simple-static-threshold",
+			roi: func() *ROIMap {
+				roi := roiMapPattern(width, height, "checker")
+				roi.DeltaQuantizer = [4]int{}
+				roi.DeltaLoopFilter = [4]int{}
+				roi.StaticThreshold = [4]int{0, 500, 0, 0}
+				return roi
+			},
+			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,0,0,0", "--roi-dlf=0,0,0,0", "--roi-static=0,500,0,0"},
+			limit:     1,
+		},
+		{
+			name: "dq-dlf-no-static",
+			roi: func() *ROIMap {
+				roi := roiMapPattern(width, height, "checker")
+				roi.DeltaQuantizer = [4]int{0, -10, 0, 0}
+				roi.DeltaLoopFilter = [4]int{0, -3, 0, 0}
+				roi.StaticThreshold = [4]int{}
+				return roi
+			},
+			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,-10,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
+			limit:     -1,
+		},
+		{
+			name: "quadrants-default",
+			roi: func() *ROIMap {
+				roi := roiMapPattern(width, height, "quadrants")
+				roi.DeltaQuantizer = [4]int{}
+				roi.DeltaLoopFilter = [4]int{}
+				roi.StaticThreshold = [4]int{}
+				return roi
+			},
+			extraArgs: []string{"--roi-map=quadrants", "--roi-dq=0,0,0,0", "--roi-dlf=0,0,0,0", "--roi-static=0,0,0,0"},
+			limit:     1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap("+tc.name+")", e.SetROIMap(tc.roi()))
+				},
+			})
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.name+"-32x32", opts, targetKbps, sources, nil, tc.extraArgs)
+			assertSegmentByteParity(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
@@ -399,18 +499,36 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	rows := encoderMacroblockRows(height)
 	cols := encoderMacroblockCols(width)
 	cases := []struct {
-		pattern string
-		limit   int
+		name             string
+		pattern          string
+		limit            int
+		cpuUsed          int
+		noiseSensitivity int
+		threads          int
+		extraArgs        []string
 	}{
-		{pattern: "all", limit: 0},
-		{pattern: "checker", limit: 0},
-		{pattern: "left-off", limit: 0},
-		{pattern: "right-off", limit: 0},
-		{pattern: "border-off", limit: 10},
-		{pattern: "off", limit: 0},
+		{name: "all", pattern: "all", limit: 0},
+		{name: "checker", pattern: "checker", limit: 0},
+		{name: "left-off", pattern: "left-off", limit: 0},
+		{name: "right-off", pattern: "right-off", limit: 0},
+		{name: "border-off", pattern: "border-off", limit: 10},
+		{name: "off", pattern: "off", limit: 0},
+		{name: "left-off-cpu-3", pattern: "left-off", cpuUsed: -3, limit: 0},
+		{name: "right-off-cpu-3", pattern: "right-off", cpuUsed: -3, limit: 0},
+		{name: "border-off-cpu-3", pattern: "border-off", cpuUsed: -3, limit: 10},
+		{name: "checker-noise3-threads2", pattern: "checker", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "left-off-noise3-threads2", pattern: "left-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "right-off-noise3-threads2", pattern: "right-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
+		{name: "border-off-noise3-threads2", pattern: "border-off", noiseSensitivity: 3, threads: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=3", "--threads=2"}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.pattern, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
+			caseOpts := opts
+			if tc.cpuUsed != 0 {
+				caseOpts.CpuUsed = tc.cpuUsed
+			}
+			caseOpts.NoiseSensitivity = tc.noiseSensitivity
+			caseOpts.Threads = tc.threads
 			apply := map[int]func(*testing.T, *VP8Encoder){
 				0: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -421,11 +539,13 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 					mustRuntime(t, "SetActiveMap("+tc.pattern+")", e.SetActiveMap(activeMapPattern(tc.pattern, rows, cols), rows, cols))
 				},
 			}
-			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, caseOpts, sources, nil, apply)
+			extraArgs := []string{
 				"--active-map=" + tc.pattern,
-			})
-			assertSegmentByteParity(t, "active-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+			}
+			extraArgs = append(extraArgs, tc.extraArgs...)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-"+tc.name+"-64x64", caseOpts, targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, "active-map-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
 }
