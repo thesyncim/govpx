@@ -210,6 +210,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		distortionUV := oracleTraceInterCandidateUnknown
 		mbSkipCoeff := false
 		rdLoopSkip := false
+		modeReadyForDenoise := false
 		var candidateStaleY2 staleY2Snapshot
 		if mbMode == vp8common.SplitMV {
 			mvthresh := e.splitMVSubsearchThresholdForSlot(qIndex, refs, refCount, refSlot)
@@ -244,6 +245,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
+				modeReadyForDenoise = true
 				mode.SegmentID = segmentID
 				if inactiveMB {
 					mode.SegmentID = 0
@@ -288,6 +290,19 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 				}
 			}
 		}
+		if denoiseActive && mbMode != vp8common.SplitMV && modeReadyForDenoise {
+			candidateSSE := uint32(macroblockLumaSSE(src, ref.Img, mbRow, mbCol, mode.MV))
+			if mbMode == vp8common.ZeroMV && candidateSSE < denoiseDecision.zeroMVSSE {
+				denoiseDecision.zeroMVSSE = candidateSSE
+				denoiseDecision.zeroMVReferenceFrame = ref.Frame
+			}
+			if mbMode == vp8common.NewMV && candidateSSE < denoiseDecision.bestSSE {
+				denoiseDecision.bestSSE = candidateSSE
+				denoiseDecision.bestMode = vp8common.NewMV
+				denoiseDecision.bestMV = mode.MV
+				denoiseDecision.bestReferenceFrame = ref.Frame
+			}
+		}
 		if !ok {
 			// libvpx's SPLITMV branch still falls through to the
 			// post-candidate threshold mutation when
@@ -303,19 +318,6 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		}
 		if oracleTraceBuild && oracleStaleY2SnapshotSet(candidateStaleY2) {
 			lastStaleY2 = candidateStaleY2
-		}
-		if denoiseActive && mbMode != vp8common.SplitMV && !e.denoiserReferenceTooOld(ref.Frame) {
-			candidateSSE := uint32(macroblockLumaSSE(src, ref.Img, mbRow, mbCol, mode.MV))
-			if mbMode == vp8common.ZeroMV && candidateSSE < denoiseDecision.zeroMVSSE {
-				denoiseDecision.zeroMVSSE = candidateSSE
-				denoiseDecision.zeroMVReferenceFrame = ref.Frame
-			}
-			if mbMode == vp8common.NewMV && candidateSSE < denoiseDecision.bestSSE {
-				denoiseDecision.bestSSE = candidateSSE
-				denoiseDecision.bestMode = vp8common.NewMV
-				denoiseDecision.bestMV = mode.MV
-				denoiseDecision.bestReferenceFrame = ref.Frame
-			}
 		}
 		becameBest := rdLoopSkip || !bestSet || score < bestScore
 		improvedStart := interFrameSearchStart{}

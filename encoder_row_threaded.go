@@ -403,7 +403,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			if e.activityMapValid {
 				zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 			}
-			if !buildReconstructingBPredMacroblockCoefficients(&e.coefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
+			if !buildReconstructingBPredMacroblockCoefficients(e.pickerCoefProbs(), args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, quant, segmentQIndex, zbinOverQuant, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 				return 0, 0, ErrInvalidConfig
 			}
 		} else if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -436,7 +436,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			zbinOverQuant = e.tunedZbinOverQuant(zbinOverQuant, row, col)
 		}
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-			coefProbs:     &e.coefProbs,
+			coefProbs:     e.pickerCoefProbs(),
 			src:           args.src,
 			mbRow:         row,
 			mbCol:         col,
