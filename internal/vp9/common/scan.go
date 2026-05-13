@@ -73,3 +73,41 @@ func GetCoefContext(neighbors, tokenCache []int16, c int) int {
 	left := tokenCache[neighbors[MaxNeighbors*c+1]]
 	return int((1 + above + left) >> 1)
 }
+
+// IntraModeToTxType mirrors libvpx's intra_mode_to_tx_type_lookup —
+// each Y intra mode picks the (vertical, horizontal) ADST/DCT pair
+// used for that block's transform + scan. Inter blocks and chroma
+// planes always use DCT_DCT; the lossless path is forced to DCT_DCT
+// too. Indexed by PredictionMode (DcPred..TmPred = 0..9).
+var IntraModeToTxType = [IntraModes]TxType{
+	DctDct,   // DC_PRED
+	AdstDct,  // V_PRED
+	DctAdst,  // H_PRED
+	DctDct,   // D45_PRED
+	AdstAdst, // D135_PRED
+	AdstDct,  // D117_PRED
+	DctAdst,  // D153_PRED
+	DctAdst,  // D207_PRED
+	AdstDct,  // D63_PRED
+	AdstAdst, // TM_PRED
+}
+
+// GetScan mirrors libvpx's get_scan inline. Inter blocks, chroma
+// planes, and lossless frames take the default scan; intra-Y blocks
+// pick the (tx_size, tx_type) entry from ScanOrders where tx_type is
+// derived from the Y prediction mode. Sub-8x8 intra blocks key the
+// tx_type off the per-subblock mode (mi->bmi[block].as_mode), which
+// the caller threads in via `yMode`.
+//
+// `isInter` is non-zero for inter blocks. `planeType` is 0 for Y and
+// 1 for UV. `lossless` is the frame-level flag (forces DCT_DCT).
+// `yMode` is the Y prediction mode (DcPred..TmPred); ignored when
+// the path falls back to the default scan.
+func GetScan(txSize TxSize, planeType int, isInter int, lossless bool,
+	yMode PredictionMode,
+) ScanOrder {
+	if isInter != 0 || planeType != 0 || lossless {
+		return DefaultScanOrders[txSize]
+	}
+	return ScanOrders[txSize][IntraModeToTxType[yMode]]
+}

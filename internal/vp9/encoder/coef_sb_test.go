@@ -106,6 +106,134 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 	}
 }
 
+// TestWriteCoefSbIntraScanPick: 8x8 Y intra block, V_PRED mode.
+// libvpx's get_scan picks row_scan_8x8 for ADST_DCT, so the wire
+// fragment is keyed to that scan. Both encoder and decoder consult
+// common.GetScan; round-tripping verifies they agree.
+func TestWriteCoefSbIntraScanPick(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+
+	var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	vp9dec.SetupBlockPlanes(&planes, 1, 1)
+	planes[0].AboveContext = make([]uint8, 8)
+	planes[0].LeftContext = make([]uint8, 8)
+	planes[1].AboveContext = make([]uint8, 4)
+	planes[1].LeftContext = make([]uint8, 4)
+	planes[2].AboveContext = make([]uint8, 4)
+	planes[2].LeftContext = make([]uint8, 4)
+
+	dq := int16(16)
+	// Block8x8 + Tx8x8 = 1 tx block per Y plane. V_PRED forces
+	// ADST_DCT → row_scan_8x8. Plant a non-zero coeff at the raster
+	// position that row_scan_8x8 reaches at scan[0].
+	rowScan8x8 := common.GetScan(common.Tx8x8, 0, 0, false, common.VPred).Scan
+	yCoeffs := make([]int16, 64)
+	yCoeffs[rowScan8x8[0]] = dq
+	uvCoeffs := make([]int16, 16)
+	getCoeffs := func(plane, r, c int, tx common.TxSize) []int16 {
+		if plane == 0 {
+			return yCoeffs
+		}
+		return uvCoeffs
+	}
+
+	mi := &vp9dec.NeighborMi{
+		SbType: common.Block8x8,
+		Mode:   common.VPred,
+		TxSize: common.Tx8x8,
+	}
+	args := WriteCoefSbArgs{
+		BSize:    common.Block8x8,
+		MiTxSize: common.Tx8x8,
+		IsInter:  0,
+		Mi:       mi,
+		Planes:   &planes,
+		PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+			{dq, dq}, {dq, dq}, {dq, dq},
+		},
+		Fc:        &fc,
+		GetCoeffs: getCoeffs,
+	}
+
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefSb(&bw, args); err != nil {
+		t.Fatalf("WriteCoefSb: %v", err)
+	}
+	size, _ := bw.Stop()
+
+	// Decode: reset context, walk planes, consult GetScan with the
+	// same V_PRED mode.
+	for i := range planes[0].AboveContext {
+		planes[0].AboveContext[i] = 0
+		planes[0].LeftContext[i] = 0
+	}
+	for i := range planes[1].AboveContext {
+		planes[1].AboveContext[i] = 0
+		planes[1].LeftContext[i] = 0
+		planes[2].AboveContext[i] = 0
+		planes[2].LeftContext[i] = 0
+	}
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	dqcoeff := make([]int16, 64)
+	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &planes[plane]
+		var txSize common.TxSize
+		if plane == 0 {
+			txSize = common.Tx8x8
+		} else {
+			txSize = vp9dec.GetUvTxSize(common.Block8x8, common.Tx8x8, pd)
+		}
+		pbsize := vp9dec.GetPlaneBlockSize(common.Block8x8, pd)
+		n4w := int(common.Num4x4BlocksWideLookup[pbsize])
+		n4h := int(common.Num4x4BlocksHighLookup[pbsize])
+		step := 1 << uint(txSize)
+		planeType := 0
+		if plane > 0 {
+			planeType = 1
+		}
+		so := common.GetScan(txSize, planeType, 0, false, mi.Mode)
+		for rr := 0; rr < n4h; rr += step {
+			for cc := 0; cc < n4w; cc += step {
+				ec := vp9dec.GetEntropyContext(txSize,
+					pd.AboveContext[cc:cc+step],
+					pd.LeftContext[rr:rr+step])
+				for i := range dqcoeff {
+					dqcoeff[i] = 0
+				}
+				eob := vp9dec.DecodeCoefs(&r, txSize, planeType, 0,
+					[2]int16{dq, dq}, ec, so.Scan, so.Neighbors,
+					&fc, dqcoeff)
+				if plane == 0 {
+					if eob != 1 {
+						t.Errorf("Y eob=%d, want 1", eob)
+					}
+					if dqcoeff[so.Scan[0]] != dq {
+						t.Errorf("Y dq[scan[0]]=%d, want %d", dqcoeff[so.Scan[0]], dq)
+					}
+				} else {
+					if eob != 0 {
+						t.Errorf("UV plane=%d eob=%d, want 0", plane, eob)
+					}
+				}
+				hr := uint8(0)
+				if eob > 0 {
+					hr = 1
+				}
+				for j := 0; j < step; j++ {
+					pd.AboveContext[cc+j] = hr
+					pd.LeftContext[rr+j] = hr
+				}
+			}
+		}
+	}
+}
+
 // TestWriteCoefSbBlock8x8WithResidue: 8x8 Y has one tx block with a
 // single DC=1 coefficient; the rest are zero. Verifies the walker
 // emits the right wire fragment per block and the above/left

@@ -4,7 +4,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // VP9 per-leaf coefficient walker. Ported from libvpx v1.16.0
@@ -35,6 +34,15 @@ type WriteCoefSbArgs struct {
 
 	IsInter int
 
+	// Lossless forces every tx block to the default scan, mirroring
+	// libvpx's get_scan fallback for xd->lossless frames.
+	Lossless bool
+
+	// Mi is the leaf NeighborMi; consulted for the Y prediction mode
+	// (per-block mode for sub-8x8) when picking the intra scan. May be
+	// nil for inter blocks (which always take the default scan branch).
+	Mi *vp9dec.NeighborMi
+
 	// Planes carries the per-plane macroblockd_plane shape (subsampling
 	// + above/left entropy context buffers).
 	Planes *[vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
@@ -60,19 +68,21 @@ type WriteCoefSbArgs struct {
 }
 
 // scanForTxSize returns the default scan/neighbors pair for `tx`.
-// Inter blocks always take this branch; intra blocks pick row/col
-// scans for non-32x32 sizes (not yet wired here).
+// Used as the unconditional fallback when there's no intra-mode
+// signal to consult (inter blocks, chroma planes, lossless frames).
 func scanForTxSize(tx common.TxSize) (scan, neighbors []int16) {
-	switch tx {
-	case common.Tx4x4:
-		return tables.DefaultScan4x4[:], tables.DefaultScan4x4Neighbors[:]
-	case common.Tx8x8:
-		return tables.DefaultScan8x8[:], tables.DefaultScan8x8Neighbors[:]
-	case common.Tx16x16:
-		return tables.DefaultScan16x16[:], tables.DefaultScan16x16Neighbors[:]
-	default:
-		return tables.DefaultScan32x32[:], tables.DefaultScan32x32Neighbors[:]
+	o := common.DefaultScanOrders[tx]
+	return o.Scan, o.Neighbors
+}
+
+// yModeForBlock mirrors libvpx's get_y_mode — picks the Y mode for
+// a sub-block index `block` from mi->bmi[] when sb_type is sub-8x8,
+// otherwise returns mi->mode.
+func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
+	if mi.SbType < common.Block8x8 {
+		return mi.Bmi[block].AsMode
 	}
+	return mi.Mode
 }
 
 // WriteCoefSb mirrors libvpx's per-block residue pack — the loop
@@ -105,17 +115,28 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
 		step := 1 << uint(txSize)
-		scan, neighbors := scanForTxSize(txSize)
+		// Default-scan fallback: inter blocks, chroma planes, and
+		// lossless frames all take it. Intra-Y blocks pick the per-tx
+		// scan from the Y mode of the sub-block being walked.
+		defaultScan, defaultNeighbors := scanForTxSize(txSize)
 		dequant := a.PlaneDequant[plane]
 
 		aboveBase := a.AboveOffsets[plane]
 		leftBase := a.LeftOffsets[plane]
 
+		blockIdx := 0
 		for r := 0; r < num4x4H; r += step {
 			for c := 0; c < num4x4W; c += step {
 				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
 				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
 				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
+
+				scan, neighbors := defaultScan, defaultNeighbors
+				if a.IsInter == 0 && planeType == 0 && !a.Lossless && a.Mi != nil {
+					so := common.GetScan(txSize, planeType, a.IsInter, a.Lossless,
+						yModeForBlock(a.Mi, blockIdx))
+					scan, neighbors = so.Scan, so.Neighbors
+				}
 
 				coeffs := a.GetCoeffs(plane, r, c, txSize)
 				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
@@ -147,6 +168,10 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					aboveCtx[j] = hasResidue
 					leftCtx[j] = hasResidue
 				}
+				// libvpx's foreach_transformed_block_in_plane bumps the
+				// block-counter `i` by step^2 per tx block — matching
+				// the bmi[] index for sub-8x8 sub-block lookups.
+				blockIdx += step * step
 			}
 		}
 	}
