@@ -320,7 +320,8 @@ func (e *VP9Encoder) writeVP9StubModesSb(bw *bitstream.Writer, miRows, miCols, m
 	}
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
-	partition := common.PartitionLookup[bsl][baseMi.SbType]
+	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, bsize)
+	partition := common.PartitionLookup[bsl][target]
 	encoder.WritePartitionForBlock(bw, encoder.WriteModesSbArgs{
 		AboveSegCtx:    e.aboveSegCtx,
 		LeftSegCtx:     e.leftSegCtx,
@@ -363,6 +364,42 @@ func (e *VP9Encoder) writeVP9StubModesSb(bw *bitstream.Writer, miRows, miCols, m
 		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
 			miRow, miCol, subsize, 2*bs)
 	}
+}
+
+var vp9StubBlockSizeOrder = [...]common.BlockSize{
+	common.Block64x64,
+	common.Block64x32,
+	common.Block32x64,
+	common.Block32x32,
+	common.Block32x16,
+	common.Block16x32,
+	common.Block16x16,
+	common.Block16x8,
+	common.Block8x16,
+	common.Block8x8,
+	common.Block8x4,
+	common.Block4x8,
+	common.Block4x4,
+}
+
+func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.BlockSize) common.BlockSize {
+	maxW := int(common.Num8x8BlocksWideLookup[root])
+	maxH := int(common.Num8x8BlocksHighLookup[root])
+	availW := miCols - miCol
+	if availW > maxW {
+		availW = maxW
+	}
+	availH := miRows - miRow
+	if availH > maxH {
+		availH = maxH
+	}
+	for _, bsize := range vp9StubBlockSizeOrder {
+		if int(common.Num8x8BlocksWideLookup[bsize]) <= availW &&
+			int(common.Num8x8BlocksHighLookup[bsize]) <= availH {
+			return bsize
+		}
+	}
+	return common.Block4x4
 }
 
 func (e *VP9Encoder) writeVP9StubBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,

@@ -164,6 +164,59 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 	}
 }
 
+// TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes expands the
+// keyframe gate beyond complete 64x64 SBs. These sizes force the
+// partition writer into libvpx's frame-edge branches where the
+// decoder may force SPLIT/HORZ/VERT decisions from has_rows /
+// has_cols instead of reading the full tree.
+func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
+	if _, err := coracle.VpxdecVP9Path(); err != nil {
+		if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
+			t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+		}
+		t.Fatalf("VpxdecVP9Path: %v", err)
+	}
+
+	cases := []struct {
+		name          string
+		width, height int
+	}{
+		{"right-edge", 96, 64},
+		{"bottom-edge", 64, 96},
+		{"corner-edge", 96, 96},
+		{"sub-sb", 32, 32},
+		{"odd-visible", 70, 70},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: tc.width, Height: tc.height})
+			img := image.NewYCbCr(image.Rect(0, 0, tc.width, tc.height), image.YCbCrSubsampleRatio420)
+			payload, err := e.Encode(img)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+
+			header := testutil.IVFHeader{
+				FourCC:              [4]byte{'V', 'P', '9', '0'},
+				Width:               tc.width,
+				Height:              tc.height,
+				TimebaseDenominator: 30,
+				TimebaseNumerator:   1,
+				FrameCount:          1,
+			}
+			stream := append(testutil.WriteIVFHeader(header),
+				testutil.WriteIVFFrame(payload, 0)...)
+
+			out, err := coracle.VpxdecVP9Decode(stream)
+			if err != nil {
+				t.Fatalf("vpxdec-vp9 rejected %dx%d keyframe: %v\nvpxdec:\n%s",
+					tc.width, tc.height, err, out)
+			}
+		})
+	}
+}
+
 // TestVP9EncoderVpxdecOracleAcceptsIntraOnlyInter runs the gate
 // against the second frame produced by the encoder — an
 // intra-only inter frame (FrameType=InterFrame + IntraOnly=true)
