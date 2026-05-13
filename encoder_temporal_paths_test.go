@@ -382,6 +382,28 @@ func TestEncodeIntoRefreshesEntropyUnlessDisabled(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoForcedKeyHonorsNoUpdateEntropy(t *testing.T) {
+	e := newEntropyRefreshTestEncoder(t, false)
+	dst := make([]byte, 8192)
+
+	for i := range 3 {
+		src := rateControlTestFrame(16, 16, i)
+		if _, err := e.EncodeInto(dst, src, uint64(i), 1, 0); err != nil {
+			t.Fatalf("warm frame %d EncodeInto returned error: %v", i, err)
+		}
+	}
+	forced, err := e.EncodeInto(dst, rateControlTestFrame(16, 16, 3), 3, 1, EncodeForceKeyFrame|EncodeNoUpdateEntropy)
+	if err != nil {
+		t.Fatalf("forced key EncodeInto returned error: %v", err)
+	}
+	if !forced.KeyFrame {
+		t.Fatalf("forced KeyFrame = false, want true")
+	}
+	if packetState(t, forced.Data).Refresh.RefreshEntropyProbs {
+		t.Fatalf("forced key refresh entropy = true, want libvpx no-update flag honored")
+	}
+}
+
 func TestEncodeIntoErrorResilientUsesTransientEntropyUpdates(t *testing.T) {
 	e := newEntropyRefreshTestEncoder(t, true)
 	src := testImage(16, 16)

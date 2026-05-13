@@ -642,7 +642,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// observes baseline_gf_interval=DEFAULT_GF_INTERVAL=7 at first-keyframe
 	// time while realtime CBR observes the cyclic-refresh gf_interval.
 	e.rc.framesTillGFUpdateDue = e.libvpxKeyFrameSetupGFInterval(rows, cols)
-	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, invisible, staticSegmentationAllowed)
+	keyAttempt, err := e.encodeKeyFrameWithQuantizerFeedback(dst, source, rows, cols, required, flags, invisible, staticSegmentationAllowed)
 	if err != nil {
 		e.cancelAutoSpeedTiming()
 		return EncodeResult{}, err

@@ -776,7 +776,7 @@ func TestEncodeKeyFrameAttemptDefersEntropyCommit(t *testing.T) {
 
 	rows := encoderMacroblockRows(32)
 	cols := encoderMacroblockCols(32)
-	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, false, false, e.rc.currentQuantizer)
+	attempt, err := e.encodeKeyFrameAttempt(make([]byte, 16384), sourceImageFromImage(rateControlTestFrame(32, 32, 0)), rows, cols, rows*cols, 0, false, false, e.rc.currentQuantizer)
 	if err != nil {
 		t.Fatalf("encodeKeyFrameAttempt returned error: %v", err)
 	}

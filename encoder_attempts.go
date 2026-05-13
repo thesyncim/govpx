@@ -7,7 +7,7 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, invisible bool, staticSegmentationAllowed bool) (keyFrameEncodeAttempt, error) {
 	recode := e.rc.newFrameSizeRecodeState(true, false)
 	// libvpx vp8/encoder/onyx_if.c encode_frame_to_data_rate snapshots the
 	// coding context once before entering the recode do-loop. Each rejected
@@ -23,7 +23,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 		if traceEnabled {
 			e.incrementOracleTraceRecodeLoop()
 		}
-		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, invisible, staticSegmentationAllowed, cyclicRefreshQ)
+		result, err := e.encodeKeyFrameAttempt(dst, source, rows, cols, required, flags, invisible, staticSegmentationAllowed, cyclicRefreshQ)
 		if err != nil {
 			return keyFrameEncodeAttempt{}, err
 		}
@@ -72,7 +72,7 @@ func (e *VP8Encoder) encodeKeyFrameWithQuantizerFeedback(dst []byte, source vp8e
 	}
 }
 
-func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, invisible bool, staticSegmentationAllowed bool, cyclicRefreshQ int) (keyFrameEncodeAttempt, error) {
+func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, invisible bool, staticSegmentationAllowed bool, cyclicRefreshQ int) (keyFrameEncodeAttempt, error) {
 	e.phaseCountAttempt(true)
 	if len(e.keyFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return keyFrameEncodeAttempt{}, ErrInvalidConfig
@@ -139,7 +139,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefLFDeltas:           lfHeader.RefDeltas,
 		ModeLFDeltas:          lfHeader.ModeDeltas,
 		Segmentation:          segmentation,
-		RefreshEntropyProbs:   !e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
+		RefreshEntropyProbs:   e.keyFrameRefreshEntropyProbs(flags),
 		IndependentContexts:   e.opts.ErrorResilientPartitions,
 		// libvpx initializes pc->mb_no_coeff_skip = 1 for every frame
 		// (alloccommon.c), so the keyframe header always carries the
@@ -163,6 +163,13 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	projectedBits, coefSavings, refFrameSavings := e.projectedFrameSizeBitsFromRateWithSavings(true, required, projectedRate, false, false)
 	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
+}
+
+func (e *VP8Encoder) keyFrameRefreshEntropyProbs(flags EncodeFlags) bool {
+	if e.opts.ErrorResilientPartitions {
+		return true
+	}
+	return flags&EncodeNoUpdateEntropy == 0 && !e.opts.ErrorResilient
 }
 
 func (e *VP8Encoder) encodeInterFrameWithQuantizerFeedback(dst []byte, source vp8enc.SourceImage, rows int, cols int, required int, flags EncodeFlags, temporalActive bool, goldenCBRRefresh bool, boostedReferenceFrame bool, staticSegmentationAllowed bool, sourceIsAltRef bool) (interFrameEncodeAttempt, error) {
