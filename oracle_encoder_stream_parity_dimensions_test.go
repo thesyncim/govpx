@@ -160,13 +160,11 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid169-rt-cpu4-854x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu8-854x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu4-1024x576", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1024, 576)},
-		// 1024x576 cpu8 stays byte-pinned. At 1280x720 the production
-		// speed-4 trajectory has a small first-inter decision gap; keep the
-		// keyframe prefix pinned here and gate production byte ratio with the
-		// 60-frame uninstrumented-vpxenc bench test.
+		// 1024x576 and 1280x720 stay byte-pinned across the fast-band
+		// realtime auto-speed trajectory.
 		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576)},
-		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720), limit: 1},
-		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720), limit: 1},
+		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720)},
+		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720)},
 
 		// (5) Mid-range 4:3. Up to VGA we can afford cpu_used=0; SVGA
 		// stays at the fast band.

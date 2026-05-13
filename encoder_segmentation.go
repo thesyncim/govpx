@@ -304,18 +304,10 @@ func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, mode
 }
 
 func (e *VP8Encoder) commitKeyFrameCyclicRefreshMap(rows int, cols int, modes []vp8enc.KeyFrameMacroblockMode, segmentationEnabled bool) {
-	count := rows * cols
-	if count <= 0 || !segmentationEnabled || e.roi.enabled || len(e.cyclicRefreshMap) < count || len(e.cyclicRefreshAttemptMap) < count || len(modes) < count {
-		return
-	}
-	for index := range count {
-		if modes[index].SegmentID != 0 {
-			e.cyclicRefreshMap[index] = -1
-		} else {
-			e.cyclicRefreshMap[index] = 1
-		}
-	}
-	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
+	// Key frames do not feed back into libvpx's cyclic_refresh_map. The
+	// keyframe cyclic_background_refresh call clears the packet segment map,
+	// but encodeframe.c updates cyclic_refresh_map only after inter MBs.
+	// Leave both the committed map and scratch attempt map untouched.
 }
 
 func updateCyclicRefreshMapFromInterFrame(modes []vp8enc.InterFrameMacroblockMode, refreshMap []int8) {

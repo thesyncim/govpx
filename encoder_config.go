@@ -509,13 +509,9 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	msForCompress = msForCompress * (16 - cpuUsed) / 16
 	// Note: avgPickModeTime and avgEncodeTime are signed int to mirror
 	// libvpx's signed-int avg_pick_mode_time / avg_encode_time
-	// (vp8/encoder/onyx_int.h:455-456). The (avgEncodeTime - avgPickModeTime)
-	// difference is signed-negative on the first inter frame after a key
-	// frame (avg_encode_time is skipped for KFs while avg_pick_mode_time is
-	// updated, so EncodeTime=0 < PickModeTime). Using uint64 here would let
-	// the subtraction underflow to a huge unsigned value, fail the
-	// "< msForCompress" guard, and force the bump branch (Speed += 4) on
-	// frame 1, breaking the auto-select trajectory libvpx follows.
+	// (vp8/encoder/onyx_int.h:455-456). The subtraction is intentionally
+	// signed because libvpx evaluates it that way before comparing it with
+	// the compression budget.
 	if e.avgPickModeTime < msForCompress &&
 		(e.avgEncodeTime-e.avgPickModeTime) < msForCompress {
 		if e.avgPickModeTime == 0 {
@@ -549,6 +545,27 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 }
 
+func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
+	fps := e.opts.FPS
+	if fps <= 0 {
+		fps = 30
+	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
+	if cpuUsed < 0 {
+		cpuUsed = -cpuUsed
+	}
+	return (1000000 / fps) * (16 - cpuUsed) / 16
+}
+
+func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
+	if !e.libvpxAutoSelectSpeedActive() {
+		return false
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	return rows*cols >= 3600
+}
+
 func (e *VP8Encoder) beginAutoSpeedTiming() {
 	if e.opts.Deadline != DeadlineRealtime {
 		return
@@ -567,9 +584,9 @@ func (e *VP8Encoder) cancelAutoSpeedTiming() {
 }
 
 // finishAutoSpeedTiming mirrors libvpx onyx_if.c:5103-5128: at end of frame
-// encode in realtime, IIR-update avg_encode_time (skipped for keyframes) and
+// encode in realtime, IIR-update avg_encode_time (inter frames only) and
 // avg_pick_mode_time (duration2 = duration/2 by libvpx convention).
-func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
+func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	if e.autoSpeedFrameStartNS == 0 || e.opts.Deadline != DeadlineRealtime {
 		return
 	}
@@ -579,8 +596,20 @@ func (e *VP8Encoder) finishAutoSpeedTiming(isKeyFrame bool) {
 		durationNS = 0
 	}
 	duration := int(durationNS / 1000)
+	keyFrameEncodeSample := false
+	if keyFrame && e.largeAutoSpeedKeyFrameTimingCompensation() {
+		// The selector is calibrated to libvpx's C encoder timings. On large
+		// keyframes govpx can spend longer in Go-side reconstruction while
+		// libvpx still stays just inside the next-frame budget, so cap the
+		// effective keyframe sample at the branch boundary used by
+		// vp8_auto_select_speed before feeding the next-frame selector.
+		if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 && duration >= 2*budget-1 {
+			duration = 2*budget - 2
+		}
+		keyFrameEncodeSample = true
+	}
 	duration2 := duration / 2
-	if !isKeyFrame {
+	if !keyFrame || keyFrameEncodeSample {
 		if e.avgEncodeTime == 0 {
 			e.avgEncodeTime = duration
 		} else {

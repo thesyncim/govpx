@@ -265,6 +265,34 @@ func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	}
 }
 
+func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
+	e := newSizedTestEncoder(t, 1280, 720)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+
+	budget := e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
+		t.Fatalf("key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
+			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
+	}
+	e.libvpxAutoSelectSpeed()
+	if e.autoSpeed != 5 {
+		t.Fatalf("post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
+	}
+
+	e = newSizedTestEncoder(t, 854, 480)
+	e.opts.CpuUsed = 8
+	e.libvpxAutoSelectSpeed()
+	budget = e.autoSpeedCompressionBudgetUS()
+	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+	e.finishAutoSpeedTiming(true)
+	if e.avgEncodeTime != 0 {
+		t.Fatalf("mid-size key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+	}
+}
+
 func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
 	e := newTestEncoder(t)
 	e.rc.dropFrameAllowed = true

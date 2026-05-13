@@ -581,10 +581,10 @@ func TestEncodeIntoCyclicRefreshIndexPreservedAcrossKeyFrames(t *testing.T) {
 	}
 }
 
-func TestCommitKeyFrameCyclicRefreshMapMarksKeyBlocksDirty(t *testing.T) {
+func TestCommitKeyFrameCyclicRefreshMapPreservesRollingMap(t *testing.T) {
 	e := &VP8Encoder{
-		cyclicRefreshMap:        make([]int8, 4),
-		cyclicRefreshAttemptMap: make([]int8, 4),
+		cyclicRefreshMap:        []int8{0, -1, 1, 0},
+		cyclicRefreshAttemptMap: []int8{1, 0, -1, 1},
 	}
 	modes := []vp8enc.KeyFrameMacroblockMode{
 		{SegmentID: 0},
@@ -595,13 +595,14 @@ func TestCommitKeyFrameCyclicRefreshMapMarksKeyBlocksDirty(t *testing.T) {
 
 	e.commitKeyFrameCyclicRefreshMap(2, 2, modes, true)
 
-	want := []int8{1, -1, 1, 1}
-	for i := range want {
-		if e.cyclicRefreshMap[i] != want[i] {
-			t.Fatalf("cyclicRefreshMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshMap[i], want[i], e.cyclicRefreshMap)
+	wantMap := []int8{0, -1, 1, 0}
+	wantAttempt := []int8{1, 0, -1, 1}
+	for i := range wantMap {
+		if e.cyclicRefreshMap[i] != wantMap[i] {
+			t.Fatalf("cyclicRefreshMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshMap[i], wantMap[i], e.cyclicRefreshMap)
 		}
-		if e.cyclicRefreshAttemptMap[i] != want[i] {
-			t.Fatalf("cyclicRefreshAttemptMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshAttemptMap[i], want[i], e.cyclicRefreshAttemptMap)
+		if e.cyclicRefreshAttemptMap[i] != wantAttempt[i] {
+			t.Fatalf("cyclicRefreshAttemptMap[%d] = %d, want %d (map=%v)", i, e.cyclicRefreshAttemptMap[i], wantAttempt[i], e.cyclicRefreshAttemptMap)
 		}
 	}
 }
