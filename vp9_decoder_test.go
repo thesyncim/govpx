@@ -174,6 +174,35 @@ func TestVP9DecoderParsesEncoderIntraOnlyCompressedHeader(t *testing.T) {
 	}
 }
 
+// TestVP9DecoderDecodeSteadyStateAlloc keeps the public compressed-
+// header parse path allocation-free after construction.
+func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	img := image.NewYCbCr(image.Rect(0, 0, 96, 96), image.YCbCrSubsampleRatio420)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("warm Decode err = %v, want ErrVP9NotImplemented", err)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		err = d.Decode(packet)
+	})
+	if !errors.Is(err, ErrVP9NotImplemented) {
+		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	}
+	if allocs != 0 {
+		t.Fatalf("Decode steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
 // TestVP9DecoderMaxWidthRejectsLargerKeyframe: a header whose width
 // exceeds the configured MaxWidth gets rejected before
 // ErrVP9NotImplemented surfaces.
