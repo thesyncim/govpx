@@ -107,8 +107,10 @@ type VP9Decoder struct {
 	// segMap is the current-frame segmentation map used by the
 	// mode-info readers; lastSegMap is kept for copy/predicted segment
 	// id paths on later frames.
-	segMap     []uint8
-	lastSegMap []uint8
+	segMap       []uint8
+	lastSegMap   []uint8
+	segMapMiRows int
+	segMapMiCols int
 
 	// planes carries the per-plane coefficient entropy contexts the
 	// residual token pass updates. dqcoeff is stack-equivalent decoder
@@ -843,6 +845,8 @@ func (d *VP9Decoder) Reset() {
 	if d.lastSegMap != nil {
 		d.lastSegMap = d.lastSegMap[:0]
 	}
+	d.segMapMiRows = 0
+	d.segMapMiCols = 0
 	if d.interPredictScratch != nil {
 		d.interPredictScratch = d.interPredictScratch[:0]
 	}

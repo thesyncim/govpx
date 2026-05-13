@@ -79,7 +79,9 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	if offset != len(tileData) {
 		return ErrInvalidVP9Data
 	}
-	d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+	if hdr.Seg.Enabled {
+		d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+	}
 	return nil
 }
 
@@ -179,7 +181,9 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 	if offset != len(tileData) {
 		return ErrInvalidVP9Data
 	}
-	d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+	if hdr.Seg.Enabled {
+		d.lastSegMap, d.segMap = d.segMap, d.lastSegMap
+	}
 	return nil
 }
 
@@ -1569,6 +1573,7 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 	}
 
 	miGridLen := miRows * miCols
+	resetLastSegMap := d.segMapMiRows != miRows || d.segMapMiCols != miCols
 	if cap(d.miGrid) < miGridLen {
 		d.miGrid = make([]vp9dec.NeighborMi, miGridLen)
 	} else {
@@ -1584,6 +1589,13 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 	} else {
 		d.lastSegMap = d.lastSegMap[:miGridLen]
 	}
+	if resetLastSegMap {
+		for i := range d.lastSegMap {
+			d.lastSegMap[i] = 0
+		}
+	}
+	d.segMapMiRows = miRows
+	d.segMapMiCols = miCols
 
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
