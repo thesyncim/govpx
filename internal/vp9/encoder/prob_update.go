@@ -16,6 +16,48 @@ import "github.com/thesyncim/govpx/internal/vp9/bitstream"
 // maxProbConst mirrors libvpx's MAX_PROB.
 const maxProbConst = 255
 
+// VP9ProbCostShift mirrors libvpx's VP9_PROB_COST_SHIFT — the
+// fixed-point shift applied to update-bit costs before they're
+// compared against the bit-cost estimate of the coefficient stream.
+const VP9ProbCostShift = 9
+
+// MinDelpBits mirrors libvpx's MIN_DELP_BITS — the minimum sub-exp
+// encoding cost (in raw bits) for any non-zero delta. The cost
+// search uses this as a floor when deciding whether an update is
+// worth the bits.
+const MinDelpBits = 5
+
+// updateBits mirrors libvpx's static update_bits[255] — the
+// bit-length of the sub-exp encoding for each remapped delta. The
+// final entry (delp==254) is 0 because that remap index never
+// occurs for legal (oldp, newp) pairs.
+var updateBits = [maxProbConst]uint8{
+	5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 8, 8, 8, 8, 8, 8,
+	8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+	8, 8, 8, 8, 8, 8, 8, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+	11, 11, 11, 11, 11, 11, 11, 0,
+}
+
+// ProbDiffUpdateCost mirrors libvpx's static prob_diff_update_cost.
+// Returns the cost (in left-shifted "prob-cost" units) of encoding
+// the (newp, oldp) sub-exp delta. The compressed-header walker
+// compares this against the cost of leaving the slot unchanged
+// before deciding which path to emit.
+func ProbDiffUpdateCost(newp, oldp uint8) int {
+	delp := remapProb(int(newp), int(oldp))
+	return int(updateBits[delp]) << VP9ProbCostShift
+}
+
 // mapTable mirrors libvpx's static remap permutation. Mapping
 // `(delta_index → encoded_value)` flattens the delta-encoded
 // probabilities so the prefix code below can pick a tighter slot for

@@ -97,6 +97,59 @@ func TestEncodeTermSubexpRoundTripFuzz(t *testing.T) {
 	}
 }
 
+// TestProbDiffUpdateCostMatchesUpdateBits anchors the cost helper:
+// the returned cost must equal (updateBits[remap_index] <<
+// VP9ProbCostShift) for every (newp, oldp) pair. Walking a small
+// spread is enough to catch a wrong shift / wrong index lookup.
+func TestProbDiffUpdateCostMatchesUpdateBits(t *testing.T) {
+	// Only non-equal probs go through ProbDiffUpdateCost; libvpx
+	// gates on (newp != oldp) before calling the cost helper.
+	cases := []struct{ newp, oldp uint8 }{
+		{129, 128},
+		{200, 128},
+		{1, 128},
+		{255, 128},
+	}
+	for i, c := range cases {
+		got := ProbDiffUpdateCost(c.newp, c.oldp)
+		want := int(updateBits[remapProb(int(c.newp), int(c.oldp))]) << VP9ProbCostShift
+		if got != want {
+			t.Errorf("case %d: ProbDiffUpdateCost(%d, %d) = %d, want %d",
+				i, c.newp, c.oldp, got, want)
+		}
+	}
+}
+
+// TestProbDiffUpdateCostUsesPermutation: the cost is always a
+// multiple of (1 << VP9ProbCostShift), so the low VP9ProbCostShift
+// bits must be zero. A regression that dropped the shift would
+// surface here.
+func TestProbDiffUpdateCostUsesPermutation(t *testing.T) {
+	for _, pair := range [][2]uint8{{1, 128}, {64, 128}, {200, 64}, {253, 1}} {
+		got := ProbDiffUpdateCost(pair[0], pair[1])
+		if got&((1<<VP9ProbCostShift)-1) != 0 {
+			t.Errorf("cost(%d, %d) = %d has non-zero low %d bits",
+				pair[0], pair[1], got, VP9ProbCostShift)
+		}
+	}
+}
+
+// TestUpdateBitsShape: trivial shape check + invariant — every
+// non-zero entry must meet MinDelpBits.
+func TestUpdateBitsShape(t *testing.T) {
+	if len(updateBits) != 255 {
+		t.Errorf("updateBits len = %d, want 255", len(updateBits))
+	}
+	if updateBits[254] != 0 {
+		t.Errorf("updateBits[254] = %d, want 0", updateBits[254])
+	}
+	for _, v := range updateBits {
+		if v != 0 && v < MinDelpBits {
+			t.Errorf("entry %d below MinDelpBits=%d", v, MinDelpBits)
+		}
+	}
+}
+
 // decodeTermSubexpForTest mirrors decoder.decodeTermSubexp (private).
 // Local copy is fine here because the encoder and decoder must agree
 // on the wire format anyway.
