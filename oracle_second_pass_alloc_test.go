@@ -181,6 +181,11 @@ func TestOracleSecondPassAllocationCompare(t *testing.T) {
 
 func runLibvpxPass1(t *testing.T, vpxenc string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int) {
 	t.Helper()
+	runLibvpxPass1WithExtra(t, vpxenc, yuvPath, ivfPath, fpfPath, opts, targetKbps, count, nil)
+}
+
+func runLibvpxPass1WithExtra(t *testing.T, vpxenc string, yuvPath string, ivfPath string, fpfPath string, opts EncoderOptions, targetKbps int, count int, extraArgs []string) {
+	t.Helper()
 	deadlineArg := libvpxDeadlineArg(opts.Deadline)
 	args := []string{
 		"--codec=vp8",
@@ -204,8 +209,9 @@ func runLibvpxPass1(t *testing.T, vpxenc string, yuvPath string, ivfPath string,
 		"--fps=" + strconv.Itoa(opts.FPS) + "/1",
 		"--limit=" + strconv.Itoa(count),
 		"--output=" + ivfPath,
-		yuvPath,
 	}
+	args = append(args, extraArgs...)
+	args = append(args, yuvPath)
 	cmd := exec.Command(vpxenc, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

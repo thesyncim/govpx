@@ -404,6 +404,42 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	segmentedGovpxFrames := encodeFramesWithGovpx(t, segmentedGovpxOpts, segmentedSources)
 	segmentedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64", segmentedOpts, segmentedOpts.TargetBitrateKbps, segmentedSources)
 	assertSegmentByteParity(t, "twopass-e2e-segmented64", segmentedGovpxFrames, segmentedLibvpxFrames, 0)
+
+	tokenOpts := panningOpts
+	tokenOpts.TokenPartitions = 2
+	tokenGovpxOpts := tokenOpts
+	tokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, tokenOpts, panningSources)
+	tokenGovpxFrames := encodeFramesWithGovpx(t, tokenGovpxOpts, panningSources)
+	tokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-token-parts2", tokenOpts, tokenOpts.TargetBitrateKbps, panningSources)
+	// Token partitions should not change the two-pass allocation path; this
+	// row pins the packet-writer side of second-pass VBR.
+	assertSegmentByteParity(t, "twopass-e2e-token-parts2", tokenGovpxFrames, tokenLibvpxFrames, 3)
+
+	ssimOpts := panningOpts
+	ssimOpts.Tuning = TuneSSIM
+	ssimGovpxOpts := ssimOpts
+	ssimGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, ssimOpts, panningSources)
+	ssimGovpxFrames := encodeFramesWithGovpx(t, ssimGovpxOpts, panningSources)
+	ssimLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-tune-ssim", ssimOpts, ssimOpts.TargetBitrateKbps, panningSources)
+	// Two-pass SSIM changes the activity-map/partition decision surface from
+	// the keyframe onward. Keep the row in the matrix to log that control.
+	assertSegmentByteParity(t, "twopass-e2e-tune-ssim", ssimGovpxFrames, ssimLibvpxFrames, -1)
+
+	arnrSources := makePanningSources(64, 64, 16, 0)
+	arnrOpts := panningOpts
+	arnrOpts.LookaheadFrames = 8
+	arnrOpts.AutoAltRef = true
+	arnrOpts.ARNRMaxFrames = 5
+	arnrOpts.ARNRStrength = 3
+	arnrOpts.ARNRType = 3
+	arnrGovpxOpts := arnrOpts
+	arnrGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, arnrOpts, arnrSources)
+	arnrGovpxFrames := encodeFramesWithGovpx(t, arnrGovpxOpts, arnrSources)
+	arnrLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-auto-alt-ref-arnr", arnrOpts, arnrOpts.TargetBitrateKbps, arnrSources)
+	// ARNR/hidden-ARF byte parity is an open gap, but keeping this in the
+	// two-pass stream matrix catches frame-count and packet-shape regressions
+	// while asserting the common keyframe and logging the later divergence.
+	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-arnr", arnrGovpxFrames, arnrLibvpxFrames, 1)
 }
 
 func makePanningSources(w, h, count, offset int) []Image {
@@ -577,13 +613,20 @@ func assertSegmentByteParityFrom(t *testing.T, label string, got [][]byte, want 
 
 func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image) [][]byte {
 	t.Helper()
+	return encodeFramesWithLibvpxTwoPassOracleArgs(t, vpxenc, vpxencOracle, name, opts, targetKbps, sources, nil)
+}
+
+func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
+	t.Helper()
 	dir := t.TempDir()
 	yuvPath := filepath.Join(dir, name+".yuv")
 	ivf1Path := filepath.Join(dir, name+"-pass1.ivf")
 	ivf2Path := filepath.Join(dir, name+"-pass2.ivf")
 	fpfPath := filepath.Join(dir, name+".fpf")
 	writeEncoderValidationI420(t, yuvPath, sources)
-	runLibvpxPass1(t, vpxenc, yuvPath, ivf1Path, fpfPath, opts, targetKbps, len(sources))
+	passExtraArgs := libvpxTwoPassControlArgs(opts)
+	passExtraArgs = append(passExtraArgs, extraArgs...)
+	runLibvpxPass1WithExtra(t, vpxenc, yuvPath, ivf1Path, fpfPath, opts, targetKbps, len(sources), passExtraArgs)
 
 	args := []string{
 		"--codec=vp8",
@@ -617,6 +660,7 @@ func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOrac
 	if opts.TwoPassMaxPct > 0 {
 		args = append(args, "--maxsection-pct="+strconv.Itoa(opts.TwoPassMaxPct))
 	}
+	args = append(args, passExtraArgs...)
 	args = append(args, yuvPath)
 	cmd := exec.Command(vpxencOracle, args...)
 	cmd.Env = os.Environ()
@@ -628,4 +672,32 @@ func encodeFramesWithLibvpxTwoPassOracle(t *testing.T, vpxenc string, vpxencOrac
 		t.Fatalf("read %s: %v", ivf2Path, err)
 	}
 	return parseIVFFramePayloads(t, data)
+}
+
+func libvpxTwoPassControlArgs(opts EncoderOptions) []string {
+	var args []string
+	if opts.LookaheadFrames > 0 {
+		args = append(args, "--lag-in-frames="+strconv.Itoa(opts.LookaheadFrames))
+	}
+	if opts.AutoAltRef {
+		args = append(args, "--auto-alt-ref=1")
+	}
+	if opts.TokenPartitions > 0 {
+		args = append(args, "--token-parts="+strconv.Itoa(opts.TokenPartitions))
+	}
+	if opts.Tuning == TuneSSIM {
+		args = append(args, "--tune=ssim")
+	}
+	if opts.Sharpness > 0 {
+		args = append(args, "--sharpness="+strconv.Itoa(opts.Sharpness))
+	}
+	if opts.NoiseSensitivity > 0 {
+		args = append(args, "--noise-sensitivity="+strconv.Itoa(opts.NoiseSensitivity))
+	}
+	if opts.ARNRMaxFrames > 0 {
+		args = append(args, "--arnr-maxframes="+strconv.Itoa(opts.ARNRMaxFrames))
+		args = append(args, "--arnr-strength="+strconv.Itoa(opts.ARNRStrength))
+		args = append(args, "--arnr-type="+strconv.Itoa(opts.ARNRType))
+	}
+	return args
 }
