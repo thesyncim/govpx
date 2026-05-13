@@ -357,27 +357,33 @@ func TestVP9DecoderDecodesVerticalIntraPredictionFrame(t *testing.T) {
 	assertVP9FilledFrame(t, frame, 64, 64, 127, 128, 128)
 }
 
-// TestVP9DecoderNonZeroResidueDoesNotPublishFrame keeps the current
-// reconstruction boundary explicit: nonzero coefficient tokens parse,
-// but inverse transform/add is not wired into the public output path yet.
-func TestVP9DecoderNonZeroResidueDoesNotPublishFrame(t *testing.T) {
-	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 8)
+// TestVP9DecoderDecodesNonZeroResidueKeyframe verifies the residual
+// path is wired through inverse transform/add. The fixture gives the
+// first luma transform block a DC coefficient; DC prediction then
+// propagates the raised edge through the rest of the frame.
+func TestVP9DecoderDecodesNonZeroResidueKeyframe(t *testing.T) {
+	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 32)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	err = d.Decode(packet)
-	if !errors.Is(err, ErrVP9NotImplemented) {
-		t.Fatalf("Decode err = %v, want ErrVP9NotImplemented", err)
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
 	}
 	w, h := d.LastFrameSize()
 	if w != 64 || h != 64 {
 		t.Fatalf("LastFrameSize() = (%d, %d), want (64, 64)", w, h)
 	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatal("NextFrame published output for nonzero residue")
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after nonzero-residue keyframe")
 	}
+	if got := frame.Y[0]; got <= 128 {
+		t.Fatalf("Y[0,0] = %d, want residual above predictor", got)
+	}
+	assertVP9PlaneFilled(t, "U", frame.U, frame.UStride, 32, 32, 128)
+	assertVP9PlaneFilled(t, "V", frame.V, frame.VStride, 32, 32, 128)
 }
 
 // TestVP9DecoderRejectsMissingResidueTokens proves skip=0 blocks now
@@ -441,7 +447,7 @@ func TestVP9DecoderRejectsInvalidMultiTilePrefix(t *testing.T) {
 }
 
 // TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
-// tile/residual parse and prediction-only output path allocation-free after
+// tile/residual parse and intra reconstruct output path allocation-free after
 // construction.
 func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
@@ -672,6 +678,7 @@ func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
 			vp9dec.NoRefFrame,
 		},
 	}
+	zeroCoeffs := make([]int16, 1024)
 	coeffs := make([]int16, 1024)
 	coeffs[0] = dcCoeff
 	partitionProbs := tables.KfPartitionProbs
@@ -729,7 +736,13 @@ func vp9SkipResidueKeyframeForTest(t *testing.T, width, height int,
 				},
 				Fc: &fc.CoefProbs,
 				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-					return coeffs[:vp9dec.MaxEobForTxSize(tx)]
+					if dcCoeff != 0 && plane == 0 && r == 0 && c == 0 {
+						return coeffs[:vp9dec.MaxEobForTxSize(tx)]
+					}
+					if dcCoeff == 0 {
+						return coeffs[:vp9dec.MaxEobForTxSize(tx)]
+					}
+					return zeroCoeffs[:vp9dec.MaxEobForTxSize(tx)]
 				},
 			})
 		},

@@ -227,12 +227,8 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 		return true
 	}
-	if !d.readVP9IntraResidueBlock(r, hdr, mi, miRow, miCol, bsize) {
+	if !d.readVP9IntraResidueBlock(r, hdr, mi, out.UvMode, tile, miRow, miCol, bsize) {
 		return false
-	}
-	if !d.unsupportedReconstruct {
-		d.reconstructVP9IntraPredictBlock(hdr, mi, out.UvMode, tile,
-			miRow, miCol, bsize)
 	}
 	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
 	return true
@@ -240,6 +236,7 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 
 func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, mi *vp9dec.NeighborMi,
+	uvMode common.PredictionMode, tile vp9dec.TileBounds,
 	miRow, miCol int, bsize common.BlockSize,
 ) bool {
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
@@ -270,11 +267,15 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 
 		for rr := 0; rr < num4x4H; rr += step {
 			for cc := 0; cc < num4x4W; cc += step {
+				mode := uvMode
+				if plane == 0 {
+					mode = vp9dec.GetYMode(mi, blockIdx)
+				}
 				aboveCtx := pd.AboveContext[aboveBase+cc : aboveBase+cc+step]
 				leftCtx := pd.LeftContext[leftBase+rr : leftBase+rr+step]
 				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
 				scanOrder := common.GetScan(txSize, planeType, 0,
-					hdr.Quant.Lossless, vp9dec.GetYMode(mi, blockIdx))
+					hdr.Quant.Lossless, mode)
 				maxEob := vp9dec.MaxEobForTxSize(txSize)
 				coeffs := d.dqcoeff[:maxEob]
 				for i := range coeffs {
@@ -283,10 +284,23 @@ func (d *VP9Decoder) readVP9IntraResidueBlock(r *bitstream.Reader,
 
 				eob := vp9dec.DecodeCoefs(r, txSize, planeType, 0, dequant,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs, coeffs)
+				if !d.unsupportedReconstruct {
+					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
+						mode, txSize, tile, miRow, miCol, rr, cc)
+					if !ok {
+						d.unsupportedReconstruct = true
+					} else if eob > 0 && dst != nil {
+						txType := common.DctDct
+						if planeType == 0 && !hdr.Quant.Lossless {
+							txType = common.IntraModeToTxType[mode]
+						}
+						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
+							txType, eob, hdr.Quant.Lossless)
+					}
+				}
 				hasResidue := uint8(0)
 				if eob > 0 {
 					hasResidue = 1
-					d.unsupportedReconstruct = true
 				}
 				for i := range step {
 					aboveCtx[i] = hasResidue
@@ -329,8 +343,8 @@ func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
 				if plane == 0 {
 					mode = vp9dec.GetYMode(mi, blockIdx)
 				}
-				if !d.reconstructVP9IntraPredictTx(hdr, pd, plane, mode, txSize,
-					tile, miRow, miCol, rr, cc) {
+				if _, _, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane, mode, txSize,
+					tile, miRow, miCol, rr, cc); !ok {
 					d.unsupportedReconstruct = true
 					return
 				}
@@ -349,10 +363,10 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 	tile vp9dec.TileBounds,
 	miRow, miCol int,
 	blockRow4x4, blockCol4x4 int,
-) bool {
+) (dst []byte, stride int, ok bool) {
 	planeData, stride := d.vp9OutputPlane(plane)
 	if stride <= 0 || len(planeData) == 0 || int(mode) >= common.IntraModes {
-		return false
+		return nil, 0, false
 	}
 	rows := len(planeData) / stride
 	planeWidth, planeHeight := vp9dec.FramePlaneDims(int(hdr.Width), int(hdr.Height),
@@ -362,12 +376,12 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 	x0 := baseX + blockCol4x4*4
 	y0 := baseY + blockRow4x4*4
 	if x0 >= planeWidth || y0 >= planeHeight {
-		return true
+		return nil, 0, true
 	}
 
 	bs := 4 << uint(txSize)
 	if x0+bs > stride || y0+bs > rows {
-		return false
+		return nil, 0, false
 	}
 
 	leftAvailable := x0 > 0 &&
@@ -391,7 +405,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 		}
 	}
 	rightAvailable := x0+2*bs <= planeWidth
-	dst := planeData[y0*stride+x0:]
+	dst = planeData[y0*stride+x0:]
 	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
 		Dst:            dst,
 		DstStride:      stride,
@@ -408,7 +422,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 		MbToRightEdge:  planeWidth - (x0 + bs),
 		MbToBottomEdge: planeHeight - (y0 + bs),
 	}, &d.intraScratch)
-	return true
+	return dst, stride, true
 }
 
 func (d *VP9Decoder) vp9OutputPlane(plane int) ([]byte, int) {

@@ -11,10 +11,10 @@ import (
 // VP9DecoderOptions configures a VP9 decoder. Mirrors the VP8 shape
 // so call sites can switch codecs by swapping the constructor.
 //
-// The current VP9 stack supports 8-bit 4:2:0 intra prediction-only
-// frames: mode-info and residual tokens are parsed, transform blocks
-// with no coefficients are reconstructed from their intra predictors,
-// and other valid frames return [ErrVP9NotImplemented] at the current
+// The current VP9 stack supports 8-bit 4:2:0 intra frames: mode-info
+// and residual tokens are parsed, transform blocks are reconstructed
+// from their intra predictors plus inverse transform/add, and other
+// valid frame classes return [ErrVP9NotImplemented] at the current
 // reconstruct boundary.
 type VP9DecoderOptions struct {
 	// Threads selects the decoder worker count for parallel tile
@@ -85,8 +85,8 @@ type VP9Decoder struct {
 	planes  [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	dqcoeff [1024]int16
 
-	// The first public reconstruction slice handles prediction-only
-	// intra frames. Nonzero tokens keep parsing intact but stop before
+	// The first public reconstruction slice handles intra frames.
+	// Unsupported frame classes keep parsing intact but stop before
 	// publishing output.
 	unsupportedReconstruct bool
 	frameReady             bool
@@ -129,9 +129,8 @@ func validateVP9DecoderOptions(opts VP9DecoderOptions) error {
 // Decode is the VP9 entry point. The uncompressed and compressed
 // headers plus intra-only tile mode-info/residual tokens are parsed
 // and validated; malformed frames surface as [ErrInvalidVP9Data].
-// 8-bit 4:2:0 intra frames with no residual coefficients decode to
-// I420 output. Other valid packets return [ErrVP9NotImplemented]
-// after parser state is updated.
+// 8-bit 4:2:0 intra frames decode to I420 output. Other valid
+// packets return [ErrVP9NotImplemented] after parser state is updated.
 //
 // Side effects on a successful parse: the decoder's stored frame
 // dimensions, loopfilter state, segmentation state, and mode-info
