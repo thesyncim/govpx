@@ -243,7 +243,7 @@ func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
 	assertVP9FilledFrame(t, frame, 96, 80, 91, 143, 37)
 }
 
-func TestVP9EncoderInterSkipRepeatsReconstructedReference(t *testing.T) {
+func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
 	keySrc := newVP9YCbCrForTest(96, 80, 82, 123, 211)
 	interSrc := newVP9YCbCrForTest(96, 80, 201, 44, 19)
@@ -275,7 +275,7 @@ func TestVP9EncoderInterSkipRepeatsReconstructedReference(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
-	assertVP9FilledFrame(t, frame, 96, 80, 82, 123, 211)
+	assertVP9FilledFrame(t, frame, 96, 80, 201, 44, 19)
 }
 
 // TestVP9EncoderInterSkipProducesParseableBitstream covers the public
@@ -617,6 +617,39 @@ func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 	}
 	if allocs != 0 {
 		t.Fatalf("EncodeInto inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	keySrc := newVP9YCbCrForTest(256, 192, 81, 123, 210)
+	interSrc := newVP9YCbCrForTest(256, 192, 204, 47, 18)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm inter EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(100, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto inter residue: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto inter residue wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
 	}
 }
 

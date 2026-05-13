@@ -90,7 +90,7 @@ type VP9Encoder struct {
 	refHeight [common.RefFrames]uint32
 	refValid  [common.RefFrames]bool
 
-	// planes carries coefficient entropy contexts for source-backed keyframes.
+	// planes carries coefficient entropy contexts for source-backed frames.
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
 	intraScratch vp9dec.IntraPredictorScratch
@@ -103,8 +103,10 @@ type VP9Encoder struct {
 	reconU     []byte
 	reconV     []byte
 
-	keyBlockCoeffs [vp9dec.MaxMbPlane][256]int16
-	coefScratch    [16]int16
+	refFrames [common.RefFrames]vp9ReferenceFrame
+
+	blockCoeffs [vp9dec.MaxMbPlane][256]int16
+	coefScratch [16]int16
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -195,9 +197,9 @@ func (e *VP9Encoder) IsKeyFrameNext() bool {
 
 // EncodeInto packs the next profile 0 frame into dst. The current packet path
 // emits source-backed keyframes with 4x4 DC residue and visible LAST/ZeroMv
-// skipped inter frames. The compressed header uses the no-update path;
-// counts-driven updates land when the encoder's tokenize loop exposes real
-// per-frame counters.
+// inter frames with optional 4x4 DC residue. The compressed header uses the
+// no-update path; counts-driven updates land when the encoder's tokenize loop
+// exposes real per-frame counters.
 //
 // Returns the number of bytes written into dst. Caller sizes dst; leave room
 // for up to 64 KiB to match libvpx's first-partition header bound.
@@ -220,10 +222,13 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
 
 	isKey := e.IsKeyFrameNext()
+	if !isKey && !e.refFrames[0].valid {
+		isKey = true
+	}
 	if isKey {
 		vp9dec.ResetFrameContext(&e.fc)
-		e.prepareVP9EncoderOutputFrame(int(width), int(height))
 	}
+	e.prepareVP9EncoderOutputFrame(int(width), int(height))
 
 	header := vp9dec.UncompressedHeader{
 		Profile:               common.Profile0,
@@ -279,18 +284,25 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	var seg vp9dec.SegmentationParams // disabled — no map / no data update
 	var dq vp9dec.DequantTables
 	var keyState *vp9KeyframeEncodeState
+	var interState *vp9InterEncodeState
+	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: int(header.Quant.BaseQindex),
+		BitDepth:   vp9dec.Bits8,
+	}, &dq)
 	if isKey {
-		vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
-			BaseQindex: int(header.Quant.BaseQindex),
-			BitDepth:   vp9dec.Bits8,
-		}, &dq)
 		keyState = &vp9KeyframeEncodeState{
 			img: img,
 			hdr: &header,
 			dq:  &dq,
 		}
-		e.resetVP9EncoderAboveEntropyContexts()
+	} else {
+		interState = &vp9InterEncodeState{
+			img: img,
+			dq:  &dq,
+			ref: &e.refFrames[0],
+		}
 	}
+	e.resetVP9EncoderAboveEntropyContexts()
 
 	// libvpx swaps in vp9_kf_partition_probs (not fc->partition_prob)
 	// for keyframe / intra-only frames — see set_partition_probs in
@@ -342,7 +354,8 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 	} else if header.IntraOnly {
 		e.writeVP9StubModesTile(&tileBW, miRows, miCols, &partitionProbs, &seg, baseMi)
 	} else {
-		e.writeVP9InterSkipModesTile(&tileBW, miRows, miCols, &partitionProbs, &seg, baseMi)
+		e.writeVP9InterSourceModesTile(&tileBW, miRows, miCols,
+			&partitionProbs, &seg, baseMi, interState)
 	}
 	tileSize, err := tileBW.Stop()
 	if err != nil {
@@ -371,6 +384,9 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader) {
 		e.refWidth[slot] = header.Width
 		e.refHeight[slot] = header.Height
 		e.refValid[slot] = true
+		if e.reconFrame.Width != 0 && e.reconFrame.Height != 0 {
+			e.refFrames[slot].store(e.reconFrame)
+		}
 	}
 }
 
@@ -471,7 +487,7 @@ func (e *VP9Encoder) writeVP9StubModesTile(bw *bitstream.Writer, miRows, miCols 
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeKeyframe, nil)
+	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeKeyframe, nil, nil)
 }
 
 func (e *VP9Encoder) writeVP9KeyframeSourceModesTile(bw *bitstream.Writer, miRows, miCols int,
@@ -479,14 +495,22 @@ func (e *VP9Encoder) writeVP9KeyframeSourceModesTile(bw *bitstream.Writer, miRow
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 	key *vp9KeyframeEncodeState,
 ) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeKeyframeSource, key)
+	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeKeyframeSource, key, nil)
 }
 
 func (e *VP9Encoder) writeVP9InterSkipModesTile(bw *bitstream.Writer, miRows, miCols int,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
-	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeInterSkip, nil)
+	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeInterSkip, nil, nil)
+}
+
+func (e *VP9Encoder) writeVP9InterSourceModesTile(bw *bitstream.Writer, miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
+	inter *vp9InterEncodeState,
+) {
+	e.writeVP9ModesTile(bw, miRows, miCols, partitionProbs, seg, baseMi, vp9ModeTreeInterSource, nil, inter)
 }
 
 func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
@@ -494,7 +518,7 @@ func (e *VP9Encoder) writeVP9StubModesTileBounds(bw *bitstream.Writer, miRows, m
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi,
 ) {
-	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi, vp9ModeTreeKeyframe, nil)
+	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi, vp9ModeTreeKeyframe, nil, nil)
 }
 
 type vp9ModeTreeKind uint8
@@ -503,6 +527,7 @@ const (
 	vp9ModeTreeKeyframe vp9ModeTreeKind = iota
 	vp9ModeTreeKeyframeSource
 	vp9ModeTreeInterSkip
+	vp9ModeTreeInterSource
 )
 
 type vp9KeyframeEncodeState struct {
@@ -511,10 +536,16 @@ type vp9KeyframeEncodeState struct {
 	dq  *vp9dec.DequantTables
 }
 
+type vp9InterEncodeState struct {
+	img *image.YCbCr
+	dq  *vp9dec.DequantTables
+	ref *vp9ReferenceFrame
+}
+
 func (e *VP9Encoder) writeVP9ModesTile(bw *bitstream.Writer, miRows, miCols int,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
-	key *vp9KeyframeEncodeState,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	tile := vp9dec.TileBounds{
 		MiRowStart: 0,
@@ -522,25 +553,25 @@ func (e *VP9Encoder) writeVP9ModesTile(bw *bitstream.Writer, miRows, miCols int,
 		MiColStart: 0,
 		MiColEnd:   miCols,
 	}
-	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi, kind, key)
+	e.writeVP9ModesTileBounds(bw, miRows, miCols, tile, partitionProbs, seg, baseMi, kind, key, inter)
 }
 
 func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCols int,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
-	key *vp9KeyframeEncodeState,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
 		}
-		if kind == vp9ModeTreeKeyframeSource {
+		if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
 			e.resetVP9EncoderLeftEntropyContexts()
 		}
 		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
-				common.Block64x64, tile, partitionProbs, seg, baseMi, kind, key)
+				common.Block64x64, tile, partitionProbs, seg, baseMi, kind, key, inter)
 		}
 	}
 }
@@ -549,7 +580,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
-	key *vp9KeyframeEncodeState,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	if miRow >= miRows || miCol >= miCols {
 		return
@@ -568,30 +599,30 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 
 	subsize := common.SubsizeLookup[partition][bsize]
 	if subsize < common.Block8x8 {
-		e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key)
+		e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key, inter)
 	} else {
 		switch partition {
 		case common.PartitionNone:
-			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key)
+			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key, inter)
 		case common.PartitionHorz:
-			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key)
+			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key, inter)
 			if miRow+bs < miRows {
-				e.writeVP9ModeBlock(bw, miRows, miCols, miRow+bs, miCol, subsize, tile, seg, baseMi, kind, key)
+				e.writeVP9ModeBlock(bw, miRows, miCols, miRow+bs, miCol, subsize, tile, seg, baseMi, kind, key, inter)
 			}
 		case common.PartitionVert:
-			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key)
+			e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol, subsize, tile, seg, baseMi, kind, key, inter)
 			if miCol+bs < miCols {
-				e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol+bs, subsize, tile, seg, baseMi, kind, key)
+				e.writeVP9ModeBlock(bw, miRows, miCols, miRow, miCol+bs, subsize, tile, seg, baseMi, kind, key, inter)
 			}
 		default:
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
-				subsize, tile, partitionProbs, seg, baseMi, kind, key)
+				subsize, tile, partitionProbs, seg, baseMi, kind, key, inter)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol+bs,
-				subsize, tile, partitionProbs, seg, baseMi, kind, key)
+				subsize, tile, partitionProbs, seg, baseMi, kind, key, inter)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow+bs, miCol,
-				subsize, tile, partitionProbs, seg, baseMi, kind, key)
+				subsize, tile, partitionProbs, seg, baseMi, kind, key, inter)
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow+bs, miCol+bs,
-				subsize, tile, partitionProbs, seg, baseMi, kind, key)
+				subsize, tile, partitionProbs, seg, baseMi, kind, key, inter)
 		}
 	}
 
@@ -635,7 +666,7 @@ func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.Blo
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, kind vp9ModeTreeKind,
-	key *vp9KeyframeEncodeState,
+	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	cur := baseMi
 	cur.SbType = bsize
@@ -644,7 +675,16 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
-	if kind == vp9ModeTreeInterSkip {
+	if kind == vp9ModeTreeInterSkip || kind == vp9ModeTreeInterSource {
+		reconBsize := vp9ModeInfoDecodeBSize(bsize)
+		hasResidue := false
+		if kind == vp9ModeTreeInterSource && inter != nil {
+			hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+				miRow, miCol, reconBsize, &cur)
+			if hasResidue {
+				cur.Skip = 0
+			}
+		}
 		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
 			Seg:          seg,
 			Mi:           &cur,
@@ -657,6 +697,33 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			InterModeCtx: vp9dec.InterModeContext(e.miGrid, miCols,
 				tile, miRows, miRow, miCol, bsize),
 		})
+		if kind == vp9ModeTreeInterSource && inter != nil {
+			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+			if !hasResidue {
+				vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
+				e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
+				return
+			}
+			_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
+				BSize:        reconBsize,
+				MiTxSize:     common.Tx4x4,
+				IsInter:      1,
+				Lossless:     false,
+				Mi:           &cur,
+				Planes:       &e.planes,
+				AboveOffsets: aboveOffsets,
+				LeftOffsets:  leftOffsets,
+				PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+					inter.dq.Y[0],
+					inter.dq.Uv[0],
+					inter.dq.Uv[0],
+				},
+				Fc: &e.fc.CoefProbs,
+				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+					return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
+				},
+			})
+		}
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 		return
 	}
@@ -698,7 +765,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			},
 			Fc: &e.fc.CoefProbs,
 			GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-				return e.vp9KeyframeBlockCoeffs(plane, reconBsize, r, c, tx)
+				return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
 			},
 		})
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
@@ -720,7 +787,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
 ) bool {
-	e.clearVP9KeyframeBlockCoeffs()
+	e.clearVP9BlockCoeffs()
 	hasResidue := false
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
@@ -751,7 +818,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				}
 				coeff := e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
 					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant[0])
-				e.keyBlockCoeffs[plane][rr*full4x4W+cc] = coeff
+				e.blockCoeffs[plane][rr*full4x4W+cc] = coeff
 				if coeff != 0 {
 					hasResidue = true
 				}
@@ -763,10 +830,88 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 	return hasResidue
 }
 
-func (e *VP9Encoder) clearVP9KeyframeBlockCoeffs() {
+func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) bool {
+	e.clearVP9BlockCoeffs()
+	if !e.copyVP9InterPredictionBlock(inter, miRow, miCol, bsize) {
+		return false
+	}
+	hasResidue := false
 	for plane := range vp9dec.MaxMbPlane {
-		for i := range e.keyBlockCoeffs[plane] {
-			e.keyBlockCoeffs[plane][i] = 0
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		txSize := mi.TxSize
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
+		}
+		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		dequant := inter.dq.Y[0]
+		if plane > 0 {
+			dequant = inter.dq.Uv[0]
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				coeff := e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant[0])
+				e.blockCoeffs[plane][rr*full4x4W+cc] = coeff
+				if coeff != 0 {
+					hasResidue = true
+				}
+			}
+		}
+	}
+	return hasResidue
+}
+
+func (e *VP9Encoder) copyVP9InterPredictionBlock(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if inter == nil || inter.ref == nil || !inter.ref.valid {
+		return false
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return false
+		}
+		dst, dstStride := e.vp9EncoderReconPlane(plane)
+		src, srcStride := vp9ReferencePlane(inter.ref, plane)
+		if dstStride <= 0 || srcStride <= 0 || len(dst) == 0 || len(src) == 0 {
+			return false
+		}
+		dstRows := len(dst) / dstStride
+		srcRows := len(src) / srcStride
+		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+		if x0 >= dstStride || y0 >= dstRows || x0 >= srcStride || y0 >= srcRows {
+			continue
+		}
+		bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		w := min(bw, min(dstStride-x0, srcStride-x0))
+		h := min(bh, min(dstRows-y0, srcRows-y0))
+		if w <= 0 || h <= 0 {
+			continue
+		}
+		copyPlane(dst[y0*dstStride+x0:], dstStride,
+			src[y0*srcStride+x0:], srcStride, w, h)
+	}
+	return true
+}
+
+func (e *VP9Encoder) clearVP9BlockCoeffs() {
+	for plane := range vp9dec.MaxMbPlane {
+		for i := range e.blockCoeffs[plane] {
+			e.blockCoeffs[plane][i] = 0
 		}
 	}
 }
@@ -803,6 +948,40 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 	}
 	coeff := token * int(dequantDC)
 	e.applyVP9KeyframeDcCoeff(dst, stride, txSize, mode, plane, coeff)
+	return int16(coeff)
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequantDC int16,
+) int16 {
+	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4)
+	if !ok || dequantDC == 0 {
+		return 0
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	bs := 4 << uint(txSize)
+	sum := 0
+	count := 0
+	for y := 0; y < bs && y0+y < srcH; y++ {
+		srcRow := src[(y0+y)*srcStride:]
+		dstRow := dst[y*stride:]
+		for x := 0; x < bs && x0+x < srcW; x++ {
+			sum += int(srcRow[x0+x]) - int(dstRow[x])
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	avgDiff := vp9RoundDivSigned(sum, count)
+	token := vp9RoundDivSigned(avgDiff*32, int(dequantDC))
+	if token == 0 {
+		return 0
+	}
+	coeff := token * int(dequantDC)
+	e.applyVP9DcCoeff(dst, stride, txSize, common.DctDct, coeff)
 	return int16(coeff)
 }
 
@@ -881,8 +1060,38 @@ func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
 	return dst, stride, x0, y0, true
 }
 
+func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,
+	plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int,
+) (dst []byte, stride, x0, y0 int, ok bool) {
+	planeData, stride := e.vp9EncoderReconPlane(plane)
+	if stride <= 0 || len(planeData) == 0 {
+		return nil, 0, 0, 0, false
+	}
+	rows := len(planeData) / stride
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	x0 = baseX + blockCol4x4*4
+	y0 = baseY + blockRow4x4*4
+	bs := 4 << uint(txSize)
+	if x0+bs > stride || y0+bs > rows {
+		return nil, 0, 0, 0, false
+	}
+	return planeData[y0*stride+x0:], stride, x0, y0, true
+}
+
 func (e *VP9Encoder) applyVP9KeyframeDcCoeff(dst []byte, stride int,
 	txSize common.TxSize, mode common.PredictionMode, plane, coeff int,
+) {
+	txType := common.DctDct
+	if plane == 0 {
+		txType = common.IntraModeToTxType[mode]
+	}
+	e.applyVP9DcCoeff(dst, stride, txSize, txType, coeff)
+}
+
+func (e *VP9Encoder) applyVP9DcCoeff(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, coeff int,
 ) {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	coeffs := e.coefScratch[:maxEob]
@@ -890,14 +1099,10 @@ func (e *VP9Encoder) applyVP9KeyframeDcCoeff(dst []byte, stride int,
 		coeffs[i] = 0
 	}
 	coeffs[0] = int16(coeff)
-	txType := common.DctDct
-	if plane == 0 {
-		txType = common.IntraModeToTxType[mode]
-	}
 	vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize, txType, 1, false)
 }
 
-func (e *VP9Encoder) vp9KeyframeBlockCoeffs(plane int,
+func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 	bsize common.BlockSize, r, c int, tx common.TxSize,
 ) []int16 {
 	coeffs := e.coefScratch[:vp9dec.MaxEobForTxSize(tx)]
@@ -914,8 +1119,8 @@ func (e *VP9Encoder) vp9KeyframeBlockCoeffs(plane int,
 	}
 	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	idx := r*full4x4W + c
-	if idx >= 0 && idx < len(e.keyBlockCoeffs[plane]) {
-		coeffs[0] = e.keyBlockCoeffs[plane][idx]
+	if idx >= 0 && idx < len(e.blockCoeffs[plane]) {
+		coeffs[0] = e.blockCoeffs[plane][idx]
 	}
 	return coeffs
 }
