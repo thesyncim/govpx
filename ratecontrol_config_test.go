@@ -37,6 +37,30 @@ func TestDefaultRateControlConfigUsesLibvpxBufferDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultRateControlConfigUsesLibvpxQuantizerDefaults(t *testing.T) {
+	cfg := defaultRateControlConfig(EncoderOptions{
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+	})
+	if cfg.MinQuantizer != 4 || cfg.MaxQuantizer != 56 {
+		t.Fatalf("quantizer range = %d..%d, want default 4..56", cfg.MinQuantizer, cfg.MaxQuantizer)
+	}
+}
+
+func TestDefaultRateControlConfigHonorsExplicitZeroQuantizerRange(t *testing.T) {
+	cfg := defaultRateControlConfig(EncoderOptions{
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		QuantizerRangeSet:   true,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if cfg.MinQuantizer != 0 || cfg.MaxQuantizer != 0 {
+		t.Fatalf("quantizer range = %d..%d, want explicit 0..0", cfg.MinQuantizer, cfg.MaxQuantizer)
+	}
+}
+
 func TestRateControlVBRUsesLibvpxLocalPlaybackBufferModel(t *testing.T) {
 	var rc rateControlState
 	err := rc.applyConfig(RateControlConfig{

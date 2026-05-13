@@ -208,11 +208,13 @@ type EncoderOptions struct {
 	MaxBitrateKbps int
 
 	// MinQuantizer is the lowest public 0..63 quantizer the encoder may use.
-	// Zero is treated as 0 (no floor above the codec minimum).
 	MinQuantizer int
 	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
-	// Zero is treated as 63 (no ceiling below the codec maximum).
 	MaxQuantizer int
+	// QuantizerRangeSet forces MinQuantizer/MaxQuantizer to be honored even
+	// when both are zero. When false, the all-zero range uses libvpx's default
+	// 4..56 vpxenc range so zero-valued EncoderOptions remain useful.
+	QuantizerRangeSet bool
 	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. [RateControlCQ] applies
 	// it as a floor; [RateControlQ] validates and stores it like libvpx
 	// VPX_Q. Zero uses libvpx's default level after MinQuantizer

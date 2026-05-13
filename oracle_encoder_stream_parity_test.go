@@ -218,6 +218,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		// Tight quantizer band.
 		{name: "realtime-cbr-cpu8-q10-30", deadline: DeadlineRealtime, cpuUsed: 8, fx: panning64, minQ: 10, maxQ: 30},
 		{name: "realtime-cbr-cpu-3-64x64-q0-63", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, minQ: 0, maxQ: 63, minQSet: true, maxQSet: true},
+		{name: "realtime-cbr-cpu0-16x16-q0-0", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 0, maxQ: 0, minQSet: true, maxQSet: true},
 		{name: "realtime-cbr-cpu0-16x16-q0-63", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 0, maxQ: 63, minQSet: true, maxQSet: true},
 		{name: "realtime-cbr-cpu0-16x16-q0-8", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 0, maxQ: 8, minQSet: true},
 		{name: "realtime-cbr-cpu0-16x16-q55-63", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, minQ: 55, maxQ: 63},
@@ -932,6 +933,7 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 				TargetBitrateKbps:        caseTargetKbps,
 				MinQuantizer:             minQ,
 				MaxQuantizer:             maxQ,
+				QuantizerRangeSet:        tc.minQSet || tc.maxQSet,
 				CQLevel:                  cqLevel,
 				KeyFrameInterval:         kfInterval,
 				Deadline:                 tc.deadline,
