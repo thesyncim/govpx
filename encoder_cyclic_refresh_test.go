@@ -352,8 +352,10 @@ func TestCyclicRefreshStaticClassificationPopulatesSkinMapOnly(t *testing.T) {
 	fillImage(src, 128, 128, 128)
 	fillMacroblock(src, 0, 0, 120, 117, 150)
 	modes := make([]vp8enc.InterFrameMacroblockMode, 40)
+	source := sourceImageFromPublic(src)
 
-	next := e.assignInterFrameStaticSegments(sourceImageFromPublic(src), 4, 10, modes)
+	e.prepareInterFrameSkinMap(source, 4, 10)
+	next := e.assignInterFrameStaticSegments(source, 4, 10, modes)
 
 	if e.skinMap[0] != 1 {
 		t.Fatalf("skinMap[0] = %d, want libvpx skin classification", e.skinMap[0])

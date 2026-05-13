@@ -271,14 +271,19 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 		return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), nil, modes)
 	}
 	copy(e.cyclicRefreshAttemptMap[:count], e.cyclicRefreshMap[:count])
-	// libvpx computes skin_map independently and only consumes it in the
-	// inter picker as a ZEROMV-LAST bias reset. It does not feed skin
-	// classification back into cyclic_refresh_map eligibility, so keep the
-	// refresh walk driven solely by the cyclic map state here.
-	if e.opts.StaticThreshold > 0 && e.opts.ScreenContentMode == 0 && len(e.skinMap) >= count {
-		computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
-	}
 	return assignInterFrameStaticSegmentsWithMap(rows, cols, e.cyclicRefreshIndex, e.cyclicRefreshMaxMBsPerFrameForQuantizer(rows, cols, q), e.cyclicRefreshAttemptMap[:count], modes)
+}
+
+func (e *VP8Encoder) prepareInterFrameSkinMap(src vp8enc.SourceImage, rows int, cols int) {
+	count := rows * cols
+	if count <= 0 || len(e.skinMap) < count {
+		return
+	}
+	if e.opts.ScreenContentMode != 0 {
+		clearUint8Map(e.skinMap[:count])
+		return
+	}
+	computeSkinMap(src, rows, cols, e.consecZeroLast, e.skinMap[:count])
 }
 
 func (e *VP8Encoder) commitCyclicRefresh(rows int, cols int, nextIndex int, modes []vp8enc.InterFrameMacroblockMode) {

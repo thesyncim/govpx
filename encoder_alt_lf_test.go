@@ -19,7 +19,7 @@ func TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF(t *testing.T) {
 
 	e := &VP8Encoder{
 		opts: EncoderOptions{
-			NoiseSensitivity: 4, // aggressive (>=3)
+			NoiseSensitivity: 3, // aggressive mode
 			ErrorResilient:   true,
 		},
 	}

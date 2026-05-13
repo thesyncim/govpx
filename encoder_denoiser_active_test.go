@@ -345,7 +345,7 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testing.T) {
 	e := VP8Encoder{}
 	e.rc.mode = RateControlCBR
-	// Aggressive denoise (mode 3+) brings consec_zerolast=15 and qp_thresh=80.
+	// Aggressive denoise (mode 3) brings consec_zerolast=15 and qp_thresh=80.
 	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
 	e.opts.NoiseSensitivity = 3
 	e.rc.currentQuantizer = 40
@@ -589,9 +589,9 @@ func TestDenoiserModeMappingMatchesLibvpx(t *testing.T) {
 		{1, 1},
 		{2, 2},
 		{3, 3},
-		{4, 3},
-		{5, 3},
-		{6, 3},
+		{4, 2},
+		{5, 2},
+		{6, 2},
 	}
 	for _, c := range cases {
 		if got := denoiserModeForSensitivity(c.level); got != c.wantMode {

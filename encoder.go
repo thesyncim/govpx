@@ -310,7 +310,8 @@ type EncoderOptions struct {
 	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
 	Sharpness int
 	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
-	// 1=Y denoise, 2=YUV denoise, 3..6=more aggressive YUV denoise.
+	// 1=Y denoise, 2=YUV denoise, 3=aggressive YUV denoise, 4=adaptive YUV
+	// denoise. Levels 5 and 6 follow libvpx's default YUV denoise path.
 	NoiseSensitivity int
 	// ARNRMaxFrames is the alt-ref noise reduction temporal window in frames.
 	// Mirrors libvpx's VP8E_SET_ARNR_MAXFRAMES. Zero disables ARNR.

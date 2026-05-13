@@ -475,6 +475,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if len(e.interFrameModes) < required || len(e.keyFrameCoeffs) < required || len(e.tokenAbove) < cols {
 		return interFrameEncodeAttempt{}, ErrInvalidConfig
 	}
+	e.prepareInterFrameSkinMap(source, rows, cols)
 	// Mirror libvpx update_rd_ref_frame_probs: bias the previous-frame
 	// reference-frame probabilities for *this* frame's RD scoring based on
 	// the upcoming refresh policy. The base values are restored on every
@@ -544,12 +545,13 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)
 	}
-	// libvpx denoiser runs per-MB after mode decision and reconstruction.
-	// Output goes to denoiser.runningAvg[INTRA] which propagates to
-	// reference-aligned buffers in commitInterFrameAttempt.
-	e.applyDenoiserToInterFrame(source, rows, cols)
 	phase = e.phaseStart()
-	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(source, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
+	loopFilterSource := source
+	if e.opts.NoiseSensitivity > 0 && e.denoiser.allocated {
+		e.denoiser.runningAvg[denoiserAvgIntra].ExtendBorders()
+		loopFilterSource = sourceImageFromVP8(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
+	}
+	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(loopFilterSource, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	e.phaseEnd(encoderPhaseLoopFilterPick, phase)
 	if err != nil {
 		return interFrameEncodeAttempt{}, err

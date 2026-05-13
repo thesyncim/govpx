@@ -52,6 +52,7 @@ type interFrameModeDecision struct {
 	// predictionError is the picker `distortion` scalar returned through
 	// vp8_encode_inter_macroblock and accumulated into mb.prediction_error.
 	predictionError int
+	denoise         denoiserMacroblockDecision
 }
 
 func (d interFrameModeDecision) cyclicRefreshEligible() bool {
