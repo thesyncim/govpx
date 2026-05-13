@@ -720,7 +720,7 @@ func TestEncodeIntoNoReferenceLastOrGoldenCanUseAltRef(t *testing.T) {
 	assertImagesEqual(t, "altref interframe", altFrame, decoded[2])
 }
 
-func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
+func TestEncodeIntoNoReferencesStaysInterFrame(t *testing.T) {
 	e := newTestEncoder(t)
 	first := testImage(16, 16)
 	second := testImage(16, 16)
@@ -735,8 +735,8 @@ func TestEncodeIntoNoReferencesForcesKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
-	if !result.KeyFrame {
-		t.Fatalf("KeyFrame = false, want keyframe when all references are disallowed")
+	if result.KeyFrame {
+		t.Fatalf("KeyFrame = true, want libvpx-compatible inter frame with intra macroblocks when all references are disallowed")
 	}
 }
 

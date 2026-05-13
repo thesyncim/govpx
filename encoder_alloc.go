@@ -62,10 +62,8 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 
 	// Invalidate all three references: their pixel content is at the
 	// previous coded dimensions and cannot legally predict an inter
-	// frame at the new size. Clearing the reference-frame numbers also
-	// makes anyInterReferenceAvailable() return false, which in turn
-	// guarantees the next encode is a key frame even if the caller
-	// forgets to set forceKeyFrame.
+	// frame at the new size. The explicit forceKeyFrame below drives the
+	// next encode to a keyframe at the new dimensions.
 	e.referenceFrameNumbers = [vp8common.MaxRefFrames]uint64{}
 	e.goldenRefAliasesLast = false
 	e.altRefAliasesLast = false

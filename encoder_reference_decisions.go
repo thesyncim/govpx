@@ -342,9 +342,6 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 	if e.frameCount == 0 || e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	if !e.anyInterReferenceAvailable(flags) {
-		return true
-	}
 	if e.opts.KeyFrameInterval > 0 && e.frameCount%uint64(e.opts.KeyFrameInterval) == 0 {
 		return true
 	}
@@ -355,7 +352,7 @@ func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {
 	if e.forceKeyFrame || flags&EncodeForceKeyFrame != 0 {
 		return true
 	}
-	return !e.anyInterReferenceAvailable(flags)
+	return false
 }
 
 func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
