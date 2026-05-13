@@ -355,12 +355,6 @@ func (s *interFrameSubpixelSearch) iterative() (vp8enc.MotionVector, int, int, i
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
-	if cachedCount < len(cachedRows) {
-		cachedRows[cachedCount] = br
-		cachedCols[cachedCount] = bc
-		cachedEval[cachedCount] = bestEval
-		cachedCount++
-	}
 
 	for range 3 {
 		leftEval := cand(tr, tc-2)

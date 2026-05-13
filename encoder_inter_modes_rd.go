@@ -238,6 +238,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			rate = split.rate
 			distortion = split.distortion
 			rdLoopSkip = split.rdLoopSkip
+			mbSkipCoeff = split.mbSkipCoeff
 		} else {
 			mode, ok = e.interModeForRDLoopEntry(src, ref, refIndex, mbMode, mbRow, mbCol, mbRows, mbCols, qIndex, above, left, aboveLeft, &newMVCandidates, &modeMVs)
 			if ok {
@@ -348,6 +349,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			bestYRD = yrd
 			bestDistortion = distortion
 			bestModeIndex = modeIndex
+			mode.MBSkipCoeff = mbSkipCoeff || mode.MBSkipCoeff
 			best = interFrameModeDecision{ref: ref, interMode: mode, intraMode: vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}, projectedRate: rate, predictionError: distortion}
 			if mode.Mode == vp8common.SplitMV {
 				best.staleY2 = lastStaleY2
