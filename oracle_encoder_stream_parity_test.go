@@ -691,6 +691,24 @@ func TestOracleEncoderStreamByteParity(t *testing.T) {
 		{name: "realtime-cbr-cpu-3-16x16-sharpness3", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 3, extraArgs: []string{"--sharpness=3"}},
 		{name: "realtime-cbr-cpu-3-16x16-sharpness5", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 5, extraArgs: []string{"--sharpness=5"}},
 		{name: "realtime-cbr-cpu-3-16x16-sharpness6", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 6, extraArgs: []string{"--sharpness=6"}},
+		// Sharpness crossed with token-partitions / threads / tune so
+		// the byte-parity matrix pins the picker+writer interactions,
+		// not only the single-axis sharpness probe above.
+		{name: "realtime-cbr-cpu-3-64x64-sharpness4-4partitions", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, sharpness: 4, tokenPartitions: 2, extraArgs: []string{"--end-usage=cbr", "--sharpness=4", "--token-parts=2"}},
+		{name: "realtime-cbr-cpu-3-64x64-sharpness4-threads2", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning64, sharpness: 4, threads: 2, extraArgs: []string{"--sharpness=4", "--threads=2"}},
+		{name: "realtime-cbr-cpu-3-32x32-sharpness2-tune-ssim", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 2, tuning: TuneSSIM, tuningSet: true, extraArgs: []string{"--sharpness=2", "--tune=ssim"}},
+		{name: "good-quality-cbr-cpu4-32x32-sharpness4", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, sharpness: 4, extraArgs: []string{"--sharpness=4"}},
+		{name: "good-quality-cbr-cpu4-16x16-sharpness7", deadline: DeadlineGoodQuality, cpuUsed: 4, fx: fixture{name: "panning-16x16", w: 16, h: 16, source: encoderValidationPanningFrame}, sharpness: 7, extraArgs: []string{"--sharpness=7"}},
+		// Static-thresh sweeps fill in middle values; existing rows
+		// pin 1 / 100 only, so we round out the picker's per-MB
+		// distortion gate at 25 / 200 / 1000.
+		{name: "realtime-cbr-cpu0-32x32-static-thresh25", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, staticThreshold: 25, extraArgs: []string{"--static-thresh=25"}},
+		{name: "realtime-cbr-cpu0-32x32-static-thresh200", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, staticThreshold: 200, extraArgs: []string{"--static-thresh=200"}},
+		{name: "realtime-cbr-cpu0-32x32-static-thresh1000", deadline: DeadlineRealtime, cpuUsed: 0, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, staticThreshold: 1000, extraArgs: []string{"--static-thresh=1000"}},
+		// ScreenContentMode crossed with sharpness so the screen-content
+		// fast intra picker is pinned alongside the loop-filter sharpness.
+		{name: "realtime-cbr-cpu-3-32x32-screen-content1-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 1, sharpness: 4, extraArgs: []string{"--screen-content-mode=1", "--sharpness=4"}},
+		{name: "realtime-cbr-cpu-3-32x32-screen-content2-sharpness4", deadline: DeadlineRealtime, cpuUsed: -3, fx: fixture{name: "panning-32x32", w: 32, h: 16, source: encoderValidationPanningFrame}, screenContentMode: 2, sharpness: 4, extraArgs: []string{"--screen-content-mode=2", "--sharpness=4"}},
 		// cpu-3 + axes on large clean-grid sizes — confirms parity holds
 		// across bitrate/Q axes on 256x144 (4 strict matches) and
 		// 640x480.
