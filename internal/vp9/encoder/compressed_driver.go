@@ -85,6 +85,14 @@ type WriteCompressedHeaderFromCountsArgs struct {
 	// (typical values 1..4). Bigger = coarser search.
 	CoefStepsize int
 
+	// CoefUpdateMode selects libvpx's coefficient-probability update
+	// emitter. Realtime non-key frames use ONE_LOOP_REDUCED.
+	CoefUpdateMode CoefUpdateMode
+
+	// SkipTx16PlusCoefUpdates mirrors the USE_TX_8X8 speed feature:
+	// TX_16X16 and larger coefficient updates are explicitly gated off.
+	SkipTx16PlusCoefUpdates bool
+
 	Probs  *vp9dec.FrameContext
 	Counts *FrameCounts
 }
@@ -116,7 +124,8 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 
 	WriteCoefProbsFromCounts(&bw, &args.Probs.CoefProbs,
 		&args.Counts.CoefBranchStats, &args.Counts.TxTotals,
-		args.Lossless, args.TxMode, args.CoefStepsize)
+		args.Lossless, args.TxMode, args.CoefStepsize,
+		args.CoefUpdateMode, args.SkipTx16PlusCoefUpdates)
 
 	WriteSkipProbsFromCounts(&bw, &args.Probs.SkipProbs, &args.Counts.Skip)
 

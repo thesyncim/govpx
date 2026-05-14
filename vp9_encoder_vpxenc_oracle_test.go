@@ -171,6 +171,15 @@ func TestVP9EncoderVpxencOracleChangedConstantInterByteParity(t *testing.T) {
 	assertVP9VpxencTwoFrameByteParity(t, first, second)
 }
 
+func TestVP9EncoderVpxencOracleCheckerInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	assertVP9VpxencTwoFrameByteParity(t, first, second)
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 	t.Helper()
 	width := src.Rect.Dx()

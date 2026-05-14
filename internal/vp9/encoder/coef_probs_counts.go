@@ -6,19 +6,19 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// VP9 coefficient probability update writer (TWO_LOOP path).
+// VP9 coefficient probability update writer.
 // Ported from libvpx v1.16.0 vp9/encoder/vp9_bitstream.c —
-// update_coef_probs_common's TWO_LOOP branch. Two passes: a dry
-// run tallies the total savings + update count; only when the
-// tally is positive does the writer emit the "1" gate + the
-// per-entry updates. Both passes use the same savings_search /
-// savings_search_model loops so the second pass's decisions
-// match the first's.
-//
-// The ONE_LOOP_REDUCED variant is a separate fork in libvpx — it
-// streams updates and emits the gate retroactively. The
-// reference encoder typically picks TWO_LOOP for the high-quality modes
-// (good / best), so this port follows that emitted update order.
+// update_coef_probs + update_coef_probs_common. Keyframes in the
+// realtime cpu8 path use TWO_LOOP, while inter frames use
+// ONE_LOOP_REDUCED.
+
+// CoefUpdateMode mirrors libvpx's FAST_COEFF_UPDATE selection.
+type CoefUpdateMode int
+
+const (
+	CoefUpdateTwoLoop CoefUpdateMode = iota
+	CoefUpdateOneLoopReduced
+)
 
 // CoefBranchStatsPerTx mirrors libvpx's vp9_coeff_stats prefixed
 // with PLANE_TYPES — the per-tx-size branch-count payload for one
@@ -38,7 +38,8 @@ type FrameCoefBranchStats [common.TxSizes]CoefBranchStatsPerTx
 // per-block coefficient writers that follow this header.
 func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 	probs *vp9dec.FrameCoefProbs, counts *FrameCoefBranchStats,
-	txTotals *[common.TxSizes]uint32, lossless bool, txMode common.TxMode, stepsize int,
+	txTotals *[common.TxSizes]uint32, lossless bool, txMode common.TxMode,
+	stepsize int, mode CoefUpdateMode, skipTx16Plus bool,
 ) {
 	var max common.TxSize
 	switch {
@@ -50,11 +51,12 @@ func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 		max = common.TxModeToBiggestTxSize[txMode]
 	}
 	for tx := common.Tx4x4; tx <= max; tx++ {
-		if txTotals != nil && txTotals[tx] <= 20 {
+		if (txTotals != nil && txTotals[tx] <= 20) ||
+			(skipTx16Plus && tx >= common.Tx16x16) {
 			bw.WriteBit(0)
 			continue
 		}
-		updateCoefProbsTxSize(bw, &probs[tx], &counts[tx], stepsize)
+		updateCoefProbsTxSize(bw, &probs[tx], &counts[tx], stepsize, mode)
 	}
 }
 
@@ -64,8 +66,13 @@ func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 // the tally is positive.
 func updateCoefProbsTxSize(bw *bitstream.Writer,
 	probs *vp9dec.CoefProbsModel, counts *CoefBranchStatsPerTx,
-	stepsize int,
+	stepsize int, mode CoefUpdateMode,
 ) {
+	if mode == CoefUpdateOneLoopReduced {
+		updateCoefProbsTxSizeOneLoopReduced(bw, probs, counts, stepsize)
+		return
+	}
+
 	// Dry run.
 	var totalSavings int64
 	updateCount := 0
@@ -114,6 +121,56 @@ func updateCoefProbsTxSize(bw *bitstream.Writer,
 				}
 			}
 		}
+	}
+}
+
+// updateCoefProbsTxSizeOneLoopReduced mirrors libvpx's realtime
+// ONE_LOOP_REDUCED branch. It delays the tx-size update gate until
+// the first positive slot so leading no-update bits can be elided
+// when the entire tx size has no updates.
+func updateCoefProbsTxSizeOneLoopReduced(bw *bitstream.Writer,
+	probs *vp9dec.CoefProbsModel, counts *CoefBranchStatsPerTx,
+	stepsize int,
+) {
+	updates := 0
+	noUpdatesBeforeFirst := 0
+
+	for i := range vp9dec.CoefPlaneTypes {
+		for j := range vp9dec.CoefRefTypes {
+			for k := range vp9dec.CoefBands {
+				bcc := vp9dec.BandCoefContexts(k)
+				for l := range bcc {
+					for t := range UnconstrainedNodes {
+						s, newp := coefSlotSavings(probs, counts, i, j, k, l, t, stepsize)
+						oldp := probs[i][j][k][l][t]
+						update := s > 0 && newp != oldp
+						if !update && updates == 0 {
+							noUpdatesBeforeFirst++
+							continue
+						}
+						if update {
+							updates++
+							if updates == 1 {
+								bw.WriteBit(1)
+								for range noUpdatesBeforeFirst {
+									bw.Write(0, DiffUpdateProb)
+								}
+							}
+						}
+						if update {
+							bw.Write(1, DiffUpdateProb)
+							WriteProbDiffUpdate(bw, newp, oldp)
+							probs[i][j][k][l][t] = newp
+						} else {
+							bw.Write(0, DiffUpdateProb)
+						}
+					}
+				}
+			}
+		}
+	}
+	if updates == 0 {
+		bw.WriteBit(0)
 	}
 }
 

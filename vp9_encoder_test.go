@@ -15,6 +15,11 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
+const (
+	vp9EncoderKeyframeAllocRuns = 10
+	vp9EncoderInterAllocRuns    = 3
+)
+
 func newVP9YCbCrForTest(width, height int, y, u, v byte) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
 	fillVP9YCbCrForTest(img, y, u, v)
@@ -2693,7 +2698,7 @@ func TestVP9EncoderEncodeShowExistingFrameIntoSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderKeyframeAllocRuns, func() {
 		n, err = e.EncodeShowExistingFrameInto(dst, 5)
 	})
 	if err != nil {
@@ -3593,7 +3598,7 @@ func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderKeyframeAllocRuns, func() {
 		e.frameIndex = 0
 		n, err = e.EncodeInto(img, dst)
 	})
@@ -3619,7 +3624,7 @@ func TestVP9EncoderEncodeIntoSourceKeyframeSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderKeyframeAllocRuns, func() {
 		e.frameIndex = 0
 		n, err = e.EncodeInto(img, dst)
 	})
@@ -3651,7 +3656,7 @@ func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(10, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
 		e.frameIndex = 1
 		n, err = e.EncodeInto(img, dst)
 	})
@@ -3683,7 +3688,7 @@ func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
 
 	var n int
 	var err error
-	allocs := testing.AllocsPerRun(10, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
 		e.frameIndex = 1
 		e.refFrames[0].store(keyRef.img)
 		n, err = e.EncodeInto(interSrc, dst)

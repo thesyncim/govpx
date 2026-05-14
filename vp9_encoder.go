@@ -27,6 +27,13 @@ const (
 	vp9DefaultInterBaseQIndex = 128
 )
 
+func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
+	if isKey {
+		return encoder.CoefUpdateTwoLoop
+	}
+	return encoder.CoefUpdateOneLoopReduced
+}
+
 // VP9EncoderOptions configures a VP9 profile 0 encoder.
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
@@ -639,16 +646,18 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	}
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
-		Lossless:             header.Quant.Lossless,
-		TxMode:               txMode,
-		IntraOnly:            isKey || header.IntraOnly,
-		InterpFilter:         header.InterpFilter,
-		ReferenceMode:        referenceMode,
-		CompoundRefAllowed:   compoundAllowed,
-		AllowHighPrecisionMv: header.AllowHighPrecisionMv,
-		CoefStepsize:         4,
-		Probs:                &e.fc,
-		Counts:               counts,
+		Lossless:                header.Quant.Lossless,
+		TxMode:                  txMode,
+		IntraOnly:               isKey || header.IntraOnly,
+		InterpFilter:            header.InterpFilter,
+		ReferenceMode:           referenceMode,
+		CompoundRefAllowed:      compoundAllowed,
+		AllowHighPrecisionMv:    header.AllowHighPrecisionMv,
+		CoefStepsize:            4,
+		CoefUpdateMode:          vp9CoefUpdateModeForFrame(isKey),
+		SkipTx16PlusCoefUpdates: !isKey,
+		Probs:                   &e.fc,
+		Counts:                  counts,
 	})
 	if err != nil {
 		return 0, err
@@ -3379,13 +3388,13 @@ func (e *VP9Encoder) vp9InterIntraResidualLooksSceneCut(inter *vp9InterEncodeSta
 	if bsize >= common.BlockSizes {
 		return false
 	}
-	sse, _, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
+	sse, activity, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
 	if !ok {
 		return false
 	}
 	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
 		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
-	return sse >= pixels*64*64
+	return sse >= pixels*64*64 && activity <= pixels*64
 }
 
 func (e *VP9Encoder) pickVP9ForcedInterIntraMode(inter *vp9InterEncodeState,
