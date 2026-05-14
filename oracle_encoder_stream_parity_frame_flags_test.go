@@ -392,6 +392,16 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			extraArgs:       []string{"--lag-in-frames=4"},
 		},
 		{
+			name:            "lookahead4-auto-alt-ref-frame4-and-flush",
+			frames:          10,
+			lookaheadFrames: 4,
+			forceFrames:     map[int]bool{4: true, 9: true},
+			mutate: func(opts *EncoderOptions) {
+				opts.AutoAltRef = true
+			},
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=1"},
+		},
+		{
 			name:        "active-map-checker-frame1-and4",
 			frames:      8,
 			forceFrames: map[int]bool{1: true, 4: true},
