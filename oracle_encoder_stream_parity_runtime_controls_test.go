@@ -1949,6 +1949,33 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "roi-map-custom-data-switches",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			// The initial custom ROI setup is strict; replacing it with a
+			// different custom ROI map still has a one-byte header drift.
+			matchLimit: 5,
+			script: runtimeControlScript(frames, map[int]string{
+				0: "roicustom:checker:0/-10/0/0:0/0/0/0:0/0/0/0",
+				5: "roicustom:quadrants:0/-10/8/-20:0/-3/2/5:0/500/0/1200",
+				9: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(simple-checker)", e.SetROIMap(simpleCheckerROIMap(e.opts.Width, e.opts.Height)))
+				},
+				5: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(custom-quadrants)", e.SetROIMap(customQuadrantROIMap(e.opts.Width, e.opts.Height)))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {

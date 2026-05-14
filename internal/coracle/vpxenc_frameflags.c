@@ -107,6 +107,7 @@
  *                          screen:N maxintra:N gfboost:N cq:N
  *                          autoaltref:N arnrmax:N arnrstrength:N arnrtype:N
  *                          rtc:N active:{pattern|off} roi:{pattern|off}
+ *                          roicustom:PATTERN:DQ/DQ/DQ/DQ:DLF/DLF/DLF/DLF:STATIC/STATIC/STATIC/STATIC
  *                          resize:WxH
  *                          setref:{last,golden,altref}:panning:N
  *                          copyref:{last,golden,altref}
@@ -425,6 +426,47 @@ static void apply_roi_map(vpx_codec_ctx_t *ctx, int rows, int cols,
   if (vpx_codec_control(ctx, VP8E_SET_ROI_MAP, &roi))
     die_codec_msg(ctx, "VP8E_SET_ROI_MAP");
   free(roi.roi_map);
+}
+
+static void parse_slash_ints_exact(const char *spec, int out[4],
+                                   const char *flag_name) {
+  int count = parse_slash_ints(spec, out, 4, flag_name);
+  if (count != 4) die_msg("%s expects exactly 4 slash-separated integers", flag_name);
+}
+
+static void apply_roi_custom_token(vpx_codec_ctx_t *ctx, int rows, int cols,
+                                   const char *spec) {
+  char buf[512];
+  size_t len = strlen(spec);
+  if (len >= sizeof(buf)) die_msg("roicustom token too long: %s", spec);
+  memcpy(buf, spec, len + 1);
+
+  char *pattern = buf;
+  char *dq_text = strchr(pattern, ':');
+  if (!dq_text) die_msg("roicustom expects pattern:dq:dlf:static: %s", spec);
+  *dq_text++ = '\0';
+  char *dlf_text = strchr(dq_text, ':');
+  if (!dlf_text) die_msg("roicustom expects pattern:dq:dlf:static: %s", spec);
+  *dlf_text++ = '\0';
+  char *static_text = strchr(dlf_text, ':');
+  if (!static_text) die_msg("roicustom expects pattern:dq:dlf:static: %s", spec);
+  *static_text++ = '\0';
+  if (strchr(static_text, ':'))
+    die_msg("roicustom has too many fields: %s", spec);
+
+  int delta_q[4] = {0, 0, 0, 0};
+  int delta_lf[4] = {0, 0, 0, 0};
+  int static_tmp[4] = {0, 0, 0, 0};
+  unsigned int static_threshold[4] = {0, 0, 0, 0};
+  parse_slash_ints_exact(dq_text, delta_q, "roicustom dq");
+  parse_slash_ints_exact(dlf_text, delta_lf, "roicustom dlf");
+  parse_slash_ints_exact(static_text, static_tmp, "roicustom static");
+  for (int i = 0; i < 4; ++i) {
+    if (static_tmp[i] < 0) die_msg("roicustom static value must be non-negative");
+    static_threshold[i] = (unsigned int)static_tmp[i];
+  }
+  apply_roi_map(ctx, rows, cols, pattern, delta_q, delta_lf,
+                static_threshold);
 }
 
 static void fill_panning_image(vpx_image_t *img, int width, int height,
@@ -753,7 +795,8 @@ static void apply_runtime_config_token(vpx_codec_enc_cfg_t *cfg, int *deadline,
              starts_with(token, "autoaltref:") || starts_with(token, "arnrmax:") ||
              starts_with(token, "arnrstrength:") || starts_with(token, "arnrtype:") ||
              starts_with(token, "rtc:") || starts_with(token, "active:") ||
-             starts_with(token, "roi:") || starts_with(token, "setref:") ||
+             starts_with(token, "roi:") || starts_with(token, "roicustom:") ||
+             starts_with(token, "setref:") ||
              starts_with(token, "copyref:") || starts_with(token, "tlid:")) {
     return;
   } else {
@@ -829,6 +872,9 @@ static void apply_runtime_codec_token(struct runtime_codec_context *ctx,
     default_roi_params(pattern, delta_q, delta_lf, static_threshold);
     apply_roi_map(ctx->ctx, ctx->mb_rows, ctx->mb_cols, pattern, delta_q,
                   delta_lf, static_threshold);
+  } else if (starts_with(token, "roicustom:")) {
+    apply_roi_custom_token(ctx->ctx, ctx->mb_rows, ctx->mb_cols,
+                           token + strlen("roicustom:"));
   } else if (starts_with(token, "setref:")) {
     apply_set_reference_token(ctx->ctx, ctx->width, ctx->height,
                               token + strlen("setref:"));
