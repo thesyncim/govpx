@@ -13,7 +13,8 @@ Primary sources:
 
 This document tracks VP8-relevant libvpx controls and the govpx APIs that cover
 them. It is not a libvpx C ABI roadmap and does not define VP9 scope; use
-`UPSTREAM.md` for VP9 profile 0, RTP/WebRTC, and non-profile-0 behavior.
+`UPSTREAM.md` for VP9 Profile 0, RTP/WebRTC payload compatibility, and
+non-Profile-0 behavior.
 
 ## Summary
 
@@ -164,7 +165,7 @@ Why it is covered:
 
 - It is a real quality/decision knob.
 - It affects RD behavior through activity masking and is visible in quality
-  parity work.
+  validation work.
 
 Current Go API:
 
@@ -325,8 +326,8 @@ Status: missing as a streaming decode mode. Priority: low.
 
 libvpx's decoder can be initialized with `VPX_CODEC_USE_INPUT_FRAGMENTS`.
 govpx expects complete VP8 frame payloads; RTP/WebRTC packetization and
-reassembly are caller-owned compatibility layers. A built-in fragment
-accumulator is optional and not required for core decode parity.
+reassembly are caller-owned. A built-in fragment accumulator is optional and
+not required for packet decode.
 
 ## Probably Skip
 

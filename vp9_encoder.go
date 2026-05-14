@@ -302,7 +302,6 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		RefreshFrameContext:   flags&EncodeNoUpdateEntropy == 0,
 		FrameParallelDecoding: true,
 		FrameContextIdx:       0,
-		InterpFilter:          vp9dec.InterpEighttap,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
 			BitDepth:   vp9dec.Bits8,
 			ColorSpace: common.CSUnknown,
@@ -333,6 +332,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		}
 		header.InterRef.SignBias = [3]uint8{0, 0, 0}
 	}
+	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly)
 
 	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly)
 	baseMi := vp9dec.NeighborMi{
@@ -393,7 +393,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		Lossless:           false,
 		TxMode:             txMode,
 		IntraOnly:          isKey || header.IntraOnly,
-		InterpFilter:       vp9dec.InterpEighttap,
+		InterpFilter:       header.InterpFilter,
 		ReferenceMode:      vp9dec.SingleReference,
 		CompoundRefAllowed: false,
 		CoefStepsize:       4,
@@ -803,6 +803,30 @@ func vp9EncoderFrameTxMode(isKey, intraOnly bool) common.TxMode {
 	return common.TxModeSelect
 }
 
+func vp9EncoderFrameInterpFilter(isKey, intraOnly bool) vp9dec.InterpFilter {
+	if isKey || intraOnly {
+		return vp9dec.InterpEighttap
+	}
+	return vp9dec.InterpSwitchable
+}
+
+func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind) vp9dec.InterpFilter {
+	if kind == vp9ModeTreeInterSource || kind == vp9ModeTreeInterSkip {
+		return vp9dec.InterpSwitchable
+	}
+	return vp9dec.InterpEighttap
+}
+
+var vp9SwitchableInterpFilterOrder = [...]vp9dec.InterpFilter{
+	vp9dec.InterpEighttap,
+	vp9dec.InterpEighttapSmooth,
+	vp9dec.InterpEighttapSharp,
+}
+
+func vp9MvHasSubpel(mv vp9dec.MV) bool {
+	return int(mv.Row)%8 != 0 || int(mv.Col)%8 != 0
+}
+
 func clampVP9TxSizeForBlock(tx common.TxSize, bsize common.BlockSize) common.TxSize {
 	maxTx := common.MaxTxsizeLookup[bsize]
 	if tx > maxTx {
@@ -905,6 +929,16 @@ func countVP9InterMode(counts *encoder.FrameCounts, seg *vp9dec.SegmentationPara
 	if sub >= 0 && sub < common.InterModes {
 		counts.InterMode[ctx][sub]++
 	}
+}
+
+func countVP9SwitchableInterp(counts *encoder.FrameCounts,
+	above, left *vp9dec.NeighborMi, filter uint8,
+) {
+	if counts == nil || filter >= uint8(vp9dec.SwitchableFilters) {
+		return
+	}
+	ctx := vp9dec.GetPredContextSwitchableInterp(above, left)
+	counts.SwitchableInterp[ctx][filter]++
 }
 
 func countVP9NewMv(counts *encoder.FrameCounts, mv, refMv vp9dec.MV) {
@@ -1408,6 +1442,28 @@ func vp9PartitionRateCost(
 	return 0
 }
 
+func vp9SwitchableInterpRateCost(fc *vp9dec.FrameContext, ctx int,
+	filter vp9dec.InterpFilter,
+) int {
+	if fc == nil || ctx < 0 || ctx >= len(fc.SwitchableInterpProb) ||
+		filter >= vp9dec.InterpSwitchable {
+		return 0
+	}
+	probs := fc.SwitchableInterpProb[ctx]
+	switch filter {
+	case vp9dec.InterpEighttap:
+		return encoder.VP9CostBit(probs[0], 0)
+	case vp9dec.InterpEighttapSmooth:
+		return encoder.VP9CostBit(probs[0], 1) +
+			encoder.VP9CostBit(probs[1], 0)
+	case vp9dec.InterpEighttapSharp:
+		return encoder.VP9CostBit(probs[0], 1) +
+			encoder.VP9CostBit(probs[1], 1)
+	default:
+		return 0
+	}
+}
+
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
@@ -1440,10 +1496,14 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if txMode == common.TxModeSelect && bsize >= common.Block8x8 && cur.Skip == 0 {
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
+		frameInterpFilter := vp9ModeTreeInterpFilter(kind)
 		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
 		countVP9IntraInter(counts, seg, segID, above, left, 1)
 		countVP9SingleRef(counts, seg, segID, above, left, cur.RefFrame[0])
 		countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
+		if frameInterpFilter == vp9dec.InterpSwitchable {
+			countVP9SwitchableInterp(counts, above, left, cur.InterpFilter)
+		}
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
 			miRow, miCol, bsize, &cur)
 		if cur.Mode == common.NewMv {
@@ -1459,7 +1519,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			MaxTxSize:    maxTxSize,
 			TxProbs:      vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
 			FrameRefMode: vp9dec.SingleReference,
-			InterpFilter: vp9dec.InterpEighttap,
+			InterpFilter: frameInterpFilter,
+			SwitchableInterpCtx: vp9dec.GetPredContextSwitchableInterp(
+				above, left),
 			InterModeCtx: interModeCtx,
 			Mv:           cur.Mv,
 			BestRefMv:    bestRefMv,
@@ -1833,11 +1895,13 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	mi.Mode = common.ZeroMv
 	mi.Mv = [2]vp9dec.MV{}
 	mi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
+	mi.InterpFilter = uint8(vp9dec.InterpEighttap)
 	if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize); ok {
 		mi.Mode = decision.mode
 		mi.Mv[0] = decision.mv
 		mi.RefFrame[0] = decision.refFrame
+		mi.InterpFilter = uint8(decision.interpFilter)
 		inter.ref = &e.refFrames[decision.refSlot]
 	} else if refFrame, refSlot, ok := e.firstVP9InterReference(inter); ok {
 		mi.RefFrame[0] = refFrame
@@ -1885,13 +1949,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 }
 
 type vp9InterModeDecision struct {
-	refFrame int8
-	refSlot  int
-	mode     common.PredictionMode
-	mv       vp9dec.MV
-	rate     int
-	sad      uint64
-	score    uint64
+	refFrame     int8
+	refSlot      int
+	mode         common.PredictionMode
+	mv           vp9dec.MV
+	interpFilter vp9dec.InterpFilter
+	rate         int
+	sad          uint64
+	score        uint64
 }
 
 func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
@@ -1982,17 +2047,28 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 
 	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols, tile,
 		miRows, miRow, miCol, bsize)
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	bestSet := false
 	var best vp9InterModeDecision
-	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV, sad uint64) {
-		rate := refRate + vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode, mv, refMv)
+	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
+		filter vp9dec.InterpFilter, sad uint64,
+	) {
+		rate := refRate +
+			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode, mv, refMv) +
+			vp9SwitchableInterpRateCost(&inter.selectFc, switchableCtx, filter)
 		cand := vp9InterModeDecision{
-			mode:  mode,
-			mv:    mv,
-			rate:  rate,
-			sad:   sad,
-			score: vp9InterModeScore(sad, rate, qindex),
+			mode:         mode,
+			mv:           mv,
+			interpFilter: filter,
+			rate:         rate,
+			sad:          sad,
+			score:        vp9InterModeScore(sad, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -2003,7 +2079,9 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 
 	zeroSad := vp9BlockSAD(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
-	consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, zeroSad)
+	for _, filter := range vp9SwitchableInterpFilterOrder {
+		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter, zeroSad)
+	}
 
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
 		mv, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
@@ -2011,10 +2089,23 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
-		sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
-			miRow, miCol, bsize, mode, refFrame, mv, ^uint64(0))
-		if ok {
-			consider(mode, mv, mv, sad)
+		if !vp9MvHasSubpel(mv) {
+			sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+				miRow, miCol, bsize, mode, refFrame, mv, vp9dec.InterpEighttap,
+				^uint64(0))
+			if ok {
+				for _, filter := range vp9SwitchableInterpFilterOrder {
+					consider(mode, mv, mv, filter, sad)
+				}
+			}
+			continue
+		}
+		for _, filter := range vp9SwitchableInterpFilterOrder {
+			sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+				miRow, miCol, bsize, mode, refFrame, mv, filter, ^uint64(0))
+			if ok {
+				consider(mode, mv, mv, filter, sad)
+			}
 		}
 	}
 
@@ -2022,7 +2113,20 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		miRow, miCol, bsize, refFrame); ok {
 		refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 			miRow, miCol, bsize, common.NewMv, refFrame)
-		consider(common.NewMv, mv, refMv, sad)
+		if !vp9MvHasSubpel(mv) {
+			for _, filter := range vp9SwitchableInterpFilterOrder {
+				consider(common.NewMv, mv, refMv, filter, sad)
+			}
+		} else {
+			for _, filter := range vp9SwitchableInterpFilterOrder {
+				filterSad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+					miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
+					^uint64(0))
+				if ok {
+					consider(common.NewMv, mv, refMv, filter, filterSad)
+				}
+			}
+		}
 	}
 	if !bestSet {
 		return vp9InterModeDecision{}, false
@@ -2134,7 +2238,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 						continue
 					}
 					score, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
-						miRow, miCol, bsize, common.NewMv, refFrame, cand, bestScore)
+						miRow, miCol, bsize, common.NewMv, refFrame, cand,
+						vp9dec.InterpEighttap, bestScore)
 					if !ok || score >= bestScore {
 						continue
 					}
@@ -2150,7 +2255,8 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 
 func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mode common.PredictionMode, refFrame int8, mv vp9dec.MV, limit uint64,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, limit uint64,
 ) (uint64, bool) {
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	dst, dstStride := e.vp9EncoderReconPlane(0)
@@ -2167,8 +2273,9 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		return 0, false
 	}
 	mi := vp9dec.NeighborMi{
-		SbType: bsize,
-		Mode:   mode,
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
 		RefFrame: [2]int8{
 			refFrame,
 			vp9dec.NoRefFrame,
@@ -2403,7 +2510,7 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 				vp9AltRefSlot,
 			},
 		},
-		InterpFilter: vp9dec.InterpEighttap,
+		InterpFilter: vp9dec.InterpSwitchable,
 	}
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch

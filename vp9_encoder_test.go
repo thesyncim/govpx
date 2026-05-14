@@ -557,9 +557,10 @@ func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
 }
 
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 80})
-	keySrc := newVP9YCbCrForTest(96, 80, 82, 123, 211)
-	interSrc := newVP9YCbCrForTest(96, 80, 201, 44, 19)
+	const width, height = 96, 80
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 82, 123, 211)
+	interSrc := newVP9YCbCrForTest(width, height, 201, 44, 19)
 	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -567,6 +568,24 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
+	}
+
+	var keyBR vp9dec.BitReader
+	keyBR.Init(key)
+	keyHeader, err := vp9dec.ReadUncompressedHeader(&keyBR, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader keyframe: %v", err)
+	}
+	var interBR vp9dec.BitReader
+	interBR.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&interBR, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
+		t.Fatalf("inter header InterpFilter = %d, want Switchable",
+			interHeader.InterpFilter)
 	}
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -1002,6 +1021,8 @@ func TestVP9EncoderInterPicksQuarterPelMv(t *testing.T) {
 	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
 		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
 			got.Mode, got.Mv[0], want)
+	} else if got.InterpFilter != uint8(vp9dec.InterpEighttap) {
+		t.Fatalf("top-left interp filter = %d, want Eighttap", got.InterpFilter)
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after quarter-pel inter frame")
@@ -1558,8 +1579,8 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	if interHeader.AllowHighPrecisionMv {
 		t.Error("AllowHighPrecisionMv = true, want false")
 	}
-	if interHeader.InterpFilter != vp9dec.InterpEighttap {
-		t.Errorf("InterpFilter = %d, want Eighttap", interHeader.InterpFilter)
+	if interHeader.InterpFilter != vp9dec.InterpSwitchable {
+		t.Errorf("InterpFilter = %d, want Switchable", interHeader.InterpFilter)
 	}
 	if interHeader.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0 (compressed header empty)")
@@ -1580,7 +1601,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 		Lossless:             false,
 		IntraOnly:            false,
 		KeyFrame:             false,
-		InterpFilter:         vp9dec.InterpEighttap,
+		InterpFilter:         interHeader.InterpFilter,
 		AllowHighPrecisionMv: false,
 		CompoundRefAllowed:   false,
 	})
@@ -1640,7 +1661,7 @@ func TestVP9EncoderInterSelectsTx16ForActiveResidual(t *testing.T) {
 		Lossless:             false,
 		IntraOnly:            false,
 		KeyFrame:             false,
-		InterpFilter:         vp9dec.InterpEighttap,
+		InterpFilter:         interHeader.InterpFilter,
 		AllowHighPrecisionMv: false,
 		CompoundRefAllowed:   false,
 	})

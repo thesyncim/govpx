@@ -10,24 +10,24 @@ govpx is pinned to libvpx `v1.16.0`.
 
 ## Scope
 
-govpx uses libvpx as an oracle and baseline, not as a runtime dependency.
-Compatibility targets are VP8/VP9 bitstreams and RTP/WebRTC payload behavior,
-not the libvpx C ABI.
+govpx uses libvpx as a pinned oracle, not as a runtime dependency.
+Compatibility targets are VP8/VP9 bitstreams and RTP/WebRTC payload
+compatibility, not the libvpx C ABI.
 
-VP9 support is full profile 0 only: 8-bit 4:2:0 raw packets and valid
+VP9 support is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
 superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
 non-4:2:0 chroma variants are out of scope. RTP/WebRTC payload compatibility is
-in scope for both VP8 and VP9. Valid non-profile-0 VP9 packets return
+in scope for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
 `ErrVP9NotImplemented`.
 
 ## Gates
 
-- `make verify-decoder-parity`: decoder oracle checks, including strict VP9
-  profile 0 IVF parity.
-- `make verify-production`: full supported oracle gate.
+- `make verify-decoder-parity`: decoder oracle checks, including VP9
+  Profile 0 IVF coverage.
+- `make verify-production`: supported encoder and decoder oracle checks.
 - `fetch-vp9-test-data`: pinned official VP9 decoder subset.
 
-`GOVPX_VP9_TEST_DATA_STRICT=1` keeps valid VP90 profile 0 fixtures from being
+`GOVPX_VP9_TEST_DATA_STRICT=1` keeps valid VP90 Profile 0 fixtures from being
 skipped as unsupported.
 
 ## License

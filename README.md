@@ -3,18 +3,18 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 and VP9 profile 0 support for raw VPx payloads.
+Pure-Go VP8 support and full VP9 Profile 0 scope for raw VPx payloads.
 
-govpx is for Go programs that need VP8 or VP9 profile 0 without cgo and without
+govpx is for Go programs that need VP8 or VP9 Profile 0 without cgo and without
 a libvpx runtime dependency. It produces and consumes raw VP8 frame payloads and
-raw VP9 profile 0 packets for RTP/WebRTC-compatible transport.
+raw VP9 Profile 0 packets for RTP/WebRTC-compatible transport.
 
-VP9 scope is full profile 0 only: 8-bit 4:2:0 raw packets and valid
+VP9 scope is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
 superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
 non-4:2:0 chroma variants are out of scope. RTP/WebRTC payload compatibility is
-in scope for both VP8 and VP9. Valid non-profile-0 VP9 packets return
+in scope for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
 `ErrVP9NotImplemented`. Validation uses pinned libvpx v1.16.0 only as an
-oracle/baseline; VP9 oracle coverage is profile 0 only.
+oracle; VP9 oracle coverage is Profile 0 only.
 
 ## Install
 
@@ -56,10 +56,10 @@ postprocess (deblock, demacroblock, MFQE, additive noise), maximum
 dimensions, resolution-change rejection, frame metadata, and LAST /
 GOLDEN / ALTREF reference-buffer set/copy.
 
-Use `NewVP9Decoder` for raw VP9 profile 0 packets. A VP9 packet may
-contain a superframe index; the decoder consumes each contained profile 0
+Use `NewVP9Decoder` for raw VP9 Profile 0 packets. A VP9 packet may
+contain a superframe index; the decoder consumes each contained Profile 0
 frame in packet order and publishes the final visible output through `NextFrame`.
-Valid non-profile0 VP9 packets return `ErrVP9NotImplemented`.
+Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
 
 ## Encode
 
@@ -110,7 +110,7 @@ returns no more data.
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
-| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 flag subset) |
+| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset) |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
@@ -123,7 +123,7 @@ returns no more data.
 ## RTP/WebRTC Compatibility
 
 govpx's RTP/WebRTC contract is codec-payload compatibility: raw VP8 frame
-payloads and raw VP9 profile 0 packets suitable for RTP/WebRTC packetization.
+payloads and raw VP9 Profile 0 packets suitable for RTP/WebRTC packetization.
 RTP payload descriptors, fragmentation/reassembly, SRTP, SDP, and signaling
 remain caller-owned.
 
@@ -152,9 +152,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 
 - Use `ForceKeyFrame()` for sticky PLI/FIR. Use `EncodeForceKeyFrame`
   on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
-- VP9 `EncodeIntoWithFlags` is profile-0-only and supports the VP9-compatible
+- VP9 `EncodeIntoWithFlags` is Profile-0-only and supports the VP9-compatible
   keyframe, reference, and entropy hints documented by `EncodeFlags`. Remaining
-  profile-0 encoder gaps are implementation status, not scope expansion.
+  Profile 0 encoder gaps are implementation status, not scope expansion.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.
@@ -182,16 +182,16 @@ go test -tags purego ./... -count=1
 go vet ./...
 ```
 
-Parity gates:
+Oracle checks:
 
 ```sh
-make verify-decoder-parity   # cheaper: decoder-only oracle proof
-make verify-production       # full encoder + decoder oracle gate
+make verify-decoder-parity   # decoder-only oracle checks
+make verify-production       # supported encoder + decoder oracle checks
 ```
 
 `verify-production` builds pinned libvpx tools, fetches conformance data,
-and runs the supported oracle gate. VP9 checks are profile 0 only: valid VP90
-profile 0 IVF streams must pass, and non-profile0 streams are unsupported.
+and runs the supported oracle checks. VP9 checks are Profile 0 only: valid VP90
+Profile 0 IVF streams are covered, and non-Profile-0 streams are unsupported.
 Use `make verify-decoder-parity` for decoder-only changes.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`
