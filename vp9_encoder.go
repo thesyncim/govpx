@@ -652,7 +652,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if intraOnly {
 		isKey = false
 	}
-	if !isKey && !intraOnly && !e.hasVP9UsableInterReference(flags) {
+	if !isKey && !intraOnly && !e.hasVP9UsableInterReference(flags) &&
+		!vp9AllInterReferencesDisabled(flags) {
 		isKey = true
 	}
 	if !isKey && !intraOnly {
@@ -785,6 +786,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	}()
 	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
 		header.Quant.Lossless)
+	if !isKey && !header.IntraOnly && vp9InterReferenceMask(flags) == 0 {
+		header.InterpFilter = vp9dec.InterpSwitchable
+	}
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 
 	txMode := vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
@@ -1119,6 +1123,11 @@ func vp9InterReferenceMask(flags EncodeFlags) uint8 {
 		mask |= 1 << uint(vp9dec.AltrefFrame)
 	}
 	return mask
+}
+
+func vp9AllInterReferencesDisabled(flags EncodeFlags) bool {
+	const allNoRef = EncodeNoReferenceLast | EncodeNoReferenceGolden | EncodeNoReferenceAltRef
+	return flags&allNoRef == allNoRef
 }
 
 func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
@@ -2947,6 +2956,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		forcedRefFrame, forcedRef := vp9EncoderForcedSegmentRefFrame(seg, segID)
 		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
+		if !forcedIntra && kind == vp9ModeTreeInterSource && inter != nil &&
+			inter.refMask == 0 {
+			forcedIntra = true
+		}
 		if forcedIntra {
 			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			cur.InterpFilter = uint8(vp9dec.SwitchableFilters)

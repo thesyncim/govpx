@@ -640,6 +640,116 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleConstructionControlMatrixScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 construction-control matrix scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 6
+	cases := []struct {
+		name      string
+		opts      VP9EncoderOptions
+		extraArgs []string
+	}{
+		{
+			name:      "public-q-default",
+			opts:      VP9EncoderOptions{Width: width, Height: height},
+			extraArgs: nil,
+		},
+		{
+			name: "public-q-band-cq30",
+			opts: VP9EncoderOptions{
+				Width:        width,
+				Height:       height,
+				MinQuantizer: 10,
+				MaxQuantizer: 50,
+				CQLevel:      30,
+			},
+			extraArgs: []string{"--min-q=10", "--max-q=50", "--cq-level=30"},
+		},
+		{
+			name: "public-lossless",
+			opts: VP9EncoderOptions{
+				Width:    width,
+				Height:   height,
+				Lossless: true,
+			},
+			extraArgs: []string{"--lossless=1"},
+		},
+		{
+			name: "error-resilient-kf2",
+			opts: VP9EncoderOptions{
+				Width:               width,
+				Height:              height,
+				ErrorResilient:      true,
+				MaxKeyframeInterval: 2,
+			},
+			extraArgs: []string{"--error-resilient=1", "--kf-max-dist=2"},
+		},
+		{
+			name:      "cbr-buffer-default",
+			opts:      vp9OracleCBROptions(width, height, 700),
+			extraArgs: vp9OracleCBRArgs(700, 600, 400, 500, 0),
+		},
+		{
+			name: "cbr-tight-q-band",
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(width, height, 700)
+				opts.MinQuantizer = 10
+				opts.MaxQuantizer = 50
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--min-q=10", "--max-q=50"),
+		},
+		{
+			name: "cbr-fixed-q20",
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(width, height, 700)
+				opts.MinQuantizer = 20
+				opts.MaxQuantizer = 20
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--min-q=20", "--max-q=20"),
+		},
+		{
+			name: "cbr-tight-buffer-drop",
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(width, height, 140)
+				opts.BufferSizeMs = 400
+				opts.BufferInitialSizeMs = 300
+				opts.BufferOptimalSizeMs = 350
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 60
+				return opts
+			}(),
+			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 60),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources, nil)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+				sources, nil, tc.extraArgs)
+
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			t.Logf("VP9 construction-control matrix scoreboard %s: %s",
+				tc.name, stats)
+			t.Logf("VP9 construction-control matrix rows %s:\n%s",
+				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+			if os.Getenv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") == "1" &&
+				stats.hasMismatch() {
+				t.Fatalf("strict VP9 construction-control matrix mismatch %s: %s",
+					tc.name, stats)
+			}
+		})
+	}
+}
+
 func TestVP9OracleTileThreadControlScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 tile/thread control scoreboard")
@@ -773,6 +883,63 @@ func TestVP9OracleTemporalFlagPatternScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleTemporalPatternMatrixScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 temporal pattern matrix scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames, targetKbps = 64, 64, 16, 700
+	cases := []struct {
+		name string
+		mode TemporalLayeringMode
+	}{
+		{name: "one-layer", mode: TemporalLayeringOneLayer},
+		{name: "two-layer", mode: TemporalLayeringTwoLayers},
+		{name: "two-layer-three-frame", mode: TemporalLayeringTwoLayersThreeFrame},
+		{name: "three-layer-six-frame", mode: TemporalLayeringThreeLayersSixFrame},
+		{name: "three-layer-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction},
+		{name: "three-layer-layer-one-prediction", mode: TemporalLayeringThreeLayersLayerOnePrediction},
+		{name: "three-layer-default", mode: TemporalLayeringThreeLayers},
+		{name: "five-layer", mode: TemporalLayeringFiveLayers},
+		{name: "two-layer-sync", mode: TemporalLayeringTwoLayersWithSync},
+		{name: "three-layer-sync", mode: TemporalLayeringThreeLayersWithSync},
+		{name: "three-layer-altref-sync", mode: TemporalLayeringThreeLayersAltRefWithSync},
+		{name: "three-layer-one-reference", mode: TemporalLayeringThreeLayersOneReference},
+		{name: "three-layer-no-sync", mode: TemporalLayeringThreeLayersNoSync},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern, ok := temporalLayeringPattern(tc.mode)
+			if !ok {
+				t.Fatalf("temporalLayeringPattern(%d) failed", tc.mode)
+			}
+			opts := vp9OracleCBROptions(width, height, targetKbps)
+			opts.TemporalScalability = vp9OracleTemporalConfig(tc.mode,
+				targetKbps)
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+			flags := vp9OracleTemporalPatternFlags(pattern, frames)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+				sources, flags,
+				vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0))
+			vp9ApplyExpectedTemporalMetadata(libvpxRows,
+				buildExpectedTemporalPattern(pattern, frames), pattern.Layers)
+
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			t.Logf("VP9 temporal pattern matrix scoreboard %s: %s",
+				tc.name, stats)
+			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
+				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+			if os.Getenv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") == "1" &&
+				stats.hasMismatch() {
+				t.Fatalf("strict VP9 temporal pattern matrix mismatch %s: %s",
+					tc.name, stats)
+			}
+		})
+	}
+}
+
 func TestVP9OracleInvisibleFrameVisibilityScoreboard(t *testing.T) {
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -808,6 +975,20 @@ func TestVP9OracleInvisibleFrameVisibilityScoreboard(t *testing.T) {
 	}
 	t.Logf("VP9 invisible-frame visibility rows:\n%s",
 		formatVP9SingleRateScoreboardRows(rows))
+}
+
+func vp9OracleTemporalConfig(mode TemporalLayeringMode, targetKbps int) TemporalScalabilityConfig {
+	cfg := TemporalScalabilityConfig{Enabled: true, Mode: mode}
+	if mode == TemporalLayeringFiveLayers {
+		cfg.LayerTargetBitrateKbps = [MaxTemporalLayers]int{
+			targetKbps / 7,
+			(2 * targetKbps) / 7,
+			(4 * targetKbps) / 7,
+			(5 * targetKbps) / 7,
+			targetKbps,
+		}
+	}
+	return cfg
 }
 
 type vp9OracleTransitionStats struct {

@@ -3111,6 +3111,44 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) 
 	}
 }
 
+func TestVP9EncoderEncodeIntoWithFlagsNoReferenceAllStaysInterIntra(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 72, 128, 128)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := newVP9YCbCrForTest(width, height, 144, 96, 224)
+	inter, err := e.EncodeWithFlags(interSrc,
+		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+	if err != nil {
+		t.Fatalf("Encode no-reference-all inter: %v", err)
+	}
+	header, _ := parseVP9EncoderHeaderForTest(t, inter)
+	if header.FrameType != common.InterFrame || header.IntraOnly {
+		t.Fatalf("no-reference-all header frame_type=%d intra_only=%t, want inter/intra-coded blocks",
+			header.FrameType, header.IntraOnly)
+	}
+	if header.RefreshFrameFlags != 1<<vp9LastRefSlot {
+		t.Fatalf("no-reference-all refresh = %#x, want LAST refresh",
+			header.RefreshFrameFlags)
+	}
+	if header.InterpFilter != vp9dec.InterpSwitchable {
+		t.Fatalf("no-reference-all interp filter = %d, want switchable",
+			header.InterpFilter)
+	}
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after no-reference-all inter")
+	}
+	if got := d.miGrid[0]; got.RefFrame != [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame} {
+		t.Fatalf("top-left block ref = %v mode=%d, want intra block inside inter frame",
+			got.RefFrame, got.Mode)
+	}
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

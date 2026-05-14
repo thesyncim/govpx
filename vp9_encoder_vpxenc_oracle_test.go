@@ -230,6 +230,88 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	cases := []struct {
+		name   string
+		lag    int
+		frames int
+	}{
+		{name: "lag1", lag: 1, frames: 4},
+		{name: "lag2", lag: 2, frames: 5},
+		{name: "lag4", lag: 4, frames: 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := make([]*image.YCbCr, tc.frames)
+			for i := range sources {
+				sources[i] = newVP9YCbCrForTest(width, height,
+					byte(72+i*19), 128, 128)
+			}
+
+			govpxPackets := captureVP9LookaheadPacketsForOracleTest(t,
+				VP9EncoderOptions{LookaheadFrames: tc.lag}, sources)
+			var raw []byte
+			for _, src := range sources {
+				raw = appendVP9YCbCrI420(raw, src)
+			}
+			ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
+				tc.frames,
+				fmt.Sprintf("--lag-in-frames=%d", tc.lag),
+				"--auto-alt-ref=0")
+			if err != nil {
+				t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+			}
+			count, err := testutil.CountIVFFrames(ivf)
+			if err != nil {
+				t.Fatalf("CountIVFFrames: %v", err)
+			}
+			if count != tc.frames {
+				t.Fatalf("libvpx lookahead packets = %d, want %d",
+					count, tc.frames)
+			}
+
+			offset, err := testutil.FirstIVFFrameOffset(ivf)
+			if err != nil {
+				t.Fatalf("FirstIVFFrameOffset: %v", err)
+			}
+			matches := 0
+			firstMismatch := -1
+			for i, got := range govpxPackets {
+				var libvpxFrame testutil.IVFFrame
+				libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+				if err != nil {
+					t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+				}
+				if bytes.Equal(got, libvpxFrame.Data) {
+					matches++
+					continue
+				}
+				if firstMismatch < 0 {
+					firstMismatch = i
+				}
+				gotHeader, _ := parseVP9EncoderHeaderForTest(t, got)
+				wantHeader, _ := parseVP9EncoderHeaderForTest(t, libvpxFrame.Data)
+				t.Logf("lookahead %s row %d drift: govpx bytes=%d q=%d refresh=%#x first_partition=%d libvpx bytes=%d q=%d refresh=%#x first_partition=%d",
+					tc.name, i, len(got), gotHeader.Quant.BaseQindex,
+					gotHeader.RefreshFrameFlags, gotHeader.FirstPartitionSize,
+					len(libvpxFrame.Data), wantHeader.Quant.BaseQindex,
+					wantHeader.RefreshFrameFlags,
+					wantHeader.FirstPartitionSize)
+			}
+			t.Logf("VP9 lookahead no-alt-ref matrix %s: byte_matches=%d/%d first_mismatch=%d",
+				tc.name, matches, tc.frames, firstMismatch)
+			if os.Getenv("GOVPX_VP9_LOOKAHEAD_MATRIX_STRICT") == "1" &&
+				matches != tc.frames {
+				t.Fatalf("strict VP9 lookahead no-alt-ref matrix %s matched %d/%d packets",
+					tc.name, matches, tc.frames)
+			}
+		})
+	}
+}
+
 func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -415,6 +497,22 @@ func TestVP9EncoderVpxencOracleCQLevelKeyframeByteParity(t *testing.T) {
 	}, []string{"--cq-level=20"})
 }
 
+func TestVP9EncoderVpxencOraclePublicQuantizerBandKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		MinQuantizer: 10,
+		MaxQuantizer: 50,
+		CQLevel:      30,
+	}, []string{
+		"--min-q=10",
+		"--max-q=50",
+		"--cq-level=30",
+	})
+}
+
 func TestVP9EncoderVpxencOracleLosslessKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -487,6 +585,23 @@ func TestVP9EncoderVpxencOracleCQLevelInterByteParity(t *testing.T) {
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		CQLevel: 20,
 	}, []string{"--cq-level=20"})
+}
+
+func TestVP9EncoderVpxencOraclePublicQuantizerBandInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
+		MinQuantizer: 10,
+		MaxQuantizer: 50,
+		CQLevel:      30,
+	}, []string{
+		"--min-q=10",
+		"--max-q=50",
+		"--cq-level=30",
+	})
 }
 
 func TestVP9EncoderVpxencOracleLosslessInterByteParity(t *testing.T) {
@@ -667,6 +782,60 @@ func TestVP9EncoderVpxencFrameFlagsNoUpdateEntropyByteParity(t *testing.T) {
 	}
 	flags := []EncodeFlags{0, EncodeNoUpdateEntropy}
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
+func captureVP9LookaheadPacketsForOracleTest(t *testing.T, opts VP9EncoderOptions,
+	sources []*image.YCbCr,
+) [][]byte {
+	t.Helper()
+	if len(sources) == 0 {
+		t.Fatal("empty VP9 lookahead source")
+	}
+	width := sources[0].Rect.Dx()
+	height := sources[0].Rect.Dy()
+	for i, src := range sources {
+		if src.Rect.Dx() != width || src.Rect.Dy() != height {
+			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
+				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
+		}
+	}
+	opts.Width = width
+	opts.Height = height
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	packets := make([][]byte, 0, len(sources))
+	for i, src := range sources {
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	for {
+		result, err := e.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	if len(packets) != len(sources) {
+		t.Fatalf("VP9 lookahead packets = %d, want %d",
+			len(packets), len(sources))
+	}
+	return packets
 }
 
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {

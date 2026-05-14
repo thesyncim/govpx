@@ -164,6 +164,99 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR buffer matrix scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 12
+	type bufferCase struct {
+		name      string
+		opts      VP9EncoderOptions
+		extraArgs []string
+		wantDrop  bool
+	}
+	cbrOpts := func(targetKbps, bufSize, bufInitial, bufOptimal, drop int) VP9EncoderOptions {
+		opts := vp9OracleCBROptions(width, height, targetKbps)
+		opts.BufferSizeMs = bufSize
+		opts.BufferInitialSizeMs = bufInitial
+		opts.BufferOptimalSizeMs = bufOptimal
+		if drop > 0 {
+			opts.DropFrameAllowed = true
+			opts.DropFrameWaterMark = drop
+		}
+		return opts
+	}
+	cases := []bufferCase{
+		{
+			name:      "low-bitrate-tight-buffer-no-drop",
+			opts:      cbrOpts(140, 400, 300, 350, 0),
+			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 0),
+		},
+		{
+			name:      "low-bitrate-tight-buffer-drop",
+			opts:      cbrOpts(140, 400, 300, 350, 60),
+			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 60),
+			wantDrop:  true,
+		},
+		{
+			name:      "large-buffer-highrate",
+			opts:      cbrOpts(1200, 2000, 1500, 1800, 0),
+			extraArgs: vp9OracleCBRArgs(1200, 2000, 1500, 1800, 0),
+		},
+		{
+			name: "fixed-q-drop-pressure",
+			opts: func() VP9EncoderOptions {
+				opts := cbrOpts(140, 400, 300, 350, 60)
+				opts.MinQuantizer = 20
+				opts.MaxQuantizer = 20
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 60),
+				"--min-q=20", "--max-q=20"),
+			wantDrop: true,
+		},
+		{
+			name: "wide-q-drop-pressure",
+			opts: func() VP9EncoderOptions {
+				opts := cbrOpts(100, 300, 200, 250, 80)
+				opts.MinQuantizer = 0
+				opts.MaxQuantizer = 63
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(100, 300, 200, 250, 80),
+				"--min-q=0", "--max-q=63"),
+			wantDrop: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources, nil)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+				sources, nil, tc.extraArgs)
+			stats := compareVP9OracleTransitionRows(t, govpxRows, libvpxRows)
+			govpxDrops := vp9DroppedFrameIndices(govpxRows)
+			libvpxDrops := vp9DroppedFrameIndices(libvpxRows)
+			t.Logf("VP9 CBR buffer matrix scoreboard %s: %s govpx_drops=%v libvpx_drops=%v",
+				tc.name, stats, govpxDrops, libvpxDrops)
+			t.Logf("VP9 CBR buffer matrix rows %s:\n%s",
+				tc.name, formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+			if tc.wantDrop && (len(govpxDrops) == 0 || len(libvpxDrops) == 0) {
+				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
+					tc.name, govpxDrops, libvpxDrops)
+			}
+			if os.Getenv("GOVPX_VP9_BUFFER_MATRIX_STRICT") == "1" &&
+				stats.hasMismatch() {
+				t.Fatalf("strict VP9 CBR buffer matrix mismatch %s: %s",
+					tc.name, stats)
+			}
+		})
+	}
+}
+
 func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR keyframe variance scoreboard")
