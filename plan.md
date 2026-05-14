@@ -13,3 +13,4 @@ Reference: libvpx v1.16.0. VP9 scope is documented in [UPSTREAM.md](UPSTREAM.md)
 Authoritative scope lives in [UPSTREAM.md](UPSTREAM.md). VP9 support is full
 Profile 0 only; no profiles 1-3, alpha, high-bit-depth/deep-color, or non-4:2:0
 variants. RTP/WebRTC payload compatibility is in scope for both VP8 and VP9.
+Assembly/SIMD optimization is deferred until full VP9 encoder parity.

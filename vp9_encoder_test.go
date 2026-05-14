@@ -526,6 +526,30 @@ func TestVP9EncoderRejectsInvalidSourceShape(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
+	counts := &vp9enc.FrameCounts{}
+	counts.TxTotals[common.Tx16x16] = 1
+	counts.TxTotals[common.Tx8x8] = 1
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Allow16x16 {
+		t.Fatalf("tx mode = %d, want Allow16x16", got)
+	}
+
+	counts = &vp9enc.FrameCounts{}
+	counts.TxTotals[common.Tx4x4] = 1
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Only4x4 {
+		t.Fatalf("tx mode = %d, want Only4x4", got)
+	}
+
+	counts = &vp9enc.FrameCounts{}
+	counts.TxTotals[common.Tx32x32] = 1
+	if got := vp9EncoderFrameTxModeFromCounts(common.Allow32x32, false, counts); got != common.Allow32x32 {
+		t.Fatalf("tx mode = %d, want Allow32x32", got)
+	}
+	if got := vp9EncoderFrameTxModeFromCounts(common.TxModeSelect, false, counts); got != common.TxModeSelect {
+		t.Fatalf("select tx mode = %d, want TxModeSelect", got)
+	}
+}
+
 // TestVP9EncoderKeyframeStubProducesParseableBitstream: the
 // zero-residue keyframe path emits a Block64x64 PartitionNone + DC-pred +
 // skip=1 frame whose every layer parses cleanly through the

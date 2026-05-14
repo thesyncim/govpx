@@ -31,7 +31,10 @@ func TestWriteCoefProbsFromCountsZeroCountsNoUpdate(t *testing.T) {
 	buf := make([]byte, 4096)
 	var bw bitstream.Writer
 	bw.Start(buf)
-	WriteCoefProbsFromCounts(&bw, &probs, &counts, false, common.Only4x4, 4)
+	var txTotals [common.TxSizes]uint32
+	txTotals[common.Tx4x4] = 21
+	WriteCoefProbsFromCounts(&bw, &probs, &counts, &txTotals,
+		false, common.Only4x4, 4)
 	size, err := bw.Stop()
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -91,12 +94,15 @@ func TestWriteCoefProbsFromCountsAtLeastOneUpdate(t *testing.T) {
 	// Plant noise across other slots to give a realistic dry-run.
 	counts[0][0][0][1][0][1] = [2]uint32{500, 200}
 	counts[0][0][0][1][0][2] = [2]uint32{300, 200}
+	var txTotals [common.TxSizes]uint32
+	txTotals[common.Tx4x4] = 21
 
 	buf := make([]byte, 8192)
 	var bw bitstream.Writer
 	bw.Start(buf)
 	writerProbs := probs
-	WriteCoefProbsFromCounts(&bw, &writerProbs, &counts, false, common.Only4x4, 4)
+	WriteCoefProbsFromCounts(&bw, &writerProbs, &counts, &txTotals,
+		false, common.Only4x4, 4)
 	size, _ := bw.Stop()
 
 	var r bitstream.Reader
@@ -113,5 +119,49 @@ func TestWriteCoefProbsFromCountsAtLeastOneUpdate(t *testing.T) {
 	// (tx=0, plane=0, ref=0, band=1, ctx=0, node=0).
 	if writerProbs[0][0][0][1][0][0] == 128 {
 		t.Errorf("expected node 0 prob to have moved from 128; counts didn't drive an update")
+	}
+}
+
+func TestWriteCoefProbsFromCountsLowTxTotalNoUpdate(t *testing.T) {
+	var probs vp9dec.FrameCoefProbs
+	for i := range probs {
+		for p := range probs[i] {
+			for r := range probs[i][p] {
+				for b := range probs[i][p][r] {
+					for c := range probs[i][p][r][b] {
+						for n := range probs[i][p][r][b][c] {
+							probs[i][p][r][b][c][n] = 128
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var counts FrameCoefBranchStats
+	counts[0][0][0][1][0][0] = [2]uint32{2000, 50}
+	var txTotals [common.TxSizes]uint32
+	txTotals[common.Tx4x4] = 20
+
+	buf := make([]byte, 8192)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	writerProbs := probs
+	WriteCoefProbsFromCounts(&bw, &writerProbs, &counts, &txTotals,
+		false, common.Only4x4, 4)
+	size, _ := bw.Stop()
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	decProbs := probs
+	vp9dec.ReadCoefProbs(&r, &decProbs, common.Only4x4)
+
+	if writerProbs != probs {
+		t.Fatalf("writer probs changed despite low tx total")
+	}
+	if decProbs != probs {
+		t.Fatalf("decoder probs changed despite low tx total")
 	}
 }

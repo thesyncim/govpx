@@ -8,24 +8,30 @@ govpx is pinned to libvpx `v1.16.0`.
 - Release date: 2026-01-21
 - Source: `https://chromium.googlesource.com/webm/libvpx/+/refs/tags/v1.16.0`
 
-## Scope
+## Compatibility Scope
 
 govpx uses libvpx as a pinned oracle, not as a runtime dependency.
-Compatibility targets are VP8 codec bitstreams, full VP9 Profile 0 codec
-bitstreams, and RTP/WebRTC payload compatibility, not the libvpx C ABI.
+Compatibility targets are VP8 codec bitstreams, VP9 Profile 0 codec
+bitstreams, and RTP/WebRTC payload bodies for both codecs. The libvpx C ABI is
+not a compatibility target.
 
-VP9 support is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
-superframes. Profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0
-chroma variants are out of scope. RTP/WebRTC payload compatibility is in scope
-for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
+VP9 support means full Profile 0 support only: 8-bit 4:2:0 raw packets and
+valid Profile 0 superframes. Profiles 1-3, alpha, high bit depth, and
+non-4:2:0 chroma are out of scope. Valid non-Profile-0 VP9 packets return
 `ErrVP9NotImplemented`.
+
+## Optimization Scope
+
+Assembly and SIMD optimization is deferred until the VP9 encoder reaches full
+Profile 0 parity. Until then, prioritize correct scalar behavior, oracle
+coverage, and public API compatibility.
 
 ## Gates
 
 - `make verify-decoder-parity`: decoder oracle checks, including VP9
   Profile 0 IVF coverage.
 - `make verify-production`: supported encoder and decoder oracle checks.
-- `fetch-vp9-test-data`: pinned official VP9 decoder subset.
+- `fetch-vp9-test-data`: pinned official VP9 Profile 0 decoder subset.
 
 `GOVPX_VP9_TEST_DATA_STRICT=1` keeps valid VP9 Profile 0 fixtures from being
 skipped as unsupported.

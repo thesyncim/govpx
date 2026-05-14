@@ -10,12 +10,9 @@ cgo and without a libvpx runtime dependency. It produces and consumes raw VP8
 frame payloads and raw VP9 Profile 0 packets for RTP/WebRTC-compatible
 transport.
 
-VP9 support is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
-superframes. Profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0
-chroma variants are out of scope. RTP/WebRTC payload compatibility is in scope
-for both VP8 and VP9. Valid non-Profile-0 VP9 packets return
-`ErrVP9NotImplemented`. Validation uses pinned libvpx v1.16.0 as an oracle;
-VP9 oracle coverage is Profile 0 only.
+`UPSTREAM.md` is the authoritative scope statement: VP9 support is full
+Profile 0 only, RTP/WebRTC payload compatibility is in scope for both VP8 and
+VP9, and validation uses pinned libvpx v1.16.0 as the oracle.
 
 ## Install
 
@@ -30,6 +27,8 @@ Build with `-tags purego` for a scalar build. The tag excludes govpx's
 architecture-specific assembly and selects the Go fallbacks under
 `internal/vp8/dsp`, `internal/vp8/encoder`, `internal/vp9/dsp`, and
 `internal/vp9/encoder`.
+
+New assembly/SIMD work is deferred until full VP9 encoder parity.
 
 ## Decode
 
@@ -92,7 +91,7 @@ for i, src := range frames {
 ```
 
 Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). VP8 output is
-one raw VP8 payload per packet -- not IVF, not WebM. VP9 encoder APIs emit raw
+one raw VP8 payload per packet -- not IVF, not WebM. VP9 encoder APIs emit
 Profile 0 packets and valid Profile 0 superframes only.
 
 | Capability | Knobs |
@@ -129,12 +128,12 @@ returns no more data.
 
 govpx's RTP/WebRTC contract is codec-payload compatibility for VP8 and VP9
 Profile 0. VP8 and VP9 expose payload-descriptor helpers plus MTU-aware
-packetizers and assemblers for RFC 7741 and RFC 9628 RTP payload bodies. The
-packetizers return payload bodies plus the RTP marker bit; the assemblers
-consume ordered payload bodies plus marker bits. RTP headers, sequence/loss
-policy, jitter buffering, SRTP, SDP, and signaling remain caller-owned.
-VP9 helpers carry picture IDs, layer indices, flexible-mode references, and
-scalability structures through packetization and assembly.
+packetizers and assemblers for RFC 7741 and RFC 9628 payload bodies.
+Packetizers return payload bodies plus marker bits; assemblers consume ordered
+payload bodies plus marker bits. RTP headers, sequence/loss policy, jitter
+buffering, SRTP, SDP, and signaling remain caller-owned. VP9 helpers carry
+picture IDs, layer indices, flexible-mode references, and scalability
+structures through packetization and assembly.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
 dropping, and RTC external rate control:
@@ -205,8 +204,7 @@ make verify-production       # supported encoder + decoder oracle checks
 ```
 
 `verify-production` builds pinned libvpx tools, fetches conformance data,
-and runs the supported oracle checks. VP9 checks are Profile 0 only: valid VP9
-Profile 0 IVF streams are covered, and non-Profile-0 streams are unsupported.
+and runs the supported oracle checks. VP9 oracle coverage is Profile 0 only.
 Use `make verify-decoder-parity` for decoder-only changes.
 
 Oracle trace and scoreboard code lives behind the `govpx_oracle_trace`

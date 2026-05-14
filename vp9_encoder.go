@@ -620,6 +620,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
 		keyState, interState)
+	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
+		header.Quant.Lossless, counts); reducedTxMode != txMode {
+		txMode = reducedTxMode
+		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
+			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
+			header.IntraOnly, keyState, interState)
+	}
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:             header.Quant.Lossless,
@@ -1095,6 +1103,31 @@ func vp9EncoderFrameTxMode(isKey, intraOnly, lossless bool) common.TxMode {
 	return common.TxModeSelect
 }
 
+func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
+	counts *encoder.FrameCounts,
+) common.TxMode {
+	if lossless {
+		return common.Only4x4
+	}
+	if counts == nil || txMode == common.TxModeSelect {
+		return txMode
+	}
+	for tx := common.Tx32x32; tx > common.Tx4x4; tx-- {
+		if counts.TxTotals[tx] == 0 {
+			continue
+		}
+		switch tx {
+		case common.Tx32x32:
+			return common.Allow32x32
+		case common.Tx16x16:
+			return common.Allow16x16
+		case common.Tx8x8:
+			return common.Allow8x8
+		}
+	}
+	return common.Only4x4
+}
+
 func vp9EncoderFrameInterpFilter(isKey, intraOnly bool) vp9dec.InterpFilter {
 	if isKey || intraOnly {
 		return vp9dec.InterpEighttap
@@ -1237,6 +1270,22 @@ func countVP9TxSize(counts *encoder.FrameCounts, ctx int,
 		if txSize <= common.Tx32x32 {
 			counts.TxMode.P32x32[ctx][txSize]++
 		}
+	}
+}
+
+func countVP9TxTotals(counts *encoder.FrameCounts, bsize common.BlockSize,
+	txSize common.TxSize, planes *[vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane,
+) {
+	if counts == nil || txSize >= common.TxSizes {
+		return
+	}
+	counts.TxTotals[txSize]++
+	if planes == nil {
+		return
+	}
+	uvTx := vp9dec.GetUvTxSize(bsize, txSize, &planes[1])
+	if uvTx < common.TxSizes {
+		counts.TxTotals[uvTx]++
 	}
 }
 
@@ -2141,6 +2190,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			(!isInter || cur.Skip == 0) {
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
+		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
 		frameInterpFilter := vp9ModeTreeInterpFilter(kind)
 		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
 		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
@@ -2254,6 +2304,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if txMode == common.TxModeSelect && bsize >= common.Block8x8 {
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
+		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
 		encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
 			Seg:       seg,
 			Mi:        &cur,

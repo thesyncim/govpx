@@ -33,12 +33,12 @@ type FrameCoefBranchStats [common.TxSizes]CoefBranchStatsPerTx
 // WriteCoefProbsFromCounts mirrors libvpx's update_coef_probs +
 // update_coef_probs_common TWO_LOOP path. Walks every active
 // TxSize (gated by lossless + txMode) and invokes the per-tx update
-// driver. The probs slice is mutated in place to reflect any
-// updates emitted; the same probs feed the per-block coefficient
-// writers that follow this header.
+// driver when tx_totals has enough samples. The probs slice is mutated
+// in place to reflect any updates emitted; the same probs feed the
+// per-block coefficient writers that follow this header.
 func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 	probs *vp9dec.FrameCoefProbs, counts *FrameCoefBranchStats,
-	lossless bool, txMode common.TxMode, stepsize int,
+	txTotals *[common.TxSizes]uint32, lossless bool, txMode common.TxMode, stepsize int,
 ) {
 	var max common.TxSize
 	switch {
@@ -50,6 +50,10 @@ func WriteCoefProbsFromCounts(bw *bitstream.Writer,
 		max = common.TxModeToBiggestTxSize[txMode]
 	}
 	for tx := common.Tx4x4; tx <= max; tx++ {
+		if txTotals != nil && txTotals[tx] <= 20 {
+			bw.WriteBit(0)
+			continue
+		}
 		updateCoefProbsTxSize(bw, &probs[tx], &counts[tx], stepsize)
 	}
 }

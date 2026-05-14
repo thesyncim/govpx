@@ -32,6 +32,10 @@ type FrameCounts struct {
 	// shape [PlaneTypes][RefTypes][CoefBands][CoefContexts][EntropyNodes][2].
 	CoefBranchStats FrameCoefBranchStats
 
+	// TxTotals is libvpx counts->tx.tx_totals. It gates coefficient
+	// probability updates for tx sizes with too little frame evidence.
+	TxTotals [common.TxSizes]uint32
+
 	// TxMode is the per-context tx-size selection histogram for the
 	// 8x8 / 16x16 / 32x32 max-tx sub-tables.
 	TxMode TxModeCounts
@@ -111,8 +115,8 @@ func WriteCompressedHeaderFromCounts(dst []byte,
 	}
 
 	WriteCoefProbsFromCounts(&bw, &args.Probs.CoefProbs,
-		&args.Counts.CoefBranchStats, args.Lossless, args.TxMode,
-		args.CoefStepsize)
+		&args.Counts.CoefBranchStats, &args.Counts.TxTotals,
+		args.Lossless, args.TxMode, args.CoefStepsize)
 
 	WriteSkipProbsFromCounts(&bw, &args.Probs.SkipProbs, &args.Counts.Skip)
 
