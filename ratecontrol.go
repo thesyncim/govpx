@@ -91,8 +91,8 @@ type RateControlConfig struct {
 // when the encoder was created with VP9 CBR rate control enabled.
 type RealtimeTarget struct {
 	// BitrateKbps changes the total target bitrate when non-zero.
-	// Equivalent to [VP8Encoder.SetBitrateKbps]. VP9 stores it as a
-	// target hint until VP9 rate control lands.
+	// Equivalent to [VP8Encoder.SetBitrateKbps]. VP9 applies it when the
+	// encoder was created with explicit CBR rate control enabled.
 	BitrateKbps int
 	// FPS changes the timebase to 1/FPS when non-zero. The realtime
 	// adaptive-Speed timing window is reset on VP8 so the auto-speed

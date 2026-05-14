@@ -155,10 +155,15 @@ static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
 int main(int argc, char **argv) {
   const char *infile_path = NULL;
   const char *outfile_path = NULL;
+  const char *trace_path = NULL;
   const char *frame_flags_csv = NULL;
   int width = 0, height = 0, frames = 0;
   int fps_num = 30, fps_den = 1;
   int target_kbps = 700;
+  int buffer_size_ms = 6000;
+  int buffer_initial_ms = 4000;
+  int buffer_optimal_ms = 5000;
+  int drop_frame_water_mark = 0;
   int min_q = 4, max_q = 56, cq_level = 32;
   int kf_min_dist = 0, kf_max_dist = 128;
   int deadline = (int)VPX_DL_REALTIME;
@@ -180,6 +185,8 @@ int main(int argc, char **argv) {
       infile_path = v;
     } else if ((v = flag_value(a, "--outfile"))) {
       outfile_path = v;
+    } else if ((v = flag_value(a, "--trace-out"))) {
+      trace_path = v;
     } else if ((v = flag_value(a, "--width"))) {
       width = parse_int(v, "--width");
     } else if ((v = flag_value(a, "--height"))) {
@@ -192,6 +199,14 @@ int main(int argc, char **argv) {
       fps_den = parse_int(v, "--fps-den");
     } else if ((v = flag_value(a, "--target-bitrate"))) {
       target_kbps = parse_int(v, "--target-bitrate");
+    } else if ((v = flag_value(a, "--buf-sz"))) {
+      buffer_size_ms = parse_int(v, "--buf-sz");
+    } else if ((v = flag_value(a, "--buf-initial-sz"))) {
+      buffer_initial_ms = parse_int(v, "--buf-initial-sz");
+    } else if ((v = flag_value(a, "--buf-optimal-sz"))) {
+      buffer_optimal_ms = parse_int(v, "--buf-optimal-sz");
+    } else if ((v = flag_value(a, "--drop-frame"))) {
+      drop_frame_water_mark = parse_int(v, "--drop-frame");
     } else if ((v = flag_value(a, "--min-q"))) {
       min_q = parse_int(v, "--min-q");
     } else if ((v = flag_value(a, "--max-q"))) {
@@ -259,6 +274,10 @@ int main(int argc, char **argv) {
   cfg.rc_target_bitrate = (unsigned)target_kbps;
   cfg.rc_min_quantizer = (unsigned)min_q;
   cfg.rc_max_quantizer = (unsigned)max_q;
+  cfg.rc_buf_sz = (unsigned)buffer_size_ms;
+  cfg.rc_buf_initial_sz = (unsigned)buffer_initial_ms;
+  cfg.rc_buf_optimal_sz = (unsigned)buffer_optimal_ms;
+  cfg.rc_dropframe_thresh = (unsigned)drop_frame_water_mark;
   cfg.kf_min_dist = (unsigned)kf_min_dist;
   cfg.kf_max_dist = (unsigned)kf_max_dist;
 
@@ -300,6 +319,14 @@ int main(int argc, char **argv) {
     fprintf(stderr, "open %s for write: %s\n", outfile_path, strerror(errno));
     exit(EXIT_FAILURE);
   }
+  FILE *trace = NULL;
+  if (trace_path) {
+    trace = fopen(trace_path, "wb");
+    if (!trace) {
+      fprintf(stderr, "open %s for trace: %s\n", trace_path, strerror(errno));
+      exit(EXIT_FAILURE);
+    }
+  }
   write_ivf_file_header(out, width, height, 1, 1000, frames);
 
   int uv_w = (width + 1) >> 1;
@@ -313,6 +340,10 @@ int main(int argc, char **argv) {
   vpx_codec_pts_t pts = 0;
   int frame_duration = (fps_den * 1000) / fps_num;
   if (frame_duration <= 0) frame_duration = 1;
+  int bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
+  int64_t buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
+  int64_t buffer_level_bits = (int64_t)target_kbps * buffer_initial_ms;
+  int64_t buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
   int total_emitted = 0;
   for (int frame_idx = 0; frame_idx <= frames; ++frame_idx) {
     int have_input = frame_idx < frames;
@@ -355,6 +386,7 @@ int main(int argc, char **argv) {
 
     vpx_codec_iter_t iter = NULL;
     const vpx_codec_cx_pkt_t *pkt;
+    int emitted_this_input = 0;
     while ((pkt = vpx_codec_get_cx_data(&ctx, &iter))) {
       if (pkt->kind != VPX_CODEC_CX_FRAME_PKT) continue;
       write_ivf_frame_header(out, pkt->data.frame.pts, pkt->data.frame.sz);
@@ -362,13 +394,62 @@ int main(int argc, char **argv) {
           pkt->data.frame.sz) {
         die_msg("write frame payload");
       }
+      emitted_this_input = 1;
       ++total_emitted;
+      const int show_frame =
+          (pkt->data.frame.flags & VPX_FRAME_IS_INVISIBLE) == 0;
+      if (show_frame) buffer_level_bits += bits_per_frame;
+      buffer_level_bits -= (int64_t)pkt->data.frame.sz * 8;
+      if (buffer_level_bits > buffer_size_bits) buffer_level_bits = buffer_size_bits;
+      if (trace) {
+        int qindex = 0;
+        if (vpx_codec_control(&ctx, VP8E_GET_LAST_QUANTIZER, &qindex)) {
+          die_codec_msg(&ctx, "VP8E_GET_LAST_QUANTIZER");
+        }
+        fprintf(trace,
+                "{\"row\":\"vp9_frame\",\"frame_index\":%d,"
+                "\"flags\":%u,\"dropped\":false,"
+                "\"key_frame\":%s,\"show_frame\":%s,"
+                "\"base_qindex\":%d,\"size_bytes\":%zu,"
+                "\"size_bits\":%zu,\"target_bitrate_kbps\":%d,"
+                "\"frame_target_bits\":%d,"
+                "\"buffer_level_bits\":%lld,"
+                "\"buffer_optimal_bits\":%lld,"
+                "\"temporal_layer_id\":0,"
+                "\"temporal_layer_count\":1,"
+                "\"temporal_layer_sync\":false}\n",
+                frame_idx, frame_flags,
+                (pkt->data.frame.flags & VPX_FRAME_IS_KEY) ? "true" : "false",
+                show_frame ? "true" : "false", qindex, pkt->data.frame.sz,
+                pkt->data.frame.sz * 8, target_kbps, bits_per_frame,
+                (long long)buffer_level_bits, (long long)buffer_optimal_bits);
+      }
+    }
+    if (trace && have_input && !emitted_this_input && lag_in_frames == 0) {
+      buffer_level_bits += bits_per_frame;
+      if (buffer_level_bits > buffer_size_bits) buffer_level_bits = buffer_size_bits;
+      fprintf(trace,
+              "{\"row\":\"vp9_frame\",\"frame_index\":%d,"
+              "\"flags\":%u,\"dropped\":true,"
+              "\"drop_reason\":\"no_packet\",\"key_frame\":false,"
+              "\"show_frame\":true,\"base_qindex\":0,"
+              "\"size_bytes\":0,\"size_bits\":0,"
+              "\"target_bitrate_kbps\":%d,"
+              "\"frame_target_bits\":%d,"
+              "\"buffer_level_bits\":%lld,"
+              "\"buffer_optimal_bits\":%lld,"
+              "\"temporal_layer_id\":0,"
+              "\"temporal_layer_count\":1,"
+              "\"temporal_layer_sync\":false}\n",
+              frame_idx, frame_flags, target_kbps, bits_per_frame,
+              (long long)buffer_level_bits, (long long)buffer_optimal_bits);
     }
   }
 
   free(plane_buf);
   fclose(in);
   fclose(out);
+  if (trace) fclose(trace);
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);

@@ -5,12 +5,12 @@ import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 // SetRealtimeTarget applies a sparse WebRTC-style runtime target update to the
 // VP9 profile 0 encoder.
 //
-// VP9 currently consumes BitrateKbps as a target hint, FPS as the caller
-// timebase, MinQuantizer / MaxQuantizer as public VP9 Q-mode bounds, and
-// Width / Height as a caller-driven coded-size change. When the encoder was
-// created with VP9 CBR rate control enabled, FrameDrop updates the VP9 CBR
-// drop toggle. A changed size invalidates every VP9 reference slot and forces
-// the next encoded packet to be a keyframe at the new dimensions.
+// VP9 consumes BitrateKbps and FPS in explicit CBR mode, MinQuantizer /
+// MaxQuantizer as public VP9 Q bounds, and Width / Height as a caller-driven
+// coded-size change. When the encoder was created with VP9 CBR rate control
+// enabled, FrameDrop updates the VP9 CBR drop toggle. A changed size
+// invalidates every VP9 reference slot and forces the next encoded packet to be
+// a keyframe at the new dimensions.
 func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -110,6 +110,12 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		}
 	}
 	if nextRC.enabled {
+		if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
+			nextOpts := e.opts
+			nextOpts.MinQuantizer = nextMinQuantizer
+			nextOpts.MaxQuantizer = nextMaxQuantizer
+			nextRC.setQuantizerBoundsFromOptions(nextOpts)
+		}
 		e.rc = nextRC
 		e.opts.DropFrameAllowed = e.rc.dropFrameAllowed
 		if e.rc.dropFrameAllowed && e.opts.DropFrameWaterMark <= 0 {
@@ -171,8 +177,9 @@ func (e *VP9Encoder) SetTemporalLayerID(layerID int) error {
 func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	e.opts.Width = width
 	e.opts.Height = height
+	e.rc.setFrameSize(width, height)
 	e.forceKeyFrame = true
-	vp9dec.ResetFrameContext(&e.fc)
+	e.resetVP9EncoderFrameContexts()
 	e.prevFrameMvsValid = false
 	e.prevFrameMvRows = 0
 	e.prevFrameMvCols = 0

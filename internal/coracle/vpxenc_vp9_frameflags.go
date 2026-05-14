@@ -43,39 +43,54 @@ func resolveVpxencVP9FrameFlags() {
 // vpx_codec_encode flags indexed by input frame; missing entries default to
 // zero. Defaults match VpxencVP9EncodeI420 unless extraArgs override them.
 func VpxencVP9FrameFlagsEncodeI420(raw []byte, width int, height int, frames int, frameFlags []uint32, extraArgs ...string) (ivf []byte, diag []byte, err error) {
+	ivf, _, diag, err = runVpxencVP9FrameFlagsI420(raw, width, height, frames,
+		frameFlags, false, extraArgs...)
+	return ivf, diag, err
+}
+
+// VpxencVP9FrameFlagsTraceI420 encodes raw I420 frames with the pinned VP9
+// per-frame flag helper and returns both the IVF stream and JSONL per-frame
+// rate trace emitted by that helper.
+func VpxencVP9FrameFlagsTraceI420(raw []byte, width int, height int, frames int, frameFlags []uint32, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
+	return runVpxencVP9FrameFlagsI420(raw, width, height, frames, frameFlags,
+		true, extraArgs...)
+}
+
+func runVpxencVP9FrameFlagsI420(raw []byte, width int, height int, frames int, frameFlags []uint32, traceOut bool, extraArgs ...string) (ivf []byte, trace []byte, diag []byte, err error) {
 	frameSize, err := vpxencVP9I420FrameSize(width, height)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if frames <= 0 {
-		return nil, nil, fmt.Errorf("coracle: VP9 frame-flags frame count %d must be positive", frames)
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags frame count %d must be positive", frames)
 	}
 	if len(frameFlags) > frames {
-		return nil, nil, fmt.Errorf("coracle: VP9 frame-flags has %d entries for %d frames", len(frameFlags), frames)
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags has %d entries for %d frames", len(frameFlags), frames)
 	}
 	want, err := checkedVP9I420Mul(frameSize, frames)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(raw) != want {
-		return nil, nil, fmt.Errorf("coracle: VP9 frame-flags raw I420 size = %d, want %d for %dx%d x %d frames",
+		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags raw I420 size = %d, want %d for %dx%d x %d frames",
 			len(raw), want, width, height, frames)
 	}
 
 	bin, err := VpxencVP9FrameFlagsPath()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	dir, err := os.MkdirTemp("", "govpx-vpxenc-vp9-frameflags-*")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer os.RemoveAll(dir)
 
 	inPath := filepath.Join(dir, "input.i420")
 	outPath := filepath.Join(dir, "output.ivf")
+	tracePath := filepath.Join(dir, "trace.jsonl")
 	if err := os.WriteFile(inPath, raw, 0o600); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	args := []string{
@@ -104,17 +119,26 @@ func VpxencVP9FrameFlagsEncodeI420(raw []byte, width int, height int, frames int
 	if len(frameFlags) != 0 {
 		args = append(args, "--frame-flags="+joinVP9FrameFlags(frameFlags))
 	}
+	if traceOut {
+		args = append(args, "--trace-out="+tracePath)
+	}
 	args = append(args, extraArgs...)
 	cmd := exec.Command(bin, args...)
 	diag, err = cmd.CombinedOutput()
 	if err != nil {
-		return nil, diag, err
+		return nil, nil, diag, err
 	}
 	ivf, err = os.ReadFile(outPath)
 	if err != nil {
-		return nil, diag, err
+		return nil, nil, diag, err
 	}
-	return ivf, diag, nil
+	if traceOut {
+		trace, err = os.ReadFile(tracePath)
+		if err != nil {
+			return nil, nil, diag, err
+		}
+	}
+	return ivf, trace, diag, nil
 }
 
 func joinVP9FrameFlags(flags []uint32) string {

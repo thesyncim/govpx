@@ -316,6 +316,42 @@ func TestVP9EncoderVpxencFrameFlagsNoReferenceGoldenAltRefByteParity(t *testing.
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
 }
 
+func TestVP9EncoderVpxencFrameFlagsNoUpdateLastByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeNoUpdateLast}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
+func TestVP9EncoderVpxencFrameFlagsForceGoldenNoUpdateLastByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeForceGoldenFrame | EncodeNoUpdateLast}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
+func TestVP9EncoderVpxencFrameFlagsForceAltRefNoUpdateGoldenByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, EncodeForceAltRefFrame | EncodeNoUpdateGolden}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
 func TestVP9EncoderVpxencFrameFlagsNoUpdateEntropyByteParity(t *testing.T) {
 	requireVP9VpxencFrameFlagsOracle(t)
 

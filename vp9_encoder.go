@@ -67,8 +67,8 @@ type VP9EncoderOptions struct {
 	// RateControlModeSet enables VP9 rate-control bookkeeping. It is explicit
 	// because RateControlVBR is the zero value while the historical VP9 default
 	// is libvpx VPX_Q-style public-Q mode. The first supported VP9 mode is
-	// RateControlCBR; it tracks a CBR buffer and can drop visible inter frames
-	// when DropFrameAllowed is enabled. It does not change VP9 Q selection.
+	// RateControlCBR; it drives one-pass CBR qindex selection, tracks a CBR
+	// buffer, and can drop visible inter frames when DropFrameAllowed is enabled.
 	RateControlModeSet bool
 	// RateControlMode selects the VP9 rate-control mode when
 	// RateControlModeSet is true. Only RateControlCBR is currently supported.
@@ -236,7 +236,8 @@ type VP9Encoder struct {
 
 	// fc carries the per-frame entropy context across frames.
 	// Reset on every keyframe via ResetFrameContext.
-	fc vp9dec.FrameContext
+	frameContexts [common.FrameContexts]vp9dec.FrameContext
+	fc            vp9dec.FrameContext
 
 	// scratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's
@@ -299,6 +300,9 @@ type VP9Encoder struct {
 	lfi            vp9dec.LoopFilterInfoN
 	lfRefDeltas    [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas   [vp9dec.MaxModeLfDeltas]int8
+
+	vp9ModeDecisionQIndex    uint8
+	vp9ModeDecisionQIndexSet bool
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -628,7 +632,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}
-	e.rc.beginFrame()
+	e.rc.beginFrame(isKey || intraOnly, e.frameIndex)
 	if !isKey && !intraOnly && flags&EncodeInvisibleFrame == 0 &&
 		e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
@@ -663,18 +667,6 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 			TL0PICIDX:          temporalFrame.TL0PICIDX,
 		}, nil
 	}
-	if isKey || (intraOnly && flags&EncodeNoUpdateEntropy == 0) {
-		vp9dec.ResetFrameContext(&e.fc)
-	} else if e.opts.ErrorResilient {
-		vp9dec.ResetFrameContext(&e.fc)
-	}
-	frameContextSeed := e.fc
-	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
-	defer func() {
-		if err != nil || restoreFrameContext {
-			e.fc = frameContextSeed
-		}
-	}()
 	e.prepareVP9EncoderOutputFrame(int(width), int(height))
 
 	header := vp9dec.UncompressedHeader{
@@ -694,7 +686,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		},
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
-	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags)
+	macroblocks := vp9MacroblockCount(miRows, miCols)
+	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags, macroblocks)
+	if e.rc.enabled && e.rc.mode == RateControlCBR {
+		e.vp9ModeDecisionQIndex = uint8(qindex)
+		e.vp9ModeDecisionQIndexSet = true
+		defer func() {
+			e.vp9ModeDecisionQIndexSet = false
+		}()
+	}
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.Lossless = qindex == 0 &&
 		header.Quant.YDcDeltaQ == 0 &&
@@ -715,6 +715,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	} else {
 		header.FrameType = common.InterFrame
 		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
+		header.FrameContextIdx = vp9InterFrameContextIdx(header.RefreshFrameFlags)
 		header.InterRef.RefIndex = [3]uint8{
 			vp9LastRefSlot,
 			vp9GoldenRefSlot,
@@ -722,6 +723,28 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		}
 		header.InterRef.SignBias = e.vp9InterRefSignBias(flags)
 	}
+	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
+	shouldRestoreFrameContexts := isKey || intraOnly || e.opts.ErrorResilient || restoreFrameContext
+	var frameContextsSeed [common.FrameContexts]vp9dec.FrameContext
+	var frameContextSeed vp9dec.FrameContext
+	frameContextIdx := e.prepareVP9EncoderFrameContext(&header)
+	if shouldRestoreFrameContexts {
+		frameContextsSeed = e.frameContexts
+		frameContextSeed = e.fc
+	}
+	defer func() {
+		if err == nil && !restoreFrameContext {
+			return
+		}
+		if shouldRestoreFrameContexts {
+			e.frameContexts = frameContextsSeed
+			e.fc = frameContextSeed
+			return
+		}
+		if frameContextIdx >= 0 && frameContextIdx < len(e.frameContexts) {
+			e.fc = e.frameContexts[frameContextIdx]
+		}
+	}()
 	header.InterpFilter = vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
 		header.Quant.Lossless)
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
@@ -882,7 +905,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header, flags)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
-	e.rc.postEncodeFrame(n, header.ShowFrame)
+	e.commitVP9EncoderFrameContext(&header, frameContextIdx)
+	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
+		header.RefreshFrameFlags, macroblocks)
 	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
 		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
 		encodedSizeBits(n), e.vp9TemporalBufferConfig())
@@ -968,6 +993,41 @@ func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
 	}
 }
 
+func (e *VP9Encoder) resetVP9EncoderFrameContexts() {
+	for i := range e.frameContexts {
+		vp9dec.ResetFrameContext(&e.frameContexts[i])
+	}
+	e.fc = e.frameContexts[0]
+}
+
+func (e *VP9Encoder) prepareVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader) int {
+	idx := int(hdr.FrameContextIdx)
+	if idx >= common.FrameContexts {
+		idx = 0
+	}
+	if hdr.FrameType == common.KeyFrame ||
+		hdr.ErrorResilientMode || hdr.ResetFrameContext == 3 {
+		e.resetVP9EncoderFrameContexts()
+		idx = 0
+	} else if hdr.IntraOnly && hdr.ResetFrameContext == 2 {
+		vp9dec.ResetFrameContext(&e.frameContexts[idx])
+		idx = 0
+	} else if hdr.IntraOnly {
+		idx = 0
+	} else if hdr.ResetFrameContext == 2 {
+		vp9dec.ResetFrameContext(&e.frameContexts[idx])
+	}
+	e.fc = e.frameContexts[idx]
+	return idx
+}
+
+func (e *VP9Encoder) commitVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader, idx int) {
+	if idx < 0 || idx >= common.FrameContexts || !hdr.RefreshFrameContext {
+		return
+	}
+	e.frameContexts[idx] = e.fc
+}
+
 func (e *VP9Encoder) vp9TimingState() timingState {
 	return vp9TimingStateFromOptions(e.opts)
 }
@@ -1031,6 +1091,13 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 		refresh &^= 1 << vp9AltRefSlot
 	}
 	return refresh
+}
+
+func vp9InterFrameContextIdx(refreshFlags uint8) uint8 {
+	if refreshFlags&(1<<vp9AltRefSlot) != 0 {
+		return 1
+	}
+	return 0
 }
 
 func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
@@ -4424,16 +4491,28 @@ func (e *VP9Encoder) vp9CompoundPredictionDistortion(inter *vp9InterEncodeState,
 }
 
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
-	return e.vp9EncoderFrameQIndex(true, false, 0)
+	if e.vp9ModeDecisionQIndexSet {
+		return int(e.vp9ModeDecisionQIndex)
+	}
+	return e.vp9EncoderFrameQIndex(true, false, 0, 1)
 }
 
-func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags) int {
+func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, macroblocks int) int {
 	if e.opts.Lossless {
 		return 0
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
-		qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
+		if e.rc.enabled && e.rc.mode == RateControlCBR {
+			refreshFlags := uint8(0xff)
+			if !isKey {
+				refreshFlags = vp9InterRefreshFrameFlags(flags)
+			}
+			qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
+				e.frameIndex, macroblocks)
+		} else {
+			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
+		}
 	}
 	return qindex
 }
@@ -4450,20 +4529,17 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags En
 	num, den := 1, 1
 	if isKey || intraOnly {
 		num, den = 1, 4
-	} else if flags&EncodeForceAltRefFrame != 0 {
-		num, den = 2, 5
-	} else if flags&EncodeForceGoldenFrame != 0 {
-		num, den = 1, 2
-	} else {
-		rates := [...]struct {
-			num int
-			den int
-		}{
-			{1, 2}, {1, 1}, {85, 100}, {1, 1},
-			{7, 10}, {1, 1}, {85, 100}, {1, 1},
+	} else if flags&vp9ExternalRefreshCtlFlags != 0 {
+		refresh := vp9InterRefreshFrameFlags(flags)
+		if refresh&(1<<vp9AltRefSlot) != 0 {
+			num, den = 2, 5
+		} else if refresh&(1<<vp9GoldenRefSlot) != 0 {
+			num, den = 1, 2
+		} else {
+			num, den = vp9PublicQModeInterRate(e.frameIndex)
 		}
-		rate := rates[e.frameIndex%len(rates)]
-		num, den = rate.num, rate.den
+	} else {
+		num, den = vp9PublicQModeInterRate(e.frameIndex)
 	}
 	qindex := cq + vp9ComputeQDelta(best, worst, cq, num, den)
 	if qindex < best {
@@ -4473,6 +4549,19 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags En
 		qindex = worst
 	}
 	return qindex
+}
+
+func vp9PublicQModeInterRate(frameIndex int) (num int, den int) {
+	switch frameIndex & 7 {
+	case 0:
+		return 1, 2
+	case 2, 6:
+		return 85, 100
+	case 4:
+		return 7, 10
+	default:
+		return 1, 1
+	}
 }
 
 func validateVP9PublicQuantizerOptions(opts VP9EncoderOptions) error {

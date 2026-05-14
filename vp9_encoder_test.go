@@ -2464,13 +2464,47 @@ func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
 		t.Fatalf("inter result = key:%t dropped:%t size:%d data:%d, want dropped inter",
 			inter.KeyFrame, inter.Dropped, inter.SizeBytes, len(inter.Data))
 	}
-	if inter.TargetBitrateKbps != 1 || inter.FrameTargetBits != e.rc.bitsPerFrame {
+	if inter.TargetBitrateKbps != 1 || inter.FrameTargetBits != vp9FrameOverhead {
 		t.Fatalf("inter rate = kbps:%d target:%d, want 1/%d",
-			inter.TargetBitrateKbps, inter.FrameTargetBits, e.rc.bitsPerFrame)
+			inter.TargetBitrateKbps, inter.FrameTargetBits, vp9FrameOverhead)
 	}
 	if inter.BufferLevelBits != drainedBuffer+e.rc.bitsPerFrame {
 		t.Fatalf("buffer after drop = %d, want %d",
 			inter.BufferLevelBits, drainedBuffer+e.rc.bitsPerFrame)
+	}
+}
+
+func TestVP9EncoderCBRSelectsLibvpxQuantizers(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		TargetBitrateKbps:   700,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	wantQ := [...]int{16, 145, 145, 162}
+	for i, want := range wantQ {
+		src := newVP9YCbCrForTest(width, height, uint8(96+i*11), 128, 128)
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		if result.InternalQuantizer != want {
+			t.Fatalf("frame %d internal quantizer = %d, want %d",
+				i, result.InternalQuantizer, want)
+		}
 	}
 }
 

@@ -93,6 +93,39 @@ func TestVpxencVP9FrameFlagsEncodeI420MatchesVpxencWithoutFlags(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420EmitsRows(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 2
+	raw := makeGeneratedVP9I420(width, height, frames)
+	ivf, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil)
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	}
+	if len(ivf) == 0 {
+		t.Fatal("VpxencVP9FrameFlagsTraceI420 returned empty IVF")
+	}
+	if got := bytes.Count(trace, []byte("\n")); got != frames {
+		t.Fatalf("trace rows = %d, want %d\n%s", got, frames, trace)
+	}
+	for _, want := range [][]byte{
+		[]byte(`"row":"vp9_frame"`),
+		[]byte(`"base_qindex"`),
+		[]byte(`"size_bits"`),
+		[]byte(`"buffer_level_bits"`),
+	} {
+		if !bytes.Contains(trace, want) {
+			t.Fatalf("trace missing %s:\n%s", want, trace)
+		}
+	}
+}
+
 func makeGeneratedVP9I420(width int, height int, frames int) []byte {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
