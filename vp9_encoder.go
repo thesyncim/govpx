@@ -261,11 +261,12 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 // EncodeNoUpdateEntropy, EncodeForceGoldenFrame, and EncodeForceAltRefFrame.
 //
 // The current packet path emits source-backed keyframes and visible
-// single-reference LAST / GOLDEN / ALTREF inter frames with fixed-size DCT_DCT
-// residual transforms up to Tx32x32, including bounded rate-aware motion search
-// with quarter-pel refinement. A deterministic prepass walks the same tiled mode
-// tree to collect frame counts before the compressed header, so the real tile
-// stream is encoded with same-frame counts-driven probability updates.
+// single-reference LAST / GOLDEN / ALTREF inter frames with DCT_DCT residual
+// transforms up to Tx32x32, including bounded rate-aware motion search and
+// transform-size selection with quarter-pel refinement. A deterministic prepass
+// walks the same tiled mode tree to collect frame counts before the compressed
+// header, so the real tile stream is encoded with same-frame counts-driven
+// probability updates.
 func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
 	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, false)
 }
@@ -2408,7 +2409,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !ok {
 		return common.DcPred, false
 	}
-	mi.TxSize = e.pickVP9InterTxSize(inter, miRows, miCols, miRow, miCol,
+	mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 		bsize, mi.TxSize)
 	if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
@@ -2486,15 +2487,79 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 }
 
 func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize, maxTx common.TxSize,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, maxTx common.TxSize,
 ) common.TxSize {
-	if inter == nil || maxTx < common.Tx32x32 {
+	if inter == nil || inter.dq == nil || bsize >= common.BlockSizes {
 		return maxTx
 	}
+	maxTx = clampVP9TxSizeForBlock(maxTx, bsize)
+	if maxTx < common.Tx8x8 {
+		return maxTx
+	}
+	if miRow+int(common.Num8x8BlocksHighLookup[bsize]) > miRows ||
+		miCol+int(common.Num8x8BlocksWideLookup[bsize]) > miCols {
+		return maxTx
+	}
+	sse, activity, ok := e.vp9InterTxResidualStats(inter, miRow, miCol, bsize)
+	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
+		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
+	// Smooth or low-energy residuals are strongly biased toward max-tx and
+	// are common on already-quantized references, so keep them on the cheap
+	// path and reserve transform scoring for textured blocks.
+	if !ok || sse <= pixels*512 || activity <= pixels*16 {
+		return maxTx
+	}
+	reconSnap, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
+	if !ok {
+		return maxTx
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	txCtx := vp9dec.GetTxSizeContext(above, left, maxTx)
+	txProbs := vp9TxProbsRow(&e.fc.TxProbs, maxTx, txCtx)
+	qindex := e.vp9EncoderModeDecisionQIndex()
+
+	bestTx := maxTx
+	bestScore := uint64(^uint64(0))
+	bestRate := int(^uint(0) >> 1)
+	minTx := maxTx - 1
+	if minTx < common.Tx4x4 {
+		minTx = common.Tx4x4
+	}
+	for txi := int(maxTx); txi >= int(minTx); txi-- {
+		tx := common.TxSize(txi)
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		distortion, coeffRate, hasResidue, ok := e.scoreVP9InterTxCandidate(inter,
+			miRows, miCols, miRow, miCol, bsize, tx)
+		if !ok {
+			continue
+		}
+		rate := 0
+		if hasResidue {
+			rate = coeffRate + vp9TxSizeRateCost(txProbs, tx, maxTx)
+		}
+		score := vp9ModeDecisionScore(distortion, rate, qindex)
+		if score < bestScore || (score == bestScore && rate < bestRate) {
+			bestScore = score
+			bestRate = rate
+			bestTx = tx
+		}
+	}
+	e.restoreVP9PartitionReconSnapshot(reconSnap)
+	return bestTx
+}
+
+func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) (sse, activity uint64, ok bool) {
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	pred, predStride := e.vp9EncoderReconPlane(0)
 	if len(src) == 0 || len(pred) == 0 || srcStride <= 0 || predStride <= 0 {
-		return maxTx
+		return 0, 0, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
@@ -2502,25 +2567,289 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	y0 := miRow * common.MiSize
 	predRows := len(pred) / predStride
 	if x0+blockW > srcW || y0+blockH > srcH ||
-		x0+blockW > predStride || y0+blockH > predRows ||
-		miRow+int(common.Num8x8BlocksHighLookup[bsize]) > miRows ||
-		miCol+int(common.Num8x8BlocksWideLookup[bsize]) > miCols {
-		return maxTx
+		x0+blockW > predStride || y0+blockH > predRows {
+		return 0, 0, false
 	}
-
-	var sse uint64
 	for y := range blockH {
 		srcRow := src[(y0+y)*srcStride:]
 		predRow := pred[(y0+y)*predStride:]
 		for x := range blockW {
 			diff := int(srcRow[x0+x]) - int(predRow[x0+x])
 			sse += uint64(diff * diff)
+			if x > 0 {
+				leftDiff := int(srcRow[x0+x-1]) - int(predRow[x0+x-1])
+				activity += uint64(vp9AbsInt(diff - leftDiff))
+			}
+			if y > 0 {
+				upDiff := int(src[(y0+y-1)*srcStride+x0+x]) -
+					int(pred[(y0+y-1)*predStride+x0+x])
+				activity += uint64(vp9AbsInt(diff - upDiff))
+			}
 		}
 	}
-	if sse > uint64(blockW*blockH*64) {
-		return common.Tx16x16
+	return sse, activity, true
+}
+
+func vp9AbsInt(v int) int {
+	if v < 0 {
+		return -v
 	}
-	return maxTx
+	return v
+}
+
+func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, lumaTx common.TxSize,
+) (distortion uint64, rate int, hasResidue bool, ok bool) {
+	if inter == nil || inter.dq == nil {
+		return 0, 0, false, false
+	}
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	var aboveCtx [vp9dec.MaxMbPlane][16]uint8
+	var leftCtx [vp9dec.MaxMbPlane][16]uint8
+	var aboveLen [vp9dec.MaxMbPlane]int
+	var leftLen [vp9dec.MaxMbPlane]int
+	for plane := 0; plane < 1; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		aboveLen[plane] = int(common.Num4x4BlocksWideLookup[planeBsize])
+		leftLen[plane] = int(common.Num4x4BlocksHighLookup[planeBsize])
+		if aboveLen[plane] > len(aboveCtx[plane]) || leftLen[plane] > len(leftCtx[plane]) {
+			return 0, 0, false, false
+		}
+		if off := aboveOffsets[plane]; off >= 0 && off+aboveLen[plane] <= len(pd.AboveContext) {
+			copy(aboveCtx[plane][:aboveLen[plane]], pd.AboveContext[off:off+aboveLen[plane]])
+		}
+		if off := leftOffsets[plane]; off >= 0 && off+leftLen[plane] <= len(pd.LeftContext) {
+			copy(leftCtx[plane][:leftLen[plane]], pd.LeftContext[off:off+leftLen[plane]])
+		}
+	}
+
+	for plane := 0; plane < 1; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		txSize := lumaTx
+		dequant := inter.dq.Y[0]
+		planeType := 0
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, lumaTx, pd)
+			dequant = inter.dq.Uv[0]
+			planeType = 1
+		}
+		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob > len(e.coefScratch) {
+			return 0, 0, false, false
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				coeffs := e.coefScratch[:maxEob]
+				for i := range coeffs {
+					coeffs[i] = 0
+				}
+				hasTxResidue := e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant, coeffs)
+				txDist, distOK := e.scoreVP9InterTxReconstruction(inter, pd, plane,
+					txSize, miRow, miCol, rr, cc)
+				if !distOK {
+					return 0, 0, false, false
+				}
+				distortion += txDist
+
+				initCtx := vp9dec.GetEntropyContext(txSize,
+					aboveCtx[plane][cc:cc+step], leftCtx[plane][rr:rr+step])
+				rate += e.vp9InterCoeffBlockRateCost(txSize, planeType,
+					dequant, coeffs, initCtx)
+				hasCtx := uint8(0)
+				if hasTxResidue {
+					hasCtx = 1
+					hasResidue = true
+				}
+				for i := range step {
+					aboveCtx[plane][cc+i] = hasCtx
+					leftCtx[plane][rr+i] = hasCtx
+				}
+			}
+		}
+	}
+	return distortion, rate, hasResidue, true
+}
+
+func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol, blockRow4x4, blockCol4x4 int,
+) (uint64, bool) {
+	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4)
+	if !ok {
+		return 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	if len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	bs := 4 << uint(txSize)
+	var distortion uint64
+	for y := 0; y < bs && y0+y < srcH; y++ {
+		srcRow := src[(y0+y)*srcStride:]
+		dstRow := dst[y*stride:]
+		for x := 0; x < bs && x0+x < srcW; x++ {
+			diff := int(srcRow[x0+x]) - int(dstRow[x])
+			distortion += uint64(diff * diff)
+		}
+	}
+	return distortion, true
+}
+
+func (e *VP9Encoder) vp9InterCoeffBlockRateCost(txSize common.TxSize,
+	planeType int, dequant [2]int16, coeffs []int16, initCtx int,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 ||
+		dequant[0] == 0 || dequant[1] == 0 || len(coeffs) < maxEob ||
+		len(e.modeScratch) < maxEob || initCtx < 0 || initCtx > 2 {
+		return 0
+	}
+	scan := common.DefaultScanOrders[txSize].Scan
+	neighbors := common.DefaultScanOrders[txSize].Neighbors
+	bandTrans := vp9dec.BandTranslateForTxSize(txSize)
+	for i := range e.modeScratch[:maxEob] {
+		e.modeScratch[i] = 0
+	}
+	eob := 0
+	for i := range maxEob {
+		if coeffs[scan[i]] != 0 {
+			eob = i + 1
+		}
+	}
+	coefModel := &e.fc.CoefProbs[txSize][planeType][1]
+	ctx := initCtx
+	bandIdx := 0
+	rate := 0
+	for c := 0; c < maxEob; {
+		band := int(bandTrans[bandIdx])
+		bandIdx++
+		probs := &coefModel[band][ctx]
+		if c == eob {
+			rate += encoder.VP9CostBit(probs[0], 0)
+			return rate
+		}
+		rate += encoder.VP9CostBit(probs[0], 1)
+		for coeffs[scan[c]] == 0 {
+			rate += encoder.VP9CostBit(probs[1], 0)
+			e.modeScratch[scan[c]] = 0
+			c++
+			if c >= maxEob {
+				return rate
+			}
+			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+			band = int(bandTrans[bandIdx])
+			bandIdx++
+			probs = &coefModel[band][ctx]
+		}
+		rate += encoder.VP9CostBit(probs[1], 1)
+		raster := scan[c]
+		coeff := coeffs[raster]
+		sign := 0
+		if coeff < 0 {
+			coeff = -coeff
+			sign = 1
+		}
+		dqv := dequant[1]
+		if c == 0 {
+			dqv = dequant[0]
+		}
+		absVal := vp9CoeffTokenAbsVal(coeff, dqv, txSize == common.Tx32x32)
+		rate += vp9CoeffTokenRateCost(probs[:], absVal, sign)
+		switch {
+		case absVal == 1:
+			e.modeScratch[raster] = 1
+		case absVal == 2:
+			e.modeScratch[raster] = 2
+		case absVal == 3 || absVal == 4:
+			e.modeScratch[raster] = 3
+		case absVal <= 10:
+			e.modeScratch[raster] = 4
+		default:
+			e.modeScratch[raster] = 5
+		}
+		c++
+		if c < maxEob {
+			ctx = vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
+		}
+	}
+	return rate
+}
+
+func vp9CoeffTokenAbsVal(absCoeff, dqv int16, tx32 bool) int {
+	num := int(absCoeff)
+	den := int(dqv)
+	if den <= 0 {
+		return 0
+	}
+	if tx32 {
+		return (num*2 + den - 1) / den
+	}
+	return num / den
+}
+
+func vp9CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
+	if absVal <= 0 || len(probs) < encoder.UnconstrainedNodes {
+		return 0
+	}
+	rate := 0
+	token, extra := encoder.TokenForAbsCoeff(absVal)
+	if token == encoder.OneToken {
+		rate += encoder.VP9CostBit(probs[2], 0)
+		rate += encoder.VP9CostBit(128, sign)
+		return rate
+	}
+	rate += encoder.VP9CostBit(probs[2], 1)
+	enc := encoder.CoefEncodings[token]
+	pareto := tables.Pareto8Full[probs[2]-1]
+	rate += encoder.TreedCost(encoder.CoefConTree[:], pareto[:],
+		int(enc.Value), int(enc.Len)-encoder.UnconstrainedNodes)
+	if token >= encoder.Category1Tok {
+		eb := encoder.VP9ExtraBits[token]
+		for i := eb.Len - 1; i >= 0; i-- {
+			bit := (extra >> uint(i)) & 1
+			rate += encoder.VP9CostBit(eb.Prob[eb.Len-1-i], bit)
+		}
+	}
+	rate += encoder.VP9CostBit(128, sign)
+	return rate
+}
+
+func vp9TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
+	if len(probs) == 0 || txSize >= common.TxSizes {
+		return 0
+	}
+	rate := 0
+	if txSize == common.Tx4x4 {
+		return encoder.VP9CostBit(probs[0], 0)
+	}
+	rate += encoder.VP9CostBit(probs[0], 1)
+	if maxTxSize < common.Tx16x16 || len(probs) < 2 {
+		return rate
+	}
+	if txSize == common.Tx8x8 {
+		return rate + encoder.VP9CostBit(probs[1], 0)
+	}
+	rate += encoder.VP9CostBit(probs[1], 1)
+	if maxTxSize < common.Tx32x32 || len(probs) < 3 {
+		return rate
+	}
+	if txSize == common.Tx16x16 {
+		return rate + encoder.VP9CostBit(probs[2], 0)
+	}
+	return rate + encoder.VP9CostBit(probs[2], 1)
 }
 
 type vp9InterIntraDecision struct {

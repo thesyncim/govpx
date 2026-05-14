@@ -2475,7 +2475,7 @@ func TestVP9EncoderInterSkipProducesParseableBitstream(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderInterSelectsTx16ForActiveResidual(t *testing.T) {
+func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	keySrc := newVP9YCbCrForTest(width, height, 96, 128, 128)
@@ -2530,8 +2530,50 @@ func TestVP9EncoderInterSelectsTx16ForActiveResidual(t *testing.T) {
 	if got.Skip != 0 {
 		t.Fatal("top-left block skip=1, want active residual")
 	}
-	if got.TxSize != common.Tx16x16 {
-		t.Fatalf("top-left TxSize = %d, want Tx16x16", got.TxSize)
+	if got.TxSize != common.Tx32x32 {
+		t.Fatalf("top-left TxSize = %d, want Tx32x32 from RD scoring", got.TxSize)
+	}
+}
+
+func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.ensureVP9EncoderModeBuffers(8, 8)
+	e.prepareVP9EncoderOutputFrame(width, height)
+	vp9dec.ResetFrameContext(&e.fc)
+
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	for y := 0; y < 16; y++ {
+		row := img.Y[y*img.YStride:]
+		for x := 0; x < 16; x++ {
+			if (x+y)&1 == 0 {
+				row[x] = 16
+			} else {
+				row[x] = 240
+			}
+		}
+	}
+	var seg vp9dec.SegmentationParams
+	var dq vp9dec.DequantTables
+	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: e.vp9EncoderModeDecisionQIndex(),
+		BitDepth:   vp9dec.Bits8,
+	}, &dq)
+	inter := &vp9InterEncodeState{img: img, dq: &dq}
+	beforeY := append([]byte(nil), e.reconY[:e.reconFrame.YStride*height]...)
+	beforeU := append([]byte(nil), e.reconU[:e.reconFrame.UStride*(height/2)]...)
+	beforeV := append([]byte(nil), e.reconV[:e.reconFrame.VStride*(height/2)]...)
+	got := e.pickVP9InterTxSize(inter, vp9dec.TileBounds{
+		MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8,
+	}, 8, 8, 0, 0, common.Block64x64, common.Tx32x32)
+	if got != common.Tx16x16 {
+		t.Fatalf("TxSize = %d, want Tx16x16 for localized residual", got)
+	}
+	if !bytes.Equal(e.reconY[:len(beforeY)], beforeY) ||
+		!bytes.Equal(e.reconU[:len(beforeU)], beforeU) ||
+		!bytes.Equal(e.reconV[:len(beforeV)], beforeV) {
+		t.Fatal("tx-size scoring leaked candidate reconstruction into frame state")
 	}
 }
 
