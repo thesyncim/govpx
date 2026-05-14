@@ -297,6 +297,8 @@ func TestOracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 		{name: "er3-token8-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3},
 		{name: "active-checker-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, activeMap: "checker"},
 		{name: "roi-border1-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, roiMap: "border1", segmentedSource: true},
+		{name: "rtc-external-active-checker-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, rtcExternal: true, activeMap: "checker"},
+		{name: "rtc-external-roi-border1-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, rtcExternal: true, roiMap: "border1", segmentedSource: true},
 		{name: "active-roi-drop-low-bitrate-tight-buffer-frames30", targetKbps: 50, drop: 60, activeMap: "checker", roiMap: "border1", segmentedSource: true, limit: 11},
 	}
 	for _, tc := range cases {
