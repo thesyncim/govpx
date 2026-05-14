@@ -38,14 +38,15 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	temporalThreeLayerOverrideIDs := []int{0, 2, 1, 2, 0, 1, 2, 0, 2, 1, 0, 2}
 
 	type runtimeCase struct {
-		name       string
-		fx         fixture
-		opts       EncoderOptions
-		flags      []EncodeFlags
-		script     []string
-		apply      map[int]func(*testing.T, *VP8Encoder)
-		extraArgs  []string
-		matchLimit int
+		name        string
+		fx          fixture
+		opts        EncoderOptions
+		flags       []EncodeFlags
+		libvpxFlags []EncodeFlags
+		script      []string
+		apply       map[int]func(*testing.T, *VP8Encoder)
+		extraArgs   []string
+		matchLimit  int
 	}
 
 	baseOpts := func(fx fixture) EncoderOptions {
@@ -115,6 +116,30 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetBitrateKbps(900)", e.SetBitrateKbps(900))
+				},
+			},
+		},
+		{
+			name: "bitrate-runtime-bounds-boundary-values",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.MinBitrateKbps = 500
+				opts.MaxBitrateKbps = 900
+				return opts
+			}(),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "bitrate:500",
+				7: "bitrate:900",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetBitrateKbps(min-bound)", e.SetBitrateKbps(500))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetBitrateKbps(max-bound)", e.SetBitrateKbps(900))
 				},
 			},
 		},
@@ -255,6 +280,73 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				8: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetFrameDropAllowed(false)", e.SetFrameDropAllowed(false))
+				},
+			},
+		},
+		{
+			name: "frame-drop-allow-legacy-bool",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 300
+				opts.BufferSizeMs = 500
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 300
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "drop:60",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(AllowFrameDrop)", e.SetRealtimeTarget(RealtimeTarget{AllowFrameDrop: true}))
+				},
+			},
+		},
+		{
+			name: "frame-drop-watermark-clamp-runtime",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TargetBitrateKbps = 300
+				opts.BufferSizeMs = 500
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 300
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=300", "--buf-sz=500", "--buf-initial-sz=100", "--buf-optimal-sz=300"},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "drop:100",
+				8: "drop:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(drop clamp)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   300,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						BufferSizeMs:        500,
+						BufferInitialSizeMs: 100,
+						BufferOptimalSizeMs: 300,
+						DropFrameAllowed:    true,
+						DropFrameWaterMark:  150,
+					}))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl(drop off)", e.SetRateControl(RateControlConfig{
+						Mode:                RateControlCBR,
+						TargetBitrateKbps:   300,
+						MinQuantizer:        4,
+						MaxQuantizer:        56,
+						BufferSizeMs:        500,
+						BufferInitialSizeMs: 100,
+						BufferOptimalSizeMs: 300,
+					}))
 				},
 			},
 		},
@@ -996,6 +1088,31 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "q-mode-cq-level-transition",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.RateControlMode = RateControlQ
+				opts.CQLevel = 20
+				return opts
+			}(),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "cq:35+minq:4+maxq:56",
+				8: "cq:20",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget", e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 4, MaxQuantizer: 56}))
+					mustRuntime(t, "SetCQLevel", e.SetCQLevel(35))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCQLevel", e.SetCQLevel(20))
+				},
+			},
+		},
+		{
 			name: "deadline-rc-mode-key-interval-transition",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -1158,6 +1275,34 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					t.Helper()
 					mustRuntime(t, "SetAdaptiveKeyFrames(false)", e.SetAdaptiveKeyFrames(false))
 					mustRuntime(t, "SetKeyFrameInterval(0)", e.SetKeyFrameInterval(0))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
+				},
+			},
+		},
+		{
+			name: "force-keyframe-method-while-keyframes-disabled",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			libvpxFlags: []EncodeFlags{
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "kfdisabled:1+kfmin:0+kfmax:120",
+				7: "kfdisabled:0+kfmin:999+kfmax:999",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(false)", e.SetAdaptiveKeyFrames(false))
+					mustRuntime(t, "SetKeyFrameInterval(0)", e.SetKeyFrameInterval(0))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					e.ForceKeyFrame()
 				},
 				7: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
@@ -1782,7 +1927,11 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, tc.opts, sources, tc.flags, tc.apply)
 			extraArgs := append([]string(nil), tc.extraArgs...)
 			extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
+			libvpxFlags := tc.flags
+			if tc.libvpxFlags != nil {
+				libvpxFlags = tc.libvpxFlags
+			}
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, libvpxFlags, extraArgs)
 			assertSegmentByteParity(t, "runtime-controls", govpxFrames, libvpxFrames, tc.matchLimit)
 		})
 	}
