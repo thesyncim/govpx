@@ -509,6 +509,58 @@ func TestSetRateControlPreservesLibvpxZeroBufferLevel(t *testing.T) {
 	}
 }
 
+func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
+	e := newTestEncoder(t)
+	e.rc.decimationFactor = 2
+	e.rc.decimationCount = 1
+	e.rc.avgFrameQuantizer = 43
+	e.rc.normalInterQuantizerTotal = 129
+	e.rc.normalInterFrames = 3
+	e.rc.normalInterAvgQuantizer = 43
+	e.rc.rateCorrectionFactor = 1.75
+	e.rc.keyFrameCorrectionFactor = 2.25
+	e.rc.goldenCorrectionFactor = 1.5
+	e.rc.totalActualBits = 123456
+	e.rc.rollingActualBits = 2100
+	e.rc.rollingTargetBits = 2200
+	e.rc.longRollingActualBits = 2300
+	e.rc.longRollingTargetBits = 2400
+
+	err := e.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   900,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  60,
+	})
+	if err != nil {
+		t.Fatalf("SetRateControl returned error: %v", err)
+	}
+
+	if e.rc.decimationFactor != 2 || e.rc.decimationCount != 1 {
+		t.Fatalf("decimation state = factor:%d count:%d, want 2/1", e.rc.decimationFactor, e.rc.decimationCount)
+	}
+	if e.rc.avgFrameQuantizer != 43 || e.rc.normalInterQuantizerTotal != 129 || e.rc.normalInterFrames != 3 || e.rc.normalInterAvgQuantizer != 43 {
+		t.Fatalf("quantizer history = avg:%d total:%d frames:%d normal:%d, want 43/129/3/43",
+			e.rc.avgFrameQuantizer, e.rc.normalInterQuantizerTotal, e.rc.normalInterFrames, e.rc.normalInterAvgQuantizer)
+	}
+	if e.rc.rateCorrectionFactor != 1.75 || e.rc.keyFrameCorrectionFactor != 2.25 || e.rc.goldenCorrectionFactor != 1.5 {
+		t.Fatalf("correction factors = %g/%g/%g, want 1.75/2.25/1.5",
+			e.rc.rateCorrectionFactor, e.rc.keyFrameCorrectionFactor, e.rc.goldenCorrectionFactor)
+	}
+	if e.rc.totalActualBits != 123456 {
+		t.Fatalf("totalActualBits = %d, want 123456", e.rc.totalActualBits)
+	}
+	if e.rc.rollingActualBits != 2100 || e.rc.rollingTargetBits != 2200 || e.rc.longRollingActualBits != 2300 || e.rc.longRollingTargetBits != 2400 {
+		t.Fatalf("rolling bits = short:%d/%d long:%d/%d, want 2100/2200 and 2300/2400",
+			e.rc.rollingActualBits, e.rc.rollingTargetBits, e.rc.longRollingActualBits, e.rc.longRollingTargetBits)
+	}
+}
+
 func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)

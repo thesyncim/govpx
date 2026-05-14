@@ -353,6 +353,7 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := validateRateControlConfig(cfg); err != nil {
 		return err
 	}
+	initializing := rc.targetBitrateKbps == 0
 	rc.mode = cfg.Mode
 	rc.minBitrateKbps = cfg.MinBitrateKbps
 	rc.maxBitrateKbps = cfg.MaxBitrateKbps
@@ -391,18 +392,20 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if !rc.dropFrameAllowed {
 		rc.dropFramesWaterMark = 0
 	}
-	rc.decimationFactor = 0
-	rc.decimationCount = 0
 	rc.maxIntraBitratePct = cfg.MaxIntraBitratePct
 	rc.gfCBRBoostPct = cfg.GFCBRBoostPct
-	rc.avgFrameQuantizer = rc.maxQuantizer
-	rc.normalInterQuantizerTotal = 0
-	rc.normalInterFrames = 0
-	rc.normalInterAvgQuantizer = rc.maxQuantizer
-	rc.rateCorrectionFactor = 1.0
-	rc.keyFrameCorrectionFactor = 1.0
-	rc.goldenCorrectionFactor = 1.0
-	rc.totalActualBits = 0
+	if initializing {
+		rc.decimationFactor = 0
+		rc.decimationCount = 0
+		rc.avgFrameQuantizer = rc.maxQuantizer
+		rc.normalInterQuantizerTotal = 0
+		rc.normalInterFrames = 0
+		rc.normalInterAvgQuantizer = rc.maxQuantizer
+		rc.rateCorrectionFactor = 1.0
+		rc.keyFrameCorrectionFactor = 1.0
+		rc.goldenCorrectionFactor = 1.0
+		rc.totalActualBits = 0
+	}
 	rc.outputFrameRate = int(outputFrameRate(timing))
 	if rc.keyFrameCount == 0 && rc.priorKeyFrameDistance == ([keyFrameContextSize]int{}) {
 		// libvpx vp8_create_compressor seeds key_frame_count=1 and every
@@ -417,7 +420,9 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 	if err := rc.setBitrateKbps(cfg.TargetBitrateKbps, timing); err != nil {
 		return err
 	}
-	rc.resetRollingBitAverages()
+	if initializing {
+		rc.resetRollingBitAverages()
+	}
 	if rc.mode == RateControlCQ {
 		rc.currentQuantizer = rc.cqLevel
 		rc.lastQuantizer = rc.cqLevel

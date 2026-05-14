@@ -519,10 +519,6 @@ func TestOracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.
 					}))
 				},
 			},
-			// Drop-enable parity is strict through frame 21. The
-			// drop-disable transition resets the libvpx rate-control state
-			// differently and starts drifting on the first post-disable packet.
-			matchLimit: 22,
 		},
 	}
 
