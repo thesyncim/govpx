@@ -221,6 +221,45 @@ func TestWriteCoefficientKeyFrameDecodesTokenPartitions(t *testing.T) {
 	}
 }
 
+func TestWriteCoefficientKeyFrameDerivesSkipFalseProbabilityFromModes(t *testing.T) {
+	const (
+		width  = 32
+		height = 32
+		rows   = 2
+		cols   = 2
+	)
+	packet := make([]byte, 8192)
+	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
+	coeffs := make([]vp8enc.MacroblockCoefficients, rows*cols)
+	for i := range modes {
+		modes[i] = vp8enc.KeyFrameMacroblockMode{YMode: common.DCPred, UVMode: common.DCPred}
+	}
+	for i := 0; i < 3; i++ {
+		coeffs[i].QCoeff[24][0] = 1
+		coeffs[i].SetBlockEOB(24, 1)
+	}
+	above := make([]vp8enc.TokenContextPlanes, cols)
+
+	n, err := vp8enc.WriteCoefficientKeyFrame(packet, width, height, vp8enc.KeyFrameStateConfig{
+		MBNoCoeffSkip: true,
+		BaseQIndex:    20,
+	}, modes, coeffs, above)
+	if err != nil {
+		t.Fatalf("WriteCoefficientKeyFrame returned error: %v", err)
+	}
+
+	var coefProbs = tables.DefaultCoefProbs
+	var modeProbs vp8dec.ModeProbs
+	vp8dec.ResetModeProbs(&modeProbs)
+	_, state, _, err := vp8dec.ParseStateHeaderWithReaderAndProbsAndLoopFilter(packet[:n], vp8dec.QuantHeader{}, vp8dec.LoopFilterHeader{}, &coefProbs, &modeProbs)
+	if err != nil {
+		t.Fatalf("ParseStateHeaderWithReaderAndProbsAndLoopFilter returned error: %v", err)
+	}
+	if !state.Mode.MBNoCoeffSkip || state.Mode.ProbSkipFalse != 192 {
+		t.Fatalf("skip header = enabled:%v prob:%d, want enabled:true prob:192", state.Mode.MBNoCoeffSkip, state.Mode.ProbSkipFalse)
+	}
+}
+
 func assertKeyFrameTokenPartitionLayout(t *testing.T, packet []byte, partition common.TokenPartition, count int) {
 	t.Helper()
 	var coefProbs = tables.DefaultCoefProbs

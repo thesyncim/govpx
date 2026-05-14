@@ -158,14 +158,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		RefreshEntropyProbs:   e.keyFrameRefreshEntropyProbs(flags),
 		IndependentContexts:   e.opts.ErrorResilientPartitions,
 		// libvpx initializes pc->mb_no_coeff_skip = 1 for every frame
-		// (alloccommon.c), so the keyframe header always carries the
-		// mb_no_coeff_skip bit and the 8-bit prob_skip_false literal.
-		// govpx currently emits skip_coeff=0 for every keyframe MB so
-		// no token writes are elided; the header bits alone close the
-		// 1-byte stream-byte parity gap surfaced by
-		// TestOracleEncoderStreamByteParity.
+		// (alloccommon.c). The packet writer derives prob_skip_false from
+		// keyframe mode skip counts before emitting the header.
 		MBNoCoeffSkip: true,
-		ProbSkipFalse: 255,
 	}
 	phase = e.phaseStart()
 	var prebuiltKeyCoefCounts *vp8enc.InterCoefficientTokenCounts

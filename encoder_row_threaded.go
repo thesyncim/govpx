@@ -278,11 +278,12 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, args.src, row, col, &e.analysis.Img, &e.reconstructModes[index], &args.aboveTok[col], &rs.leftTok, &args.quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), false, &args.coeffs[index], &e.reconstructScratch) {
 			return 0, ErrInvalidConfig
 		}
-		if err := rs.accumulateThreadedKeyFrameCoefCounts(true, &args.aboveTok[col], &rs.leftTok, &args.coeffs[index]); err != nil {
+		args.modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&args.modes[index], &args.coeffs[index])
+		e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
+		convertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
+		if err := rs.updateThreadedKeyFrameTokenContextAndCount(&args.aboveTok[col], &rs.leftTok, true, args.modes[index].MBSkipCoeff, &args.coeffs[index]); err != nil {
 			return 0, err
 		}
-		convertMacroblockCoefficients(&args.coeffs[index], true, &e.reconstructTokens[index])
-		vp8enc.UpdateTokenContextPlanesFromCoefficients(&args.aboveTok[col], &rs.leftTok, true, &args.coeffs[index])
 		return projectedRate, nil
 	}
 	if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
@@ -306,14 +307,20 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		collectOracle: false,
 		coeffs:        &args.coeffs[index],
 	})
-	if err := rs.accumulateThreadedKeyFrameCoefCounts(is4x4, &args.aboveTok[col], &rs.leftTok, &args.coeffs[index]); err != nil {
-		return 0, err
-	}
+	args.modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&args.modes[index], &args.coeffs[index])
+	e.reconstructModes[index].MBSkipCoeff = args.modes[index].MBSkipCoeff
 	convertMacroblockCoefficients(&args.coeffs[index], is4x4, &e.reconstructTokens[index])
-	if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
-		return 0, ErrInvalidConfig
+	if args.modes[index].MBSkipCoeff {
+		vp8enc.ResetTokenContextPlanes(&args.aboveTok[col], &rs.leftTok, is4x4)
+	} else {
+		if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+			return 0, ErrInvalidConfig
+		}
+		if err := rs.accumulateThreadedKeyFrameCoefCounts(is4x4, &args.aboveTok[col], &rs.leftTok, &args.coeffs[index]); err != nil {
+			return 0, err
+		}
+		vp8enc.UpdateTokenContextPlanesFromCoefficients(&args.aboveTok[col], &rs.leftTok, is4x4, &args.coeffs[index])
 	}
-	vp8enc.UpdateTokenContextPlanesFromCoefficients(&args.aboveTok[col], &rs.leftTok, is4x4, &args.coeffs[index])
 	return projectedRate, nil
 }
 
@@ -321,6 +328,18 @@ func (rs *rowEncoderState) accumulateThreadedKeyFrameCoefCounts(is4x4 bool, abov
 	aboveCopy := *above
 	leftCopy := *left
 	return vp8enc.AccumulateInterMacroblockTokenCountsAndRecords(&rs.keyFrameCoefTokenCounts, nil, is4x4, &aboveCopy, &leftCopy, coeffs)
+}
+
+func (rs *rowEncoderState) updateThreadedKeyFrameTokenContextAndCount(above *vp8enc.TokenContextPlanes, left *vp8enc.TokenContextPlanes, is4x4 bool, skipped bool, coeffs *vp8enc.MacroblockCoefficients) error {
+	if skipped {
+		vp8enc.ResetTokenContextPlanes(above, left, is4x4)
+		return nil
+	}
+	if err := rs.accumulateThreadedKeyFrameCoefCounts(is4x4, above, left, coeffs); err != nil {
+		return err
+	}
+	vp8enc.UpdateTokenContextPlanesFromCoefficients(above, left, is4x4, coeffs)
+	return nil
 }
 
 func (rs *rowEncoderState) encodeThreadedInterFrameRow(pool *rowWorkerPool, args *threadedInterRowsArgs, row int, abort *atomic.Int32) (int, error) {

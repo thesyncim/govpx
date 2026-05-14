@@ -134,6 +134,10 @@ func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFra
 			if !validKeyFrameMacroblockMode(mode) {
 				return ErrInvalidPacketConfig
 			}
+			if mode.MBSkipCoeff {
+				resetTokenContext(&above[col], &left, mode.YMode == common.BPred)
+				continue
+			}
 			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
 				return err
 			}
@@ -168,6 +172,10 @@ func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int
 			mode := &modes[index]
 			if !validKeyFrameMacroblockMode(mode) {
 				return ErrInvalidPacketConfig
+			}
+			if mode.MBSkipCoeff {
+				resetTokenContext(&above[col], &left, mode.YMode == common.BPred)
+				continue
 			}
 			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
 				return err
@@ -246,9 +254,48 @@ func buildCoeffAbsTokenLUT() [tables.DCTMaxValue + 1]uint8 {
 	return lut
 }
 
-// ResetTokenContextPlanes applies the inter-frame mb_no_coeff_skip context
-// reset. Whole-block modes clear all contexts; 4x4 modes preserve Y2 because
-// no Y2 tokens are coded for the macroblock.
+// DeriveKeyFrameModeSkipFlags mirrors libvpx vp8_tokenize_mb's
+// mb_is_skippable assignment for keyframe macroblocks.
+func DeriveKeyFrameModeSkipFlags(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) {
+	required := rows * cols
+	if rows <= 0 || cols <= 0 || required <= 0 || len(modes) < required || len(coeffs) < required {
+		return
+	}
+	for i := range required {
+		modes[i].MBSkipCoeff = KeyFrameMacroblockIsSkippable(&modes[i], &coeffs[i])
+	}
+}
+
+// KeyFrameMacroblockIsSkippable ports libvpx's keyframe mb_is_skippable EOB
+// test from vp8/encoder/tokenize.c.
+func KeyFrameMacroblockIsSkippable(mode *KeyFrameMacroblockMode, coeffs *MacroblockCoefficients) bool {
+	if mode == nil || coeffs == nil {
+		return false
+	}
+	if mode.YMode != common.BPred {
+		for block := range 16 {
+			if coeffs.EOB[block] >= 2 {
+				return false
+			}
+		}
+		for block := 16; block < 25; block++ {
+			if coeffs.EOB[block] != 0 {
+				return false
+			}
+		}
+		return true
+	}
+	for block := range 24 {
+		if coeffs.EOB[block] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// ResetTokenContextPlanes applies the VP8 mb_no_coeff_skip context reset.
+// Whole-block modes clear all contexts; 4x4 modes preserve Y2 because no Y2
+// tokens are coded for the macroblock.
 func ResetTokenContextPlanes(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
 	if above == nil || left == nil {
 		return

@@ -267,8 +267,14 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				if !buildReconstructingBPredMacroblockCoefficients(&vp8tables.DefaultCoefProbs, src, row, col, &e.analysis.Img, &e.reconstructModes[index], &aboveTok[col], &leftTok, &quants[segmentID&3], segmentQIndex, 0, e.libvpxUseFastQuant(), e.libvpxOptimizeCoefficients(), traceEnabled, &coeffs[index], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
+				modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
+				e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 				convertMacroblockCoefficients(&coeffs[index], true, &e.reconstructTokens[index])
-				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
+				if modes[index].MBSkipCoeff {
+					vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, true)
+				} else {
+					vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, true, &coeffs[index])
+				}
 				if traceEnabled {
 					e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 				}
@@ -295,11 +301,17 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				collectOracle: traceEnabled,
 				coeffs:        &coeffs[index],
 			})
+			modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
+			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			convertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
-			if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
-				return 0, ErrInvalidConfig
+			if modes[index].MBSkipCoeff {
+				vp8enc.ResetTokenContextPlanes(&aboveTok[col], &leftTok, is4x4)
+			} else {
+				if !reconstructAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+					return 0, ErrInvalidConfig
+				}
+				vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
 			}
-			vp8enc.UpdateTokenContextPlanesFromCoefficients(&aboveTok[col], &leftTok, is4x4, &coeffs[index])
 			if traceEnabled {
 				e.emitOracleKeyFrameMBTrace(row, col, &modes[index], &coeffs[index], projectedRate, totalRate)
 			}
