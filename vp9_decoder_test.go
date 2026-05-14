@@ -13,6 +13,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
+const vp9SteadyStateAllocRuns = 25
+
 // TestNewVP9DecoderZeroValueOptions: the zero value of options
 // produces a usable decoder.
 func TestNewVP9DecoderZeroValueOptions(t *testing.T) {
@@ -1035,7 +1037,7 @@ func TestVP9DecoderDecodeSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(packet)
 	})
 	if err != nil {
@@ -1056,7 +1058,7 @@ func TestVP9DecoderLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode loop-filtered keyframe err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(packet)
 	})
 	if err != nil {
@@ -1077,7 +1079,7 @@ func TestVP9DecoderSegmentedAltQKeyframeSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode segmented alt-q keyframe err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(packet)
 	})
 	if err != nil {
@@ -1108,7 +1110,7 @@ func TestVP9DecoderDecodeIntoSteadyStateAlloc(t *testing.T) {
 	}
 
 	var info VP9FrameInfo
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		info, err = d.DecodeInto(packet, &dst)
 	})
 	if err != nil {
@@ -1136,7 +1138,7 @@ func TestVP9DecoderInterTileParseSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1160,7 +1162,7 @@ func TestVP9DecoderScaledZeroMvInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled zero-mv inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1184,7 +1186,7 @@ func TestVP9DecoderScaledNewMvInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled newmv inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1208,7 +1210,7 @@ func TestVP9DecoderScaledNearestMvInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled nearestmv inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1232,7 +1234,7 @@ func TestVP9DecoderScaledNearMvInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled nearmv inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1257,7 +1259,7 @@ func TestVP9DecoderInterIntraSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter-intra err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1282,7 +1284,7 @@ func TestVP9DecoderCompoundInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode compound inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1304,7 +1306,7 @@ func TestVP9DecoderCompoundGoldenAltrefNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode compound golden/altref newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1335,7 +1337,7 @@ func TestVP9DecoderCompoundSignBiasLayoutsSteadyStateAlloc(t *testing.T) {
 					tc.name, err)
 			}
 
-			allocs := testing.AllocsPerRun(100, func() {
+			allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 				err = d.Decode(inter)
 			})
 			if err != nil {
@@ -1361,7 +1363,7 @@ func TestVP9DecoderSegmentedAltrefInterSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode segmented altref inter err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1386,7 +1388,7 @@ func TestVP9DecoderSegmentedAltrefInterMapReuseSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode segmented altref inter map-reuse err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1408,7 +1410,7 @@ func TestVP9DecoderCompoundInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode compound inter subpel newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1430,7 +1432,7 @@ func TestVP9DecoderScaledCompoundInterNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled compound inter newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1452,7 +1454,7 @@ func TestVP9DecoderScaledCompoundInterNearestMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled compound inter nearestmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1474,7 +1476,7 @@ func TestVP9DecoderScaledCompoundInterNearMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode scaled compound inter nearmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -1496,7 +1498,7 @@ func TestVP9DecoderCompoundInterNearMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode compound inter nearmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2267,7 +2269,7 @@ func TestVP9DecoderInterResidueSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter residue err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2292,7 +2294,7 @@ func TestVP9DecoderLoopFilteredInterResidueSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode loop-filtered inter residue err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2317,7 +2319,7 @@ func TestVP9DecoderLoopFilteredInterMotionSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode loop-filtered inter motion err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2424,7 +2426,7 @@ func TestVP9DecoderInterNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2449,7 +2451,7 @@ func TestVP9DecoderInterNearestMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter nearestmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2474,7 +2476,7 @@ func TestVP9DecoderInterNearMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter nearmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2603,7 +2605,7 @@ func TestVP9DecoderInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter subpel newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2628,7 +2630,7 @@ func TestVP9DecoderInterSubpelBorderSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter border subpel newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2653,7 +2655,7 @@ func TestVP9DecoderInterSubpelSwitchableSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm Decode inter switchable subpel newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		err = d.Decode(inter)
 	})
 	if err != nil {
@@ -2679,7 +2681,7 @@ func TestVP9DecoderDecodeIntoInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("warm DecodeInto inter subpel newmv err = %v, want nil", err)
 	}
 
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
 		_, err = d.DecodeInto(inter, &dst)
 	})
 	if err != nil {
