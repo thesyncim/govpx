@@ -63,6 +63,17 @@ func WriteInterUncompressedHeader(w *BitWriter, h *vp9dec.UncompressedHeader,
 	return writeUncompressedHeaderInter(w, h, refDims)
 }
 
+// WriteShowExistingFrameHeader writes a VP9 show_existing_frame packet
+// header. This packet form contains no compressed header or tile payload:
+// it displays one previously refreshed reference slot directly.
+func WriteShowExistingFrameHeader(w *BitWriter, profile common.BitstreamProfile, slot uint8) int {
+	writeFrameMarker(w)
+	writeProfile(w, profile)
+	w.WriteBit(1)
+	w.WriteLiteral(uint32(slot), common.RefFramesLog2)
+	return w.BytesWritten()
+}
+
 // writeUncompressedHeaderInter is the inter-frame entry. The shape
 // is the same as writeUncompressedHeader's else-arm but routes to
 // the inter (non-intra-only) sub-branch.

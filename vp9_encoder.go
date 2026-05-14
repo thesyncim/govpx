@@ -3471,6 +3471,42 @@ func (e *VP9Encoder) EncodeWithFlags(img *image.YCbCr, flags EncodeFlags) ([]byt
 	return out, nil
 }
 
+// EncodeShowExistingFrameInto writes a VP9 show_existing_frame packet for an
+// already refreshed reference slot. The packet has no source image, compressed
+// header, or tile body; decoders display the referenced slot directly. Slot must
+// be in [0, 7] and valid in the encoder's current VP9 reference map.
+func (e *VP9Encoder) EncodeShowExistingFrameInto(dst []byte, slot uint8) (int, error) {
+	if e == nil || e.closed {
+		return 0, ErrClosed
+	}
+	if slot >= common.RefFrames {
+		return 0, ErrInvalidConfig
+	}
+	if !e.refValid[slot] || !e.refFrames[slot].valid {
+		return 0, ErrInvalidConfig
+	}
+	if len(dst) == 0 {
+		return 0, ErrBufferTooSmall
+	}
+	var bw encoder.BitWriter
+	bw.Init(dst)
+	return encoder.WriteShowExistingFrameHeader(&bw, common.Profile0, slot), nil
+}
+
+// EncodeShowExistingFrame is the allocating wrapper around
+// EncodeShowExistingFrameInto.
+func (e *VP9Encoder) EncodeShowExistingFrame(slot uint8) ([]byte, error) {
+	if e == nil || e.closed {
+		return nil, ErrClosed
+	}
+	dst := make([]byte, 1)
+	n, err := e.EncodeShowExistingFrameInto(dst, slot)
+	if err != nil {
+		return nil, err
+	}
+	return dst[:n], nil
+}
+
 func alignToSb(miCols int) int {
 	const mask = common.MiBlockSize - 1
 	return (miCols + mask) &^ mask

@@ -267,6 +267,24 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, hidden, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	src := newVP9YCbCrForTest(width, height, 91, 143, 37)
+	key, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	show, err := e.EncodeShowExistingFrame(5)
+	if err != nil {
+		t.Fatalf("EncodeShowExistingFrame: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, show)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 

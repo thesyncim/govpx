@@ -148,6 +148,29 @@ func TestIntraOnlyHeaderRoundTrip(t *testing.T) {
 	}
 }
 
+func TestShowExistingFrameHeaderRoundTrip(t *testing.T) {
+	buf := make([]byte, 8)
+	w := NewBitWriter(buf)
+	n := WriteShowExistingFrameHeader(w, common.Profile0, 5)
+	if n != 1 {
+		t.Fatalf("WriteShowExistingFrameHeader returned %d bytes, want 1", n)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(buf[:n])
+	got, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	if !got.ShowExistingFrame || got.ExistingFrameSlot != 5 {
+		t.Fatalf("show-existing = %v slot %d, want true slot 5",
+			got.ShowExistingFrame, got.ExistingFrameSlot)
+	}
+	if br.BytesRead() != n {
+		t.Fatalf("BytesRead = %d, want %d", br.BytesRead(), n)
+	}
+}
+
 // TestInterHeaderRoundTripNoSizeMatch exercises the inter path with
 // reference frames whose dimensions don't match the current frame —
 // libvpx then emits three "found=0" bits followed by the explicit
