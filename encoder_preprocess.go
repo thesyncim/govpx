@@ -5,9 +5,10 @@ import (
 )
 
 type encodeSourceMetadata struct {
-	lookaheadDepth int
-	arnrFiltered   bool
-	denoised       bool
+	lookaheadDepth     int
+	forceLFDeltaUpdate bool
+	arnrFiltered       bool
+	denoised           bool
 }
 
 func (e *VP8Encoder) initPreprocessFrames(width int, height int) error {

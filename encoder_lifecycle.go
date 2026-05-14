@@ -129,6 +129,9 @@ func (e *VP8Encoder) Reset() {
 	e.lfDeltasSignaledOnce = false
 	e.lastSignaledRefLFDeltas = [vp8common.MaxRefLFDeltas]int8{}
 	e.lastSignaledModeLFDeltas = [vp8common.MaxModeLFDeltas]int8{}
+	e.pendingLFDeltaUpdate = false
+	e.currentLFDeltaUpdate = false
+	e.autoAltRefStashForceLF = false
 	e.coefProbsLast = vp8tables.CoefficientProbs{}
 	e.coefProbsGolden = vp8tables.CoefficientProbs{}
 	e.coefProbsAltRef = vp8tables.CoefficientProbs{}

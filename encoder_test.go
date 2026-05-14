@@ -249,6 +249,14 @@ func TestSetRealtimeTargetSameFPSKeepsAutospeedTiming(t *testing.T) {
 func TestSetCPUUsedMirrorsRuntimeSpeedReset(t *testing.T) {
 	e := newTestEncoder(t)
 	e.autoSpeed = 9
+	e.avgPickModeTime = 1000
+	e.avgEncodeTime = 2000
+	e.autoSpeedFrameStartNS = 3000
+	e.interRDThreshMult[0] = 192
+	e.interRDThreshTouched[0] = true
+	e.interModeErrorBins[20] = 2
+	e.interModeSpeedErrorBins[20] = 3
+	beforeGen := e.interRDThreshBaselineGen
 
 	if err := e.SetCPUUsed(-3); err != nil {
 		t.Fatalf("SetCPUUsed(-3) returned error: %v", err)
@@ -256,11 +264,28 @@ func TestSetCPUUsedMirrorsRuntimeSpeedReset(t *testing.T) {
 	if e.autoSpeed != -3 {
 		t.Fatalf("autoSpeed after SetCPUUsed(-3) = %d, want -3", e.autoSpeed)
 	}
+	if e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
+		t.Fatalf("auto-speed timers after SetCPUUsed(-3) = pick:%d encode:%d start:%d, want reset",
+			e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if e.interRDThreshMult[0] != libvpxRDThreshMultStart || e.interRDThreshTouched[0] || e.interRDThreshBaselineGen == beforeGen {
+		t.Fatalf("inter RD thresholds after SetCPUUsed(-3) = mult:%d touched:%t gen:%d, want reset past gen %d",
+			e.interRDThreshMult[0], e.interRDThreshTouched[0], e.interRDThreshBaselineGen, beforeGen)
+	}
+	if e.interModeErrorBins[20] != 2 || e.interModeSpeedErrorBins[20] != 3 {
+		t.Fatalf("speed error bins after SetCPUUsed(-3) = current:%d previous:%d, want preserved",
+			e.interModeErrorBins[20], e.interModeSpeedErrorBins[20])
+	}
 
 	e.autoSpeed = 3
 	e.avgPickModeTime = 1000
 	e.avgEncodeTime = 2000
 	e.autoSpeedFrameStartNS = 3000
+	e.interRDThreshMult[0] = 192
+	e.interRDThreshTouched[0] = true
+	e.interModeErrorBins[20] = 2
+	e.interModeSpeedErrorBins[20] = 3
+	beforeGen = e.interRDThreshBaselineGen
 	if err := e.SetCPUUsed(0); err != nil {
 		t.Fatalf("SetCPUUsed(0) returned error: %v", err)
 	}
@@ -268,7 +293,16 @@ func TestSetCPUUsedMirrorsRuntimeSpeedReset(t *testing.T) {
 		t.Fatalf("autoSpeed after SetCPUUsed(0) = %d, want 0", e.autoSpeed)
 	}
 	if e.avgPickModeTime != 0 || e.avgEncodeTime != 0 || e.autoSpeedFrameStartNS != 0 {
-		t.Fatalf("auto-speed timers after SetCPUUsed(0) = pick:%d encode:%d start:%d, want reset", e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+		t.Fatalf("auto-speed timers after SetCPUUsed(0) = pick:%d encode:%d start:%d, want reset",
+			e.avgPickModeTime, e.avgEncodeTime, e.autoSpeedFrameStartNS)
+	}
+	if e.interRDThreshMult[0] != libvpxRDThreshMultStart || e.interRDThreshTouched[0] || e.interRDThreshBaselineGen == beforeGen {
+		t.Fatalf("inter RD thresholds after SetCPUUsed(0) = mult:%d touched:%t gen:%d, want reset past gen %d",
+			e.interRDThreshMult[0], e.interRDThreshTouched[0], e.interRDThreshBaselineGen, beforeGen)
+	}
+	if e.interModeErrorBins[20] != 0 || e.interModeSpeedErrorBins[20] != 0 {
+		t.Fatalf("speed error bins after SetCPUUsed(0) = current:%d previous:%d, want cleared",
+			e.interModeErrorBins[20], e.interModeSpeedErrorBins[20])
 	}
 }
 

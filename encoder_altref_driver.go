@@ -183,6 +183,7 @@ func (e *VP8Encoder) autoAltRefStashInput(src Image, pts uint64, duration uint64
 		e.autoAltRefStashDuration = 1
 	}
 	e.autoAltRefStashFlags = flags
+	e.autoAltRefStashForceLF = e.consumePendingLFDeltaUpdate()
 	e.autoAltRefStashValid = true
 	return nil
 }
@@ -198,11 +199,13 @@ func (e *VP8Encoder) autoAltRefDrainStash() error {
 	pts := e.autoAltRefStashPTS
 	duration := e.autoAltRefStashDuration
 	flags := e.autoAltRefStashFlags
+	forceLFDeltaUpdate := e.autoAltRefStashForceLF
 	e.autoAltRefStashValid = false
 	e.autoAltRefStashPTS = 0
 	e.autoAltRefStashDuration = 0
 	e.autoAltRefStashFlags = 0
-	return e.pushLookahead(src, pts, duration, flags)
+	e.autoAltRefStashForceLF = false
+	return e.pushLookaheadWithForce(src, pts, duration, flags, forceLFDeltaUpdate)
 }
 
 // autoAltRefMaybeEncode is the EncodeInto hook for the automatic ARF driver.
@@ -259,11 +262,15 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		if err := e.autoAltRefStashInput(src, pts, duration, flags); err != nil {
 			return EncodeResult{}, true, err
 		}
-		meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+		meta := encodeSourceMetadata{
+			lookaheadDepth:     e.lookaheadSize(),
+			forceLFDeltaUpdate: peeked.forceLFDeltaUpdate,
+		}
 		result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 		if err != nil {
 			return EncodeResult{}, true, err
 		}
+		peeked.forceLFDeltaUpdate = false
 		return result, true, nil
 	}
 	if !hadStash {
@@ -298,7 +305,10 @@ func (e *VP8Encoder) autoAltRefMaybeEncode(dst []byte, src Image, pts uint64, du
 		e.clearPoppedLookahead(entry)
 		return EncodeResult{}, true, err
 	}
-	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	meta := encodeSourceMetadata{
+		lookaheadDepth:     e.lookaheadSize(),
+		forceLFDeltaUpdate: entry.forceLFDeltaUpdate,
+	}
 	result, err := e.encodeSourceInto(dst, visibleSource, visiblePTS, visibleDuration, visibleFlags, meta)
 	e.clearPoppedLookahead(entry)
 	if err != nil {
@@ -335,10 +345,14 @@ func (e *VP8Encoder) autoAltRefMaybeEmitHiddenOnFlush(dst []byte) (EncodeResult,
 	}
 	e.altRefSourcePTS = hiddenPTS
 	e.altRefSourceValid = true
-	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	meta := encodeSourceMetadata{
+		lookaheadDepth:     e.lookaheadSize(),
+		forceLFDeltaUpdate: peeked.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
+	}
 	result, err := e.encodeSourceInto(dst, hiddenSource, hiddenPTS, hiddenDuration, autoAltRefHiddenFlags, meta)
 	if err != nil {
 		return EncodeResult{}, true, err
 	}
+	peeked.forceLFDeltaUpdate = false
 	return result, true, nil
 }

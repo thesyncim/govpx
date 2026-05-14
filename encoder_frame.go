@@ -43,7 +43,9 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 		}
 		return result, err
 	}
-	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{})
+	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{
+		forceLFDeltaUpdate: e.consumePendingLFDeltaUpdate(),
+	})
 }
 
 // FlushInto drains queued frames at end of stream and emits the next
@@ -71,7 +73,10 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 	if !ok {
 		return EncodeResult{}, ErrFrameNotReady
 	}
-	meta := encodeSourceMetadata{lookaheadDepth: e.lookaheadSize()}
+	meta := encodeSourceMetadata{
+		lookaheadDepth:     e.lookaheadSize(),
+		forceLFDeltaUpdate: entry.forceLFDeltaUpdate || e.consumePendingLFDeltaUpdate(),
+	}
 	result, err := e.encodeSourceInto(dst, sourceImageFromVP8(&entry.frame.Img), entry.pts, entry.duration, entry.flags, meta)
 	e.clearPoppedLookahead(entry)
 	if err == nil {
@@ -82,6 +87,10 @@ func (e *VP8Encoder) FlushInto(dst []byte) (EncodeResult, error) {
 
 func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts uint64, duration uint64, flags EncodeFlags, meta encodeSourceMetadata) (EncodeResult, error) {
 	e.currentSourcePTS = pts
+	e.currentLFDeltaUpdate = meta.forceLFDeltaUpdate
+	defer func() {
+		e.currentLFDeltaUpdate = false
+	}()
 	// libvpx vp8/encoder/encodeframe.c:685-691 -- vp8_auto_select_speed runs
 	// once at the top of vp8_encode_frame for realtime+positive-cpu_used,
 	// evolving cpi->Speed from the prior frame's encode timer.

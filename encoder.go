@@ -586,6 +586,7 @@ type VP8Encoder struct {
 	autoAltRefStashPTS      uint64
 	autoAltRefStashDuration uint64
 	autoAltRefStashFlags    EncodeFlags
+	autoAltRefStashForceLF  bool
 	// currentSourcePTS mirrors libvpx onyx_if.c's per-frame
 	// `cpi->source` PTS so isSrcFrameAltRef can detect the deferred
 	// show frame after a hidden ARF.
@@ -781,6 +782,8 @@ type VP8Encoder struct {
 	lfDeltasSignaledOnce     bool
 	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
 	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
+	pendingLFDeltaUpdate     bool
+	currentLFDeltaUpdate     bool
 	coefProbs                vp8tables.CoefficientProbs
 	// coefProbsLast/Golden/AltRef mirror libvpx vp8/encoder/onyx.h cpi->lfc_n,
 	// cpi->lfc_g, cpi->lfc_a: per-reference snapshots of cm->fc.coef_probs
