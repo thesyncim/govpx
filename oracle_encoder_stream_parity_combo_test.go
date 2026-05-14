@@ -334,17 +334,11 @@ func TestOracleEncoderStreamByteParityComboBig(t *testing.T) {
 		{name: "big-er3-2partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
 		{name: "big-er3-4partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
 		{name: "big-er3-8partitions-256x144-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(256, 144), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
-		// At 320x180 cpu-3, the larger MB grid exposes the ER3 token
-		// entropy drift across partition counts. The two-partition row is
-		// closed; keep 4/8 partitions prefix-pinned while their tails log.
 		{name: "big-er3-2partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
-		{name: "big-er3-4partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), limit: 3, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
-		{name: "big-er3-8partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), limit: 3, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+		{name: "big-er3-4partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=3", "--token-parts=2"}},
+		{name: "big-er3-8partitions-320x180-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: mk(320, 180), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 3, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
 		{name: "big-er1-4partitions-640x480-cpu4", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480), errorResilient: true, tokenPartitions: 2, extraArgs: []string{"--error-resilient=1", "--token-parts=2"}},
-		// er3 + 2-partitions at 640x480 cpu8: frames 0..4 byte-match,
-		// frame 5+ diverges. Same er3-multi-partition gap surfacing at
-		// the VGA fixture. Pin frames 0..4.
-		{name: "big-er3-2partitions-640x480-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480), limit: 5, errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
+		{name: "big-er3-2partitions-640x480-cpu8", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480), errorResilient: true, errorResilientPartitions: true, tokenPartitions: 1, extraArgs: []string{"--error-resilient=3", "--token-parts=1"}},
 
 		// ----- Big-fixture Buffer patterns (override buf-sz/init/optimal) -----
 		//
