@@ -229,6 +229,7 @@ func (e *VP8Encoder) Reset() {
 	e.loopFilterPickLevel = 0
 	e.loopFilterPickBest = false
 	e.loopFilterSegmentLF = [vp8common.MaxMBSegments]int8{}
+	e.rowWorkers.resetForEncoderReset()
 }
 
 // Close releases encoder state and shuts down any row-worker pool. After

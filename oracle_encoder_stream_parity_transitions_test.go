@@ -59,10 +59,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		afterReset := makePanningSources(64, 64, 8, 6)
 		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-nondefault-warmup", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--threads=2", "--token-parts=2", "--tune=ssim"})
-		// Reset clears the warmed state enough to match through the
-		// keyframe and first inter packet. The later denoiser/threaded
-		// partition path still carries a byte-level gap.
-		assertSegmentByteParity(t, "post-reset-nondefault", govpxFrames, libvpxFrames, 2)
+		assertSegmentByteParity(t, "post-reset-nondefault", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("reset-after-denoiser-matches-cold-start", func(t *testing.T) {
@@ -105,10 +102,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		afterReset := makePanningSources(64, 64, 8, 6)
 		govpxFrames := encodePostResetWithGovpx(t, opts, warm, afterReset)
 		libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "reset-after-denoiser-threads-token", opts, targetKbps, afterReset, []string{"--end-usage=cbr", "--noise-sensitivity=3", "--threads=2", "--token-parts=2"})
-		// Denoiser + threaded token partitions matches the cold-start
-		// keyframe and first inter packet, then exposes the same threaded
-		// denoiser packet-writer drift seen by the larger nondefault row.
-		assertSegmentByteParity(t, "post-reset-denoiser-threads-token", govpxFrames, libvpxFrames, 2)
+		assertSegmentByteParity(t, "post-reset-denoiser-threads-token", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("reset-after-denoiser-ssim-matches-cold-start", func(t *testing.T) {

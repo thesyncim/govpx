@@ -195,6 +195,45 @@ func TestEncoderResetAfterRuntimeTemporalMatchesColdStartState(t *testing.T) {
 	}
 }
 
+func TestEncoderResetClearsRowWorkerPrivateState(t *testing.T) {
+	opts := EncoderOptions{
+		Width: 64, Height: 64, FPS: 30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Threads:           2,
+	}
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer enc.Close()
+	if enc.rowWorkers == nil || len(enc.rowWorkers.workers) < 2 {
+		t.Skip("row worker pool unavailable")
+	}
+	enc.rowWorkers.workers[1].enc.interModeTestHitCounts[0] = 7
+	enc.rowWorkers.workers[1].enc.interModeSpeedErrorBins[3] = 11
+	enc.rowWorkers.workerErrors[1] = ErrInvalidConfig
+	enc.rowWorkers.workerCount = 2
+	enc.rowWorkers.required = 4
+
+	enc.Reset()
+
+	if got := enc.rowWorkers.workers[1].enc.interModeTestHitCounts[0]; got != 0 {
+		t.Fatalf("helper mode-test hits after Reset = %d, want 0", got)
+	}
+	if got := enc.rowWorkers.workers[1].enc.interModeSpeedErrorBins[3]; got != 0 {
+		t.Fatalf("helper speed-error bin after Reset = %d, want 0", got)
+	}
+	if enc.rowWorkers.workerErrors[1] != nil || enc.rowWorkers.workerCount != 0 || enc.rowWorkers.required != 0 {
+		t.Fatalf("row worker dispatch state after Reset = err:%v workers:%d required:%d, want cleared",
+			enc.rowWorkers.workerErrors[1], enc.rowWorkers.workerCount, enc.rowWorkers.required)
+	}
+}
+
 func resetParityFrame(width, height, idx int) Image {
 	uvW := (width + 1) >> 1
 	uvH := (height + 1) >> 1
