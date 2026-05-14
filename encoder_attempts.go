@@ -668,6 +668,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		coefSavings = packetResult.CoefSavingsBits
 		projectedBits, refFrameSavings = e.projectedFrameSizeBitsFromRateWithKnownCoefSavings(false, required, projectedRate, coefSavings, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
+	cfg.MVUpdate = packetResult.FrameMVUpdate
+	cfg.MVUpdateCount = packetResult.FrameMVUpdateCount
 	// libvpx vp8/encoder/encodeframe.c:946 sets
 	// cpi->projected_frame_size = totalrate >> 8 *before*
 	// vp8_drop_encodedframe_overshoot consumes it

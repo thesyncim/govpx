@@ -153,12 +153,41 @@ func (e *VP8Encoder) libvpxUseFastQuantForPick() bool {
 }
 
 func (e *VP8Encoder) currentMotionVectorCostTables() *vp8enc.MotionVectorCostTables {
-	if !e.mvCostTablesValid || e.mvCostProbs != e.modeProbs.MV {
-		e.mvCostTables.Build(&e.modeProbs.MV)
-		e.mvCostProbs = e.modeProbs.MV
-		e.mvCostTablesValid = true
+	if !e.mvCostTablesValid {
+		e.resetMotionVectorCostTablesFromModeProbs()
 	}
 	return &e.mvCostTables
+}
+
+func (e *VP8Encoder) resetMotionVectorCostTablesFromModeProbs() {
+	e.mvCostTables.Build(&e.modeProbs.MV)
+	e.mvCostProbs = e.modeProbs.MV
+	e.mvCostTablesValid = true
+}
+
+func (e *VP8Encoder) updateMotionVectorCostTablesFromInterAttempt(attempt interFrameEncodeAttempt) {
+	if !e.mvCostTablesValid {
+		e.resetMotionVectorCostTablesFromModeProbs()
+	}
+	var update [2]bool
+	for component := range 2 {
+		for i := range vp8tables.MVPCount {
+			if attempt.Config.MVUpdate[component][i] {
+				update[component] = true
+				break
+			}
+		}
+	}
+	if !update[0] && !update[1] {
+		return
+	}
+	e.mvCostTables.BuildComponents(&attempt.FrameMVProbs, update)
+	for component := range 2 {
+		if update[component] {
+			e.mvCostProbs[component] = attempt.FrameMVProbs[component]
+		}
+	}
+	e.mvCostTablesValid = true
 }
 
 // libvpxUseFastIntraPick returns true when libvpx would pick a keyframe

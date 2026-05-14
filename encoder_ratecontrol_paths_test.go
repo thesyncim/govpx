@@ -1157,6 +1157,47 @@ func TestCommitInterFrameEntropyRefreshesInterIntraModeProbs(t *testing.T) {
 	}
 }
 
+func TestCommitInterFrameEntropyUpdatesMVCostTablesWithoutEntropyRefresh(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	base := e.modeProbs.MV
+	staleCosts := base
+	staleCosts[1][0] = 254
+	e.mvCostTables.Build(&staleCosts)
+	e.mvCostProbs = staleCosts
+	e.mvCostTablesValid = true
+
+	frameMVProbs := base
+	frameMVProbs[0][0] = 1
+	frameMVProbs[1][0] = 2
+	attempt := interFrameEncodeAttempt{
+		Config:           vp8enc.InterFrameStateConfig{RefreshEntropyProbs: false},
+		FrameCoefProbs:   e.coefProbs,
+		FrameYModeProbs:  e.modeProbs.YMode,
+		FrameUVModeProbs: e.modeProbs.UVMode,
+		FrameMVProbs:     frameMVProbs,
+	}
+	attempt.Config.MVUpdate[0][0] = true
+	attempt.Config.MVUpdateCount = 1
+
+	e.commitInterFrameEntropy(attempt)
+
+	if e.modeProbs.MV != base {
+		t.Fatalf("mode MV probs changed on no-refresh commit: got %v want %v", e.modeProbs.MV, base)
+	}
+	wantCosts := staleCosts
+	wantCosts[0] = frameMVProbs[0]
+	if e.mvCostProbs != wantCosts {
+		t.Fatalf("MV cost probs = %v, want mixed stale/update table %v", e.mvCostProbs, wantCosts)
+	}
+	mv := vp8enc.MotionVector{Row: 32, Col: 32}
+	got := e.currentMotionVectorCostTables().BitCost(mv, vp8enc.MotionVector{}, 128)
+	want := vp8enc.MotionVectorBitCost(mv, vp8enc.MotionVector{}, &wantCosts, 128)
+	if got != want {
+		t.Fatalf("MV cost table cost = %d, want %d", got, want)
+	}
+}
+
 func TestRDPickerCoefProbsSelectsLibvpxFrameContext(t *testing.T) {
 	e := &VP8Encoder{}
 	if got := e.rdPickerCoefProbs(false, false); got != nil {

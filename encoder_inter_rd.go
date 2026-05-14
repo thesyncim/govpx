@@ -202,7 +202,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreWithReferenceRateAndSkipCached(sr
 	}
 	var modeRate int
 	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContext(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, libvpxFastNewMVBitCostWeight)
+		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, libvpxFastNewMVBitCostWeight)
 	} else {
 		modeRate = e.fastInterMotionModeRateWithReferenceRate(mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
 	}

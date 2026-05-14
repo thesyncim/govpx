@@ -113,12 +113,18 @@ func (t *MotionVectorCostTables) Build(probs *[2][tables.MVPCount]uint8) {
 	if t == nil || probs == nil {
 		return
 	}
+	t.BuildComponents(probs, [2]bool{true, true})
+}
+
+func (t *MotionVectorCostTables) BuildComponents(probs *[2][tables.MVPCount]uint8, update [2]bool) {
+	if t == nil || probs == nil {
+		return
+	}
 	for component := range 2 {
-		table := &t.Component[component]
-		prob := probs[component][:]
-		for delta := -mvComponentMax; delta <= mvComponentMax; delta++ {
-			table[delta+mvComponentMax] = int32(motionVectorComponentCost(delta, prob))
+		if !update[component] {
+			continue
 		}
+		t.buildComponent(component, probs[component][:])
 	}
 }
 
@@ -144,6 +150,26 @@ func (t *MotionVectorCostTables) ErrorCostFromEighthDeltas(mvRow8 int, mvCol8 in
 	col := clampMVMCompCostInput((mvCol8 - refCol8) >> 1)
 	cost := int(t.Component[0][row+mvComponentMax]) + int(t.Component[1][col+mvComponentMax])
 	return (cost*errorPerBit + 128) >> 8
+}
+
+func (t *MotionVectorCostTables) BitCost(mv MotionVector, ref MotionVector, weight int) int {
+	if t == nil {
+		return 1 << 30
+	}
+	row := clampMVMCompCostInput((int(mv.Row) - int(ref.Row)) >> 1)
+	col := clampMVMCompCostInput((int(mv.Col) - int(ref.Col)) >> 1)
+	cost := int(t.Component[0][row+mvComponentMax]) + int(t.Component[1][col+mvComponentMax])
+	return (cost * weight) >> 7
+}
+
+func (t *MotionVectorCostTables) buildComponent(component int, probs []uint8) {
+	if uint(component) >= 2 || len(probs) < tables.MVPCount {
+		return
+	}
+	table := &t.Component[component]
+	for delta := -mvComponentMax; delta <= mvComponentMax; delta++ {
+		table[delta+mvComponentMax] = int32(motionVectorComponentCost(delta, probs))
+	}
 }
 
 // MotionVectorSADCost mirrors libvpx mvsad_err_cost (mcomp.c). libvpx

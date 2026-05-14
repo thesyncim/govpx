@@ -54,12 +54,14 @@ type InterFramePacket struct {
 }
 
 type InterFramePacketResult struct {
-	Size             int
-	FrameCoefProbs   tables.CoefficientProbs
-	FrameYModeProbs  [tables.YModeProbCount]uint8
-	FrameUVModeProbs [tables.UVModeProbCount]uint8
-	FrameMVProbs     [2][tables.MVPCount]uint8
-	CoefSavingsBits  int
+	Size               int
+	FrameCoefProbs     tables.CoefficientProbs
+	FrameYModeProbs    [tables.YModeProbCount]uint8
+	FrameUVModeProbs   [tables.UVModeProbCount]uint8
+	FrameMVProbs       [2][tables.MVPCount]uint8
+	FrameMVUpdate      [2][tables.MVPCount]bool
+	FrameMVUpdateCount int
+	CoefSavingsBits    int
 }
 
 func WriteCoefficientInterFrame(dst []byte, width int, height int, cfg InterFrameStateConfig, modes []InterFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes) (int, error) {
@@ -193,6 +195,8 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 	result.FrameYModeProbs = frameYModeProbs
 	result.FrameUVModeProbs = frameUVModeProbs
 	result.FrameMVProbs = frameMVProbs
+	result.FrameMVUpdate = cfg.MVUpdate
+	result.FrameMVUpdateCount = cfg.MVUpdateCount
 	result.CoefSavingsBits = coefUpdates.SavingsBits
 	return result, nil
 }

@@ -8,6 +8,7 @@ import (
 func (e *VP8Encoder) commitKeyFrameEntropy(attempt keyFrameEncodeAttempt) {
 	e.coefProbs = vp8tables.DefaultCoefProbs
 	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.resetMotionVectorCostTablesFromModeProbs()
 	if attempt.RefreshEntropyProbs {
 		e.coefProbs = attempt.FrameCoefProbs
 	}
@@ -250,6 +251,7 @@ func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8ta
 }
 
 func (e *VP8Encoder) commitInterFrameEntropy(attempt interFrameEncodeAttempt) {
+	e.updateMotionVectorCostTablesFromInterAttempt(attempt)
 	// Mirror libvpx onyx_if.c encode_frame_to_data_rate
 	// `if (refresh_entropy_probs == 0) cm->fc = cm->lfc;` rollback: when the
 	// bitstream did NOT carry a refresh, e.coefProbs already reflects the
