@@ -433,6 +433,24 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.FPS = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.TimebaseNum = 1 }, ErrInvalidConfig}, // missing Den
 		{func(o *VP9EncoderOptions) { o.TimebaseDen = 1 }, ErrInvalidConfig}, // missing Num
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.SegmentID = VP9MaxSegments
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.SegmentID = 1
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.AltQEnabled[0] = true
+			o.Segmentation.AltQ[0] = -256
+		}, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.Segmentation.Enabled = true
+			o.Segmentation.AltLFEnabled[0] = true
+			o.Segmentation.AltLF[0] = 64
+		}, ErrInvalidConfig},
 	}
 	for i, c := range cases {
 		opts := base
@@ -686,6 +704,50 @@ func TestVP9EncoderExplicitQuantizerOverridesDefault(t *testing.T) {
 	if h.Quant.BaseQindex != 1 {
 		t.Fatalf("BaseQindex = %d, want explicit qindex 1", h.Quant.BaseQindex)
 	}
+}
+
+func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 3
+	const altQ = int16(-12)
+	const altLF = int16(4)
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.AbsDelta = true
+	opts.Segmentation.AltQEnabled[segID] = true
+	opts.Segmentation.AltQ[segID] = altQ
+	opts.Segmentation.AltLFEnabled[segID] = true
+	opts.Segmentation.AltLF[segID] = altLF
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	key, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	assertVP9StaticSegmentationHeaderForTest(t, keyHeader.Seg, segID, altQ, altLF)
+
+	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	var br vp9dec.BitReader
+	br.Init(inter)
+	interHeader, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
+		func(uint8) (uint32, uint32) { return width, height })
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+	assertVP9StaticSegmentationHeaderForTest(t, interHeader.Seg, segID, altQ, altLF)
+
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	assertVP9DecoderSegmentIDForTest(t, d, segID)
 }
 
 func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
@@ -3357,6 +3419,61 @@ func parseVP9EncoderHeaderForTest(t *testing.T, packet []byte) (vp9dec.Uncompres
 		t.Fatalf("tile start %d past packet len %d", tileStart, len(packet))
 	}
 	return h, tileStart
+}
+
+func assertVP9StaticSegmentationHeaderForTest(t *testing.T,
+	seg vp9dec.SegmentationParams, segID int, altQ, altLF int16,
+) {
+	t.Helper()
+	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData || !seg.AbsDelta {
+		t.Fatalf("segmentation flags = enabled:%v updateMap:%v updateData:%v absDelta:%v, want all true",
+			seg.Enabled, seg.UpdateMap, seg.UpdateData, seg.AbsDelta)
+	}
+	for i := range vp9dec.SegTreeProbs {
+		if seg.TreeProbs[i] != vp9dec.MaxProb {
+			t.Fatalf("TreeProbs[%d] = %d, want MaxProb", i, seg.TreeProbs[i])
+		}
+	}
+	wantMask := uint32((1 << uint(vp9dec.SegLvlAltQ)) |
+		(1 << uint(vp9dec.SegLvlAltLf)))
+	if got := seg.FeatureMask[segID]; got&wantMask != wantMask {
+		t.Fatalf("FeatureMask[%d] = %#x, want AltQ|AltLF", segID, got)
+	}
+	if got := seg.FeatureData[segID][vp9dec.SegLvlAltQ]; got != altQ {
+		t.Fatalf("AltQ[%d] = %d, want %d", segID, got, altQ)
+	}
+	if got := seg.FeatureData[segID][vp9dec.SegLvlAltLf]; got != altLF {
+		t.Fatalf("AltLF[%d] = %d, want %d", segID, got, altLF)
+	}
+	for i := range vp9dec.MaxSegments {
+		if i == segID {
+			continue
+		}
+		if seg.FeatureMask[i] != 0 {
+			t.Fatalf("FeatureMask[%d] = %#x, want 0", i, seg.FeatureMask[i])
+		}
+	}
+}
+
+func assertVP9DecoderSegmentIDForTest(t *testing.T, d *VP9Decoder, segID uint8) {
+	t.Helper()
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty")
+	}
+	for i, mi := range d.miGrid {
+		if mi.SegmentID != segID || mi.SegIDPredicted != segID {
+			t.Fatalf("miGrid[%d] segment = (%d,%d), want (%d,%d)",
+				i, mi.SegmentID, mi.SegIDPredicted, segID, segID)
+		}
+	}
+	if len(d.lastSegMap) == 0 {
+		t.Fatal("decoder last segment map is empty")
+	}
+	for i, got := range d.lastSegMap {
+		if got != segID {
+			t.Fatalf("lastSegMap[%d] = %d, want %d", i, got, segID)
+		}
+	}
 }
 
 func assertVP9EncoderTilePrefixForTest(t *testing.T, packet []byte, tileStart int) {

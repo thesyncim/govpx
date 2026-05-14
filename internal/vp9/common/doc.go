@@ -1,13 +1,13 @@
-// Package common holds VP9 state shared between the decoder and encoder:
-// frame headers, sequence parameters, segmentation, reference-frame
+// Package common holds VP9 Profile 0 state shared between the decoder and
+// encoder: frame headers, sequence parameters, segmentation, reference-frame
 // management, motion-vector references, partition tree state, loop-filter
 // parameters, and the common-data tables that drive intra/inter prediction.
 //
-// VP9 frames are tiled (1..64 superblock cols, 1..4 rows of full-height
-// tiles) and built from a recursive partition tree rooted at 64x64
-// superblocks. This package owns the data structures that describe that
-// tree plus its surrounding reference frame state; the decoder and
-// encoder packages drive it.
+// Supported VP9 Profile 0 frames are tiled (1..64 superblock cols, 1..4 rows
+// of full-height tiles) and built from a recursive partition tree rooted at
+// 64x64 superblocks. This package owns the data structures that describe that
+// tree plus its surrounding reference frame state; the decoder and encoder
+// packages drive it.
 //
 // Upstream:
 //

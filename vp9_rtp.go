@@ -337,7 +337,8 @@ func PackVP9RTPPayload(desc VP9RTPPayloadDescriptor, payload []byte) ([]byte, er
 }
 
 // VP9RTPFramePacketizationSize returns the number of RTP payload bodies and
-// total payload-body bytes needed to packetize one raw VP9 frame at mtu bytes.
+// total payload-body bytes needed to packetize one raw VP9 Profile 0 frame at
+// mtu bytes.
 //
 // mtu includes the VP9 RTP payload descriptor but excludes the RTP header.
 // This helper packetizes one VP9 frame per call. Layer indices, flexible-mode

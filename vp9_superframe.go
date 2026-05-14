@@ -29,9 +29,9 @@ func VP9SuperframeSize(frames ...[]byte) (int, error) {
 	return total + indexSize, nil
 }
 
-// PackVP9SuperframeInto packs 1..8 raw VP9 frames into dst as a VP9
-// superframe. The frame payloads are copied in order, followed by the VP9
-// little-endian superframe index.
+// PackVP9SuperframeInto packs 1..8 raw VP9 Profile 0 frames into dst as a
+// VP9 superframe. The frame payloads are copied in order, followed by the
+// VP9 little-endian superframe index.
 func PackVP9SuperframeInto(dst []byte, frames ...[]byte) (int, error) {
 	need, err := VP9SuperframeSize(frames...)
 	if err != nil {

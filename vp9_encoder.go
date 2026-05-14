@@ -61,6 +61,31 @@ type VP9EncoderOptions struct {
 	// ErrorResilient enables the libvpx error-resilient bit on every
 	// frame header.
 	ErrorResilient bool
+
+	// Segmentation enables static VP9 profile 0 segmentation metadata.
+	// When UpdateMap is set, every encoded block is assigned SegmentID.
+	// This supports AltQ and AltLF segment features; reference-frame and
+	// skip segment features are not exposed by this packet encoder path.
+	Segmentation VP9SegmentationOptions
+}
+
+// VP9SegmentationOptions configures static per-frame VP9 segmentation.
+type VP9SegmentationOptions struct {
+	// Enabled writes VP9 segmentation headers. Zero leaves segmentation off.
+	Enabled bool
+	// UpdateMap writes a constant segment id for every encoded block.
+	UpdateMap bool
+	// SegmentID is the block segment id written when UpdateMap is true.
+	SegmentID uint8
+	// AbsDelta selects absolute segment data semantics; false selects delta.
+	AbsDelta bool
+
+	// AltQEnabled / AltQ configure SEG_LVL_ALT_Q per segment.
+	AltQEnabled [VP9MaxSegments]bool
+	AltQ        [VP9MaxSegments]int16
+	// AltLFEnabled / AltLF configure SEG_LVL_ALT_LF per segment.
+	AltLFEnabled [VP9MaxSegments]bool
+	AltLF        [VP9MaxSegments]int16
 }
 
 // ErrVP9EncoderNotImplemented is retained for callers that already branch on
@@ -68,6 +93,10 @@ type VP9EncoderOptions struct {
 //
 // Deprecated: Encode and EncodeInto no longer return this error.
 var ErrVP9EncoderNotImplemented = errors.New("govpx: VP9 encoder path unavailable")
+
+// VP9MaxSegments is the number of segment IDs available in a VP9 profile 0
+// frame.
+const VP9MaxSegments = vp9dec.MaxSegments
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
@@ -184,7 +213,62 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if (opts.TimebaseNum != 0) != (opts.TimebaseDen != 0) {
 		return ErrInvalidConfig
 	}
+	if err := validateVP9SegmentationOptions(opts.Segmentation); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateVP9SegmentationOptions(seg VP9SegmentationOptions) error {
+	if !seg.Enabled {
+		return nil
+	}
+	if seg.SegmentID >= vp9dec.MaxSegments {
+		return ErrInvalidConfig
+	}
+	if !seg.UpdateMap && seg.SegmentID != 0 {
+		return ErrInvalidConfig
+	}
+	for i := range vp9dec.MaxSegments {
+		if seg.AltQEnabled[i] && (seg.AltQ[i] < -255 || seg.AltQ[i] > 255) {
+			return ErrInvalidQuantizer
+		}
+		if seg.AltLFEnabled[i] && (seg.AltLF[i] < -63 || seg.AltLF[i] > 63) {
+			return ErrInvalidConfig
+		}
+	}
+	return nil
+}
+
+func (e *VP9Encoder) vp9EncoderSegmentationParams() vp9dec.SegmentationParams {
+	cfg := e.opts.Segmentation
+	if !cfg.Enabled {
+		return vp9dec.SegmentationParams{}
+	}
+	seg := vp9dec.SegmentationParams{
+		Enabled:   true,
+		UpdateMap: cfg.UpdateMap,
+		AbsDelta:  cfg.AbsDelta,
+	}
+	for i := range vp9dec.SegTreeProbs {
+		seg.TreeProbs[i] = vp9dec.MaxProb
+	}
+	for i := range vp9dec.PredictionProbs {
+		seg.PredProbs[i] = vp9dec.MaxProb
+	}
+	for i := range vp9dec.MaxSegments {
+		if cfg.AltQEnabled[i] {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
+			seg.FeatureData[i][vp9dec.SegLvlAltQ] = cfg.AltQ[i]
+			seg.UpdateData = true
+		}
+		if cfg.AltLFEnabled[i] {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltLf)
+			seg.FeatureData[i][vp9dec.SegLvlAltLf] = cfg.AltLF[i]
+			seg.UpdateData = true
+		}
+	}
+	return seg
 }
 
 func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
@@ -397,7 +481,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
-	var seg vp9dec.SegmentationParams // disabled — no map / no data update
+	seg := e.vp9EncoderSegmentationParams()
+	header.Seg = seg
 	dq := &e.dqScratch
 	var keyState *vp9KeyframeEncodeState
 	var interState *vp9InterEncodeState
@@ -1885,6 +1970,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	cur := baseMi
 	cur.SbType = bsize
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
+	cur.SegmentID, cur.SegIDPredicted = e.vp9EncoderBlockSegmentID(seg)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -1902,7 +1988,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				cur.Skip = 0
 			}
 		}
-		segID := int(cur.SegIDPredicted)
+		segID := vp9EncoderMiSegmentID(&cur)
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
 		interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
 			tile, miRows, miRow, miCol, bsize)
@@ -1987,9 +2073,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				AboveOffsets: aboveOffsets,
 				LeftOffsets:  leftOffsets,
 				PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
-					inter.dq.Y[0],
-					inter.dq.Uv[0],
-					inter.dq.Uv[0],
+					inter.dq.Y[segID],
+					inter.dq.Uv[segID],
+					inter.dq.Uv[segID],
 				},
 				Fc:              &e.fc.CoefProbs,
 				CoefBranchStats: vp9CoefBranchStats(counts),
@@ -2012,7 +2098,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if hasResidue {
 			cur.Skip = 0
 		}
-		countVP9Skip(counts, seg, int(cur.SegIDPredicted), above, left, cur.Skip)
+		segID := vp9EncoderMiSegmentID(&cur)
+		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
 		maxTxSize := common.MaxTxsizeLookup[bsize]
 		txCtx := vp9dec.GetTxSizeContext(above, left, maxTxSize)
 		if txMode == common.TxModeSelect && bsize >= common.Block8x8 {
@@ -2045,9 +2132,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			AboveOffsets: aboveOffsets,
 			LeftOffsets:  leftOffsets,
 			PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
-				key.dq.Y[0],
-				key.dq.Uv[0],
-				key.dq.Uv[0],
+				key.dq.Y[segID],
+				key.dq.Uv[segID],
+				key.dq.Uv[segID],
 			},
 			Fc:              &e.fc.CoefProbs,
 			CoefBranchStats: vp9CoefBranchStats(counts),
@@ -2069,6 +2156,24 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	})
 	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
+}
+
+func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams) (uint8, uint8) {
+	if seg == nil || !seg.Enabled || !seg.UpdateMap {
+		return 0, 0
+	}
+	segID := e.opts.Segmentation.SegmentID
+	if segID >= vp9dec.MaxSegments {
+		return 0, 0
+	}
+	return segID, segID
+}
+
+func vp9EncoderMiSegmentID(mi *vp9dec.NeighborMi) int {
+	if mi == nil || mi.SegmentID >= vp9dec.MaxSegments {
+		return 0
+	}
+	return int(mi.SegmentID)
 }
 
 func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
@@ -2358,6 +2463,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
 ) bool {
 	hasResidue := false
+	segID := vp9EncoderMiSegmentID(mi)
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -2376,9 +2482,9 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 		blockStep := 1 << uint(txSize<<1)
 		extraStep := ((full4x4W - max4x4W) >> txSize) * blockStep
 		blockIdx := 0
-		dequant := key.dq.Y[0]
+		dequant := key.dq.Y[segID]
 		if plane > 0 {
-			dequant = key.dq.Uv[0]
+			dequant = key.dq.Uv[segID]
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
@@ -2421,6 +2527,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
 	}
 	hasResidue := false
+	segID := vp9EncoderMiSegmentID(mi)
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -2436,9 +2543,9 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
-		dequant := inter.dq.Y[0]
+		dequant := inter.dq.Y[segID]
 		if plane > 0 {
-			dequant = inter.dq.Uv[0]
+			dequant = inter.dq.Uv[segID]
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {

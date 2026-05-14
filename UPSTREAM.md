@@ -11,8 +11,8 @@ govpx is pinned to libvpx `v1.16.0`.
 ## Scope
 
 govpx uses libvpx as a pinned oracle, not as a runtime dependency.
-Compatibility targets are VP8/VP9 codec bitstreams and RTP/WebRTC payload
-compatibility, not the libvpx C ABI.
+Compatibility targets are VP8 codec bitstreams, VP9 Profile 0 codec bitstreams,
+and RTP/WebRTC payload compatibility, not the libvpx C ABI.
 
 VP9 support is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
 superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and

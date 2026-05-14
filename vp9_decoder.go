@@ -407,7 +407,7 @@ func vp9ParseSuperframe(packet []byte) (vp9SuperframeIndex, error) {
 	return sf, nil
 }
 
-// DecodeInto decodes one raw VP9 frame payload. If the packet is a
+// DecodeInto decodes one raw VP9 Profile 0 packet payload. If the packet is a
 // visible frame its decoded pixels are written into the caller-owned
 // planes of dst; for hidden frames dst is left untouched.
 func (d *VP9Decoder) DecodeInto(packet []byte, dst *Image) (VP9FrameInfo, error) {
