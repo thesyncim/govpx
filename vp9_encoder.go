@@ -28,6 +28,7 @@ const (
 	// The same oracle emits the CQ-level qindex for the first visible inter
 	// frame in the packet path after the keyframe.
 	vp9DefaultInterBaseQIndex = 128
+	vp9RDDivBits              = 7
 )
 
 func vp9CoefUpdateModeForFrame(isKey bool) encoder.CoefUpdateMode {
@@ -2945,13 +2946,301 @@ func (e *VP9Encoder) scoreVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	if mi == nil {
 		return 0, false
 	}
-	pd := &e.planes[0]
-	distortion, ok := e.scoreVP9KeyframePlanePrediction(key, pd, mode, 0,
-		mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize)
+	distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRD(
+		key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi)
 	if !ok {
 		return 0, false
 	}
-	return vp9ModeDecisionScore(distortion, rate, qindex), true
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	if skippable {
+		rate += encoder.VP9CostBit(skipProb, 1)
+	} else {
+		rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
+	}
+	return vp9RDCost(vp9KeyframeRDMul(qindex), vp9RDDivBits, rate, distortion), true
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeModeTransformRD(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
+) (distortion uint64, coeffRate int, skippable bool, ok bool) {
+	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
+		return 0, 0, false, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false, false
+	}
+	planeData, stride := e.vp9EncoderReconPlane(0)
+	src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
+	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
+		return 0, 0, false, false
+	}
+	rows := len(planeData) / stride
+	baseX := miCol * common.MiSize
+	baseY := miRow * common.MiSize
+	if baseX >= stride || baseY >= rows {
+		return 0, 0, false, false
+	}
+	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if baseX+restoreW > stride {
+		restoreW = stride - baseX
+	}
+	if baseY+restoreH > rows {
+		restoreH = rows - baseY
+	}
+	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+		return 0, 0, false, false
+	}
+	saved := e.blockScratch[:restoreW*restoreH]
+	for y := 0; y < restoreH; y++ {
+		copy(saved[y*restoreW:(y+1)*restoreW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	}
+
+	txSize := mi.TxSize
+	if txSize > common.Tx16x16 {
+		txSize = common.Tx16x16
+	}
+	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(txSize)
+	segID := vp9EncoderMiSegmentID(mi)
+	dequant := key.dq.Y[segID]
+	skippable = true
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			dst, dstStride, x0, y0, predOK := e.predictVP9KeyframeTx(
+				key.hdr, pd, 0, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc)
+			if !predOK {
+				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					restoreW, restoreH, saved)
+				return 0, 0, false, false
+			}
+			_ = e.gatherVP9TxResidual(src, srcStride, int(key.hdr.Width),
+				int(key.hdr.Height), dst, dstStride, x0, y0, txSize)
+			txRate, txDist, txSkippable, scoreOK := e.scoreVP9KeyframeTxBlockRD(
+				txSize, dequant)
+			if !scoreOK {
+				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					restoreW, restoreH, saved)
+				return 0, 0, false, false
+			}
+			coeffRate += txRate
+			distortion += txDist
+			// libvpx's realtime estimate_block_intra passes the same
+			// skippable pointer into block_yrd for each transform. block_yrd
+			// resets it before scoring, so the final transform owns this flag.
+			skippable = txSkippable
+		}
+	}
+	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	return distortion, coeffRate, skippable, true
+}
+
+func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
+	for y := 0; y < h; y++ {
+		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
+			saved[y*w:(y+1)*w])
+	}
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeTxBlockRD(txSize common.TxSize,
+	dequant [2]int16,
+) (rate int, distortion uint64, skippable bool, ok bool) {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if maxEob > len(e.txCoeffScratch) || maxEob > len(e.coefScratch) ||
+		maxEob > len(e.dqCoeffScratch) {
+		return 0, 0, false, false
+	}
+	coeff := e.txCoeffScratch[:maxEob]
+	switch txSize {
+	case common.Tx4x4:
+		encoder.ForwardHT4x4Into(e.residueScratch[:], 4, common.DctDct, coeff)
+	case common.Tx8x8:
+		vp9Hadamard8x8Into(e.residueScratch[:], 8, coeff)
+	case common.Tx16x16:
+		vp9Hadamard16x16Into(e.residueScratch[:], 16, coeff)
+	default:
+		return 0, 0, false, false
+	}
+	qcoeff := e.coefScratch[:maxEob]
+	dqcoeff := e.dqCoeffScratch[:maxEob]
+	eob := vp9QuantizeFPForRD(coeff, dequant,
+		common.DefaultScanOrders[txSize].Scan, qcoeff, dqcoeff)
+	skippable = eob == 0
+	if eob == 1 {
+		rate += vp9AbsInt(int(qcoeff[0]))
+	} else if eob > 1 {
+		rate += vp9Satd(qcoeff)
+	}
+	rate <<= 2 + encoder.VP9ProbCostShift
+	rate += 1 << encoder.VP9ProbCostShift
+	return rate, vp9BlockErrorFP(coeff, dqcoeff) >> 2, skippable, true
+}
+
+func vp9RDCost(rdmult, rddiv, rate int, distortion uint64) uint64 {
+	if rate < 0 {
+		rate = 0
+	}
+	rateCost := (int64(rate)*int64(rdmult) +
+		(1 << (encoder.VP9ProbCostShift - 1))) >> encoder.VP9ProbCostShift
+	return uint64(rateCost) + (distortion << uint(rddiv))
+}
+
+func vp9KeyframeRDMul(qindex int) int {
+	if qindex < 0 {
+		qindex = 0
+	}
+	if qindex > 255 {
+		qindex = 255
+	}
+	q := int(vp9dec.VpxDcQuant(qindex, 0, vp9dec.BitDepth8))
+	rdmult := q * q * (4350 + qindex) / 1000
+	if rdmult < 1 {
+		return 1
+	}
+	return rdmult
+}
+
+func vp9QuantizeFPForRD(coeff []int16, dequant [2]int16, scan []int16,
+	qcoeff, dqcoeff []int16,
+) int {
+	n := min(len(coeff), min(len(scan), min(len(qcoeff), len(dqcoeff))))
+	for i := range n {
+		qcoeff[i] = 0
+		dqcoeff[i] = 0
+	}
+	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
+		return 0
+	}
+	quant := [2]int{(1 << 16) / int(dequant[0]), (1 << 16) / int(dequant[1])}
+	round := [2]int{(48 * int(dequant[0])) >> 7, (42 * int(dequant[1])) >> 7}
+	eob := -1
+	for i := 0; i < n; i++ {
+		rc := int(scan[i])
+		slot := 0
+		if rc != 0 {
+			slot = 1
+		}
+		c := int(coeff[rc])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp := vp9ClampInt16(absCoeff + round[slot])
+		tmp = (tmp * quant[slot]) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * int(dequant[slot]))
+		if tmp != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+func vp9BlockErrorFP(coeff, dqcoeff []int16) uint64 {
+	n := min(len(coeff), len(dqcoeff))
+	var err uint64
+	for i := 0; i < n; i++ {
+		diff := int(coeff[i]) - int(dqcoeff[i])
+		err += uint64(diff * diff)
+	}
+	return err
+}
+
+func vp9Satd(coeff []int16) int {
+	sum := 0
+	for _, c := range coeff {
+		sum += vp9AbsInt(int(c))
+	}
+	return sum
+}
+
+func vp9ClampInt16(v int) int {
+	if v < -32768 {
+		return -32768
+	}
+	if v > 32767 {
+		return 32767
+	}
+	return v
+}
+
+func vp9HadamardCol8(src []int16, stride int, coeff []int16) {
+	b0 := int(src[0*stride]) + int(src[1*stride])
+	b1 := int(src[0*stride]) - int(src[1*stride])
+	b2 := int(src[2*stride]) + int(src[3*stride])
+	b3 := int(src[2*stride]) - int(src[3*stride])
+	b4 := int(src[4*stride]) + int(src[5*stride])
+	b5 := int(src[4*stride]) - int(src[5*stride])
+	b6 := int(src[6*stride]) + int(src[7*stride])
+	b7 := int(src[6*stride]) - int(src[7*stride])
+
+	c0 := b0 + b2
+	c1 := b1 + b3
+	c2 := b0 - b2
+	c3 := b1 - b3
+	c4 := b4 + b6
+	c5 := b5 + b7
+	c6 := b4 - b6
+	c7 := b5 - b7
+
+	coeff[0] = int16(c0 + c4)
+	coeff[7] = int16(c1 + c5)
+	coeff[3] = int16(c2 + c6)
+	coeff[4] = int16(c3 + c7)
+	coeff[2] = int16(c0 - c4)
+	coeff[6] = int16(c1 - c5)
+	coeff[1] = int16(c2 - c6)
+	coeff[5] = int16(c3 - c7)
+}
+
+func vp9Hadamard8x8Into(src []int16, stride int, coeff []int16) {
+	var buffer [64]int16
+	var buffer2 [64]int16
+	for idx := 0; idx < 8; idx++ {
+		vp9HadamardCol8(src[idx:], stride, buffer[idx*8:])
+	}
+	for idx := 0; idx < 8; idx++ {
+		vp9HadamardCol8(buffer[idx:], 8, buffer2[idx*8:])
+	}
+	copy(coeff[:64], buffer2[:])
+}
+
+func vp9Hadamard16x16Into(src []int16, stride int, coeff []int16) {
+	vp9Hadamard8x8Into(src, stride, coeff[:64])
+	vp9Hadamard8x8Into(src[8:], stride, coeff[64:128])
+	vp9Hadamard8x8Into(src[8*stride:], stride, coeff[128:192])
+	vp9Hadamard8x8Into(src[8*stride+8:], stride, coeff[192:256])
+	for idx := 0; idx < 64; idx++ {
+		a0 := int(coeff[idx])
+		a1 := int(coeff[64+idx])
+		a2 := int(coeff[128+idx])
+		a3 := int(coeff[192+idx])
+
+		b0 := (a0 + a1) >> 1
+		b1 := (a0 - a1) >> 1
+		b2 := (a2 + a3) >> 1
+		b3 := (a2 - a3) >> 1
+
+		coeff[idx] = int16(b0 + b2)
+		coeff[64+idx] = int16(b1 + b3)
+		coeff[128+idx] = int16(b0 - b2)
+		coeff[192+idx] = int16(b1 - b3)
+	}
 }
 
 func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState,

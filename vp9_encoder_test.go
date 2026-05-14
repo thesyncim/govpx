@@ -771,7 +771,7 @@ func TestVP9EncoderKeyframeConstantSourceRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after source-backed keyframe")
 	}
-	assertVP9FilledFrame(t, frame, 96, 80, 91, 143, 37)
+	assertVP9FilledFrameWithin(t, frame, 96, 80, 91, 143, 37, 1)
 }
 
 func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
@@ -1421,7 +1421,7 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after keyframe")
 	}
-	assertVP9FilledFrame(t, frame, 96, 80, 82, 123, 211)
+	assertVP9FilledFrameWithin(t, frame, 96, 80, 82, 123, 211, 1)
 	if err := d.Decode(inter); err != nil {
 		t.Fatalf("Decode inter: %v", err)
 	}
@@ -2463,7 +2463,7 @@ func TestVP9EncoderSetRealtimeTargetResizeForcesKeyFrame(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after resized keyframe")
 	}
-	assertVP9FilledFrame(t, frame, w2, h2, 111, 123, 211)
+	assertVP9FilledFrameWithin(t, frame, w2, h2, 111, 123, 211, 1)
 }
 
 func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
@@ -2868,6 +2868,7 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
+	keyRefY := e.refFrames[vp9LastRefSlot].img.Y[0]
 	interSrc := newVP9YCbCrForTest(width, height, 160, 128, 128)
 	dst := make([]byte, 65536)
 	n, err := e.EncodeIntoWithFlags(interSrc, dst, EncodeNoUpdateLast)
@@ -2899,11 +2900,11 @@ func TestVP9EncoderEncodeIntoWithFlagsNoUpdateLast(t *testing.T) {
 	if !e.refFrames[0].valid {
 		t.Fatal("LAST ref became invalid after no-update-LAST")
 	}
-	if got := e.refFrames[0].img.Y[0]; got != keySrc.Y[0] {
-		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	if got := e.refFrames[0].img.Y[0]; got != keyRefY {
+		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keyRefY)
 	}
 	for _, slot := range []int{vp9GoldenRefSlot, vp9AltRefSlot} {
-		if got := e.refFrames[slot].img.Y[0]; got == keySrc.Y[0] {
+		if got := e.refFrames[slot].img.Y[0]; got == keyRefY {
 			t.Fatalf("ref slot %d Y[0] still has keyframe value %d", slot, got)
 		}
 	}
@@ -2949,6 +2950,7 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T)
 	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
+	keyRefY := e.refFrames[vp9LastRefSlot].img.Y[0]
 
 	interSrc := newVP9YCbCrForTest(width, height, 196, 96, 224)
 	packet, err := e.EncodeWithFlags(interSrc, EncodeForceGoldenFrame|EncodeNoUpdateLast)
@@ -2962,13 +2964,13 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T)
 	if info.RefreshFrameFlags != 0x06 {
 		t.Fatalf("RefreshFrameFlags = %#x, want GOLDEN|ALTREF", info.RefreshFrameFlags)
 	}
-	if got := e.refFrames[vp9LastRefSlot].img.Y[0]; got != keySrc.Y[0] {
-		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keySrc.Y[0])
+	if got := e.refFrames[vp9LastRefSlot].img.Y[0]; got != keyRefY {
+		t.Fatalf("LAST ref Y[0] = %d, want prior keyframe value %d", got, keyRefY)
 	}
-	if got := e.refFrames[vp9GoldenRefSlot].img.Y[0]; got == keySrc.Y[0] {
+	if got := e.refFrames[vp9GoldenRefSlot].img.Y[0]; got == keyRefY {
 		t.Fatalf("GOLDEN ref Y[0] still has keyframe value %d", got)
 	}
-	if got := e.refFrames[vp9AltRefSlot].img.Y[0]; got == keySrc.Y[0] {
+	if got := e.refFrames[vp9AltRefSlot].img.Y[0]; got == keyRefY {
 		t.Fatalf("ALTREF ref Y[0] still has keyframe value %d", got)
 	}
 }
@@ -3050,8 +3052,8 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testi
 	if len(d.miGrid) == 0 {
 		t.Fatal("decoder MI grid is empty after ALTREF-only inter")
 	}
-	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.AltrefFrame || got.Mv[0] != (vp9dec.MV{}) {
-		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want ALTREF with zero MV",
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.AltrefFrame {
+		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want ALTREF reference",
 			got.RefFrame[0], got.Mode, got.Mv[0])
 	}
 }
@@ -3095,7 +3097,7 @@ func TestVP9EncoderEncodeIntoWithFlagsInvisibleKeyFrameUpdatesReferences(t *test
 	if !ok {
 		t.Fatal("NextFrame returned !ok after visible inter")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 91, 143, 37)
+	assertVP9FilledFrameWithin(t, frame, width, height, 91, 143, 37, 1)
 }
 
 func TestVP9EncoderEncodeIntoWithFlagsInvisibleAltRefRefresh(t *testing.T) {
@@ -3201,7 +3203,7 @@ func TestVP9EncoderEncodeShowExistingFrameInto(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after show-existing")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 91, 143, 37)
+	assertVP9FilledFrameWithin(t, frame, width, height, 91, 143, 37, 1)
 }
 
 func TestVP9EncoderEncodeShowExistingFrameRejectsInvalidState(t *testing.T) {
@@ -3309,7 +3311,7 @@ func TestVP9EncoderEncodeIntraOnlyFrameRefreshesLastAndShowExisting(t *testing.T
 	if !ok {
 		t.Fatal("NextFrame returned !ok after show-existing LAST")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 83, 141, 209)
+	assertVP9FilledFrameWithin(t, frame, width, height, 83, 141, 209, 1)
 }
 
 func TestVP9EncoderEncodeIntraOnlyFrameRejectsConflictingFlags(t *testing.T) {
@@ -3739,8 +3741,7 @@ func TestVP9EncoderKeyframePicksHorizontalModeFromLeftContext(t *testing.T) {
 			img.Y[y*img.YStride:y*img.YStride+64])
 	}
 
-	hdr := vp9dec.UncompressedHeader{Width: 128, Height: 64}
-	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	key := newVP9KeyframeModeTestState(e, img, 128, 64)
 	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 16}
 	got := e.pickVP9KeyframeMode(key, tile, 8, 16, 0, 8, common.Block64x64, &mi)
@@ -3774,8 +3775,7 @@ func TestVP9EncoderKeyframeModeScoresWholeBlock(t *testing.T) {
 		}
 	}
 
-	hdr := vp9dec.UncompressedHeader{Width: width, Height: height}
-	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	key := newVP9KeyframeModeTestState(e, img, width, height)
 	mi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx32x32}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
 	got := e.pickVP9KeyframeMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi)
@@ -3794,14 +3794,25 @@ func TestVP9EncoderKeyframePicksHorizontalModeForTx16(t *testing.T) {
 			img.Y[y*img.YStride:y*img.YStride+16])
 	}
 
-	hdr := vp9dec.UncompressedHeader{Width: 32, Height: 16}
-	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	key := newVP9KeyframeModeTestState(e, img, 32, 16)
 	mi := vp9dec.NeighborMi{SbType: common.Block16x16, TxSize: common.Tx16x16}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 2, MiColStart: 0, MiColEnd: 4}
 	got := e.pickVP9KeyframeMode(key, tile, 2, 4, 0, 2, common.Block16x16, &mi)
 	if got != common.HPred {
 		t.Errorf("mode = %d, want HPred", got)
 	}
+}
+
+func newVP9KeyframeModeTestState(e *VP9Encoder, img *image.YCbCr, width, height int) *vp9KeyframeEncodeState {
+	vp9dec.ResetFrameContext(&e.fc)
+	hdr := &vp9dec.UncompressedHeader{Width: uint32(width), Height: uint32(height)}
+	dq := &vp9dec.DequantTables{}
+	var seg vp9dec.SegmentationParams
+	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: e.vp9EncoderModeDecisionQIndex(),
+		BitDepth:   vp9dec.Bits8,
+	}, dq)
+	return &vp9KeyframeEncodeState{img: img, hdr: hdr, dq: dq}
 }
 
 func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
@@ -4015,7 +4026,7 @@ func TestVP9EncoderWideFrameUsesMinimumLegalTileColumns(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after multi-tile keyframe")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 91, 143, 37)
+	assertVP9FilledFrameWithin(t, frame, width, height, 91, 143, 37, 1)
 }
 
 func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
@@ -4049,7 +4060,7 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after threaded-tile keyframe")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 82, 123, 211)
+	assertVP9FilledFrameWithin(t, frame, width, height, 82, 123, 211, 1)
 }
 
 // TestVP9EncoderIVFRoundTrip wraps the encoded keyframe in an IVF

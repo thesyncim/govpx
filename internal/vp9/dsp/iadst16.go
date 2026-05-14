@@ -172,19 +172,30 @@ func iadst16(input, output []int16) {
 	output[15] = -int16(x1)
 }
 
-// iht16x16_256Add is the shared 2-D dispatch body. The row/column
-// kernels are passed in so the caller composes (DCT, ADST) pairs.
-func iht16x16_256Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
+// iht16x16_256Add is the shared 2-D dispatch body for hybrid DCT/ADST
+// pairs. The transform type is switched inside the row and column passes so
+// the caller does not pass function values through this hot path.
+func iht16x16_256Add(txType int, input []int16, dest []uint8, stride int) {
 	var out [256]int16
 	for i := range 16 {
-		rowKernel(input[i*16:i*16+16], out[i*16:i*16+16])
+		switch txType {
+		case 2, 3:
+			iadst16(input[i*16:i*16+16], out[i*16:i*16+16])
+		default:
+			idct16(input[i*16:i*16+16], out[i*16:i*16+16])
+		}
 	}
 	var tempIn, tempOut [16]int16
 	for i := range 16 {
 		for j := range 16 {
 			tempIn[j] = out[j*16+i]
 		}
-		colKernel(tempIn[:], tempOut[:])
+		switch txType {
+		case 1, 3:
+			iadst16(tempIn[:], tempOut[:])
+		default:
+			idct16(tempIn[:], tempOut[:])
+		}
 		for j := range 16 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 6))
@@ -198,13 +209,13 @@ func iht16x16_256Add(rowKernel, colKernel func(in, out []int16), input []int16, 
 func Iht16x16_256Add(input []int16, dest []uint8, stride int, txType int) {
 	switch txType {
 	case 0: // DCT_DCT
-		iht16x16_256Add(idct16, idct16, input, dest, stride)
+		idct16x16Add(input, dest, stride, 16)
 	case 1: // ADST_DCT
-		iht16x16_256Add(idct16, iadst16, input, dest, stride)
+		iht16x16_256Add(txType, input, dest, stride)
 	case 2: // DCT_ADST
-		iht16x16_256Add(iadst16, idct16, input, dest, stride)
+		iht16x16_256Add(txType, input, dest, stride)
 	case 3: // ADST_ADST
-		iht16x16_256Add(iadst16, iadst16, input, dest, stride)
+		iht16x16_256Add(txType, input, dest, stride)
 	}
 }
 

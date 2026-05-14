@@ -280,6 +280,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	t.Logf("VP9 flat 64x64 keyframe mode scoreboard: modes=%d/%d blocks=%d/%d skips=%d/%d govpx_bytes=%d libvpx_bytes=%d",
 		modeMatches, len(govpxGrid), blockMatches, len(govpxGrid),
 		skipMatches, len(govpxGrid), len(govpxPacket), len(libvpxFrame.Data))
+	assertVP9PacketByteParity(t, "flat 64x64 keyframe", govpxPacket, libvpxFrame.Data)
 	if blockMatches != len(govpxGrid) || skipMatches != len(govpxGrid) {
 		t.Fatalf("flat keyframe block/skip regression: block_matches=%d/%d skip_matches=%d/%d",
 			blockMatches, len(govpxGrid), skipMatches, len(govpxGrid))
