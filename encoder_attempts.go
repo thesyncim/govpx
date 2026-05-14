@@ -539,14 +539,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	projectedRate := 0
 	cyclicRefreshNextIndex := e.cyclicRefreshIndex
 	// Mirror libvpx vp8/encoder/rdopt.c vp8_initialize_rd_consts: the RD
-	// picker's per-frame fill_token_costs reads from cpi->lfc_a, cpi->lfc_g,
-	// or cpi->lfc_n depending on which reference the current frame refreshes —
-	// NOT from cm->fc.coef_probs (which is what govpx's e.coefProbs mirrors).
-	// Frames that refresh golden/altref score against a colder snapshot
-	// (e.g. lfc_g, last touched at the previous keyframe) which raises every
-	// candidate's rate, lifts bestScore over rd_threshes[SPLITMV], and lets
-	// SPLITMV evaluate. Without this swap, govpx's RD scores run ~0.5x of
-	// libvpx's on golden-refresh frames and SPLITMV's gate spuriously fires.
+	// picker's per-frame fill_token_costs reads from the frame-context table
+	// selected by the current refresh policy. Single-layer encodes choose
+	// lfc_a/lfc_g/lfc_n directly; temporal multilayer encodes follow the
+	// temporal refresh path's effective context selection.
 	//
 	// We stash the picker-side snapshot on e.rdPickerCoefProbs so the picker
 	// helpers (selectInterFrameModeDecision et al.) read from it; the

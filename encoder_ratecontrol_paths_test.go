@@ -1123,3 +1123,40 @@ func TestCommitInterFrameEntropyRefreshesInterIntraModeProbs(t *testing.T) {
 		t.Fatalf("mode probs changed on no-refresh commit: got %+v want %+v", e.modeProbs, original)
 	}
 }
+
+func TestRDPickerCoefProbsSelectsLibvpxFrameContext(t *testing.T) {
+	e := &VP8Encoder{}
+	if got := e.rdPickerCoefProbs(false, false); got != nil {
+		t.Fatalf("rdPickerCoefProbs before snapshot seed = %p, want nil", got)
+	}
+
+	e.coefProbsSnapshotsValid = true
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("single-layer default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("single-layer golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
+		t.Fatalf("single-layer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringOneLayer}
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbsLast {
+		t.Fatalf("one-layer temporal default context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("one-layer temporal golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
+
+	e.opts.TemporalScalability = TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}
+	if got := e.rdPickerCoefProbs(false, false); got != &e.coefProbs {
+		t.Fatalf("temporal multilayer default context = %p, want live coefProbs %p", got, &e.coefProbs)
+	}
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsLast {
+		t.Fatalf("temporal multilayer golden context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
+		t.Fatalf("temporal multilayer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
+	}
+}

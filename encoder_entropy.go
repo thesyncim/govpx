@@ -195,23 +195,21 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 	return &e.coefProbs
 }
 
-// rdPickerCoefProbs returns the snapshot the inter-frame RD picker should
-// feed into fill_token_costs (the rate side of every coefficientBlockTokenRate
-// call inside the picker), mirroring libvpx vp8/encoder/rdopt.c
-// vp8_initialize_rd_consts:
+// rdPickerCoefProbs returns the coefficient-prob table the inter-frame RD
+// picker should feed into fill_token_costs (the rate side of every
+// coefficientBlockTokenRate call inside the picker), mirroring libvpx
+// vp8/encoder/rdopt.c vp8_initialize_rd_consts for single-layer encodes:
 //
 //	l = refresh_alt_ref_frame ? &cpi->lfc_a
 //	  : refresh_golden_frame  ? &cpi->lfc_g
 //	  : &cpi->lfc_n
 //
-// `lfc_n` is a distinct snapshot, not always the same table as cm->fc: temporal
-// enhancement frames can refresh entropy while not refreshing LAST, leaving the
-// live frame context newer than the LAST context that libvpx scores against.
-// Golden/altref-refresh frames likewise score against their own colder
-// snapshots (the keyframe-vintage adapted fc), because intervening
-// last-refresh-only updates skip lfc_g/lfc_a. Without these swaps, RD scoring
-// runs against a too-adapted table and can steer threshold gates and mode
-// choices off libvpx.
+// Temporal multilayer encodes use libvpx's temporal refresh path before RD
+// setup. In that path, non-golden frames score against the live frame context,
+// while golden-refresh frames score against the normal-frame snapshot. Keeping
+// that behavior separate from single-layer lfc_g/lfc_n selection avoids
+// steering threshold gates and mode choices off libvpx in temporal drop/recode
+// cases without changing ordinary single-layer scoring.
 //
 // Returns nil before the first commitKeyFrameEntropy seeds the snapshots
 // (which on a keyframe-led clip is impossible to hit on an inter frame), or
@@ -220,6 +218,16 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 func (e *VP8Encoder) rdPickerCoefProbs(refreshGolden, refreshAltRef bool) *vp8tables.CoefficientProbs {
 	if !e.coefProbsSnapshotsValid {
 		return nil
+	}
+	if e.libvpxTemporalLayerCount() > 1 {
+		switch {
+		case refreshAltRef:
+			return &e.coefProbsAltRef
+		case refreshGolden:
+			return &e.coefProbsLast
+		default:
+			return &e.coefProbs
+		}
 	}
 	switch {
 	case refreshAltRef:
