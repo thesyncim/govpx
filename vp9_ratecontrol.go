@@ -162,6 +162,35 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	return nil
 }
 
+func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) error {
+	if !rc.enabled {
+		return nil
+	}
+	if sizeMs <= 0 || initialMs < 0 || optimalMs < 0 {
+		return ErrInvalidConfig
+	}
+	sizeBits, ok := checkedMul(rc.targetBitrateKbps, sizeMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	initialBits, ok := checkedMul(rc.targetBitrateKbps, initialMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	optimalBits, ok := checkedMul(rc.targetBitrateKbps, optimalMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	rc.bufferSizeMs = sizeMs
+	rc.bufferInitialSizeMs = initialMs
+	rc.bufferOptimalSizeMs = optimalMs
+	rc.bufferSizeBits = sizeBits
+	rc.bufferInitialBits = initialBits
+	rc.bufferOptimalBits = optimalBits
+	rc.clampBuffer()
+	return nil
+}
+
 func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOptions) {
 	rc.setQuantizerBoundsFromOptions(opts)
 	rc.avgFrameQIndexKey = rc.worstQuality

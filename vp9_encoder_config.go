@@ -150,6 +150,28 @@ func (e *VP9Encoder) SetFrameDropAllowed(enabled bool) error {
 	return nil
 }
 
+// SetRateControlBuffer changes the VP9 CBR virtual buffer geometry without
+// changing bitrate. The encoder must have been created with VP9 CBR rate
+// control enabled. Existing buffer level is preserved and clamped to the new
+// maximum buffer size.
+func (e *VP9Encoder) SetRateControlBuffer(sizeMs, initialMs, optimalMs int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if !e.rc.enabled || e.opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	nextRC := e.rc
+	if err := nextRC.setBufferModel(sizeMs, initialMs, optimalMs); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.opts.BufferSizeMs = sizeMs
+	e.opts.BufferInitialSizeMs = initialMs
+	e.opts.BufferOptimalSizeMs = optimalMs
+	return nil
+}
+
 // SetTemporalScalability replaces the active VP9 temporal-only scheduling
 // configuration. Set TemporalScalabilityConfig.Enabled = false to disable
 // temporal layering. The per-layer bitrate vector must be cumulative across

@@ -285,6 +285,25 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				"--fps-schedule=3:15,7:30"),
 		},
 		{
+			name: "buffer-model-two-step",
+			opts: baseOpts(700),
+			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControlBuffer tight",
+						enc.SetRateControlBuffer(400, 300, 350))
+				case 7:
+					mustVP9Runtime(t, "SetRateControlBuffer restore",
+						enc.SetRateControlBuffer(600, 400, 500))
+				}
+			},
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--buf-sz-schedule=3:400,7:600",
+				"--buf-initial-sz-schedule=3:300,7:400",
+				"--buf-optimal-sz-schedule=3:350,7:500"),
+		},
+		{
 			name: "combined-bitrate-fps-q",
 			opts: baseOpts(700),
 			before: func(t *testing.T, enc *VP9Encoder, frame int) {

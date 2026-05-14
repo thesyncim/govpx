@@ -440,6 +440,26 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 			},
 		},
 		{
+			name: "buffer-model-two-step",
+			opts: baseOpts(700),
+			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRateControlBuffer tight",
+						enc.SetRateControlBuffer(400, 300, 350))
+				case 8:
+					mustVP9Runtime(t, "SetRateControlBuffer restore",
+						enc.SetRateControlBuffer(600, 400, 500))
+				}
+			},
+			extraArgs: []string{
+				"--buf-sz-schedule=3:400,8:600",
+				"--buf-initial-sz-schedule=3:300,8:400",
+				"--buf-optimal-sz-schedule=3:350,8:500",
+			},
+		},
+		{
 			name: "bitrate-fps-no-temporal",
 			opts: baseOpts(700),
 			apply: func(t *testing.T, enc *VP9Encoder, frame int) {

@@ -2772,6 +2772,58 @@ func TestVP9EncoderSetRealtimeTargetFrameDropMode(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetRateControlBufferUpdatesBufferModel(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		TargetBitrateKbps:   300,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	e.rc.bufferLevelBits = 100000
+	if err := e.SetRateControlBuffer(200, 100, 150); err != nil {
+		t.Fatalf("SetRateControlBuffer: %v", err)
+	}
+	if e.opts.BufferSizeMs != 200 || e.opts.BufferInitialSizeMs != 100 ||
+		e.opts.BufferOptimalSizeMs != 150 {
+		t.Fatalf("buffer opts = %d/%d/%d, want 200/100/150",
+			e.opts.BufferSizeMs, e.opts.BufferInitialSizeMs,
+			e.opts.BufferOptimalSizeMs)
+	}
+	if e.rc.bufferSizeBits != 60000 || e.rc.bufferInitialBits != 30000 ||
+		e.rc.bufferOptimalBits != 45000 || e.rc.bufferLevelBits != 60000 {
+		t.Fatalf("buffer bits = size:%d initial:%d optimal:%d level:%d, want 60000/30000/45000/60000",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits,
+			e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
+	}
+
+	oldRC := e.rc
+	oldOpts := e.opts
+	if err := e.SetRateControlBuffer(0, 100, 150); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid SetRateControlBuffer err = %v, want ErrInvalidConfig", err)
+	}
+	if e.rc != oldRC || e.opts != oldOpts {
+		t.Fatal("invalid SetRateControlBuffer mutated encoder state")
+	}
+}
+
+func TestVP9EncoderSetRateControlBufferRequiresCBR(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetRateControlBuffer without CBR err = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -2934,6 +2986,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget after Close err = %v, want ErrClosed", err)
 	}
+	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRateControlBuffer after Close err = %v, want ErrClosed", err)
+	}
 	if err := e.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability after Close err = %v, want ErrClosed", err)
 	}
@@ -2943,6 +2998,9 @@ func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	var nilEnc *VP9Encoder
 	if err := nilEnc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 1200}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetRealtimeTarget on nil encoder err = %v, want ErrClosed", err)
+	}
+	if err := nilEnc.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetRateControlBuffer on nil encoder err = %v, want ErrClosed", err)
 	}
 	if err := nilEnc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetTemporalScalability on nil encoder err = %v, want ErrClosed", err)

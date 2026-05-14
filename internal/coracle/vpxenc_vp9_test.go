@@ -162,6 +162,34 @@ func TestVpxencVP9FrameFlagsTraceI420EmitsTemporalMetadata(t *testing.T) {
 	}
 }
 
+func TestVpxencVP9FrameFlagsTraceI420AppliesBufferSchedules(t *testing.T) {
+	if _, err := VpxencVP9FrameFlagsPath(); err != nil {
+		if errors.Is(err, ErrVpxencVP9FrameFlagsNotBuilt) {
+			t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+		}
+		t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	}
+
+	const width, height, frames = 32, 32, 3
+	raw := makeGeneratedVP9I420(width, height, frames)
+	_, trace, diag, err := VpxencVP9FrameFlagsTraceI420(raw, width, height,
+		frames, nil,
+		"--end-usage=cbr",
+		"--target-bitrate=300",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--buf-sz-schedule=1:200",
+		"--buf-initial-sz-schedule=1:100",
+		"--buf-optimal-sz-schedule=1:150")
+	if err != nil {
+		t.Fatalf("VpxencVP9FrameFlagsTraceI420 failed: %v\n%s", err, diag)
+	}
+	if !bytes.Contains(trace, []byte(`"buffer_optimal_bits":45000`)) {
+		t.Fatalf("buffer schedule trace missing 45k optimal buffer:\n%s", trace)
+	}
+}
+
 func makeGeneratedVP9I420(width int, height int, frames int) []byte {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1

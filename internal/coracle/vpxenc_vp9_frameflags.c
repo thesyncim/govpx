@@ -295,6 +295,9 @@ int main(int argc, char **argv) {
   const char *max_q_schedule_csv = NULL;
   const char *drop_frame_schedule_csv = NULL;
   const char *fps_schedule_csv = NULL;
+  const char *buf_size_schedule_csv = NULL;
+  const char *buf_initial_schedule_csv = NULL;
+  const char *buf_optimal_schedule_csv = NULL;
   const char *temporal_bitrates_csv = NULL;
   const char *temporal_decimators_csv = NULL;
   const char *temporal_layer_ids_csv = NULL;
@@ -394,6 +397,12 @@ int main(int argc, char **argv) {
       drop_frame_schedule_csv = v;
     } else if ((v = flag_value(a, "--fps-schedule"))) {
       fps_schedule_csv = v;
+    } else if ((v = flag_value(a, "--buf-sz-schedule"))) {
+      buf_size_schedule_csv = v;
+    } else if ((v = flag_value(a, "--buf-initial-sz-schedule"))) {
+      buf_initial_schedule_csv = v;
+    } else if ((v = flag_value(a, "--buf-optimal-sz-schedule"))) {
+      buf_optimal_schedule_csv = v;
     } else if ((v = flag_value(a, "--temporal-layers"))) {
       temporal_layers = parse_int(v, "--temporal-layers");
     } else if ((v = flag_value(a, "--temporal-bitrates"))) {
@@ -431,6 +440,14 @@ int main(int argc, char **argv) {
                          "--drop-frame-schedule");
   int *fps_schedule =
       parse_int_schedule(fps_schedule_csv, frames, "--fps-schedule");
+  int *buf_size_schedule =
+      parse_int_schedule(buf_size_schedule_csv, frames, "--buf-sz-schedule");
+  int *buf_initial_schedule =
+      parse_int_schedule(buf_initial_schedule_csv, frames,
+                         "--buf-initial-sz-schedule");
+  int *buf_optimal_schedule =
+      parse_int_schedule(buf_optimal_schedule_csv, frames,
+                         "--buf-optimal-sz-schedule");
 
   vpx_codec_iface_t *iface = vpx_codec_vp9_cx();
   vpx_codec_enc_cfg_t cfg;
@@ -589,7 +606,26 @@ int main(int argc, char **argv) {
         fps_num = fps_schedule[frame_idx];
         config_changed = 1;
       }
+      if (buf_size_schedule && buf_size_schedule[frame_idx] >= 0) {
+        buffer_size_ms = buf_size_schedule[frame_idx];
+        cfg.rc_buf_sz = (unsigned)buffer_size_ms;
+        config_changed = 1;
+      }
+      if (buf_initial_schedule && buf_initial_schedule[frame_idx] >= 0) {
+        buffer_initial_ms = buf_initial_schedule[frame_idx];
+        cfg.rc_buf_initial_sz = (unsigned)buffer_initial_ms;
+        config_changed = 1;
+      }
+      if (buf_optimal_schedule && buf_optimal_schedule[frame_idx] >= 0) {
+        buffer_optimal_ms = buf_optimal_schedule[frame_idx];
+        cfg.rc_buf_optimal_sz = (unsigned)buffer_optimal_ms;
+        config_changed = 1;
+      }
       if (min_q > max_q) die_msg("runtime min-q exceeds max-q");
+      if (buffer_size_ms <= 0 || buffer_initial_ms < 0 ||
+          buffer_optimal_ms < 0) {
+        die_msg("invalid runtime buffer model");
+      }
       if (config_changed && vpx_codec_enc_config_set(&ctx, &cfg)) {
         die_codec_msg(&ctx, "vpx_codec_enc_config_set");
       }
@@ -598,6 +634,9 @@ int main(int argc, char **argv) {
       bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
       buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
       buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
+      if (buffer_level_bits > buffer_size_bits) {
+        buffer_level_bits = buffer_size_bits;
+      }
 
       if (fread(plane_buf, 1, frame_size, in) != frame_size) {
         fprintf(stderr, "short read from %s at frame %d\n", infile_path,
@@ -734,6 +773,9 @@ int main(int argc, char **argv) {
   free(max_q_schedule);
   free(drop_frame_schedule);
   free(fps_schedule);
+  free(buf_size_schedule);
+  free(buf_initial_schedule);
+  free(buf_optimal_schedule);
   if (total_emitted == 0) die_msg("no frames emitted by encoder");
   return 0;
 }

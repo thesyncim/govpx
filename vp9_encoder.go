@@ -83,9 +83,9 @@ type VP9EncoderOptions struct {
 	// takes effect when RateControlModeSet is true and RateControlMode is
 	// RateControlCBR.
 	DropFrameAllowed bool
-	// DropFrameWaterMark is retained for VP9 runtime/API parity with VP8. It
-	// is validated and stored, but the current VP9 drop path only uses the
-	// exact buffer-underrun branch.
+	// DropFrameWaterMark controls VP9 CBR watermark decimation when
+	// DropFrameAllowed is enabled. Zero with DropFrameAllowed uses the libvpx
+	// default watermark.
 	DropFrameWaterMark int
 
 	// Quantizer selects a fixed VP9 base qindex in [1, 255]. Zero uses the
