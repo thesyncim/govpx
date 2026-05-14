@@ -450,7 +450,6 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				return roi
 			},
 			extraArgs: []string{"--roi-map=quadrants", "--roi-dq=0,0,0,0", "--roi-dlf=0,0,0,0", "--roi-static=0,0,0,0"},
-			limit:     1,
 		},
 	}
 	for _, tc := range cases {
