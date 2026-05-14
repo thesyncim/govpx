@@ -155,12 +155,9 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		{name: "mode6-3layer-default-cpu0", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 0},
 		{name: "mode6-3layer-default-cpu-3", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3},
 		{name: "mode6-3layer-default-cpu-8", fx: panning64, layeringMode: 6, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 8},
-		// Mode 7 exposes a known 5-layer reference-cadence gap after the
-		// first output packet in non-base layer streams. Keep the row in
-		// the oracle matrix so all later drift stays logged.
-		{name: "mode7-5layer-cpu0", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 0, limit: 1},
-		{name: "mode7-5layer-cpu-3", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, limit: 1},
-		{name: "mode7-5layer-cpu-8", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 8, limit: 1},
+		{name: "mode7-5layer-cpu0", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 0},
+		{name: "mode7-5layer-cpu-3", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3},
+		{name: "mode7-5layer-cpu-8", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 8},
 		{name: "mode8-2layer-sync-cpu0", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 0},
 		{name: "mode8-2layer-sync-cpu-3", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3},
 		{name: "mode8-2layer-sync-cpu-8", fx: panning64, layeringMode: 8, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 8},
@@ -188,7 +185,7 @@ func TestOracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
 		// Both threaded crosses byte-match the full clip.
 		{name: "mode5-3layer-cpu-3-threads2", fx: panning64, layeringMode: 5, numLayers: 3, bitratesKbps: [5]int{140, 280, 700}, speed: 3, threads: 2},
 		{name: "mode2-2layer-cpu-3-threads2", fx: panning64, layeringMode: 2, numLayers: 2, bitratesKbps: [5]int{420, 700}, speed: 3, threads: 2},
-		{name: "mode7-5layer-cpu-3-threads2", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, threads: 2, limit: 1},
+		{name: "mode7-5layer-cpu-3-threads2", fx: panning64, layeringMode: 7, numLayers: 5, bitratesKbps: [5]int{100, 220, 360, 520, 700}, speed: 3, threads: 2},
 		{name: "mode12-3layer-no-sync-cpu-3-threads2", fx: panning64, layeringMode: 12, numLayers: 3, bitratesKbps: [5]int{280, 420, 700}, speed: 3, threads: 2},
 	}
 

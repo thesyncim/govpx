@@ -137,6 +137,58 @@ func TestEncodeIntoTracksLibvpxTemporalLayerAccounting(t *testing.T) {
 	}
 }
 
+func TestTemporalFiveLayerNoRefOnlyUsesDefaultLastRefresh(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        2,
+		MaxQuantizer:        56,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             0,
+		KeyFrameInterval:    3000,
+		StaticThreshold:     1,
+		MaxIntraBitratePct:  1000,
+		UndershootPct:       50,
+		OvershootPct:        50,
+		BufferSizeMs:        1000,
+		BufferInitialSizeMs: 600,
+		BufferOptimalSizeMs: 600,
+		TokenPartitions:     int(vp8common.TwoPartition),
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled:                true,
+			Mode:                   TemporalLayeringFiveLayers,
+			LayerTargetBitrateKbps: [MaxTemporalLayers]int{100, 220, 360, 520, 700},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	var frame8 EncodeResult
+	for frame := 0; frame <= 8; frame++ {
+		result, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto %d returned error: %v", frame, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeInto %d dropped, want emitted temporal frame", frame)
+		}
+		if frame == 8 {
+			frame8 = result
+		}
+	}
+	if frame8.KeyFrame || frame8.TemporalLayerID != 1 {
+		t.Fatalf("frame 8 temporal = key:%t layer:%d, want inter layer 1", frame8.KeyFrame, frame8.TemporalLayerID)
+	}
+	state := packetState(t, frame8.Data)
+	if !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
+		t.Fatalf("frame 8 refresh = %+v, want LAST-only default refresh", state.Refresh)
+	}
+}
+
 func TestEncodeIntoTracksTemporalLayerBufferOnDroppedFrame(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)

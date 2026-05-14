@@ -455,11 +455,16 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// state as libvpx.
 	if temporalActive {
 		// The temporal SVC layer manager passes the per-layer scoreboard
-		// in flags, with NO_UPD_* meaning "do not refresh this buffer".
-		// Treat each axis independently so the scoreboard contract holds.
-		cfg.RefreshLast = flags&EncodeNoUpdateLast == 0
-		cfg.RefreshGolden = flags&EncodeNoUpdateGolden == 0
-		cfg.RefreshAltRef = flags&EncodeNoUpdateAltRef == 0
+		// in flags. libvpx only rewrites the refresh mask when NO_UPD_*
+		// or FORCE_* flags are present; NO_REF_* alone still uses the
+		// normal LAST-only inter-frame default.
+		if externalRefreshFlagsPending(flags) {
+			cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = libvpxExternalRefreshMask(flags)
+		} else {
+			cfg.RefreshLast = true
+			cfg.RefreshGolden = goldenCBRRefresh
+			cfg.RefreshAltRef = false
+		}
 	} else if externalRefreshFlagsPending(flags) {
 		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = libvpxExternalRefreshMask(flags)
 	} else {
