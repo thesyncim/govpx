@@ -71,6 +71,36 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		got := captureGovpxCopyReferenceChecksums(t, opts, sources, nil, sets, probes)
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
+
+	t.Run("copy-reference-probes-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(32, 32)
+		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
+		flags := []EncodeFlags{
+			0,
+			0,
+			EncodeForceGoldenFrame,
+			0,
+			EncodeForceAltRefFrame,
+			0,
+		}
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "copyref:last+copyref:golden+copyref:altref"
+		script[3] = "copyref:golden"
+		script[5] = "copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+			3: copyReferenceProbeApply("frame3", ReferenceGolden),
+			5: copyReferenceProbeApply("frame5", ReferenceAltRef),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-bytestream.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-bytestream", opts, opts.TargetBitrateKbps, sources, flags, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
+		assertSegmentByteParity(t, "copyref-bytestream", got, want, 0)
+	})
 }
 
 type copyReferenceChecksum struct {
@@ -90,6 +120,29 @@ type copyReferenceSet struct {
 	ref          ReferenceFrame
 	name         string
 	panningIndex int
+}
+
+func copyReferenceProbeApply(label string, refs ...ReferenceFrame) func(*testing.T, *VP8Encoder) {
+	return func(t *testing.T, e *VP8Encoder) {
+		t.Helper()
+		dst := newTestImage(e.opts.Width, e.opts.Height)
+		for _, ref := range refs {
+			mustRuntime(t, label+" CopyReferenceFrame("+copyReferenceName(ref)+")", e.CopyReferenceFrame(ref, &dst))
+		}
+	}
+}
+
+func copyReferenceName(ref ReferenceFrame) string {
+	switch ref {
+	case ReferenceLast:
+		return "last"
+	case ReferenceGolden:
+		return "golden"
+	case ReferenceAltRef:
+		return "altref"
+	default:
+		return strconv.Itoa(int(ref))
+	}
 }
 
 func copyReferenceParityOptions(width, height int) EncoderOptions {

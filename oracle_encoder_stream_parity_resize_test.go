@@ -386,6 +386,103 @@ func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize control byte-parity gate")
+	}
+	frameFlagsDriver := findVpxencFrameFlags(t)
+
+	const (
+		fps          = 30
+		targetKbps   = 700
+		framesPerSeg = 4
+	)
+	cases := []struct {
+		name          string
+		controlScript string
+		apply         func(*testing.T, *VP8Encoder)
+		limit         int
+		assertFrom    int
+	}{
+		{
+			name:          "active-checker",
+			controlScript: "active:checker",
+			apply:         activeMapApply("checker"),
+		},
+		{
+			name:          "roi-border1",
+			controlScript: "roi:border1",
+			apply:         roiMapApply("border1"),
+		},
+		{
+			name:          "roi-checker",
+			controlScript: "roi:checker",
+			apply:         roiMapApply("checker"),
+		},
+		{
+			name:          "token-partitions-4",
+			controlScript: "token:2",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetTokenPartitions(2)", e.SetTokenPartitions(2))
+			},
+		},
+		{
+			name:          "rtc-external",
+			controlScript: "rtc:1",
+			limit:         framesPerSeg,
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+			},
+		},
+		{
+			name:          "active-checker-roi-border1",
+			controlScript: "active:checker+roi:border1",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				roiMapApply("border1")(t, e)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seg1 := makePanningSources(64, 64, framesPerSeg, 0)
+			seg2 := makePanningSources(32, 32, framesPerSeg, framesPerSeg)
+			opts := EncoderOptions{
+				Width:             64,
+				Height:            64,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           0,
+			}
+			sources := append(append([]Image(nil), seg1...), seg2...)
+			script := make([]string, len(sources))
+			for i := range script {
+				script[i] = "-"
+			}
+			script[framesPerSeg] = "resize:32x32+" + tc.controlScript
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, targetKbps, sources, nil, []string{
+				"--control-script=" + strings.Join(script, ","),
+			})
+
+			govpxFrames := encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
+			if tc.assertFrom > 0 {
+				assertSegmentByteParityFrom(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.assertFrom)
+				return
+			}
+			assertSegmentByteParity(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 // encodeWithMidStreamResize runs a single govpx encoder across two
 // resolution segments. It encodes seg1 at the dimensions supplied in
 // initOpts, drains via FlushInto, calls SetRealtimeTarget with the new
@@ -393,6 +490,19 @@ func TestOracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 // segment.
 func encodeWithMidStreamResize(t *testing.T, initOpts EncoderOptions,
 	w2, h2 int, seg1, seg2 []Image) ([][]byte, [][]byte) {
+	t.Helper()
+	return encodeWithMidStreamResizeAndControlSplit(t, initOpts, w2, h2, seg1, seg2, nil)
+}
+
+func encodeWithMidStreamResizeAndControl(t *testing.T, initOpts EncoderOptions,
+	w2, h2 int, seg1, seg2 []Image, afterResize func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
+	out1, out2 := encodeWithMidStreamResizeAndControlSplit(t, initOpts, w2, h2, seg1, seg2, afterResize)
+	return append(append([][]byte(nil), out1...), out2...)
+}
+
+func encodeWithMidStreamResizeAndControlSplit(t *testing.T, initOpts EncoderOptions,
+	w2, h2 int, seg1, seg2 []Image, afterResize func(*testing.T, *VP8Encoder)) ([][]byte, [][]byte) {
 	t.Helper()
 	enc, err := NewVP8Encoder(initOpts)
 	if err != nil {
@@ -432,6 +542,9 @@ func encodeWithMidStreamResize(t *testing.T, initOpts EncoderOptions,
 
 	if err := enc.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
 		t.Fatalf("SetRealtimeTarget(%dx%d): %v", w2, h2, err)
+	}
+	if afterResize != nil {
+		afterResize(t, enc)
 	}
 
 	out2 := make([][]byte, 0, len(seg2))

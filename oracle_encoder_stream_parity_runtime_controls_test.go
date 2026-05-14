@@ -1072,6 +1072,26 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "active-map-checker-force-keyframe-toggle",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: []EncodeFlags{
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker",
+				7: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("checker"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "active-map-checker-toggle-noise3-threads2",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -1328,6 +1348,30 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					t.Helper()
 					mustRuntime(t, "SetROIMap(quadrants)", e.SetROIMap(quadrantROIMap(e.opts.Width, e.opts.Height)))
 				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-map-border-force-keyframe-toggle",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			// Re-forcing a keyframe while ROI is active still has a small
+			// first-partition drift; keep the strict pre-force prefix and
+			// log the rest of the ROI/keyframe transition.
+			matchLimit: 4,
+			flags: []EncodeFlags{
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				0: "roi:border1",
+				6: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: roiMapApply("border1"),
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))

@@ -170,6 +170,9 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// reference update byte-identical to libvpx.
 		{name: "invisible-keyframe-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{EncodeInvisibleFrame}},
 		{name: "invisible-inter-frame1-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame}},
+		{name: "invisible-inter-run-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame, EncodeInvisibleFrame, 0, EncodeInvisibleFrame}},
+		{name: "invisible-no-upd-entropy-no-ref-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame | EncodeNoUpdateEntropy | EncodeNoUpdateLast | EncodeNoReferenceGolden | EncodeNoReferenceAltRef}},
+		{name: "invisible-force-gf-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, EncodeInvisibleFrame | EncodeForceGoldenFrame, 0, EncodeInvisibleFrame | EncodeForceAltRefFrame}},
 
 		// EncodeNoUpdateLast on every inter frame — exercises the
 		// "freeze LAST" pattern used by WebRTC scalability layers.
