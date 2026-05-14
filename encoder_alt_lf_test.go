@@ -172,6 +172,43 @@ func TestLoopFilterSegmentationHeaderTranslatesAltLFFeatureData(t *testing.T) {
 	}
 }
 
+func TestSegmentationConfigForLoopFilterLevelDropsOnlyZeroBaseNonPositiveAltLF(t *testing.T) {
+	t.Parallel()
+
+	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateData: true}
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][1] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][1] = -3
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][2] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][2] = 4
+	cfg.FeatureEnabled[vp8common.MBLvlAltLF][3] = true
+	cfg.FeatureData[vp8common.MBLvlAltLF][3] = -2
+
+	got := segmentationConfigForLoopFilterLevel(cfg, 0)
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != 0 {
+		t.Fatalf("negative zero-level ALT_LF = enabled:%t data:%d, want stripped", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
+		t.Fatalf("positive zero-level ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	}
+
+	got = segmentationConfigForLoopFilterLevel(cfg, 3)
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != -3 {
+		t.Fatalf("positive-base ALT_LF = enabled:%t data:%d, want retained -3", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][3] || got.FeatureData[vp8common.MBLvlAltLF][3] != -2 {
+		t.Fatalf("nonzero effective ALT_LF = enabled:%t data:%d, want retained -2", got.FeatureEnabled[vp8common.MBLvlAltLF][3], got.FeatureData[vp8common.MBLvlAltLF][3])
+	}
+
+	cfg.AbsDelta = true
+	got = segmentationConfigForLoopFilterLevel(cfg, 0)
+	if got.FeatureEnabled[vp8common.MBLvlAltLF][1] || got.FeatureData[vp8common.MBLvlAltLF][1] != 0 {
+		t.Fatalf("negative absolute ALT_LF = enabled:%t data:%d, want stripped", got.FeatureEnabled[vp8common.MBLvlAltLF][1], got.FeatureData[vp8common.MBLvlAltLF][1])
+	}
+	if !got.FeatureEnabled[vp8common.MBLvlAltLF][2] || got.FeatureData[vp8common.MBLvlAltLF][2] != 4 {
+		t.Fatalf("positive absolute ALT_LF = enabled:%t data:%d, want retained +4", got.FeatureEnabled[vp8common.MBLvlAltLF][2], got.FeatureData[vp8common.MBLvlAltLF][2])
+	}
+}
+
 func TestLoopFilterFastPickerUsesInstalledAltLF(t *testing.T) {
 	t.Parallel()
 

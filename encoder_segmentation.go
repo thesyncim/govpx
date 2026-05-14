@@ -79,16 +79,19 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 	return header
 }
 
-// libvpx copies segment ALT_LF data into the packet-facing decoder state only
-// after choosing a positive base loop-filter level. At level 0, segmentation
-// remains enabled but ALT_LF features are absent from the header.
+// libvpx omits non-positive ALT_LF data from the packet-facing decoder state
+// only when the chosen base loop-filter level is zero. Segmentation remains
+// enabled, and a positive ALT_LF value is still emitted because it raises that
+// segment above the zero base level.
 func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
 	if !cfg.Enabled || level > 0 {
 		return cfg
 	}
 	for segment := range vp8common.MaxMBSegments {
-		cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] = false
-		cfg.FeatureData[vp8common.MBLvlAltLF][segment] = 0
+		if cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] && cfg.FeatureData[vp8common.MBLvlAltLF][segment] <= 0 {
+			cfg.FeatureEnabled[vp8common.MBLvlAltLF][segment] = false
+			cfg.FeatureData[vp8common.MBLvlAltLF][segment] = 0
+		}
 	}
 	return cfg
 }

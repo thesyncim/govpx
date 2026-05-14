@@ -607,6 +607,8 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if segmentation.Enabled {
 		updateInterFrameSegmentationTreeProbs(&segmentation, e.interFrameModes[:required])
 		cfg.Segmentation = segmentation
+	} else if e.rtcExternalPreserveSegmentation {
+		cfg.Segmentation = vp8enc.SegmentationConfig{Enabled: true}
 	}
 	cfg.ProbSkipFalse = interFrameModeSkipFalseProbability(rows, cols, e.interFrameModes[:required], cfg.ProbSkipFalse)
 	packet := vp8enc.InterFramePacket{

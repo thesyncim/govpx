@@ -90,7 +90,7 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 		SegmentID: []uint8{1, 0},
 	}
 	roi.DeltaQuantizer[1] = -10
-	roi.DeltaLoopFilter[1] = -3
+	roi.DeltaLoopFilter[1] = 3
 	if err := e.SetROIMap(&roi); err != nil {
 		t.Fatalf("SetROIMap returned error: %v", err)
 	}
@@ -107,8 +107,8 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 	if got, want := keyState.Segmentation.FeatureData[vp8common.MBLvlAltQ][1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("key ROI alt-q[1] = %d, want %d", got, want)
 	}
-	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltLF][1]; got != -3 {
-		t.Fatalf("key ROI alt-lf[1] = %d, want -3", got)
+	if got := keyState.Segmentation.FeatureData[vp8common.MBLvlAltLF][1]; got != 3 {
+		t.Fatalf("key ROI alt-lf[1] = %d, want 3", got)
 	}
 
 	d, err := NewVP8Decoder(DecoderOptions{})

@@ -184,15 +184,18 @@ func (e *VP8Encoder) SetScreenContentMode(mode int) error {
 	return nil
 }
 
-// SetRTCExternalRateControl enables or disables libvpx's VP8 RTC
-// external-rate-control mode. Enabling it disables cyclic refresh and
-// post-encode overshoot recode while keeping rate-correction-factor
-// updates active. See EncoderOptions.RTCExternalRateControl.
+// SetRTCExternalRateControl enables libvpx's VP8 RTC external-rate-control
+// mode. Like libvpx's VP8E_SET_RTC_EXTERNAL_RATECTRL control, enabling is
+// sticky: a later false call is accepted but does not re-enable cyclic refresh
+// or overshoot recode. See EncoderOptions.RTCExternalRateControl.
 func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	e.opts.RTCExternalRateControl = enabled
+	if enabled {
+		e.rtcExternalPreserveSegmentation = e.segmentationHeaderEnabled
+		e.opts.RTCExternalRateControl = true
+	}
 	return nil
 }
 

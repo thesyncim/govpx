@@ -1157,10 +1157,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// The toggle itself routes through libvpx's codec-control
-			// surface. Prefix-pin the row with the other runtime
-			// transition cases while logging the post-toggle packets.
-			matchLimit: 2,
 			script: runtimeControlScript(frames, map[int]string{
 				2: "rtc:1",
 				6: "rtc:0",

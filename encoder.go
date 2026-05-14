@@ -485,13 +485,15 @@ type VP8Encoder struct {
 	// restoreCodingContext when an attempt is rejected.
 	savedContext savedCodingContext
 
-	cyclicRefreshIndex      int
-	cyclicRefreshMap        []int8
-	cyclicRefreshAttemptMap []int8
-	skinMap                 []uint8
-	consecZeroLast          []uint8
-	lastInterZeroMVCount    int
-	lastInterSkipCount      int
+	cyclicRefreshIndex              int
+	cyclicRefreshMap                []int8
+	cyclicRefreshAttemptMap         []int8
+	segmentationHeaderEnabled       bool
+	rtcExternalPreserveSegmentation bool
+	skinMap                         []uint8
+	consecZeroLast                  []uint8
+	lastInterZeroMVCount            int
+	lastInterSkipCount              int
 
 	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
 	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
