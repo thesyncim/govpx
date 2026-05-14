@@ -2649,6 +2649,107 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "roi-checker-noise3-force-keyframe-clear",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Checker ROI + denoiser is strict through the early inter
+			// packets, drifts just before teardown, then rejoins when the
+			// forced keyframe clears ROI segmentation.
+			matchLimit: 4,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:checker",
+				6: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("checker"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-left1-noise3-force-keyframe-clear",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:left1",
+				6: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("left1"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-border1-noise3-force-keyframe-clear",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:border1",
+				6: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("border1"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "roi-quadrants-noise3-force-keyframe-clear",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:quadrants",
+				6: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("quadrants"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
 			name: "set-reference-golden-before-inter",
 			fx:   panning32,
 			opts: func() EncoderOptions {
