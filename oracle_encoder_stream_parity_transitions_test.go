@@ -390,6 +390,53 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "flush-no-lookahead", govpxFrames, libvpxFrames, 0)
 	})
 
+	for _, tc := range []struct {
+		name      string
+		opts      EncoderOptions
+		extraArgs []string
+		limit     int
+	}{
+		{
+			name: "flush-cq-mode-resume",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.RateControlMode = RateControlCQ
+				opts.CQLevel = 20
+				return opts
+			}(),
+			extraArgs: []string{"--end-usage=cq", "--cq-level=20"},
+		},
+		{
+			name: "flush-q-mode-resume",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.RateControlMode = RateControlQ
+				opts.CQLevel = 20
+				return opts
+			}(),
+			extraArgs: []string{"--end-usage=q", "--cq-level=20"},
+		},
+		{
+			name: "flush-vbr-good-resume",
+			opts: func() EncoderOptions {
+				opts := baseOpts
+				opts.RateControlMode = RateControlVBR
+				opts.Deadline = DeadlineGoodQuality
+				opts.CpuUsed = 0
+				return opts
+			}(),
+			extraArgs: []string{"--end-usage=vbr"},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			sources := makePanningSources(tc.opts.Width, tc.opts.Height, 10, 0)
+			govpxFrames := encodeWithMidStreamFlush(t, tc.opts, sources, 4)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.extraArgs)
+			assertSegmentByteParity(t, tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+
 	t.Run("flush-lookahead-drain-resume-matches-single-oracle-stream", func(t *testing.T) {
 		opts := baseOpts
 		opts.LookaheadFrames = 2
