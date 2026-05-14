@@ -4125,6 +4125,29 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		},
 	})
 
+	twoLayerBestDeadlineScript := twoLayerScript(12)
+	appendRuntimeControl(twoLayerBestDeadlineScript, 4, "deadline:best")
+	appendRuntimeControl(twoLayerBestDeadlineScript, 8, "deadline:rt")
+	cases = append(cases, temporalCase{
+		name:      "two-layer-deadline-best-rt-roundtrip",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    twoLayerBestDeadlineScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetDeadline(best)", e.SetDeadline(DeadlineBestQuality))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+			},
+		},
+	})
+
 	for _, tc := range []struct {
 		name    string
 		mode    RateControlMode

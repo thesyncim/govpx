@@ -400,10 +400,20 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	if deadline < DeadlineBestQuality || deadline > DeadlineRealtime {
 		return ErrInvalidConfig
 	}
+	previousDeadline := e.opts.Deadline
 	e.opts.Deadline = deadline
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(deadline, e.opts.CpuUsed)
 	if deadline != DeadlineRealtime {
 		e.runtimePinnedCPUUsed = false
+	}
+	if deadline != previousDeadline {
+		e.resetInterRDThresholdMultipliers()
+		e.forceNextLFDeltaUpdate()
+		if deadline == DeadlineRealtime {
+			e.resetAutoSpeedTiming()
+		} else {
+			e.autoSpeed = e.opts.CpuUsed
+		}
 	}
 	return nil
 }

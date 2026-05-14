@@ -305,11 +305,21 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	block := int(vp8tables.MBSplitOffset[ctx.mode.Partition&3][ctx.subset&15])
 	leftMV := analysisSplitLeftMV(ctx.mode, ctx.left, block)
 	aboveMV := analysisSplitAboveMV(ctx.mode, ctx.above, block)
-	bestMV := leftMV
-	bestMode := vp8common.Left4x4
-	bestRD, bestAbove, bestLeft, bestHasContexts := ctx.candidateRD(block, bestMV, splitSubMotionLabelRate(bestMode))
+	mbRows := (ctx.src.Height + 15) >> 4
+	mbCols := (ctx.src.Width + 15) >> 4
+	bestMV := vp8enc.MotionVector{}
+	bestMode := vp8common.Zero4x4
+	bestRD := maxInt()
+	var bestAbove [4]uint8
+	var bestLeft [4]uint8
+	bestHasContexts := false
 
 	tryCandidate := func(candidateMode vp8common.BPredictionMode, mv vp8enc.MotionVector) {
+		// rd_check_segment applies the same UMV trap to inherited
+		// LEFT/ABOVE/ZERO labels as it does to searched NEW labels.
+		if !interFrameUMVFullPixelInRange(mv, ctx.mbRow, ctx.mbCol, mbRows, mbCols) {
+			return
+		}
 		rate := splitSubMotionLabelRate(candidateMode)
 		rd, nextAbove, nextLeft, hasContexts := ctx.candidateRD(block, mv, rate)
 		if rd < bestRD {
@@ -322,6 +332,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 		}
 	}
 
+	tryCandidate(vp8common.Left4x4, leftMV)
 	if aboveMV != leftMV {
 		tryCandidate(vp8common.Above4x4, aboveMV)
 	}
