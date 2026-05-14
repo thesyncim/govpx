@@ -260,3 +260,70 @@ func TestWriteInterBlockNewMvSwitchable(t *testing.T) {
 		t.Errorf("mv = %+v, want %+v", gotMv, wantMv)
 	}
 }
+
+func TestWriteInterBlockCompoundNewMvWritesBothHalves(t *testing.T) {
+	var seg vp9dec.SegmentationParams
+	var fc vp9dec.FrameContext
+	fillFcUniform(&fc)
+
+	signBias := [vp9dec.MaxRefFrames]uint8{vp9dec.AltrefFrame: 1}
+	refs := vp9dec.SetupCompoundReferenceMode(signBias)
+	mi := &vp9dec.NeighborMi{
+		SbType:       common.Block16x16,
+		Mode:         common.NewMv,
+		TxSize:       common.Tx4x4,
+		RefFrame:     [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame},
+		InterpFilter: uint8(vp9dec.InterpEighttapSharp),
+	}
+	bestRef := [2]vp9dec.MV{{Row: 4, Col: 2}, {Row: -3, Col: 6}}
+	wantMv := [2]vp9dec.MV{{Row: 11, Col: -10}, {Row: -7, Col: 23}}
+
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	WriteInterBlock(&bw, WriteInterBlockArgs{
+		Seg:                 &seg,
+		Mi:                  mi,
+		Fc:                  &fc,
+		TxMode:              common.Only4x4,
+		FrameRefMode:        vp9dec.CompoundReference,
+		InterpFilter:        vp9dec.InterpSwitchable,
+		CompFixedRef:        refs.CompFixedRef,
+		CompVarRef:          refs.CompVarRef,
+		RefFrameSignBias:    signBias,
+		InterModeCtx:        0,
+		SwitchableInterpCtx: 0,
+		IsCompound:          true,
+		AllowHP:             true,
+		Mv:                  wantMv,
+		BestRefMv:           bestRef,
+	})
+	size, _ := bw.Stop()
+
+	var r bitstream.Reader
+	r.Init(buf[:size])
+	vp9dec.ReadSkipWithSeg(&r, &seg, 0, &fc, nil, nil)
+	vp9dec.ReadIntraInterFlag(&r, &fc, nil, nil)
+	var refOut [2]int8
+	vp9dec.ReadRefFrames(&r, vp9dec.CompoundReference, signBias, refs,
+		&seg, 0, &fc, nil, nil, &refOut)
+	if refOut != mi.RefFrame {
+		t.Fatalf("ref frames = %v, want %v", refOut, mi.RefFrame)
+	}
+	mode := vp9dec.ReadInterMode(&r, fc.InterModeProbs[0])
+	if mode != common.NewMv {
+		t.Fatalf("inter mode = %d, want NewMv", mode)
+	}
+	filt := vp9dec.ReadSwitchableInterpFilter(&r, &fc, nil, nil)
+	if filt != vp9dec.InterpEighttapSharp {
+		t.Fatalf("interp filter = %d, want EighttapSharp", filt)
+	}
+	var got [2]vp9dec.MV
+	for ref := range got {
+		refMv := bestRef[ref]
+		vp9dec.ReadMv(&r, &got[ref], &refMv, &fc.Nmvc, true)
+	}
+	if got != wantMv {
+		t.Fatalf("compound MVs = %+v, want %+v", got, wantMv)
+	}
+}

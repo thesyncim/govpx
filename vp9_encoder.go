@@ -2445,18 +2445,22 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 
 	var newMv, newRefMv [2]vp9dec.MV
 	newOK := true
+	newHasMotion := false
 	for ref := 0; ref < 2; ref++ {
 		inter.ref = &e.refFrames[refSlot[ref]]
-		newMv[ref], _, newOK = e.pickVP9InterMv(inter, miRows, miCols,
+		newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame[ref])
 		if !newOK {
 			break
+		}
+		if newMv[ref] != (vp9dec.MV{}) {
+			newHasMotion = true
 		}
 		newRefMv[ref], _ = e.vp9EncoderInterModeCandidateMv(tile,
 			miRows, miCols, miRow, miCol, bsize, common.NewMv,
 			refFrame[ref], inter.allowHP, inter.refSignBias)
 	}
-	if newOK {
+	if newOK && newHasMotion {
 		e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
 			refFrame, refSlot, common.NewMv, newMv, newRefMv, consider)
 	}
@@ -2612,6 +2616,18 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrame int8,
 ) (vp9dec.MV, uint64, bool) {
+	mv, score, ok := e.pickVP9InterMvAllowZero(inter, miRows, miCols,
+		miRow, miCol, bsize, refFrame)
+	if !ok || mv == (vp9dec.MV{}) {
+		return vp9dec.MV{}, score, false
+	}
+	return mv, score, true
+}
+
+func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrame int8,
+) (vp9dec.MV, uint64, bool) {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return vp9dec.MV{}, 0, false
 	}
@@ -2688,9 +2704,6 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
 	mv, bestScore = e.refineVP9InterSubpelMv(inter, miRows, miCols,
 		miRow, miCol, bsize, refFrame, mv, bestScore)
-	if mv == (vp9dec.MV{}) {
-		return vp9dec.MV{}, bestScore, false
-	}
 	return mv, bestScore, true
 }
 
