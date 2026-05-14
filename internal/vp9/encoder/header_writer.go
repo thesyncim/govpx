@@ -291,23 +291,22 @@ func writeFrameSize(w *BitWriter, h *vp9dec.UncompressedHeader) {
 	w.WriteBit(0)
 }
 
-// encodeLoopfilter mirrors encode_loopfilter. The mode_ref_delta
-// update path emits change-mask bits + the per-slot magnitude/sign;
-// when delta_update is off we emit just the enabled bit. Delegates
-// to EncodeLoopfilterWithPrev with prevRef/prevMode = nil so every
-// slot is treated as new (changed-bit=1) — the right shape for the
-// first frame after a context reset. Frame-to-frame tracking goes
-// through the WithPrev entry.
+// encodeLoopfilter mirrors the reset-state path through libvpx's
+// encode_loopfilter. vp9_setup_past_independence zeroes last_ref_deltas /
+// last_mode_deltas before default deltas are compared, so zero-valued slots
+// emit changed=0 rather than a redundant signed zero.
 func encodeLoopfilter(w *BitWriter, lf *vp9dec.LoopfilterParams) {
-	EncodeLoopfilterWithPrev(w, lf, nil, nil)
+	var prevRef [vp9dec.MaxRefLfDeltas]int8
+	var prevMode [vp9dec.MaxModeLfDeltas]int8
+	EncodeLoopfilterWithPrev(w, lf, &prevRef, &prevMode)
 }
 
 // EncodeLoopfilterWithPrev mirrors libvpx's encode_loopfilter
 // exactly: per-slot "changed" bit against the previous frame's
 // last_ref_deltas / last_mode_deltas, plus the new 6-bit
 // magnitude + sign when changed. `prevRef` / `prevMode`, when
-// non-nil, supply the previous-frame snapshot; passing nil falls
-// back to "every slot is new" — the post-context-reset path.
+// non-nil, supply the previous-frame snapshot; passing nil forces
+// every slot to emit a changed bit and signed value.
 func EncodeLoopfilterWithPrev(w *BitWriter, lf *vp9dec.LoopfilterParams,
 	prevRef *[vp9dec.MaxRefLfDeltas]int8,
 	prevMode *[vp9dec.MaxModeLfDeltas]int8,

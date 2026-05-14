@@ -354,7 +354,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		qindex = 1
 	}
 	header.Quant.BaseQindex = int16(qindex)
-	header.Loopfilter.FilterLevel = vp9EncoderLoopFilterLevel(qindex, isKey)
+	header.Loopfilter = vp9EncoderLoopFilterParams(qindex, isKey,
+		isKey || intraOnly || e.opts.ErrorResilient)
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -911,6 +912,16 @@ func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
 		return vp9dec.MaxLoopFilter
 	}
 	return uint8(level)
+}
+
+func vp9EncoderLoopFilterParams(qindex int, isKey, resetDeltas bool) vp9dec.LoopfilterParams {
+	return vp9dec.LoopfilterParams{
+		FilterLevel:         vp9EncoderLoopFilterLevel(qindex, isKey),
+		ModeRefDeltaEnabled: true,
+		ModeRefDeltaUpdate:  resetDeltas,
+		RefDeltas:           [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1},
+		ModeDeltas:          [vp9dec.MaxModeLfDeltas]int8{0, 0},
+	}
 }
 
 func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,

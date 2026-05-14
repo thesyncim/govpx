@@ -98,8 +98,8 @@ func TestEncodeLoopfilterWithPrevNoChanges(t *testing.T) {
 }
 
 // TestEncodeLoopfilterDelegateNilPrev: the nil-prev path keeps the
-// previous "always emit changed=1 + value" behavior — useful after
-// a context reset where there's no prev frame to compare against.
+// explicit "always emit changed=1 + value" behavior for callers that
+// intentionally do not have a previous delta snapshot.
 func TestEncodeLoopfilterDelegateNilPrev(t *testing.T) {
 	lf := &vp9dec.LoopfilterParams{
 		FilterLevel:         24,
@@ -120,5 +120,39 @@ func TestEncodeLoopfilterDelegateNilPrev(t *testing.T) {
 	vp9dec.ReadLoopfilter(&r, decoded)
 	if decoded.RefDeltas != lf.RefDeltas {
 		t.Errorf("RefDeltas = %v, want %v", decoded.RefDeltas, lf.RefDeltas)
+	}
+}
+
+func TestEncodeLoopfilterResetUsesZeroLastDeltas(t *testing.T) {
+	lf := &vp9dec.LoopfilterParams{
+		FilterLevel:         24,
+		SharpnessLevel:      0,
+		ModeRefDeltaEnabled: true,
+		ModeRefDeltaUpdate:  true,
+		RefDeltas:           [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1},
+		ModeDeltas:          [vp9dec.MaxModeLfDeltas]int8{0, 0},
+	}
+
+	buf := make([]byte, 16)
+	w := NewBitWriter(buf)
+	startBits := w.BitsWritten()
+	encodeLoopfilter(w, lf)
+	wireBits := w.BitsWritten() - startBits
+
+	// 6 filter_level + 3 sharpness + 1 enabled + 1 update +
+	// 4 ref-change bits + 2 mode-change bits + 3 non-zero signed ref deltas.
+	if wireBits != 38 {
+		t.Errorf("wire bits = %d, want 38 (libvpx reset-delta path)", wireBits)
+	}
+
+	var r vp9dec.BitReader
+	r.Init(buf[:w.BytesWritten()])
+	decoded := &vp9dec.LoopfilterParams{}
+	vp9dec.ReadLoopfilter(&r, decoded)
+	if decoded.RefDeltas != lf.RefDeltas {
+		t.Errorf("RefDeltas = %v, want %v", decoded.RefDeltas, lf.RefDeltas)
+	}
+	if decoded.ModeDeltas != lf.ModeDeltas {
+		t.Errorf("ModeDeltas = %v, want %v", decoded.ModeDeltas, lf.ModeDeltas)
 	}
 }

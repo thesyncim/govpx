@@ -672,6 +672,64 @@ func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	if h.Loopfilter.FilterLevel == 0 {
 		t.Fatal("FilterLevel = 0, want high-quantizer keyframe to enable filtering")
 	}
+	wantRef := [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1}
+	wantMode := [vp9dec.MaxModeLfDeltas]int8{0, 0}
+	if !h.Loopfilter.ModeRefDeltaEnabled || !h.Loopfilter.ModeRefDeltaUpdate {
+		t.Fatalf("loopfilter delta flags = enabled:%v update:%v, want enabled update",
+			h.Loopfilter.ModeRefDeltaEnabled, h.Loopfilter.ModeRefDeltaUpdate)
+	}
+	if h.Loopfilter.RefDeltas != wantRef {
+		t.Fatalf("RefDeltas = %v, want %v", h.Loopfilter.RefDeltas, wantRef)
+	}
+	if h.Loopfilter.ModeDeltas != wantMode {
+		t.Fatalf("ModeDeltas = %v, want %v", h.Loopfilter.ModeDeltas, wantMode)
+	}
+}
+
+func TestVP9EncoderLoopFilterDeltasCarryAcrossInterFrame(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 128,
+	})
+	keySrc := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	keyPacket, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, keyPacket)
+
+	interSrc := newVP9CheckerYCbCrForTest(width, height, 224, 32, 128, 128)
+	interPacket, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	var br vp9dec.BitReader
+	br.Init(interPacket)
+	refDims := func(slot uint8) (uint32, uint32) {
+		return width, height
+	}
+	interHeader, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader, refDims)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader inter: %v", err)
+	}
+
+	wantRef := [vp9dec.MaxRefLfDeltas]int8{1, 0, -1, -1}
+	wantMode := [vp9dec.MaxModeLfDeltas]int8{0, 0}
+	if !interHeader.Loopfilter.ModeRefDeltaEnabled {
+		t.Fatal("ModeRefDeltaEnabled = false, want default deltas enabled")
+	}
+	if interHeader.Loopfilter.ModeRefDeltaUpdate {
+		t.Fatal("ModeRefDeltaUpdate = true, want normal inter frame to preserve deltas")
+	}
+	if interHeader.Loopfilter.RefDeltas != wantRef {
+		t.Fatalf("RefDeltas = %v, want %v", interHeader.Loopfilter.RefDeltas, wantRef)
+	}
+	if interHeader.Loopfilter.ModeDeltas != wantMode {
+		t.Fatalf("ModeDeltas = %v, want %v", interHeader.Loopfilter.ModeDeltas, wantMode)
+	}
 }
 
 func TestVP9EncoderLoopFilteredReferenceMatchesDecodedFrame(t *testing.T) {
