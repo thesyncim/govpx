@@ -523,6 +523,24 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 				5: "setref:golden:panning:9",
 			}),
 		},
+		{
+			name:        "rtc-external-set-reference-before-force-keyframe",
+			frames:      8,
+			forceFrames: map[int]bool{3: true, 6: true},
+			runtimeApply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				2: setReferencePanningApply(ReferenceLast, 8, "last"),
+				5: setReferencePanningApply(ReferenceGolden, 9, "golden"),
+			},
+			controlScript: runtimeControlScript(8, map[int]string{
+				1: "rtc:1",
+				2: "setref:last:panning:8",
+				5: "setref:golden:panning:9",
+			}),
+		},
 	}
 
 	for _, tc := range cases {
