@@ -85,9 +85,10 @@ type RateControlConfig struct {
 // fully usable at its previous configuration.
 //
 // Mirrors libvpx's `vpx_codec_enc_config_set` for the fields a WebRTC sender
-// typically updates per BWE step. VP9 consumes BitrateKbps / FPS / Width /
-// Height through VP9Encoder.SetRealtimeTarget; frame-drop and public quantizer
-// controls are VP8-only until VP9 rate control lands.
+// typically updates per BWE step. VP9 consumes BitrateKbps / FPS /
+// MinQuantizer / MaxQuantizer / Width / Height through
+// VP9Encoder.SetRealtimeTarget; frame-drop controls remain VP8-only until VP9
+// dropping lands.
 type RealtimeTarget struct {
 	// BitrateKbps changes the total target bitrate when non-zero.
 	// Equivalent to [VP8Encoder.SetBitrateKbps]. VP9 stores it as a

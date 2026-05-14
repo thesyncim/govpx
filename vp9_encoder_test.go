@@ -436,6 +436,22 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 		{func(o *VP9EncoderOptions) { o.TargetBitrateKbps = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = -1 }, ErrInvalidConfig},
 		{func(o *VP9EncoderOptions) { o.Quantizer = 256 }, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) { o.MinQuantizer = -1 }, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) { o.MaxQuantizer = 64 }, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) { o.CQLevel = 64 }, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.MinQuantizer = 40
+			o.MaxQuantizer = 20
+		}, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.MinQuantizer = 20
+			o.MaxQuantizer = 40
+			o.CQLevel = 10
+		}, ErrInvalidQuantizer},
+		{func(o *VP9EncoderOptions) {
+			o.Quantizer = 64
+			o.CQLevel = 32
+		}, ErrInvalidQuantizer},
 		{func(o *VP9EncoderOptions) {
 			o.Lossless = true
 			o.Quantizer = 1
@@ -729,6 +745,60 @@ func TestVP9EncoderDefaultInterQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	if got := int(interHeader.Quant.BaseQindex); got != vp9DefaultInterBaseQIndex {
 		t.Fatalf("inter BaseQindex = %d, want pinned default %d",
 			got, vp9DefaultInterBaseQIndex)
+	}
+}
+
+func TestVP9PublicQuantizerMappingMatchesLibvpxTable(t *testing.T) {
+	want := []int{
+		0, 4, 8, 12, 16, 20, 24, 28,
+		32, 36, 40, 44, 48, 52, 56, 60,
+		64, 68, 72, 76, 80, 84, 88, 92,
+		96, 100, 104, 108, 112, 116, 120, 124,
+		128, 132, 136, 140, 144, 148, 152, 156,
+		160, 164, 168, 172, 176, 180, 184, 188,
+		192, 196, 200, 204, 208, 212, 216, 220,
+		224, 228, 232, 236, 240, 244, 249, 255,
+	}
+	for q, qindex := range want {
+		if got := vp9PublicQuantizerToQIndex(q); got != qindex {
+			t.Fatalf("vp9PublicQuantizerToQIndex(%d) = %d, want %d",
+				q, got, qindex)
+		}
+		if got := vp9QIndexToPublicQuantizer(qindex); got != q {
+			t.Fatalf("vp9QIndexToPublicQuantizer(%d) = %d, want %d",
+				qindex, got, q)
+		}
+	}
+}
+
+func TestVP9EncoderPublicFixedQuantizerControlsQIndex(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:        width,
+		Height:       height,
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	key, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	wantQIndex := vp9PublicQuantizerToQIndex(20)
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	if got := int(keyHeader.Quant.BaseQindex); got != wantQIndex {
+		t.Fatalf("key BaseQindex = %d, want %d", got, wantQIndex)
+	}
+	interHeader, _ := parseVP9EncoderHeaderForTest(t, inter)
+	if got := int(interHeader.Quant.BaseQindex); got != wantQIndex {
+		t.Fatalf("inter BaseQindex = %d, want %d", got, wantQIndex)
 	}
 }
 
@@ -2295,7 +2365,7 @@ func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
 		{"one dimension", RealtimeTarget{Width: 96}, ErrInvalidConfig},
 		{"too wide", RealtimeTarget{Width: maxVP9Dimension + 1, Height: 64}, ErrInvalidConfig},
 		{"explicit frame drop", RealtimeTarget{FrameDrop: RealtimeFrameDropEnabled}, ErrInvalidConfig},
-		{"quantizer control", RealtimeTarget{MinQuantizer: 4}, ErrInvalidQuantizer},
+		{"bad quantizer range", RealtimeTarget{MinQuantizer: 50, MaxQuantizer: 20}, ErrInvalidQuantizer},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2320,6 +2390,29 @@ func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
 				t.Fatalf("info after rejected target = %+v, want original keyframe", info)
 			}
 		})
+	}
+}
+
+func TestVP9EncoderSetRealtimeTargetUpdatesQuantizerBounds(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 20, MaxQuantizer: 20}); err != nil {
+		t.Fatalf("SetRealtimeTarget: %v", err)
+	}
+	if e.opts.MinQuantizer != 20 || e.opts.MaxQuantizer != 20 {
+		t.Fatalf("quantizer bounds = %d/%d, want 20/20",
+			e.opts.MinQuantizer, e.opts.MaxQuantizer)
+	}
+	packet, err := e.Encode(newVP9YCbCrForTest(width, height, 80, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if got, want := int(h.Quant.BaseQindex), vp9PublicQuantizerToQIndex(20); got != want {
+		t.Fatalf("BaseQindex = %d, want %d", got, want)
 	}
 }
 

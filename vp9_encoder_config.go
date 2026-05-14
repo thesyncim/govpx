@@ -6,10 +6,11 @@ import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 // VP9 profile 0 encoder.
 //
 // VP9 currently consumes BitrateKbps as a target hint, FPS as the caller
-// timebase, and Width / Height as a caller-driven coded-size change. A changed
-// size invalidates every VP9 reference slot and forces the next encoded packet
-// to be a keyframe at the new dimensions. VP8-only realtime rate-control
-// fields on RealtimeTarget are rejected when explicitly set.
+// timebase, MinQuantizer / MaxQuantizer as public VP9 Q-mode bounds, and
+// Width / Height as a caller-driven coded-size change. A changed size
+// invalidates every VP9 reference slot and forces the next encoded packet to
+// be a keyframe at the new dimensions. VP8-only realtime frame-drop fields on
+// RealtimeTarget are rejected when explicitly set.
 func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -27,15 +28,31 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		target.MaxQuantizer > maxQuantizer {
 		return ErrInvalidQuantizer
 	}
-	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
-		return ErrInvalidQuantizer
-	}
 	if target.FrameDrop != RealtimeFrameDropUnchanged || target.AllowFrameDrop {
 		return ErrInvalidConfig
 	}
 	if target.Width > 0 || target.Height > 0 {
 		if !validVP9Dimension(target.Width) || !validVP9Dimension(target.Height) {
 			return ErrInvalidConfig
+		}
+	}
+	nextMinQuantizer, nextMaxQuantizer, _ := vp9NormalizedPublicQuantizers(e.opts)
+	if target.MinQuantizer != 0 {
+		nextMinQuantizer = target.MinQuantizer
+	}
+	if target.MaxQuantizer != 0 {
+		nextMaxQuantizer = target.MaxQuantizer
+	}
+	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
+		if err := validateVP9PublicQuantizerOptions(VP9EncoderOptions{
+			Width:        e.opts.Width,
+			Height:       e.opts.Height,
+			Quantizer:    e.opts.Quantizer,
+			MinQuantizer: nextMinQuantizer,
+			MaxQuantizer: nextMaxQuantizer,
+			CQLevel:      e.opts.CQLevel,
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -53,6 +70,10 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	if target.BitrateKbps > 0 {
 		e.opts.TargetBitrateKbps = target.BitrateKbps
+	}
+	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
+		e.opts.MinQuantizer = nextMinQuantizer
+		e.opts.MaxQuantizer = nextMaxQuantizer
 	}
 	return nil
 }

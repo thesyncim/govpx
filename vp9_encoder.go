@@ -18,12 +18,15 @@ const (
 	vp9EncoderBlockCoeffSlots   = 256 * vp9EncoderTxCoeffSlots
 	vp9MinEncodeIntoBuffer      = 64
 	vp9MaxPartitionReconScratch = 64*64 + 2*32*32
+	vp9DefaultMinQuantizer      = 4
+	vp9DefaultMaxQuantizer      = 56
+	vp9DefaultCQLevel           = 32
 	// vp9DefaultBaseQIndex pins the packet-path default to the first-frame
 	// base_qindex emitted by pinned libvpx vpxenc-vp9 with the repo's realtime
 	// CQ oracle knobs (--end-usage=q --cq-level=32 --min-q=4 --max-q=56).
 	vp9DefaultBaseQIndex = 37
-	// The same oracle ramps default inter frames to max-q in the no-rate-control
-	// packet path after the keyframe.
+	// The same oracle emits the CQ-level qindex for the first visible inter
+	// frame in the packet path after the keyframe.
 	vp9DefaultInterBaseQIndex = 128
 )
 
@@ -61,8 +64,21 @@ type VP9EncoderOptions struct {
 	TargetBitrateKbps int
 
 	// Quantizer selects a fixed VP9 base qindex in [1, 255]. Zero uses the
-	// packet path default pinned to the VP9 realtime CQ oracle.
+	// public MinQuantizer / MaxQuantizer / CQLevel controls below. It is a
+	// low-level escape hatch; callers that need libvpx-style CLI parity should
+	// prefer the public 0..63 controls.
 	Quantizer int
+
+	// MinQuantizer and MaxQuantizer bound the public libvpx VP9 0..63
+	// quantizer range used by the current VPX_Q-style packet path. When both
+	// are zero, the encoder uses libvpx's oracle defaults: min-q=4, max-q=56.
+	MinQuantizer int
+	MaxQuantizer int
+
+	// CQLevel is the public libvpx VP9 0..63 constant-quality level. Zero uses
+	// 32 for the default range, or the single fixed value when
+	// MinQuantizer == MaxQuantizer.
+	CQLevel int
 
 	// Lossless enables VP9 profile 0 lossless coding. It forces base qindex 0,
 	// 4x4 transforms, WHT reconstruction, and disables the loop filter.
@@ -209,7 +225,8 @@ type VP9Encoder struct {
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
 // Width and Height must be positive; Threads / Quantizer /
-// TargetBitrateKbps / MaxKeyframeInterval must be non-negative.
+// TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
+// MaxKeyframeInterval must be non-negative.
 func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := validateVP9EncoderOptions(opts); err != nil {
 		return nil, err
@@ -232,6 +249,9 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	}
 	if opts.Quantizer > 255 {
 		return ErrInvalidQuantizer
+	}
+	if err := validateVP9PublicQuantizerOptions(opts); err != nil {
+		return err
 	}
 	if opts.Lossless && opts.Quantizer != 0 {
 		return ErrInvalidQuantizer
@@ -523,7 +543,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		},
 	}
 	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads)
-	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly)
+	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags)
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.Lossless = qindex == 0 &&
 		header.Quant.YDcDeltaQ == 0 &&
@@ -4151,21 +4171,148 @@ func (e *VP9Encoder) vp9CompoundPredictionDistortion(inter *vp9InterEncodeState,
 }
 
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
-	return e.vp9EncoderFrameQIndex(true, false)
+	return e.vp9EncoderFrameQIndex(true, false, 0)
 }
 
-func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool) int {
+func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags) int {
 	if e.opts.Lossless {
 		return 0
 	}
 	qindex := e.opts.Quantizer
 	if qindex == 0 {
-		qindex = vp9DefaultBaseQIndex
-		if !isKey && !intraOnly {
-			qindex = vp9DefaultInterBaseQIndex
-		}
+		qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly, flags)
 	}
 	return qindex
+}
+
+func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, flags EncodeFlags) int {
+	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(e.opts)
+	best := vp9PublicQuantizerToQIndex(minQ)
+	worst := vp9PublicQuantizerToQIndex(maxQ)
+	cq := vp9PublicQuantizerToQIndex(cqLevel)
+	if best >= worst {
+		return best
+	}
+
+	num, den := 1, 1
+	if isKey || intraOnly {
+		num, den = 1, 4
+	} else if flags&EncodeForceAltRefFrame != 0 {
+		num, den = 2, 5
+	} else if flags&EncodeForceGoldenFrame != 0 {
+		num, den = 1, 2
+	} else {
+		rates := [...]struct {
+			num int
+			den int
+		}{
+			{1, 2}, {1, 1}, {85, 100}, {1, 1},
+			{7, 10}, {1, 1}, {85, 100}, {1, 1},
+		}
+		rate := rates[e.frameIndex%len(rates)]
+		num, den = rate.num, rate.den
+	}
+	qindex := cq + vp9ComputeQDelta(best, worst, cq, num, den)
+	if qindex < best {
+		qindex = best
+	}
+	if qindex > worst {
+		qindex = worst
+	}
+	return qindex
+}
+
+func validateVP9PublicQuantizerOptions(opts VP9EncoderOptions) error {
+	if opts.MinQuantizer < 0 || opts.MaxQuantizer < 0 || opts.CQLevel < 0 ||
+		opts.MinQuantizer > maxQuantizer || opts.MaxQuantizer > maxQuantizer ||
+		opts.CQLevel > maxQuantizer {
+		return ErrInvalidQuantizer
+	}
+	if (opts.MinQuantizer != 0 || opts.MaxQuantizer != 0) &&
+		opts.MinQuantizer > opts.MaxQuantizer {
+		return ErrInvalidQuantizer
+	}
+	if opts.Quantizer != 0 &&
+		(opts.MinQuantizer != 0 || opts.MaxQuantizer != 0 || opts.CQLevel != 0) {
+		return ErrInvalidQuantizer
+	}
+	minQ, maxQ, _ := vp9NormalizedPublicQuantizers(opts)
+	if opts.CQLevel != 0 && (opts.CQLevel < minQ || opts.CQLevel > maxQ) {
+		return ErrInvalidQuantizer
+	}
+	return nil
+}
+
+func vp9NormalizedPublicQuantizers(opts VP9EncoderOptions) (minQ, maxQ, cqLevel int) {
+	minQ = opts.MinQuantizer
+	maxQ = opts.MaxQuantizer
+	if minQ == 0 && maxQ == 0 {
+		minQ = vp9DefaultMinQuantizer
+		maxQ = vp9DefaultMaxQuantizer
+	}
+	cqLevel = opts.CQLevel
+	if cqLevel == 0 {
+		if minQ == maxQ {
+			cqLevel = minQ
+		} else {
+			cqLevel = vp9DefaultCQLevel
+			if cqLevel < minQ {
+				cqLevel = minQ
+			}
+			if cqLevel > maxQ {
+				cqLevel = maxQ
+			}
+		}
+	}
+	return minQ, maxQ, cqLevel
+}
+
+func vp9PublicQuantizerToQIndex(q int) int {
+	return vp9QuantizerToQIndex[min(max(q, 0), maxQuantizer)]
+}
+
+func vp9QIndexToPublicQuantizer(qIndex int) int {
+	for q, translated := range vp9QuantizerToQIndex {
+		if translated >= qIndex {
+			return q
+		}
+	}
+	return maxQuantizer
+}
+
+func vp9ComputeQDelta(best, worst, qindex, num, den int) int {
+	if den <= 0 {
+		return 0
+	}
+	qindex = min(max(qindex, best), worst)
+	qstart := int(tables.AcQLookup8[qindex])
+	targetNumer := qstart * num
+	startIndex := worst
+	targetIndex := worst
+	for i := best; i < worst; i++ {
+		startIndex = i
+		if int(tables.AcQLookup8[i]) >= qstart {
+			break
+		}
+	}
+	for i := best; i < worst; i++ {
+		targetIndex = i
+		if int(tables.AcQLookup8[i])*den >= targetNumer {
+			break
+		}
+	}
+	return targetIndex - startIndex
+}
+
+var vp9QuantizerToQIndex = [maxQuantizer + 1]int{
+	0, 4, 8, 12, 16, 20, 24, 28,
+	32, 36, 40, 44, 48, 52, 56, 60,
+	64, 68, 72, 76, 80, 84, 88, 92,
+	96, 100, 104, 108, 112, 116, 120, 124,
+	128, 132, 136, 140, 144, 148, 152, 156,
+	160, 164, 168, 172, 176, 180, 184, 188,
+	192, 196, 200, 204, 208, 212, 216, 220,
+	224, 228, 232, 236, 240, 244, 249, 255,
 }
 
 func vp9InterModeScore(sad uint64, rate, qindex int) uint64 {

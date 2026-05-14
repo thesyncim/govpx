@@ -154,6 +154,32 @@ func TestVP9EncoderVpxencOracleChecker64KeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
+func TestVP9EncoderVpxencOracleFixedQuantizerKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	}, []string{
+		"--cq-level=20",
+		"--min-q=20",
+		"--max-q=20",
+		"--disable-warning-prompt",
+	})
+}
+
+func TestVP9EncoderVpxencOracleCQLevelKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		CQLevel: 20,
+	}, []string{"--cq-level=20"})
+}
+
 func TestVP9EncoderVpxencOracleIdenticalInterByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -180,11 +206,48 @@ func TestVP9EncoderVpxencOracleCheckerInterByteParity(t *testing.T) {
 	assertVP9VpxencTwoFrameByteParity(t, first, second)
 }
 
+func TestVP9EncoderVpxencOracleFixedQuantizerInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
+		MinQuantizer: 20,
+		MaxQuantizer: 20,
+	}, []string{
+		"--cq-level=20",
+		"--min-q=20",
+		"--max-q=20",
+		"--disable-warning-prompt",
+	})
+}
+
+func TestVP9EncoderVpxencOracleCQLevelInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
+		CQLevel: 20,
+	}, []string{"--cq-level=20"})
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
+	t.Helper()
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{}, nil)
+}
+
+func assertVP9VpxencKeyframeByteParityWithOptions(t *testing.T, src *image.YCbCr,
+	opts VP9EncoderOptions, extraArgs []string,
+) {
 	t.Helper()
 	width := src.Rect.Dx()
 	height := src.Rect.Dy()
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	opts.Width = width
+	opts.Height = height
+	e, err := NewVP9Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
@@ -193,7 +256,7 @@ func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 		t.Fatalf("Encode govpx keyframe: %v", err)
 	}
 	raw := appendVP9YCbCrI420(nil, src)
-	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1)
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 1, extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
 	}
@@ -224,13 +287,22 @@ func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 
 func assertVP9VpxencTwoFrameByteParity(t *testing.T, first, second *image.YCbCr) {
 	t.Helper()
+	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{}, nil)
+}
+
+func assertVP9VpxencTwoFrameByteParityWithOptions(t *testing.T, first, second *image.YCbCr,
+	opts VP9EncoderOptions, extraArgs []string,
+) {
+	t.Helper()
 	width := first.Rect.Dx()
 	height := first.Rect.Dy()
 	if second.Rect.Dx() != width || second.Rect.Dy() != height {
 		t.Fatalf("dimension mismatch: first=%dx%d second=%dx%d",
 			width, height, second.Rect.Dx(), second.Rect.Dy())
 	}
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	opts.Width = width
+	opts.Height = height
+	e, err := NewVP9Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
@@ -245,7 +317,7 @@ func assertVP9VpxencTwoFrameByteParity(t *testing.T, first, second *image.YCbCr)
 
 	raw := appendVP9YCbCrI420(nil, first)
 	raw = appendVP9YCbCrI420(raw, second)
-	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 2)
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, 2, extraArgs...)
 	if err != nil {
 		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
 	}
