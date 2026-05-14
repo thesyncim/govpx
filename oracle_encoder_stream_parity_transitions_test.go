@@ -804,6 +804,18 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	assertSegmentByteParity(t, "twopass-e2e-tune-ssim", ssimGovpxFrames, ssimLibvpxFrames, -1)
 
 	arnrSources := makePanningSources(64, 64, 16, 0)
+	altRefOpts := panningOpts
+	altRefOpts.LookaheadFrames = 8
+	altRefOpts.AutoAltRef = true
+	altRefGovpxOpts := altRefOpts
+	altRefGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, altRefOpts, arnrSources)
+	altRefGovpxFrames := encodeFramesWithGovpx(t, altRefGovpxOpts, arnrSources)
+	altRefLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-auto-alt-ref-no-arnr", altRefOpts, altRefOpts.TargetBitrateKbps, arnrSources)
+	// Hidden-ARF scheduling diverges after the opening keyframe even without
+	// explicit ARNR filtering; the ARNR row below adds filtering on top of
+	// the same gap.
+	assertSegmentByteParity(t, "twopass-e2e-auto-alt-ref-no-arnr", altRefGovpxFrames, altRefLibvpxFrames, 1)
+
 	arnrOpts := panningOpts
 	arnrOpts.LookaheadFrames = 8
 	arnrOpts.AutoAltRef = true
