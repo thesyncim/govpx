@@ -27,6 +27,29 @@ func TestUpdateRefFrameProbsFromZeroReferenceMirrorsLibvpxConvertRFCT(t *testing
 	}
 }
 
+func TestCarriedExternalReferenceMaskSurvivesDroppedFrameUntilPacket(t *testing.T) {
+	e := &VP8Encoder{}
+	e.armExternalReferenceMask(EncodeNoReferenceAltRef)
+
+	last, golden, alt, ok := e.currentExternalReferenceMask()
+	if !ok || !last || !golden || alt {
+		t.Fatalf("carried no-ref-arf mask = ok=%v last=%v golden=%v alt=%v, want ok true last/golden only",
+			ok, last, golden, alt)
+	}
+
+	gotLast, gotGolden, gotAlt := e.interReferenceAvailability(0)
+	if !gotLast || !gotGolden || gotAlt {
+		t.Fatalf("interReferenceAvailability without current flags = last=%v golden=%v alt=%v, want carried last/golden only",
+			gotLast, gotGolden, gotAlt)
+	}
+
+	e.clearExternalReferenceMaskAfterPacket()
+	_, _, _, ok = e.currentExternalReferenceMask()
+	if ok {
+		t.Fatalf("carried no-ref mask still active after packet clear")
+	}
+}
+
 func TestUpdateRefFrameProbsFromAttemptSkipsSingleLayerGFAndARFRefresh(t *testing.T) {
 	modes := []vp8enc.InterFrameMacroblockMode{
 		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
@@ -138,6 +161,43 @@ func TestApplyLibvpxRdRefFrameProbRefreshAdjustmentsAltRefRefresh(t *testing.T) 
 	}
 	if e2.refProbGolden != 1 {
 		t.Fatalf("alt-ref refresh prob_gf = %d, want 1", e2.refProbGolden)
+	}
+}
+
+func TestTemporalEmptyLayerRefUsageDefaultsRDRefFrameProbs(t *testing.T) {
+	e := &VP8Encoder{
+		opts: EncoderOptions{
+			TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayers},
+		},
+		refProbIntra:  1,
+		refProbLast:   255,
+		refProbGolden: 1,
+	}
+
+	e.updateRDRefFrameProbsForDroppedFrame(false)
+
+	if e.refProbIntra != 63 || e.refProbLast != 128 || e.refProbGolden != 128 {
+		t.Fatalf("empty temporal-layer RD probs = %d/%d/%d, want defaults 63/128/128",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
+func TestTemporalNonEmptyLayerRefUsageKeepsRDRefFrameProbs(t *testing.T) {
+	e := &VP8Encoder{
+		opts: EncoderOptions{
+			TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayers},
+		},
+		refProbIntra:          1,
+		refProbLast:           255,
+		refProbGolden:         128,
+		temporalLayerRefUsage: [vp8common.MaxRefFrames]int{0, 4, 0, 0},
+	}
+
+	e.updateRDRefFrameProbsForDroppedFrame(false)
+
+	if e.refProbIntra != 1 || e.refProbLast != 255 || e.refProbGolden != 128 {
+		t.Fatalf("non-empty temporal-layer RD probs = %d/%d/%d, want unchanged 1/255/128",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
 	}
 }
 
@@ -406,6 +466,40 @@ func TestUpdateGoldenFrameStatsAltRefRefreshClearsPending(t *testing.T) {
 	}
 	if !e.sourceAltRefActive {
 		t.Fatalf("sourceAltRefActive after ARF refresh = false, want true")
+	}
+}
+
+// TestUpdateGoldenFrameStatsDirectAltRefRefreshSkipsPlainInterCounters pins the
+// libvpx update_golden_frame_stats path when refresh_alt_ref_frame=1 but
+// play_alternate is disabled: the function does not enter the plain inter
+// `else if (!refresh_alt_ref_frame)` branch, so frames_since_golden and
+// frames_till_alt_ref_frame are left untouched.
+func TestUpdateGoldenFrameStatsDirectAltRefRefreshSkipsPlainInterCounters(t *testing.T) {
+	e := &VP8Encoder{framesSinceGolden: 7, framesTillAltRefFrame: 3}
+	e.updateGoldenFrameStats(false, true)
+	if e.framesSinceGolden != 7 || e.framesTillAltRefFrame != 3 || e.sourceAltRefActive {
+		t.Fatalf("direct ALTREF refresh state = {since:%d till:%d active:%v}, want {7 3 false}",
+			e.framesSinceGolden, e.framesTillAltRefFrame, e.sourceAltRefActive)
+	}
+}
+
+func TestSnapshotDroppedFrameCoefProbsMirrorsRefreshMask(t *testing.T) {
+	var e VP8Encoder
+	e.coefProbsSnapshotsValid = true
+	e.coefProbs[0][0][0][0] = 77
+	e.coefProbsLast[0][0][0][0] = 11
+	e.coefProbsGolden[0][0][0][0] = 22
+	e.coefProbsAltRef[0][0][0][0] = 33
+
+	e.snapshotDroppedFrameCoefProbs(true, false, false)
+	if got := e.coefProbsLast[0][0][0][0]; got != 77 {
+		t.Fatalf("LAST snapshot = %d, want 77", got)
+	}
+	if got := e.coefProbsGolden[0][0][0][0]; got != 22 {
+		t.Fatalf("GOLDEN snapshot changed to %d, want 22", got)
+	}
+	if got := e.coefProbsAltRef[0][0][0][0]; got != 33 {
+		t.Fatalf("ALTREF snapshot changed to %d, want 33", got)
 	}
 }
 

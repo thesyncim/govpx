@@ -258,8 +258,8 @@ func TestEncodeIntoInvisibleTemporalFrameUsesLibvpxLayerOverheadAccounting(t *te
 		t.Fatalf("result = key:%t layer:%d, want invisible base keyframe", result.KeyFrame, result.TemporalLayerID)
 	}
 	bits := encodedSizeBits(result.SizeBytes)
-	wantLayer0Buffer := 288000 - bits
-	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, 40000, 720000, bits)
+	wantLayer0Buffer := temporalTestBufferAfterFrame(288000, e.temporal.accounting[0].FrameBandwidthBits, e.temporal.accounting[0].MaximumBufferBits, bits)
+	wantLayer1Buffer := temporalTestBufferAfterFrame(480000, e.temporal.accounting[1].FrameBandwidthBits, e.temporal.accounting[1].MaximumBufferBits, bits)
 
 	if result.TemporalLayerBufferLevelBits != wantLayer0Buffer || e.temporal.accounting[0].BufferLevelBits != wantLayer0Buffer {
 		t.Fatalf("layer0 invisible buffer = result:%d accounting:%d, want %d", result.TemporalLayerBufferLevelBits, e.temporal.accounting[0].BufferLevelBits, wantLayer0Buffer)

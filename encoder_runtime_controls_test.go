@@ -78,11 +78,14 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	fillImage(src, 180, 90, 170)
 	dst := make([]byte, 4096)
 
+	beforeKeyBuffer := e.rc.bufferLevelBits
+	frameBandwidth := e.rc.bitsPerFrame
+	maximumBuffer := e.rc.maximumBufferBits
 	key, err := e.EncodeInto(dst, src, 0, 1, EncodeInvisibleFrame)
 	if err != nil {
 		t.Fatalf("invisible key EncodeInto returned error: %v", err)
 	}
-	wantKeyBuffer := max(e.rc.bufferInitialBits-encodedSizeBits(key.SizeBytes), 0)
+	wantKeyBuffer := temporalTestBufferAfterFrame(beforeKeyBuffer, frameBandwidth, maximumBuffer, encodedSizeBits(key.SizeBytes))
 	if key.BufferLevelBits != wantKeyBuffer || e.rc.bufferLevelBits != wantKeyBuffer {
 		t.Fatalf("invisible key buffer = result:%d rc:%d, want %d", key.BufferLevelBits, e.rc.bufferLevelBits, wantKeyBuffer)
 	}
@@ -92,7 +95,7 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	if err != nil {
 		t.Fatalf("invisible inter EncodeInto returned error: %v", err)
 	}
-	wantInterBuffer := max(beforeInterBuffer-encodedSizeBits(inter.SizeBytes), 0)
+	wantInterBuffer := temporalTestBufferAfterFrame(beforeInterBuffer, frameBandwidth, maximumBuffer, encodedSizeBits(inter.SizeBytes))
 	if inter.BufferLevelBits != wantInterBuffer || e.rc.bufferLevelBits != wantInterBuffer {
 		t.Fatalf("invisible inter buffer = result:%d rc:%d, want %d", inter.BufferLevelBits, e.rc.bufferLevelBits, wantInterBuffer)
 	}

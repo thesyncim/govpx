@@ -453,7 +453,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// bit); mirror that mask so the inter-frame refresh header bits and
 	// the downstream rdopt token-cost / mode-cost branches see the same
 	// state as libvpx.
-	if temporalActive {
+	if refreshLast, refreshGolden, refreshAltRef, ok := e.currentExternalRefreshMask(); ok {
+		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = refreshLast, refreshGolden, refreshAltRef
+	} else if temporalActive {
 		// The temporal SVC layer manager passes the per-layer scoreboard
 		// in flags. libvpx only rewrites the refresh mask when NO_UPD_*
 		// or FORCE_* flags are present; NO_REF_* alone still uses the
@@ -531,7 +533,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		previousRefProbIntra := e.refProbIntra
 		previousRefProbLast := e.refProbLast
 		previousRefProbGolden := e.refProbGolden
-		if e.refProbUseDefaultOnNextInterRD {
+		if e.shouldResetRDRefFrameProbsToDefaultInterRD() {
 			e.resetRefFrameProbsToDefaultInterRD()
 		}
 		if !e.opts.TemporalScalability.Enabled {

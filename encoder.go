@@ -533,6 +533,23 @@ type VP8Encoder struct {
 	// flag is cleared after the next non-dropped frame commits.
 	forceMaxQuantizer bool
 
+	// carriedExternalRefresh mirrors libvpx refresh-mask state across dropped
+	// frames. VP8E_SET_FRAME_FLAGS updates common.refresh_* before drop checks;
+	// dropped frames clear ext_refresh_frame_flags_pending but do not restore
+	// the default LAST-only refresh mask, so the next source frame inherits it.
+	carriedExternalRefresh       bool
+	carriedExternalRefreshLast   bool
+	carriedExternalRefreshGolden bool
+	carriedExternalRefreshAltRef bool
+
+	// carriedExternalReference mirrors ref_frame_flags across dropped frames.
+	// VP8E_SET_FRAME_FLAGS updates cpi->ref_frame_flags before drop checks,
+	// and dropped frames do not restore the previous reference mask.
+	carriedExternalReference       bool
+	carriedExternalReferenceLast   bool
+	carriedExternalReferenceGolden bool
+	carriedExternalReferenceAltRef bool
+
 	// framePredictionError mirrors libvpx's cpi->mb.prediction_error for
 	// the current inter encode attempt. The overshoot-drop gate reads it
 	// before the caller updates lastPredErrorMB, matching onyx_if.c.
@@ -560,6 +577,7 @@ type VP8Encoder struct {
 	refProbLast                    uint8
 	refProbGolden                  uint8
 	refProbUseDefaultOnNextInterRD bool
+	temporalLayerRefUsage          [vp8common.MaxRefFrames]int
 	// libvpx update_rd_ref_frame_probs (onyx_if.c) adjusts the reference-frame
 	// probabilities used by the *current* frame's RD scoring based on the
 	// upcoming refresh policy. It tracks frames_since_golden and

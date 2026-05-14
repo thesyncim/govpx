@@ -7,6 +7,7 @@ import (
 type encodeSourceMetadata struct {
 	lookaheadDepth     int
 	forceLFDeltaUpdate bool
+	internalInvisible  bool
 	arnrFiltered       bool
 	denoised           bool
 }
@@ -52,7 +53,8 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	// byte-identity (the gate was originally landed in commit 0af0a25 as
 	// "Gate VP8 ARNR temporal filter on hidden alt-ref source" but was lost
 	// in a subsequent merge of d2c00ed; this restores it).
-	hiddenAltRefFrame := flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
+	hiddenAltRefFrame := meta.internalInvisible &&
+		flags&(EncodeInvisibleFrame|EncodeForceAltRefFrame) == EncodeInvisibleFrame|EncodeForceAltRefFrame
 	if hiddenAltRefFrame && e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
 		if e.applyARNRFilter(src, flags) {
 			// The filtered output lives in `arnrScratch`, govpx's analogue

@@ -214,15 +214,22 @@ type temporalLayerCodingState struct {
 	// refresh.
 	InterFrameTarget int
 
-	// RecentRefFrameUsage* mirror LAYER_CONTEXT.count_mb_ref_frame_usage[].
+	// RecentRefFrameUsage* mirror cpi->recent_ref_frame_usage[].
 	// libvpx accumulates per-MB ref-frame counts across the GF section
 	// and the calc_gf_params / auto_gold decision reads them; the counts
-	// are reset on GF refresh. Each layer accumulates its own running
-	// total in libvpx, so the snapshot lives in the layer context.
+	// are reset on GF refresh.
 	RecentRefFrameUsageIntra  int
 	RecentRefFrameUsageLast   int
 	RecentRefFrameUsageGolden int
 	RecentRefFrameUsageAltRef int
+
+	// MBRefFrameUsage* mirror LAYER_CONTEXT.count_mb_ref_frame_usage[].
+	// update_rd_ref_frame_probs reads these after restoring the current
+	// layer; an all-zero layer resets RD ref probabilities to defaults.
+	MBRefFrameUsageIntra  int
+	MBRefFrameUsageLast   int
+	MBRefFrameUsageGolden int
+	MBRefFrameUsageAltRef int
 }
 
 type temporalFrame struct {

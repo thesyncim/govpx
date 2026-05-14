@@ -319,7 +319,7 @@ func TestSourceAltRefShowFrameForcesZeroMVAltRefWhenARNROff(t *testing.T) {
 			if !key.KeyFrame {
 				t.Fatalf("key result = inter, want key")
 			}
-			hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+			hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{internalInvisible: true})
 			if err != nil {
 				t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
 			}
@@ -429,7 +429,7 @@ func TestTwoPassHiddenAltRefChargesBitsWithoutConsumingVisibleStats(t *testing.T
 	afterKeyBitsLeft := e.twoPass.bitsLeft
 	afterKeyFramesSinceKey := e.rc.framesSinceKeyframe
 
-	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{internalInvisible: true})
 	if err != nil {
 		t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestOnePassHiddenAltRefAccumulatesFullPostPackOverspend(t *testing.T) {
 	e.rc.framesTillGFUpdateDue = 10
 	e.rc.interFrameTarget = 1 << 30
 
-	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{})
+	hidden, err := e.encodeSourceInto(dst, altSrc, 1, 1, autoAltRefHiddenFlags, encodeSourceMetadata{internalInvisible: true})
 	if err != nil {
 		t.Fatalf("hidden ARF encodeSourceInto returned error: %v", err)
 	}

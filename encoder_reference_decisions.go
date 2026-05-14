@@ -272,6 +272,67 @@ func libvpxExternalRefreshMask(flags EncodeFlags) (refreshLast bool, refreshGold
 	return refreshLast, refreshGolden, refreshAltRef
 }
 
+func (e *VP8Encoder) armExternalRefreshMask(flags EncodeFlags) {
+	if e == nil || !externalRefreshFlagsPending(flags) {
+		return
+	}
+	e.carriedExternalRefreshLast, e.carriedExternalRefreshGolden, e.carriedExternalRefreshAltRef = libvpxExternalRefreshMask(flags)
+	e.carriedExternalRefresh = true
+}
+
+func (e *VP8Encoder) currentExternalRefreshMask() (refreshLast bool, refreshGolden bool, refreshAltRef bool, ok bool) {
+	if e == nil || !e.carriedExternalRefresh {
+		return false, false, false, false
+	}
+	return e.carriedExternalRefreshLast, e.carriedExternalRefreshGolden, e.carriedExternalRefreshAltRef, true
+}
+
+func (e *VP8Encoder) clearExternalRefreshMaskAfterPacket() {
+	if e == nil {
+		return
+	}
+	e.carriedExternalRefresh = false
+	e.carriedExternalRefreshLast = false
+	e.carriedExternalRefreshGolden = false
+	e.carriedExternalRefreshAltRef = false
+}
+
+func externalReferenceFlagsPending(flags EncodeFlags) bool {
+	return flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) != 0
+}
+
+func libvpxExternalReferenceMask(flags EncodeFlags) (last bool, golden bool, alt bool) {
+	last = flags&EncodeNoReferenceLast == 0
+	golden = flags&EncodeNoReferenceGolden == 0
+	alt = flags&EncodeNoReferenceAltRef == 0
+	return last, golden, alt
+}
+
+func (e *VP8Encoder) armExternalReferenceMask(flags EncodeFlags) {
+	if e == nil || !externalReferenceFlagsPending(flags) {
+		return
+	}
+	e.carriedExternalReferenceLast, e.carriedExternalReferenceGolden, e.carriedExternalReferenceAltRef = libvpxExternalReferenceMask(flags)
+	e.carriedExternalReference = true
+}
+
+func (e *VP8Encoder) currentExternalReferenceMask() (last bool, golden bool, alt bool, ok bool) {
+	if e == nil || !e.carriedExternalReference {
+		return false, false, false, false
+	}
+	return e.carriedExternalReferenceLast, e.carriedExternalReferenceGolden, e.carriedExternalReferenceAltRef, true
+}
+
+func (e *VP8Encoder) clearExternalReferenceMaskAfterPacket() {
+	if e == nil {
+		return
+	}
+	e.carriedExternalReference = false
+	e.carriedExternalReferenceLast = false
+	e.carriedExternalReferenceGolden = false
+	e.carriedExternalReferenceAltRef = false
+}
+
 func shouldCopyOldGoldenToAltRefOnGoldenRefresh(errorResilient bool, goldenCBRRefresh bool, flags EncodeFlags) bool {
 	if errorResilient || !goldenCBRRefresh {
 		return false
@@ -305,6 +366,9 @@ func (e *VP8Encoder) anyInterReferenceAvailable(flags EncodeFlags) bool {
 }
 
 func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, golden bool, alt bool) {
+	if last, golden, alt, ok := e.currentExternalReferenceMask(); ok {
+		return last, golden, alt
+	}
 	last = flags&EncodeNoReferenceLast == 0
 	golden = flags&EncodeNoReferenceGolden == 0
 	alt = flags&EncodeNoReferenceAltRef == 0
@@ -314,7 +378,7 @@ func (e *VP8Encoder) interReferenceAvailability(flags EncodeFlags) (last bool, g
 	// gold_is_alt alias filters from update_reference_frames. Temporal-SVC
 	// layer flags rely on that: a post-keyframe L1 frame may intentionally
 	// allow LAST and GOLDEN even though both buffers still alias the keyframe.
-	if flags&(EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef) != 0 {
+	if externalReferenceFlagsPending(flags) {
 		return last, golden, alt
 	}
 	// Reference-alias deduplication: when two reference buffers hold

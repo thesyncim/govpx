@@ -82,6 +82,8 @@ func (e *VP8Encoder) Reset() {
 	e.altRefSourceValid = false
 	e.altRefSourcePTS = 0
 	e.framesTillAltRefFrame = 0
+	e.clearExternalRefreshMaskAfterPacket()
+	e.clearExternalReferenceMaskAfterPacket()
 	e.autoAltRefStashValid = false
 	e.autoAltRefStashPTS = 0
 	e.autoAltRefStashDuration = 0
@@ -137,6 +139,7 @@ func (e *VP8Encoder) Reset() {
 	e.pendingLFDeltaUpdate = false
 	e.currentLFDeltaUpdate = false
 	e.autoAltRefStashForceLF = false
+	e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{}
 	e.coefProbsLast = vp8tables.CoefficientProbs{}
 	e.coefProbsGolden = vp8tables.CoefficientProbs{}
 	e.coefProbsAltRef = vp8tables.CoefficientProbs{}
