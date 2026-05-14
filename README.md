@@ -3,11 +3,12 @@
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
 
-Pure-Go VP8 support and full VP9 Profile 0 scope for raw VPx payloads.
+Pure-Go VP8 support and full VP9 Profile 0 support for raw VPx payloads.
 
-govpx is for Go programs that need VP8 or VP9 Profile 0 without cgo and without
-a libvpx runtime dependency. It produces and consumes raw VP8 frame payloads and
-raw VP9 Profile 0 packets for RTP/WebRTC-compatible transport.
+govpx is for Go programs that need VP8 or full VP9 Profile 0 support without
+cgo and without a libvpx runtime dependency. It produces and consumes raw VP8
+frame payloads and raw VP9 Profile 0 packets for RTP/WebRTC-compatible
+transport.
 
 VP9 scope is full Profile 0 only: 8-bit 4:2:0 raw packets and valid
 superframes. VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and
@@ -90,13 +91,14 @@ for i, src := range frames {
 }
 ```
 
-Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Output is
-one raw VP8 payload per packet — not IVF, not WebM.
+Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). VP8 output is
+one raw VP8 payload per packet -- not IVF, not WebM. VP9 encoder APIs emit raw
+Profile 0 packets and valid superframes only.
 
 | Capability | Knobs |
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
-| Realtime / WebRTC | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy |
+| Realtime controls | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy |
 | Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, multi-threaded row encode |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
@@ -112,6 +114,7 @@ returns no more data.
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
 | Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |
+| Pack or inspect VP9 RTP payload bodies | `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
@@ -123,9 +126,10 @@ returns no more data.
 
 ## RTP/WebRTC Compatibility
 
-govpx's RTP/WebRTC contract is codec-payload compatibility: raw VP8 frame
-payloads and raw VP9 Profile 0 packets suitable for RTP/WebRTC packetization.
-RTP payload descriptors, fragmentation/reassembly, SRTP, SDP, and signaling
+govpx's RTP/WebRTC contract is codec-payload compatibility for VP8 and VP9
+Profile 0. VP8 encoder output is directly usable by RTP/WebRTC packetizers, and
+VP9 exposes payload-descriptor helpers for RFC 9628 RTP payload bodies. RTP
+headers, sequencing, fragmentation/reassembly policy, SRTP, SDP, and signaling
 remain caller-owned.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
@@ -173,7 +177,7 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   scope. The decoder also handles key-frame resolution change; see
   `DecoderOptions.RejectResolutionChange`.
 
-See `examples/webrtc-vp8` for a separate-module demo that streams govpx
+See `examples/webrtc-vp8` for a VP8 separate-module demo that streams govpx
 VP8 through pion/webrtc to a browser.
 
 ## Validation
@@ -195,7 +199,7 @@ make verify-production       # supported encoder + decoder oracle checks
 ```
 
 `verify-production` builds pinned libvpx tools, fetches conformance data,
-and runs the supported oracle checks. VP9 checks are Profile 0 only: valid VP90
+and runs the supported oracle checks. VP9 checks are Profile 0 only: valid VP9
 Profile 0 IVF streams are covered, and non-Profile-0 streams are unsupported.
 Use `make verify-decoder-parity` for decoder-only changes.
 

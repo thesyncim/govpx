@@ -17,8 +17,8 @@ var (
 	// ErrFrameNotReady reports that a lookahead encoder accepted input but has
 	// not emitted an output packet yet.
 	ErrFrameNotReady = errors.New("govpx: frame not ready")
-	// ErrBufferTooSmall reports that the caller-provided encoded output buffer
-	// cannot hold the next VP8 frame.
+	// ErrBufferTooSmall reports that a caller-provided output buffer cannot
+	// hold the requested encoded packet or payload wrapper.
 	ErrBufferTooSmall = errors.New("govpx: output buffer too small")
 	// ErrFrameRejected reports a frame rejected by configured decoder limits.
 	ErrFrameRejected = errors.New("govpx: VP8 frame rejected by decoder options")
@@ -36,7 +36,7 @@ var (
 	ErrClosed = errors.New("govpx: codec is closed")
 
 	// ErrInvalidVP9Data reports malformed or unsupported VP9
-	// bitstream data caught by the uncompressed-header parser.
+	// bitstream or RTP payload data.
 	// The internal VP9 stack returns a more specific error
 	// (vp9/decoder.ErrInvalidHeader); the public surface flattens
 	// to this sentinel so callers don't take a dependency on the

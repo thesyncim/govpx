@@ -19,8 +19,8 @@ non-Profile-0 behavior.
 ## Summary
 
 The high-value VP8 encoder controls are covered by Go APIs. Remaining uncovered
-items are optional or transport-shaped C API surfaces: spatial-resampler
-scale mode (the caller-driven resolution change side of
+items are optional C API surfaces outside the codec-payload contract:
+spatial-resampler scale mode (the caller-driven resolution change side of
 `vpx_codec_enc_config_set` is covered), output-partition packetization, PSNR
 packets, and input-fragment decode plumbing.
 
@@ -327,7 +327,7 @@ Status: missing as a streaming decode mode. Priority: low.
 libvpx's decoder can be initialized with `VPX_CODEC_USE_INPUT_FRAGMENTS`.
 govpx expects complete VP8 frame payloads; RTP/WebRTC packetization and
 reassembly are caller-owned. A built-in fragment accumulator is optional and
-not required for packet decode.
+not required for codec-payload decode.
 
 ## Probably Skip
 
