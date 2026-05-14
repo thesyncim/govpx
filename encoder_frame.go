@@ -492,6 +492,12 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.BufferLevelBits = e.rc.bufferLevelBits
 			result.FrameTargetBits = e.rc.frameTargetBits
 			e.forceKeyFrame = false
+			if attempt.CyclicRefresh {
+				e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+			}
+			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
 			// libvpx: cpi->frames_since_key++ on overshoot drop; mirror
 			// it so the next-keyframe distance heuristic stays aligned.
 			e.rc.framesSinceKeyframe++

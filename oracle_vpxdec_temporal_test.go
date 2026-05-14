@@ -305,9 +305,14 @@ func assertGovpxTemporalAccountingMatchesLibvpxExample(t *testing.T, sources []I
 			t.Fatalf("EncodeInto %d dropped, want full temporal SVC accounting sequence", i)
 		}
 		if !result.KeyFrame && result.TemporalLayerID >= 0 && result.TemporalLayerID < len(stats) {
+			// The example's "Average frame size (target vs actual)" target is
+			// layer_pfb: the non-cumulative layer budget divided by the layer's
+			// effective frame rate. It is not this_frame_target, which includes
+			// buffer adjustment, nor the cumulative layer buffer bandwidth.
 			wantTarget := int(stats[result.TemporalLayerID].TargetFrameSizeBits + 0.5)
-			if result.FrameTargetBits != wantTarget {
-				t.Fatalf("frame %d layer %d target bits = %d, want libvpx example %.0f", i, result.TemporalLayerID, result.FrameTargetBits, stats[result.TemporalLayerID].TargetFrameSizeBits)
+			gotTarget := e.temporal.temporalLayerFrameTargetBits(result.TemporalLayerID, e.timing)
+			if gotTarget != wantTarget {
+				t.Fatalf("frame %d layer %d temporal layer target bits = %d, want libvpx example %.0f", i, result.TemporalLayerID, gotTarget, stats[result.TemporalLayerID].TargetFrameSizeBits)
 			}
 			sawLayerTarget[result.TemporalLayerID] = true
 		}

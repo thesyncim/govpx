@@ -263,6 +263,65 @@ func TestEncodeIntoScreenContentMode2KeepsKeyFrameCyclicSegmentation(t *testing.
 	}
 }
 
+func TestOvershootDropCommitsCyclicRefreshState(t *testing.T) {
+	const (
+		width      = 256
+		height     = 144
+		fps        = 30
+		targetKbps = 700
+	)
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		ScreenContentMode: 2,
+		Tuning:            TunePSNR,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	packet := make([]byte, 1<<20)
+	key, err := e.EncodeInto(packet, encoderValidationPanningFrame(width, height, 0), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if key.Dropped || !key.KeyFrame {
+		t.Fatalf("key result = dropped:%t key:%t, want emitted keyframe", key.Dropped, key.KeyFrame)
+	}
+
+	beforeIndex := e.cyclicRefreshIndex
+	dropped, err := e.EncodeInto(packet, encoderValidationPanningFrame(width, height, 1), 1, 1, 0)
+	if err != nil {
+		t.Fatalf("drop EncodeInto returned error: %v", err)
+	}
+	if !dropped.Dropped {
+		t.Fatalf("frame 1 dropped = false, want screen-content overshoot drop")
+	}
+	if e.cyclicRefreshIndex == beforeIndex {
+		t.Fatalf("cyclicRefreshIndex after overshoot drop = %d, want committed advance", e.cyclicRefreshIndex)
+	}
+
+	rows := (height + 15) / 16
+	cols := (width + 15) / 16
+	nonZero := false
+	for _, v := range e.cyclicRefreshMap[:rows*cols] {
+		if v != 0 {
+			nonZero = true
+			break
+		}
+	}
+	if !nonZero {
+		t.Fatalf("cyclicRefreshMap stayed all zero after overshoot drop")
+	}
+}
+
 func TestCyclicRefreshSegmentationTreeProbsMirrorLibvpxCounts(t *testing.T) {
 	cfg := vp8enc.SegmentationConfig{Enabled: true, UpdateMap: true, UpdateData: true}
 	keyModes := []vp8enc.KeyFrameMacroblockMode{{SegmentID: 0}, {SegmentID: 0}}
