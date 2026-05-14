@@ -2673,6 +2673,57 @@ func TestVP9EncoderKeyframePicksHorizontalUvModeFromLeftContext(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderKeyframeUvModeScoresWholeBlock(t *testing.T) {
+	const width, height = 128, 128
+	const uvX, uvY = 32, 32
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	writePlane := func(src []byte, srcStride int, recon []byte, reconStride int,
+		nearBase, leftBase, farBase int,
+	) {
+		aboveRow := (uvY - 1) * reconStride
+		internalAboveRow := (uvY + 15) * reconStride
+		for x := 0; x < 32; x++ {
+			above := byte(farBase - (x%16)*2)
+			if x < 16 {
+				above = byte(nearBase + x)
+			}
+			recon[aboveRow+uvX+x] = above
+			recon[internalAboveRow+uvX+x] = byte(farBase - (x%16)*2)
+		}
+		for y := 0; y < 32; y++ {
+			left := byte(leftBase + (y%16)*2)
+			recon[(uvY+y)*reconStride+uvX-1] = left
+			recon[(uvY+y)*reconStride+uvX+15] = left
+			for x := 0; x < 32; x++ {
+				pixel := left
+				if y < 16 && x < 16 {
+					pixel = byte(nearBase + x)
+				}
+				src[(uvY+y)*srcStride+uvX+x] = pixel
+			}
+		}
+	}
+	writePlane(img.Cb, img.CStride, e.reconU, e.reconFrame.UStride, 72, 64, 224)
+	writePlane(img.Cr, img.CStride, e.reconV, e.reconFrame.VStride, 120, 112, 32)
+
+	hdr := vp9dec.UncompressedHeader{Width: width, Height: height}
+	key := &vp9KeyframeEncodeState{img: img, hdr: &hdr}
+	mi := vp9dec.NeighborMi{
+		SbType: common.Block64x64,
+		Mode:   common.DcPred,
+		TxSize: common.Tx32x32,
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
+	got := e.pickVP9KeyframeUvMode(key, tile, 16, 16, 8, 8, common.Block64x64, &mi)
+	if got != common.HPred {
+		t.Fatalf("UV mode = %d, want HPred from full-block score", got)
+	}
+}
+
 func TestVP9EncoderKeyframeChromaBandsRoundTrip(t *testing.T) {
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

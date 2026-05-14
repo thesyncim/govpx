@@ -1948,25 +1948,38 @@ func (e *VP9Encoder) scoreVP9KeyframeMode(key *vp9KeyframeEncodeState,
 		return 0, false
 	}
 	pd := &e.planes[0]
+	distortion, ok := e.scoreVP9KeyframePlanePrediction(key, pd, mode, 0,
+		mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize)
+	if !ok {
+		return 0, false
+	}
+	return vp9ModeDecisionScore(distortion, rate, qindex), true
+}
+
+func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode, plane int,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (uint64, bool) {
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 	if planeBsize >= common.BlockSizes {
 		return 0, false
 	}
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
-	step := 1 << uint(mi.TxSize)
+	step := 1 << uint(txSize)
 	var distortion uint64
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
-			score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, 0,
-				mi.TxSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
+			score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
+				txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
 			if !ok {
 				return 0, false
 			}
 			distortion += score
 		}
 	}
-	return vp9ModeDecisionScore(distortion, rate, qindex), true
+	return distortion, true
 }
 
 func (e *VP9Encoder) pickVP9KeyframeUvMode(key *vp9KeyframeEncodeState,
@@ -2009,8 +2022,8 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPrediction(key *vp9KeyframeEncodeState,
 	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
 		pd := &e.planes[plane]
 		txSize := vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
-		score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
-			txSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		score, ok := e.scoreVP9KeyframePlanePrediction(key, pd, mode, plane,
+			txSize, tile, miRows, miCols, miRow, miCol, bsize)
 		if !ok {
 			return 0, false
 		}
