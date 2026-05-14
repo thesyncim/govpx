@@ -701,6 +701,83 @@ func TestAdaptiveKeyFrameCadenceUsesInitialFrequency(t *testing.T) {
 	}
 }
 
+func TestSetTwoPassStatsMidstreamTransitions(t *testing.T) {
+	opts := EncoderOptions{
+		Width:             32,
+		Height:            32,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  60,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           0,
+	}
+	sources := make([]Image, 4)
+	for i := range sources {
+		sources[i] = rateControlTestFrame(opts.Width, opts.Height, i)
+	}
+	stats := collectRuntimeControlFirstPassStats(t, opts, sources)
+
+	e, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<16)
+	onePass, err := e.EncodeInto(dst, sources[0], 0, 1, 0)
+	if err != nil {
+		t.Fatalf("one-pass EncodeInto returned error: %v", err)
+	}
+	if onePass.TwoPassFrameTargetBits != 0 || onePass.FirstPassStats != (FirstPassFrameStats{}) {
+		t.Fatalf("one-pass two-pass fields = target:%d stats:%+v, want zero", onePass.TwoPassFrameTargetBits, onePass.FirstPassStats)
+	}
+
+	if err := e.SetTwoPassStats(stats); err != nil {
+		t.Fatalf("SetTwoPassStats(enable) returned error: %v", err)
+	}
+	twoPass, err := e.EncodeInto(dst, sources[1], 1, 1, 0)
+	if err != nil {
+		t.Fatalf("two-pass EncodeInto returned error: %v", err)
+	}
+	if twoPass.TwoPassFrameTargetBits == 0 {
+		t.Fatalf("TwoPassFrameTargetBits = 0, want enabled two-pass target")
+	}
+	if twoPass.FirstPassStats != stats[1] {
+		t.Fatalf("FirstPassStats = %+v, want stats[1] %+v", twoPass.FirstPassStats, stats[1])
+	}
+
+	if err := e.SetTwoPassStats(nil); err != nil {
+		t.Fatalf("SetTwoPassStats(disable) returned error: %v", err)
+	}
+	disabled, err := e.EncodeInto(dst, sources[2], 2, 1, 0)
+	if err != nil {
+		t.Fatalf("disabled EncodeInto returned error: %v", err)
+	}
+	if disabled.TwoPassFrameTargetBits != 0 || disabled.FirstPassStats != (FirstPassFrameStats{}) {
+		t.Fatalf("disabled two-pass fields = target:%d stats:%+v, want zero", disabled.TwoPassFrameTargetBits, disabled.FirstPassStats)
+	}
+}
+
+func collectRuntimeControlFirstPassStats(t *testing.T, opts EncoderOptions, sources []Image) []FirstPassFrameStats {
+	t.Helper()
+	firstPass, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("first-pass NewVP8Encoder returned error: %v", err)
+	}
+	defer firstPass.Close()
+	stats := make([]FirstPassFrameStats, len(sources))
+	for i, src := range sources {
+		stats[i], err = firstPass.CollectFirstPassStats(src, uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("CollectFirstPassStats[%d] returned error: %v", i, err)
+		}
+	}
+	return FinalizeFirstPassStats(stats)
+}
+
 func TestForceKeyFrameIsConsumedByNextEncodeAttempt(t *testing.T) {
 	e := newTestEncoder(t)
 	e.frameCount = 7
