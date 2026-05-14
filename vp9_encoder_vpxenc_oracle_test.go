@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"testing"
 
@@ -276,6 +277,20 @@ func TestVP9EncoderVpxencOracleErrorResilientInterByteParity(t *testing.T) {
 	}, []string{"--error-resilient=1"})
 }
 
+func TestVP9EncoderVpxencOracleMaxKeyframeIntervalByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+	}
+	assertVP9VpxencFrameSequenceByteParityWithOptions(t, frames, VP9EncoderOptions{
+		MaxKeyframeInterval: 2,
+	}, []string{"--kf-max-dist=2"})
+}
+
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
 	t.Helper()
 	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{}, nil)
@@ -379,6 +394,59 @@ func assertVP9VpxencTwoFrameByteParityWithOptions(t *testing.T, first, second *i
 	assertVP9PacketByteParity(t, "keyframe", govpxKey, libvpxKey.Data)
 	assertVP9InterPacketByteParity(t, govpxKey, govpxInter, libvpxKey.Data,
 		libvpxInter.Data)
+}
+
+func assertVP9VpxencFrameSequenceByteParityWithOptions(t *testing.T,
+	frames []*image.YCbCr, opts VP9EncoderOptions, extraArgs []string,
+) {
+	t.Helper()
+	if len(frames) == 0 {
+		t.Fatal("empty VP9 oracle frame sequence")
+	}
+	width := frames[0].Rect.Dx()
+	height := frames[0].Rect.Dy()
+	for i, frame := range frames {
+		if frame.Rect.Dx() != width || frame.Rect.Dy() != height {
+			t.Fatalf("frame %d dimension mismatch: got %dx%d want %dx%d",
+				i, frame.Rect.Dx(), frame.Rect.Dy(), width, height)
+		}
+	}
+
+	opts.Width = width
+	opts.Height = height
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	govpxPackets := make([][]byte, len(frames))
+	for i, frame := range frames {
+		packet, err := e.Encode(frame)
+		if err != nil {
+			t.Fatalf("Encode govpx frame %d: %v", i, err)
+		}
+		govpxPackets[i] = packet
+	}
+
+	var raw []byte
+	for _, frame := range frames {
+		raw = appendVP9YCbCrI420(raw, frame)
+	}
+	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height, len(frames), extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i, got := range govpxPackets {
+		var libvpxFrame testutil.IVFFrame
+		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got, libvpxFrame.Data)
+	}
 }
 
 func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKey, libvpxInter []byte) {
