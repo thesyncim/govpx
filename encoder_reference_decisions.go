@@ -531,6 +531,17 @@ func (e *VP8Encoder) libvpxMaxGFInterval() int {
 	return maxInterval
 }
 
+func (e *VP8Encoder) libvpxStaticSceneMaxGFInterval() int {
+	staticSceneMax := e.opts.KeyFrameInterval >> 1
+	if e.twoPass.enabled() && e.opts.AutoAltRef && e.opts.LookaheadFrames > 0 {
+		lagCap := e.opts.LookaheadFrames - 1
+		if staticSceneMax > lagCap {
+			staticSceneMax = lagCap
+		}
+	}
+	return staticSceneMax
+}
+
 // libvpxKeyFrameSetupGFInterval returns the value libvpx's vp8_setup_key_frame
 // would assign to cpi->frames_till_gf_update_due (== baseline_gf_interval) at
 // the time the next key frame is being encoded.

@@ -320,3 +320,50 @@ func TestPass2AltRefPlanOnlyAtGFBoundary(t *testing.T) {
 		t.Fatalf("mid-section ARF plan = interval:%d pending:%t, want no plan", interval, pending)
 	}
 }
+
+func TestTwoPassGFBoundaryRefreshHeaderAfterTargetSelection(t *testing.T) {
+	const (
+		width      = 32
+		height     = 32
+		fps        = 30
+		targetKbps = 400
+		frames     = 8
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = firstPassOracleRampFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  4,
+		Deadline:          DeadlineGoodQuality,
+		CpuUsed:           0,
+	}
+	opts.TwoPassStats = captureGovpxFirstPassStats(t, opts, sources)
+	enc, err := NewVP8Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	buf := make([]byte, width*height*4+4096)
+	var packets [][]byte
+	for i := 0; i < 3; i++ {
+		result, err := enc.EncodeInto(buf, sources[i], uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("frame %d dropped, want packet", i)
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	state := packetState(t, packets[2])
+	if !state.Refresh.RefreshLast || !state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef || state.Refresh.CopyBufferToAltRef != 2 {
+		t.Fatalf("frame 2 refresh = %+v, want LAST+GOLDEN refresh with old golden copied to alt-ref", state.Refresh)
+	}
+}

@@ -26,16 +26,18 @@ type twoPassState struct {
 	// legacy bits_left fallback (which we still use when the group
 	// state was not initialized — e.g. the very first call before KF
 	// processing has run).
-	kfGroupBitsRemaining int64
-	kfGroupErrorLeft     float64
-	gfGroupBits          int64
-	gfGroupErrorLeft     float64
-	framesToKeyRemaining int
-	framesTillGFUpdate   int
-	framesSinceGolden    int
-	altExtraBits         int
-	kfGroupValid         bool
-	gfGroupValid         bool
+	kfGroupBitsRemaining     int64
+	kfGroupErrorLeft         float64
+	gfGroupBits              int64
+	gfGroupErrorLeft         float64
+	framesToKeyRemaining     int
+	framesTillGFUpdate       int
+	framesSinceGolden        int
+	altExtraBits             int
+	staticSceneMaxGFInterval int
+	maxGFInterval            int
+	kfGroupValid             bool
+	gfGroupValid             bool
 	// gfRefreshTarget is the per-frame target libvpx's
 	// define_gf_group sets for the visible GF/refresh frame at the
 	// start of the GF section. Keyframe-started ARF groups have no
@@ -182,6 +184,11 @@ func (t *twoPassState) configureFrameDims(width int, height int) {
 		t.numMBs = mbCols * mbRows
 		t.gfIntraErrMin = float64(gfMBIntraMin * t.numMBs)
 	}
+}
+
+func (t *twoPassState) configureGFIntervals(staticSceneMax int, maxGF int) {
+	t.staticSceneMaxGFInterval = staticSceneMax
+	t.maxGFInterval = maxGF
 }
 
 func (t *twoPassState) statsForFrame(frame uint64) FirstPassFrameStats {

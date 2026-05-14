@@ -24,7 +24,7 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 			t.kfGroupBitsRemaining = t.bitsLeft
 		}
 	}
-	gfInterval := min(remaining, t.framesToKeyRemaining)
+	gfInterval := t.defineGFGroupInterval(frame, remaining)
 	if useAltRef && altRefInterval > 0 && altRefInterval < gfInterval {
 		gfInterval = altRefInterval
 	}
@@ -267,6 +267,148 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 	// frames_since_golden — which for the no-ARF path means frames at
 	// offset 2, 4, 6, ... after the GF refresh.
 	t.framesSinceGolden = 0
+}
+
+func (t *twoPassState) defineGFGroupInterval(frame uint64, remaining int) int {
+	framesToKey := t.framesToKeyRemaining
+	if framesToKey <= 0 || remaining <= 0 || frame >= uint64(len(t.stats)) {
+		return 0
+	}
+	staticSceneMax := t.staticSceneMaxGFInterval
+	if staticSceneMax <= 0 {
+		staticSceneMax = framesToKey
+	}
+	maxGFInterval := t.maxGFInterval
+	if maxGFInterval <= 0 {
+		maxGFInterval = staticSceneMax
+	}
+	if maxGFInterval > staticSceneMax {
+		maxGFInterval = staticSceneMax
+	}
+	if maxGFInterval <= 0 {
+		maxGFInterval = framesToKey
+	}
+
+	i := 0
+	boostScore := 0.0
+	oldBoostScore := 0.0
+	decayAccumulator := 1.0
+	mvRatioAccumulator := 0.0
+	mvInOutAccumulator := 0.0
+	absMVInOutAccumulator := 0.0
+	loopDecayRate := 1.0
+
+	for ((i < staticSceneMax) || ((framesToKey - i) < libvpxMinGFInterval)) && i < framesToKey {
+		i++
+		idx := int(frame) + i
+		if idx >= len(t.stats) {
+			break
+		}
+		next := t.stats[idx]
+		thisFrameMVInOut := next.MVInOutCount * next.PcntMotion
+		mvInOutAccumulator += thisFrameMVInOut
+		if thisFrameMVInOut < 0 {
+			absMVInOutAccumulator -= thisFrameMVInOut
+		} else {
+			absMVInOutAccumulator += thisFrameMVInOut
+		}
+		if next.PcntMotion > 0.05 {
+			mvR := next.MVr
+			if mvR < 0 {
+				mvR = -mvR
+			}
+			if mvR < 1e-12 {
+				mvR = 1.0
+			}
+			mvC := next.MVc
+			if mvC < 0 {
+				mvC = -mvC
+			}
+			if mvC < 1e-12 {
+				mvC = 1.0
+			}
+			mvrRatio := next.MVrAbs / mvR
+			if mvrRatio < next.MVrAbs {
+				mvRatioAccumulator += mvrRatio * next.PcntMotion
+			} else {
+				mvRatioAccumulator += next.MVrAbs * next.PcntMotion
+			}
+			mvcRatio := next.MVcAbs / mvC
+			if mvcRatio < next.MVcAbs {
+				mvRatioAccumulator += mvcRatio * next.PcntMotion
+			} else {
+				mvRatioAccumulator += next.MVcAbs * next.PcntMotion
+			}
+		}
+
+		intra := next.IntraError
+		if intra < t.gfIntraErrMin {
+			intra = t.gfIntraErrMin
+		}
+		denom := next.CodedError
+		if denom > -1e-12 && denom < 1e-12 {
+			denom = 1.0
+		}
+		r := 1.5 * intra / denom
+		if thisFrameMVInOut > 0 {
+			r += r * (thisFrameMVInOut * 2.0)
+		} else {
+			r += r * (thisFrameMVInOut / 2.0)
+		}
+		if r > 48.0 {
+			r = 48.0
+		}
+		loopDecayRate = libvpxGetPredictionDecayRate(next)
+		decayAccumulator *= loopDecayRate
+		if decayAccumulator < 0.1 {
+			decayAccumulator = 0.1
+		}
+		boostScore += decayAccumulator * r
+
+		if t.detectGFTransitionToStill(frame, i, loopDecayRate, decayAccumulator) {
+			break
+		}
+		if i >= maxGFInterval && decayAccumulator < 0.995 {
+			break
+		}
+		if i > libvpxMinGFInterval &&
+			(framesToKey-i) >= libvpxMinGFInterval &&
+			((boostScore > 20.0) || (next.PcntInter < 0.75)) &&
+			((mvRatioAccumulator > 100.0) ||
+				(absMVInOutAccumulator > 3.0) ||
+				(mvInOutAccumulator < -2.0) ||
+				((boostScore - oldBoostScore) < 2.0)) {
+			boostScore = oldBoostScore
+			break
+		}
+		oldBoostScore = boostScore
+	}
+
+	if (framesToKey - i) < libvpxMinGFInterval {
+		for i < framesToKey {
+			i++
+			if int(frame)+i >= len(t.stats) {
+				break
+			}
+		}
+	}
+	if i > remaining {
+		i = remaining
+	}
+	if i < 0 {
+		i = 0
+	}
+	return i
+}
+
+func (t *twoPassState) detectGFTransitionToStill(frame uint64, interval int, loopDecayRate float64, decayAccumulator float64) bool {
+	const stillInterval = 5
+	rates := make([]float64, 0, stillInterval)
+	start := int(frame) + interval + 1
+	for j := 0; j < stillInterval && start+j < len(t.stats); j++ {
+		rates = append(rates, libvpxGetPredictionDecayRate(t.stats[start+j]))
+	}
+	return libvpxDetectTransitionToStill(interval, stillInterval, loopDecayRate, decayAccumulator, rates)
 }
 
 // computeGFUBoost mirrors the libvpx vp8/encoder/firstpass.c
