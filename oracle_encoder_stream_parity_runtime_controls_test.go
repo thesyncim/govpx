@@ -1095,6 +1095,34 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "static-threshold-500-noise3-runtime-roundtrip",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Static-threshold toggles with an already-active denoiser match
+			// through the first static inter packets, then drift in the
+			// denoiser/static segmentation interaction.
+			matchLimit: 4,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "static:500",
+				6: "static:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetStaticThreshold(0)", e.SetStaticThreshold(0))
+				},
+			},
+		},
+		{
 			name: "screen-content-1-2-roundtrip",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
@@ -1109,6 +1137,34 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetScreenContentMode(1)", e.SetScreenContentMode(1))
 				},
 				5: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetScreenContentMode(0)", e.SetScreenContentMode(0))
+				},
+			},
+		},
+		{
+			name: "screen-content-2-noise3-runtime-roundtrip",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Screen-content mode 2 follows the same active-denoiser
+			// transition gap as static-threshold: keep the prefix strict
+			// while logging the remaining drift.
+			matchLimit: 4,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "screen:2",
+				8: "screen:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
 				},
@@ -1543,6 +1599,66 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					cols := encoderMacroblockCols(e.opts.Width)
 					mustRuntime(t, "SetActiveMap(checker)", e.SetActiveMap(activeMapPattern("checker", rows, cols), rows, cols))
 				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-left-off-toggle-cpu-3",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.CpuUsed = -3
+				return opts
+			}(),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:left-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("left-off"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-right-off-toggle-cpu-3",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.CpuUsed = -3
+				return opts
+			}(),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:right-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("right-off"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-border-off-toggle-cpu-3",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.CpuUsed = -3
+				return opts
+			}(),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:border-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("border-off"),
 				6: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
@@ -2049,6 +2165,48 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			}),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				1: setReferencePanningApply(ReferenceLast, 8, "last"),
+			},
+		},
+		{
+			name: "set-reference-golden-before-inter-noise3",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=1200", "--noise-sensitivity=3"},
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:golden:panning:8",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceGolden, 8, "golden"),
+			},
+		},
+		{
+			name: "set-reference-altref-before-inter-noise3",
+			fx:   panning32,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning32)
+				opts.TargetBitrateKbps = 1200
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--target-bitrate=1200", "--noise-sensitivity=3"},
+			flags: []EncodeFlags{
+				0,
+				EncodeNoReferenceLast | EncodeNoReferenceGolden,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				1: "setref:altref:panning:8",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: setReferencePanningApply(ReferenceAltRef, 8, "altref"),
 			},
 		},
 		{
