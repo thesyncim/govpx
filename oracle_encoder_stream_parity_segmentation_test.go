@@ -106,6 +106,7 @@ func TestOracleEncoderStreamByteParitySegmentation(t *testing.T) {
 		// It currently byte-matches through the first inter packet, then logs
 		// the remaining screen-content2 cyclic-refresh drift.
 		{name: "screen-content2-panning-256x144-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, limit: 2, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
+		{name: "screen-content2-panning-256x144-realtime-cpu-3-bitrate2000", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning256x144, screenContentMode: 2, targetKbpsOverride: 2000, extraArgs: []string{"--screen-content-mode=2", "--target-bitrate=2000"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
 		{name: "screen-content2-panning-128x128-realtime-cpu0", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning128, screenContentMode: 2, extraArgs: []string{"--screen-content-mode=2"}},
 		{name: "screen-content1-panning-128x128-realtime-cpu-3", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning128, screenContentMode: 1, extraArgs: []string{"--screen-content-mode=1"}},
@@ -528,6 +529,7 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 		{name: "right-off-noise4", pattern: "right-off", noiseSensitivity: 4, limit: 0, extraArgs: []string{"--noise-sensitivity=4"}},
 		{name: "right-off-noise5", pattern: "right-off", noiseSensitivity: 5, limit: 0, extraArgs: []string{"--noise-sensitivity=5"}},
 		{name: "right-off-noise6", pattern: "right-off", noiseSensitivity: 6, limit: 0, extraArgs: []string{"--noise-sensitivity=6"}},
+		{name: "right-off-noise3-cpu-3", pattern: "right-off", cpuUsed: -3, noiseSensitivity: 3, limit: 0, extraArgs: []string{"--noise-sensitivity=3"}},
 		{name: "border-off-noise1", pattern: "border-off", noiseSensitivity: 1, limit: 1, extraArgs: []string{"--noise-sensitivity=1"}},
 		{name: "border-off-noise2", pattern: "border-off", noiseSensitivity: 2, limit: 1, extraArgs: []string{"--noise-sensitivity=2"}},
 		{name: "border-off-noise3", pattern: "border-off", noiseSensitivity: 3, limit: 1, extraArgs: []string{"--noise-sensitivity=3"}},
