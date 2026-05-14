@@ -29,6 +29,8 @@ func TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF(t *testing.T) {
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 50
 	e.rc.framesSinceKeyframe = 60
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 
 	if !e.aggressiveDenoiseSegmentationActive() {
 		t.Fatalf("aggressiveDenoiseSegmentationActive=false, want true (Q=%d framesSinceKey=%d)", e.rc.currentQuantizer, e.rc.framesSinceKeyframe)

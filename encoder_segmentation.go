@@ -159,14 +159,13 @@ func (e *VP8Encoder) aggressiveDenoiseSegmentationActive() bool {
 }
 
 func (e *VP8Encoder) aggressiveDenoiseSegmentationActiveForQuantizer(q int) bool {
-	if e.opts.NoiseSensitivity < 3 {
+	if e.opts.NoiseSensitivity <= 0 || !e.denoiser.allocated {
 		return false
 	}
-	mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
-	if mode != denoiserOnYUVAggressive {
+	if e.denoiser.mode != denoiserOnYUVAggressive {
 		return false
 	}
-	_, params := denoiserSetParameters(mode)
+	params := e.denoiser.params
 	if q >= params.qpThresh {
 		return false
 	}

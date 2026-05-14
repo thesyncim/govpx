@@ -74,12 +74,16 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 	}
 	if e.opts.NoiseSensitivity > 0 {
 		// Allocate the libvpx-style running average buffers and per-MB
-		// state map on first inter frame; the actual filter runs per-MB
-		// after mode decision in buildReconstructingInterFrameCoefficients.
+		// state map on first inter frame. libvpx seeds the denoiser mode
+		// only when these buffers are allocated; later nonzero runtime
+		// noise-sensitivity controls update oxcf but leave the active
+		// denoiser parameters sticky.
+		configure := !e.denoiser.allocated || e.denoiser.width != e.opts.Width || e.denoiser.height != e.opts.Height
 		_ = e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height)
-		mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
-		e.denoiser.mode = mode
-		_, e.denoiser.params = denoiserSetParameters(mode)
+		if configure {
+			mode := denoiserModeForSensitivity(e.opts.NoiseSensitivity)
+			e.denoiser.mode, e.denoiser.params = denoiserSetParameters(mode)
+		}
 		meta.denoised = true
 	}
 	return src, meta

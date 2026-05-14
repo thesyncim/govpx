@@ -1291,10 +1291,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "noise-sensitivity-1-3-6-roundtrip",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// Level 1 matches; escalating to chroma denoise levels exposes
-			// an existing denoiser-state drift, so keep the clean prefix
-			// strict while logging levels 3/6 and teardown.
-			matchLimit: 4,
 			script: runtimeControlScript(frames, map[int]string{
 				2: "noise:1",
 				4: "noise:3",
@@ -1315,6 +1311,54 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetNoiseSensitivity(6)", e.SetNoiseSensitivity(6))
 				},
 				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-6-3-sticky-yuv",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:6",
+				4: "noise:3",
+				8: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(6)", e.SetNoiseSensitivity(6))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-3-6-sticky-aggressive",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:3",
+				4: "noise:6",
+				8: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(6)", e.SetNoiseSensitivity(6))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
 				},

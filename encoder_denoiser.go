@@ -335,13 +335,16 @@ func denoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgS
 	return denoiserFilterBlock
 }
 
-// denoiserPickmodeMVBias returns the libvpx pickmode_mv_bias multiplier for
-// the configured noise sensitivity, or 100 (no bias) when the denoiser is
-// off. Used by the fast-mode RD path to scale ZEROMV-LAST scores when the
-// denoiser is in YUV-aggressive mode.
+// denoiserPickmodeMVBias returns the libvpx pickmode_mv_bias multiplier from
+// the allocated denoiser state, or 100 (no bias) when the denoiser is off.
+// Runtime nonzero noise-sensitivity controls leave libvpx's active denoiser
+// parameters sticky, so this must not be recalculated from oxcf every frame.
 func (e *VP8Encoder) denoiserPickmodeMVBias() int {
 	if e.opts.NoiseSensitivity <= 0 {
 		return 100
+	}
+	if e.denoiser.allocated && e.denoiser.mode != denoiserOff {
+		return e.denoiser.params.pickmodeMVBias
 	}
 	_, params := denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	return params.pickmodeMVBias

@@ -398,6 +398,8 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 	// Aggressive denoise (mode 3) brings consec_zerolast=15 and qp_thresh=80.
 	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
 	e.opts.NoiseSensitivity = 3
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(e.opts.NoiseSensitivity))
 	e.rc.currentQuantizer = 40
 	e.rc.framesSinceKeyframe = 100
 	cfg := e.cyclicRefreshSegmentationConfig(false)
@@ -783,6 +785,77 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	e.opts.NoiseSensitivity = 3
 	if got := e.denoiserPickmodeMVBias(); got != 75 {
 		t.Fatalf("aggressive bias = %d, want 75", got)
+	}
+}
+
+func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	src := sourceImageFromImage(testImage(32, 32))
+
+	if err := e.SetNoiseSensitivity(1); err != nil {
+		t.Fatalf("SetNoiseSensitivity(1): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("initial mode = %d, want Y-only", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("Y-only pickmode bias = %d, want 100", got)
+	}
+
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity(3): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYOnly {
+		t.Fatalf("mode after 1->3 = %d, want sticky Y-only", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 100 {
+		t.Fatalf("pickmode bias after sticky 1->3 = %d, want 100", got)
+	}
+
+	if err := e.SetNoiseSensitivity(0); err != nil {
+		t.Fatalf("SetNoiseSensitivity(0): %v", err)
+	}
+	if e.denoiser.allocated {
+		t.Fatalf("denoiser still allocated after disable")
+	}
+	if err := e.SetNoiseSensitivity(3); err != nil {
+		t.Fatalf("SetNoiseSensitivity(3) after disable: %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYUVAggressive {
+		t.Fatalf("mode after disable->3 = %d, want aggressive", e.denoiser.mode)
+	}
+	if got := e.denoiserPickmodeMVBias(); got != 75 {
+		t.Fatalf("pickmode bias after disable->3 = %d, want 75", got)
+	}
+
+	if err := e.SetNoiseSensitivity(6); err != nil {
+		t.Fatalf("SetNoiseSensitivity(6): %v", err)
+	}
+	e.preprocessSource(src, 0, encodeSourceMetadata{})
+	if e.denoiser.mode != denoiserOnYUVAggressive {
+		t.Fatalf("mode after 3->6 = %d, want sticky aggressive", e.denoiser.mode)
+	}
+}
+
+func TestAggressiveDenoiseSegmentationUsesAllocatedDenoiserMode(t *testing.T) {
+	e := &VP8Encoder{
+		opts: EncoderOptions{NoiseSensitivity: 3},
+	}
+	e.rc.currentQuantizer = 50
+	e.rc.framesSinceKeyframe = 60
+
+	e.denoiser.allocated = true
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(1))
+	if e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressive denoise segmentation active with sticky Y-only mode")
+	}
+
+	e.denoiser.mode, e.denoiser.params = denoiserSetParameters(denoiserModeForSensitivity(3))
+	if !e.aggressiveDenoiseSegmentationActive() {
+		t.Fatalf("aggressive denoise segmentation inactive with allocated aggressive mode")
 	}
 }
 
