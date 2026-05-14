@@ -494,6 +494,7 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 		flags         []EncodeFlags
 		script        []string
 		globalApply   map[int]func(*testing.T, *VP8Encoder)
+		resizeApply   func(*testing.T, *VP8Encoder, int, int)
 		mutate        func(*EncoderOptions)
 		extraArgs     []string
 		limit         int
@@ -553,6 +554,22 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			apply: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()
 				mustRuntime(t, "SetFrameDropAllowed(true)", e.SetFrameDropAllowed(true))
+			},
+		},
+		{
+			name:          "resize-bwe-fps-q-drop",
+			controlScript: "bitrate:500+fps:24+minq:8+maxq:48+drop:60",
+			resizeApply: func(t *testing.T, e *VP8Encoder, w, h int) {
+				t.Helper()
+				mustRuntime(t, "SetRealtimeTarget(resize-bwe-fps-q-drop)", e.SetRealtimeTarget(RealtimeTarget{
+					Width:        w,
+					Height:       h,
+					BitrateKbps:  500,
+					FPS:          24,
+					MinQuantizer: 8,
+					MaxQuantizer: 48,
+					FrameDrop:    RealtimeFrameDropEnabled,
+				}))
 			},
 		},
 		{
@@ -808,7 +825,9 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "runtime-resize-control-"+tc.name, opts, opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
 
 			var govpxFrames [][]byte
-			if tc.globalApply != nil || tc.flags != nil {
+			if tc.resizeApply != nil {
+				govpxFrames = encodeWithMidStreamResizeGlobalControlsAndResize(t, opts, 32, 32, seg1, seg2, tc.flags, tc.globalApply, tc.resizeApply)
+			} else if tc.globalApply != nil || tc.flags != nil {
 				govpxFrames = encodeWithMidStreamResizeGlobalControls(t, opts, 32, 32, seg1, seg2, tc.flags, tc.globalApply)
 			} else {
 				govpxFrames = encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
@@ -838,6 +857,13 @@ func encodeWithMidStreamResizeAndControl(t *testing.T, initOpts EncoderOptions,
 
 func encodeWithMidStreamResizeGlobalControls(t *testing.T, initOpts EncoderOptions,
 	w2, h2 int, seg1, seg2 []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
+	return encodeWithMidStreamResizeGlobalControlsAndResize(t, initOpts, w2, h2, seg1, seg2, flags, apply, nil)
+}
+
+func encodeWithMidStreamResizeGlobalControlsAndResize(t *testing.T, initOpts EncoderOptions,
+	w2, h2 int, seg1, seg2 []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder),
+	resizeApply func(*testing.T, *VP8Encoder, int, int)) [][]byte {
 	t.Helper()
 	enc, err := NewVP8Encoder(initOpts)
 	if err != nil {
@@ -883,7 +909,9 @@ func encodeWithMidStreamResizeGlobalControls(t *testing.T, initOpts EncoderOptio
 		}
 		out = append(out, append([]byte(nil), r.Data...))
 	}
-	if err := enc.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
+	if resizeApply != nil {
+		resizeApply(t, enc, w2, h2)
+	} else if err := enc.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
 		t.Fatalf("SetRealtimeTarget(%dx%d): %v", w2, h2, err)
 	}
 	for i, src := range seg2 {
