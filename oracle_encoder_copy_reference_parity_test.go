@@ -318,6 +318,32 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertSegmentByteParity(t, "copyref-temporal-bytestream", got, want, 0)
 	})
 
+	t.Run("copy-reference-probes-under-error-resilient-token-partitions-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.ErrorResilient = true
+		opts.ErrorResilientPartitions = true
+		opts.TokenPartitions = 2
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "copyref:last+copyref:golden"
+		script[4] = "copyref:last+copyref:altref"
+		script[6] = "copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden),
+			4: copyReferenceProbeApply("frame4", ReferenceLast, ReferenceAltRef),
+			6: copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef),
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-er-token.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-er-token-bytestream", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--error-resilient=3",
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-er-token-bytestream", got, want, 0)
+	})
+
 	t.Run("copy-reference-probes-after-resize-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(64, 64)
 		sources := make([]Image, 8)
@@ -413,6 +439,64 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		})
 		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
 		assertSegmentByteParity(t, "copyref-runtime-denoiser-transition", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-under-screen-static-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "screen:2+static:500+copyref:last+copyref:golden"
+		script[5] = "screen:0+static:0+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
+				mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+				copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			5: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetScreenContentMode(0)", e.SetScreenContentMode(0))
+				mustRuntime(t, "SetStaticThreshold(0)", e.SetStaticThreshold(0))
+				copyReferenceProbeApply("frame5", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-screen-static-runtime-controls.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-screen-static-runtime-controls", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-screen-static-runtime-controls", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-under-rtc-external-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "rtc:1+copyref:last+copyref:golden"
+		script[6] = "rtc:0+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				copyReferenceProbeApply("frame2", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+				copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-rtc-runtime-controls.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-rtc-runtime-controls", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-rtc-runtime-controls", got, want, 0)
 	})
 
 	t.Run("copy-reference-probes-under-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
