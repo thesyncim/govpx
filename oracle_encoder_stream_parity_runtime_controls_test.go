@@ -594,6 +594,39 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "keyframe-interval-shrink-past-age-forces-key",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				6: "kfmin:4+kfmax:4",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(4)", e.SetKeyFrameInterval(4))
+				},
+			},
+		},
+		{
+			name: "keyframe-interval-grow-defers-key",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.KeyFrameInterval = 4
+				return opts
+			}(),
+			extraArgs: []string{"--kf-min-dist=4", "--kf-max-dist=4"},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "kfmin:999+kfmax:999",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
+				},
+			},
+		},
+		{
 			name: "cpu-used-runtime-roundtrip",
 			fx:   panning32,
 			opts: baseOpts(panning32),
@@ -2430,6 +2463,77 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	twoLayerFlags := func(frames int) []EncodeFlags {
 		return temporalScalabilityReconfigureFlags(frames, TemporalLayeringTwoLayers, 0)
 	}
+
+	twoLayerCPUScript := twoLayerScript(12)
+	appendRuntimeControl(twoLayerCPUScript, 4, "cpu:-3")
+	appendRuntimeControl(twoLayerCPUScript, 8, "cpu:0")
+	cases = append(cases, temporalCase{
+		name:       "two-layer-cpu-used-roundtrip",
+		fx:         panning64,
+		frames:     12,
+		opts:       temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:      twoLayerFlags(12),
+		script:     twoLayerCPUScript,
+		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		matchLimit: 8,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
+			},
+		},
+	})
+
+	twoLayerDeadlineScript := twoLayerScript(12)
+	appendRuntimeControl(twoLayerDeadlineScript, 4, "deadline:good")
+	appendRuntimeControl(twoLayerDeadlineScript, 8, "deadline:rt")
+	cases = append(cases, temporalCase{
+		name:      "two-layer-deadline-good-rt-roundtrip",
+		fx:        panning64,
+		frames:    12,
+		opts:      temporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    twoLayerDeadlineScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetDeadline(good)", e.SetDeadline(DeadlineGoodQuality))
+			},
+			8: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetDeadline(rt)", e.SetDeadline(DeadlineRealtime))
+			},
+		},
+	})
+
+	fiveLayerCPUScript := runtimeTemporalLayerIDScript(18, TemporalLayeringFiveLayers)
+	appendRuntimeControl(fiveLayerCPUScript, 6, "cpu:-3")
+	appendRuntimeControl(fiveLayerCPUScript, 12, "cpu:0")
+	cases = append(cases, temporalCase{
+		name:       "five-layer-cpu-used-roundtrip",
+		fx:         panning64,
+		frames:     18,
+		opts:       temporalOpts(panning64, 0, TemporalLayeringFiveLayers),
+		flags:      temporalScalabilityReconfigureFlags(18, TemporalLayeringFiveLayers, 0),
+		script:     fiveLayerCPUScript,
+		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringFiveLayers, targetKbps),
+		matchLimit: 8,
+		apply: map[int]func(*testing.T, *VP8Encoder){
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+			},
+			12: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetCPUUsed(0)", e.SetCPUUsed(0))
+			},
+		},
+	})
 
 	dropScript := twoLayerScript(12)
 	appendRuntimeControl(dropScript, 4, "drop:60")

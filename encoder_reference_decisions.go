@@ -353,7 +353,7 @@ func (e *VP8Encoder) shouldEncodeKeyFrame(flags EncodeFlags) bool {
 		framesSinceKey := e.rc.framesSinceKeyframe + 1
 		return framesSinceKey%keyFrameFrequency == 0
 	}
-	return e.frameCount%uint64(e.opts.KeyFrameInterval) == 0
+	return e.rc.framesSinceKeyframe+1 >= e.opts.KeyFrameInterval
 }
 
 func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {

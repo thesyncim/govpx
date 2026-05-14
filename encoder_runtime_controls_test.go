@@ -802,8 +802,16 @@ func TestAdaptiveKeyFrameCadenceUsesInitialFrequency(t *testing.T) {
 		{
 			name: "fixed interval still uses live interval",
 			e: VP8Encoder{
-				opts:       EncoderOptions{KeyFrameInterval: 4},
-				frameCount: 8,
+				opts: EncoderOptions{KeyFrameInterval: 4},
+				rc:   rateControlState{framesSinceKeyframe: 7},
+			},
+			want: true,
+		},
+		{
+			name: "fixed interval shrink past age is due",
+			e: VP8Encoder{
+				opts: EncoderOptions{KeyFrameInterval: 4},
+				rc:   rateControlState{framesSinceKeyframe: 5},
 			},
 			want: true,
 		},
