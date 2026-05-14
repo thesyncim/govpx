@@ -345,6 +345,89 @@ func PacketizeVP8RTPFrame(desc VP8RTPPayloadDescriptor, frame []byte, mtu int) (
 	return out[:n], nil
 }
 
+// VP8RTPFrameAssemblySize validates an ordered set of VP8 RTP payload bodies
+// for one frame and returns the raw VP8 frame size.
+//
+// The caller owns RTP sequence-number validation, loss handling, and jitter
+// buffering. Payloads must be in decode order and must include the marker bit
+// value from each RTP header.
+func VP8RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
+	if len(payloads) == 0 {
+		return 0, ErrInvalidData
+	}
+	total := 0
+	var base VP8RTPPayloadDescriptor
+	for i := range payloads {
+		desc, fragment, err := ParseVP8RTPPayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		if len(fragment) == 0 {
+			return 0, ErrInvalidData
+		}
+		if payloads[i].Marker != (i == len(payloads)-1) {
+			return 0, ErrInvalidData
+		}
+		if desc.StartOfPartition != (i == 0) || desc.PartitionID != 0 {
+			return 0, ErrInvalidData
+		}
+		normalized := desc
+		normalized.StartOfPartition = false
+		if i == 0 {
+			base = normalized
+		} else if normalized != base {
+			return 0, ErrInvalidData
+		}
+		total, err = rtpAddPayloadSize(total, len(fragment))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+// AssembleVP8RTPFrameInto writes the raw VP8 frame carried by payloads into
+// dst and returns the frame length. On [ErrBufferTooSmall], the returned
+// length is the required capacity.
+func AssembleVP8RTPFrameInto(dst []byte, payloads []RTPPayloadFragment) (int, error) {
+	need, err := VP8RTPFrameAssemblySize(payloads)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, ErrBufferTooSmall
+	}
+	return assembleVP8RTPFrameIntoKnownSize(dst, payloads, need)
+}
+
+func assembleVP8RTPFrameIntoKnownSize(dst []byte, payloads []RTPPayloadFragment, size int) (int, error) {
+	off := 0
+	for i := range payloads {
+		_, fragment, err := ParseVP8RTPPayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		copy(dst[off:], fragment)
+		off += len(fragment)
+	}
+	return size, nil
+}
+
+// AssembleVP8RTPFrame returns the raw VP8 frame carried by an ordered set of
+// RTP payload bodies.
+func AssembleVP8RTPFrame(payloads []RTPPayloadFragment) ([]byte, error) {
+	need, err := VP8RTPFrameAssemblySize(payloads)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = assembleVP8RTPFrameIntoKnownSize(out, payloads, need)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (d VP8RTPPayloadDescriptor) hasExtensions() bool {
 	return d.PictureIDPresent || d.TL0PICIDXPresent ||
 		d.TemporalIDPresent || d.KeyIndexPresent

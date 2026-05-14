@@ -416,11 +416,108 @@ func PacketizeVP9RTPFrame(desc VP9RTPPayloadDescriptor, frame []byte, mtu int) (
 	return out[:n], nil
 }
 
+// VP9RTPFrameAssemblySize validates an ordered set of single-layer VP9 RTP
+// payload bodies for one frame and returns the raw VP9 frame size.
+//
+// The caller owns RTP sequence-number validation, loss handling, and jitter
+// buffering. Payloads must be in decode order and must include the marker bit
+// value from each RTP header. Advanced layer, flexible-mode, and scalability
+// descriptors can still be parsed with ParseVP9RTPPayloadDescriptor.
+func VP9RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
+	if len(payloads) == 0 {
+		return 0, ErrInvalidVP9Data
+	}
+	total := 0
+	var base VP9RTPPayloadDescriptor
+	for i := range payloads {
+		desc, fragment, err := ParseVP9RTPPayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		if len(fragment) == 0 {
+			return 0, ErrInvalidVP9Data
+		}
+		if payloads[i].Marker != (i == len(payloads)-1) {
+			return 0, ErrInvalidVP9Data
+		}
+		if desc.StartOfFrame != (i == 0) || desc.EndOfFrame != (i == len(payloads)-1) {
+			return 0, ErrInvalidVP9Data
+		}
+		if err := validateVP9RTPPacketizerDescriptor(desc); err != nil {
+			return 0, ErrInvalidVP9Data
+		}
+		if i == 0 {
+			base = desc
+			base.StartOfFrame = false
+			base.EndOfFrame = false
+		} else if !sameVP9RTPFrameDescriptor(base, desc) {
+			return 0, ErrInvalidVP9Data
+		}
+		total, err = rtpAddPayloadSize(total, len(fragment))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+// AssembleVP9RTPFrameInto writes the raw VP9 frame carried by payloads into
+// dst and returns the frame length. On [ErrBufferTooSmall], the returned
+// length is the required capacity.
+func AssembleVP9RTPFrameInto(dst []byte, payloads []RTPPayloadFragment) (int, error) {
+	need, err := VP9RTPFrameAssemblySize(payloads)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, ErrBufferTooSmall
+	}
+	return assembleVP9RTPFrameIntoKnownSize(dst, payloads, need)
+}
+
+func assembleVP9RTPFrameIntoKnownSize(dst []byte, payloads []RTPPayloadFragment, size int) (int, error) {
+	off := 0
+	for i := range payloads {
+		_, fragment, err := ParseVP9RTPPayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		copy(dst[off:], fragment)
+		off += len(fragment)
+	}
+	return size, nil
+}
+
+// AssembleVP9RTPFrame returns the raw VP9 frame carried by an ordered set of
+// RTP payload bodies.
+func AssembleVP9RTPFrame(payloads []RTPPayloadFragment) ([]byte, error) {
+	need, err := VP9RTPFrameAssemblySize(payloads)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = assembleVP9RTPFrameIntoKnownSize(out, payloads, need)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func validateVP9RTPPacketizerDescriptor(desc VP9RTPPayloadDescriptor) error {
 	if desc.LayerIndicesPresent || desc.FlexibleMode || desc.ScalabilityStructurePresent {
 		return ErrInvalidConfig
 	}
 	return desc.validate()
+}
+
+func sameVP9RTPFrameDescriptor(base, desc VP9RTPPayloadDescriptor) bool {
+	desc.StartOfFrame = false
+	desc.EndOfFrame = false
+	return base.PictureIDPresent == desc.PictureIDPresent &&
+		base.PictureID == desc.PictureID &&
+		base.PictureID15Bit == desc.PictureID15Bit &&
+		base.InterPicturePredicted == desc.InterPicturePredicted &&
+		base.NotRefForUpperSpatialLayer == desc.NotRefForUpperSpatialLayer
 }
 
 func (d VP9RTPPayloadDescriptor) validate() error {

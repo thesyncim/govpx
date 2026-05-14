@@ -299,6 +299,101 @@ func TestPacketizeVP9RTPFrameRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestAssembleVP9RTPFrameFromPacketizer(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:      true,
+		PictureID:             0x1234,
+		PictureID15Bit:        true,
+		InterPicturePredicted: true,
+	}
+	frame := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, 7)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	need, err := VP9RTPFrameAssemblySize(payloads)
+	if err != nil {
+		t.Fatalf("VP9RTPFrameAssemblySize: %v", err)
+	}
+	if need != len(frame) {
+		t.Fatalf("assembly size = %d, want %d", need, len(frame))
+	}
+	if got, err := AssembleVP9RTPFrameInto(make([]byte, need-1), payloads); !errors.Is(err, ErrBufferTooSmall) || got != need {
+		t.Fatalf("short assemble = %d/%v, want %d ErrBufferTooSmall", got, err, need)
+	}
+	got, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled frame = % x, want % x", got, frame)
+	}
+}
+
+func TestAssembleVP9RTPFrameRejectsInvalidPayloadSequence(t *testing.T) {
+	frame := []byte{0, 1, 2, 3, 4}
+	payloads, err := PacketizeVP9RTPFrame(VP9RTPPayloadDescriptor{
+		PictureIDPresent: true,
+		PictureID:        1,
+	}, frame, 4)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	tests := []struct {
+		name     string
+		payloads []RTPPayloadFragment
+	}{
+		{name: "empty", payloads: nil},
+		{name: "early marker", payloads: func() []RTPPayloadFragment {
+			p := append([]RTPPayloadFragment(nil), payloads...)
+			p[0].Marker = true
+			return p
+		}()},
+		{name: "missing start", payloads: []RTPPayloadFragment{{
+			Payload: mustPackVP9RTPPayloadForTest(t, VP9RTPPayloadDescriptor{
+				EndOfFrame: true,
+			}, []byte{0x01}),
+			Marker: true,
+		}}},
+		{name: "descriptor mismatch", payloads: func() []RTPPayloadFragment {
+			p := append([]RTPPayloadFragment(nil), payloads...)
+			p[1].Payload = mustPackVP9RTPPayloadForTest(t, VP9RTPPayloadDescriptor{
+				PictureIDPresent: true,
+				PictureID:        2,
+				EndOfFrame:       false,
+			}, []byte{0x02})
+			return p
+		}()},
+		{name: "layered descriptor", payloads: []RTPPayloadFragment{{
+			Payload: mustPackVP9RTPPayloadForTest(t, VP9RTPPayloadDescriptor{
+				StartOfFrame:          true,
+				EndOfFrame:            true,
+				LayerIndicesPresent:   true,
+				InterPicturePredicted: true,
+				TemporalID:            1,
+				TL0PICIDX:             9,
+			}, []byte{0x01}),
+			Marker: true,
+		}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := VP9RTPFrameAssemblySize(tc.payloads); !errors.Is(err, ErrInvalidVP9Data) {
+				t.Fatalf("assembly error = %v, want ErrInvalidVP9Data", err)
+			}
+		})
+	}
+}
+
+func mustPackVP9RTPPayloadForTest(t *testing.T, desc VP9RTPPayloadDescriptor, payload []byte) []byte {
+	t.Helper()
+	packet, err := PackVP9RTPPayload(desc, payload)
+	if err != nil {
+		t.Fatalf("PackVP9RTPPayload: %v", err)
+	}
+	return packet
+}
+
 func TestVP9RTPPayloadDescriptorRejectsInvalidConfig(t *testing.T) {
 	tests := []struct {
 		name string

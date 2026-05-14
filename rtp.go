@@ -23,3 +23,11 @@ func rtpFramePacketizationSize(frameLen, descriptorSize, mtu int) (int, int, err
 	}
 	return packets, frameLen + packets*descriptorSize, nil
 }
+
+func rtpAddPayloadSize(total, n int) (int, error) {
+	maxInt := int(^uint(0) >> 1)
+	if n < 0 || total > maxInt-n {
+		return 0, ErrInvalidConfig
+	}
+	return total + n, nil
+}
