@@ -901,9 +901,6 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 }
 
 func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
-	if e.opts.Lossless {
-		return e.vp9LegacyInterRefSignBias(flags)
-	}
 	return [3]uint8{
 		e.refSignBias[vp9LastRefSlot],
 		e.refSignBias[vp9GoldenRefSlot],
@@ -1315,9 +1312,6 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 }
 
 func vp9EncoderFrameInterpFilter(isKey, intraOnly, lossless bool) vp9dec.InterpFilter {
-	if !isKey && !intraOnly && lossless {
-		return vp9dec.InterpSwitchable
-	}
 	return vp9dec.InterpEighttap
 }
 
