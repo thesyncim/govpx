@@ -10,6 +10,7 @@ require (
 	github.com/pion/rtcp v1.2.16
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/thesyncim/govpx v0.0.0
 )
 

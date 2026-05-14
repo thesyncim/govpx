@@ -6,10 +6,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"image"
 	"image/color"
 	"io"
@@ -39,16 +42,18 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/samplebuilder"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/thesyncim/govpx"
 )
 
 const (
-	desktopWidth  = 1280
-	desktopHeight = 720
-	framerate     = 30
-	clockRate     = 90000
-	targetKbps    = 3200
+	desktopWidth      = 1280
+	desktopHeight     = 720
+	framerate         = 30
+	clockRate         = 90000
+	targetKbps        = 3200
+	pairingTokenBytes = 18
 )
 
 const browserHTML = `<!doctype html>
@@ -81,11 +86,18 @@ const status = document.getElementById("status");
 const input = document.getElementById("input");
 const pc = new RTCPeerConnection();
 const dc = pc.createDataChannel("input");
+const pairToken = pairingToken();
 let lastButtonMask = 0;
 let presented = 0;
 let lastPresented = 0;
 let lastFPSAt = performance.now();
 
+function pairingToken(){
+  const query = new URLSearchParams(location.search).get("token");
+  if (query) return query;
+  const match = location.pathname.match(/^\/pair\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
 function setStatus(text){ status.textContent = text; }
 function setInput(text){ input.textContent = text; }
 function send(payload){
@@ -106,8 +118,8 @@ function buttonMaskFromButton(button){
 }
 function videoPoint(e, clamp){
   const rect = video.getBoundingClientRect();
-  const vw = video.videoWidth || 960;
-  const vh = video.videoHeight || 540;
+  const vw = video.videoWidth || 1280;
+  const vh = video.videoHeight || 720;
   const scale = Math.min(rect.width / vw, rect.height / vh);
   const contentW = vw * scale;
   const contentH = vh * scale;
@@ -218,7 +230,8 @@ async function start(){
     if (pc.iceGatheringState === "complete") return resolve();
     pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && resolve();
   });
-  const res = await fetch("/offer", {
+  const offerURL = pairToken ? "/offer?token=" + encodeURIComponent(pairToken) : "/offer";
+  const res = await fetch(offerURL, {
     method: "POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify(pc.localDescription)
@@ -231,15 +244,52 @@ start().catch(e => setStatus("error: " + e.message));
 </body>
 </html>`
 
+const pairingHTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>govpx remote pairing</title>
+<style>
+html,body{margin:0;min-height:100%%;background:#121418;color:#e7ecf2;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+body{display:grid;place-items:center;padding:24px;box-sizing:border-box}
+main{width:min(520px,100%%);display:grid;gap:18px}
+h1{font-size:22px;margin:0}
+p{margin:0;color:#aab6c2;line-height:1.45}
+.qr{width:min(360px,100%%);aspect-ratio:1;background:white;padding:14px;box-sizing:border-box;border-radius:8px}
+.qr img{width:100%%;height:100%%;display:block}
+a{color:#7eace0;overflow-wrap:anywhere}
+.meta{font-size:13px;color:#7d8a99}
+</style>
+</head>
+<body>
+<main>
+<h1>Pair govpx remote</h1>
+<p>Scan this QR code with the client device camera. The link contains a short-lived one-time token, then the browser creates the WebRTC offer and sends input over the data channel.</p>
+<a class="qr" href="%s"><img src="/qr" alt="Pairing QR code"></a>
+<p><a href="%s">%s</a></p>
+<p class="meta">Expires %s. Open this page again for a fresh QR code.</p>
+</main>
+</body>
+</html>`
+
 func main() {
 	mode := flag.String("mode", "client", "mode: server or client")
 	addr := flag.String("addr", ":8090", "server listen address")
 	serverURL := flag.String("server", "http://localhost:8090", "server URL used by client mode")
+	publicURL := flag.String("public-url", "", "public server URL embedded in QR codes")
+	pairingTTL := flag.Duration("pairing-ttl", 5*time.Minute, "pairing token lifetime")
+	requirePairing := flag.Bool("require-pairing", true, "require QR pairing tokens for browser/direct WebRTC offers")
 	flag.Parse()
 
 	switch *mode {
 	case "server":
-		if err := runServer(*addr); err != nil {
+		if err := runServer(serverConfig{
+			Addr:           *addr,
+			PublicURL:      *publicURL,
+			PairingTTL:     *pairingTTL,
+			RequirePairing: *requirePairing,
+		}); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -841,21 +891,78 @@ func offerEndpoint(server string) (string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", fmt.Errorf("unsupported server URL scheme %q", u.Scheme)
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/offer"
-	u.RawQuery = ""
+	token := u.Query().Get("token")
+	if v, ok := tokenFromPairPath(u.Path); ok {
+		token = v
+	}
+	u.Path = "/offer"
+	if token != "" {
+		q := u.Query()
+		q.Set("token", token)
+		u.RawQuery = q.Encode()
+	} else {
+		u.RawQuery = ""
+	}
 	u.Fragment = ""
 	return u.String(), nil
 }
 
-type remoteHTTPServer struct{}
+func tokenFromPairPath(path string) (string, bool) {
+	token := strings.TrimPrefix(path, "/pair/")
+	if token == path || token == "" || strings.Contains(token, "/") {
+		return "", false
+	}
+	unescaped, err := url.PathUnescape(token)
+	if err != nil {
+		return "", false
+	}
+	return unescaped, true
+}
 
-func runServer(addr string) error {
-	s := remoteHTTPServer{}
+type serverConfig struct {
+	Addr           string
+	PublicURL      string
+	PairingTTL     time.Duration
+	RequirePairing bool
+}
+
+type remoteHTTPServer struct {
+	pairing        *pairingBroker
+	publicBase     string
+	requirePairing bool
+}
+
+func runServer(cfg serverConfig) error {
+	publicBase := cfg.PublicURL
+	if publicBase == "" {
+		publicBase = listenURL(cfg.Addr)
+	}
+	publicBase = strings.TrimRight(publicBase, "/")
+	s := remoteHTTPServer{
+		pairing:        newPairingBroker(cfg.PairingTTL),
+		publicBase:     publicBase,
+		requirePairing: cfg.RequirePairing,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/client", s.handleClient)
+	mux.HandleFunc("/pair/", s.handlePair)
+	mux.HandleFunc("/qr", s.handleQR)
 	mux.HandleFunc("/offer", s.handleOffer)
-	log.Printf("govpx remote server listening on %s", listenURL(addr))
-	return http.ListenAndServe(addr, mux)
+
+	pairURL, _, err := s.currentPairURL(time.Now())
+	if err != nil {
+		return err
+	}
+	log.Printf("govpx remote server listening on %s", listenURL(cfg.Addr))
+	log.Printf("pairing URL: %s", pairURL)
+	if strings.Contains(pairURL, "localhost") {
+		log.Printf("set -public-url http://LAN_IP:%s for phone pairing from another device", listenPort(cfg.Addr))
+	}
+	if qr, err := qrcode.New(pairURL, qrcode.Medium); err == nil {
+		fmt.Println(qr.ToSmallString(false))
+	}
+	return http.ListenAndServe(cfg.Addr, mux)
 }
 
 func listenURL(addr string) string {
@@ -865,16 +972,78 @@ func listenURL(addr string) string {
 	return "http://" + addr
 }
 
-func (remoteHTTPServer) handleIndex(w http.ResponseWriter, r *http.Request) {
+func listenPort(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return strings.TrimPrefix(addr, ":")
+	}
+	if i := strings.LastIndex(addr, ":"); i >= 0 && i < len(addr)-1 {
+		return addr[i+1:]
+	}
+	return "8090"
+}
+
+func (s remoteHTTPServer) currentPairURL(now time.Time) (string, time.Time, error) {
+	token, expires, err := s.pairing.current(now)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return s.publicBase + "/pair/" + url.PathEscape(token), expires, nil
+}
+
+func (s remoteHTTPServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	pairURL, expires, err := s.currentPairURL(time.Now())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = fmt.Fprintf(w, pairingHTML,
+		html.EscapeString(pairURL),
+		html.EscapeString(pairURL),
+		html.EscapeString(pairURL),
+		html.EscapeString(expires.Format(time.RFC3339)),
+	)
+}
+
+func (s remoteHTTPServer) handleClient(w http.ResponseWriter, r *http.Request) {
+	if s.requirePairing {
+		http.Error(w, "pairing token required; scan the QR code or open /pair/<token>", http.StatusUnauthorized)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, browserHTML)
 }
 
-func (remoteHTTPServer) handleOffer(w http.ResponseWriter, r *http.Request) {
+func (s remoteHTTPServer) handlePair(w http.ResponseWriter, r *http.Request) {
+	token, ok := tokenFromPairPath(r.URL.Path)
+	if !ok || !s.pairing.valid(token, time.Now()) {
+		http.Error(w, "pairing token expired or invalid; open the server root for a fresh QR code", http.StatusGone)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, browserHTML)
+}
+
+func (s remoteHTTPServer) handleQR(w http.ResponseWriter, r *http.Request) {
+	pairURL, _, err := s.currentPairURL(time.Now())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	png, err := qrcode.Encode(pairURL, qrcode.Medium, 360)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(png)
+}
+
+func (s remoteHTTPServer) handleOffer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -884,6 +1053,13 @@ func (remoteHTTPServer) handleOffer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	token := r.URL.Query().Get("token")
+	if s.requirePairing || token != "" {
+		if !s.pairing.consume(token, time.Now()) {
+			http.Error(w, "pairing token expired, invalid, or already used", http.StatusUnauthorized)
+			return
+		}
+	}
 	session, answer, err := newServerSession(offer)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -892,6 +1068,67 @@ func (remoteHTTPServer) handleOffer(w http.ResponseWriter, r *http.Request) {
 	_ = session
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(answer)
+}
+
+type pairingBroker struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	token   string
+	expires time.Time
+	used    bool
+}
+
+// pairingBroker keeps a single active short-lived invitation. The token is
+// consumed only when a WebRTC offer is accepted, so loading the browser page or
+// QR image does not burn the invite.
+func newPairingBroker(ttl time.Duration) *pairingBroker {
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	return &pairingBroker{ttl: ttl}
+}
+
+func (p *pairingBroker) current(now time.Time) (string, time.Time, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.token == "" || p.used || !now.Before(p.expires) {
+		token, err := newPairingToken()
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		p.token = token
+		p.expires = now.Add(p.ttl)
+		p.used = false
+	}
+	return p.token, p.expires, nil
+}
+
+func (p *pairingBroker) valid(token string, now time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.validLocked(token, now)
+}
+
+func (p *pairingBroker) consume(token string, now time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.validLocked(token, now) {
+		return false
+	}
+	p.used = true
+	return true
+}
+
+func (p *pairingBroker) validLocked(token string, now time.Time) bool {
+	return token != "" && token == p.token && !p.used && now.Before(p.expires)
+}
+
+func newPairingToken() (string, error) {
+	var raw [pairingTokenBytes]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 type serverSession struct {
