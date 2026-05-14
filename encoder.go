@@ -467,6 +467,11 @@ type VP8Encoder struct {
 	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
 	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
 	autoSpeedFrameStartNS int64
+	// Runtime VP8E_SET_CPUUSED follows a slightly different temporal RD
+	// frame-context path from cold-start cpu_used config when it pins
+	// realtime speed. Track that control call so temporal GF refresh scoring
+	// can mirror libvpx without changing cold-start pinned-speed streams.
+	runtimePinnedCPUUsed bool
 
 	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
 	// is set when the encoder is producing a key frame whose timing was

@@ -402,6 +402,9 @@ func (e *VP8Encoder) SetDeadline(deadline Deadline) error {
 	}
 	e.opts.Deadline = deadline
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(deadline, e.opts.CpuUsed)
+	if deadline != DeadlineRealtime {
+		e.runtimePinnedCPUUsed = false
+	}
 	return nil
 }
 
@@ -417,6 +420,7 @@ func (e *VP8Encoder) SetCPUUsed(cpuUsed int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.CpuUsed = libvpxEffectiveCPUUsed(e.opts.Deadline, cpuUsed)
+	e.runtimePinnedCPUUsed = e.opts.Deadline == DeadlineRealtime && cpuUsed < 0
 	// libvpx routes VP8E_SET_CPUUSED through vp8_change_config, whose tail
 	// assigns cpi->Speed = oxcf.cpu_used. This matters when switching from a
 	// pinned realtime speed (negative cpu_used) back to auto-speed: the next

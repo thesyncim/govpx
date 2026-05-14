@@ -1159,4 +1159,14 @@ func TestRDPickerCoefProbsSelectsLibvpxFrameContext(t *testing.T) {
 	if got := e.rdPickerCoefProbs(false, true); got != &e.coefProbsAltRef {
 		t.Fatalf("temporal multilayer altref context = %p, want coefProbsAltRef %p", got, &e.coefProbsAltRef)
 	}
+
+	e.opts.Deadline = DeadlineRealtime
+	e.opts.CpuUsed = -3
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsLast {
+		t.Fatalf("cold pinned realtime temporal golden context = %p, want coefProbsLast %p", got, &e.coefProbsLast)
+	}
+	e.runtimePinnedCPUUsed = true
+	if got := e.rdPickerCoefProbs(true, false); got != &e.coefProbsGolden {
+		t.Fatalf("runtime pinned realtime temporal golden context = %p, want coefProbsGolden %p", got, &e.coefProbsGolden)
+	}
 }
