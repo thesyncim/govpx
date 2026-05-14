@@ -163,6 +163,10 @@ type temporalLayerCodingState struct {
 	RateCorrectionFactor     float64
 	KeyFrameCorrectionFactor float64
 	GoldenCorrectionFactor   float64
+	// ActiveBestQuantizer mirrors LAYER_CONTEXT.active_best_quality.
+	// It is usually reset on buffered inter frames, but CQ-to-non-CQ
+	// forced key frames can carry the previous CQ floor into the key Q.
+	ActiveBestQuantizer int
 
 	// AvgFrameQuantizer mirrors LAYER_CONTEXT.avg_frame_qindex.
 	// NormalInterAvgQuantizer/NormalInterFrames/NormalInterQuantizerTotal

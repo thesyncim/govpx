@@ -451,6 +451,91 @@ func TestRateControlQActiveQuantizerBoundsDoNotUseCQFloor(t *testing.T) {
 	}
 }
 
+func TestRateControlPreservesCQActiveBestAcrossRuntimeCBRForcedKey(t *testing.T) {
+	timing := timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1}
+	var rc rateControlState
+	if err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             30,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}, timing); err != nil {
+		t.Fatalf("apply CQ config: %v", err)
+	}
+
+	rc.beginFrameWithTargetAndContext(false, rc.bitsPerFrame, rateControlFrameContext{timing: timing})
+	rc.selectQuantizerForFrameKind(false, false, 4)
+	cqQ := libvpxPublicQuantizerToQIndex(30)
+	if rc.activeBestQuantizer != cqQ {
+		t.Fatalf("CQ active best = %d, want cq target q%d", rc.activeBestQuantizer, cqQ)
+	}
+
+	if err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}, timing); err != nil {
+		t.Fatalf("apply CBR config: %v", err)
+	}
+
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{
+		forcedKeyFrame: true,
+		timing:         timing,
+	})
+	rc.selectQuantizerForFrameKind(true, false, 4)
+	if rc.activeBestQuantizer != cqQ || rc.currentQuantizer != cqQ {
+		t.Fatalf("forced-key active/current Q = %d/%d, want preserved CQ q%d", rc.activeBestQuantizer, rc.currentQuantizer, cqQ)
+	}
+
+	rc.beginFrameWithTargetAndContext(false, rc.bitsPerFrame, rateControlFrameContext{timing: timing})
+	if rc.activeBestQuantizer != rc.minQuantizer {
+		t.Fatalf("post-key inter active best = %d, want reset to best q%d", rc.activeBestQuantizer, rc.minQuantizer)
+	}
+}
+
+func TestRateControlCQKeyFrameResetsStickyActiveBest(t *testing.T) {
+	timing := timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1}
+	var rc rateControlState
+	if err := rc.applyConfig(RateControlConfig{
+		Mode:                RateControlCQ,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             20,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}, timing); err != nil {
+		t.Fatalf("apply CQ config: %v", err)
+	}
+
+	rc.beginFrameWithTargetAndContext(false, rc.bitsPerFrame, rateControlFrameContext{timing: timing})
+	rc.selectQuantizerForFrameKind(false, false, 16)
+	if rc.activeBestQuantizer <= rc.minQuantizer {
+		t.Fatalf("CQ inter active best = %d, want raised above best q%d", rc.activeBestQuantizer, rc.minQuantizer)
+	}
+
+	rc.beginFrameWithTargetAndContext(true, rc.bitsPerFrame, rateControlFrameContext{timing: timing})
+	rc.selectQuantizerForFrameKind(true, false, 16)
+	if rc.activeBestQuantizer != rc.minQuantizer {
+		t.Fatalf("CQ key active best = %d, want reset to best q%d", rc.activeBestQuantizer, rc.minQuantizer)
+	}
+}
+
 func TestRateControlScreenContentLimitsLibvpxInterQuantizerDrop(t *testing.T) {
 	rc := rateControlState{
 		mode:               RateControlCBR,

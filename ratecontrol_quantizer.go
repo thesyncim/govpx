@@ -44,6 +44,7 @@ func (rc *rateControlState) selectQuantizerForFrameKindWithAltRef(keyFrame bool,
 	gfOrArf := goldenFrame || altRefFrame
 	correctionFactor := rc.rateCorrectionFactorForFrame(keyFrame, gfOrArf)
 	activeBest, activeWorst := rc.libvpxActiveQuantizerBoundsForFrame(keyFrame, goldenFrame, altRefFrame)
+	rc.activeBestQuantizer = activeBest
 	rc.currentQuantizer, rc.currentZbinOverQuant = libvpxRegulatedQuantizerWithZbinAltRef(keyFrame, goldenFrame, altRefFrame, targetBits, macroblocks, activeBest, activeWorst, correctionFactor)
 	if rc.cqFloorActive() && !keyFrame && !gfOrArf {
 		// libvpx vp8/encoder/onyx_if.c lines 3727-3739: for one-pass
@@ -95,7 +96,10 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 	activeWorst = rc.clampedQuantizerValue(activeWorst)
 
 	gfOrArf := goldenFrame || altRefFrame
-	activeBest := rc.minQuantizer
+	activeBest := clampQuantizerValue(rc.activeBestQuantizer, rc.minQuantizer, rc.maxQuantizer)
+	if !keyFrame && rc.bufferOptimalBits > 0 {
+		activeBest = rc.minQuantizer
+	}
 	// libvpx vp8/encoder/onyx_if.c line 3619 gates the active-best
 	// branches on `(cpi->pass == 2) || (cpi->ni_frames > 150)`. govpx
 	// historically only honored the ni_frames>150 arm; for pass-2 we
@@ -137,7 +141,9 @@ func (rc *rateControlState) libvpxActiveQuantizerBoundsForFrame(keyFrame bool, g
 			activeBest = rc.libvpxCBRFullBufferActiveBest(activeBest)
 		}
 	} else if rc.cqFloorActive() {
-		if !keyFrame && !gfOrArf && activeBest < rc.cqLevel {
+		if keyFrame || gfOrArf {
+			activeBest = rc.minQuantizer
+		} else if activeBest < rc.cqLevel {
 			activeBest = rc.cqLevel
 		}
 	}

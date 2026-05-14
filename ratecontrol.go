@@ -260,6 +260,7 @@ type rateControlState struct {
 	keyFrameCorrectionFactor float64
 	goldenCorrectionFactor   float64
 	currentZbinOverQuant     int
+	activeBestQuantizer      int
 	activeWorstQChanged      bool
 
 	// pass2ActiveWorstQOverride mirrors libvpx's
@@ -409,7 +410,10 @@ func (rc *rateControlState) applyConfig(cfg RateControlConfig, timing timingStat
 		rc.rateCorrectionFactor = 1.0
 		rc.keyFrameCorrectionFactor = 1.0
 		rc.goldenCorrectionFactor = 1.0
+		rc.activeBestQuantizer = rc.minQuantizer
 		rc.totalActualBits = 0
+	} else {
+		rc.activeBestQuantizer = clampQuantizerValue(rc.activeBestQuantizer, rc.minQuantizer, rc.maxQuantizer)
 	}
 	rc.outputFrameRate = int(outputFrameRate(timing))
 	if rc.keyFrameCount == 0 && rc.priorKeyFrameDistance == ([keyFrameContextSize]int{}) {
@@ -595,6 +599,14 @@ func (rc *rateControlState) beginFrameWithTargetAndContext(keyFrame bool, baseTa
 		}
 	}
 	if !keyFrame {
+		if rc.bufferOptimalBits > 0 {
+			// calc_pframe_target_size resets active_best_quality to
+			// best_quality for one-pass buffered inter frames before the
+			// Q regulator runs. Forced key frames can carry a higher
+			// active-best from a previous CQ segment, but the first
+			// following inter frame starts fresh.
+			rc.activeBestQuantizer = rc.minQuantizer
+		}
 		// libvpx's calc_pframe_target_size always runs the
 		// kf_overspend_bits / gf_overspend_bits drain; only
 		// cpi->per_frame_bandwidth is swapped to the per-layer

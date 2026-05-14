@@ -880,6 +880,7 @@ func (e *VP8Encoder) restoreTemporalLayerCodingState(meta temporalFrame) {
 	e.rc.rateCorrectionFactor = state.RateCorrectionFactor
 	e.rc.keyFrameCorrectionFactor = state.KeyFrameCorrectionFactor
 	e.rc.goldenCorrectionFactor = state.GoldenCorrectionFactor
+	e.rc.activeBestQuantizer = state.ActiveBestQuantizer
 	e.rc.avgFrameQuantizer = state.AvgFrameQuantizer
 	e.rc.normalInterAvgQuantizer = state.NormalInterAvgQuantizer
 	e.rc.normalInterFrames = state.NormalInterFrames
@@ -921,6 +922,7 @@ func (e *VP8Encoder) saveTemporalLayerCodingState(meta temporalFrame) {
 		RateCorrectionFactor:         e.rc.rateCorrectionFactor,
 		KeyFrameCorrectionFactor:     e.rc.keyFrameCorrectionFactor,
 		GoldenCorrectionFactor:       e.rc.goldenCorrectionFactor,
+		ActiveBestQuantizer:          e.rc.activeBestQuantizer,
 		AvgFrameQuantizer:            e.rc.avgFrameQuantizer,
 		NormalInterAvgQuantizer:      e.rc.normalInterAvgQuantizer,
 		NormalInterFrames:            e.rc.normalInterFrames,
@@ -970,6 +972,7 @@ func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCod
 		RateCorrectionFactor:         1.0,
 		KeyFrameCorrectionFactor:     1.0,
 		GoldenCorrectionFactor:       1.0,
+		ActiveBestQuantizer:          e.rc.minQuantizer,
 		AvgFrameQuantizer:            e.rc.maxQuantizer,
 		NormalInterAvgQuantizer:      0,
 		LastQuantizer:                e.rc.lastQuantizer,

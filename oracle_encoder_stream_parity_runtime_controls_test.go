@@ -4459,21 +4459,7 @@ func runtimeRateControlModeConfig(mode RateControlMode, targetKbps int) RateCont
 	}
 }
 
-func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceKeyFrame bool, switchFrame int) int {
-	if from == RateControlCBR {
-		return 0
-	}
-	if to == RateControlCBR {
-		if forceKeyFrame {
-			if from == RateControlCQ {
-				return switchFrame
-			}
-		}
-		return 0
-	}
-	if forceKeyFrame && from == RateControlCQ {
-		return switchFrame
-	}
+func runtimeRateControlModeTransitionMatchLimit(_, _ RateControlMode, _ bool, _ int) int {
 	return 0
 }
 
