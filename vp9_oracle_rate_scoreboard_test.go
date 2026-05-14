@@ -102,6 +102,52 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR keyframe variance scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 4
+	sources := make([]*image.YCbCr, frames)
+	for i := range sources {
+		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+	}
+	opts := vp9OracleCBROptions(width, height, 600)
+	flags := vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame)
+	extraArgs := vp9OracleCBRArgs(600, 600, 400, 500, 0)
+
+	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, flags)
+	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+		sources, flags, extraArgs)
+	if len(govpxRows) != frames || len(libvpxRows) != frames {
+		t.Fatalf("CBR keyframe variance rows: govpx=%d libvpx=%d, want %d/%d",
+			len(govpxRows), len(libvpxRows), frames, frames)
+	}
+	t.Logf("VP9 CBR keyframe variance rows:\n%s",
+		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+	for _, frame := range [...]int{0, 3} {
+		g := govpxRows[frame]
+		l := libvpxRows[frame]
+		if !g.KeyFrame || !l.KeyFrame || g.Dropped || l.Dropped {
+			t.Fatalf("frame %d key/drop: govpx=(%t,%t) libvpx=(%t,%t)",
+				frame, g.KeyFrame, g.Dropped, l.KeyFrame, l.Dropped)
+		}
+		sizeDelta := g.SizeBytes - l.SizeBytes
+		if sizeDelta < 0 {
+			sizeDelta = -sizeDelta
+		}
+		firstPartDelta := g.FirstPartitionSize - l.FirstPartitionSize
+		if firstPartDelta < 0 {
+			firstPartDelta = -firstPartDelta
+		}
+		if sizeDelta > 1 || firstPartDelta > 1 {
+			t.Fatalf("frame %d key variance drift: size_delta=%d first_part_delta=%d",
+				frame, sizeDelta, firstPartDelta)
+		}
+	}
+}
+
 func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 rate drop-pressure scoreboard")

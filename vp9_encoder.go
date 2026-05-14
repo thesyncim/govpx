@@ -2342,8 +2342,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 func (e *VP9Encoder) vp9CBRKeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	return key != nil && key.dq != nil && key.hdr != nil &&
 		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
-		e.rc.enabled && e.rc.mode == RateControlCBR && e.rc.dropFrameAllowed &&
-		!e.vp9FixedPublicQuantizer()
+		e.rc.enabled && e.rc.mode == RateControlCBR && !e.vp9FixedPublicQuantizer()
 }
 
 func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {
@@ -2593,7 +2592,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 
 func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
 	if inter == nil || inter.dq == nil || inter.lossless ||
-		!e.rc.enabled || e.rc.mode != RateControlCBR || !e.rc.dropFrameAllowed {
+		!e.rc.enabled || e.rc.mode != RateControlCBR {
 		return false
 	}
 	return !e.vp9FixedPublicQuantizer()
