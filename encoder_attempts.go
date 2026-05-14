@@ -516,9 +516,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// Mirror libvpx update_rd_ref_frame_probs: bias the previous-frame
 	// reference-frame probabilities for *this* frame's RD scoring based on
 	// the upcoming refresh policy. The base values are restored on every
-	// return so commitInterFrameAttempt's updateRefFrameProbsFromAttempt
-	// recomputes them from this frame's mb_ref_frame counts (the equivalent
-	// of vp8_convert_rfct_to_prob at packet write time).
+	// return so the accepted packet path recomputes them from this frame's
+	// mb_ref_frame counts (the equivalent of vp8_convert_rfct_to_prob at
+	// packet write time).
 	if !rdRefProbsPreconfigured {
 		previousRefProbIntra := e.refProbIntra
 		previousRefProbLast := e.refProbLast

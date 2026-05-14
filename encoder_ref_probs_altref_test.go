@@ -52,6 +52,40 @@ func TestUpdateRefFrameProbsFromAttemptSkipsSingleLayerGFAndARFRefresh(t *testin
 	}
 }
 
+func TestUpdateRefFrameProbsFromPackedAttemptConvertsSingleLayerGFRefresh(t *testing.T) {
+	modes := []vp8enc.InterFrameMacroblockMode{
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+		{RefFrame: vp8common.GoldenFrame, Mode: vp8common.ZeroMV},
+	}
+	e := &VP8Encoder{
+		interFrameModes: modes,
+		refProbIntra:    15,
+		refProbLast:     255,
+		refProbGolden:   128,
+	}
+
+	e.updateRefFrameProbsFromPackedAttempt()
+
+	if e.refProbIntra != 111 || e.refProbLast != 141 || e.refProbGolden != 255 {
+		t.Fatalf("packed GF-refresh ref probs = %d/%d/%d, want libvpx RFCT 111/141/255",
+			e.refProbIntra, e.refProbLast, e.refProbGolden)
+	}
+}
+
 func TestUpdateRefFrameProbsFromAttemptConvertsTemporalLayerRefresh(t *testing.T) {
 	modes := []vp8enc.InterFrameMacroblockMode{
 		{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV},

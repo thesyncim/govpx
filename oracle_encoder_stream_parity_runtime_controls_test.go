@@ -1533,9 +1533,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "active-roi-disable-roi-first-order",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// The ROI-off frame and later active-off frame are strict; the
-			// following frame keeps the remaining teardown-state gap logged.
-			matchLimit: 11,
 			script: runtimeControlScript(frames, map[int]string{
 				1:  "active:checker+roi:border1",
 				8:  "roi:off",
@@ -1586,9 +1583,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "roi-pattern-switch-under-active-map",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// Pattern replacement is now strict; teardown after multiple
-			// active+ROI map updates still leaves a one-frame byte drift.
-			matchLimit: 11,
 			script: runtimeControlScript(frames, map[int]string{
 				1:  "active:checker+roi:checker",
 				4:  "roi:left1",

@@ -67,7 +67,7 @@ func (e *VP8Encoder) updateRefFrameProbsFromKeyFrame() {
 func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.commitInterFrameEntropy(attempt)
 	e.commitInterFrameSkipFalseProb(attempt)
-	e.updateRefFrameProbsFromAttempt(attempt)
+	e.updateRefFrameProbsFromPackedAttempt()
 	// Mirror libvpx vp8/encoder/bitstream.c pack_lf_deltas: after a frame
 	// is packed, last_*_lf_deltas mirror the just-signaled deltas so the
 	// next frame's send_update bit reflects whether anything actually
@@ -110,12 +110,9 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt) {
 	e.forceMaxQuantizer = false
 }
 
-// updateRefFrameProbsFromAttempt mirrors libvpx vp8_convert_rfct_to_prob:
-// ref-frame probs for the next frame's RD scoring are derived from observed
-// mode counts after normal single-layer inter frames, and after all
-// multi-layer inter frames. Single-layer GF/ARF refresh frames deliberately
-// keep the previous probabilities and let update_rd_ref_frame_probs apply the
-// refresh adjustments on the next frame.
+// updateRefFrameProbsFromAttempt mirrors the gated vp8_convert_rfct_to_prob
+// call at the end of libvpx vp8_encode_frame. This path feeds recode/drop
+// decisions before packet packing; single-layer GF/ARF refresh frames skip it.
 func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAttempt) {
 	if e.refProbUseDefaultOnNextInterRD {
 		e.resetRefFrameProbsToDefaultInterRD()
@@ -124,6 +121,20 @@ func (e *VP8Encoder) updateRefFrameProbsFromAttempt(attempt interFrameEncodeAtte
 	if !libvpxShouldConvertRefCountsToProb(e.libvpxTemporalLayerCount(), attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef) {
 		return
 	}
+	e.convertRefFrameCountsToProbs()
+}
+
+// updateRefFrameProbsFromPackedAttempt mirrors libvpx bitstream.c
+// pack_inter_mode_mvs, which unconditionally calls vp8_convert_rfct_to_prob
+// immediately before writing the inter-mode header. The converted values stay
+// live after packet write and seed the next frame's update_rd_ref_frame_probs,
+// including after single-layer GF/ARF refresh packets.
+func (e *VP8Encoder) updateRefFrameProbsFromPackedAttempt() {
+	e.refProbUseDefaultOnNextInterRD = false
+	e.convertRefFrameCountsToProbs()
+}
+
+func (e *VP8Encoder) convertRefFrameCountsToProbs() {
 	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes)
 	probIntra, probLast, probGolden, ok := refFrameProbsFromUsage(intra, last, golden, alt)
 	if !ok {
