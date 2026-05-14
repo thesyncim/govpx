@@ -632,9 +632,9 @@ func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 		{name: "left-off", pattern: "left-off"},
 		{name: "right-off", pattern: "right-off"},
 		{name: "border-off", pattern: "border-off"},
-		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, limit: 4, extraArgs: []string{"--noise-sensitivity=3"}},
-		{name: "left-off-noise3", pattern: "left-off", noiseSensitivity: 3, limit: 7, extraArgs: []string{"--noise-sensitivity=3"}},
-		{name: "right-off-noise3", pattern: "right-off", noiseSensitivity: 3, limit: 7, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "checker-noise3", pattern: "checker", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "left-off-noise3", pattern: "left-off", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
+		{name: "right-off-noise3", pattern: "right-off", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
 		{name: "border-off-noise3", pattern: "border-off", noiseSensitivity: 3, extraArgs: []string{"--noise-sensitivity=3"}},
 	}
 	for _, tc := range cases {
