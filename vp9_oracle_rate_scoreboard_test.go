@@ -102,6 +102,68 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleQHistogramScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 Q histogram scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 12
+	type qHistCase struct {
+		name      string
+		opts      VP9EncoderOptions
+		flags     []EncodeFlags
+		extraArgs []string
+	}
+	cases := []qHistCase{
+		{
+			name:      "cbr-panning",
+			opts:      vp9OracleCBROptions(width, height, 700),
+			extraArgs: vp9OracleCBRArgs(700, 600, 400, 500, 0),
+		},
+		{
+			name: "cbr-force-key",
+			opts: vp9OracleCBROptions(width, height, 650),
+			flags: vp9OracleFlagAt(frames, 5,
+				EncodeForceKeyFrame),
+			extraArgs: vp9OracleCBRArgs(650, 600, 400, 500, 0),
+		},
+		{
+			name: "fixed-q-window",
+			opts: func() VP9EncoderOptions {
+				opts := vp9OracleCBROptions(width, height, 700)
+				opts.MinQuantizer = 20
+				opts.MaxQuantizer = 20
+				return opts
+			}(),
+			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+				"--min-q=20", "--max-q=20"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := newVP9OracleTransitionSources(width, height, frames)
+			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources,
+				tc.flags)
+			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width,
+				height, sources, tc.flags, tc.extraArgs)
+			govpxHist := vp9QHistogram(govpxRows)
+			libvpxHist := vp9QHistogram(libvpxRows)
+			distance, mismatchedBins := vp9HistogramDistance(govpxHist,
+				libvpxHist)
+			t.Logf("VP9 Q histogram scoreboard %s: distance=%d mismatched_bins=%d govpx=%s libvpx=%s",
+				tc.name, distance, mismatchedBins,
+				formatVP9QHistogram(govpxHist),
+				formatVP9QHistogram(libvpxHist))
+			if os.Getenv("GOVPX_VP9_QHIST_STRICT") == "1" &&
+				distance != 0 {
+				t.Fatalf("strict VP9 Q histogram mismatch %s: distance=%d bins=%d",
+					tc.name, distance, mismatchedBins)
+			}
+		})
+	}
+}
+
 func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 CBR keyframe variance scoreboard")
@@ -571,23 +633,48 @@ func vp9SameIntSlice(a, b []int) bool {
 	return true
 }
 
-func newVP9PanningYCbCrForRateTest(width, height int, frame int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			row[x] = byte(24 + ((x+frame*3)*7+y*11+(x*y+frame*13)%37)%208)
+func vp9QHistogram(rows []vp9RateScoreboardRow) [256]int {
+	var hist [256]int
+	for _, row := range rows {
+		if row.Dropped {
+			continue
+		}
+		if uint(row.BaseQIndex) < uint(len(hist)) {
+			hist[row.BaseQIndex]++
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
-	for y := range uvHeight {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvWidth {
-			cb[x] = byte(64 + ((x+frame)*5+y*3)%128)
-			cr[x] = byte(72 + (x*3+(y+frame)*7)%112)
+	return hist
+}
+
+func vp9HistogramDistance(a, b [256]int) (distance, mismatchedBins int) {
+	for i := range a {
+		d := a[i] - b[i]
+		if d != 0 {
+			mismatchedBins++
+			if d < 0 {
+				d = -d
+			}
+			distance += d
 		}
 	}
-	return img
+	return distance, mismatchedBins
+}
+
+func formatVP9QHistogram(hist [256]int) string {
+	var b bytes.Buffer
+	first := true
+	for q, count := range hist {
+		if count == 0 {
+			continue
+		}
+		if !first {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%d:%d", q, count)
+		first = false
+	}
+	if first {
+		return "empty"
+	}
+	return b.String()
 }

@@ -438,6 +438,31 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 			},
 		},
 		{
+			name: "bitrate-fps-no-temporal",
+			opts: baseOpts(700),
+			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRealtimeTarget bitrate/fps low",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							BitrateKbps: 400,
+							FPS:         15,
+						}))
+				case 8:
+					mustVP9Runtime(t, "SetRealtimeTarget bitrate/fps restore",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							BitrateKbps: 700,
+							FPS:         30,
+						}))
+				}
+			},
+			extraArgs: []string{
+				"--target-bitrate-schedule=3:400,8:700",
+				"--fps-schedule=3:15,8:30",
+			},
+		},
+		{
 			name: "drop-frame-toggle",
 			opts: func() VP9EncoderOptions {
 				opts := baseOpts(120)
@@ -468,6 +493,80 @@ func TestVP9OracleRuntimeControlMatrixScoreboard(t *testing.T) {
 				"--buf-optimal-sz=350",
 				"--drop-frame=0",
 				"--drop-frame-schedule=3:60,8:0",
+			},
+		},
+		{
+			name: "fixed-q-drop-frame-toggle",
+			opts: func() VP9EncoderOptions {
+				opts := baseOpts(120)
+				opts.BufferSizeMs = 400
+				opts.BufferInitialSizeMs = 300
+				opts.BufferOptimalSizeMs = 350
+				opts.MinQuantizer = 20
+				opts.MaxQuantizer = 20
+				opts.DropFrameWaterMark = 60
+				return opts
+			}(),
+			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop enabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropEnabled,
+						}))
+				case 8:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop disabled",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							FrameDrop: RealtimeFrameDropDisabled,
+						}))
+				}
+			},
+			extraArgs: []string{
+				"--min-q=20",
+				"--max-q=20",
+				"--buf-sz=400",
+				"--buf-initial-sz=300",
+				"--buf-optimal-sz=350",
+				"--drop-frame=0",
+				"--drop-frame-schedule=3:60,8:0",
+			},
+		},
+		{
+			name: "q-band-restores-after-drop-pressure",
+			opts: func() VP9EncoderOptions {
+				opts := baseOpts(140)
+				opts.BufferSizeMs = 400
+				opts.BufferInitialSizeMs = 300
+				opts.BufferOptimalSizeMs = 350
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 60
+				return opts
+			}(),
+			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+				t.Helper()
+				switch frame {
+				case 3:
+					mustVP9Runtime(t, "SetRealtimeTarget fixed q under drop",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							MinQuantizer: 20,
+							MaxQuantizer: 20,
+						}))
+				case 8:
+					mustVP9Runtime(t, "SetRealtimeTarget q band restore after drop",
+						enc.SetRealtimeTarget(RealtimeTarget{
+							MinQuantizer: 4,
+							MaxQuantizer: 56,
+						}))
+				}
+			},
+			extraArgs: []string{
+				"--buf-sz=400",
+				"--buf-initial-sz=300",
+				"--buf-optimal-sz=350",
+				"--drop-frame=60",
+				"--min-q-schedule=3:20,8:4",
+				"--max-q-schedule=3:20,8:56",
 			},
 		},
 		{

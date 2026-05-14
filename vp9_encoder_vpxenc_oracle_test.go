@@ -292,6 +292,87 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderVpxencOracleInterModeDistributionScoreboard(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 6
+	sources := make([]*image.YCbCr, frames)
+	for i := range sources {
+		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+	}
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  width,
+		Height: height,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	govpxPackets := make([][]byte, frames)
+	for i, src := range sources {
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeIntoWithResult frame %d unexpectedly dropped", i)
+		}
+		govpxPackets[i] = append([]byte(nil), result.Data...)
+	}
+
+	var raw []byte
+	for _, src := range sources {
+		raw = appendVP9YCbCrI420(raw, src)
+	}
+	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
+		height, frames, nil)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
+	}
+	libvpxPackets := make([][]byte, frames)
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i := range libvpxPackets {
+		var frame testutil.IVFFrame
+		frame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		libvpxPackets[i] = append([]byte(nil), frame.Data...)
+	}
+
+	govpxGrids := decodeVP9SequenceMiGridsForOracleTest(t, govpxPackets)
+	libvpxGrids := decodeVP9SequenceMiGridsForOracleTest(t, libvpxPackets)
+	var totalModeDistance, totalBlockDistance, totalSkipDistance int
+	for i := range govpxGrids {
+		g := collectVP9ModeDistribution(govpxGrids[i])
+		l := collectVP9ModeDistribution(libvpxGrids[i])
+		modeDistance := vp9ModeDistributionDistance(g.Modes, l.Modes)
+		blockDistance := vp9BlockDistributionDistance(g.Blocks, l.Blocks)
+		skipDistance := vp9AbsIntForOracleTest(g.Skip - l.Skip)
+		totalModeDistance += modeDistance
+		totalBlockDistance += blockDistance
+		totalSkipDistance += skipDistance
+		t.Logf("VP9 inter-mode distribution frame %d: mode_distance=%d block_distance=%d skip_distance=%d govpx=%s libvpx=%s",
+			i, modeDistance, blockDistance, skipDistance,
+			g.String(), l.String())
+	}
+	t.Logf("VP9 inter-mode distribution scoreboard: total_mode_distance=%d total_block_distance=%d total_skip_distance=%d",
+		totalModeDistance, totalBlockDistance, totalSkipDistance)
+	if os.Getenv("GOVPX_VP9_MODE_DIST_STRICT") == "1" &&
+		(totalModeDistance != 0 || totalBlockDistance != 0 ||
+			totalSkipDistance != 0) {
+		t.Fatalf("strict VP9 inter-mode distribution mismatch: mode=%d block=%d skip=%d",
+			totalModeDistance, totalBlockDistance, totalSkipDistance)
+	}
+}
+
 func TestVP9EncoderVpxencOracleCheckerKeyframeByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -1187,6 +1268,124 @@ func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) 
 	out := make([]vp9dec.NeighborMi, len(d.miGrid))
 	copy(out, d.miGrid)
 	return out
+}
+
+func decodeVP9SequenceMiGridsForOracleTest(t *testing.T, packets [][]byte) [][]vp9dec.NeighborMi {
+	t.Helper()
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	out := make([][]vp9dec.NeighborMi, len(packets))
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		out[i] = make([]vp9dec.NeighborMi, len(d.miGrid))
+		copy(out[i], d.miGrid)
+		if i+1 < len(packets) {
+			if _, ok := d.NextFrame(); !ok {
+				t.Fatalf("NextFrame returned !ok after packet %d", i)
+			}
+		}
+	}
+	return out
+}
+
+type vp9ModeDistributionForOracleTest struct {
+	Total  int
+	Skip   int
+	Modes  [common.MbModeCount]int
+	Blocks [common.BlockSizes]int
+}
+
+func collectVP9ModeDistribution(grid []vp9dec.NeighborMi) vp9ModeDistributionForOracleTest {
+	var dist vp9ModeDistributionForOracleTest
+	for i := range grid {
+		mi := &grid[i]
+		dist.Total++
+		if mi.Skip != 0 {
+			dist.Skip++
+		}
+		if mode := int(mi.Mode); mode >= 0 && mode < len(dist.Modes) {
+			dist.Modes[mode]++
+		}
+		if block := int(mi.SbType); block >= 0 && block < len(dist.Blocks) {
+			dist.Blocks[block]++
+		}
+	}
+	return dist
+}
+
+func (dist vp9ModeDistributionForOracleTest) String() string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "total=%d skip=%d modes=[", dist.Total, dist.Skip)
+	writeVP9IntHistogramForOracleTest(&b, dist.Modes[:])
+	b.WriteString("] blocks=[")
+	writeVP9IntHistogramForOracleTest(&b, dist.Blocks[:])
+	b.WriteByte(']')
+	return b.String()
+}
+
+func writeVP9IntHistogramForOracleTest(b *bytes.Buffer, hist []int) {
+	first := true
+	for i, count := range hist {
+		if count == 0 {
+			continue
+		}
+		if !first {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(b, "%d:%d", i, count)
+		first = false
+	}
+	if first {
+		b.WriteString("empty")
+	}
+}
+
+func vp9ModeDistributionDistance(a, b [common.MbModeCount]int) int {
+	distance := 0
+	for i := range a {
+		distance += vp9AbsIntForOracleTest(a[i] - b[i])
+	}
+	return distance
+}
+
+func vp9BlockDistributionDistance(a, b [common.BlockSizes]int) int {
+	distance := 0
+	for i := range a {
+		distance += vp9AbsIntForOracleTest(a[i] - b[i])
+	}
+	return distance
+}
+
+func vp9AbsIntForOracleTest(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func newVP9PanningYCbCrForRateTest(width, height int, frame int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			row[x] = byte(24 + ((x+frame*3)*7+y*11+(x*y+frame*13)%37)%208)
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			cb[x] = byte(64 + ((x+frame)*5+y*3)%128)
+			cr[x] = byte(72 + (x*3+(y+frame)*7)%112)
+		}
+	}
+	return img
 }
 
 func firstLastVP9MiForOracleTest(grid []vp9dec.NeighborMi) (vp9dec.NeighborMi, vp9dec.NeighborMi) {
