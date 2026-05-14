@@ -88,6 +88,7 @@ func TestEncodeIntoStaticThresholdWritesCyclicRefreshSegmentation(t *testing.T) 
 
 func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 20
 
@@ -126,8 +127,15 @@ func TestCyclicRefreshSegmentationConfigMirrorsLibvpxEnablementAndBoost(t *testi
 
 	e.rc.mode = RateControlVBR
 	e.opts.StaticThreshold = 1
-	if cfg := e.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
-		t.Fatalf("VBR static-threshold cyclic segmentation = %+v, want disabled", cfg)
+	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {
+		t.Fatalf("CBR-born runtime VBR cyclic segmentation disabled, want sticky libvpx enablement")
+	}
+
+	vbrBorn := VP8Encoder{}
+	vbrBorn.rc.mode = RateControlCBR
+	vbrBorn.rc.currentQuantizer = 20
+	if cfg := vbrBorn.cyclicRefreshSegmentationConfig(false); cfg.Enabled {
+		t.Fatalf("VBR-born runtime CBR cyclic segmentation = %+v, want disabled", cfg)
 	}
 
 	e.rc.mode = RateControlCBR

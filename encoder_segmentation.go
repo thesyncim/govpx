@@ -117,23 +117,16 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 	if e.roi.suppressCyclicRefresh {
 		return false
 	}
-	// libvpx vp8/encoder/onyx_if.c (around line 1980) gates the static
-	// `cpi->cyclic_refresh_mode_enabled` config on:
+	// libvpx vp8/encoder/onyx_if.c gates the static
+	// `cpi->cyclic_refresh_mode_enabled` config at compressor creation on:
 	//
 	//   error_resilient_mode || (end_usage == USAGE_STREAM_FROM_SERVER &&
 	//                            cpi->oxcf.Mode <= MODE_BESTQUALITY)
 	//
-	// Mode <= MODE_BESTQUALITY (==2) covers the three one-pass deadlines
-	// (REALTIME=0, GOODQUALITY=1, BESTQUALITY=2). Two-pass second-pass
-	// runs at MODE_SECONDPASS (4) / MODE_SECONDPASS_BEST (5), which fall
-	// through. govpx's twoPass.enabled() flag mirrors the second-pass
-	// gate (first-pass collection is a separate code path), so excluding
-	// it here keeps cyclic refresh off on two-pass CBR runs the way
-	// libvpx does. error_resilient still wins regardless of pass count.
-	if e.opts.ErrorResilient {
-		return true
-	}
-	return e.rc.mode == RateControlCBR && !e.twoPass.enabled()
+	// Runtime vpx_codec_enc_config_set does not recompute that flag, so a
+	// CBR-born encoder keeps cyclic refresh after switching to VBR/CQ/Q,
+	// while a VBR-born encoder does not gain it after switching to CBR.
+	return e.cyclicRefreshConfigured
 }
 
 // aggressiveDenoiseSegmentationActive matches libvpx's branch in

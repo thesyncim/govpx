@@ -23,6 +23,7 @@ func TestCyclicRefreshSegmentationEmitsAggressiveDenoiseAltLF(t *testing.T) {
 			ErrorResilient:   true,
 		},
 	}
+	e.cyclicRefreshConfigured = true
 	// Drive the aggressive-denoise gate: Q below qp_thresh (80) and
 	// frames_since_key > 2*consec_zerolast (2*15 = 30).
 	e.rc.mode = RateControlCBR
@@ -60,6 +61,7 @@ func TestCyclicRefreshSegmentationFallsBackToAltQOutsideAggressiveBranch(t *test
 	t.Parallel()
 
 	e := &VP8Encoder{opts: EncoderOptions{ErrorResilient: true}}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 100
 

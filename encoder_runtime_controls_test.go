@@ -561,6 +561,58 @@ func TestSetRateControlPreservesLibvpxAdaptiveState(t *testing.T) {
 	}
 }
 
+func TestSetRateControlPreservesLibvpxCyclicRefreshMode(t *testing.T) {
+	cbr := newTestEncoder(t)
+	if !cbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("CBR-born encoder cyclic refresh disabled, want enabled")
+	}
+	if err := cbr.SetRateControl(RateControlConfig{
+		Mode:                RateControlVBR,
+		TargetBitrateKbps:   cbr.rc.targetBitrateKbps,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("CBR-born SetRateControl(VBR): %v", err)
+	}
+	if !cbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("CBR-born runtime VBR cyclic refresh disabled, want libvpx sticky enablement")
+	}
+
+	vbr, err := NewVP8Encoder(EncoderOptions{
+		Width:             16,
+		Height:            16,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 1200,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder(VBR): %v", err)
+	}
+	defer vbr.Close()
+	if vbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("VBR-born encoder cyclic refresh enabled, want disabled")
+	}
+	if err := vbr.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("VBR-born SetRateControl(CBR): %v", err)
+	}
+	if vbr.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("VBR-born runtime CBR cyclic refresh enabled, want libvpx sticky disablement")
+	}
+}
+
 func TestSetBitrateKbpsAffectsNextEncodeResult(t *testing.T) {
 	e := newTestEncoder(t)
 	src := testImage(16, 16)

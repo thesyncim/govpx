@@ -162,6 +162,8 @@ func (e *VP8Encoder) Reset() {
 	if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
 	}
+	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
+		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {

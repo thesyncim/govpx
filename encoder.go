@@ -486,6 +486,7 @@ type VP8Encoder struct {
 	savedContext savedCodingContext
 
 	cyclicRefreshIndex              int
+	cyclicRefreshConfigured         bool
 	cyclicRefreshMap                []int8
 	cyclicRefreshAttemptMap         []int8
 	segmentationHeaderEnabled       bool
@@ -1068,6 +1069,8 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	if e.rc.mode != RateControlCBR && len(normalized.TwoPassStats) == 0 {
 		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
 	}
+	e.cyclicRefreshConfigured = normalized.ErrorResilient ||
+		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
 	if e.rc.mode == RateControlCQ {
 		e.rc.currentQuantizer = e.rc.cqLevel
 	} else {

@@ -345,6 +345,7 @@ func TestSetActiveMapDisabledLeavesModeDecisionFree(t *testing.T) {
 
 func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	// Aggressive denoise (mode 3) brings consec_zerolast=15 and qp_thresh=80.
 	// Pick Q below qp_thresh and frames_since_key past 2*consec_zerolast=30.
@@ -389,6 +390,7 @@ func TestCyclicRefreshSegmentationConfigUsesAltLFUnderAggressiveDenoise(t *testi
 
 func TestCyclicRefreshSegmentationConfigDisabledUnderForceMaxQuantizer(t *testing.T) {
 	e := VP8Encoder{}
+	e.cyclicRefreshConfigured = true
 	e.rc.mode = RateControlCBR
 	e.rc.currentQuantizer = 30
 	if cfg := e.cyclicRefreshSegmentationConfig(false); !cfg.Enabled {

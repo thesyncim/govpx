@@ -368,10 +368,10 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			opts: baseOpts(panning32),
 			// The static matrix covers CBR/CQ/Q as construction-time
 			// choices; this row pins the runtime vpx_codec_enc_config_set
-			// path between all three modes. The first CQ/Q packets still
-			// have a small first-partition drift, so this asserts the
-			// clean prefix and logs the remaining mode-switch gap.
-			matchLimit: 3,
+			// path between all three modes. CBR->CQ and the first Q
+			// packets are now byte-identical; the late Q packet drift is
+			// still logged as the remaining mode-switch gap.
+			matchLimit: 10,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "endusage:cq+cq:30+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
 				7: "endusage:q+cq:20+minq:4+maxq:56+bitrate:700+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
@@ -413,10 +413,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "rate-control-mode-cbr-vbr-cbr-transition",
 			fx:   panning32,
 			opts: baseOpts(panning32),
-			// CBR->VBR diverges on the first VBR packet; the return to
-			// CBR recovers. Keep the clean prefix strict and log the
-			// isolated VBR runtime-mode gap.
-			matchLimit: 3,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "endusage:vbr+bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
 				7: "endusage:cbr+bitrate:700+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
@@ -987,10 +983,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "deadline-rc-mode-key-interval-transition",
 			fx:   panning64,
 			opts: baseOpts(panning64),
-			// Switching deadline plus keyframe cadence still has a small
-			// first-partition drift around the forced keyframe; the return
-			// to realtime recovers to strict byte parity.
-			matchLimit: 3,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "deadline:good+endusage:vbr+kfmin:4+kfmax:4+undershoot:50+overshoot:50+bufsz:6000+bufinit:4000+bufopt:5000",
 				7: "deadline:rt+endusage:cbr+kfmin:999+kfmax:999+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
@@ -2213,8 +2205,17 @@ func runtimeRateControlModeConfig(mode RateControlMode, targetKbps int) RateCont
 }
 
 func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceKeyFrame bool, switchFrame int) int {
-	if from == RateControlCBR || to == RateControlCBR {
-		return switchFrame
+	if from == RateControlCBR {
+		return 0
+	}
+	if to == RateControlCBR {
+		if forceKeyFrame {
+			if from == RateControlCQ {
+				return switchFrame
+			}
+			return switchFrame + 1
+		}
+		return switchFrame + 4
 	}
 	if forceKeyFrame && from == RateControlCQ {
 		return switchFrame
