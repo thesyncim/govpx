@@ -146,6 +146,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if !goldenCBRRefresh && e.shouldRefreshGoldenFrameOnePassNonCBR(keyFrame, temporalReferenceControl, flags, rows, cols) {
 		goldenCBRRefresh = true
 	}
+	if !goldenCBRRefresh &&
+		!keyFrame &&
+		!temporalReferenceControl &&
+		e.twoPass.enabled() &&
+		!e.opts.ErrorResilient &&
+		e.twoPass.framesTillGFUpdate == 0 &&
+		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) == 0 {
+		goldenCBRRefresh = true
+	}
 	packetInvisible := flags&EncodeInvisibleFrame != 0
 	internalInvisible := packetInvisible && meta.internalInvisible
 	internalShowFrame := !internalInvisible
@@ -309,7 +318,13 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.rc.beginFrameWithTargetAndContext(keyFrame, e.rc.decimationBoostedBitsPerFrame(), frameCtx)
 		}
 	}
-	twoPassTargetBits := e.twoPass.frameTargetBits(e.frameCount, keyFrame, e.rc.frameTargetBits)
+	pass2AltRefInterval, pass2AltRefPending := e.pass2AltRefPendingPlan(e.frameCount)
+	twoPassTargetBits := 0
+	if hiddenAltRefFrame {
+		twoPassTargetBits = e.twoPass.altRefFrameTargetBits(e.rc.frameTargetBits)
+	} else {
+		twoPassTargetBits = e.twoPass.frameTargetBitsWithAltRef(e.frameCount, keyFrame, e.rc.frameTargetBits, pass2AltRefInterval, pass2AltRefPending)
+	}
 	if twoPassTargetBits > 0 {
 		e.rc.frameTargetBits = twoPassTargetBits
 		// libvpx vp8/encoder/firstpass.c Pass2Encode re-clamps the per-frame
@@ -333,7 +348,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// when second-pass stats indicate the upcoming GF section is high
 	// motion / high-quality predicted, arm a hidden alt-ref so the
 	// auto-ARF driver can emit it at the predicted offset.
-	e.pass2MaybeArmAltRefPending(e.frameCount, pts, keyFrame)
+	e.pass2ArmAltRefPending(pts, pass2AltRefInterval, pass2AltRefPending)
 	if goldenCBRRefresh {
 		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
 			// One-pass fixed-GF CBR takes libvpx's gf_update_onepass_cbr

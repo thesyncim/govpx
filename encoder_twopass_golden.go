@@ -1,6 +1,6 @@
 package govpx
 
-func (t *twoPassState) defineGFGroup(frame uint64) {
+func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef bool) {
 	if !t.kfGroupValid || frame >= uint64(len(t.stats)) {
 		t.gfGroupValid = false
 		return
@@ -23,6 +23,9 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 		}
 	}
 	gfInterval := min(remaining, t.framesToKeyRemaining)
+	if useAltRef && altRefInterval > 0 && altRefInterval < gfInterval {
+		gfInterval = altRefInterval
+	}
 	if gfInterval <= 0 {
 		t.gfGroupValid = false
 		return
@@ -93,10 +96,13 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	if t.kfGroupBitsRemaining < 0 {
 		t.kfGroupBitsRemaining = 0
 	}
-	// libvpx GF-bits allocation: Boost = (gfu_boost * GFQ_ADJUSTMENT)
-	// / 100, capped at baseline_gf_interval*150 with a floor of 125,
-	// then halved while >1000. allocation_chunks =
-	// baseline_gf_interval*100 + (Boost-100). gfu_boost is computed
+	// libvpx GF/ARF-bits allocation. When an ARF is pending, the first
+	// allocation loop entry computes twopass.gf_bits for the hidden ARF
+	// with the larger ARF boost formula. Otherwise the normal GF formula
+	// is used: Boost = (gfu_boost * GFQ_ADJUSTMENT) / 100, capped at
+	// baseline_gf_interval*150 with a floor of 125, then halved while
+	// >1000. allocation_chunks = baseline_gf_interval*100 + (Boost-100).
+	// gfu_boost is computed
 	// by walking the prediction-quality decay across the GF interval
 	// (libvpx vp8/encoder/firstpass.c lines 1639-1706); govpx ports
 	// the same walk in computeGFUBoost so the boost matches libvpx
@@ -111,13 +117,26 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 	}
 	gfqAdjustment := libvpxGFBoostQAdjustment[q]
 	boost := int64(gfuBoost*gfqAdjustment) / 100
-	if cap := int64(gfInterval) * 150; boost > cap {
-		boost = cap
+	allocationChunks := int64(0)
+	if useAltRef {
+		boost = int64(gfuBoost*3*gfqAdjustment) / (2 * 100)
+		boost += int64(gfInterval * 50)
+		if cap := int64(gfInterval+1) * 200; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = int64(gfInterval+1)*100 + boost
+	} else {
+		if cap := int64(gfInterval) * 150; boost > cap {
+			boost = cap
+		}
+		if boost < 125 {
+			boost = 125
+		}
+		allocationChunks = int64(gfInterval)*100 + (boost - 100)
 	}
-	if boost < 125 {
-		boost = 125
-	}
-	allocationChunks := int64(gfInterval)*100 + (boost - 100)
 	for boost > 1000 {
 		boost /= 2
 		allocationChunks /= 2
@@ -208,14 +227,11 @@ func (t *twoPassState) defineGFGroup(frame uint64) {
 		}
 	}
 	t.gfGroupBits = gfGroupBits
-	// libvpx: gf_group_error_left = gf_group_err (when KF) else
-	// gf_group_err - gf_first_frame_err. For the KF case, gf_group_err
-	// already had gf_first_frame_err subtracted (the if frame_type==KF
-	// branch in the loop pre-init), so gf_group_error_left =
-	// gf_group_err. For non-KF GF boundary, we subtract the first
-	// frame's modErr from the denominator so the err-fraction at the
-	// first frame after the boundary uses frames [frame+1..end].
-	if keyFrameAtBoundary {
+	// libvpx: gf_group_error_left = gf_group_err when a group starts on
+	// a KF or uses an ARF; otherwise it subtracts the first visible GF
+	// frame's error. In an ARF group, the future ARF source forms the
+	// start of the next group, so this group keeps the full denominator.
+	if keyFrameAtBoundary || useAltRef {
 		t.gfGroupErrorLeft = gfGroupErr
 	} else {
 		gfFirstFrameErr := t.modifiedError(t.stats[frame])

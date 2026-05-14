@@ -225,6 +225,17 @@ func (t *twoPassState) shouldKeyFrame(frame uint64, framesSinceKeyFrame int, key
 // twopass state has not been seeded (e.g. the first frame before pass-1
 // stats are available) and as the input to the section-min computation.
 func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTargetBits int) int {
+	return t.frameTargetBitsWithAltRef(frame, keyFrame, defaultTargetBits, 0, false)
+}
+
+func (t *twoPassState) altRefFrameTargetBits(defaultTargetBits int) int {
+	if !t.enabled() || t.gfRefreshTarget <= 0 {
+		return 0
+	}
+	return t.gfRefreshTarget
+}
+
+func (t *twoPassState) frameTargetBitsWithAltRef(frame uint64, keyFrame bool, defaultTargetBits int, altRefInterval int, useAltRef bool) int {
 	if !t.enabled() || frame >= uint64(len(t.stats)) || defaultTargetBits <= 0 {
 		return 0
 	}
@@ -259,7 +270,7 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 		// (libvpx does not overwrite it because the inner GF loop's
 		// per_frame_bandwidth assignment is gated on frame_type !=
 		// KEY_FRAME).
-		t.defineGFGroup(frame)
+		t.defineGFGroup(frame, altRefInterval, useAltRef)
 		// libvpx vp8/encoder/firstpass.c vp8_second_pass lines 2328-2363:
 		// on the very first frame of pass 2, estimate_max_q computes a
 		// `tmp_q` and assigns it to cpi->active_worst_quality. This caps
@@ -275,7 +286,7 @@ func (t *twoPassState) frameTargetBits(frame uint64, keyFrame bool, defaultTarge
 			t.seedPass2ActiveWorstQ(defaultTargetBits)
 		}
 	} else if t.framesTillGFUpdate == 0 {
-		t.defineGFGroup(frame)
+		t.defineGFGroup(frame, altRefInterval, useAltRef)
 		gfBoundary = true
 		t.currentFrameIsGFRefresh = true
 	}
