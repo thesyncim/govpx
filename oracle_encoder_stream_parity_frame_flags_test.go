@@ -214,6 +214,10 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// "base temporal layer" pattern from libvpx's
 		// vpx_temporal_svc_encoder mode 1.
 		{name: "no-upd-last-no-ref-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "no-ref-last-no-upd-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceLast|EncodeNoUpdateGolden)},
+		{name: "no-ref-last-no-upd-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoReferenceLast|EncodeNoUpdateAltRef)},
+		{name: "no-ref-gf-no-upd-last-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoReferenceGolden|EncodeNoUpdateLast)},
+		{name: "no-ref-arf-no-upd-gf-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, flags: repeatFlag(frames-1, EncodeNoReferenceAltRef|EncodeNoUpdateGolden)},
 
 		// EncodeForceGoldenFrame / EncodeForceAltRefFrame at a
 		// specific frame, mirroring the "manual GF/ARF refresh"
@@ -231,6 +235,8 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "force-arf-no-upd-last-gf-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame | EncodeNoUpdateLast | EncodeNoUpdateGolden}},
 		{name: "force-arf-every3-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: everyNFlag(frames, 3, EncodeForceAltRefFrame)},
 		{name: "force-gf-arf-same-frame-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame | EncodeForceAltRefFrame}},
+		{name: "force-gf-no-upd-entropy-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceGoldenFrame | EncodeNoUpdateEntropy}},
+		{name: "force-arf-no-upd-entropy-frame4-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, 0, EncodeForceAltRefFrame | EncodeNoUpdateEntropy}},
 
 		// EncodeNoUpdateEntropy on every inter frame — keeps the
 		// reference entropy adaptation state frozen.
@@ -243,6 +249,8 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "no-upd-entropy-no-upd-all-er3-token8-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 		{name: "no-upd-entropy-no-upd-all-er3-token8-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
 		{name: "invisible-no-ref-all-odd-dims-realtime-cpu-3-65x33", deadline: DeadlineRealtime, cpuUsed: -3, fx: panningOdd, flags: repeatFlag(frames-1, EncodeInvisibleFrame|EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "no-upd-last-no-ref-gf-odd-dims-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, flags: repeatFlag(frames-1, EncodeNoUpdateLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)},
+		{name: "no-ref-gf-no-upd-last-token4-odd-dims-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeNoReferenceGolden|EncodeNoUpdateLast)},
 		{name: "force-gf-arf-token4-odd-dims-realtime-cpu0-65x33", deadline: DeadlineRealtime, cpuUsed: 0, fx: panningOdd, limit: 5, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: []EncodeFlags{0, 0, EncodeForceGoldenFrame, 0, EncodeForceAltRefFrame}},
 
 		// Force-KF + no-update-GF/ARF (the layer-0 "I-frame anchor"
