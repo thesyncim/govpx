@@ -181,6 +181,108 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
+	t.Run("error-resilient-token-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.ErrorResilient = true
+		opts.ErrorResilientPartitions = true
+		opts.TokenPartitions = 2
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "copyref:last+copyref:golden"
+		script[4] = "copyref:last+copyref:altref"
+		script[6] = "copyref:last+copyref:golden+copyref:altref"
+		probes := map[int][]copyReferenceProbe{
+			1: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+			4: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+			6: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksumsWithExtraArgs(t, driver, "copyref-er-token", opts, sources, nil, script, []string{
+			"--error-resilient=3",
+			"--token-parts=2",
+		})
+		got := captureGovpxCopyReferenceChecksums(t, opts, sources, nil, nil, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
+	t.Run("screen-static-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "screen:2+static:500+copyref:last+copyref:golden"
+		script[5] = "screen:0+static:0+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
+				mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+			},
+			5: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetScreenContentMode(0)", e.SetScreenContentMode(0))
+				mustRuntime(t, "SetStaticThreshold(0)", e.SetStaticThreshold(0))
+			},
+		}
+		probes := map[int][]copyReferenceProbe{
+			1: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+			5: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksums(t, driver, "copyref-screen-static", opts, sources, nil, script)
+		got := captureGovpxCopyReferenceChecksumsWithApply(t, opts, sources, nil, nil, apply, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
+	t.Run("rtc-external-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "rtc:1+copyref:last+copyref:golden"
+		script[6] = "rtc:0+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+			},
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
+			},
+		}
+		probes := map[int][]copyReferenceProbe{
+			2: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+			6: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksums(t, driver, "copyref-rtc-external", opts, sources, nil, script)
+		got := captureGovpxCopyReferenceChecksumsWithApply(t, opts, sources, nil, nil, apply, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
 	t.Run("copy-reference-probes-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(32, 32)
 		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
