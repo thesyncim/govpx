@@ -698,6 +698,40 @@ func TestSetTemporalScalabilityOffRestoresBaseLayerCodingState(t *testing.T) {
 	}
 }
 
+func TestSetBitrateKbpsRefreshesTemporalLayerCodingGeometry(t *testing.T) {
+	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
+	e.temporal.codingState[0].BufferLevelBits = 111
+	e.temporal.codingState[1].BufferLevelBits = 222
+	if err := e.SetBitrateKbps(900); err != nil {
+		t.Fatalf("SetBitrateKbps returned error: %v", err)
+	}
+	if got := e.temporal.config.LayerTargetBitrateKbps; got[0] != 540 || got[1] != 900 {
+		t.Fatalf("temporal bitrates after SetBitrateKbps = %v, want 540/900", got)
+	}
+	wantL0Initial := 540 * e.rc.bufferInitialSizeMs
+	wantL1Initial := 900 * e.rc.bufferInitialSizeMs
+	if got := e.temporal.codingState[0].BufferInitialBits; got != wantL0Initial {
+		t.Fatalf("layer 0 initial buffer = %d, want %d", got, wantL0Initial)
+	}
+	if got := e.temporal.codingState[1].BufferInitialBits; got != wantL1Initial {
+		t.Fatalf("layer 1 initial buffer = %d, want %d", got, wantL1Initial)
+	}
+	if got := e.temporal.codingState[0].BufferLevelBits; got != 111 {
+		t.Fatalf("layer 0 live buffer = %d, want preserved 111", got)
+	}
+	if got := e.temporal.codingState[1].BufferLevelBits; got != 222 {
+		t.Fatalf("layer 1 live buffer = %d, want preserved 222", got)
+	}
+	wantL0BitsPerFrame := computeLayerBitsPerFrame(540*1000, e.timing, e.temporal.pattern.RateDecimator[0], 1)
+	wantL1BitsPerFrame := computeLayerBitsPerFrame(900*1000, e.timing, e.temporal.pattern.RateDecimator[1], 1)
+	if got := e.temporal.codingState[0].BitsPerFrame; got != wantL0BitsPerFrame {
+		t.Fatalf("layer 0 bits per frame = %d, want %d", got, wantL0BitsPerFrame)
+	}
+	if got := e.temporal.codingState[1].BitsPerFrame; got != wantL1BitsPerFrame {
+		t.Fatalf("layer 1 bits per frame = %d, want %d", got, wantL1BitsPerFrame)
+	}
+}
+
 func TestSetTemporalLayerIDOverridesNextFrames(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)

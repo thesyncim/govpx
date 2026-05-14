@@ -23,6 +23,7 @@ func (e *VP8Encoder) SetBitrateKbps(kbps int) error {
 	}
 	e.rc = nextRC
 	e.temporal = nextTemporal
+	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.TemporalScalability = nextTemporal.config
 	e.forceNextLFDeltaUpdate()
@@ -48,6 +49,7 @@ func (e *VP8Encoder) SetRateControl(cfg RateControlConfig) error {
 	}
 	e.rc = nextRC
 	e.temporal = nextTemporal
+	e.refreshTemporalLayerCodingGeometry()
 	e.opts.RateControlMode = cfg.Mode
 	e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 	e.opts.MinBitrateKbps = cfg.MinBitrateKbps
@@ -348,6 +350,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		}
 		e.rc = nextRC
 		e.temporal = nextTemporal
+		e.refreshTemporalLayerCodingGeometry()
 		e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
 		e.opts.TemporalScalability = nextTemporal.config
 		e.forceNextLFDeltaUpdate()
@@ -362,6 +365,7 @@ func (e *VP8Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	e.rc = nextRC
 	e.temporal = nextTemporal
+	e.refreshTemporalLayerCodingGeometry()
 	e.opts.TemporalScalability = nextTemporal.config
 	e.forceNextLFDeltaUpdate()
 	return nil

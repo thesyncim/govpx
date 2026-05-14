@@ -4177,14 +4177,13 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 	appendRuntimeControl(bitrateScript, 4, "bitrate:400+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, 400))
 	appendRuntimeControl(bitrateScript, 8, "bitrate:900+"+runtimeTemporalControlToken(TemporalLayeringTwoLayers, 900))
 	cases = append(cases, temporalCase{
-		name:       "two-layer-bitrate-reconfigure-low-high",
-		fx:         panning64,
-		frames:     12,
-		opts:       autoTemporalOpts(panning64, 0, TemporalLayeringTwoLayers),
-		flags:      twoLayerFlags(12),
-		script:     bitrateScript,
-		extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-		matchLimit: 5,
+		name:      "two-layer-bitrate-reconfigure-low-high",
+		fx:        panning64,
+		frames:    12,
+		opts:      autoTemporalOpts(panning64, 0, TemporalLayeringTwoLayers),
+		flags:     twoLayerFlags(12),
+		script:    bitrateScript,
+		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			4: func(t *testing.T, e *VP8Encoder) {
 				t.Helper()

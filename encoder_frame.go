@@ -978,6 +978,24 @@ func (e *VP8Encoder) initializeTemporalLayerCodingStates() {
 	}
 }
 
+func (e *VP8Encoder) refreshTemporalLayerCodingGeometry() {
+	if e == nil || !e.temporal.enabled {
+		return
+	}
+	for layer := 0; layer < e.temporal.pattern.Layers && layer < MaxTemporalLayers; layer++ {
+		targetKbps := e.temporal.config.LayerTargetBitrateKbps[layer]
+		state := &e.temporal.codingState[layer]
+		state.BufferInitialBits = temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
+		state.BufferOptimalBits = temporalLayerBufferBits(targetKbps, e.rc.bufferOptimalSizeMs)
+		state.MaximumBufferBits = temporalLayerBufferBits(targetKbps, e.rc.bufferSizeMs)
+		targetBits, ok := checkedMul(targetKbps, 1000)
+		if !ok {
+			targetBits = maxInt()
+		}
+		state.BitsPerFrame = computeLayerBitsPerFrame(targetBits, e.timing, e.temporal.pattern.RateDecimator[layer], 1)
+	}
+}
+
 func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCodingState {
 	targetKbps := e.temporal.config.LayerTargetBitrateKbps[layer]
 	initialBits := temporalLayerBufferBits(targetKbps, e.rc.bufferInitialSizeMs)
