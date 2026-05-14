@@ -456,6 +456,78 @@ func TestVP9EncoderVpxencFrameFlagsForceKeyFrameByteParity(t *testing.T) {
 	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
 }
 
+func TestVP9EncoderVpxencForceKeyFrameAPIByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 144, 128, 128),
+	}
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  width,
+		Height: height,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	govpxPackets := make([][]byte, len(frames))
+	for i, frame := range frames {
+		if i == 1 {
+			e.ForceKeyFrame()
+		}
+		result, err := e.EncodeIntoWithResult(frame, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeIntoWithResult frame %d unexpectedly dropped", i)
+		}
+		govpxPackets[i] = append([]byte(nil), result.Data...)
+	}
+
+	libvpxFlags := []uint32{0, vp9FrameFlagsForLibvpx(EncodeForceKeyFrame)}
+	var raw []byte
+	for _, frame := range frames {
+		raw = appendVP9YCbCrI420(raw, frame)
+	}
+	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
+		height, len(frames), libvpxFlags)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags encode failed: %v\n%s", err, diag)
+	}
+	offset, err := testutil.FirstIVFFrameOffset(ivf)
+	if err != nil {
+		t.Fatalf("FirstIVFFrameOffset: %v", err)
+	}
+	for i, got := range govpxPackets {
+		var libvpxFrame testutil.IVFFrame
+		libvpxFrame, offset, err = testutil.NextIVFFrame(ivf, offset, i)
+		if err != nil {
+			t.Fatalf("NextIVFFrame[%d]: %v", i, err)
+		}
+		assertVP9PacketByteParity(t, fmt.Sprintf("frame %d", i), got,
+			libvpxFrame.Data)
+	}
+}
+
+func TestVP9EncoderVpxencFrameFlagsNoUpdateAllByteParity(t *testing.T) {
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height = 64, 64
+	frames := []*image.YCbCr{
+		newVP9YCbCrForTest(width, height, 128, 128, 128),
+		newVP9YCbCrForTest(width, height, 160, 128, 128),
+	}
+	flags := []EncodeFlags{0, vp9NoUpdateRefFlags}
+	assertVP9VpxencFrameFlagsByteParityWithOptions(t, frames, flags, VP9EncoderOptions{}, nil)
+}
+
 func TestVP9EncoderVpxencFrameFlagsNoReferenceGoldenAltRefByteParity(t *testing.T) {
 	requireVP9VpxencFrameFlagsOracle(t)
 

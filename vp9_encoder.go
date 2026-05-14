@@ -2592,7 +2592,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 
 func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) bool {
 	if inter == nil || inter.dq == nil || inter.lossless ||
-		!e.rc.enabled || e.rc.mode != RateControlCBR {
+		!e.rc.enabled || e.rc.mode != RateControlCBR || !e.rc.dropFrameAllowed {
 		return false
 	}
 	return !e.vp9FixedPublicQuantizer()
