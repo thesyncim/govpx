@@ -169,6 +169,136 @@ func TestPackVP9RTPPayloadInto(t *testing.T) {
 	}
 }
 
+func TestPacketizeVP9RTPFrameSinglePayload(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:      true,
+		PictureID:             41,
+		InterPicturePredicted: true,
+	}
+	frame := []byte{0x82, 0x49, 0x83, 0x10}
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, 1200)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	if len(payloads) != 1 {
+		t.Fatalf("payload count = %d, want 1", len(payloads))
+	}
+	if !payloads[0].Marker {
+		t.Fatal("single payload marker = false, want true")
+	}
+	gotDesc, gotFrame, err := ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+	}
+	if !gotDesc.StartOfFrame || !gotDesc.EndOfFrame {
+		t.Fatalf("descriptor start/end = %v/%v, want true/true",
+			gotDesc.StartOfFrame, gotDesc.EndOfFrame)
+	}
+	if gotDesc.PictureID != desc.PictureID || !gotDesc.PictureIDPresent ||
+		!gotDesc.InterPicturePredicted {
+		t.Fatalf("descriptor = %+v, want picture id %d and predicted bit",
+			gotDesc, desc.PictureID)
+	}
+	if !bytes.Equal(gotFrame, frame) {
+		t.Fatalf("reassembled frame = % x, want % x", gotFrame, frame)
+	}
+}
+
+func TestPacketizeVP9RTPFrameIntoFragmentsByMTU(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent: true,
+		PictureID:        0x1234,
+		PictureID15Bit:   true,
+	}
+	frame := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	const mtu = 7
+	packets, totalBytes, err := VP9RTPFramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		t.Fatalf("VP9RTPFramePacketizationSize: %v", err)
+	}
+	if packets != 3 || totalBytes != 19 {
+		t.Fatalf("size = packets:%d bytes:%d, want 3/19", packets, totalBytes)
+	}
+
+	payloads := make([]RTPPayloadFragment, packets)
+	buf := make([]byte, totalBytes)
+	n, used, err := PacketizeVP9RTPFrameInto(payloads, buf, desc, frame, mtu)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrameInto: %v", err)
+	}
+	if n != packets || used != totalBytes {
+		t.Fatalf("returned = packets:%d bytes:%d, want %d/%d",
+			n, used, packets, totalBytes)
+	}
+
+	var got []byte
+	for i, payload := range payloads {
+		if len(payload.Payload) > mtu {
+			t.Fatalf("payload %d length = %d, exceeds mtu %d", i, len(payload.Payload), mtu)
+		}
+		if payload.Marker != (i == len(payloads)-1) {
+			t.Fatalf("payload %d marker = %v, want %v",
+				i, payload.Marker, i == len(payloads)-1)
+		}
+		gotDesc, fragment, err := ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if gotDesc.StartOfFrame != (i == 0) {
+			t.Fatalf("payload %d start = %v, want %v",
+				i, gotDesc.StartOfFrame, i == 0)
+		}
+		if gotDesc.EndOfFrame != (i == len(payloads)-1) {
+			t.Fatalf("payload %d end = %v, want %v",
+				i, gotDesc.EndOfFrame, i == len(payloads)-1)
+		}
+		got = append(got, fragment...)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("reassembled frame = % x, want % x", got, frame)
+	}
+}
+
+func TestPacketizeVP9RTPFrameRejectsInvalidInputs(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{PictureIDPresent: true, PictureID: 1}
+	frame := []byte{0x01}
+	packets, totalBytes, err := VP9RTPFramePacketizationSize(desc, frame, 2)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("small mtu error = %v, want ErrInvalidConfig", err)
+	}
+	if packets != 0 || totalBytes != 0 {
+		t.Fatalf("small mtu size = %d/%d, want 0/0", packets, totalBytes)
+	}
+	if _, _, err := VP9RTPFramePacketizationSize(desc, nil, 1200); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("empty frame error = %v, want ErrInvalidConfig", err)
+	}
+	if _, _, err := VP9RTPFramePacketizationSize(VP9RTPPayloadDescriptor{LayerIndicesPresent: true}, frame, 1200); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("layer descriptor error = %v, want ErrInvalidConfig", err)
+	}
+	if _, _, err := VP9RTPFramePacketizationSize(VP9RTPPayloadDescriptor{PictureIDPresent: true, FlexibleMode: true}, frame, 1200); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("flex descriptor error = %v, want ErrInvalidConfig", err)
+	}
+
+	packets, totalBytes, err = VP9RTPFramePacketizationSize(desc, frame, 1200)
+	if err != nil {
+		t.Fatalf("VP9RTPFramePacketizationSize: %v", err)
+	}
+	if gotPackets, gotBytes, err := PacketizeVP9RTPFrameInto(
+		make([]RTPPayloadFragment, packets-1), make([]byte, totalBytes),
+		desc, frame, 1200,
+	); !errors.Is(err, ErrBufferTooSmall) || gotPackets != packets || gotBytes != totalBytes {
+		t.Fatalf("short dst = packets:%d bytes:%d err:%v, want %d/%d ErrBufferTooSmall",
+			gotPackets, gotBytes, err, packets, totalBytes)
+	}
+	if gotPackets, gotBytes, err := PacketizeVP9RTPFrameInto(
+		make([]RTPPayloadFragment, packets), make([]byte, totalBytes-1),
+		desc, frame, 1200,
+	); !errors.Is(err, ErrBufferTooSmall) || gotPackets != packets || gotBytes != totalBytes {
+		t.Fatalf("short payload buffer = packets:%d bytes:%d err:%v, want %d/%d ErrBufferTooSmall",
+			gotPackets, gotBytes, err, packets, totalBytes)
+	}
+}
+
 func TestVP9RTPPayloadDescriptorRejectsInvalidConfig(t *testing.T) {
 	tests := []struct {
 		name string

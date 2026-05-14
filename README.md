@@ -113,9 +113,9 @@ returns no more data.
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
-| Pack or inspect VP8 RTP payload bodies | `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
+| Packetize, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `PackVP9SuperframeInto`, `PackVP9Superframe` |
-| Pack or inspect VP9 RTP payload bodies | `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
+| Packetize, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
@@ -128,9 +128,10 @@ returns no more data.
 ## RTP/WebRTC Compatibility
 
 govpx's RTP/WebRTC contract is codec-payload compatibility for VP8 and VP9
-Profile 0. VP8 and VP9 expose payload-descriptor helpers for RFC 7741 and RFC
-9628 RTP payload bodies. RTP headers, sequencing, fragmentation/reassembly
-policy, SRTP, SDP, and signaling remain caller-owned.
+Profile 0. VP8 and VP9 expose payload-descriptor helpers and MTU-aware
+packetizers for RFC 7741 and RFC 9628 RTP payload bodies. The packetizers
+return payload bodies plus the RTP marker bit; RTP headers, sequencing,
+reassembly policy, SRTP, SDP, and signaling remain caller-owned.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
 dropping, and RTC external rate control:

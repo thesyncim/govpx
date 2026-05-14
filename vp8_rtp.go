@@ -267,6 +267,84 @@ func PackVP8RTPPayload(desc VP8RTPPayloadDescriptor, payload []byte) ([]byte, er
 	return out, nil
 }
 
+// VP8RTPFramePacketizationSize returns the number of RTP payload bodies and
+// total payload-body bytes needed to packetize one raw VP8 frame at mtu bytes.
+//
+// mtu includes the VP8 RTP payload descriptor but excludes the RTP header.
+// The packetizer manages StartOfPartition and always emits partition 0.
+func VP8RTPFramePacketizationSize(desc VP8RTPPayloadDescriptor, frame []byte, mtu int) (int, int, error) {
+	if desc.PartitionID != 0 {
+		return 0, 0, ErrInvalidConfig
+	}
+	descSize, err := desc.Size()
+	if err != nil {
+		return 0, 0, err
+	}
+	return rtpFramePacketizationSize(len(frame), descSize, mtu)
+}
+
+// PacketizeVP8RTPFrameInto packetizes one raw VP8 frame into caller-owned
+// RTP payload storage. dst receives packet metadata; payloadBuf receives the
+// payload bodies. On [ErrBufferTooSmall], the returned packet and byte counts
+// are the required capacities.
+//
+// The returned payload bodies do not include RTP headers. Marker is true only
+// on the last payload body.
+func PacketizeVP8RTPFrameInto(dst []RTPPayloadFragment, payloadBuf []byte,
+	desc VP8RTPPayloadDescriptor, frame []byte, mtu int,
+) (int, int, error) {
+	packets, totalBytes, err := VP8RTPFramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(dst) < packets || len(payloadBuf) < totalBytes {
+		return packets, totalBytes, ErrBufferTooSmall
+	}
+	descSize, err := desc.Size()
+	if err != nil {
+		return 0, 0, err
+	}
+	maxPayload := mtu - descSize
+	frameOff := 0
+	bufOff := 0
+	for i := 0; i < packets; i++ {
+		chunk := min(maxPayload, len(frame)-frameOff)
+		packetDesc := desc
+		packetDesc.StartOfPartition = i == 0
+		packetDesc.PartitionID = 0
+
+		payload := frame[frameOff : frameOff+chunk]
+		n, err := PackVP8RTPPayloadInto(payloadBuf[bufOff:bufOff+descSize+chunk],
+			packetDesc, payload)
+		if err != nil {
+			return 0, 0, err
+		}
+		dst[i] = RTPPayloadFragment{
+			Payload: payloadBuf[bufOff : bufOff+n],
+			Marker:  i == packets-1,
+		}
+		frameOff += chunk
+		bufOff += n
+	}
+	return packets, totalBytes, nil
+}
+
+// PacketizeVP8RTPFrame returns RTP payload bodies for one raw VP8 frame.
+// Payloads do not include RTP headers; Marker is true only on the last body.
+func PacketizeVP8RTPFrame(desc VP8RTPPayloadDescriptor, frame []byte, mtu int) ([]RTPPayloadFragment, error) {
+	packets, totalBytes, err := VP8RTPFramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, totalBytes)
+	n, _, err := PacketizeVP8RTPFrameInto(out, payloadBuf, desc, frame, mtu)
+	if err != nil {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
 func (d VP8RTPPayloadDescriptor) hasExtensions() bool {
 	return d.PictureIDPresent || d.TL0PICIDXPresent ||
 		d.TemporalIDPresent || d.KeyIndexPresent
