@@ -642,6 +642,33 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			},
 		},
 		{
+			name:          "deadline-good-cpu-3",
+			controlScript: "deadline:good+cpu:-3",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetDeadline(good)", e.SetDeadline(DeadlineGoodQuality))
+				mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+			},
+		},
+		{
+			name:          "cq-mode",
+			controlScript: runtimeRateControlModeControlToken(RateControlCQ, targetKbps),
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(CQ)", e.SetRateControl(runtimeRateControlModeConfig(RateControlCQ, targetKbps)))
+			},
+		},
+		{
+			name:          "sharpness7-screen2-static500",
+			controlScript: "sharpness:7+screen:2+static:500",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetSharpness(7)", e.SetSharpness(7))
+				mustRuntime(t, "SetScreenContentMode(2)", e.SetScreenContentMode(2))
+				mustRuntime(t, "SetStaticThreshold(500)", e.SetStaticThreshold(500))
+			},
+		},
+		{
 			name:          "active-checker-roi-border1",
 			controlScript: "active:checker+roi:border1",
 			apply: func(t *testing.T, e *VP8Encoder) {

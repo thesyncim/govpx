@@ -621,6 +621,35 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	erTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-er3-token-parts3", erTokenOpts, erTokenOpts.TargetBitrateKbps, panningSources)
 	assertSegmentByteParity(t, "twopass-e2e-er3-token-parts3", erTokenGovpxFrames, erTokenLibvpxFrames, 3)
 
+	threadTokenOpts := panningOpts
+	threadTokenOpts.Threads = 2
+	threadTokenOpts.TokenPartitions = 3
+	threadTokenGovpxOpts := threadTokenOpts
+	threadTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, threadTokenOpts, panningSources)
+	threadTokenGovpxFrames := encodeFramesWithGovpx(t, threadTokenGovpxOpts, panningSources)
+	threadTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-threads2-token-parts3-panning64", threadTokenOpts, threadTokenOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-threads2-token-parts3-panning64", threadTokenGovpxFrames, threadTokenLibvpxFrames, 3)
+
+	erThreadTokenOpts := panningOpts
+	erThreadTokenOpts.ErrorResilient = true
+	erThreadTokenOpts.ErrorResilientPartitions = true
+	erThreadTokenOpts.Threads = 2
+	erThreadTokenOpts.TokenPartitions = 3
+	erThreadTokenGovpxOpts := erThreadTokenOpts
+	erThreadTokenGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, erThreadTokenOpts, panningSources)
+	erThreadTokenGovpxFrames := encodeFramesWithGovpx(t, erThreadTokenGovpxOpts, panningSources)
+	erThreadTokenLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-er3-threads2-token-parts3", erThreadTokenOpts, erThreadTokenOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-er3-threads2-token-parts3", erThreadTokenGovpxFrames, erThreadTokenLibvpxFrames, 3)
+
+	screenStaticOpts := panningOpts
+	screenStaticOpts.ScreenContentMode = 2
+	screenStaticOpts.StaticThreshold = 500
+	screenStaticGovpxOpts := screenStaticOpts
+	screenStaticGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, screenStaticOpts, panningSources)
+	screenStaticGovpxFrames := encodeFramesWithGovpx(t, screenStaticGovpxOpts, panningSources)
+	screenStaticLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-screen-content2-static-thresh500", screenStaticOpts, screenStaticOpts.TargetBitrateKbps, panningSources)
+	assertSegmentByteParity(t, "twopass-e2e-screen-content2-static-thresh500", screenStaticGovpxFrames, screenStaticLibvpxFrames, 3)
+
 	sharpNoiseOpts := panningOpts
 	sharpNoiseOpts.Sharpness = 4
 	sharpNoiseOpts.NoiseSensitivity = 3
@@ -917,6 +946,9 @@ func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxenc
 
 func libvpxTwoPassControlArgs(opts EncoderOptions) []string {
 	var args []string
+	if opts.Threads > 0 {
+		args = append(args, "--threads="+strconv.Itoa(opts.Threads))
+	}
 	if opts.LookaheadFrames > 0 {
 		args = append(args, "--lag-in-frames="+strconv.Itoa(opts.LookaheadFrames))
 	}
@@ -941,6 +973,12 @@ func libvpxTwoPassControlArgs(opts EncoderOptions) []string {
 	}
 	if opts.NoiseSensitivity > 0 {
 		args = append(args, "--noise-sensitivity="+strconv.Itoa(opts.NoiseSensitivity))
+	}
+	if opts.ScreenContentMode > 0 {
+		args = append(args, "--screen-content-mode="+strconv.Itoa(opts.ScreenContentMode))
+	}
+	if opts.StaticThreshold > 0 {
+		args = append(args, "--static-thresh="+strconv.Itoa(opts.StaticThreshold))
 	}
 	if opts.ARNRMaxFrames > 0 {
 		args = append(args, "--arnr-maxframes="+strconv.Itoa(opts.ARNRMaxFrames))

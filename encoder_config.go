@@ -770,6 +770,16 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	e.opts.TwoPassStats = stats
 	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	if e.frameCount == 0 {
+		e.rc.onePassAutoGold = false
+		e.rc.framesTillGFUpdateDue = 0
+		if e.rc.mode != RateControlCBR && len(e.opts.TwoPassStats) == 0 {
+			e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+			e.rc.onePassAutoGold = true
+		}
+		e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
+			(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
+	}
 	return nil
 }
 
