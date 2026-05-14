@@ -259,6 +259,88 @@ func TestPacketizeVP9RTPFrameIntoFragmentsByMTU(t *testing.T) {
 	}
 }
 
+func TestPacketizeVP9RTPFrameFlexibleLayerReferences(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:      true,
+		PictureID:             0x1234,
+		PictureID15Bit:        true,
+		InterPicturePredicted: true,
+		LayerIndicesPresent:   true,
+		FlexibleMode:          true,
+		TemporalID:            2,
+		SwitchingUpPoint:      true,
+		SpatialID:             1,
+		ReferenceIndexCount:   2,
+		ReferenceIndices:      [VP9RTPMaxReferenceIndices]uint8{3, 17},
+	}
+	frame := []byte{0, 1, 2, 3, 4, 5, 6}
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, 9)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	if len(payloads) != 3 {
+		t.Fatalf("payload count = %d, want 3", len(payloads))
+	}
+	for i, payload := range payloads {
+		gotDesc, _, err := ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		wantDesc := desc
+		wantDesc.StartOfFrame = i == 0
+		wantDesc.EndOfFrame = i == len(payloads)-1
+		if !reflect.DeepEqual(gotDesc, wantDesc) {
+			t.Fatalf("payload %d descriptor = %+v, want %+v", i, gotDesc, wantDesc)
+		}
+	}
+	got, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled frame = % x, want % x", got, frame)
+	}
+}
+
+func TestPacketizeVP9RTPFrameScalabilityStructure(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:            true,
+		PictureID:                   7,
+		StartOfFrame:                true,
+		EndOfFrame:                  true,
+		ScalabilityStructurePresent: true,
+		NotRefForUpperSpatialLayer:  true,
+	}
+	desc.ScalabilityStructure = VP9RTPScalabilityStructure{
+		SpatialLayerCount: 2,
+		ResolutionPresent: true,
+		Width:             [VP9RTPMaxSpatialLayers]uint16{640, 1280},
+		Height:            [VP9RTPMaxSpatialLayers]uint16{360, 720},
+	}
+	frame := []byte{0x82, 0x49, 0x83}
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, 1200)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	if len(payloads) != 1 {
+		t.Fatalf("payload count = %d, want 1", len(payloads))
+	}
+	gotDesc, _, err := ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Fatalf("descriptor = %+v, want %+v", gotDesc, desc)
+	}
+	got, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled frame = % x, want % x", got, frame)
+	}
+}
+
 func TestPacketizeVP9RTPFrameRejectsInvalidInputs(t *testing.T) {
 	desc := VP9RTPPayloadDescriptor{PictureIDPresent: true, PictureID: 1}
 	frame := []byte{0x01}
@@ -272,11 +354,8 @@ func TestPacketizeVP9RTPFrameRejectsInvalidInputs(t *testing.T) {
 	if _, _, err := VP9RTPFramePacketizationSize(desc, nil, 1200); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("empty frame error = %v, want ErrInvalidConfig", err)
 	}
-	if _, _, err := VP9RTPFramePacketizationSize(VP9RTPPayloadDescriptor{LayerIndicesPresent: true}, frame, 1200); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("layer descriptor error = %v, want ErrInvalidConfig", err)
-	}
-	if _, _, err := VP9RTPFramePacketizationSize(VP9RTPPayloadDescriptor{PictureIDPresent: true, FlexibleMode: true}, frame, 1200); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("flex descriptor error = %v, want ErrInvalidConfig", err)
+	if _, _, err := VP9RTPFramePacketizationSize(VP9RTPPayloadDescriptor{FlexibleMode: true}, frame, 1200); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid flex descriptor error = %v, want ErrInvalidConfig", err)
 	}
 
 	packets, totalBytes, err = VP9RTPFramePacketizationSize(desc, frame, 1200)
@@ -364,17 +443,19 @@ func TestAssembleVP9RTPFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			}, []byte{0x02})
 			return p
 		}()},
-		{name: "layered descriptor", payloads: []RTPPayloadFragment{{
-			Payload: mustPackVP9RTPPayloadForTest(t, VP9RTPPayloadDescriptor{
-				StartOfFrame:          true,
-				EndOfFrame:            true,
-				LayerIndicesPresent:   true,
+		{name: "layer descriptor mismatch", payloads: func() []RTPPayloadFragment {
+			p := append([]RTPPayloadFragment(nil), payloads...)
+			p[1].Payload = mustPackVP9RTPPayloadForTest(t, VP9RTPPayloadDescriptor{
+				PictureIDPresent:      true,
+				PictureID:             1,
 				InterPicturePredicted: true,
+				LayerIndicesPresent:   true,
 				TemporalID:            1,
 				TL0PICIDX:             9,
-			}, []byte{0x01}),
-			Marker: true,
-		}}},
+				EndOfFrame:            false,
+			}, []byte{0x02})
+			return p
+		}()},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

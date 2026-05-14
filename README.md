@@ -133,6 +133,8 @@ packetizers and assemblers for RFC 7741 and RFC 9628 RTP payload bodies. The
 packetizers return payload bodies plus the RTP marker bit; the assemblers
 consume ordered payload bodies plus marker bits. RTP headers, sequence/loss
 policy, jitter buffering, SRTP, SDP, and signaling remain caller-owned.
+VP9 helpers carry picture IDs, layer indices, flexible-mode references, and
+scalability structures through packetization and assembly.
 
 For WebRTC senders, start with realtime CBR, error resilience, frame
 dropping, and RTC external rate control:

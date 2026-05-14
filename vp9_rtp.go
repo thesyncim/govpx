@@ -340,9 +340,9 @@ func PackVP9RTPPayload(desc VP9RTPPayloadDescriptor, payload []byte) ([]byte, er
 // total payload-body bytes needed to packetize one raw VP9 frame at mtu bytes.
 //
 // mtu includes the VP9 RTP payload descriptor but excludes the RTP header.
-// This helper packetizes one single-layer VP9 frame per call; advanced VP9 RTP
-// descriptors with layer indices, flexible-mode references, or scalability
-// structures can still be packed explicitly with PackVP9RTPPayloadInto.
+// This helper packetizes one VP9 frame per call. Layer indices, flexible-mode
+// references, and scalability structures are carried from desc into each
+// emitted payload descriptor.
 func VP9RTPFramePacketizationSize(desc VP9RTPPayloadDescriptor, frame []byte, mtu int) (int, int, error) {
 	if err := validateVP9RTPPacketizerDescriptor(desc); err != nil {
 		return 0, 0, err
@@ -416,13 +416,12 @@ func PacketizeVP9RTPFrame(desc VP9RTPPayloadDescriptor, frame []byte, mtu int) (
 	return out[:n], nil
 }
 
-// VP9RTPFrameAssemblySize validates an ordered set of single-layer VP9 RTP
-// payload bodies for one frame and returns the raw VP9 frame size.
+// VP9RTPFrameAssemblySize validates an ordered set of VP9 RTP payload bodies
+// for one frame and returns the raw VP9 frame size.
 //
 // The caller owns RTP sequence-number validation, loss handling, and jitter
 // buffering. Payloads must be in decode order and must include the marker bit
-// value from each RTP header. Advanced layer, flexible-mode, and scalability
-// descriptors can still be parsed with ParseVP9RTPPayloadDescriptor.
+// value from each RTP header.
 func VP9RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
 	if len(payloads) == 0 {
 		return 0, ErrInvalidVP9Data
@@ -504,9 +503,6 @@ func AssembleVP9RTPFrame(payloads []RTPPayloadFragment) ([]byte, error) {
 }
 
 func validateVP9RTPPacketizerDescriptor(desc VP9RTPPayloadDescriptor) error {
-	if desc.LayerIndicesPresent || desc.FlexibleMode || desc.ScalabilityStructurePresent {
-		return ErrInvalidConfig
-	}
 	return desc.validate()
 }
 
@@ -517,7 +513,35 @@ func sameVP9RTPFrameDescriptor(base, desc VP9RTPPayloadDescriptor) bool {
 		base.PictureID == desc.PictureID &&
 		base.PictureID15Bit == desc.PictureID15Bit &&
 		base.InterPicturePredicted == desc.InterPicturePredicted &&
-		base.NotRefForUpperSpatialLayer == desc.NotRefForUpperSpatialLayer
+		base.LayerIndicesPresent == desc.LayerIndicesPresent &&
+		base.FlexibleMode == desc.FlexibleMode &&
+		base.ScalabilityStructurePresent == desc.ScalabilityStructurePresent &&
+		base.NotRefForUpperSpatialLayer == desc.NotRefForUpperSpatialLayer &&
+		base.TemporalID == desc.TemporalID &&
+		base.SwitchingUpPoint == desc.SwitchingUpPoint &&
+		base.SpatialID == desc.SpatialID &&
+		base.InterLayerDependency == desc.InterLayerDependency &&
+		base.TL0PICIDX == desc.TL0PICIDX &&
+		base.ReferenceIndexCount == desc.ReferenceIndexCount &&
+		base.ReferenceIndices == desc.ReferenceIndices &&
+		sameVP9RTPScalabilityStructure(base.ScalabilityStructure, desc.ScalabilityStructure)
+}
+
+func sameVP9RTPScalabilityStructure(a, b VP9RTPScalabilityStructure) bool {
+	if a.SpatialLayerCount != b.SpatialLayerCount ||
+		a.ResolutionPresent != b.ResolutionPresent ||
+		a.Width != b.Width ||
+		a.Height != b.Height ||
+		a.PictureGroupPresent != b.PictureGroupPresent ||
+		len(a.PictureGroups) != len(b.PictureGroups) {
+		return false
+	}
+	for i := range a.PictureGroups {
+		if a.PictureGroups[i] != b.PictureGroups[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (d VP9RTPPayloadDescriptor) validate() error {
