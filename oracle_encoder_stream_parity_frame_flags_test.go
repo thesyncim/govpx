@@ -369,6 +369,8 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 		buildFlags      func(int, map[int]bool) []EncodeFlags
 		apiFlags        func([]EncodeFlags) []EncodeFlags
 		setup           func(*testing.T, *VP8Encoder)
+		runtimeApply    map[int]func(*testing.T, *VP8Encoder)
+		controlScript   []string
 		extraArgs       []string
 		matchLimit      int
 	}{
@@ -499,6 +501,28 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			},
 			apiFlags: forceKeyAPIEncodeFlags,
 		},
+		{
+			name:        "rtc-external-frame1-and4",
+			frames:      8,
+			forceFrames: map[int]bool{1: true, 4: true},
+			mutate: func(opts *EncoderOptions) {
+				opts.RTCExternalRateControl = true
+			},
+			extraArgs: []string{"--rtc-external=1"},
+		},
+		{
+			name:        "set-reference-before-force-keyframe",
+			frames:      8,
+			forceFrames: map[int]bool{3: true, 6: true},
+			runtimeApply: map[int]func(*testing.T, *VP8Encoder){
+				2: setReferencePanningApply(ReferenceLast, 8, "last"),
+				5: setReferencePanningApply(ReferenceGolden, 9, "golden"),
+			},
+			controlScript: runtimeControlScript(8, map[int]string{
+				2: "setref:last:panning:8",
+				5: "setref:golden:panning:9",
+			}),
+		},
 	}
 
 	for _, tc := range cases {
@@ -537,8 +561,12 @@ func TestOracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
 			if tc.apiFlags != nil {
 				apiFlags = tc.apiFlags(flags)
 			}
-			govpxFrames := encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t, opts, sources, tc.forceFrames, apiFlags, tc.setup)
-			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, opts.TargetBitrateKbps, sources, flags, tc.extraArgs)
+			govpxFrames := encodeFramesWithGovpxForceKeyScheduleFlagsSetupAndApply(t, opts, sources, tc.forceFrames, apiFlags, tc.setup, tc.runtimeApply)
+			extraArgs := append([]string(nil), tc.extraArgs...)
+			if tc.controlScript != nil {
+				extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.controlScript, ","))
+			}
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "force-key-api-"+tc.name, opts, opts.TargetBitrateKbps, sources, flags, extraArgs)
 			assertSegmentByteParity(t, "force-key-api", govpxFrames, libvpxFrames, tc.matchLimit)
 		})
 	}
@@ -574,6 +602,11 @@ func encodeFramesWithGovpxForceKeyScheduleAndSetup(t *testing.T, opts EncoderOpt
 
 func encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, flags []EncodeFlags, setup func(*testing.T, *VP8Encoder)) [][]byte {
 	t.Helper()
+	return encodeFramesWithGovpxForceKeyScheduleFlagsSetupAndApply(t, opts, sources, forceFrames, flags, setup, nil)
+}
+
+func encodeFramesWithGovpxForceKeyScheduleFlagsSetupAndApply(t *testing.T, opts EncoderOptions, sources []Image, forceFrames map[int]bool, flags []EncodeFlags, setup func(*testing.T, *VP8Encoder), apply map[int]func(*testing.T, *VP8Encoder)) [][]byte {
+	t.Helper()
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder: %v", err)
@@ -585,6 +618,9 @@ func encodeFramesWithGovpxForceKeyScheduleFlagsAndSetup(t *testing.T, opts Encod
 	buf := make([]byte, opts.Width*opts.Height*4+4096)
 	out := make([][]byte, 0, len(sources))
 	for i, src := range sources {
+		if fn := apply[i]; fn != nil {
+			fn(t, enc)
+		}
 		if forceFrames[i] {
 			enc.ForceKeyFrame()
 		}
