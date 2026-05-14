@@ -149,6 +149,38 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
+	t.Run("resize-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := make([]Image, 6)
+		for i := range sources {
+			if i < 2 {
+				sources[i] = encoderValidationPanningFrame(64, 64, i)
+			} else {
+				sources[i] = encoderValidationPanningFrame(32, 32, i)
+			}
+		}
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "resize:32x32"
+		script[3] = "copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRealtimeTarget(32x32)", e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}))
+			},
+		}
+		probes := map[int][]copyReferenceProbe{
+			3: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksums(t, driver, "copyref-resize", opts, sources, nil, script)
+		got := captureGovpxCopyReferenceChecksumsWithApply(t, opts, sources, nil, nil, apply, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
 	t.Run("copy-reference-probes-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(32, 32)
 		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
@@ -319,11 +351,17 @@ func captureGovpxCopyReferenceChecksumsWithApply(t *testing.T, opts EncoderOptio
 	}
 	defer enc.Close()
 
-	buf := make([]byte, opts.Width*opts.Height*4+4096)
+	maxPixels := opts.Width * opts.Height
+	for _, src := range sources {
+		if pixels := src.Width * src.Height; pixels > maxPixels {
+			maxPixels = pixels
+		}
+	}
+	buf := make([]byte, maxPixels*4+4096)
 	out := make([]copyReferenceChecksum, 0)
 	for i, src := range sources {
 		for _, set := range sets[i] {
-			img := encoderValidationPanningFrame(opts.Width, opts.Height, set.panningIndex)
+			img := encoderValidationPanningFrame(enc.opts.Width, enc.opts.Height, set.panningIndex)
 			if err := enc.SetReferenceFrame(set.ref, img); err != nil {
 				t.Fatalf("frame %d SetReferenceFrame(%s): %v", i, set.name, err)
 			}
@@ -332,7 +370,7 @@ func captureGovpxCopyReferenceChecksumsWithApply(t *testing.T, opts EncoderOptio
 			fn(t, enc)
 		}
 		for _, probe := range probes[i] {
-			dst := testImage(opts.Width, opts.Height)
+			dst := testImage(enc.opts.Width, enc.opts.Height)
 			if err := enc.CopyReferenceFrame(probe.ref, &dst); err != nil {
 				t.Fatalf("frame %d CopyReferenceFrame(%s): %v", i, probe.name, err)
 			}
