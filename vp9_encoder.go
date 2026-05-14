@@ -3136,7 +3136,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	bestSet := false
 	var best vp9InterModeDecision
 	consider := func(mode common.PredictionMode, mv, refMv [2]vp9dec.MV,
-		filter vp9dec.InterpFilter, sad uint64,
+		filter vp9dec.InterpFilter, sad, distortion uint64,
 	) {
 		rate := refRate +
 			vp9InterModeRateCostN(&inter.selectFc, interModeCtx, mode,
@@ -3153,7 +3153,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 			interpFilter:   filter,
 			rate:           rate,
 			sad:            sad,
-			score:          vp9InterModeScore(sad, rate, qindex),
+			score:          vp9InterModeScore(distortion, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -3212,25 +3212,24 @@ func (e *VP9Encoder) evalVP9CompoundMode(inter *vp9InterEncodeState,
 	refFrame [2]int8, refSlot [2]int, mode common.PredictionMode,
 	mv, refMv [2]vp9dec.MV,
 	consider func(common.PredictionMode, [2]vp9dec.MV, [2]vp9dec.MV,
-		vp9dec.InterpFilter, uint64),
+		vp9dec.InterpFilter, uint64, uint64),
 ) {
 	if !vp9AnyMvHasSubpel(mv) {
-		sad, ok := e.vp9CompoundPredictionSAD(inter, miRows, miCols,
+		sad, distortion, ok := e.vp9CompoundPredictionStats(inter, miRows, miCols,
 			miRow, miCol, bsize, mode, refFrame, refSlot, mv,
-			vp9dec.InterpEighttap, ^uint64(0))
+			vp9dec.InterpEighttap)
 		if ok {
 			for _, filter := range vp9SwitchableInterpFilterOrder {
-				consider(mode, mv, refMv, filter, sad)
+				consider(mode, mv, refMv, filter, sad, distortion)
 			}
 		}
 		return
 	}
 	for _, filter := range vp9SwitchableInterpFilterOrder {
-		sad, ok := e.vp9CompoundPredictionSAD(inter, miRows, miCols,
-			miRow, miCol, bsize, mode, refFrame, refSlot, mv, filter,
-			^uint64(0))
+		sad, distortion, ok := e.vp9CompoundPredictionStats(inter, miRows, miCols,
+			miRow, miCol, bsize, mode, refFrame, refSlot, mv, filter)
 		if ok {
-			consider(mode, mv, refMv, filter, sad)
+			consider(mode, mv, refMv, filter, sad, distortion)
 		}
 	}
 }
@@ -3272,7 +3271,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	bestSet := false
 	var best vp9InterModeDecision
 	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
-		filter vp9dec.InterpFilter, sad uint64,
+		filter vp9dec.InterpFilter, sad, distortion uint64,
 	) {
 		rate := refRate +
 			vp9InterModeRateCost(&inter.selectFc, interModeCtx, mode,
@@ -3284,7 +3283,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			interpFilter: filter,
 			rate:         rate,
 			sad:          sad,
-			score:        vp9InterModeScore(sad, rate, qindex),
+			score:        vp9InterModeScore(distortion, rate, qindex),
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -3293,10 +3292,11 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	zeroSad := vp9BlockSAD(src, srcStride, ref, refStride,
+	zeroSad, zeroDistortion := vp9BlockSADSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH, ^uint64(0))
 	for _, filter := range vp9SwitchableInterpFilterOrder {
-		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter, zeroSad)
+		consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
+			zeroSad, zeroDistortion)
 	}
 
 	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
@@ -3307,41 +3307,46 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			continue
 		}
 		if !vp9MvHasSubpel(mv) {
-			sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+			sad, distortion, ok := e.vp9InterPredictionStats(inter, miRows, miCols,
 				miRow, miCol, bsize, mode, refFrame, mv, vp9dec.InterpEighttap,
-				^uint64(0))
+			)
 			if ok {
 				for _, filter := range vp9SwitchableInterpFilterOrder {
-					consider(mode, mv, mv, filter, sad)
+					consider(mode, mv, mv, filter, sad, distortion)
 				}
 			}
 			continue
 		}
 		for _, filter := range vp9SwitchableInterpFilterOrder {
-			sad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
-				miRow, miCol, bsize, mode, refFrame, mv, filter, ^uint64(0))
+			sad, distortion, ok := e.vp9InterPredictionStats(inter, miRows, miCols,
+				miRow, miCol, bsize, mode, refFrame, mv, filter)
 			if ok {
-				consider(mode, mv, mv, filter, sad)
+				consider(mode, mv, mv, filter, sad, distortion)
 			}
 		}
 	}
 
-	if mv, sad, ok := e.pickVP9InterMv(inter, miRows, miCols,
+	if mv, _, ok := e.pickVP9InterMv(inter, miRows, miCols,
 		miRow, miCol, bsize, refFrame); ok {
 		refMv, _ := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 			miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
 			inter.refSignBias)
 		if !vp9MvHasSubpel(mv) {
-			for _, filter := range vp9SwitchableInterpFilterOrder {
-				consider(common.NewMv, mv, refMv, filter, sad)
+			sad, distortion, ok := e.vp9InterPredictionStats(inter, miRows, miCols,
+				miRow, miCol, bsize, common.NewMv, refFrame, mv,
+				vp9dec.InterpEighttap)
+			if ok {
+				for _, filter := range vp9SwitchableInterpFilterOrder {
+					consider(common.NewMv, mv, refMv, filter, sad, distortion)
+				}
 			}
 		} else {
 			for _, filter := range vp9SwitchableInterpFilterOrder {
-				filterSad, ok := e.vp9InterPredictionSAD(inter, miRows, miCols,
+				filterSad, distortion, ok := e.vp9InterPredictionStats(inter, miRows, miCols,
 					miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
-					^uint64(0))
+				)
 				if ok {
-					consider(common.NewMv, mv, refMv, filter, filterSad)
+					consider(common.NewMv, mv, refMv, filter, filterSad, distortion)
 				}
 			}
 		}
@@ -3520,6 +3525,52 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		x0, y0, x0, y0, blockW, blockH, limit), true
 }
 
+func (e *VP9Encoder) vp9InterPredictionStats(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter,
+) (sad, sse uint64, ok bool) {
+	return e.vp9InterPredictionStatsLimited(inter, miRows, miCols,
+		miRow, miCol, bsize, mode, refFrame, mv, filter, ^uint64(0))
+}
+
+func (e *VP9Encoder) vp9InterPredictionStatsLimited(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, limit uint64,
+) (sad, sse uint64, ok bool) {
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	dst, dstStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	dstRows := len(dst) / dstStride
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > dstStride || y0+blockH > dstRows {
+		return 0, 0, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return 0, 0, false
+	}
+	sad, sse = vp9BlockSADSSE(src, srcStride, dst, dstStride,
+		x0, y0, x0, y0, blockW, blockH, limit)
+	return sad, sse, true
+}
+
 func (e *VP9Encoder) vp9CompoundPredictionSAD(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame [2]int8, refSlot [2]int,
@@ -3557,6 +3608,55 @@ func (e *VP9Encoder) vp9CompoundPredictionSAD(inter *vp9InterEncodeState,
 	}
 	return vp9BlockSAD(src, srcStride, dst, dstStride,
 		x0, y0, x0, y0, blockW, blockH, limit), true
+}
+
+func (e *VP9Encoder) vp9CompoundPredictionStats(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame [2]int8, refSlot [2]int,
+	mv [2]vp9dec.MV, filter vp9dec.InterpFilter,
+) (sad, sse uint64, ok bool) {
+	return e.vp9CompoundPredictionStatsLimited(inter, miRows, miCols,
+		miRow, miCol, bsize, mode, refFrame, refSlot, mv, filter, ^uint64(0))
+}
+
+func (e *VP9Encoder) vp9CompoundPredictionStatsLimited(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame [2]int8, refSlot [2]int,
+	mv [2]vp9dec.MV, filter vp9dec.InterpFilter, limit uint64,
+) (sad, sse uint64, ok bool) {
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	dst, dstStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	dstRows := len(dst) / dstStride
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > dstStride || y0+blockH > dstRows {
+		return 0, 0, false
+	}
+	if refSlot[0] < 0 || refSlot[0] >= len(e.refFrames) ||
+		refSlot[1] < 0 || refSlot[1] >= len(e.refFrames) ||
+		!e.refFrames[refSlot[0]].valid || !e.refFrames[refSlot[1]].valid {
+		return 0, 0, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame:     refFrame,
+		Mv:           mv,
+	}
+	inter.ref = &e.refFrames[refSlot[0]]
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return 0, 0, false
+	}
+	sad, sse = vp9BlockSADSSE(src, srcStride, dst, dstStride,
+		x0, y0, x0, y0, blockW, blockH, limit)
+	return sad, sse, true
 }
 
 func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
@@ -3750,6 +3850,28 @@ func vp9BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
 		}
 	}
 	return sad
+}
+
+func vp9BlockSADSSE(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int, sadLimit uint64,
+) (sad, sse uint64) {
+	for y := range h {
+		srcRow := src[(srcY+y)*srcStride+srcX:]
+		refRow := ref[(refY+y)*refStride+refX:]
+		for x := range w {
+			diff := int(srcRow[x]) - int(refRow[x])
+			if diff < 0 {
+				sad += uint64(-diff)
+			} else {
+				sad += uint64(diff)
+			}
+			sse += uint64(diff * diff)
+		}
+		if sad >= sadLimit {
+			return sad, sse
+		}
+	}
+	return sad, sse
 }
 
 func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,
