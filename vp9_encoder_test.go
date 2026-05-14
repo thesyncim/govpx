@@ -657,6 +657,59 @@ func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, Quantizer: 128})
+	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	want := vp9EncoderLoopFilterLevel(128, true)
+	if h.Loopfilter.FilterLevel != want {
+		t.Fatalf("FilterLevel = %d, want q-derived %d", h.Loopfilter.FilterLevel, want)
+	}
+	if h.Loopfilter.FilterLevel == 0 {
+		t.Fatal("FilterLevel = 0, want high-quantizer keyframe to enable filtering")
+	}
+}
+
+func TestVP9EncoderLoopFilteredReferenceMatchesDecodedFrame(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 128,
+	})
+	img := newVP9CheckerYCbCrForTest(width, height, 32, 224, 96, 224)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed")
+	}
+	h, _ := parseVP9EncoderHeaderForTest(t, packet)
+	if h.Loopfilter.FilterLevel == 0 {
+		t.Fatal("FilterLevel = 0, want loopfiltered reference test to exercise filter path")
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if !vp9VisibleImageEqual(e.refFrames[0].img, frame) {
+		t.Fatal("encoder refreshed reference does not match decoded loopfiltered frame")
+	}
+}
+
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	const width, height = 96, 80
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -2856,6 +2909,17 @@ func assertVP9VisibleYContrast(t *testing.T, got Image, width, height int, minDe
 	if hi-lo < minDelta {
 		t.Fatalf("visible Y contrast = %d..%d, want delta >= %d", lo, hi, minDelta)
 	}
+}
+
+func vp9VisibleImageEqual(a, b Image) bool {
+	if a.Width != b.Width || a.Height != b.Height {
+		return false
+	}
+	uvWidth := (a.Width + 1) >> 1
+	uvHeight := (a.Height + 1) >> 1
+	return planeEqual(a.Y, a.YStride, b.Y, b.YStride, a.Width, a.Height) &&
+		planeEqual(a.U, a.UStride, b.U, b.UStride, uvWidth, uvHeight) &&
+		planeEqual(a.V, a.VStride, b.V, b.VStride, uvWidth, uvHeight)
 }
 
 func assertVP9VisibleChromaContrast(t *testing.T, got Image, width, height int, minDelta byte) {

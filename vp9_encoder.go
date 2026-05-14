@@ -134,6 +134,7 @@ type VP9Encoder struct {
 	txCoeffScratch [1024]int16
 	dqCoeffScratch [1024]int16
 	frameCounts    encoder.FrameCounts
+	lfi            vp9dec.LoopFilterInfoN
 }
 
 // NewVP9Encoder creates a VP9 encoder with validated options.
@@ -143,7 +144,10 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := validateVP9EncoderOptions(opts); err != nil {
 		return nil, err
 	}
-	return &VP9Encoder{opts: opts}, nil
+	e := &VP9Encoder{opts: opts}
+	e.lfi = vp9dec.NewLoopFilterInfoN()
+	vp9dec.LoopFilterInit(&e.lfi, 0)
+	return e, nil
 }
 
 func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
@@ -350,6 +354,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		qindex = 1
 	}
 	header.Quant.BaseQindex = int16(qindex)
+	header.Loopfilter.FilterLevel = vp9EncoderLoopFilterLevel(qindex, isKey)
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -498,6 +503,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		return tileStart, err
 	}
 	n = tileStart + tileSize
+	if header.RefreshFrameFlags != 0 {
+		if !e.applyVP9EncoderLoopFilter(&header, &seg) {
+			return n, ErrInvalidVP9Data
+		}
+	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header)
 	e.frameIndex++
@@ -886,6 +896,44 @@ func vp9EncoderFrameInterpFilter(isKey, intraOnly bool) vp9dec.InterpFilter {
 
 func vp9EncoderFrameAllowHighPrecisionMv(isKey, intraOnly bool) bool {
 	return !isKey && !intraOnly
+}
+
+func vp9EncoderLoopFilterLevel(qindex int, isKey bool) uint8 {
+	q := int(vp9dec.VpxAcQuant(qindex, 0, vp9dec.BitDepth8))
+	level := (q*20723 + 1015158 + (1 << 17)) >> 18
+	if isKey {
+		level -= 4
+	}
+	if level < 0 {
+		return 0
+	}
+	if level > vp9dec.MaxLoopFilter {
+		return vp9dec.MaxLoopFilter
+	}
+	return uint8(level)
+}
+
+func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
+	seg *vp9dec.SegmentationParams,
+) bool {
+	if hdr.Loopfilter.FilterLevel == 0 {
+		return true
+	}
+	layout := vp9FrameBufferLayout(int(hdr.Width), int(hdr.Height))
+	vp9dec.LoopFilterFrameInit(&e.lfi, &hdr.Loopfilter, seg,
+		int(hdr.Loopfilter.FilterLevel))
+	d := VP9Decoder{
+		lfi:          e.lfi,
+		miGrid:       e.miGrid,
+		frameYFull:   e.reconYFull,
+		frameUFull:   e.reconUFull,
+		frameVFull:   e.reconVFull,
+		frameYOrigin: layout.yOrigin,
+		frameUOrigin: layout.uvOrigin,
+		frameVOrigin: layout.uvOrigin,
+		lastFrame:    e.reconFrame,
+	}
+	return d.applyVP9LoopFilter(hdr)
 }
 
 func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind) vp9dec.InterpFilter {
