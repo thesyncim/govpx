@@ -342,17 +342,50 @@ func PackVP9RTPPayload(desc VP9RTPPayloadDescriptor, payload []byte) ([]byte, er
 //
 // mtu includes the VP9 RTP payload descriptor but excludes the RTP header.
 // This helper packetizes one VP9 frame per call. Layer indices, flexible-mode
-// references, and scalability structures are carried from desc into each
-// emitted payload descriptor.
+// references, and scalability structures are carried from desc. Scalability
+// structure data is emitted on the first fragment only; later fragments carry
+// the same frame descriptor without repeating that optional metadata.
 func VP9RTPFramePacketizationSize(desc VP9RTPPayloadDescriptor, frame []byte, mtu int) (int, int, error) {
 	if err := validateVP9RTPPacketizerDescriptor(desc); err != nil {
 		return 0, 0, err
 	}
-	descSize, err := desc.Size()
+	firstDescSize, restDescSize, err := vp9RTPFragmentDescriptorSizes(desc)
 	if err != nil {
 		return 0, 0, err
 	}
-	return rtpFramePacketizationSize(len(frame), descSize, mtu)
+	if len(frame) == 0 || mtu <= firstDescSize {
+		return 0, 0, ErrInvalidConfig
+	}
+
+	firstPayload := mtu - firstDescSize
+	if len(frame) <= firstPayload {
+		return 1, firstDescSize + len(frame), nil
+	}
+	if mtu <= restDescSize {
+		return 0, 0, ErrInvalidConfig
+	}
+	restPayload := mtu - restDescSize
+	remaining := len(frame) - firstPayload
+	restPackets := (remaining + restPayload - 1) / restPayload
+	packets := 1 + restPackets
+
+	total, err := rtpAddPayloadSize(firstDescSize, firstPayload)
+	if err != nil {
+		return 0, 0, err
+	}
+	total, err = rtpAddPayloadSize(total, remaining)
+	if err != nil {
+		return 0, 0, err
+	}
+	maxInt := int(^uint(0) >> 1)
+	if restPackets > maxInt/restDescSize {
+		return 0, 0, ErrInvalidConfig
+	}
+	total, err = rtpAddPayloadSize(total, restPackets*restDescSize)
+	if err != nil {
+		return 0, 0, err
+	}
+	return packets, total, nil
 }
 
 // PacketizeVP9RTPFrameInto packetizes one raw VP9 frame into caller-owned
@@ -361,7 +394,8 @@ func VP9RTPFramePacketizationSize(desc VP9RTPPayloadDescriptor, frame []byte, mt
 // are the required capacities.
 //
 // The returned payload bodies do not include RTP headers. Marker is true only
-// on the last payload body.
+// on the last payload body. If desc contains VP9 scalability structure data,
+// only the first payload body carries it.
 func PacketizeVP9RTPFrameInto(dst []RTPPayloadFragment, payloadBuf []byte,
 	desc VP9RTPPayloadDescriptor, frame []byte, mtu int,
 ) (int, int, error) {
@@ -372,16 +406,16 @@ func PacketizeVP9RTPFrameInto(dst []RTPPayloadFragment, payloadBuf []byte,
 	if len(dst) < packets || len(payloadBuf) < totalBytes {
 		return packets, totalBytes, ErrBufferTooSmall
 	}
-	descSize, err := desc.Size()
-	if err != nil {
-		return 0, 0, err
-	}
-	maxPayload := mtu - descSize
 	frameOff := 0
 	bufOff := 0
 	for i := 0; i < packets; i++ {
+		packetDesc := vp9RTPPayloadDescriptorForFragment(desc, i == 0)
+		descSize, err := packetDesc.Size()
+		if err != nil {
+			return 0, 0, err
+		}
+		maxPayload := mtu - descSize
 		chunk := min(maxPayload, len(frame)-frameOff)
-		packetDesc := desc
 		packetDesc.StartOfFrame = i == 0
 		packetDesc.EndOfFrame = i == packets-1
 
@@ -450,7 +484,7 @@ func VP9RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
 			base = desc
 			base.StartOfFrame = false
 			base.EndOfFrame = false
-		} else if !sameVP9RTPFrameDescriptor(base, desc) {
+		} else if !sameVP9RTPFrameDescriptorForAssembly(base, desc) {
 			return 0, ErrInvalidVP9Data
 		}
 		total, err = rtpAddPayloadSize(total, len(fragment))
@@ -505,6 +539,42 @@ func AssembleVP9RTPFrame(payloads []RTPPayloadFragment) ([]byte, error) {
 
 func validateVP9RTPPacketizerDescriptor(desc VP9RTPPayloadDescriptor) error {
 	return desc.validate()
+}
+
+func vp9RTPPayloadDescriptorForFragment(desc VP9RTPPayloadDescriptor, first bool) VP9RTPPayloadDescriptor {
+	if first || !desc.ScalabilityStructurePresent {
+		return desc
+	}
+	desc.ScalabilityStructurePresent = false
+	desc.ScalabilityStructure = VP9RTPScalabilityStructure{}
+	return desc
+}
+
+func vp9RTPFragmentDescriptorSizes(desc VP9RTPPayloadDescriptor) (int, int, error) {
+	firstDescSize, err := desc.Size()
+	if err != nil {
+		return 0, 0, err
+	}
+	restDescSize := firstDescSize
+	if desc.ScalabilityStructurePresent {
+		restDesc := vp9RTPPayloadDescriptorForFragment(desc, false)
+		restDescSize, err = restDesc.Size()
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return firstDescSize, restDescSize, nil
+}
+
+func sameVP9RTPFrameDescriptorForAssembly(base, desc VP9RTPPayloadDescriptor) bool {
+	desc.StartOfFrame = false
+	desc.EndOfFrame = false
+	if desc.ScalabilityStructurePresent {
+		return sameVP9RTPFrameDescriptor(base, desc)
+	}
+	base.ScalabilityStructurePresent = false
+	base.ScalabilityStructure = VP9RTPScalabilityStructure{}
+	return sameVP9RTPFrameDescriptor(base, desc)
 }
 
 func sameVP9RTPFrameDescriptor(base, desc VP9RTPPayloadDescriptor) bool {

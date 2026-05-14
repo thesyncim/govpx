@@ -341,6 +341,122 @@ func TestPacketizeVP9RTPFrameScalabilityStructure(t *testing.T) {
 	}
 }
 
+func TestPacketizeVP9RTPFrameScalabilityStructureOnlyOnFirstFragment(t *testing.T) {
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:            true,
+		PictureID:                   7,
+		ScalabilityStructurePresent: true,
+		ScalabilityStructure: VP9RTPScalabilityStructure{
+			SpatialLayerCount: 2,
+			ResolutionPresent: true,
+			Width:             [VP9RTPMaxSpatialLayers]uint16{640, 1280},
+			Height:            [VP9RTPMaxSpatialLayers]uint16{360, 720},
+		},
+	}
+	frame := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
+	const mtu = 14
+	packets, totalBytes, err := VP9RTPFramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		t.Fatalf("VP9RTPFramePacketizationSize: %v", err)
+	}
+	if packets != 3 || totalBytes != 35 {
+		t.Fatalf("size = packets:%d bytes:%d, want 3/35", packets, totalBytes)
+	}
+
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, mtu)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	if len(payloads) != packets {
+		t.Fatalf("payload count = %d, want %d", len(payloads), packets)
+	}
+	for i, payload := range payloads {
+		if len(payload.Payload) > mtu {
+			t.Fatalf("payload %d length = %d, exceeds mtu %d", i, len(payload.Payload), mtu)
+		}
+		gotDesc, _, err := ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if gotDesc.ScalabilityStructurePresent != (i == 0) {
+			t.Fatalf("payload %d scalability structure present = %v, want %v",
+				i, gotDesc.ScalabilityStructurePresent, i == 0)
+		}
+	}
+	got, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled frame = % x, want % x", got, frame)
+	}
+
+	repeated := append([]RTPPayloadFragment(nil), payloads...)
+	for i := 1; i < len(repeated); i++ {
+		gotDesc, fragment, err := ParseVP9RTPPayloadDescriptor(repeated[i].Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor repeat[%d]: %v", i, err)
+		}
+		gotDesc.ScalabilityStructurePresent = true
+		gotDesc.ScalabilityStructure = desc.ScalabilityStructure
+		repeated[i].Payload = mustPackVP9RTPPayloadForTest(t, gotDesc, fragment)
+	}
+	got, err = AssembleVP9RTPFrame(repeated)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame repeated SS: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled repeated-SS frame = % x, want % x", got, frame)
+	}
+}
+
+func TestVP9RTPPacketizeAssembleEncodedFrame(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	frame, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 32, 224, 96, 192))
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	desc := VP9RTPPayloadDescriptor{
+		PictureIDPresent:            true,
+		PictureID:                   17,
+		ScalabilityStructurePresent: true,
+		ScalabilityStructure: VP9RTPScalabilityStructure{
+			SpatialLayerCount: 1,
+			ResolutionPresent: true,
+			Width:             [VP9RTPMaxSpatialLayers]uint16{width},
+			Height:            [VP9RTPMaxSpatialLayers]uint16{height},
+		},
+	}
+	payloads, err := PacketizeVP9RTPFrame(desc, frame, 64)
+	if err != nil {
+		t.Fatalf("PacketizeVP9RTPFrame: %v", err)
+	}
+	if len(payloads) < 2 {
+		t.Fatalf("payload count = %d, want fragmented encoded frame", len(payloads))
+	}
+	assembled, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP9RTPFrame: %v", err)
+	}
+	if !bytes.Equal(assembled, frame) {
+		t.Fatal("assembled RTP frame does not match encoded VP9 payload")
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(assembled); err != nil {
+		t.Fatalf("Decode assembled frame: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("Decode assembled frame produced no visible output")
+	}
+}
+
 func TestPacketizeVP9RTPFrameRejectsInvalidInputs(t *testing.T) {
 	desc := VP9RTPPayloadDescriptor{PictureIDPresent: true, PictureID: 1}
 	frame := []byte{0x01}
@@ -454,6 +570,22 @@ func TestAssembleVP9RTPFrameRejectsInvalidPayloadSequence(t *testing.T) {
 				TL0PICIDX:             9,
 				EndOfFrame:            false,
 			}, []byte{0x02})
+			return p
+		}()},
+		{name: "late scalability structure", payloads: func() []RTPPayloadFragment {
+			p := append([]RTPPayloadFragment(nil), payloads...)
+			desc, fragment, err := ParseVP9RTPPayloadDescriptor(p[1].Payload)
+			if err != nil {
+				t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+			}
+			desc.ScalabilityStructurePresent = true
+			desc.ScalabilityStructure = VP9RTPScalabilityStructure{
+				SpatialLayerCount: 1,
+				ResolutionPresent: true,
+				Width:             [VP9RTPMaxSpatialLayers]uint16{640},
+				Height:            [VP9RTPMaxSpatialLayers]uint16{360},
+			}
+			p[1].Payload = mustPackVP9RTPPayloadForTest(t, desc, fragment)
 			return p
 		}()},
 	}
