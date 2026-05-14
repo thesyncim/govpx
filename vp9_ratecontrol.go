@@ -23,6 +23,8 @@ type vp9RateControlState struct {
 
 	dropFrameAllowed    bool
 	dropFramesWaterMark uint8
+	decimationFactor    uint8
+	decimationCount     uint8
 
 	bestQuality  uint8
 	worstQuality uint8
@@ -42,6 +44,14 @@ type vp9RateControlState struct {
 
 	framesSinceKey uint16
 }
+
+type vp9DropReason uint8
+
+const (
+	vp9DropNone vp9DropReason = iota
+	vp9DropNegativeBuffer
+	vp9DropWatermarkDecimation
+)
 
 func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
 	if opts.BufferSizeMs < 0 || opts.BufferInitialSizeMs < 0 ||
@@ -205,8 +215,36 @@ func (rc *vp9RateControlState) beginFrame(isKey bool, frameIndex int) {
 }
 
 func (rc *vp9RateControlState) shouldDropInterFrame() bool {
-	return rc.enabled && rc.mode == RateControlCBR &&
-		rc.dropFrameAllowed && rc.bufferLevelBits < 0
+	_, drop := rc.testDropInterFrame()
+	return drop
+}
+
+// testDropInterFrame mirrors libvpx v1.16.0 vp9_test_drop for the non-SVC CBR
+// path. It mutates decimation state exactly like the source branch it models.
+func (rc *vp9RateControlState) testDropInterFrame() (vp9DropReason, bool) {
+	if !rc.enabled || rc.mode != RateControlCBR || !rc.dropFrameAllowed ||
+		rc.dropFramesWaterMark == 0 {
+		return vp9DropNone, false
+	}
+	if rc.bufferLevelBits < 0 {
+		return vp9DropNegativeBuffer, true
+	}
+	dropMark := int(rc.dropFramesWaterMark) * rc.bufferOptimalBits / 100
+	if rc.bufferLevelBits > dropMark && rc.decimationFactor > 0 {
+		rc.decimationFactor--
+	} else if rc.bufferLevelBits <= dropMark && rc.decimationFactor == 0 {
+		rc.decimationFactor = 1
+	}
+	if rc.decimationFactor > 0 {
+		if rc.decimationCount > 0 {
+			rc.decimationCount--
+			return vp9DropWatermarkDecimation, true
+		}
+		rc.decimationCount = rc.decimationFactor
+		return vp9DropNone, false
+	}
+	rc.decimationCount = 0
+	return vp9DropNone, false
 }
 
 func (rc *vp9RateControlState) postDropFrame() {
@@ -219,6 +257,17 @@ func (rc *vp9RateControlState) postDropFrame() {
 	rc.rc1Frame = 0
 	rc.lastQInter = rc.q1Frame
 	rc.incrementFramesSinceKey()
+}
+
+func vp9DropReasonString(reason vp9DropReason) string {
+	switch reason {
+	case vp9DropNegativeBuffer:
+		return "negative_buffer"
+	case vp9DropWatermarkDecimation:
+		return "watermark_decimation"
+	default:
+		return ""
+	}
 }
 
 func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int) {
@@ -257,6 +306,8 @@ func (rc *vp9RateControlState) setFrameDropAllowed(enabled bool, waterMark int) 
 	rc.dropFrameAllowed = enabled
 	if !enabled {
 		rc.dropFramesWaterMark = 0
+		rc.decimationFactor = 0
+		rc.decimationCount = 0
 		return
 	}
 	if waterMark <= 0 {

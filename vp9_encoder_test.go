@@ -2645,6 +2645,65 @@ func TestVP9EncoderCBRDropDoesNotDropKeyOrInvisibleFrame(t *testing.T) {
 	}
 }
 
+func TestVP9RateControlDropWatermarkDecimation(t *testing.T) {
+	rc := vp9RateControlState{
+		enabled:             true,
+		mode:                RateControlCBR,
+		dropFrameAllowed:    true,
+		dropFramesWaterMark: 60,
+		bufferOptimalBits:   10000,
+		bufferSizeBits:      12000,
+		bitsPerFrame:        1000,
+	}
+
+	rc.bufferLevelBits = 6000
+	reason, drop := rc.testDropInterFrame()
+	if drop || reason != vp9DropNone || rc.decimationFactor != 1 || rc.decimationCount != 1 {
+		t.Fatalf("first watermark check = reason:%d drop:%t factor:%d count:%d, want arm only",
+			reason, drop, rc.decimationFactor, rc.decimationCount)
+	}
+	reason, drop = rc.testDropInterFrame()
+	if !drop || reason != vp9DropWatermarkDecimation || rc.decimationFactor != 1 || rc.decimationCount != 0 {
+		t.Fatalf("second watermark check = reason:%d drop:%t factor:%d count:%d, want decimation drop",
+			reason, drop, rc.decimationFactor, rc.decimationCount)
+	}
+	reason, drop = rc.testDropInterFrame()
+	if drop || reason != vp9DropNone || rc.decimationFactor != 1 || rc.decimationCount != 1 {
+		t.Fatalf("third watermark check = reason:%d drop:%t factor:%d count:%d, want re-arm",
+			reason, drop, rc.decimationFactor, rc.decimationCount)
+	}
+
+	rc.bufferLevelBits = 7000
+	reason, drop = rc.testDropInterFrame()
+	if drop || reason != vp9DropNone || rc.decimationFactor != 0 || rc.decimationCount != 0 {
+		t.Fatalf("recovered watermark check = reason:%d drop:%t factor:%d count:%d, want reset",
+			reason, drop, rc.decimationFactor, rc.decimationCount)
+	}
+}
+
+func TestVP9RateControlDropNegativeBufferBypassesWatermark(t *testing.T) {
+	rc := vp9RateControlState{
+		enabled:             true,
+		mode:                RateControlCBR,
+		dropFrameAllowed:    true,
+		dropFramesWaterMark: 60,
+		bufferOptimalBits:   10000,
+		decimationFactor:    1,
+		decimationCount:     1,
+		bufferLevelBits:     -1,
+	}
+
+	reason, drop := rc.testDropInterFrame()
+	if !drop || reason != vp9DropNegativeBuffer {
+		t.Fatalf("negative buffer drop = reason:%d drop:%t, want negative-buffer drop",
+			reason, drop)
+	}
+	if rc.decimationFactor != 1 || rc.decimationCount != 1 {
+		t.Fatalf("negative buffer changed decimation = factor:%d count:%d, want unchanged 1/1",
+			rc.decimationFactor, rc.decimationCount)
+	}
+}
+
 func TestVP9EncoderSetRealtimeTargetFrameDropMode(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              64,

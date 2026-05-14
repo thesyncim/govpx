@@ -100,9 +100,93 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	}
 }
 
+func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP9 rate drop-pressure scoreboard")
+	}
+	requireVP9VpxencFrameFlagsOracle(t)
+
+	const width, height, frames = 64, 64, 32
+	sources := make([]*image.YCbCr, frames)
+	for i := range sources {
+		sources[i] = newVP9PanningYCbCrForRateTest(width, height, i)
+	}
+
+	opts := VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   120,
+		BufferSizeMs:        400,
+		BufferInitialSizeMs: 300,
+		BufferOptimalSizeMs: 350,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  60,
+	}
+	extraArgs := []string{
+		"--end-usage=cbr",
+		"--target-bitrate=120",
+		"--buf-sz=400",
+		"--buf-initial-sz=300",
+		"--buf-optimal-sz=350",
+		"--drop-frame=60",
+	}
+
+	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height, sources,
+		nil, extraArgs)
+	if len(govpxRows) != len(libvpxRows) {
+		t.Fatalf("drop-pressure rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
+	}
+	govpxDrops := vp9DroppedFrameIndices(govpxRows)
+	libvpxDrops := vp9DroppedFrameIndices(libvpxRows)
+	t.Logf("VP9 CBR drop-pressure scoreboard: govpx_drops=%v libvpx_drops=%v",
+		govpxDrops, libvpxDrops)
+	t.Logf("VP9 CBR drop-pressure rows:\n%s",
+		formatVP9RateScoreboardRows(govpxRows, libvpxRows))
+	if len(libvpxDrops) == 0 {
+		t.Fatal("drop-pressure fixture did not make libvpx drop any frames")
+	}
+	if len(govpxDrops) == 0 {
+		t.Fatal("drop-pressure fixture did not make govpx drop any frames")
+	}
+	if got := vp9DropReasonCount(govpxRows, "watermark_decimation"); got == 0 {
+		t.Fatalf("drop-pressure fixture did not exercise govpx watermark decimation: rows=%v",
+			govpxDrops)
+	}
+	for i := range govpxRows {
+		g := govpxRows[i]
+		l := libvpxRows[i]
+		if g.FrameIndex != l.FrameIndex {
+			t.Fatalf("row %d frame_index: govpx=%d libvpx=%d", i, g.FrameIndex, l.FrameIndex)
+		}
+		if g.RecodeAllowed || l.RecodeAllowed || g.RecodeLoopCount != 0 || l.RecodeLoopCount != 0 {
+			t.Fatalf("row %d recode: govpx allowed=%t loops=%d libvpx allowed=%t loops=%d, want one-pass VP9 no-recode",
+				i, g.RecodeAllowed, g.RecodeLoopCount, l.RecodeAllowed, l.RecodeLoopCount)
+		}
+		if g.TemporalLayerID != 0 || l.TemporalLayerID != 0 ||
+			g.TemporalLayerSync || l.TemporalLayerSync {
+			t.Fatalf("row %d temporal fields: govpx=(%d,%t) libvpx=(%d,%t), want base-layer only",
+				i, g.TemporalLayerID, g.TemporalLayerSync, l.TemporalLayerID,
+				l.TemporalLayerSync)
+		}
+	}
+	if os.Getenv("GOVPX_VP9_RATE_DROP_STRICT") == "1" &&
+		!vp9SameIntSlice(govpxDrops, libvpxDrops) {
+		t.Fatalf("strict VP9 drop indices: govpx=%v libvpx=%v",
+			govpxDrops, libvpxDrops)
+	}
+}
+
 type vp9RateScoreboardRow struct {
 	FrameIndex        int
 	Dropped           bool
+	DropReason        string
 	BaseQIndex        int
 	SizeBits          int
 	BufferLevelBits   int
@@ -186,6 +270,7 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 			Row               string `json:"row"`
 			FrameIndex        int    `json:"frame_index"`
 			Dropped           bool   `json:"dropped"`
+			DropReason        string `json:"drop_reason"`
 			BaseQIndex        int    `json:"base_qindex"`
 			SizeBytes         int    `json:"size_bytes"`
 			SizeBits          int    `json:"size_bits"`
@@ -209,6 +294,7 @@ func parseVP9RateScoreboardRows(t *testing.T, trace []byte) []vp9RateScoreboardR
 		rows = append(rows, vp9RateScoreboardRow{
 			FrameIndex:        raw.FrameIndex,
 			Dropped:           raw.Dropped,
+			DropReason:        raw.DropReason,
 			BaseQIndex:        raw.BaseQIndex,
 			SizeBits:          sizeBits,
 			BufferLevelBits:   raw.BufferLevelBits,
@@ -235,14 +321,67 @@ func pctDelta(got int, want int) float64 {
 
 func formatVP9RateScoreboardRows(govpxRows, libvpxRows []vp9RateScoreboardRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,govpx_q,libvpx_q,govpx_bits,libvpx_bits,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh")
+	fmt.Fprintln(&b, "frame,govpx_drop,libvpx_drop,govpx_q,libvpx_q,govpx_bits,libvpx_bits,govpx_buffer,libvpx_buffer,govpx_refresh,libvpx_refresh")
 	for i := range govpxRows {
 		g := govpxRows[i]
 		l := libvpxRows[i]
-		fmt.Fprintf(&b, "%d,%d,%d,%d,%d,%d,%d,%#x,%#x\n",
-			g.FrameIndex, g.BaseQIndex, l.BaseQIndex, g.SizeBits, l.SizeBits,
-			g.BufferLevelBits, l.BufferLevelBits, g.RefreshFrameFlags,
+		fmt.Fprintf(&b, "%d,%t,%t,%d,%d,%d,%d,%d,%d,%#x,%#x\n",
+			g.FrameIndex, g.Dropped, l.Dropped, g.BaseQIndex, l.BaseQIndex,
+			g.SizeBits, l.SizeBits, g.BufferLevelBits, l.BufferLevelBits, g.RefreshFrameFlags,
 			l.RefreshFrameFlags)
 	}
 	return b.String()
+}
+
+func vp9DroppedFrameIndices(rows []vp9RateScoreboardRow) []int {
+	out := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if row.Dropped {
+			out = append(out, row.FrameIndex)
+		}
+	}
+	return out
+}
+
+func vp9DropReasonCount(rows []vp9RateScoreboardRow, reason string) int {
+	count := 0
+	for _, row := range rows {
+		if row.DropReason == reason {
+			count++
+		}
+	}
+	return count
+}
+
+func vp9SameIntSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func newVP9PanningYCbCrForRateTest(width, height int, frame int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			row[x] = byte(24 + ((x+frame*3)*7+y*11+(x*y+frame*13)%37)%208)
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			cb[x] = byte(64 + ((x+frame)*5+y*3)%128)
+			cr[x] = byte(72 + (x*3+(y+frame)*7)%112)
+		}
+	}
+	return img
 }

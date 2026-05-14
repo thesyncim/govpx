@@ -667,39 +667,41 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}
 	e.rc.beginFrame(isKey || intraOnly, e.frameIndex)
-	if !isKey && !intraOnly && flags&EncodeInvisibleFrame == 0 &&
-		e.rc.shouldDropInterFrame() {
-		e.rc.postDropFrame()
-		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
-		if vp9OracleTraceBuild {
-			e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
-				Row:                "vp9_frame",
-				FrameIndex:         e.frameIndex,
-				Flags:              uint32(flags),
+	if !isKey && !intraOnly && flags&EncodeInvisibleFrame == 0 {
+		dropReason, dropFrame := e.rc.testDropInterFrame()
+		if dropFrame {
+			e.rc.postDropFrame()
+			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+			if vp9OracleTraceBuild {
+				e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
+					Row:                "vp9_frame",
+					FrameIndex:         e.frameIndex,
+					Flags:              uint32(flags),
+					Dropped:            true,
+					DropReason:         vp9DropReasonString(dropReason),
+					ShowFrame:          true,
+					TemporalLayerID:    temporalFrame.LayerID,
+					TemporalLayerCount: temporalFrame.LayerCount,
+					TemporalLayerSync:  temporalFrame.LayerSync,
+					TL0PICIDX:          temporalFrame.TL0PICIDX,
+					TargetBitrateKbps:  e.rc.targetBitrateKbps,
+					FrameTargetBits:    e.rc.frameTargetBits,
+					BufferLevelBits:    e.rc.bufferLevelBits,
+				})
+			}
+			e.frameIndex++
+			return VP9EncodeResult{
 				Dropped:            true,
-				DropReason:         "buffer_underrun",
 				ShowFrame:          true,
+				TargetBitrateKbps:  e.rc.targetBitrateKbps,
+				FrameTargetBits:    e.rc.frameTargetBits,
+				BufferLevelBits:    e.rc.bufferLevelBits,
 				TemporalLayerID:    temporalFrame.LayerID,
 				TemporalLayerCount: temporalFrame.LayerCount,
 				TemporalLayerSync:  temporalFrame.LayerSync,
 				TL0PICIDX:          temporalFrame.TL0PICIDX,
-				TargetBitrateKbps:  e.rc.targetBitrateKbps,
-				FrameTargetBits:    e.rc.frameTargetBits,
-				BufferLevelBits:    e.rc.bufferLevelBits,
-			})
+			}, nil
 		}
-		e.frameIndex++
-		return VP9EncodeResult{
-			Dropped:            true,
-			ShowFrame:          true,
-			TargetBitrateKbps:  e.rc.targetBitrateKbps,
-			FrameTargetBits:    e.rc.frameTargetBits,
-			BufferLevelBits:    e.rc.bufferLevelBits,
-			TemporalLayerID:    temporalFrame.LayerID,
-			TemporalLayerCount: temporalFrame.LayerCount,
-			TemporalLayerSync:  temporalFrame.LayerSync,
-			TL0PICIDX:          temporalFrame.TL0PICIDX,
-		}, nil
 	}
 	e.prepareVP9EncoderOutputFrame(int(width), int(height))
 
