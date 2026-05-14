@@ -67,9 +67,8 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 	}
 	// EncodeInvisibleFrame is a govpx-specific hidden-frame marker
 	// that maps to "encode then suppress show_frame"; libvpx does
-	// not have a single flag bit for it. The frame-flag driver
-	// path does not exercise EncodeInvisibleFrame and the cases
-	// below avoid setting it.
+	// not have a single flag bit for it. The frame-flag driver gets
+	// the hidden-frame schedule through --invisible-frames instead.
 	return out
 }
 
@@ -167,6 +166,10 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// Explicit force-key requests still win when automatic
 		// keyframes are disabled from construction.
 		{name: "disable-kf-force-kf-frame3-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, disableKf: true, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}, extraArgs: []string{"--kf-disabled"}},
+		// Hidden packets clear VP8 show_frame while keeping the encoded
+		// reference update byte-identical to libvpx.
+		{name: "invisible-keyframe-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{EncodeInvisibleFrame}},
+		{name: "invisible-inter-frame1-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame}},
 
 		// EncodeNoUpdateLast on every inter frame — exercises the
 		// "freeze LAST" pattern used by WebRTC scalability layers.
@@ -528,12 +531,20 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, name string, opts En
 		endUsage = "q"
 	}
 	flagsCSV := make([]string, len(sources))
+	invisibleCSV := make([]string, len(sources))
+	haveInvisible := false
 	for i := range flagsCSV {
 		var f EncodeFlags
 		if i < len(flags) {
 			f = flags[i]
 		}
 		flagsCSV[i] = strconv.FormatUint(uint64(frameFlagsForLibvpx(f)), 10)
+		if f&EncodeInvisibleFrame != 0 {
+			invisibleCSV[i] = "1"
+			haveInvisible = true
+		} else {
+			invisibleCSV[i] = "0"
+		}
 	}
 
 	args := []string{
@@ -555,6 +566,9 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, name string, opts En
 		"--auto-alt-ref=0",
 		"--token-parts=" + strconv.Itoa(opts.TokenPartitions),
 		"--frame-flags=" + strings.Join(flagsCSV, ","),
+	}
+	if haveInvisible {
+		args = append(args, "--invisible-frames="+strings.Join(invisibleCSV, ","))
 	}
 	if opts.CQLevel > 0 {
 		args = append(args, "--cq-level="+strconv.Itoa(opts.CQLevel))

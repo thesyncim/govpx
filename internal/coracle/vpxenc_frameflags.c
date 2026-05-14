@@ -90,6 +90,11 @@
  *                          1<<24 VP8_EFLAG_FORCE_ARF
  *                        Missing entries default to 0 (no per-frame
  *                        flag set).
+ *   --invisible-frames=CSV
+ *                        comma-separated 0/1 values, one per input PTS.
+ *                        A non-zero entry clears the VP8 show_frame bit
+ *                        in that output packet so govpx's hidden-frame
+ *                        marker can be compared against libvpx output.
  *   --control-script=CSV optional per-frame runtime-control script. Each
  *                        CSV entry applies before the matching input frame.
  *                        Use "-" or an empty entry for no change. Multiple
@@ -576,7 +581,8 @@ static void free_csv_strings(char **tokens, int count) {
   free(tokens);
 }
 
-static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
+static unsigned int *parse_uint_csv(const char *csv, int *out_count,
+                                    const char *flag_name) {
   if (!csv) {
     *out_count = 0;
     return NULL;
@@ -587,20 +593,20 @@ static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
     if (*p == ',') ++count;
   }
   unsigned int *out = calloc((size_t)count, sizeof(*out));
-  if (!out) die_msg("calloc frame_flags");
+  if (!out) die_msg("calloc %s", flag_name);
   int idx = 0;
   const char *start = csv;
   while (1) {
     const char *end = strchr(start, ',');
     char buf[32];
     size_t len = end ? (size_t)(end - start) : strlen(start);
-    if (len >= sizeof(buf)) die_msg("frame-flags token too long");
+    if (len >= sizeof(buf)) die_msg("%s token too long", flag_name);
     memcpy(buf, start, len);
     buf[len] = '\0';
     char *parse_end = NULL;
     unsigned long v = strtoul(buf, &parse_end, 0);
     if (parse_end == buf || (parse_end && *parse_end != '\0')) {
-      die_msg("invalid --frame-flags token: %s", buf);
+      die_msg("invalid %s token: %s", flag_name, buf);
     }
     out[idx++] = (unsigned int)v;
     if (!end) break;
@@ -608,6 +614,10 @@ static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
   }
   *out_count = idx;
   return out;
+}
+
+static unsigned int *parse_frame_flags(const char *csv, int *out_count) {
+  return parse_uint_csv(csv, out_count, "--frame-flags");
 }
 
 static int control_value_int(const char *token, const char *prefix) {
@@ -936,6 +946,7 @@ int main(int argc, char **argv) {
   int temporal_periodicity = 0;
   const char *temporal_layer_ids_csv = NULL;
   const char *frame_flags_csv = NULL;
+  const char *invisible_frames_csv = NULL;
   const char *control_script_csv = NULL;
   const char *copy_ref_log_path = NULL;
 
@@ -1058,6 +1069,8 @@ int main(int argc, char **argv) {
       temporal_layer_ids_csv = v;
     } else if ((v = flag_value(a, "--frame-flags"))) {
       frame_flags_csv = v;
+    } else if ((v = flag_value(a, "--invisible-frames"))) {
+      invisible_frames_csv = v;
     } else if ((v = flag_value(a, "--control-script"))) {
       control_script_csv = v;
     } else if ((v = flag_value(a, "--copy-ref-log"))) {
@@ -1076,6 +1089,10 @@ int main(int argc, char **argv) {
   int frame_flag_count = 0;
   unsigned int *per_frame_flags =
       parse_frame_flags(frame_flags_csv, &frame_flag_count);
+  int invisible_frame_count = 0;
+  unsigned int *invisible_frames =
+      parse_uint_csv(invisible_frames_csv, &invisible_frame_count,
+                     "--invisible-frames");
   int control_script_count = 0;
   char **control_script =
       parse_csv_strings(control_script_csv, &control_script_count, "control_script");
@@ -1300,8 +1317,20 @@ int main(int argc, char **argv) {
     while ((pkt = vpx_codec_get_cx_data(&ctx, &iter))) {
       if (pkt->kind != VPX_CODEC_CX_FRAME_PKT) continue;
       write_ivf_frame_header(out, pkt->data.frame.pts, pkt->data.frame.sz);
-      if (fwrite(pkt->data.frame.buf, 1, pkt->data.frame.sz, out) !=
-          pkt->data.frame.sz) {
+      int packet_pts = (int)pkt->data.frame.pts;
+      int make_invisible =
+          packet_pts >= 0 && packet_pts < invisible_frame_count &&
+          invisible_frames[packet_pts] != 0;
+      const uint8_t *packet = (const uint8_t *)pkt->data.frame.buf;
+      if (make_invisible && pkt->data.frame.sz > 0) {
+        uint8_t first = (uint8_t)(packet[0] & (uint8_t)~0x10u);
+        if (fwrite(&first, 1, 1, out) != 1 ||
+            fwrite(packet + 1, 1, pkt->data.frame.sz - 1, out) !=
+                pkt->data.frame.sz - 1) {
+          die_msg("write invisible frame payload to %s", outfile_path);
+        }
+      } else if (fwrite(packet, 1, pkt->data.frame.sz, out) !=
+                 pkt->data.frame.sz) {
         die_msg("write frame payload to %s", outfile_path);
       }
       ++total_emitted;
@@ -1316,6 +1345,7 @@ int main(int argc, char **argv) {
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);
+  free(invisible_frames);
 
   if (total_emitted == 0) {
     die_msg("no frames emitted by encoder");
