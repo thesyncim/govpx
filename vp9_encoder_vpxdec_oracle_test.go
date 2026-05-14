@@ -147,7 +147,8 @@ func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	alt, err := e.EncodeWithFlags(high,
-		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden|
+			EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
 	if err != nil {
 		t.Fatalf("Encode alt refresh: %v", err)
 	}

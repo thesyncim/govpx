@@ -129,6 +129,15 @@ func TestMvCostChargesComponentsAndHighPrecision(t *testing.T) {
 	}
 }
 
+func TestUseMvHpRefUsesEighthPelThreshold(t *testing.T) {
+	if !useMvHpRef(vp9dec.MV{Col: 63}) {
+		t.Fatal("useMvHpRef({Col:63}) = false, want true")
+	}
+	if useMvHpRef(vp9dec.MV{Col: 64}) {
+		t.Fatal("useMvHpRef({Col:64}) = true, want false")
+	}
+}
+
 // TestWriteMvComponentRoundTripFuzz walks a spread of magnitudes
 // through WriteMvComponent.
 func TestWriteMvComponentRoundTripFuzz(t *testing.T) {

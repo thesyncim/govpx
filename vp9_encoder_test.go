@@ -124,6 +124,57 @@ func newVP9CompoundAverageYCbCrForTest(width, height, delta int) *image.YCbCr {
 	return img
 }
 
+func newVP9CompoundPairYCbCrForTest(width, height int, variant bool) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			if variant {
+				row[x] = byte(88 + (x*29+y*7+((x+3)*(y+5))%83)%104)
+			} else {
+				row[x] = byte(48 + (x*17+y*31+(x*y)%67)%120)
+			}
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			if variant {
+				cb[x] = byte(96 + (x*13+y*5+(x*y)%19)%64)
+				cr[x] = byte(88 + (x*7+y*17+(x*y)%23)%72)
+			} else {
+				cb[x] = byte(72 + (x*11+y*9+(x*y)%17)%72)
+				cr[x] = byte(80 + (x*5+y*15+(x*y)%29)%64)
+			}
+		}
+	}
+	return img
+}
+
+func averageVP9YCbCrForTest(a, b *image.YCbCr) *image.YCbCr {
+	width, height := a.Rect.Dx(), a.Rect.Dy()
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	avgPlane := func(dst []byte, dstStride int, ap []byte, aStride int, bp []byte, bStride int, w, h int) {
+		for y := range h {
+			dstRow := dst[y*dstStride:]
+			aRow := ap[y*aStride:]
+			bRow := bp[y*bStride:]
+			for x := range w {
+				dstRow[x] = byte((int(aRow[x]) + int(bRow[x]) + 1) >> 1)
+			}
+		}
+	}
+	avgPlane(img.Y, img.YStride, a.Y, a.YStride, b.Y, b.YStride, width, height)
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	avgPlane(img.Cb, img.CStride, a.Cb, a.CStride, b.Cb, b.CStride, uvWidth, uvHeight)
+	avgPlane(img.Cr, img.CStride, a.Cr, a.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
+	return img
+}
+
 func assertVP9InterMotionBlockForTest(t *testing.T, name string,
 	mi vp9dec.NeighborMi, want vp9dec.MV,
 ) {
@@ -155,6 +206,19 @@ func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
 	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, dx>>1, dy>>1)
 	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, dx>>1, dy>>1)
 	return img
+}
+
+func vp9ImageFromYCbCrForTest(img *image.YCbCr) Image {
+	return Image{
+		Width:   img.Rect.Dx(),
+		Height:  img.Rect.Dy(),
+		Y:       img.Y,
+		U:       img.Cb,
+		V:       img.Cr,
+		YStride: img.YStride,
+		UStride: img.CStride,
+		VStride: img.CStride,
+	}
 }
 
 func splitShiftedVP9ReferenceYCbCrForTest(ref Image, leftDx, rightDx int) *image.YCbCr {
@@ -673,7 +737,7 @@ func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
 	assertVP9FilledFrame(t, frame, width, height, 128, 128, 128)
 }
 
-func TestVP9EncoderInterPicksCompoundZeroMv(t *testing.T) {
+func TestVP9EncoderInterPicksCompoundZeroMotion(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	low := newVP9CompoundAverageYCbCrForTest(width, height, -32)
@@ -684,7 +748,8 @@ func TestVP9EncoderInterPicksCompoundZeroMv(t *testing.T) {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	alt, err := e.EncodeWithFlags(high,
-		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden)
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden|
+			EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
 	if err != nil {
 		t.Fatalf("Encode alt refresh: %v", err)
 	}
@@ -712,8 +777,8 @@ func TestVP9EncoderInterPicksCompoundZeroMv(t *testing.T) {
 	if got.RefFrame[1] <= vp9dec.IntraFrame {
 		t.Fatalf("top-left ref pair = %v, want compound", got.RefFrame)
 	}
-	if got.Mode != common.ZeroMv {
-		t.Fatalf("top-left compound mode = %d, want ZeroMv", got.Mode)
+	if got.Mode != common.ZeroMv && got.Mode != common.NearestMv && got.Mode != common.NearMv {
+		t.Fatalf("top-left compound mode = %d, want zero-motion inter mode", got.Mode)
 	}
 	if got.Mv != ([2]vp9dec.MV{}) {
 		t.Fatalf("top-left compound MV = %+v, want zero MVs", got.Mv)
@@ -721,6 +786,60 @@ func TestVP9EncoderInterPicksCompoundZeroMv(t *testing.T) {
 	if got.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame} &&
 		got.RefFrame != [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
 		t.Fatalf("top-left ref pair = %v, want LAST/ALTREF or GOLDEN/ALTREF", got.RefFrame)
+	}
+}
+
+func TestVP9EncoderInterPicksCompoundNewMvForTranslatedAverage(t *testing.T) {
+	const width, height = 128, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	low := newVP9CompoundPairYCbCrForTest(width, height, false)
+	high := newVP9CompoundPairYCbCrForTest(width, height, true)
+	mid := shiftedVP9ReferenceYCbCrForTest(
+		vp9ImageFromYCbCrForTest(averageVP9YCbCrForTest(low, high)),
+		8, 0)
+	key, err := e.Encode(low)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	alt, err := e.EncodeWithFlags(high,
+		EncodeForceAltRefFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden|
+			EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+	if err != nil {
+		t.Fatalf("Encode alt refresh: %v", err)
+	}
+	inter, err := e.Encode(mid)
+	if err != nil {
+		t.Fatalf("Encode compound motion inter: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	for i, packet := range [][]byte{key, alt, inter} {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		if _, ok := d.NextFrame(); !ok {
+			t.Fatalf("NextFrame returned !ok after packet %d", i)
+		}
+	}
+	if len(d.miGrid) == 0 {
+		t.Fatal("decoder MI grid is empty after compound motion frame")
+	}
+	got := d.miGrid[0]
+	if got.RefFrame[1] <= vp9dec.IntraFrame {
+		t.Fatalf("top-left ref pair = %v, want compound", got.RefFrame)
+	}
+	if got.Mode != common.NewMv {
+		t.Fatalf("top-left compound mode = %d, want NewMv", got.Mode)
+	}
+	for ref := range got.Mv {
+		if got.Mv[ref].Col < 56 || got.Mv[ref].Col > 72 ||
+			got.Mv[ref].Row < -8 || got.Mv[ref].Row > 8 {
+			t.Fatalf("top-left compound MV = %+v, want both refs near +8px horizontal motion",
+				got.Mv)
+		}
 	}
 }
 
@@ -1599,9 +1718,15 @@ func TestVP9InterModeScoreIncludesNewMvRate(t *testing.T) {
 		vp9dec.MV{}, vp9dec.MV{}, false)
 	newRate := vp9InterModeRateCost(&fc, 0, common.NewMv,
 		vp9dec.MV{Col: 64}, vp9dec.MV{}, false)
+	compoundNewRate := vp9InterModeRateCostN(&fc, 0, common.NewMv,
+		[2]vp9dec.MV{{Col: 64}, {Col: -64}}, [2]vp9dec.MV{}, 2, false)
 	if newRate <= zeroRate {
 		t.Fatalf("NEWMV rate = %d, want greater than ZEROMV rate %d",
 			newRate, zeroRate)
+	}
+	if compoundNewRate <= newRate {
+		t.Fatalf("compound NEWMV rate = %d, want greater than single NEWMV rate %d",
+			compoundNewRate, newRate)
 	}
 	if got, wantGreater := vp9InterModeScore(0, newRate, 1),
 		vp9InterModeScore(0, zeroRate, 1); got <= wantGreater {

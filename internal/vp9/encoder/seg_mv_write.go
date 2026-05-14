@@ -227,7 +227,7 @@ func mvJointVertical(j int) bool   { return j == tables.MvJointHzVnz || j == tab
 func mvJointHorizontal(j int) bool { return j == tables.MvJointHnzVz || j == tables.MvJointHnzVnz }
 
 // useMvHpRef mirrors decoder.useMvHp: high-precision MVs require
-// |ref.{row,col}| < COMPANDED_MVREF_THRESH (=8).
+// |ref.{row,col}| < COMPANDED_MVREF_THRESH (=64 eighth-pel units).
 func useMvHpRef(ref vp9dec.MV) bool {
 	abs := func(v int16) int16 {
 		if v < 0 {
@@ -235,7 +235,7 @@ func useMvHpRef(ref vp9dec.MV) bool {
 		}
 		return v
 	}
-	return abs(ref.Row) < 8 && abs(ref.Col) < 8
+	return abs(ref.Row) < 64 && abs(ref.Col) < 64
 }
 
 // mvJointEncoding returns the (value, length) bit-pattern walking
