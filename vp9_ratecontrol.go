@@ -219,6 +219,14 @@ func (rc *vp9RateControlState) shouldDropInterFrame() bool {
 	return drop
 }
 
+func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {
+	if !rc.enabled || !showFrame {
+		return
+	}
+	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.clampBuffer()
+}
+
 // testDropInterFrame mirrors libvpx v1.16.0 vp9_test_drop for the non-SVC CBR
 // path. It mutates decimation state exactly like the source branch it models.
 func (rc *vp9RateControlState) testDropInterFrame() (vp9DropReason, bool) {
@@ -251,8 +259,6 @@ func (rc *vp9RateControlState) postDropFrame() {
 	if !rc.enabled {
 		return
 	}
-	rc.bufferLevelBits = saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
-	rc.clampBuffer()
 	rc.rc2Frame = 0
 	rc.rc1Frame = 0
 	rc.lastQInter = rc.q1Frame
@@ -277,9 +283,8 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	encodedBits := encodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
 	rc.updateQHistory(qindex, intraOnly, refreshFlags, showFrame)
-	rc.bufferLevelBits = vp9PostEncodeBufferLevel(
-		rc.bufferLevelBits, rc.bitsPerFrame, rc.bufferSizeBits,
-		encodedBits, showFrame)
+	rc.bufferLevelBits = vp9PostEncodeBufferLevel(rc.bufferLevelBits,
+		rc.bufferSizeBits, encodedBits)
 }
 
 func (rc *vp9RateControlState) setFrameSize(width int, height int) {
@@ -331,11 +336,8 @@ func (rc *vp9RateControlState) clampBuffer() {
 	}
 }
 
-func vp9PostEncodeBufferLevel(level, bitsPerFrame, maxBits, encodedBits int, showFrame bool) int {
+func vp9PostEncodeBufferLevel(level, maxBits, encodedBits int) int {
 	next := int64(level)
-	if showFrame {
-		next += int64(bitsPerFrame)
-	}
 	next -= int64(encodedBits)
 	if next > int64(maxBits) {
 		return maxBits

@@ -2553,8 +2553,9 @@ func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
 			key.KeyFrame, key.Dropped, len(key.Data))
 	}
 
-	e.rc.bufferLevelBits = -1
+	e.rc.bufferLevelBits = -e.rc.bitsPerFrame - 1
 	drainedBuffer := e.rc.bufferLevelBits
+	wantBufferAfterRefill := drainedBuffer + e.rc.bitsPerFrame
 	inter, err := e.EncodeIntoWithResult(src, dst)
 	if err != nil {
 		t.Fatalf("inter EncodeIntoWithResult: %v", err)
@@ -2567,9 +2568,9 @@ func TestVP9EncoderCBRDropBufferUnderrunReturnsDropped(t *testing.T) {
 		t.Fatalf("inter rate = kbps:%d target:%d, want 1/%d",
 			inter.TargetBitrateKbps, inter.FrameTargetBits, vp9FrameOverhead)
 	}
-	if inter.BufferLevelBits != drainedBuffer+e.rc.bitsPerFrame {
+	if inter.BufferLevelBits != wantBufferAfterRefill {
 		t.Fatalf("buffer after drop = %d, want %d",
-			inter.BufferLevelBits, drainedBuffer+e.rc.bitsPerFrame)
+			inter.BufferLevelBits, wantBufferAfterRefill)
 	}
 }
 
@@ -2701,6 +2702,37 @@ func TestVP9RateControlDropNegativeBufferBypassesWatermark(t *testing.T) {
 	if rc.decimationFactor != 1 || rc.decimationCount != 1 {
 		t.Fatalf("negative buffer changed decimation = factor:%d count:%d, want unchanged 1/1",
 			rc.decimationFactor, rc.decimationCount)
+	}
+}
+
+func TestVP9RateControlPreEncodeRefillPrecedesDropGate(t *testing.T) {
+	rc := vp9RateControlState{
+		enabled:             true,
+		mode:                RateControlCBR,
+		dropFrameAllowed:    true,
+		dropFramesWaterMark: 60,
+		bufferOptimalBits:   10000,
+		bufferSizeBits:      12000,
+		bitsPerFrame:        1000,
+		bufferLevelBits:     -1,
+	}
+
+	rc.preEncodeFrame(true)
+	reason, drop := rc.testDropInterFrame()
+	if drop || reason != vp9DropNone || rc.bufferLevelBits != 999 ||
+		rc.decimationFactor != 1 || rc.decimationCount != 1 {
+		t.Fatalf("first drop gate = reason:%d drop:%t buffer:%d factor:%d count:%d, want pre-refill arm only",
+			reason, drop, rc.bufferLevelBits, rc.decimationFactor,
+			rc.decimationCount)
+	}
+	rc.preEncodeFrame(true)
+	reason, drop = rc.testDropInterFrame()
+	if !drop || reason != vp9DropWatermarkDecimation ||
+		rc.bufferLevelBits != 1999 || rc.decimationFactor != 1 ||
+		rc.decimationCount != 0 {
+		t.Fatalf("second drop gate = reason:%d drop:%t buffer:%d factor:%d count:%d, want watermark decimation",
+			reason, drop, rc.bufferLevelBits, rc.decimationFactor,
+			rc.decimationCount)
 	}
 }
 

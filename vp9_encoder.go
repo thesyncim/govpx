@@ -667,7 +667,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}
 	e.rc.beginFrame(isKey || intraOnly, e.frameIndex)
-	if !isKey && !intraOnly && flags&EncodeInvisibleFrame == 0 {
+	showFrame := flags&EncodeInvisibleFrame == 0
+	e.rc.preEncodeFrame(showFrame)
+	if !isKey && !intraOnly && showFrame {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
 			e.rc.postDropFrame()
@@ -707,7 +709,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []b
 
 	header := vp9dec.UncompressedHeader{
 		Profile:               common.Profile0,
-		ShowFrame:             flags&EncodeInvisibleFrame == 0,
+		ShowFrame:             showFrame,
 		ErrorResilientMode:    e.opts.ErrorResilient,
 		IntraOnly:             intraOnly,
 		Width:                 width,

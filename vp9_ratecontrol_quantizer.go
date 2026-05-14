@@ -161,7 +161,7 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 	if intraOnly {
 		return worst
 	}
-	bufferLevel := rc.preEncodeBufferLevel()
+	bufferLevel := rc.bufferLevelBits
 	criticalLevel := rc.bufferOptimalBits >> 3
 	ambientQP := int(rc.avgFrameQIndexInter)
 	if frameIndex < 5 {
@@ -194,14 +194,6 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 		activeWorst = worst
 	}
 	return activeWorst
-}
-
-func (rc *vp9RateControlState) preEncodeBufferLevel() int {
-	level := saturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
-	if level > rc.bufferSizeBits {
-		return rc.bufferSizeBits
-	}
-	return level
 }
 
 func (rc *vp9RateControlState) adjustCBRQuantizer(q int, refreshFlags uint8) int {
