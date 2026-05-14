@@ -1680,6 +1680,79 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps         = 30
+		targetKbps  = 700
+		frames      = 8
+		switchFrame = 3
+	)
+	modes := []RateControlMode{
+		RateControlCBR,
+		RateControlVBR,
+		RateControlCQ,
+		RateControlQ,
+	}
+
+	for _, from := range modes {
+		for _, to := range modes {
+			if from == to {
+				continue
+			}
+			for _, forceKeyFrame := range []bool{false, true} {
+				name := runtimeRateControlModeName(from) + "-to-" + runtimeRateControlModeName(to)
+				if forceKeyFrame {
+					name += "-force-kf"
+				}
+				t.Run(name, func(t *testing.T) {
+					opts := EncoderOptions{
+						Width:             32,
+						Height:            32,
+						FPS:               fps,
+						RateControlMode:   from,
+						TargetBitrateKbps: targetKbps,
+						MinQuantizer:      4,
+						MaxQuantizer:      56,
+						CQLevel:           runtimeRateControlModeCQLevel(from),
+						KeyFrameInterval:  999,
+						Deadline:          DeadlineRealtime,
+						CpuUsed:           0,
+						Tuning:            TunePSNR,
+					}
+					flags := make([]EncodeFlags, frames)
+					if forceKeyFrame {
+						flags[switchFrame] = EncodeForceKeyFrame
+					}
+					script := runtimeControlScript(frames, map[int]string{
+						switchFrame: runtimeRateControlModeControlToken(to, targetKbps),
+					})
+					apply := map[int]func(*testing.T, *VP8Encoder){
+						switchFrame: func(t *testing.T, e *VP8Encoder) {
+							t.Helper()
+							mustRuntime(t, "SetRateControl("+runtimeRateControlModeName(to)+")", e.SetRateControl(runtimeRateControlModeConfig(to, targetKbps)))
+						},
+					}
+					sources := make([]Image, frames)
+					for i := range sources {
+						sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
+					}
+					govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
+					libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, name, opts, targetKbps, sources, flags, []string{
+						"--control-script=" + strings.Join(script, ","),
+					})
+					matchLimit := runtimeRateControlModeTransitionMatchLimit(from, to, forceKeyFrame, switchFrame)
+					assertSegmentByteParity(t, "runtime-rc-mode-"+name, govpxFrames, libvpxFrames, matchLimit)
+				})
+			}
+		}
+	}
+}
+
 func runtimeControlScript(frames int, updates map[int]string) []string {
 	script := make([]string, frames)
 	for i := range script {
@@ -1691,6 +1764,67 @@ func runtimeControlScript(frames int, updates map[int]string) []string {
 		}
 	}
 	return script
+}
+
+func runtimeRateControlModeName(mode RateControlMode) string {
+	switch mode {
+	case RateControlCBR:
+		return "cbr"
+	case RateControlVBR:
+		return "vbr"
+	case RateControlCQ:
+		return "cq"
+	case RateControlQ:
+		return "q"
+	default:
+		panic("unknown rate-control mode")
+	}
+}
+
+func runtimeRateControlModeCQLevel(mode RateControlMode) int {
+	switch mode {
+	case RateControlCQ:
+		return 30
+	case RateControlQ:
+		return 20
+	default:
+		return 0
+	}
+}
+
+func runtimeRateControlModeControlToken(mode RateControlMode, targetKbps int) string {
+	token := "endusage:" + runtimeRateControlModeName(mode) +
+		"+bitrate:" + strconv.Itoa(targetKbps) +
+		"+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000"
+	if cqLevel := runtimeRateControlModeCQLevel(mode); cqLevel > 0 {
+		token += "+cq:" + strconv.Itoa(cqLevel)
+	}
+	return token
+}
+
+func runtimeRateControlModeConfig(mode RateControlMode, targetKbps int) RateControlConfig {
+	return RateControlConfig{
+		Mode:                mode,
+		TargetBitrateKbps:   targetKbps,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             runtimeRateControlModeCQLevel(mode),
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}
+}
+
+func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceKeyFrame bool, switchFrame int) int {
+	if from == RateControlCBR || to == RateControlCBR {
+		return switchFrame
+	}
+	if forceKeyFrame && from == RateControlCQ {
+		return switchFrame
+	}
+	return 0
 }
 
 func temporalTwoLayerFlags(frames int) []EncodeFlags {
