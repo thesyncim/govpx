@@ -1968,6 +1968,87 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "active-map-left-off-noise3-force-keyframe-clear",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Left-off active-map + denoiser keeps the first two packets
+			// aligned. Forcing a keyframe while clearing the active map
+			// rejoins byte parity.
+			matchLimit: 2,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:left-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("left-off"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-right-off-noise3-force-keyframe-clear",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:right-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("right-off"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
+			name: "active-map-border-off-noise3-force-keyframe-clear",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Border-off follows the checker denoiser drift pattern, and
+			// the forced keyframe clear rejoins byte parity.
+			matchLimit: 1,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:border-off",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("border-off"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "active-map-pattern-switches",
 			fx:   panning64,
 			opts: baseOpts(panning64),
