@@ -115,6 +115,7 @@
  *                          tsbitrates:A/B[/...] tsdecimators:A/B[/...]
  *                          tsids:A/B[/...]
  *   --copy-ref-log=PATH  optional log path for copyref checksums.
+ *   --quantizer-log=PATH optional per-encode-call VP8E_GET_LAST_QUANTIZER log.
  *
  * On success the binary writes the IVF container to --outfile and
  * exits with status 0. Any libvpx or option-parsing error is fatal
@@ -995,6 +996,7 @@ int main(int argc, char **argv) {
   const char *invisible_frames_csv = NULL;
   const char *control_script_csv = NULL;
   const char *copy_ref_log_path = NULL;
+  const char *quantizer_log_path = NULL;
 
   for (int i = 1; i < argc; ++i) {
     const char *a = argv[i];
@@ -1121,6 +1123,8 @@ int main(int argc, char **argv) {
       control_script_csv = v;
     } else if ((v = flag_value(a, "--copy-ref-log"))) {
       copy_ref_log_path = v;
+    } else if ((v = flag_value(a, "--quantizer-log"))) {
+      quantizer_log_path = v;
     } else {
       die_msg("unknown argument: %s", a);
     }
@@ -1282,6 +1286,12 @@ int main(int argc, char **argv) {
     if (!copy_ref_log)
       die_msg("open %s for write: %s", copy_ref_log_path, strerror(errno));
   }
+  FILE *quantizer_log = NULL;
+  if (quantizer_log_path) {
+    quantizer_log = fopen(quantizer_log_path, "w");
+    if (!quantizer_log)
+      die_msg("open %s for write: %s", quantizer_log_path, strerror(errno));
+  }
 
   write_ivf_file_header(out, width, height, fps_den, fps_num, frames);
 
@@ -1360,6 +1370,7 @@ int main(int argc, char **argv) {
 
     vpx_codec_iter_t iter = NULL;
     const vpx_codec_cx_pkt_t *pkt;
+    int call_emitted = 0;
     while ((pkt = vpx_codec_get_cx_data(&ctx, &iter))) {
       if (pkt->kind != VPX_CODEC_CX_FRAME_PKT) continue;
       write_ivf_frame_header(out, pkt->data.frame.pts, pkt->data.frame.sz);
@@ -1379,7 +1390,18 @@ int main(int argc, char **argv) {
                  pkt->data.frame.sz) {
         die_msg("write frame payload to %s", outfile_path);
       }
+      ++call_emitted;
       ++total_emitted;
+    }
+    if (quantizer_log) {
+      int last_quantizer = -1;
+      if (vpx_codec_control(&ctx, VP8E_GET_LAST_QUANTIZER, &last_quantizer))
+        die_codec_msg(&ctx, "VP8E_GET_LAST_QUANTIZER");
+      if (fprintf(quantizer_log,
+                  "frame=%d have_input=%d emitted=%d last_quantizer=%d\n",
+                  frame_idx, have_input, call_emitted, last_quantizer) < 0) {
+        die_msg("write quantizer log failed");
+      }
     }
   }
 
@@ -1388,6 +1410,7 @@ int main(int argc, char **argv) {
   fclose(in);
   fclose(out);
   if (copy_ref_log) fclose(copy_ref_log);
+  if (quantizer_log) fclose(quantizer_log);
   if (vpx_codec_destroy(&ctx)) die_codec_msg(&ctx, "vpx_codec_destroy");
   vpx_img_free(&img);
   free(per_frame_flags);
