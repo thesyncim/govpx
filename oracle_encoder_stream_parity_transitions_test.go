@@ -933,9 +933,7 @@ func TestOracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.
 				opts.NoiseSensitivity = 3
 				return opts
 			}(),
-			// Denoiser two-pass still has a post-keyframe drift on this
-			// fixture; pin the keyframe and keep the control cross logged.
-			matchLimit: 1,
+			matchLimit: 0,
 		},
 	}
 

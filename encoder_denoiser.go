@@ -630,22 +630,20 @@ func (e *VP8Encoder) applyDenoiserSpatialLoopFilter(filtered vp8enc.SourceImage,
 	applyFilterCol := false
 	applyFilterRow := false
 	if col > 0 {
-		leftState := e.denoiser.state[index-1]
-		applyFilterCol = !(currentState == leftState && currentState != denoiserStateFilterNonZero)
+		left := e.denoiser.state[index-1]
+		applyFilterCol = !(currentState == left && currentState != denoiserStateFilterNonZero)
 	}
 	if row > 0 {
-		aboveState := e.denoiser.state[index-cols]
-		applyFilterRow = !(currentState == aboveState && currentState != denoiserStateFilterNonZero)
+		above := e.denoiser.state[index-cols]
+		applyFilterRow = !(currentState == above && currentState != denoiserStateFilterNonZero)
 	}
 	if !applyFilterCol && !applyFilterRow {
 		return false
 	}
 
-	var lfi vp8common.LoopFilterInfo
-	vp8common.InitLoopFilterInfo(&lfi, int(e.opts.Sharpness))
-	hev := lfi.HEVThresh[lfi.HEVThreshLUT[vp8common.InterFrame][filterLevel]]
-	mblim := lfi.MBLimit[filterLevel]
-	lim := lfi.Limit[filterLevel]
+	hev := e.loopInfo.HEVThresh[e.loopInfo.HEVThreshLUT[vp8common.InterFrame][filterLevel]]
+	mblim := e.loopInfo.MBLimit[filterLevel]
+	lim := e.loopInfo.Limit[filterLevel]
 	y := avg.Img.Y
 	stride := avg.Img.YStride
 	if applyFilterCol {
