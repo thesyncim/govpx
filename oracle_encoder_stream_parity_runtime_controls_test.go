@@ -1903,6 +1903,52 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "rtc-external-roi-disable-on-force-keyframe",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.TargetBitrateKbps = 400
+				opts.BufferSizeMs = 200
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 150
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 50
+				return opts
+			}(),
+			flags: []EncodeFlags{
+				0, 0, 0, 0,
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			extraArgs: []string{
+				"--target-bitrate=400",
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=50",
+			},
+			// A forced keyframe does not reset the sticky RTC+ROI
+			// segmentation teardown drift; keep the full transition
+			// covered while asserting the matching pre-disable prefix.
+			matchLimit: 8,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "roi:border1",
+				4: "rtc:1",
+				8: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: roiMapApply("border1"),
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
 			name: "rtc-external-active-roi-runtime-cross",
 			fx:   segmented64,
 			opts: func() EncoderOptions {
