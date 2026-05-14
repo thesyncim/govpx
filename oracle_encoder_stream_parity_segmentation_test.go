@@ -601,6 +601,72 @@ func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 10
+		width      = 65
+		height     = 33
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationSegmentedFrame(width, height, i)
+	}
+	baseOpts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+	}
+
+	cases := []struct {
+		name                     string
+		pattern                  string
+		limit                    int
+		tokenPartitions          int
+		errorResilient           bool
+		errorResilientPartitions bool
+		extraArgs                []string
+	}{
+		{name: "checker", pattern: "checker"},
+		{name: "left1", pattern: "left1"},
+		{name: "border1", pattern: "border1"},
+		{name: "border1-er2-token4", pattern: "border1", tokenPartitions: 2, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=2", "--token-parts=2"}},
+		{name: "checker-er3-token8", pattern: "checker", tokenPartitions: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := baseOpts
+			opts.TokenPartitions = tc.tokenPartitions
+			opts.ErrorResilient = tc.errorResilient
+			opts.ErrorResilientPartitions = tc.errorResilientPartitions
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap("+tc.pattern+")", e.SetROIMap(roiMapPattern(width, height, tc.pattern)))
+				},
+			})
+			extraArgs := []string{"--roi-map=" + tc.pattern}
+			extraArgs = append(extraArgs, tc.extraArgs...)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-odd-"+tc.name, opts, targetKbps, sources, nil, extraArgs)
+			assertSegmentByteParity(t, "roi-map-odd-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")

@@ -173,6 +173,10 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "invisible-inter-run-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame, EncodeInvisibleFrame, 0, EncodeInvisibleFrame}},
 		{name: "invisible-no-upd-entropy-no-ref-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeInvisibleFrame | EncodeNoUpdateEntropy | EncodeNoUpdateLast | EncodeNoReferenceGolden | EncodeNoReferenceAltRef}},
 		{name: "invisible-force-gf-arf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, EncodeInvisibleFrame | EncodeForceGoldenFrame, 0, EncodeInvisibleFrame | EncodeForceAltRefFrame}},
+		{name: "invisible-force-kf-frame3-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, 0, 0, EncodeInvisibleFrame | EncodeForceKeyFrame}},
+		{name: "invisible-no-upd-all-token8-er3-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, tokenParts: 3, errorResilient: true, errorResilientPartitions: true, extraArgs: []string{"--error-resilient=3", "--token-parts=3"}, flags: repeatFlag(frames-1, EncodeInvisibleFrame|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "invisible-no-upd-entropy-no-upd-all-token4-realtime-cpu-3-32x32", deadline: DeadlineRealtime, cpuUsed: -3, fx: panning32, tokenParts: 2, extraArgs: []string{"--token-parts=2"}, flags: repeatFlag(frames-1, EncodeInvisibleFrame|EncodeNoUpdateEntropy|EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef)},
+		{name: "invisible-force-gf-arf-no-upd-entropy-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: []EncodeFlags{0, 0, EncodeInvisibleFrame | EncodeForceGoldenFrame | EncodeNoUpdateEntropy, 0, EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateEntropy}},
 
 		// EncodeNoUpdateLast on every inter frame — exercises the
 		// "freeze LAST" pattern used by WebRTC scalability layers.

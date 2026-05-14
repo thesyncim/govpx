@@ -476,6 +476,66 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			extraArgs: []string{"--error-resilient=2", "--token-parts=2"},
 		},
 		{
+			name:          "token-partitions-8-er3",
+			controlScript: "token:3",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetTokenPartitions(3)", e.SetTokenPartitions(3))
+			},
+			mutate: func(opts *EncoderOptions) {
+				opts.ErrorResilient = true
+				opts.ErrorResilientPartitions = true
+			},
+			extraArgs: []string{"--error-resilient=3"},
+		},
+		{
+			name:          "rtc-external-roi-checker",
+			controlScript: "rtc:1+roi:checker",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				roiMapApply("checker")(t, e)
+			},
+		},
+		{
+			name:          "drop-frame-active-left-off",
+			controlScript: "bitrate:300+bufsz:500+bufinit:100+bufopt:300+drop:60+active:left-off",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(drop-low-buffer)", e.SetRateControl(RateControlConfig{
+					Mode:                RateControlCBR,
+					TargetBitrateKbps:   300,
+					MinQuantizer:        4,
+					MaxQuantizer:        56,
+					BufferSizeMs:        500,
+					BufferInitialSizeMs: 100,
+					BufferOptimalSizeMs: 300,
+					DropFrameAllowed:    true,
+					DropFrameWaterMark:  60,
+				}))
+				activeMapApply("left-off")(t, e)
+			},
+		},
+		{
+			name:          "drop-frame-roi-border1",
+			controlScript: "bitrate:300+bufsz:500+bufinit:100+bufopt:300+drop:60+roi:border1",
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRateControl(drop-low-buffer)", e.SetRateControl(RateControlConfig{
+					Mode:                RateControlCBR,
+					TargetBitrateKbps:   300,
+					MinQuantizer:        4,
+					MaxQuantizer:        56,
+					BufferSizeMs:        500,
+					BufferInitialSizeMs: 100,
+					BufferOptimalSizeMs: 300,
+					DropFrameAllowed:    true,
+					DropFrameWaterMark:  60,
+				}))
+				roiMapApply("border1")(t, e)
+			},
+		},
+		{
 			name:          "active-checker-roi-border1",
 			controlScript: "active:checker+roi:border1",
 			apply: func(t *testing.T, e *VP8Encoder) {

@@ -492,6 +492,41 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "token-partitions-er3-runtime-roundtrip",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.ErrorResilient = true
+				opts.ErrorResilientPartitions = true
+				return opts
+			}(),
+			extraArgs: []string{"--error-resilient=3"},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "token:1",
+				4: "token:2",
+				6: "token:3",
+				9: "token:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(1)", e.SetTokenPartitions(1))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(2)", e.SetTokenPartitions(2))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(3)", e.SetTokenPartitions(3))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTokenPartitions(0)", e.SetTokenPartitions(0))
+				},
+			},
+		},
+		{
 			name: "max-intra-runtime-force-keyframe",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -1174,6 +1209,52 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				9: func(t *testing.T, e *VP8Encoder) {
 					t.Helper()
 					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+			},
+		},
+		{
+			name: "rtc-external-active-roi-runtime-cross",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.TargetBitrateKbps = 400
+				opts.BufferSizeMs = 200
+				opts.BufferInitialSizeMs = 100
+				opts.BufferOptimalSizeMs = 150
+				opts.DropFrameAllowed = true
+				opts.DropFrameWaterMark = 50
+				return opts
+			}(),
+			extraArgs: []string{
+				"--target-bitrate=400",
+				"--buf-sz=200",
+				"--buf-initial-sz=100",
+				"--buf-optimal-sz=150",
+				"--drop-frame=50",
+			},
+			// The keyframe matches; the first mid-stream active+ROI
+			// inter packet exposes a combined segmentation-map/header drift,
+			// and the later RTC toggle keeps that control surface visible.
+			matchLimit: 1,
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker+roi:border1",
+				4: "rtc:1",
+				8: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
 				},
 			},
 		},
