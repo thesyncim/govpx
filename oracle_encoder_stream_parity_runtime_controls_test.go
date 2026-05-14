@@ -47,6 +47,7 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 		apply       map[int]func(*testing.T, *VP8Encoder)
 		extraArgs   []string
 		matchLimit  int
+		matchFrom   int
 	}
 
 	baseOpts := func(fx fixture) EncoderOptions {
@@ -1855,6 +1856,34 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "active-map-checker-noise3-force-keyframe-clear",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			extraArgs: []string{"--noise-sensitivity=3"},
+			// Active-map + denoiser diverges while enabled, but forcing a
+			// keyframe when clearing the active map rejoins byte parity.
+			matchLimit: 1,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker",
+				6: "active:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: activeMapApply("checker"),
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				},
+			},
+		},
+		{
 			name: "active-map-pattern-switches",
 			fx:   panning64,
 			opts: baseOpts(panning64),
@@ -2663,6 +2692,9 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			}
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, libvpxFlags, extraArgs)
 			assertSegmentByteParity(t, "runtime-controls", govpxFrames, libvpxFrames, tc.matchLimit)
+			if tc.matchFrom > 0 {
+				assertSegmentByteParityFrom(t, "runtime-controls-from", govpxFrames, libvpxFrames, tc.matchFrom)
+			}
 		})
 	}
 }
