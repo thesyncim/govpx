@@ -111,6 +111,7 @@ type VP9Encoder struct {
 
 	intraScratch vp9dec.IntraPredictorScratch
 	modeScratch  [1024]byte
+	blockScratch [64 * 64]byte
 	// interPredictScratch is passed through the decoder-shared inter
 	// predictor so odd luma MVs can use the same chroma/subpel extension
 	// path as the real decoder without per-block allocations after warmup.
@@ -1967,17 +1968,81 @@ func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState
 	}
 	max4x4W, max4x4H := vp9PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
+	planeData, stride := e.vp9EncoderReconPlane(plane)
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
+	if len(planeData) == 0 || stride <= 0 || len(src) == 0 || srcStride <= 0 {
+		return 0, false
+	}
+	rows := len(planeData) / stride
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	if baseX >= stride || baseY >= rows {
+		return 0, false
+	}
+	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if baseX+restoreW > stride {
+		restoreW = stride - baseX
+	}
+	if baseY+restoreH > rows {
+		restoreH = rows - baseY
+	}
+	if restoreW <= 0 || restoreH <= 0 {
+		return 0, false
+	}
+	if restoreW*restoreH > len(e.blockScratch) {
+		return 0, false
+	}
+	saved := e.blockScratch[:restoreW*restoreH]
+	for y := 0; y < restoreH; y++ {
+		copy(saved[y*restoreW:(y+1)*restoreW],
+			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	}
+	// Later intra transforms can reference earlier transforms in the same
+	// block; seed those references from source while scoring, then restore.
+	restoreRecon := func() {
+		for y := 0; y < restoreH; y++ {
+			copy(planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW],
+				saved[y*restoreW:(y+1)*restoreW])
+		}
+	}
+
 	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
 	var distortion uint64
+	ok := true
+scoreLoop:
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
-			score, ok := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
+			score, scoreOK := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
 				txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
-			if !ok {
-				return 0, false
+			if !scoreOK {
+				ok = false
+				break scoreLoop
 			}
 			distortion += score
+			txX := baseX + cc*4
+			txY := baseY + rr*4
+			copyW := bs
+			copyH := bs
+			if txX >= srcW || txY >= srcH {
+				continue
+			}
+			if txX+copyW > srcW {
+				copyW = srcW - txX
+			}
+			if txY+copyH > srcH {
+				copyH = srcH - txY
+			}
+			for y := 0; y < copyH; y++ {
+				copy(planeData[(txY+y)*stride+txX:(txY+y)*stride+txX+copyW],
+					src[(txY+y)*srcStride+txX:(txY+y)*srcStride+txX+copyW])
+			}
 		}
+	}
+	restoreRecon()
+	if !ok {
+		return 0, false
 	}
 	return distortion, true
 }
@@ -2334,11 +2399,8 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	bestSet := false
 	var best vp9InterIntraDecision
 	tryMode := func(mode common.PredictionMode) {
-		// Use the first transform as a conservative gate. Scoring every intra
-		// transform correctly requires simulating the in-block reconstruction
-		// chain, because later intra predictors can depend on earlier tx output.
-		yDist, ok := e.scoreVP9KeyframeTxPrediction(&keyLike, &e.planes[0], mode,
-			0, txSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		yDist, ok := e.scoreVP9KeyframePlanePrediction(&keyLike, &e.planes[0],
+			mode, 0, txSize, tile, miRows, miCols, miRow, miCol, bsize)
 		if !ok {
 			return
 		}
@@ -2394,8 +2456,8 @@ func (e *VP9Encoder) pickVP9InterIntraUvMode(key *vp9KeyframeEncodeState,
 			if plane > 0 {
 				planeTx = vp9dec.GetUvTxSize(bsize, txSize, pd)
 			}
-			score, scoreOK := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
-				planeTx, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+			score, scoreOK := e.scoreVP9KeyframePlanePrediction(key, pd, mode,
+				plane, planeTx, tile, miRows, miCols, miRow, miCol, bsize)
 			if !scoreOK {
 				ok = false
 				break

@@ -880,6 +880,51 @@ func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
 	assertVP9FilledFrame(t, frame, width, height, 128, 128, 128)
 }
 
+func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
+	const width, height = 128, 128
+	const x0, y0 = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	img := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	aboveRow := (y0 - 1) * e.reconFrame.YStride
+	internalAboveRow := (y0 + 31) * e.reconFrame.YStride
+	for x := 0; x < 64; x++ {
+		above := byte(224 - (x%32)*2)
+		if x < 32 {
+			above = byte(72 + x)
+		}
+		e.reconY[aboveRow+x0+x] = above
+		e.reconY[internalAboveRow+x0+x] = byte(224 - (x%32)*2)
+	}
+	for y := 0; y < 64; y++ {
+		left := byte(64 + (y%32)*2)
+		e.reconY[(y0+y)*e.reconFrame.YStride+x0-1] = left
+		e.reconY[(y0+y)*e.reconFrame.YStride+x0+31] = left
+		for x := 0; x < 64; x++ {
+			pixel := left
+			if y < 32 && x < 32 {
+				pixel = byte(72 + x)
+			}
+			img.Y[(y0+y)*img.YStride+x0+x] = pixel
+		}
+	}
+
+	var fc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&fc)
+	inter := &vp9InterEncodeState{img: img, selectFc: fc}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
+	got, ok := e.pickVP9InterIntraMode(inter, tile, 16, 16, 8, 8,
+		common.Block64x64, common.Tx32x32, 1<<60)
+	if !ok {
+		t.Fatal("pickVP9InterIntraMode returned !ok")
+	}
+	if got.mode != common.HPred {
+		t.Fatalf("inter intra mode = %d, want HPred from full-block score", got.mode)
+	}
+}
+
 func TestVP9EncoderInterPicksCompoundZeroMotion(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -2616,7 +2661,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderKeyframeSignalsTx16DirectionalMode(t *testing.T) {
+func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	img := newVP9HorizontalBandsForTest(width, height, 128, 128)
@@ -2642,8 +2687,8 @@ func TestVP9EncoderKeyframeSignalsTx16DirectionalMode(t *testing.T) {
 	if got.TxSize != common.Tx16x16 {
 		t.Fatalf("second block tx size = %d, want Tx16x16", got.TxSize)
 	}
-	if got.Mode != common.TmPred {
-		t.Fatalf("second block mode = %d, want TmPred", got.Mode)
+	if got.Mode != common.HPred {
+		t.Fatalf("second block mode = %d, want HPred", got.Mode)
 	}
 }
 
