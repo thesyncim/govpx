@@ -379,8 +379,9 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	budget = e.autoSpeedCompressionBudgetUS()
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 0 {
-		t.Fatalf("svga cpu8 key autospeed encode timer = %d, want libvpx keyframe skip", e.avgEncodeTime)
+	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
+		t.Fatalf("svga cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
+			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
 	}
 
 	e = newSizedTestEncoder(t, 800, 600)

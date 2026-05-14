@@ -831,7 +831,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if oracleTraceBuild {
 		e.emitOracleFrameTrace(oracleTraceFrameSummary{
 			FrameType:            vp8common.KeyFrame,
-			BaseQIndex:           e.rc.currentQuantizer,
+			BaseQIndex:           finalQuantizer,
 			LoopFilter:           int(keyAttempt.LoopFilterLevel),
 			SharpnessLevel:       int(keyAttempt.SharpnessLevel),
 			RefLFDeltas:          keyAttempt.RefLFDeltas,
