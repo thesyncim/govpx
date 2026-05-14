@@ -103,7 +103,7 @@ scoreboard: oracle-tools fetch-test-data
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
-	$(GO) run ./cmd/scoreboard-report -- . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
 
 scoreboard-update: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
@@ -117,7 +117,7 @@ scoreboard-update: oracle-tools fetch-test-data
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
-	$(GO) run ./cmd/scoreboard-report -- . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
 
 decoder-oracle-test: oracle-tools fetch-vp8-test-data
 	GOCACHE="$(GOCACHE)" \
