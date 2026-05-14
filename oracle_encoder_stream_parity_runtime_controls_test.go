@@ -679,6 +679,20 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "cpu-used-runtime-one-way-to-negative",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			script: runtimeControlScript(frames, map[int]string{
+				3: "cpu:-3",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetCPUUsed(-3)", e.SetCPUUsed(-3))
+				},
+			},
+		},
+		{
 			name: "cpu-used-runtime-roundtrip",
 			fx:   panning32,
 			opts: baseOpts(panning32),
@@ -1344,6 +1358,31 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 					mustRuntime(t, "SetCPUUsed", e.SetCPUUsed(0))
 					mustRuntime(t, "SetTuning", e.SetTuning(TunePSNR))
 					mustRuntime(t, "SetNoiseSensitivity", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "arnr-runtime-no-arf",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = false
+				return opts
+			}(),
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=0"},
+			// Static ARNR-without-ARF rows are strict, but the runtime
+			// setter still changes the first affected packet differently.
+			// Later packets rejoin byte parity, so keep this transition
+			// visible while pinning the matching prefix.
+			matchLimit: 2,
+			script: runtimeControlScript(frames, map[int]string{
+				2: "arnrmax:7+arnrstrength:6+arnrtype:3",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetARNR", e.SetARNR(7, 6, 3))
 				},
 			},
 		},
