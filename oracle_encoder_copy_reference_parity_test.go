@@ -350,6 +350,71 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertSegmentByteParity(t, "copyref-resize-bytestream", got, want, 0)
 	})
 
+	t.Run("copy-reference-probes-under-active-roi-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "active:checker+copyref:last+copyref:golden"
+		script[2] = "roi:border1+copyref:golden"
+		script[4] = "copyref:last"
+		script[6] = "active:off+roi:off+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				copyReferenceProbeApply("frame1", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				roiMapApply("border1")(t, e)
+				copyReferenceProbeApply("frame2", ReferenceGolden)(t, e)
+			},
+			4: copyReferenceProbeApply("frame4", ReferenceLast),
+			6: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				copyReferenceProbeApply("frame6", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-active-roi-runtime-controls.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-active-roi-runtime-controls", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-active-roi-runtime-controls", got, want, 0)
+	})
+
+	t.Run("copy-reference-probes-under-runtime-denoiser-transition-do-not-change-bytestream", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "noise:3+copyref:last+copyref:golden"
+		script[5] = "noise:0+copyref:last+copyref:golden+copyref:altref"
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			2: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetNoiseSensitivity(3)", e.SetNoiseSensitivity(3))
+				copyReferenceProbeApply("frame2", ReferenceLast, ReferenceGolden)(t, e)
+			},
+			5: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				copyReferenceProbeApply("frame5", ReferenceLast, ReferenceGolden, ReferenceAltRef)(t, e)
+			},
+		}
+		logPath := filepath.Join(t.TempDir(), "copyref-runtime-denoiser-transition.log")
+
+		want := encodeFramesWithFrameFlagsDriver(t, driver, "copyref-runtime-denoiser-transition", opts, opts.TargetBitrateKbps, sources, nil, []string{
+			"--control-script=" + strings.Join(script, ","),
+			"--copy-ref-log=" + logPath,
+		})
+		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
+		assertSegmentByteParity(t, "copyref-runtime-denoiser-transition", got, want, 0)
+	})
+
 	t.Run("copy-reference-probes-under-runtime-controls-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(64, 64)
 		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
@@ -389,7 +454,7 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 			"--copy-ref-log=" + logPath,
 		})
 		got := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, apply)
-		assertSegmentByteParity(t, "copyref-runtime-controls", got, want, 1)
+		assertSegmentByteParity(t, "copyref-runtime-controls", got, want, 4)
 	})
 }
 
