@@ -402,7 +402,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 		controlScript string
 		apply         func(*testing.T, *VP8Encoder)
 		limit         int
-		assertFrom    int
 	}{
 		{
 			name:          "active-checker",
@@ -474,10 +473,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 			})
 
 			govpxFrames := encodeWithMidStreamResizeAndControl(t, opts, 32, 32, seg1, seg2, tc.apply)
-			if tc.assertFrom > 0 {
-				assertSegmentByteParityFrom(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.assertFrom)
-				return
-			}
 			assertSegmentByteParity(t, "runtime-resize-control-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
