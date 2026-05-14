@@ -756,7 +756,6 @@ func TestOracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) 
 					activeMapApply("checker")(t, e)
 				},
 			},
-			limit: framesPerSeg + 1,
 		},
 		{
 			name:  "temporal-two-layer-roi-border-enable",

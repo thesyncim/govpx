@@ -963,7 +963,7 @@ func (e *VP8Encoder) initialTemporalLayerCodingState(layer int) temporalLayerCod
 	}
 	bitsPerFrame := computeLayerBitsPerFrame(targetBits, e.timing, e.temporal.pattern.RateDecimator[layer], 1)
 	return temporalLayerCodingState{
-		FilterLevel:                  e.loopFilterLevel,
+		FilterLevel:                  0,
 		BufferLevelBits:              initialBits,
 		BufferInitialBits:            initialBits,
 		BufferOptimalBits:            optimalBits,

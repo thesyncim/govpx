@@ -258,9 +258,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecision(
 		}
 		mode.SegmentID = segmentID
 		if inactiveMB {
-			if !e.roi.enabled {
-				mode.SegmentID = 0
-			}
 			mode.MBSkipCoeff = true
 			if denoiseActive && !e.denoiserReferenceTooOld(ref.Frame) {
 				denoiseDecision.recordInactiveInterCandidate(ref.Frame, mode.Mode, mode.MV)

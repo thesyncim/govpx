@@ -623,6 +623,20 @@ func TestSetTemporalScalabilityControlsNextFrames(t *testing.T) {
 	}
 }
 
+func TestSetTemporalScalabilitySeedsNewLayerFilterLevelFromColdContext(t *testing.T) {
+	e := newTestEncoder(t)
+	e.loopFilterLevel = 9
+	if err := e.SetTemporalScalability(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}); err != nil {
+		t.Fatalf("SetTemporalScalability returned error: %v", err)
+	}
+	if got := e.temporal.codingState[0].FilterLevel; got != 9 {
+		t.Fatalf("base-layer filter seed = %d, want inherited single-layer seed 9", got)
+	}
+	if got := e.temporal.codingState[1].FilterLevel; got != 0 {
+		t.Fatalf("new enhancement-layer filter seed = %d, want cold layer-context seed 0", got)
+	}
+}
+
 func TestSetTemporalLayerIDOverridesNextFrames(t *testing.T) {
 	e := newTemporalTestEncoder(t, TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers})
 	src := testImage(16, 16)

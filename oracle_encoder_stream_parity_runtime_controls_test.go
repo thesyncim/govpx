@@ -4321,9 +4321,6 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 		flags:     twoLayerFlags(12),
 		script:    activeScript,
 		extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-		// Active-map setup matches for both base and first enhancement
-		// layer packets; later temporal-layer context diverges.
-		matchLimit: 4,
 		apply: map[int]func(*testing.T, *VP8Encoder){
 			2: activeMapApply("checker"),
 			8: func(t *testing.T, e *VP8Encoder) {
