@@ -967,6 +967,38 @@ func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderStaticInterRefSegmentKeepsInterSyntax(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 4
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.RefFrameEnabled[segID] = true
+	opts.Segmentation.RefFrame[segID] = vp9dec.GoldenFrame
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if _, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128)); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if _, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224)); err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	for i, mi := range e.miGrid {
+		if mi.SegmentID != segID {
+			t.Fatalf("encoder miGrid[%d].SegmentID = %d, want %d", i, mi.SegmentID, segID)
+		}
+		if mi.RefFrame[0] != vp9dec.GoldenFrame {
+			t.Fatalf("encoder miGrid[%d].RefFrame = %v, want forced GOLDEN inter syntax",
+				i, mi.RefFrame)
+		}
+	}
+}
+
 func TestVP9EncoderStaticRefFrameSegmentForcesIntraBlock(t *testing.T) {
 	const width, height = 64, 64
 	const segID = 5

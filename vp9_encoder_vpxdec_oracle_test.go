@@ -115,6 +115,49 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
 }
 
+func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 70, 70
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Lossless: true,
+	})
+	keySrc := newVP9CheckerYCbCrForTest(width, height, 16, 240, 32, 224)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode lossless keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 4, 0)
+	inter, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("Encode lossless inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode lossless keyframe: %v", err)
+	}
+	keyFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after lossless keyframe")
+	}
+	assertVP9ImageMatchesYCbCr(t, "lossless keyframe", keyFrame, keySrc)
+	if err := d.Decode(inter); err != nil {
+		t.Fatalf("Decode lossless inter: %v", err)
+	}
+	interFrame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after lossless inter")
+	}
+	assertVP9ImageMatchesYCbCr(t, "lossless inter", interFrame, interSrc)
+}
+
 func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 	requireVP9VpxdecOracle(t)
 
@@ -132,6 +175,75 @@ func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 	}
 
 	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
+func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	const segID = 3
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.AltQEnabled[segID] = true
+	opts.Segmentation.AltQ[segID] = -16
+	opts.Segmentation.AltLFEnabled[segID] = true
+	opts.Segmentation.AltLF[segID] = -4
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+
+	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+}
+
+func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
+	requireVP9VpxdecOracle(t)
+
+	const width, height = 64, 64
+	cases := []struct {
+		name     string
+		refFrame int8
+	}{
+		{"last", VP9RefFrameLast},
+		{"golden", VP9RefFrameGolden},
+		{"altref", VP9RefFrameAltRef},
+		{"intra", VP9RefFrameIntra},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const segID = 5
+			opts := VP9EncoderOptions{Width: width, Height: height}
+			opts.Segmentation.Enabled = true
+			opts.Segmentation.UpdateMap = true
+			opts.Segmentation.SegmentID = segID
+			opts.Segmentation.RefFrameEnabled[segID] = true
+			opts.Segmentation.RefFrame[segID] = tc.refFrame
+			e, err := NewVP9Encoder(opts)
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			key, err := e.Encode(newVP9YCbCrForTest(width, height, 72, 128, 128))
+			if err != nil {
+				t.Fatalf("Encode keyframe: %v", err)
+			}
+			inter, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 96, 224))
+			if err != nil {
+				t.Fatalf("Encode inter: %v", err)
+			}
+
+			assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
+		})
+	}
 }
 
 func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {

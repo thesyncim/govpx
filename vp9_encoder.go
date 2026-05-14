@@ -2678,7 +2678,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 		bsize, mi.TxSize)
-	if !inter.lossless {
+	if !inter.lossless && !forcedRef {
 		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
 			mi.Mode = intra.mode
