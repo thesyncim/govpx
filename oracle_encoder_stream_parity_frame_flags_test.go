@@ -144,6 +144,7 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		rcMode                   RateControlMode
 		rcModeSet                bool
 		cqLevel                  int
+		disableKf                bool
 		tokenParts               int
 		errorResilient           bool
 		errorResilientPartitions bool
@@ -163,6 +164,9 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		// — orthogonal to the existing `kfInterval=1` axis which uses
 		// kf-min/max-dist instead of the per-frame flag).
 		{name: "force-kf-every-frame-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame, EncodeForceKeyFrame}},
+		// Explicit force-key requests still win when automatic
+		// keyframes are disabled from construction.
+		{name: "disable-kf-force-kf-frame3-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, disableKf: true, flags: []EncodeFlags{0, 0, 0, EncodeForceKeyFrame}, extraArgs: []string{"--kf-disabled"}},
 
 		// EncodeNoUpdateLast on every inter frame — exercises the
 		// "freeze LAST" pattern used by WebRTC scalability layers.
@@ -270,6 +274,9 @@ func TestOracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 				TokenPartitions:          tc.tokenParts,
 				ErrorResilient:           tc.errorResilient,
 				ErrorResilientPartitions: tc.errorResilientPartitions,
+			}
+			if tc.disableKf {
+				opts.KeyFrameInterval = 0
 			}
 
 			govpxFrames := encodeFramesWithGovpxFrameFlags(t, opts, sources, tc.flags)

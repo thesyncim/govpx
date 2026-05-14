@@ -1001,6 +1001,56 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "adaptive-keyframes-scene-disable-reenable",
+			fx:   segmented64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(segmented64)
+				opts.AdaptiveKeyFrames = true
+				return opts
+			}(),
+			extraArgs: []string{"--kf-min-dist=0", "--kf-max-dist=999"},
+			script: runtimeControlScript(frames, map[int]string{
+				3: "kfdisabled:1+kfmin:0+kfmax:999",
+				8: "kfdisabled:0+kfmin:0+kfmax:999",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(false)", e.SetAdaptiveKeyFrames(false))
+					mustRuntime(t, "SetKeyFrameInterval(0)", e.SetKeyFrameInterval(0))
+				},
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(true)", e.SetAdaptiveKeyFrames(true))
+					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
+				},
+			},
+		},
+		{
+			name: "force-keyframe-while-keyframes-disabled",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: []EncodeFlags{
+				0, 0, 0, 0,
+				EncodeForceKeyFrame,
+			},
+			script: runtimeControlScript(frames, map[int]string{
+				2: "kfdisabled:1+kfmin:0+kfmax:120",
+				7: "kfdisabled:0+kfmin:999+kfmax:999",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetAdaptiveKeyFrames(false)", e.SetAdaptiveKeyFrames(false))
+					mustRuntime(t, "SetKeyFrameInterval(0)", e.SetKeyFrameInterval(0))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetKeyFrameInterval(999)", e.SetKeyFrameInterval(999))
+				},
+			},
+		},
+		{
 			name: "active-map-checker-toggle",
 			fx:   panning64,
 			opts: baseOpts(panning64),
