@@ -127,6 +127,37 @@ func TestVP9EncoderVpxencOracleBlackKeyframeByteParity(t *testing.T) {
 
 	const width, height = 16, 16
 	src := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
+func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
+func TestVP9EncoderVpxencOracleCheckerKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
+func TestVP9EncoderVpxencOracleChecker64KeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParity(t, src)
+}
+
+func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
+	t.Helper()
+	width := src.Rect.Dx()
+	height := src.Rect.Dy()
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)

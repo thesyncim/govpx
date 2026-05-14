@@ -554,6 +554,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 			vp9dec.NoRefFrame,
 		},
 	}
+	if (isKey || intraOnly) && baseMi.TxSize > common.Tx16x16 {
+		baseMi.TxSize = common.Tx16x16
+	}
 	if !isKey && !intraOnly {
 		baseMi.Mode = common.ZeroMv
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
@@ -1783,11 +1786,34 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	kind vp9ModeTreeKind, inter *vp9InterEncodeState,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
+	if kind == vp9ModeTreeKeyframeSource {
+		return vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
+	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
 		return target
 	}
 	return e.pickVP9InterPartitionBlockSize(inter, tile, partitionProbs,
 		miRows, miCols, miRow, miCol, root)
+}
+
+func vp9KeyframeSourceBlockSizeForRegion(miRows, miCols, miRow, miCol int,
+	root common.BlockSize,
+) common.BlockSize {
+	maxW := min(miCols-miCol, int(common.Num8x8BlocksWideLookup[root]))
+	maxH := min(miRows-miRow, int(common.Num8x8BlocksHighLookup[root]))
+	if maxW > 4 {
+		maxW = 4
+	}
+	if maxH > 4 {
+		maxH = 4
+	}
+	for _, bsize := range vp9StubBlockSizeOrder {
+		if int(common.Num8x8BlocksWideLookup[bsize]) <= maxW &&
+			int(common.Num8x8BlocksHighLookup[bsize]) <= maxH {
+			return bsize
+		}
+	}
+	return common.Block4x4
 }
 
 func vp9SquareInterPartitionSizes(root common.BlockSize) (common.BlockSize, common.BlockSize, common.BlockSize, bool) {
@@ -2411,7 +2437,9 @@ func (e *VP9Encoder) pickVP9KeyframeMode(key *vp9KeyframeEncodeState,
 	if !ok {
 		return bestMode
 	}
-	for mode := common.DcPred + 1; mode <= common.TmPred; mode++ {
+	// The realtime keyframe picker mirrors vp9_pick_intra_mode and only
+	// evaluates DC, V, and H for >=8x8 blocks.
+	for mode := common.DcPred + 1; mode <= common.HPred; mode++ {
 		score, ok := e.scoreVP9KeyframeMode(key, mode, yModeCosts[mode],
 			qindex, tile, miRows, miCols, miRow, miCol, bsize, mi)
 		if ok && score < bestScore {

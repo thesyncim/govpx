@@ -550,10 +550,9 @@ func TestVP9EncoderFrameTxModeFromCountsReducesFixedMode(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderKeyframeStubProducesParseableBitstream: the
-// zero-residue keyframe path emits a Block64x64 PartitionNone + DC-pred +
-// skip=1 frame whose every layer parses cleanly through the
-// existing decoder primitives.
+// TestVP9EncoderKeyframeStubProducesParseableBitstream: the constant
+// source-backed keyframe path emits oracle-shaped Block32x32 / Tx16 DC
+// skip leaves whose every layer parses cleanly through the decoder.
 func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := newVP9YCbCrForTest(64, 64, 128, 128, 128)
@@ -602,65 +601,21 @@ func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
 		KeyFrame:     true,
 		InterpFilter: vp9dec.InterpEighttap,
 	})
-	if out.TxMode != common.Allow32x32 {
-		t.Errorf("TxMode = %d, want Allow32x32", out.TxMode)
+	if out.TxMode != common.Allow16x16 {
+		t.Errorf("TxMode = %d, want Allow16x16", out.TxMode)
 	}
 
-	// Layer 3: tile body. The 1-tile case has no size prefix; the
-	// SB walk starts immediately after the compressed header.
-	var tr bitstream.Reader
-	if err := tr.Init(got[compEnd:]); err != nil {
-		t.Fatalf("tile reader Init: %v", err)
+	// Layer 3: tile body via full packet decode.
+	grid := decodeVP9PacketMiGridForOracleTest(t, got)
+	if len(grid) != 64 {
+		t.Fatalf("decoded mi grid len = %d, want 64", len(grid))
 	}
-	aboveCtx := make([]int8, 16)
-	leftCtx := make([]int8, common.MiBlockSize)
-	maps := vp9dec.IntraSegmentMaps{
-		CurrentFrameSegMap: make([]uint8, 64),
-		MiCols:             8,
-	}
-	var seg vp9dec.SegmentationParams
-
-	// Single SB at Block64x64 with PartitionNone — walk the
-	// partition + read the per-block intra mode.
-	bsl := int(common.BWidthLog2Lookup[common.Block64x64])
-	bs := (1 << uint(bsl)) / 4
-	ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, 0, common.Block64x64)
-	// Keyframes use vp9_kf_partition_probs, not fc.PartitionProb —
-	// see set_partition_probs in libvpx's vp9_onyxc_int.h.
-	probs := tables.KfPartitionProbs[ctx][:]
-	miRows := int((h.Height + 7) >> 3)
-	miCols := int((h.Width + 7) >> 3)
-	hasRows := bs < miRows
-	hasCols := bs < miCols
-	partition := vp9dec.ReadPartition(&tr, probs, hasRows, hasCols)
-	if partition != common.PartitionNone {
-		t.Errorf("root partition = %d, want PartitionNone", partition)
-	}
-
-	leafMi := &vp9dec.NeighborMi{SbType: common.Block64x64}
-	mode := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
-		Reader:   &tr,
-		Fc:       &fc,
-		Seg:      &seg,
-		Maps:     &maps,
-		TxMode:   out.TxMode,
-		MiOffset: 0,
-		XMis:     8, YMis: 8,
-	}, leafMi)
-	if leafMi.Mode != common.DcPred {
-		t.Errorf("Y mode = %d, want DcPred", leafMi.Mode)
-	}
-	if leafMi.Skip != 1 {
-		t.Errorf("Skip = %d, want 1", leafMi.Skip)
-	}
-	if leafMi.TxSize != common.Tx32x32 {
-		t.Errorf("TxSize = %d, want Tx32x32", leafMi.TxSize)
-	}
-	if mode.UvMode != common.DcPred {
-		t.Errorf("UV mode = %d, want DcPred", mode.UvMode)
-	}
-	if leafMi.RefFrame[0] != vp9dec.IntraFrame {
-		t.Errorf("RefFrame[0] = %d, want IntraFrame", leafMi.RefFrame[0])
+	for i, mi := range grid {
+		if mi.SbType != common.Block32x32 || mi.TxSize != common.Tx16x16 ||
+			mi.Mode != common.DcPred || mi.Skip != 1 ||
+			mi.RefFrame[0] != vp9dec.IntraFrame {
+			t.Fatalf("mi[%d] = %+v, want Block32x32/Tx16/DcPred/skip intra", i, mi)
+		}
 	}
 }
 
@@ -708,7 +663,7 @@ func TestVP9EncoderKeyframeACResiduePreservesCheckerSource(t *testing.T) {
 	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
 }
 
-func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
+func TestVP9EncoderACKeyframeUsesOracleNoUpdateCompressedHeader(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := newVP9CheckerYCbCrForTest(64, 64, 48, 208, 128, 128)
 	packet, err := e.Encode(img)
@@ -722,8 +677,8 @@ func TestVP9EncoderACKeyframeUsesCountsDrivenCompressedHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUncompressedHeader: %v", err)
 	}
-	if h.FirstPartitionSize <= 2 {
-		t.Fatalf("FirstPartitionSize = %d, want counts-driven compressed header larger than no-update", h.FirstPartitionSize)
+	if h.FirstPartitionSize != 2 {
+		t.Fatalf("FirstPartitionSize = %d, want oracle no-update compressed header size 2", h.FirstPartitionSize)
 	}
 }
 
@@ -884,14 +839,15 @@ func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128))
+	src := newVP9CheckerYCbCrForTest(width, height, 48, 208, 128, 128)
+	key, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
 	assertVP9StaticSegmentationHeaderForTest(t, keyHeader.Seg, segID, altQ, altLF)
 
-	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	inter, err := e.Encode(src)
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
@@ -3169,8 +3125,8 @@ func TestVP9EncoderInterTxScoringSelectsTx16ForLocalizedResidual(t *testing.T) {
 }
 
 // TestVP9EncoderKeyframeMultiSb: 128x64 frame → 2 SBs side-by-side.
-// Confirms the SB walker emits 2 PartitionNone leaves in row-major
-// order and both decode through the per-block keyframe driver.
+// Confirms the SB walker emits oracle-shaped 32x32 keyframe leaves
+// across both superblocks.
 func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := newVP9YCbCrForTest(128, 64, 128, 128, 128)
@@ -3179,85 +3135,26 @@ func TestVP9EncoderKeyframeMultiSb(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	var br vp9dec.BitReader
-	br.Init(got)
-	h, _ := vp9dec.ReadUncompressedHeader(&br, nil, nil)
-	uncSize := br.BytesRead()
-	compEnd := uncSize + int(h.FirstPartitionSize)
-
-	var fc vp9dec.FrameContext
-	vp9dec.ResetFrameContext(&fc)
-	var cr bitstream.Reader
-	cr.Init(got[uncSize:compEnd])
-	out := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
-		Lossless: false, IntraOnly: true, KeyFrame: true,
-		InterpFilter: vp9dec.InterpEighttap,
-	})
-
-	var tr bitstream.Reader
-	tr.Init(got[compEnd:])
-	miRows := int((h.Height + 7) >> 3)
-	miCols := int((h.Width + 7) >> 3)
-	aboveCtx := make([]int8, miCols)
-	leftCtx := make([]int8, common.MiBlockSize)
-	maps := vp9dec.IntraSegmentMaps{
-		CurrentFrameSegMap: make([]uint8, miRows*miCols),
-		MiCols:             miCols,
+	const miRows, miCols = 8, 16
+	grid := decodeVP9PacketMiGridForOracleTest(t, got)
+	if len(grid) != miRows*miCols {
+		t.Fatalf("decoded mi grid len = %d, want %d", len(grid), miRows*miCols)
 	}
-	var seg vp9dec.SegmentationParams
-	miGrid := make([]vp9dec.NeighborMi, miRows*miCols)
-	miAt := func(r, c int) *vp9dec.NeighborMi {
-		if r < 0 || c < 0 || r >= miRows || c >= miCols {
-			return nil
-		}
-		return &miGrid[r*miCols+c]
-	}
-	fillMi := func(r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {
-		rows := int(common.Num8x8BlocksHighLookup[bsize])
-		cols := int(common.Num8x8BlocksWideLookup[bsize])
-		for rr := 0; rr < rows && r+rr < miRows; rr++ {
-			row := miGrid[(r+rr)*miCols:]
-			for cc := 0; cc < cols && c+cc < miCols; cc++ {
-				row[c+cc] = mi
+	leaves := 0
+	for miRow := 0; miRow < miRows; miRow += 4 {
+		for miCol := 0; miCol < miCols; miCol += 4 {
+			mi := grid[miRow*miCols+miCol]
+			if mi.SbType != common.Block32x32 || mi.TxSize != common.Tx16x16 ||
+				mi.Mode != common.DcPred || mi.Skip != 1 ||
+				mi.RefFrame[0] != vp9dec.IntraFrame {
+				t.Fatalf("leaf at (%d,%d) = %+v, want Block32x32/Tx16/DcPred/skip intra",
+					miRow, miCol, mi)
 			}
+			leaves++
 		}
 	}
-
-	// Half-step (hbs) for Block64x64 in mi units: (1 << bsl) / 4 = 4.
-	const hbs = 4
-	walked := 0
-	for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
-		ctx := vp9dec.PartitionPlaneContext(aboveCtx, leftCtx, 0, miCol, common.Block64x64)
-		probs := tables.KfPartitionProbs[ctx][:]
-		hasRows := (0 + hbs) < miRows
-		hasCols := (miCol + hbs) < miCols
-		p := vp9dec.ReadPartition(&tr, probs, hasRows, hasCols)
-		if p != common.PartitionNone {
-			t.Errorf("SB at miCol=%d: partition = %d, want PartitionNone", miCol, p)
-		}
-		leafMi := &vp9dec.NeighborMi{SbType: common.Block64x64}
-		mode := vp9dec.ReadIntraFrameModeInfo(vp9dec.IntraFrameDriverArgs{
-			Reader: &tr, Fc: &fc, Seg: &seg, Maps: &maps,
-			TxMode:   out.TxMode,
-			MiOffset: miCol, XMis: common.MiBlockSize, YMis: common.MiBlockSize,
-			Above: miAt(-1, miCol),
-			Left:  miAt(0, miCol-1),
-		}, leafMi)
-		if leafMi.Mode != common.DcPred || mode.UvMode != common.DcPred {
-			t.Errorf("SB at miCol=%d: Y=%d UV=%d, want DcPred/DcPred",
-				miCol, leafMi.Mode, mode.UvMode)
-		}
-		if leafMi.TxSize != common.Tx32x32 {
-			t.Errorf("SB at miCol=%d: TxSize = %d, want Tx32x32", miCol, leafMi.TxSize)
-		}
-		fillMi(0, miCol, common.Block64x64, *leafMi)
-		// Update partition context (decoder side mirror of encoder stamp).
-		vp9dec.UpdatePartitionContext(aboveCtx, leftCtx, 0, miCol,
-			common.Block64x64, common.MiBlockSize)
-		walked++
-	}
-	if walked != 2 {
-		t.Errorf("walked %d SBs, want 2", walked)
+	if leaves != 8 {
+		t.Errorf("decoded %d Block32x32 leaves, want 8", leaves)
 	}
 }
 
