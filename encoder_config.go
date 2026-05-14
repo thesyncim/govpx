@@ -620,9 +620,11 @@ func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
 	}
+	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
-	return rows*cols >= 3600
+	mbs := rows * cols
+	return mbs >= 3600 || (cpuUsed >= 8 && mbs >= 1900)
 }
 
 func (e *VP8Encoder) beginAutoSpeedTiming() {

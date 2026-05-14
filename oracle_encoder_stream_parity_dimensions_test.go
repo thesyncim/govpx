@@ -160,10 +160,9 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid169-rt-cpu4-854x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu8-854x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(854, 480)},
 		{name: "mid169-rt-cpu4-1024x576", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1024, 576)},
-		// 1024x576 cpu8 matches the keyframe, then exposes the remaining
-		// high-resolution inter drift. The 1280x720 fast-band realtime
-		// auto-speed cases are byte-pinned across the full sequence.
-		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576), limit: 1},
+		// 1024x576/1280x720 fast-band realtime auto-speed cases are
+		// byte-pinned across the full sequence.
+		{name: "mid169-rt-cpu8-1024x576", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1024, 576)},
 		{name: "mid169-rt-cpu4-1280x720", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(1280, 720)},
 		{name: "mid169-rt-cpu8-1280x720", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(1280, 720)},
 
@@ -176,9 +175,7 @@ func TestOracleEncoderStreamByteParityDimensions(t *testing.T) {
 		{name: "mid43-rt-cpu4-640x480", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu8-640x480", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(640, 480)},
 		{name: "mid43-rt-cpu4-800x600", deadline: DeadlineRealtime, cpuUsed: 4, fx: mk(800, 600)},
-		// 800x600 cpu8: same wall-clock-sensitive positive-cpu realtime
-		// family as the larger fixtures above.
-		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600), limit: 1},
+		{name: "mid43-rt-cpu8-800x600", deadline: DeadlineRealtime, cpuUsed: 8, fx: mk(800, 600)},
 
 		// (6) Square. Up to 400x400 we can run cpu_used=0; the picker
 		// path matters more than the sheer pixel count here.
