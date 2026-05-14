@@ -93,11 +93,14 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		segmentation = e.cyclicRefreshSegmentationConfigForQuantizer(false, cyclicRefreshQ)
 		if !segmentation.Enabled && e.rtcExternalPreserveSegmentation {
 			// Runtime VP8E_SET_RTC_EXTERNAL_RATECTRL preserves an already
-			// enabled cyclic-refresh header on the next keyframe (for
-			// example after a resize), including update-map/update-data
-			// bits. Keyframes assign every macroblock to segment 0, so this
-			// keeps the packet header shape without changing reconstruction.
-			segmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefreshQ)
+			// enabled cyclic-refresh header on the next keyframe, including
+			// the old feature-data deltas. Keyframes assign every macroblock
+			// to segment 0, so this keeps the packet header shape without
+			// changing reconstruction.
+			segmentation = e.rtcExternalPreservedSegmentation
+			if !segmentation.Enabled {
+				segmentation = e.cyclicRefreshSegmentationConfigForQuantizerUnchecked(cyclicRefreshQ)
+			}
 		}
 	}
 	var err error
@@ -175,7 +178,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
 	}
 	projectedBits, coefSavings, refFrameSavings := e.projectedFrameSizeBitsFromRateWithSavings(true, required, projectedRate, false, false)
-	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled}, nil
+	return keyFrameEncodeAttempt{FrameCoefProbs: frameCoefProbs, Size: n, ProjectedSizeBits: projectedBits, CoefSavingsBits: coefSavings, RefFrameSavingsBits: refFrameSavings, LoopFilterLevel: lfLevel, SharpnessLevel: lfSharpness, LFDeltaEnabled: cfg.LFDeltaEnabled, LFDeltaUpdate: cfg.LFDeltaUpdate, RefLFDeltas: cfg.RefLFDeltas, ModeLFDeltas: cfg.ModeLFDeltas, RefreshEntropyProbs: cfg.RefreshEntropyProbs, SegmentationEnabled: segmentation.Enabled, SegmentationConfig: segmentation}, nil
 }
 
 func (e *VP8Encoder) keyFrameRefreshEntropyProbs(flags EncodeFlags) bool {
@@ -589,7 +592,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if err != nil {
 		return interFrameEncodeAttempt{}, err
 	}
-	segmentation = segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
+	if roiSegmentation.Enabled {
+		segmentation = segmentationConfigForLoopFilterLevelPreserveAltLF(segmentation, cfg.LoopFilterLevel)
+	} else {
+		segmentation = segmentationConfigForLoopFilterLevel(segmentation, cfg.LoopFilterLevel)
+	}
 	lfHeader := e.encoderLoopFilterHeader(cfg.LoopFilterLevel, cfg.SharpnessLevel)
 	cfg.SimpleLoopFilter = lfHeader.Type == vp8dec.SimpleLoopFilter
 	cfg.LFDeltaEnabled = lfHeader.DeltaEnabled

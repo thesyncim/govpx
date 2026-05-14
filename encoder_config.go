@@ -1,6 +1,9 @@
 package govpx
 
-import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+)
 
 // SetBitrateKbps changes the total encoder target bitrate, in kbps. The
 // new value is clamped to [MinBitrateKbps, MaxBitrateKbps] when those
@@ -194,6 +197,11 @@ func (e *VP8Encoder) SetRTCExternalRateControl(enabled bool) error {
 	}
 	if enabled {
 		e.rtcExternalPreserveSegmentation = e.segmentationHeaderEnabled
+		if e.segmentationHeaderEnabled {
+			e.rtcExternalPreservedSegmentation = e.lastSegmentationConfig
+		} else {
+			e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
+		}
 		e.opts.RTCExternalRateControl = true
 	}
 	return nil

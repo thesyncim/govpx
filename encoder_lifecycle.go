@@ -29,7 +29,9 @@ func (e *VP8Encoder) Reset() {
 	e.lastQuantizerValid = false
 	e.cyclicRefreshIndex = 0
 	e.segmentationHeaderEnabled = false
+	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
 	e.rtcExternalPreserveSegmentation = false
+	e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
 	e.lookaheadRead = 0
 	e.lookaheadWrite = 0
 	e.lookaheadCount = 0

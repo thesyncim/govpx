@@ -762,8 +762,13 @@ func (rc *rateControlState) laterKeyFrameTargetBits(baseTargetBits int, ctx rate
 		boost = min(max(initialBoost, libvpxKeyFrameBoostForFrameRate(ctx.timing)), maxKeyBoost)
 	}
 	boost = boost * libvpxKeyFrameBoostQAdjustment[q] / 100
-	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(rc.framesSinceKeyframe) < halfFrameRate {
-		boost = int(float64(boost) * float64(rc.framesSinceKeyframe) / halfFrameRate)
+	// Libvpx increments frames_since_key at the end of every visible frame,
+	// including the previous key frame. govpx's rolling counter excludes the
+	// key frame itself, so add one when mirroring calc_iframe_target_size's
+	// short-interval dampening.
+	framesSinceKey := rc.framesSinceKeyframe + 1
+	if halfFrameRate := libvpxHalfFrameRate(ctx.timing); halfFrameRate > 0 && float64(framesSinceKey) < halfFrameRate {
+		boost = int(float64(boost) * float64(framesSinceKey) / halfFrameRate)
 	}
 	if boost < minKeyBoost {
 		boost = minKeyBoost

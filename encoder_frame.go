@@ -558,7 +558,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			if attempt.Config.Segmentation.Enabled {
 				e.roi.clearUpdateFlags()
 			}
-			e.segmentationHeaderEnabled = attempt.Config.Segmentation.Enabled
+			e.rememberSegmentationConfig(attempt.Config.Segmentation)
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
@@ -689,7 +689,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	if keyAttempt.SegmentationEnabled {
 		e.roi.clearUpdateFlags()
 	}
-	e.segmentationHeaderEnabled = keyAttempt.SegmentationEnabled
+	e.rememberSegmentationConfig(keyAttempt.SegmentationConfig)
 	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
 	// drop source_alt_ref_active when no ARF schedule is pending, and
 	// decrement frames_till_alt_ref_frame. Carried out by

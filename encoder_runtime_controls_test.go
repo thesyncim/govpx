@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
 func TestEncodeIntoDropsInterFrameWhenBufferUnderrunAndAllowed(t *testing.T) {
@@ -644,6 +645,111 @@ func TestSetRateControlPreservesLibvpxCyclicRefreshMode(t *testing.T) {
 	}
 	if vbr.cyclicRefreshModeEnabled(false) {
 		t.Fatalf("VBR-born runtime CBR cyclic refresh enabled, want libvpx sticky disablement")
+	}
+}
+
+func TestRTCExternalPreservesPriorCyclicSegmentationOnForcedKeyFrame(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   400,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		KeyFrameInterval:    999,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             0,
+		Tuning:              TunePSNR,
+		BufferSizeMs:        200,
+		BufferInitialSizeMs: 100,
+		BufferOptimalSizeMs: 150,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  50,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	for frame := 0; frame <= 1; frame++ {
+		result, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d: %v", frame, err)
+		}
+		if frame == 1 {
+			state := packetState(t, result.Data)
+			if !state.Segmentation.Enabled {
+				t.Fatalf("frame 1 segmentation disabled, want cyclic refresh header")
+			}
+		}
+	}
+	want := e.lastSegmentationConfig.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]
+	if want == 0 {
+		t.Fatalf("preserved cyclic alt-q delta = 0, want nonzero")
+	}
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	for frame := 2; frame < 6; frame++ {
+		if frame == 5 {
+			if err := e.SetRTCExternalRateControl(false); err != nil {
+				t.Fatalf("SetRTCExternalRateControl(false): %v", err)
+			}
+		}
+		if _, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, frame), uint64(frame), 1, 0); err != nil {
+			t.Fatalf("EncodeInto frame %d: %v", frame, err)
+		}
+	}
+	forced, err := e.EncodeInto(dst, encoderValidationPanningFrame(64, 64, 6), 6, 1, EncodeForceKeyFrame)
+	if err != nil {
+		t.Fatalf("forced EncodeInto: %v", err)
+	}
+	state := packetState(t, forced.Data)
+	if got := state.Segmentation.FeatureData[vp8common.MBLvlAltQ][staticSegmentID]; got != want {
+		t.Fatalf("forced-key cyclic alt-q delta = %d, want preserved %d", got, want)
+	}
+}
+
+func TestROIMapDisableClearsRTCExternalSegmentationPreserve(t *testing.T) {
+	e := newTestEncoder(t)
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      rows,
+		Cols:      cols,
+		SegmentID: make([]uint8, rows*cols),
+	}
+	roi.DeltaQuantizer[1] = -10
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			if row == 0 || col == 0 || row == rows-1 || col == cols-1 {
+				roi.SegmentID[row*cols+col] = 1
+			}
+		}
+	}
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap(border1): %v", err)
+	}
+	modes := make([]vp8enc.KeyFrameMacroblockMode, rows*cols)
+	if !e.assignKeyFrameROISegments(rows, cols, modes) {
+		t.Fatalf("assignKeyFrameROISegments failed")
+	}
+	e.rememberSegmentationConfig(e.roiSegmentationConfig())
+	if err := e.SetRTCExternalRateControl(true); err != nil {
+		t.Fatalf("SetRTCExternalRateControl(true): %v", err)
+	}
+	if !e.rtcExternalPreserveSegmentation {
+		t.Fatalf("rtcExternalPreserveSegmentation = false, want true after ROI header")
+	}
+	if err := e.SetROIMap(nil); err != nil {
+		t.Fatalf("SetROIMap(nil): %v", err)
+	}
+	if e.rtcExternalPreserveSegmentation || e.rtcExternalPreservedSegmentation.Enabled || e.segmentationHeaderEnabled {
+		t.Fatalf("RTC/segmentation preserve after ROI disable = preserve:%t preserved:%t header:%t, want all false",
+			e.rtcExternalPreserveSegmentation, e.rtcExternalPreservedSegmentation.Enabled, e.segmentationHeaderEnabled)
 	}
 }
 

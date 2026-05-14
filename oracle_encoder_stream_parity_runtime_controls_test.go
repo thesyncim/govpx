@@ -2098,10 +2098,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// The accepted false call stays sticky. The following forced
-			// keyframe has an RTC header drift, then the stream rejoins.
-			matchLimit: 6,
-			matchFrom:  7,
 			script: runtimeControlScript(frames, map[int]string{
 				2: "rtc:1",
 				5: "rtc:0",
@@ -2345,9 +2341,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// Strict through the RTC round-trip; disabling active+ROI after
-			// the RTC transition still leaves a teardown drift.
-			matchLimit: 10,
 			script: runtimeControlScript(frames, map[int]string{
 				1:  "active:checker+roi:border1",
 				4:  "rtc:1",
@@ -2395,9 +2388,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// RTC+ROI is strict while ROI is enabled. Disabling ROI under
-			// sticky RTC exposes the remaining segmentation teardown gap.
-			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "roi:border1",
 				4: "rtc:1",
@@ -2440,10 +2430,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// A forced keyframe does not reset the sticky RTC+ROI
-			// segmentation teardown drift; keep the full transition
-			// covered while asserting the matching pre-disable prefix.
-			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "roi:border1",
 				4: "rtc:1",
@@ -2481,9 +2467,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 				"--buf-optimal-sz=150",
 				"--drop-frame=50",
 			},
-			// Strict while active+ROI is enabled; teardown under sticky RTC
-			// shares the remaining RTC+ROI disable gap.
-			matchLimit: 8,
 			script: runtimeControlScript(frames, map[int]string{
 				1: "active:checker+roi:border1",
 				4: "rtc:1",
@@ -2927,9 +2910,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "roi-map-custom-data-switches",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// The initial custom ROI setup is strict; replacing it with a
-			// different custom ROI map still has a one-byte header drift.
-			matchLimit: 5,
 			script: runtimeControlScript(frames, map[int]string{
 				0: "roicustom:checker:0/-10/0/0:0/0/0/0:0/0/0/0",
 				5: "roicustom:quadrants:0/-10/8/-20:0/-3/2/5:0/500/0/1200",

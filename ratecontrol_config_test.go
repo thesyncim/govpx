@@ -382,8 +382,8 @@ func TestRateControlBeginLaterKeyFrameDampensShortIntervals(t *testing.T) {
 		timing:             timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1},
 	})
 
-	if rc.frameTargetBits != 92500 {
-		t.Fatalf("short-interval keyframe target = %d, want libvpx damped 92500", rc.frameTargetBits)
+	if rc.frameTargetBits != 105000 {
+		t.Fatalf("short-interval keyframe target = %d, want libvpx damped 105000", rc.frameTargetBits)
 	}
 }
 

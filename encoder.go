@@ -490,16 +490,18 @@ type VP8Encoder struct {
 	// restoreCodingContext when an attempt is rejected.
 	savedContext savedCodingContext
 
-	cyclicRefreshIndex              int
-	cyclicRefreshConfigured         bool
-	cyclicRefreshMap                []int8
-	cyclicRefreshAttemptMap         []int8
-	segmentationHeaderEnabled       bool
-	rtcExternalPreserveSegmentation bool
-	skinMap                         []uint8
-	consecZeroLast                  []uint8
-	lastInterZeroMVCount            int
-	lastInterSkipCount              int
+	cyclicRefreshIndex               int
+	cyclicRefreshConfigured          bool
+	cyclicRefreshMap                 []int8
+	cyclicRefreshAttemptMap          []int8
+	segmentationHeaderEnabled        bool
+	lastSegmentationConfig           vp8enc.SegmentationConfig
+	rtcExternalPreserveSegmentation  bool
+	rtcExternalPreservedSegmentation vp8enc.SegmentationConfig
+	skinMap                          []uint8
+	consecZeroLast                   []uint8
+	lastInterZeroMVCount             int
+	lastInterSkipCount               int
 
 	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
 	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
@@ -984,6 +986,7 @@ type keyFrameEncodeAttempt struct {
 	ModeLFDeltas        [vp8common.MaxModeLFDeltas]int8
 	RefreshEntropyProbs bool
 	SegmentationEnabled bool
+	SegmentationConfig  vp8enc.SegmentationConfig
 }
 
 type interFrameEncodeAttempt struct {

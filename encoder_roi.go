@@ -61,6 +61,13 @@ func (r *roiMapState) reset() {
 	r.suppressCyclicRefresh = false
 }
 
+func (e *VP8Encoder) disableROIMap() {
+	e.roi.disable()
+	e.rememberSegmentationConfig(vp8enc.SegmentationConfig{})
+	e.rtcExternalPreserveSegmentation = false
+	e.rtcExternalPreservedSegmentation = vp8enc.SegmentationConfig{}
+}
+
 // SetROIMap installs a libvpx-style region-of-interest map. ROI segmentation
 // applies to key and inter frames and takes precedence over cyclic refresh
 // while enabled. Pass nil, Enabled=false, nil SegmentID, or all-zero
@@ -70,7 +77,7 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 		return ErrClosed
 	}
 	if m == nil || !m.Enabled || m.SegmentID == nil {
-		e.roi.disable()
+		e.disableROIMap()
 		return nil
 	}
 	expectedRows := encoderMacroblockRows(e.opts.Height)
@@ -100,7 +107,7 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 		}
 	}
 	if !next.enabled {
-		e.roi.disable()
+		e.disableROIMap()
 		return nil
 	}
 	count := m.Rows * m.Cols

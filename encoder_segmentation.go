@@ -47,6 +47,15 @@ func (e *VP8Encoder) cyclicRefreshSegmentationConfigForQuantizerUnchecked(q int)
 	return cfg
 }
 
+func (e *VP8Encoder) rememberSegmentationConfig(cfg vp8enc.SegmentationConfig) {
+	e.segmentationHeaderEnabled = cfg.Enabled
+	if cfg.Enabled {
+		e.lastSegmentationConfig = cfg
+		return
+	}
+	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}
+}
+
 // aggressiveDenoiseAltLFDelta mirrors libvpx's lf_adjustment = -40 in the
 // aggressive-denoise cyclic-refresh branch (vp8/encoder/onyx_if.c).
 const aggressiveDenoiseAltLFDelta int8 = -40
@@ -88,7 +97,18 @@ func loopFilterSegmentationHeader(cfg vp8enc.SegmentationConfig) vp8dec.Segmenta
 // enabled, and a positive ALT_LF value is still emitted because it raises that
 // segment above the zero base level.
 func segmentationConfigForLoopFilterLevel(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, true)
+}
+
+func segmentationConfigForLoopFilterLevelPreserveAltLF(cfg vp8enc.SegmentationConfig, level uint8) vp8enc.SegmentationConfig {
+	return segmentationConfigForLoopFilterLevelWithPolicy(cfg, level, false)
+}
+
+func segmentationConfigForLoopFilterLevelWithPolicy(cfg vp8enc.SegmentationConfig, level uint8, stripNonPositiveAltLF bool) vp8enc.SegmentationConfig {
 	if !cfg.Enabled || level > 0 {
+		return cfg
+	}
+	if !stripNonPositiveAltLF {
 		return cfg
 	}
 	for segment := range vp8common.MaxMBSegments {
