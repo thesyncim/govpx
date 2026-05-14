@@ -429,6 +429,10 @@ func TestOracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testing.T
 			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeForceKeyFrame}),
 		},
 		{
+			name:  "force-golden-after-resize",
+			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeForceGoldenFrame}),
+		},
+		{
 			name:  "invisible-inter-after-resize",
 			flags: indexedResizeFlags(len(sources), map[int]EncodeFlags{framesPerSeg + 1: EncodeInvisibleFrame}),
 		},

@@ -72,6 +72,36 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
+	t.Run("runtime-active-roi-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		sources := makePanningSources(opts.Width, opts.Height, 5, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "active:checker+copyref:last"
+		script[2] = "roi:border1+copyref:golden"
+		script[4] = "active:off+roi:off+copyref:last+copyref:golden"
+		probes := map[int][]copyReferenceProbe{
+			1: {{ref: ReferenceLast, name: "last"}},
+			2: {{ref: ReferenceGolden, name: "golden"}},
+			4: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+		}
+		apply := map[int]func(*testing.T, *VP8Encoder){
+			1: activeMapApply("checker"),
+			2: roiMapApply("border1"),
+			4: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+				mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksums(t, driver, "copyref-runtime-active-roi", opts, sources, nil, script)
+		got := captureGovpxCopyReferenceChecksumsWithApply(t, opts, sources, nil, nil, apply, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
 	t.Run("copy-reference-probes-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(32, 32)
 		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
@@ -225,6 +255,11 @@ func captureLibvpxCopyReferenceChecksums(t *testing.T, driver, name string, opts
 
 func captureGovpxCopyReferenceChecksums(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, sets map[int][]copyReferenceSet, probes map[int][]copyReferenceProbe) []copyReferenceChecksum {
 	t.Helper()
+	return captureGovpxCopyReferenceChecksumsWithApply(t, opts, sources, flags, sets, nil, probes)
+}
+
+func captureGovpxCopyReferenceChecksumsWithApply(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, sets map[int][]copyReferenceSet, apply map[int]func(*testing.T, *VP8Encoder), probes map[int][]copyReferenceProbe) []copyReferenceChecksum {
+	t.Helper()
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder: %v", err)
@@ -239,6 +274,9 @@ func captureGovpxCopyReferenceChecksums(t *testing.T, opts EncoderOptions, sourc
 			if err := enc.SetReferenceFrame(set.ref, img); err != nil {
 				t.Fatalf("frame %d SetReferenceFrame(%s): %v", i, set.name, err)
 			}
+		}
+		if fn := apply[i]; fn != nil {
+			fn(t, enc)
 		}
 		for _, probe := range probes[i] {
 			dst := testImage(opts.Width, opts.Height)

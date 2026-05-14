@@ -2020,6 +2020,75 @@ func TestOracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testi
 	}
 }
 
+func TestOracleEncoderStreamByteParityRuntimeRateControlModeLongTailTransitions(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition long-tail byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps         = 30
+		targetKbps  = 700
+		frames      = 16
+		switchFrame = 3
+	)
+	cases := []struct {
+		name          string
+		from          RateControlMode
+		to            RateControlMode
+		forceKeyFrame bool
+		matchLimit    int
+	}{
+		{name: "vbr-to-cbr-long-tail", from: RateControlVBR, to: RateControlCBR},
+		{name: "cq-to-cbr-force-kf-long-tail", from: RateControlCQ, to: RateControlCBR, forceKeyFrame: true},
+		{name: "q-to-cbr-no-force-kf-long-tail", from: RateControlQ, to: RateControlCBR},
+		{name: "cq-to-q-post-switch-tail", from: RateControlCQ, to: RateControlQ},
+	}
+	for _, tc := range cases {
+		if tc.matchLimit == 0 {
+			tc.matchLimit = runtimeRateControlModeTransitionMatchLimit(tc.from, tc.to, tc.forceKeyFrame, switchFrame)
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:             32,
+				Height:            32,
+				FPS:               fps,
+				RateControlMode:   tc.from,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				CQLevel:           runtimeRateControlModeCQLevel(tc.from),
+				KeyFrameInterval:  999,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           0,
+				Tuning:            TunePSNR,
+			}
+			flags := make([]EncodeFlags, frames)
+			if tc.forceKeyFrame {
+				flags[switchFrame] = EncodeForceKeyFrame
+			}
+			script := runtimeControlScript(frames, map[int]string{
+				switchFrame: runtimeRateControlModeControlToken(tc.to, targetKbps),
+			})
+			apply := map[int]func(*testing.T, *VP8Encoder){
+				switchFrame: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRateControl("+runtimeRateControlModeName(tc.to)+")", e.SetRateControl(runtimeRateControlModeConfig(tc.to, targetKbps)))
+				},
+			}
+			sources := make([]Image, frames)
+			for i := range sources {
+				sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
+			}
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, flags, apply)
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, tc.name, opts, targetKbps, sources, flags, []string{
+				"--control-script=" + strings.Join(script, ","),
+			})
+			assertSegmentByteParity(t, "runtime-rc-mode-long-tail-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime temporal-control byte-parity gate")
