@@ -1138,6 +1138,20 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "noise-sensitivity-1-enable-only",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "noise:1",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(1)", e.SetNoiseSensitivity(1))
+				},
+			},
+		},
+		{
 			name: "noise-sensitivity-1-3-6-roundtrip",
 			fx:   panning64,
 			opts: baseOpts(panning64),
