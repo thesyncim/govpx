@@ -2316,6 +2316,11 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		inter.ref = savedRef
 		return root
 	}
+	if e.vp9InterPreferVarianceRoot(inter, miRows, miCols, miRow, miCol, root) {
+		e.restoreVP9PartitionReconSnapshot(reconSnap)
+		inter.ref = savedRef
+		return root
+	}
 	if e.vp9InterPreferTexturedSplit(inter, miRow, miCol, root) &&
 		splitSize >= common.Block8x8 {
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
@@ -2375,6 +2380,44 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	return bestSize
 }
 
+// vp9InterPreferVarianceRoot mirrors libvpx realtime speed-8
+// choose_partitioning's 64x64 variance threshold for the non-key LAST_FRAME
+// path. It catches flat temporal deltas where splitting only buys mode/MV
+// noise in the bitstream.
+func (e *VP9Encoder) vp9InterPreferVarianceRoot(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if inter == nil || inter.dq == nil || bsize != common.Block64x64 {
+		return false
+	}
+	if miRow+int(common.Num8x8BlocksHighLookup[bsize]) > miRows ||
+		miCol+int(common.Num8x8BlocksWideLookup[bsize]) > miCols {
+		return false
+	}
+	refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame)
+	if !ok {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	ref, refStride, refW, refH := vp9ReferenceVisiblePlane(&e.refFrames[refSlot], 0)
+	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 {
+		return false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0+blockW > srcW || y0+blockH > srcH ||
+		x0+blockW > refW || y0+blockH > refH {
+		return false
+	}
+	variance := vp9BlockDiffVariance(src, srcStride, ref, refStride,
+		x0, y0, x0, y0, blockW, blockH)
+	threshold := vp9RealtimeVariancePartitionThreshold64(inter.dq.Y[0][1],
+		srcW, srcH)
+	return variance < threshold
+}
+
 func (e *VP9Encoder) vp9InterPreferTexturedSplit(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize,
 ) bool {
@@ -2388,6 +2431,17 @@ func (e *VP9Encoder) vp9InterPreferTexturedSplit(inter *vp9InterEncodeState,
 	pixels := uint64(common.Num4x4BlocksWideLookup[bsize]) *
 		uint64(common.Num4x4BlocksHighLookup[bsize]) * 16
 	return sse > pixels*512 && activity > pixels*128
+}
+
+func vp9RealtimeVariancePartitionThreshold64(yAcDequant int16, width, height int) uint64 {
+	if yAcDequant <= 0 {
+		return 0
+	}
+	base := uint64(yAcDequant)
+	if width <= 640 && height <= 480 {
+		base = (5 * base) >> 2
+	}
+	return base
 }
 
 func (e *VP9Encoder) scoreVP9InterPartitionPair(inter *vp9InterEncodeState,
@@ -4488,6 +4542,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	useResidualScore := e.vp9InterPreferVarianceRoot(inter, miRows, miCols,
+		miRow, miCol, bsize)
 	bestSet := false
 	var best vp9InterModeDecision
 	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
@@ -4504,6 +4560,14 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			rate:         rate,
 			distortion:   distortion,
 			score:        vp9InterModeScore(distortion, rate, qindex),
+		}
+		if useResidualScore && refFrame == vp9dec.LastFrame {
+			if rdDist, rdRate, ok := e.scoreVP9InterModeResidual(inter, miRows,
+				miCols, miRow, miCol, bsize, mode, refFrame, mv, filter); ok {
+				cand.distortion = rdDist
+				cand.rate = rate + rdRate
+				cand.score = vp9InterModeScore(cand.distortion, cand.rate, qindex)
+			}
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
@@ -4588,6 +4652,43 @@ func (e *VP9Encoder) pickVP9InterMv(inter *vp9InterEncodeState,
 		return vp9dec.MV{}, score, false
 	}
 	return mv, score, true
+}
+
+// scoreVP9InterModeResidual gives flat-root LAST candidates a small non-RD
+// residual model analogous to libvpx vp9_pick_inter_mode's model/block Y RD
+// pass. Prediction SSE alone overvalues tiny subpel NEWMV gains on flat deltas.
+func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter,
+) (uint64, int, bool) {
+	if inter == nil || inter.dq == nil {
+		return 0, 0, false
+	}
+	txSize := clampVP9TxSizeForBlock(common.Tx16x16, bsize)
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		TxSize:       txSize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return 0, 0, false
+	}
+	distortion, rate, hasResidue, ok := e.scoreVP9InterTxCandidate(inter,
+		miRows, miCols, miRow, miCol, bsize, txSize)
+	if !ok {
+		return 0, 0, false
+	}
+	if !hasResidue {
+		rate = 0
+	}
+	return distortion, rate, true
 }
 
 func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
@@ -5200,6 +5301,31 @@ func vp9BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
 		}
 	}
 	return sse
+}
+
+func vp9BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) uint64 {
+	var sum int64
+	var sse uint64
+	for y := range h {
+		srcRow := src[(srcY+y)*srcStride+srcX:]
+		refRow := ref[(refY+y)*refStride+refX:]
+		for x := range w {
+			diff := int64(int(srcRow[x]) - int(refRow[x]))
+			sum += diff
+			sse += uint64(diff * diff)
+		}
+	}
+	n := int64(w * h)
+	if n <= 0 {
+		return 0
+	}
+	meanSquares := uint64((sum * sum) / n)
+	if sse <= meanSquares {
+		return 0
+	}
+	return sse - meanSquares
 }
 
 func vp9BlockSADNoLimit(src []byte, srcStride int, ref []byte, refStride int,

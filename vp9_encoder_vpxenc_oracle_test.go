@@ -225,8 +225,8 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 			wantHeader.FirstPartitionSize)
 	}
 	t.Logf("VP9 lookahead no-alt-ref oracle: byte_matches=%d/%d", matches, frames)
-	if os.Getenv("GOVPX_VP9_LOOKAHEAD_STRICT") == "1" && matches != frames {
-		t.Fatalf("strict VP9 lookahead byte parity matched %d/%d packets", matches, frames)
+	if matches != frames {
+		t.Fatalf("VP9 lookahead byte parity matched %d/%d packets", matches, frames)
 	}
 }
 
