@@ -2421,6 +2421,25 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "roi-map-custom-checker-set-clear",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				0: "roicustom:checker:0/-10/0/0:0/0/0/0:0/0/0/0",
+				9: "roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(simple-checker)", e.SetROIMap(simpleCheckerROIMap(e.opts.Width, e.opts.Height)))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
 			name: "roi-map-custom-data-switches",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
