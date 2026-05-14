@@ -363,7 +363,7 @@ func (e *VP8Encoder) forceKeyFrameRequested(flags EncodeFlags) bool {
 	return false
 }
 
-func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+func (e *VP8Encoder) goldenFrameCBROpportunity(keyFrame bool, temporalActive bool, flags EncodeFlags) bool {
 	if keyFrame ||
 		temporalActive ||
 		e.opts.ErrorResilient ||
@@ -371,11 +371,17 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive b
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
 		return false
 	}
+	return e.rc.framesTillGFUpdateDue == 0
+}
+
+func (e *VP8Encoder) shouldRefreshGoldenFrameCBR(keyFrame bool, temporalActive bool, flags EncodeFlags, rows int, cols int) bool {
+	if !e.goldenFrameCBROpportunity(keyFrame, temporalActive, flags) {
+		return false
+	}
 	if required := rows * cols; required <= 0 || e.lastInterZeroMVCount <= required/2 {
 		return false
 	}
-	interval := e.goldenFrameCBRInterval(rows, cols)
-	return interval > 0 && e.rc.framesSinceKeyframe > 0 && e.rc.framesSinceKeyframe%interval == 0
+	return e.goldenFrameCBRInterval(rows, cols) > 0
 }
 
 // shouldRefreshGoldenFrameOnePassNonCBR ports the libvpx auto_gold

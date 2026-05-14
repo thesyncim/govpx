@@ -290,18 +290,26 @@ func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	for frame := 1; frame <= 11; frame++ {
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	refreshFrame := e.rc.framesTillGFUpdateDue + 1
+	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
+		if frame == refreshFrame {
+			wantRC.framesTillGFUpdateDue = cbrInterval
+			wantRC.currentGFInterval = cbrInterval
+		}
 		wantRC.beginFrame(false)
 		wantTarget := wantRC.frameTargetBits
-		if frame == 11 {
+		if frame == refreshFrame {
 			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
 		}
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
-		if frame == 11 && inter.FrameTargetBits != wantTarget {
+		if frame == refreshFrame && inter.FrameTargetBits != wantTarget {
 			t.Fatalf("boosted target = %d, want libvpx CBR target %d", inter.FrameTargetBits, wantTarget)
 		}
 	}

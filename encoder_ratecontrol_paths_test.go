@@ -107,11 +107,19 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	for frame := 1; frame <= 11; frame++ {
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	refreshFrame := e.rc.framesTillGFUpdateDue + 1
+	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
+		if frame == refreshFrame {
+			wantRC.framesTillGFUpdateDue = cbrInterval
+			wantRC.currentGFInterval = cbrInterval
+		}
 		wantRC.beginFrame(false)
 		wantTarget := wantRC.frameTargetBits
-		if frame == 11 {
+		if frame == refreshFrame {
 			wantTarget = boostedFrameTargetBits(wantTarget, e.rc.gfCBRBoostPct)
 		}
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
@@ -119,7 +127,7 @@ func TestEncodeIntoGFCBRBoostRefreshesGoldenOnInterval(t *testing.T) {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
 		state := packetState(t, inter.Data)
-		if frame < 11 {
+		if frame < refreshFrame {
 			if state.Refresh.RefreshGolden {
 				t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 			}
@@ -159,24 +167,32 @@ func TestEncodeIntoDefaultCBRRefreshesGoldenOnLibvpxInterval(t *testing.T) {
 	if _, err := e.EncodeInto(dst, src, 0, 1, 0); err != nil {
 		t.Fatalf("key EncodeInto returned error: %v", err)
 	}
-	for frame := 1; frame <= 11; frame++ {
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	refreshFrame := e.rc.framesTillGFUpdateDue + 1
+	cbrInterval := e.goldenFrameCBRInterval(rows, cols)
+	for frame := 1; frame <= refreshFrame; frame++ {
 		wantRC := e.rc
+		if frame == refreshFrame {
+			wantRC.framesTillGFUpdateDue = cbrInterval
+			wantRC.currentGFInterval = cbrInterval
+		}
 		wantRC.beginFrame(false)
 		inter, err := e.EncodeInto(dst, publicImageFromVP8(&e.lastRef.Img), uint64(frame), 1, 0)
 		if err != nil {
 			t.Fatalf("inter %d EncodeInto returned error: %v", frame, err)
 		}
 		state := packetState(t, inter.Data)
-		if frame < 11 && state.Refresh.RefreshGolden {
+		if frame < refreshFrame && state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = true, want false before interval", frame)
 		}
-		if frame < 11 && state.Refresh.CopyBufferToAltRef != 0 {
+		if frame < refreshFrame && state.Refresh.CopyBufferToAltRef != 0 {
 			t.Fatalf("inter %d copy-to-alt = %d, want none before GF refresh", frame, state.Refresh.CopyBufferToAltRef)
 		}
-		if frame == 11 && !state.Refresh.RefreshGolden {
+		if frame == refreshFrame && !state.Refresh.RefreshGolden {
 			t.Fatalf("inter %d refresh golden = false, want default libvpx CBR GF refresh", frame)
 		}
-		if frame == 11 && state.Refresh.CopyBufferToAltRef != 2 {
+		if frame == refreshFrame && state.Refresh.CopyBufferToAltRef != 2 {
 			t.Fatalf("inter %d copy-to-alt = %d, want libvpx old-GF-to-ARF copy", frame, state.Refresh.CopyBufferToAltRef)
 		}
 		if inter.FrameTargetBits != wantRC.frameTargetBits {
@@ -415,7 +431,7 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	}
 	rows := encoderMacroblockRows(e.opts.Height)
 	cols := encoderMacroblockCols(e.opts.Width)
-	e.rc.framesSinceKeyframe = e.goldenFrameCBRInterval(rows, cols)
+	e.rc.framesTillGFUpdateDue = 0
 
 	e.lastInterZeroMVCount = rows * cols / 2
 	if e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
@@ -424,6 +440,32 @@ func TestGFCBRBoostRequiresPriorLastZeroMVMajority(t *testing.T) {
 	e.lastInterZeroMVCount = rows*cols/2 + 1
 	if !e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
 		t.Fatalf("shouldRefreshGoldenFrameCBR = false, want true with LAST/ZEROMV majority")
+	}
+}
+
+func TestGFCBROpportunityUsesLibvpxCountdown(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 700,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		Deadline:          DeadlineRealtime,
+		KeyFrameInterval:  999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	rows := encoderMacroblockRows(e.opts.Height)
+	cols := encoderMacroblockCols(e.opts.Width)
+	interval := e.goldenFrameCBRInterval(rows, cols)
+	e.rc.framesSinceKeyframe = interval - 1
+	e.rc.framesTillGFUpdateDue = 0
+	e.lastInterZeroMVCount = rows*cols/2 + 1
+	if !e.shouldRefreshGoldenFrameCBR(false, false, 0, rows, cols) {
+		t.Fatalf("shouldRefreshGoldenFrameCBR = false, want countdown-driven GF opportunity")
 	}
 }
 

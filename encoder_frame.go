@@ -123,7 +123,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		twoPassSceneCut = true
 	}
 	temporalReferenceControl := temporalFrame.Enabled && temporalFrame.LayerCount > 1
-	goldenCBRRefresh := e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
+	goldenCBROpportunity := e.goldenFrameCBROpportunity(keyFrame, temporalReferenceControl, flags)
+	goldenCBRRefresh := goldenCBROpportunity && e.shouldRefreshGoldenFrameCBR(keyFrame, temporalReferenceControl, flags, rows, cols)
 	// libvpx auto_gold one-pass non-CBR refresh decision: VBR/CQ
 	// triggers GF refresh when frames_till_gf_update_due==0 and
 	// pct_intra<15 || gf_frame_usage>=5. govpx funnels it through the
@@ -154,13 +155,18 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// +/- branch with this frame's boost instead of the prior GF's.
 	gfBaselineInterval := e.rc.framesTillGFUpdateDue
 	gfMaxInterval := e.rc.framesTillGFUpdateDue
-	if goldenCBRRefresh {
-		if e.rc.mode == RateControlCBR {
-			gfInterval := e.goldenFrameCBRInterval(rows, cols)
-			e.rc.framesTillGFUpdateDue = gfInterval
-			e.rc.currentGFInterval = gfInterval
+	if goldenCBROpportunity && e.rc.mode == RateControlCBR {
+		gfInterval := e.goldenFrameCBRInterval(rows, cols)
+		e.rc.framesTillGFUpdateDue = gfInterval
+		e.rc.currentGFInterval = gfInterval
+		if goldenCBRRefresh {
 			gfBaselineInterval = gfInterval
 			gfMaxInterval = gfInterval
+		}
+	} else if goldenCBRRefresh {
+		if e.rc.mode == RateControlCBR {
+			gfBaselineInterval = e.rc.framesTillGFUpdateDue
+			gfMaxInterval = e.rc.framesTillGFUpdateDue
 		} else {
 			gfBaselineInterval = libvpxDefaultGFInterval
 			gfMaxInterval = e.libvpxMaxGFInterval()
