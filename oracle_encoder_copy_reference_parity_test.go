@@ -102,6 +102,53 @@ func TestOracleEncoderCopyReferenceFrameParity(t *testing.T) {
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
+	t.Run("temporal-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, opts.TargetBitrateKbps)
+		sources := makePanningSources(opts.Width, opts.Height, 8, 0)
+		flags := temporalTwoLayerFlags(len(sources))
+		script := emptyCopyReferenceScript(len(sources))
+		script[2] = "copyref:last+copyref:golden"
+		script[5] = "copyref:last+copyref:altref"
+		probes := map[int][]copyReferenceProbe{
+			2: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+			5: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksumsWithExtraArgs(t, driver, "copyref-temporal", opts, sources, flags, script, runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, opts.TargetBitrateKbps))
+		got := captureGovpxCopyReferenceChecksums(t, opts, sources, flags, nil, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
+	t.Run("denoiser-copy-reference", func(t *testing.T) {
+		opts := copyReferenceParityOptions(64, 64)
+		opts.NoiseSensitivity = 3
+		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
+		script := emptyCopyReferenceScript(len(sources))
+		script[1] = "copyref:last+copyref:golden"
+		script[4] = "copyref:last+copyref:altref"
+		probes := map[int][]copyReferenceProbe{
+			1: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceGolden, name: "golden"},
+			},
+			4: {
+				{ref: ReferenceLast, name: "last"},
+				{ref: ReferenceAltRef, name: "altref"},
+			},
+		}
+
+		want := captureLibvpxCopyReferenceChecksumsWithExtraArgs(t, driver, "copyref-denoiser", opts, sources, nil, script, []string{"--noise-sensitivity=3"})
+		got := captureGovpxCopyReferenceChecksums(t, opts, sources, nil, nil, probes)
+		assertCopyReferenceChecksumsEqual(t, got, want)
+	})
+
 	t.Run("copy-reference-probes-do-not-change-bytestream", func(t *testing.T) {
 		opts := copyReferenceParityOptions(32, 32)
 		sources := makePanningSources(opts.Width, opts.Height, 6, 0)
@@ -244,12 +291,18 @@ func emptyCopyReferenceScript(frames int) []string {
 
 func captureLibvpxCopyReferenceChecksums(t *testing.T, driver, name string, opts EncoderOptions, sources []Image, flags []EncodeFlags, script []string) []copyReferenceChecksum {
 	t.Helper()
+	return captureLibvpxCopyReferenceChecksumsWithExtraArgs(t, driver, name, opts, sources, flags, script, nil)
+}
+
+func captureLibvpxCopyReferenceChecksumsWithExtraArgs(t *testing.T, driver, name string, opts EncoderOptions, sources []Image, flags []EncodeFlags, script []string, extraArgs []string) []copyReferenceChecksum {
+	t.Helper()
 	logPath := filepath.Join(t.TempDir(), name+".log")
-	extraArgs := []string{
+	args := []string{
 		"--control-script=" + strings.Join(script, ","),
 		"--copy-ref-log=" + logPath,
 	}
-	_ = encodeFramesWithFrameFlagsDriver(t, driver, name, opts, opts.TargetBitrateKbps, sources, flags, extraArgs)
+	args = append(args, extraArgs...)
+	_ = encodeFramesWithFrameFlagsDriver(t, driver, name, opts, opts.TargetBitrateKbps, sources, flags, args)
 	return readCopyReferenceChecksumLog(t, logPath)
 }
 
