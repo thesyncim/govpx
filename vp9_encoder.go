@@ -92,6 +92,11 @@ type VP9EncoderOptions struct {
 	// frame header.
 	ErrorResilient bool
 
+	// TemporalScalability configures temporal-only VP9 layer scheduling for
+	// one spatial layer. Result metadata is returned by
+	// EncodeIntoWithResult / EncodeIntoWithFlagsResult.
+	TemporalScalability TemporalScalabilityConfig
+
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
 	// This supports AltQ, AltLF, forced inter-reference, and forced-skip
@@ -125,6 +130,45 @@ type VP9SegmentationOptions struct {
 	RefFrame        [VP9MaxSegments]int8
 }
 
+// VP9EncodeResult is returned by EncodeIntoWithResult and
+// EncodeIntoWithFlagsResult. Data aliases the caller-owned output buffer.
+type VP9EncodeResult struct {
+	Data []byte
+
+	KeyFrame  bool
+	IntraOnly bool
+	ShowFrame bool
+	Droppable bool
+
+	Quantizer         int
+	InternalQuantizer int
+	SizeBytes         int
+	RefreshFrameFlags uint8
+
+	TemporalLayerID    int
+	TemporalLayerCount int
+	TemporalLayerSync  bool
+	TL0PICIDX          uint8
+}
+
+// RTPPayloadDescriptor returns a non-flexible VP9 RTP descriptor populated
+// from temporal-layer metadata. Picture ID is intentionally left unset so
+// callers can choose their own RTP picture-id policy.
+func (r VP9EncodeResult) RTPPayloadDescriptor() VP9RTPPayloadDescriptor {
+	desc := VP9RTPPayloadDescriptor{
+		InterPicturePredicted: !r.KeyFrame && !r.IntraOnly,
+		StartOfFrame:          true,
+		EndOfFrame:            true,
+	}
+	if r.TemporalLayerCount > 1 {
+		desc.LayerIndicesPresent = true
+		desc.TemporalID = uint8(r.TemporalLayerID)
+		desc.TL0PICIDX = r.TL0PICIDX
+		desc.SwitchingUpPoint = r.TemporalLayerSync
+	}
+	return desc
+}
+
 // ErrVP9EncoderNotImplemented is retained for callers that already branch on
 // this sentinel.
 //
@@ -146,8 +190,9 @@ const (
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
-	opts   VP9EncoderOptions
-	closed bool
+	opts     VP9EncoderOptions
+	closed   bool
+	temporal temporalState
 
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
@@ -231,7 +276,12 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := validateVP9EncoderOptions(opts); err != nil {
 		return nil, err
 	}
-	e := &VP9Encoder{opts: opts}
+	var temporal temporalState
+	if err := temporal.configure(opts.TemporalScalability, opts.TargetBitrateKbps); err != nil {
+		return nil, err
+	}
+	opts.TemporalScalability = temporal.config
+	e := &VP9Encoder{opts: opts, temporal: temporal}
 	e.lfi = vp9dec.NewLoopFilterInfoN()
 	vp9dec.LoopFilterInit(&e.lfi, 0)
 	return e, nil
@@ -451,7 +501,30 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 // header, so the real tile stream is encoded with same-frame counts-driven
 // probability updates.
 func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
-	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, false)
+	result, err := e.EncodeIntoWithFlagsResult(img, dst, flags)
+	return len(result.Data), err
+}
+
+// EncodeIntoWithResult packs the next profile 0 frame into dst and returns
+// packet metadata. It is equivalent to EncodeIntoWithFlagsResult with no
+// caller flags.
+func (e *VP9Encoder) EncodeIntoWithResult(img *image.YCbCr, dst []byte) (VP9EncodeResult, error) {
+	return e.EncodeIntoWithFlagsResult(img, dst, 0)
+}
+
+// EncodeIntoWithFlagsResult packs the next profile 0 frame into dst while
+// returning packet and temporal-layer metadata.
+func (e *VP9Encoder) EncodeIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
+	if e == nil || e.closed {
+		return VP9EncodeResult{}, ErrClosed
+	}
+	callerFlags := flags
+	temporalFrame := e.temporal.nextFrame(e.vp9TimingState())
+	flags |= temporalFrame.Flags
+	if e.vp9ShouldEncodeKeyFrame(flags) {
+		flags &^= (temporalFrame.Flags & vp9NoUpdateRefFlags) &^ callerFlags
+	}
+	return e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, false, temporalFrame)
 }
 
 // EncodeIntraOnlyFrameInto packs a hidden VP9 intra-only frame into dst.
@@ -460,30 +533,31 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 // must already be initialized by a coded frame. Use EncodeShowExistingFrameInto
 // to display a refreshed slot after this call.
 func (e *VP9Encoder) EncodeIntraOnlyFrameInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
-	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, true)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(img, dst, flags, true, temporalFrame{LayerID: 0, LayerCount: 1})
+	return len(result.Data), err
 }
 
-func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool) (n int, err error) {
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResult(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame) (result VP9EncodeResult, err error) {
 	if e == nil || e.closed {
-		return 0, ErrClosed
+		return VP9EncodeResult{}, ErrClosed
 	}
 	if err := validateVP9EncodeFlags(flags); err != nil {
-		return 0, err
+		return VP9EncodeResult{}, err
 	}
 	if forceIntraOnly {
 		if flags&EncodeForceKeyFrame != 0 {
-			return 0, ErrInvalidConfig
+			return VP9EncodeResult{}, ErrInvalidConfig
 		}
 		if e.frameIndex == 0 {
-			return 0, ErrInvalidConfig
+			return VP9EncodeResult{}, ErrInvalidConfig
 		}
 		flags |= EncodeInvisibleFrame
 	}
 	if err := e.validateVP9EncoderSource(img); err != nil {
-		return 0, err
+		return VP9EncodeResult{}, err
 	}
 	if len(dst) < vp9MinEncodeIntoBuffer {
-		return 0, ErrBufferTooSmall
+		return VP9EncodeResult{}, ErrBufferTooSmall
 	}
 
 	width := uint32(e.opts.Width)
@@ -503,14 +577,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 	}
 	if !isKey && !intraOnly {
 		if err := e.validateVP9InterSegmentationReferences(flags); err != nil {
-			return 0, err
+			return VP9EncodeResult{}, err
 		}
 	}
 	if isKey && flags&vp9NoUpdateRefFlags != 0 {
-		return 0, ErrInvalidConfig
+		return VP9EncodeResult{}, ErrInvalidConfig
 	}
 	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
-		return 0, ErrInvalidConfig
+		return VP9EncodeResult{}, ErrInvalidConfig
 	}
 	if isKey || (intraOnly && flags&EncodeNoUpdateEntropy == 0) {
 		vp9dec.ResetFrameContext(&e.fc)
@@ -680,10 +754,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		Counts:                  counts,
 	})
 	if err != nil {
-		return 0, err
+		return VP9EncodeResult{}, err
 	}
 	if compSize > 0xffff {
-		return 0, encoder.ErrCompressedHeaderTooLarge
+		return VP9EncodeResult{}, encoder.ErrCompressedHeaderTooLarge
 	}
 	header.FirstPartitionSize = uint16(compSize)
 	if !isKey && !intraOnly {
@@ -705,7 +779,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 			&headerBW, &header, e.vp9RefDims, &prevLfRef, &prevLfMode)
 	}
 	if uncSize+compSize >= len(dst) {
-		return uncSize, encoder.ErrPackBufferFull
+		return VP9EncodeResult{}, encoder.ErrPackBufferFull
 	}
 	copy(dst[uncSize:uncSize+compSize], e.scratch[:compSize])
 
@@ -720,22 +794,43 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, f
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, tileKind, keyState,
 		interState)
 	if err != nil {
-		return tileStart, err
+		return VP9EncodeResult{}, err
 	}
-	n = tileStart + tileSize
+	n := tileStart + tileSize
 	if header.RefreshFrameFlags != 0 {
 		if !e.applyVP9EncoderLoopFilter(&header, &seg) {
-			return n, ErrInvalidVP9Data
+			return VP9EncodeResult{}, ErrInvalidVP9Data
 		}
 	}
 	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header, flags)
 	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
+	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
+		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
+		encodedSizeBits(n), e.vp9TemporalBufferConfig())
 	e.frameIndex++
 	if isKey {
 		e.forceKeyFrame = false
 	}
-	return n, nil
+	result = VP9EncodeResult{
+		Data:               dst[:n],
+		KeyFrame:           isKey,
+		IntraOnly:          intraOnly,
+		ShowFrame:          header.ShowFrame,
+		Droppable:          !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
+		Quantizer:          vp9QIndexToPublicQuantizer(qindex),
+		InternalQuantizer:  qindex,
+		SizeBytes:          n,
+		RefreshFrameFlags:  header.RefreshFrameFlags,
+		TemporalLayerID:    temporalFrame.LayerID,
+		TemporalLayerCount: temporalFrame.LayerCount,
+		TemporalLayerSync:  temporalFrame.LayerSync,
+		TL0PICIDX:          temporalFrame.TL0PICIDX,
+	}
+	if result.TemporalLayerCount == 0 {
+		result.TemporalLayerCount = 1
+	}
+	return result, nil
 }
 
 const (
@@ -745,6 +840,37 @@ const (
 )
 
 const vp9NoUpdateRefFlags = EncodeNoUpdateLast | EncodeNoUpdateGolden | EncodeNoUpdateAltRef
+
+func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
+	return temporalReferenceRefresh{
+		Last:   refreshFlags&(1<<uint(vp9LastRefSlot)) != 0,
+		Golden: refreshFlags&(1<<uint(vp9GoldenRefSlot)) != 0,
+		AltRef: refreshFlags&(1<<uint(vp9AltRefSlot)) != 0,
+	}
+}
+
+func (e *VP9Encoder) vp9TimingState() timingState {
+	fps := e.opts.FPS
+	if e.opts.TimebaseNum > 0 && e.opts.TimebaseDen > 0 {
+		return timingState{
+			timebaseNum:   e.opts.TimebaseNum,
+			timebaseDen:   e.opts.TimebaseDen,
+			frameDuration: 1,
+		}
+	}
+	if fps == 0 {
+		fps = 30
+	}
+	return timingState{timebaseNum: 1, timebaseDen: fps, frameDuration: 1}
+}
+
+func (e *VP9Encoder) vp9TemporalBufferConfig() temporalBufferConfig {
+	return temporalBufferConfig{
+		timing:              e.vp9TimingState(),
+		bufferInitialSizeMs: libvpxDefaultBufferInitialMs,
+		bufferSizeMs:        libvpxDefaultBufferSizeMs,
+	}
+}
 
 func vp9InterReferenceMask(flags EncodeFlags) uint8 {
 	var mask uint8

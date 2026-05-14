@@ -55,6 +55,12 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			return err
 		}
 	}
+	nextTemporal := e.temporal
+	if target.BitrateKbps > 0 && nextTemporal.enabled {
+		if err := nextTemporal.refreshBitrate(target.BitrateKbps); err != nil {
+			return err
+		}
+	}
 
 	if target.Width > 0 &&
 		(target.Width != e.opts.Width || target.Height != e.opts.Height) {
@@ -70,6 +76,10 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	if target.BitrateKbps > 0 {
 		e.opts.TargetBitrateKbps = target.BitrateKbps
+		if e.temporal.enabled {
+			e.temporal = nextTemporal
+			e.opts.TemporalScalability = e.temporal.config
+		}
 	}
 	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
 		e.opts.MinQuantizer = nextMinQuantizer

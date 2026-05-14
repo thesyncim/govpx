@@ -37,6 +37,15 @@ func TestBitWriterLiteralRoundsToFullByte(t *testing.T) {
 	}
 }
 
+func TestBitWriterClearsZeroBitsOnReuse(t *testing.T) {
+	buf := []byte{0xff}
+	w := NewBitWriter(buf)
+	w.WriteLiteral(0, 8)
+	if buf[0] != 0 {
+		t.Fatalf("buf[0] after zero rewrite = %#x, want 0", buf[0])
+	}
+}
+
 // TestBitWriterSignedLiteral: writes magnitude then sign bit, matching
 // libvpx's vpx_wb_write_signed_literal.
 func TestBitWriterSignedLiteral(t *testing.T) {

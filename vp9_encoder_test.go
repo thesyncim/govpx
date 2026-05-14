@@ -453,6 +453,19 @@ func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
 			o.CQLevel = 32
 		}, ErrInvalidQuantizer},
 		{func(o *VP9EncoderOptions) {
+			o.TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringTwoLayers,
+			}
+		}, ErrInvalidBitrate},
+		{func(o *VP9EncoderOptions) {
+			o.TargetBitrateKbps = 300
+			o.TemporalScalability = TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringMode(99),
+			}
+		}, ErrInvalidConfig},
+		{func(o *VP9EncoderOptions) {
 			o.Lossless = true
 			o.Quantizer = 1
 		}, ErrInvalidQuantizer},
@@ -2413,6 +2426,101 @@ func TestVP9EncoderSetRealtimeTargetUpdatesQuantizerBounds(t *testing.T) {
 	h, _ := parseVP9EncoderHeaderForTest(t, packet)
 	if got, want := int(h.Quant.BaseQindex), vp9PublicQuantizerToQIndex(20); got != want {
 		t.Fatalf("BaseQindex = %d, want %d", got, want)
+	}
+}
+
+func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		TargetBitrateKbps: 300,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringTwoLayers,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	decoder, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	wantLayer := []int{0, 1, 0, 1}
+	wantTL0 := []uint8{0, 0, 1, 1}
+	wantRefresh := []uint8{0xff, 0, 1, 0}
+	var prevHeader *vp9dec.UncompressedHeader
+	for i := range wantLayer {
+		src := newVP9YCbCrForTest(width, height, byte(80+i*20), 128, 128)
+		result, err := e.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", i, err)
+		}
+		packet := append([]byte(nil), result.Data...)
+		if len(packet) == 0 || result.SizeBytes != len(packet) {
+			t.Fatalf("result[%d] size = %d data=%d", i, result.SizeBytes, len(packet))
+		}
+		if got := result.TemporalLayerID; got != wantLayer[i] {
+			t.Fatalf("frame %d temporal layer = %d, want %d", i, got, wantLayer[i])
+		}
+		if got := result.TemporalLayerCount; got != 2 {
+			t.Fatalf("frame %d temporal layer count = %d, want 2", i, got)
+		}
+		if got := result.TL0PICIDX; got != wantTL0[i] {
+			t.Fatalf("frame %d TL0PICIDX = %d, want %d", i, got, wantTL0[i])
+		}
+		if got, want := result.TemporalLayerSync, i%2 == 1; got != want {
+			t.Fatalf("frame %d temporal sync = %t, want %t", i, got, want)
+		}
+		var br vp9dec.BitReader
+		br.Init(packet)
+		header, err := vp9dec.ReadUncompressedHeader(&br, prevHeader,
+			func(uint8) (uint32, uint32) { return width, height })
+		if err != nil {
+			t.Fatalf("ReadUncompressedHeader[%d]: %v", i, err)
+		}
+		prevHeader = &header
+		if got := result.RefreshFrameFlags; got != wantRefresh[i] {
+			t.Fatalf("frame %d result refresh flags = %#x, want %#x", i, got, wantRefresh[i])
+		}
+		if got := header.RefreshFrameFlags; got != wantRefresh[i] {
+			t.Fatalf("frame %d parsed header = %+v refresh flags = %#x, want %#x",
+				i, header, got, wantRefresh[i])
+		}
+		if got, want := result.KeyFrame, i == 0; got != want {
+			t.Fatalf("frame %d keyframe = %t, want %t", i, got, want)
+		}
+		if !result.ShowFrame || !header.ShowFrame {
+			t.Fatalf("frame %d ShowFrame result=%t header=%t, want visible",
+				i, result.ShowFrame, header.ShowFrame)
+		}
+		if err := decoder.Decode(packet); err != nil {
+			t.Fatalf("Decode[%d]: %v", i, err)
+		}
+		if _, ok := decoder.NextFrame(); !ok {
+			t.Fatalf("NextFrame[%d] returned !ok", i)
+		}
+		if i == 1 {
+			desc := result.RTPPayloadDescriptor()
+			payload, err := PackVP9RTPPayload(desc, packet)
+			if err != nil {
+				t.Fatalf("PackVP9RTPPayload: %v", err)
+			}
+			gotDesc, gotPacket, err := ParseVP9RTPPayloadDescriptor(payload)
+			if err != nil {
+				t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+			}
+			if !bytes.Equal(gotPacket, packet) {
+				t.Fatalf("RTP payload packet changed")
+			}
+			if !gotDesc.LayerIndicesPresent || gotDesc.TemporalID != 1 ||
+				gotDesc.TL0PICIDX != 0 || !gotDesc.SwitchingUpPoint ||
+				!gotDesc.InterPicturePredicted {
+				t.Fatalf("RTP descriptor = %+v, want temporal layer 1 sync", gotDesc)
+			}
+		}
 	}
 }
 
