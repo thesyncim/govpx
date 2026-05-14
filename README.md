@@ -93,12 +93,12 @@ for i, src := range frames {
 
 Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). VP8 output is
 one raw VP8 payload per packet -- not IVF, not WebM. VP9 encoder APIs emit raw
-Profile 0 packets and valid superframes only.
+Profile 0 packets and valid Profile 0 superframes only.
 
 | Capability | Knobs |
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
-| Realtime controls | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy |
+| Realtime controls | Error resilience, temporal scalability, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
 | Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, multi-threaded row encode |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`

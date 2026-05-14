@@ -8,7 +8,7 @@ Main tools:
 
 - `vpx_oracle.c`: VP8 decoder checksum oracle.
 - `build_vpxenc.sh`: pinned stock `vpxenc` / `vpxdec`.
-- `build_vpxdec_vp9.sh`: VP9-enabled `vpxdec` / `vpxenc` for profile 0
+- `build_vpxdec_vp9.sh`: VP9-enabled `vpxdec` / `vpxenc` for Profile 0
   oracle tests.
 - `build_vpxenc_oracle.sh`: patched VP8 encoder trace oracle.
 - `oracle_compare.go`: JSON Lines trace comparator.
@@ -26,7 +26,7 @@ make verify-decoder-parity
 ```
 
 Those targets build the required pinned tools under `internal/coracle/build`,
-fetch required VP8 corpora and VP9 profile 0 fixtures, set the `GOVPX_*`
+fetch required VP8 corpora and VP9 Profile 0 fixtures, set the `GOVPX_*`
 environment variables, and run the matching oracle tests.
 
 The VP8 decode helper accepts IVF input:

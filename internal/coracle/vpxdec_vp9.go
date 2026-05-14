@@ -39,24 +39,26 @@ func VpxdecVP9Path() (string, error) {
 }
 
 func resolveVpxdecVP9() {
-	if env := os.Getenv("GOVPX_VPXDEC_VP9_BIN"); env != "" {
+	vpxdecVP9Path, vpxdecVP9Err = resolveVP9ToolPath(
+		"GOVPX_VPXDEC_VP9_BIN", "vpxdec-vp9", ErrVpxdecVP9NotBuilt)
+}
+
+func resolveVP9ToolPath(envName string, binaryName string, notBuilt error) (string, error) {
+	if env := os.Getenv(envName); env != "" {
 		if st, err := os.Stat(env); err == nil && !st.IsDir() {
-			vpxdecVP9Path = env
-			return
+			return env, nil
 		}
 	}
-	// Default: <coracle pkg dir>/build/vpxdec-vp9.
+	// Default: <coracle pkg dir>/build/<binaryName>.
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		vpxdecVP9Err = ErrVpxdecVP9NotBuilt
-		return
+		return "", notBuilt
 	}
-	candidate := filepath.Join(filepath.Dir(file), "build", "vpxdec-vp9")
+	candidate := filepath.Join(filepath.Dir(file), "build", binaryName)
 	if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-		vpxdecVP9Path = candidate
-		return
+		return candidate, nil
 	}
-	vpxdecVP9Err = ErrVpxdecVP9NotBuilt
+	return "", notBuilt
 }
 
 // VpxdecVP9Decode pipes the IVF-wrapped VP9 stream `ivf` through
