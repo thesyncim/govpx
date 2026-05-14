@@ -1319,10 +1319,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "roi-map-quadrants-toggle",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// The ROI keyframe matches libvpx, while ROI-tagged inter
-			// frames still expose a first-partition drift. Keep the
-			// transition covered and log the unresolved inter-frame gap.
-			matchLimit: 1,
 			script: runtimeControlScript(frames, map[int]string{
 				0: "roi:quadrants",
 				6: "roi:off",
@@ -1342,9 +1338,6 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			name: "roi-map-pattern-switches",
 			fx:   segmented64,
 			opts: baseOpts(segmented64),
-			// ROI-tagged inter frames still drift, but this keeps the
-			// checker/left/border/off transition surface represented.
-			matchLimit: -1,
 			script: runtimeControlScript(frames, map[int]string{
 				0: "roi:checker",
 				3: "roi:left1",

@@ -518,6 +518,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		} else {
 			finalQuantizer := e.rc.currentQuantizer
 			e.commitInterFrameAttempt(attempt)
+			if attempt.Config.Segmentation.Enabled {
+				e.roi.clearUpdateFlags()
+			}
 			e.loopFilterLevel = attempt.Config.LoopFilterLevel
 			result.Data = dst[:attempt.Size]
 			result.SizeBytes = attempt.Size
@@ -645,6 +648,9 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	}
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
+	if keyAttempt.SegmentationEnabled {
+		e.roi.clearUpdateFlags()
+	}
 	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
 	// drop source_alt_ref_active when no ARF schedule is pending, and
 	// decrement frames_till_alt_ref_frame. Carried out by

@@ -42,7 +42,7 @@ func (e *VP8Encoder) Reset() {
 	clearUint8Map(e.consecZeroLastMVBias)
 	clearBoolMap(e.dotArtifactChecked)
 	e.activeMapEnabled = false
-	e.roi.disable()
+	e.roi.reset()
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
 	e.lastFrameInterModesValid = false

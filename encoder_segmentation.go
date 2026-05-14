@@ -93,6 +93,9 @@ func (e *VP8Encoder) cyclicRefreshModeEnabled(refreshGolden bool) bool {
 		// max-Q clamp.
 		return false
 	}
+	if e.roi.suppressCyclicRefresh {
+		return false
+	}
 	// libvpx vp8/encoder/onyx_if.c (around line 1980) gates the static
 	// `cpi->cyclic_refresh_mode_enabled` config on:
 	//

@@ -25,6 +25,9 @@ func TestSetROIMapValidationAndDisable(t *testing.T) {
 	if !e.roi.enabled || e.roi.rows != 1 || e.roi.cols != 2 {
 		t.Fatalf("roi state = %+v, want enabled 1x2", e.roi)
 	}
+	if !e.roi.suppressCyclicRefresh {
+		t.Fatalf("ROI did not suppress cyclic refresh")
+	}
 	if got, want := e.roi.deltaQuantizer[1], int8(-libvpxPublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("roi delta q[1] = %d, want %d", got, want)
 	}
@@ -60,11 +63,21 @@ func TestSetROIMapValidationAndDisable(t *testing.T) {
 	if e.roi.enabled {
 		t.Fatalf("zero-effect ROI left enabled")
 	}
+	if !e.roi.suppressCyclicRefresh || e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("zero-effect ROI disable restored cyclic refresh")
+	}
 	if err := e.SetROIMap(nil); err != nil {
 		t.Fatalf("SetROIMap(nil) returned error: %v", err)
 	}
 	if e.roi.enabled {
 		t.Fatalf("nil ROI left enabled")
+	}
+	if !e.roi.suppressCyclicRefresh || e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("nil ROI disable restored cyclic refresh")
+	}
+	e.Reset()
+	if e.roi.suppressCyclicRefresh || !e.cyclicRefreshModeEnabled(false) {
+		t.Fatalf("Reset roi suppress=%t cyclic=%t, want suppress=false cyclic=true", e.roi.suppressCyclicRefresh, e.cyclicRefreshModeEnabled(false))
 	}
 }
 
@@ -123,14 +136,26 @@ func TestSetROIMapWritesSegmentationMap(t *testing.T) {
 		t.Fatalf("inter KeyFrame = true, want inter frame")
 	}
 	interState := packetState(t, inter.Data)
-	if !interState.Segmentation.Enabled || !interState.Segmentation.UpdateMap || !interState.Segmentation.UpdateData {
-		t.Fatalf("inter segmentation = %+v, want ROI map/data update", interState.Segmentation)
+	if !interState.Segmentation.Enabled || interState.Segmentation.UpdateMap || interState.Segmentation.UpdateData {
+		t.Fatalf("inter segmentation = %+v, want ROI enabled with retained map/data", interState.Segmentation)
 	}
 	if err := d.Decode(inter.Data); err != nil {
 		t.Fatalf("inter Decode returned error: %v", err)
 	}
 	if d.modes[0].SegmentID != 1 || d.modes[1].SegmentID != 0 {
 		t.Fatalf("inter ROI segment IDs = %d/%d, want 1/0", d.modes[0].SegmentID, d.modes[1].SegmentID)
+	}
+
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap refresh returned error: %v", err)
+	}
+	third, err := e.EncodeInto(dst, second, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("third EncodeInto returned error: %v", err)
+	}
+	thirdState := packetState(t, third.Data)
+	if !thirdState.Segmentation.Enabled || !thirdState.Segmentation.UpdateMap || !thirdState.Segmentation.UpdateData {
+		t.Fatalf("third segmentation = %+v, want refreshed ROI map/data update", thirdState.Segmentation)
 	}
 }
 

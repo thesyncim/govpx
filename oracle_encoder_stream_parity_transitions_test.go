@@ -365,7 +365,7 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, baseOpts, sources, 4, nil,
 			map[int]func(*testing.T, *VP8Encoder){0: roiMapApply("checker")}, nil)
 		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-roi-map", baseOpts, targetKbps, sources, nil, []string{"--roi-map=checker"})
-		assertSegmentByteParity(t, "flush-roi-map", govpxFrames, libvpxFrames, -1)
+		assertSegmentByteParityFrom(t, "flush-roi-map", govpxFrames, libvpxFrames, 1)
 	})
 
 	t.Run("flush-set-reference-resume", func(t *testing.T) {

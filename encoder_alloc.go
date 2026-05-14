@@ -84,7 +84,7 @@ func (e *VP8Encoder) applyResolutionChange(width int, height int) error {
 	// segmentID grid no longer matches the new MB grid.
 	e.activityMapValid = false
 	if e.roi.enabled {
-		e.roi.disable()
+		e.roi.reset()
 	}
 
 	// Two-pass per-frame budgets depend on MB count.

@@ -315,9 +315,7 @@ func TestOracleEncoderStreamByteParityROIMap(t *testing.T) {
 		"--roi-dlf=0,-3,2,5",
 		"--roi-static=0,500,0,1200",
 	})
-	// The ROI keyframe is byte-identical; inter frames still expose a
-	// first-partition drift under ROI segmentation.
-	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 1)
+	assertSegmentByteParity(t, "roi-map-altq-altlf-static", govpxFrames, libvpxFrames, 0)
 }
 
 func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
@@ -362,9 +360,7 @@ func TestOracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 		"--roi-dlf=0,0,0,0",
 		"--roi-static=0,0,0,0",
 	})
-	// This narrows the ROI surface to map + delta-Q only. Inter frames
-	// still expose the same ROI segmentation drift as the richer rows.
-	assertSegmentByteParity(t, "roi-map-simple-dq", govpxFrames, libvpxFrames, 1)
+	assertSegmentByteParity(t, "roi-map-simple-dq", govpxFrames, libvpxFrames, 0)
 }
 
 func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
@@ -399,10 +395,11 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		roi       func() *ROIMap
-		extraArgs []string
-		limit     int
+		name       string
+		roi        func() *ROIMap
+		extraArgs  []string
+		limit      int
+		assertFrom int
 	}{
 		{
 			name: "simple-delta-lf",
@@ -414,7 +411,6 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				return roi
 			},
 			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,0,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
-			limit:     1,
 		},
 		{
 			name: "simple-static-threshold",
@@ -426,7 +422,6 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				return roi
 			},
 			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,0,0,0", "--roi-dlf=0,0,0,0", "--roi-static=0,500,0,0"},
-			limit:     1,
 		},
 		{
 			name: "dq-dlf-no-static",
@@ -437,8 +432,8 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				roi.StaticThreshold = [4]int{}
 				return roi
 			},
-			extraArgs: []string{"--roi-map=checker", "--roi-dq=0,-10,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
-			limit:     -1,
+			extraArgs:  []string{"--roi-map=checker", "--roi-dq=0,-10,0,0", "--roi-dlf=0,-3,0,0", "--roi-static=0,0,0,0"},
+			assertFrom: 1,
 		},
 		{
 			name: "quadrants-default",
@@ -461,6 +456,10 @@ func TestOracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 				},
 			})
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.name+"-32x32", opts, targetKbps, sources, nil, tc.extraArgs)
+			if tc.assertFrom > 0 {
+				assertSegmentByteParityFrom(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.assertFrom)
+				return
+			}
 			assertSegmentByteParity(t, "roi-map-"+tc.name, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}
@@ -583,12 +582,13 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	}
 
 	cases := []struct {
-		pattern string
-		limit   int
+		pattern    string
+		limit      int
+		assertFrom int
 	}{
-		{pattern: "checker", limit: -1},
-		{pattern: "left1", limit: -1},
-		{pattern: "border1", limit: 1},
+		{pattern: "checker", assertFrom: 1},
+		{pattern: "left1", assertFrom: 1},
+		{pattern: "border1", limit: 0},
 		{pattern: "off", limit: 0},
 	}
 	for _, tc := range cases {
@@ -603,6 +603,10 @@ func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "roi-map-"+tc.pattern+"-64x64", opts, targetKbps, sources, nil, []string{
 				"--roi-map=" + tc.pattern,
 			})
+			if tc.assertFrom > 0 {
+				assertSegmentByteParityFrom(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.assertFrom)
+				return
+			}
 			assertSegmentByteParity(t, "roi-map-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
 		})
 	}

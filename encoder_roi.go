@@ -32,6 +32,9 @@ type ROIMap struct {
 type roiMapState struct {
 	enabled                bool
 	staticThresholdEnabled bool
+	updateMap              bool
+	updateData             bool
+	suppressCyclicRefresh  bool
 	rows                   int
 	cols                   int
 	segmentID              []uint8
@@ -43,12 +46,19 @@ type roiMapState struct {
 func (r *roiMapState) disable() {
 	r.enabled = false
 	r.staticThresholdEnabled = false
+	r.updateMap = false
+	r.updateData = false
 	r.rows = 0
 	r.cols = 0
 	r.segmentID = nil
 	r.deltaQuantizer = [vp8common.MaxMBSegments]int8{}
 	r.deltaLoopFilter = [vp8common.MaxMBSegments]int8{}
 	r.staticThreshold = [vp8common.MaxMBSegments]int{}
+}
+
+func (r *roiMapState) reset() {
+	r.disable()
+	r.suppressCyclicRefresh = false
 }
 
 // SetROIMap installs a libvpx-style region-of-interest map. ROI segmentation
@@ -105,8 +115,16 @@ func (e *VP8Encoder) SetROIMap(m *ROIMap) error {
 		next.segmentID = e.roi.segmentID[:count]
 	}
 	copy(next.segmentID, m.SegmentID[:count])
+	next.updateMap = true
+	next.updateData = true
+	next.suppressCyclicRefresh = true
 	e.roi = next
 	return nil
+}
+
+func (r *roiMapState) clearUpdateFlags() {
+	r.updateMap = false
+	r.updateData = false
 }
 
 func roiQuantizerDeltaToQIndex(delta int) int {
@@ -122,8 +140,8 @@ func (e *VP8Encoder) roiSegmentationConfig() vp8enc.SegmentationConfig {
 	}
 	cfg := vp8enc.SegmentationConfig{
 		Enabled:    true,
-		UpdateMap:  true,
-		UpdateData: true,
+		UpdateMap:  e.roi.updateMap,
+		UpdateData: e.roi.updateData,
 	}
 	for segment := range vp8common.MaxMBSegments {
 		if delta := e.roi.deltaQuantizer[segment]; delta != 0 {
