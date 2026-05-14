@@ -1613,6 +1613,90 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "arnr-runtime-auto-alt-ref-maxframes-only",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.RateControlMode = RateControlVBR
+				opts.Deadline = DeadlineGoodQuality
+				opts.CpuUsed = 4
+				opts.LookaheadFrames = 8
+				opts.AutoAltRef = true
+				opts.ARNRMaxFrames = 7
+				opts.ARNRStrength = 6
+				opts.ARNRType = 3
+				return opts
+			}(),
+			extraArgs:  []string{"--end-usage=vbr", "--lag-in-frames=8", "--auto-alt-ref=1", "--arnr-maxframes=7", "--arnr-strength=6", "--arnr-type=3"},
+			matchLimit: 7,
+			matchFrom:  8,
+			script: runtimeControlScript(frames, map[int]string{
+				7: "arnrmax:3+arnrstrength:6+arnrtype:3",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetARNR", e.SetARNR(3, 6, 3))
+				},
+			},
+		},
+		{
+			name: "arnr-runtime-auto-alt-ref-strength-only",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.RateControlMode = RateControlVBR
+				opts.Deadline = DeadlineGoodQuality
+				opts.CpuUsed = 4
+				opts.LookaheadFrames = 8
+				opts.AutoAltRef = true
+				opts.ARNRMaxFrames = 7
+				opts.ARNRStrength = 6
+				opts.ARNRType = 3
+				return opts
+			}(),
+			extraArgs:  []string{"--end-usage=vbr", "--lag-in-frames=8", "--auto-alt-ref=1", "--arnr-maxframes=7", "--arnr-strength=6", "--arnr-type=3"},
+			matchLimit: 7,
+			matchFrom:  8,
+			script: runtimeControlScript(frames, map[int]string{
+				7: "arnrmax:7+arnrstrength:1+arnrtype:3",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetARNR", e.SetARNR(7, 1, 3))
+				},
+			},
+		},
+		{
+			name: "arnr-runtime-auto-alt-ref-type-only",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.RateControlMode = RateControlVBR
+				opts.Deadline = DeadlineGoodQuality
+				opts.CpuUsed = 4
+				opts.LookaheadFrames = 8
+				opts.AutoAltRef = true
+				opts.ARNRMaxFrames = 7
+				opts.ARNRStrength = 6
+				opts.ARNRType = 3
+				return opts
+			}(),
+			extraArgs:  []string{"--end-usage=vbr", "--lag-in-frames=8", "--auto-alt-ref=1", "--arnr-maxframes=7", "--arnr-strength=6", "--arnr-type=3"},
+			matchLimit: 7,
+			matchFrom:  8,
+			script: runtimeControlScript(frames, map[int]string{
+				7: "arnrmax:7+arnrstrength:6+arnrtype:1",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetARNR", e.SetARNR(7, 6, 1))
+				},
+			},
+		},
+		{
 			name: "keyframe-disabled-runtime-toggle",
 			fx:   panning32,
 			opts: baseOpts(panning32),
