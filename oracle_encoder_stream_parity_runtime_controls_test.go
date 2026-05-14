@@ -3095,6 +3095,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 		apply      map[int]func(*testing.T, *VP8Encoder)
 		extraArgs  []string
 		matchLimit int
+		matchFrom  int
 	}
 
 	cases := []referenceCase{
@@ -3313,6 +3314,78 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			},
 		},
 		{
+			name: "set-last-under-lookahead-auto-altref",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = true
+				return opts
+			}(),
+			// With lag=4, applying control before input frame 4 exposes the
+			// queued-frame reference replacement gap until a later keyframe
+			// rejoins the stream.
+			matchLimit: 1,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				1: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "setref:last:panning:12",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+			},
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=1"},
+		},
+		{
+			name: "set-golden-under-lookahead-auto-altref",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = true
+				return opts
+			}(),
+			matchLimit: 1,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				1: EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "setref:golden:panning:12",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
+			},
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=1"},
+		},
+		{
+			name: "set-altref-under-lookahead-auto-altref",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.LookaheadFrames = 4
+				opts.AutoAltRef = true
+				return opts
+			}(),
+			matchLimit: 1,
+			matchFrom:  6,
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				1: EncodeNoReferenceLast | EncodeNoReferenceGolden,
+				6: EncodeForceKeyFrame,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "setref:altref:panning:12",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
+			},
+			extraArgs: []string{"--lag-in-frames=4", "--auto-alt-ref=1"},
+		},
+		{
 			name: "set-last-under-three-layer-temporal",
 			fx:   panning64,
 			opts: func() EncoderOptions {
@@ -3446,6 +3519,9 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			extraArgs = append(extraArgs, "--control-script="+strings.Join(tc.script, ","))
 			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "runtime-reference-"+tc.name, tc.opts, tc.opts.TargetBitrateKbps, sources, tc.flags, extraArgs)
 			assertSegmentByteParity(t, "runtime-reference-"+tc.name, govpxFrames, libvpxFrames, tc.matchLimit)
+			if tc.matchFrom > 0 {
+				assertSegmentByteParityFrom(t, "runtime-reference-"+tc.name+"-from", govpxFrames, libvpxFrames, tc.matchFrom)
+			}
 		})
 	}
 }
