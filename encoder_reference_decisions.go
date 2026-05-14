@@ -368,6 +368,7 @@ func (e *VP8Encoder) goldenFrameCBROpportunity(keyFrame bool, temporalActive boo
 		temporalActive ||
 		e.opts.ErrorResilient ||
 		e.rc.mode != RateControlCBR ||
+		e.rc.onePassAutoGold ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {
 		return false
 	}
@@ -409,7 +410,6 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, tempor
 	if keyFrame ||
 		temporalActive ||
 		e.opts.ErrorResilient ||
-		e.rc.mode == RateControlCBR ||
 		e.twoPass.enabled() ||
 		!e.rc.onePassAutoGold ||
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) != 0 {

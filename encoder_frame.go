@@ -169,7 +169,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			gfMaxInterval = gfInterval
 		}
 	} else if goldenCBRRefresh {
-		if e.rc.mode == RateControlCBR {
+		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
 			gfBaselineInterval = e.rc.framesTillGFUpdateDue
 			gfMaxInterval = e.rc.framesTillGFUpdateDue
 		} else {
@@ -317,7 +317,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			RealtimeNoRecode:      e.opts.Deadline == DeadlineRealtime,
 		})
 		e.rc.lastBoost = gfOut.Boost
-		if e.rc.mode == RateControlCBR {
+		if e.rc.mode == RateControlCBR && !e.rc.onePassAutoGold {
 			// One-pass CBR: libvpx multiplies this_frame_target by
 			// (100 + gf_cbr_boost_pct) / 100 (vp8/encoder/ratectrl.c
 			// gf_update_onepass_cbr branch).

@@ -483,6 +483,23 @@ func TestOnePassAutoGoldenPreservesStartupModeAcrossRuntimeReconfigure(t *testin
 	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
 		t.Fatalf("CQ-start runtime Q auto-golden refresh = false, want true")
 	}
+	if err := cqStart.SetRateControl(RateControlConfig{
+		Mode:                RateControlCBR,
+		TargetBitrateKbps:   700,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		UndershootPct:       100,
+		OvershootPct:        100,
+		BufferSizeMs:        6000,
+		BufferInitialSizeMs: 4000,
+		BufferOptimalSizeMs: 5000,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR) from CQ returned error: %v", err)
+	}
+	rows, cols = forceOpportunity(cqStart)
+	if !cqStart.shouldRefreshGoldenFrameOnePassNonCBR(false, false, 0, rows, cols) {
+		t.Fatalf("CQ-start runtime CBR auto-golden refresh = false, want true")
+	}
 
 	qStart := newEncoder(t, RateControlQ)
 	rows, cols = forceOpportunity(qStart)

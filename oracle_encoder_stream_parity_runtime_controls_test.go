@@ -2033,6 +2033,7 @@ func TestOracleEncoderStreamByteParityRuntimeRateControlModeLongTailTransitions(
 		matchLimit    int
 	}{
 		{name: "vbr-to-cbr-long-tail", from: RateControlVBR, to: RateControlCBR},
+		{name: "cq-to-cbr-no-force-long-tail", from: RateControlCQ, to: RateControlCBR},
 		{name: "cq-to-cbr-force-kf-long-tail", from: RateControlCQ, to: RateControlCBR, forceKeyFrame: true},
 		{name: "q-to-cbr-no-force-kf-long-tail", from: RateControlQ, to: RateControlCBR},
 		{name: "cq-to-q-post-switch-tail", from: RateControlCQ, to: RateControlQ},
@@ -2464,7 +2465,7 @@ func runtimeRateControlModeTransitionMatchLimit(from, to RateControlMode, forceK
 			}
 			return switchFrame + 1
 		}
-		return switchFrame + 4
+		return 0
 	}
 	if forceKeyFrame && from == RateControlCQ {
 		return switchFrame
