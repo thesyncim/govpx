@@ -155,7 +155,7 @@ func TestEncoderReferenceFrameValidation(t *testing.T) {
 	}
 }
 
-func TestEncoderSetReferenceFrameInvalidatesReferenceState(t *testing.T) {
+func TestEncoderSetReferenceFramePreservesReferenceState(t *testing.T) {
 	e := newTestEncoder(t)
 
 	key := testImage(16, 16)
@@ -190,18 +190,19 @@ func TestEncoderSetReferenceFrameInvalidatesReferenceState(t *testing.T) {
 			t.Fatalf("reference frame number[%d] = %d, want preserved %d", refFrame, got, want)
 		}
 	}
-	if e.lastFrameInterModesValid || e.interRDFrameRefSearchOrderValid {
-		t.Fatalf("reference-dependent mode caches were not invalidated")
+	if !e.lastFrameInterModesValid || !e.interRDFrameRefSearchOrderValid {
+		t.Fatalf("reference-dependent mode caches were reset")
 	}
-	if e.sourceAltRefActive || e.sourceAltRefPending || e.altRefSourceValid || e.framesTillAltRefFrame != 0 {
-		t.Fatalf("alt-ref lifecycle = active:%t pending:%t valid:%t till:%d, want cleared", e.sourceAltRefActive, e.sourceAltRefPending, e.altRefSourceValid, e.framesTillAltRefFrame)
+	if !e.sourceAltRefActive || !e.sourceAltRefPending || !e.altRefSourceValid || e.framesTillAltRefFrame != 3 {
+		t.Fatalf("alt-ref lifecycle = active:%t pending:%t valid:%t till:%d, want preserved",
+			e.sourceAltRefActive, e.sourceAltRefPending, e.altRefSourceValid, e.framesTillAltRefFrame)
 	}
-	if e.lastInterZeroMVCount != 0 || e.mbsZeroLastDotSuppress != 0 {
-		t.Fatalf("zero-LAST counters = %d/%d, want cleared", e.lastInterZeroMVCount, e.mbsZeroLastDotSuppress)
+	if e.lastInterZeroMVCount != 7 || e.mbsZeroLastDotSuppress != 5 {
+		t.Fatalf("zero-LAST counters = %d/%d, want preserved", e.lastInterZeroMVCount, e.mbsZeroLastDotSuppress)
 	}
 	for i := range e.consecZeroLast {
-		if e.consecZeroLast[i] != 0 || e.consecZeroLastMVBias[i] != 0 {
-			t.Fatalf("zero-LAST maps at %d = %d/%d, want cleared", i, e.consecZeroLast[i], e.consecZeroLastMVBias[i])
+		if e.consecZeroLast[i] != 4 || e.consecZeroLastMVBias[i] != 2 {
+			t.Fatalf("zero-LAST maps at %d = %d/%d, want preserved", i, e.consecZeroLast[i], e.consecZeroLastMVBias[i])
 		}
 	}
 }

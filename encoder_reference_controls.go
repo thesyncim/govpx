@@ -5,8 +5,9 @@ import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 // SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
 // ReferenceGolden, or ReferenceAltRef; src must match the encoder
 // dimensions and provide valid I420 strides. The encoder pads coded
-// edges, extends borders, and invalidates cached inter-prediction state
-// tied to the previous reference identity.
+// edges and extends borders. Like libvpx's VP8_SET_REFERENCE control,
+// this replaces reference pixels without resetting cross-frame motion or
+// rate-control history.
 //
 // Returns [ErrClosed] on a nil or closed encoder, or [ErrInvalidConfig]
 // when ref is not a single valid selector or src does not match the
@@ -25,7 +26,6 @@ func (e *VP8Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 		padFrameVisibleToCoded(&fb.Img)
 		fb.ExtendBorders()
 	}
-	e.invalidateReferenceFrameState()
 	return nil
 }
 
@@ -105,17 +105,4 @@ func (e *VP8Encoder) referenceAliasGroup(ref ReferenceFrame) []ReferenceFrame {
 		}
 	}
 	return refs
-}
-
-// invalidateReferenceFrameState clears encoder state that assumes reference
-// pixels only change through the normal VP8 refresh/copy path.
-func (e *VP8Encoder) invalidateReferenceFrameState() {
-	e.lastFrameInterModesValid = false
-	e.interRDFrameRefSearchOrderValid = false
-	clearUint8Map(e.consecZeroLast)
-	clearUint8Map(e.consecZeroLastMVBias)
-	e.lastInterZeroMVCount = 0
-	e.mbsZeroLastDotSuppress = 0
-	e.sourceAltRefActive = false
-	e.clearAltRefSchedule()
 }

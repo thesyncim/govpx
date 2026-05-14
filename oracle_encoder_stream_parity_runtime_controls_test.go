@@ -3172,9 +3172,6 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				2: EncodeForceGoldenFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast,
 				3: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
 			}),
-			// The same-frame forced GF/ARF refresh packet matches; replacing
-			// LAST afterwards exposes the remaining reference-alias drift.
-			matchLimit: 3,
 			script: runtimeControlScript(frames, map[int]string{
 				3: "setref:last:panning:9",
 			}),
@@ -3218,8 +3215,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				4: setReferencePanningApply(ReferenceLast, 12, "last"),
 			},
-			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
-			matchLimit: 4,
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
 		},
 		{
 			name: "set-altref-under-two-layer-temporal",
@@ -3283,7 +3279,6 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 					mustRuntime(t, "SetRTCExternalRateControl(false)", e.SetRTCExternalRateControl(false))
 				},
 			},
-			matchLimit: 4,
 		},
 		{
 			name: "set-golden-under-rtc-external",
@@ -3422,8 +3417,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				4: setReferencePanningApply(ReferenceLast, 12, "last"),
 			},
-			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
-			matchLimit: 4,
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
 		},
 		{
 			name: "set-golden-under-three-layer-temporal",
@@ -3442,8 +3436,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
 			},
-			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
-			matchLimit: 4,
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
 		},
 		{
 			name: "set-altref-under-three-layer-temporal",
@@ -3462,8 +3455,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
 			},
-			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
-			matchLimit: 4,
+			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
 		},
 		{
 			name: "set-altref-after-runtime-resize",
