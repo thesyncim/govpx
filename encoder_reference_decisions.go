@@ -435,7 +435,7 @@ func (e *VP8Encoder) shouldRefreshGoldenFrameOnePassNonCBR(keyFrame bool, tempor
 
 func (e *VP8Encoder) goldenFrameCBRInterval(rows int, cols int) int {
 	interval := 10
-	if refreshCount := cyclicRefreshMaxMBsPerFrame(rows, cols); refreshCount > 0 {
+	if refreshCount := e.cyclicRefreshMaxMBsPerFrame(rows, cols); refreshCount > 0 {
 		interval = (2 * rows * cols) / refreshCount
 	}
 	return min(max(interval, 6), 40)

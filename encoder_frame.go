@@ -204,6 +204,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// kf_overspend was draining on every dropped frame too).
 	if !invisible && e.rc.checkDropBuffer(keyFrame) {
 		e.rc.postDecimationDropFrame()
+		e.propagateTemporalLayerDroppedCodingState(temporalFrame)
+		e.saveTemporalLayerCodingState(temporalFrame)
 		e.twoPass.finishFrame(0)
 		e.forceKeyFrame = false
 		// libvpx's decimation drop does NOT set force_maxqp: only the
@@ -235,10 +237,14 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		return droppedResult, nil
 	}
 	if temporalFrame.Enabled && !keyFrame {
-		e.rc.beginFrameWithTargetAndContext(false, temporalFrame.LayerFrameTargetBits, rateControlFrameContext{
+		layerFrameTargetBits := temporalFrame.LayerFrameTargetBits
+		if temporalFrame.LayerID == 0 {
+			layerFrameTargetBits = e.rc.decimationBoostedBitsPerFrame()
+		}
+		e.rc.beginFrameWithTargetAndContext(false, layerFrameTargetBits, rateControlFrameContext{
 			temporalLayerCount:     temporalFrame.LayerCount,
 			temporalLayerID:        temporalFrame.LayerID,
-			layerPerFrameBandwidth: temporalFrame.LayerFrameTargetBits,
+			layerPerFrameBandwidth: layerFrameTargetBits,
 			layerOutputFrameRate:   e.temporal.temporalLayerOutputFrameRateInt(temporalFrame.LayerID, e.timing),
 			timing:                 e.timing,
 		})
@@ -397,6 +403,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// calc_pframe_target_size (i.e. after the kf_overspend drain).
 	if !keyFrame && !invisible && e.rc.shouldDropInterFrame() {
 		e.rc.postDropFrame()
+		e.propagateTemporalLayerDroppedCodingState(temporalFrame)
+		e.saveTemporalLayerCodingState(temporalFrame)
 		e.twoPass.finishFrame(0)
 		result.Dropped = true
 		result.BufferLevelBits = e.rc.bufferLevelBits
@@ -478,6 +486,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			// libvpx: cpi->frames_since_key++ on overshoot drop; mirror
 			// it so the next-keyframe distance heuristic stays aligned.
 			e.rc.framesSinceKeyframe++
+			e.saveTemporalLayerCodingState(temporalFrame)
 			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
 			if oracleTraceBuild {
@@ -976,6 +985,22 @@ func (e *VP8Encoder) propagateTemporalLayerCodingState(meta temporalFrame, encod
 			} else {
 				state.TotalActualBits += int64(encodedBits)
 			}
+		}
+	}
+}
+
+func (e *VP8Encoder) propagateTemporalLayerDroppedCodingState(meta temporalFrame) {
+	if !meta.Enabled {
+		return
+	}
+	for layer := meta.LayerID + 1; layer < meta.LayerCount && layer < MaxTemporalLayers; layer++ {
+		if !e.temporal.codingValid[layer] {
+			continue
+		}
+		state := &e.temporal.codingState[layer]
+		state.BufferLevelBits = saturatingAdd(state.BufferLevelBits, state.BitsPerFrame)
+		if state.BufferLevelBits > state.MaximumBufferBits {
+			state.BufferLevelBits = state.MaximumBufferBits
 		}
 	}
 }
