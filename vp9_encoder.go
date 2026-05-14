@@ -252,11 +252,33 @@ func (e *VP9Encoder) EncodeInto(img *image.YCbCr, dst []byte) (int, error) {
 // tree to collect frame counts before the compressed header, so the real tile
 // stream is encoded with same-frame counts-driven probability updates.
 func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
+	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, false)
+}
+
+// EncodeIntraOnlyFrameInto packs a hidden VP9 intra-only frame into dst.
+// Intra-only frames are non-key VP9 packets with sync code and frame size but
+// no inter prediction; by VP9 syntax they are always invisible. The VP9 stream
+// must already be initialized by a coded frame. Use EncodeShowExistingFrameInto
+// to display a refreshed slot after this call.
+func (e *VP9Encoder) EncodeIntraOnlyFrameInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (int, error) {
+	return e.encodeVP9FrameIntoWithFlags(img, dst, flags, true)
+}
+
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlags(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool) (int, error) {
 	if e == nil || e.closed {
 		return 0, ErrClosed
 	}
 	if err := validateVP9EncodeFlags(flags); err != nil {
 		return 0, err
+	}
+	if forceIntraOnly {
+		if flags&EncodeForceKeyFrame != 0 {
+			return 0, ErrInvalidConfig
+		}
+		if e.frameIndex == 0 {
+			return 0, ErrInvalidConfig
+		}
+		flags |= EncodeInvisibleFrame
 	}
 	if err := e.validateVP9EncoderSource(img); err != nil {
 		return 0, err
@@ -273,13 +295,20 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
 
 	isKey := e.vp9ShouldEncodeKeyFrame(flags)
-	if !isKey && !e.hasVP9UsableInterReference(flags) {
+	intraOnly := forceIntraOnly
+	if intraOnly {
+		isKey = false
+	}
+	if !isKey && !intraOnly && !e.hasVP9UsableInterReference(flags) {
 		isKey = true
 	}
 	if isKey && flags&vp9NoUpdateRefFlags != 0 {
 		return 0, ErrInvalidConfig
 	}
-	if isKey {
+	if intraOnly && vp9InterRefreshFrameFlags(flags) == 0 {
+		return 0, ErrInvalidConfig
+	}
+	if isKey || (intraOnly && flags&EncodeNoUpdateEntropy == 0) {
 		vp9dec.ResetFrameContext(&e.fc)
 	} else if e.opts.ErrorResilient {
 		vp9dec.ResetFrameContext(&e.fc)
@@ -297,6 +326,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		Profile:               common.Profile0,
 		ShowFrame:             flags&EncodeInvisibleFrame == 0,
 		ErrorResilientMode:    e.opts.ErrorResilient,
+		IntraOnly:             intraOnly,
 		Width:                 width,
 		Height:                height,
 		RefreshFrameContext:   flags&EncodeNoUpdateEntropy == 0,
@@ -322,6 +352,12 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
+	} else if intraOnly {
+		header.FrameType = common.InterFrame
+		if flags&EncodeNoUpdateEntropy == 0 {
+			header.ResetFrameContext = 2
+		}
+		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
 	} else {
 		header.FrameType = common.InterFrame
 		header.RefreshFrameFlags = vp9InterRefreshFrameFlags(flags)
@@ -346,7 +382,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 			vp9dec.NoRefFrame,
 		},
 	}
-	if !isKey {
+	if !isKey && !intraOnly {
 		baseMi.Mode = common.ZeroMv
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
@@ -364,6 +400,12 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		BitDepth:   vp9dec.Bits8,
 	}, &dq)
 	if isKey {
+		keyState = &vp9KeyframeEncodeState{
+			img: img,
+			hdr: &header,
+			dq:  &dq,
+		}
+	} else if intraOnly {
 		keyState = &vp9KeyframeEncodeState{
 			img: img,
 			hdr: &header,
@@ -395,7 +437,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 	// but different probabilities, so the bool stream desyncs if the
 	// encoder uses the wrong one.
 	partitionProbs := tables.KfPartitionProbs
-	if !isKey {
+	if !isKey && !intraOnly {
 		partitionProbs = e.fc.PartitionProb
 	}
 
@@ -422,7 +464,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		return 0, encoder.ErrCompressedHeaderTooLarge
 	}
 	header.FirstPartitionSize = uint16(compSize)
-	if !isKey {
+	if !isKey && !intraOnly {
 		partitionProbs = e.fc.PartitionProb
 	}
 
@@ -443,7 +485,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 
 	tileStart := uncSize + compSize
 	tileKind := vp9ModeTreeInterSource
-	if isKey {
+	if isKey || intraOnly {
 		tileKind = vp9ModeTreeKeyframeSource
 	} else if header.IntraOnly {
 		tileKind = vp9ModeTreeKeyframe
@@ -455,7 +497,7 @@ func (e *VP9Encoder) EncodeIntoWithFlags(img *image.YCbCr, dst []byte, flags Enc
 		return tileStart, err
 	}
 	n := tileStart + tileSize
-	e.refreshVP9EncoderMvRefs(isKey, miRows, miCols)
+	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
 	e.refreshVP9EncoderRefs(&header)
 	e.frameIndex++
 	if isKey {
@@ -3463,6 +3505,22 @@ func (e *VP9Encoder) EncodeWithFlags(img *image.YCbCr, flags EncodeFlags) ([]byt
 	}
 	dst := make([]byte, 65536)
 	n, err := e.EncodeIntoWithFlags(img, dst, flags)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, n)
+	copy(out, dst[:n])
+	return out, nil
+}
+
+// EncodeIntraOnlyFrame is the allocating wrapper around
+// EncodeIntraOnlyFrameInto.
+func (e *VP9Encoder) EncodeIntraOnlyFrame(img *image.YCbCr, flags EncodeFlags) ([]byte, error) {
+	if e == nil || e.closed {
+		return nil, ErrClosed
+	}
+	dst := make([]byte, 65536)
+	n, err := e.EncodeIntraOnlyFrameInto(img, dst, flags)
 	if err != nil {
 		return nil, err
 	}

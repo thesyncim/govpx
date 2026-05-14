@@ -110,7 +110,7 @@ returns no more data.
 | Decode one packet | `Decode`, then `NextFrame` |
 | Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
 | Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
-| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeShowExistingFrameInto` |
+| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS update | `SetRealtimeTarget` |
@@ -156,6 +156,9 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   keyframe, visibility, reference, and entropy hints documented by
   `EncodeFlags`. Remaining Profile 0 encoder gaps are implementation status,
   not scope expansion.
+- `EncodeIntraOnlyFrameInto` plus `EncodeShowExistingFrameInto` covers the VP9
+  hidden intra-only refresh / show-existing packet pattern used by payload-level
+  refresh flows.
 - Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero
   value of `RealtimeTarget.FrameDrop` leaves frame dropping unchanged, so
   bitrate-only BWE updates do not accidentally disable dropping.

@@ -544,9 +544,14 @@ func (d *VP9Decoder) prepareVP9FrameContext(hdr *vp9dec.UncompressedHeader) int 
 	if idx >= common.FrameContexts {
 		idx = 0
 	}
-	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly ||
+	if hdr.FrameType == common.KeyFrame ||
 		hdr.ErrorResilientMode || hdr.ResetFrameContext == 3 {
 		d.resetVP9FrameContexts()
+		idx = 0
+	} else if hdr.IntraOnly && hdr.ResetFrameContext == 2 {
+		vp9dec.ResetFrameContext(&d.frameContexts[idx])
+		idx = 0
+	} else if hdr.IntraOnly {
 		idx = 0
 	} else if hdr.ResetFrameContext == 2 {
 		vp9dec.ResetFrameContext(&d.frameContexts[idx])

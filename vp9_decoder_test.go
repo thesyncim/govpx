@@ -43,6 +43,35 @@ func TestNewVP9DecoderRejectsBadOptions(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderPrepareIntraOnlyFrameContextResetSemantics(t *testing.T) {
+	d, _ := NewVP9Decoder(VP9DecoderOptions{})
+	d.frameContexts[0].SkipProbs[0] = 77
+	hdr := vp9dec.UncompressedHeader{
+		FrameType:         common.InterFrame,
+		IntraOnly:         true,
+		ResetFrameContext: 0,
+		FrameContextIdx:   2,
+	}
+	if idx := d.prepareVP9FrameContext(&hdr); idx != 0 {
+		t.Fatalf("prepareVP9FrameContext reset=0 idx = %d, want 0", idx)
+	}
+	if got := d.fc.SkipProbs[0]; got != 77 {
+		t.Fatalf("prepareVP9FrameContext reset=0 SkipProbs[0] = %d, want preserved context 0", got)
+	}
+
+	d.frameContexts[0].SkipProbs[0] = 77
+	hdr.ResetFrameContext = 2
+	hdr.FrameContextIdx = 0
+	if idx := d.prepareVP9FrameContext(&hdr); idx != 0 {
+		t.Fatalf("prepareVP9FrameContext reset=2 idx = %d, want 0", idx)
+	}
+	var want vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&want)
+	if d.fc != want || d.frameContexts[0] != want {
+		t.Fatal("prepareVP9FrameContext reset=2 did not reset selected intra-only context")
+	}
+}
+
 // TestVP9DecoderDecodeMalformedHeader: a too-short payload trips
 // the uncompressed-header parser's sync-code check and surfaces
 // ErrInvalidVP9Data.

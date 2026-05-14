@@ -1893,6 +1893,96 @@ func TestVP9EncoderEncodeShowExistingFrameIntoSteadyStateAlloc(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderEncodeIntraOnlyFrameRefreshesLastAndShowExisting(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := newVP9YCbCrForTest(width, height, 16, 128, 128)
+	src := newVP9YCbCrForTest(width, height, 83, 141, 209)
+	key, err := e.Encode(keySrc)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	hidden, err := e.EncodeIntraOnlyFrame(src, 0)
+	if err != nil {
+		t.Fatalf("EncodeIntraOnlyFrame: %v", err)
+	}
+	info, err := PeekVP9StreamInfo(hidden)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo hidden intra-only: %v", err)
+	}
+	if info.KeyFrame || !info.IntraOnly || info.ShowFrame ||
+		info.RefreshFrameFlags != 1<<vp9LastRefSlot ||
+		info.Width != width || info.Height != height {
+		t.Fatalf("hidden intra-only info = %+v, want hidden LAST intra-only", info)
+	}
+	var br vp9dec.BitReader
+	br.Init(hidden)
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, nil, nil)
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader hidden intra-only: %v", err)
+	}
+	if hdr.ResetFrameContext != 2 || !hdr.FrameParallelDecoding {
+		t.Fatalf("hidden intra-only context flags = reset:%d parallel:%t, want reset 2 and frame-parallel",
+			hdr.ResetFrameContext, hdr.FrameParallelDecoding)
+	}
+	show, err := e.EncodeShowExistingFrame(vp9LastRefSlot)
+	if err != nil {
+		t.Fatalf("EncodeShowExistingFrame LAST: %v", err)
+	}
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(key); err != nil {
+		t.Fatalf("Decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame returned !ok after keyframe")
+	}
+	if err := d.DecodeWithPTS(hidden, 10); err != nil {
+		t.Fatalf("Decode hidden intra-only: %v", err)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("NextFrame returned visible output after hidden intra-only frame")
+	}
+	if last, ok := d.LastFrameInfo(); !ok || last.KeyFrame || last.ShowFrame ||
+		last.RefreshFrameFlags != 1<<vp9LastRefSlot || last.PTS != 10 {
+		t.Fatalf("LastFrameInfo hidden intra-only = %+v ok=%t, want hidden LAST refresh",
+			last, ok)
+	}
+	if err := d.DecodeWithPTS(show, 11); err != nil {
+		t.Fatalf("Decode show-existing LAST: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after show-existing LAST")
+	}
+	assertVP9FilledFrame(t, frame, width, height, 83, 141, 209)
+}
+
+func TestVP9EncoderEncodeIntraOnlyFrameRejectsConflictingFlags(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	src := newVP9YCbCrForTest(64, 64, 128, 128, 128)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntraOnlyFrameInto(src, dst, 0); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("EncodeIntraOnlyFrameInto before stream init error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := e.Encode(src); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if _, err := e.EncodeIntraOnlyFrameInto(src, dst, EncodeForceKeyFrame); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("EncodeIntraOnlyFrameInto force-key error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := e.EncodeIntraOnlyFrameInto(src, dst,
+		EncodeNoUpdateLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("EncodeIntraOnlyFrameInto no-refresh error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := e.EncodeIntraOnlyFrameInto(src, nil, 0); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("EncodeIntraOnlyFrameInto nil dst error = %v, want ErrBufferTooSmall", err)
+	}
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsNoUpdateEntropyRestoresFrameContext(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
