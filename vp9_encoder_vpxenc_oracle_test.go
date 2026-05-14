@@ -190,6 +190,16 @@ func TestVP9EncoderVpxencOracleLosslessKeyframeByteParity(t *testing.T) {
 	}, []string{"--lossless=1"})
 }
 
+func TestVP9EncoderVpxencOracleErrorResilientKeyframeByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 16, 16
+	src := newVP9CheckerYCbCrForTest(width, height, 32, 224, 128, 128)
+	assertVP9VpxencKeyframeByteParityWithOptions(t, src, VP9EncoderOptions{
+		ErrorResilient: true,
+	}, []string{"--error-resilient=1"})
+}
+
 func TestVP9EncoderVpxencOracleIdenticalInterByteParity(t *testing.T) {
 	requireVP9VpxencOracle(t)
 
@@ -253,6 +263,17 @@ func TestVP9EncoderVpxencOracleLosslessInterByteParity(t *testing.T) {
 	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
 		Lossless: true,
 	}, []string{"--lossless=1"})
+}
+
+func TestVP9EncoderVpxencOracleErrorResilientInterByteParity(t *testing.T) {
+	requireVP9VpxencOracle(t)
+
+	const width, height = 64, 64
+	first := newVP9YCbCrForTest(width, height, 128, 128, 128)
+	second := newVP9YCbCrForTest(width, height, 160, 128, 128)
+	assertVP9VpxencTwoFrameByteParityWithOptions(t, first, second, VP9EncoderOptions{
+		ErrorResilient: true,
+	}, []string{"--error-resilient=1"})
 }
 
 func assertVP9VpxencKeyframeByteParity(t *testing.T, src *image.YCbCr) {
