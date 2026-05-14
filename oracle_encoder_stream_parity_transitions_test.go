@@ -283,6 +283,45 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 		assertSegmentByteParity(t, "post-reset-rtc-external", govpxFrames, libvpxFrames, 0)
 	})
 
+	t.Run("reset-after-active-roi-rtc-matches-cold-start-with-rtc", func(t *testing.T) {
+		opts := baseOpts
+		opts.TargetBitrateKbps = 400
+		opts.BufferSizeMs = 200
+		opts.BufferInitialSizeMs = 100
+		opts.BufferOptimalSizeMs = 150
+		opts.DropFrameAllowed = true
+		opts.DropFrameWaterMark = 50
+		warm := make([]Image, 6)
+		for i := range warm {
+			warm[i] = encoderValidationSegmentedFrame(64, 64, i)
+		}
+		afterReset := make([]Image, 8)
+		for i := range afterReset {
+			afterReset[i] = encoderValidationSegmentedFrame(64, 64, i+len(warm))
+		}
+		govpxFrames := encodePostResetWithGovpxMutations(t, opts, warm, afterReset,
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				activeMapApply("checker")(t, e)
+				roiMapApply("border1")(t, e)
+			},
+			func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+			})
+		coldOpts := opts
+		coldOpts.RTCExternalRateControl = true
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "reset-after-active-roi-rtc", coldOpts, coldOpts.TargetBitrateKbps, afterReset, nil, []string{
+			"--end-usage=cbr",
+			"--buf-sz=200",
+			"--buf-initial-sz=100",
+			"--buf-optimal-sz=150",
+			"--drop-frame=50",
+			"--rtc-external=1",
+		})
+		assertSegmentByteParity(t, "post-reset-active-roi-rtc", govpxFrames, libvpxFrames, 0)
+	})
+
 	t.Run("reset-after-temporal-svc-matches-cold-start", func(t *testing.T) {
 		cfg := TemporalScalabilityConfig{
 			Enabled:                true,
@@ -396,6 +435,33 @@ func TestOracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 			map[int]func(*testing.T, *VP8Encoder){0: roiMapApply("checker")}, nil)
 		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-roi-map", baseOpts, targetKbps, sources, nil, []string{"--roi-map=checker"})
 		assertSegmentByteParity(t, "flush-roi-map", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("flush-active-roi-resume", func(t *testing.T) {
+		sources := make([]Image, 10)
+		for i := range sources {
+			sources[i] = encoderValidationSegmentedFrame(64, 64, i)
+		}
+		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, baseOpts, sources, 4, nil,
+			map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+			}, nil)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-active-roi", baseOpts, targetKbps, sources, nil, []string{"--active-map=checker", "--roi-map=border1"})
+		assertSegmentByteParity(t, "flush-active-roi", govpxFrames, libvpxFrames, 0)
+	})
+
+	t.Run("flush-temporal-two-layer-resume", func(t *testing.T) {
+		opts := baseOpts
+		opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringTwoLayers, targetKbps)
+		sources := makePanningSources(64, 64, 10, 0)
+		flags := temporalScalabilityReconfigureFlags(len(sources), TemporalLayeringTwoLayers, 0)
+		govpxFrames := encodeWithMidStreamFlushRuntimeControls(t, opts, sources, 4, nil, nil, flags)
+		libvpxFrames := encodeFramesWithFrameFlagsDriver(t, frameFlagsDriver, "flush-temporal-two-layer", opts, targetKbps, sources, flags, runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps))
+		assertSegmentByteParity(t, "flush-temporal-two-layer", govpxFrames, libvpxFrames, 0)
 	})
 
 	t.Run("flush-set-reference-resume", func(t *testing.T) {

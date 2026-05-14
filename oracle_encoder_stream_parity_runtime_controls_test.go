@@ -1096,6 +1096,54 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "noise-sensitivity-2-4-5-roundtrip",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "noise:2",
+				4: "noise:4",
+				6: "noise:5",
+				9: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(2)", e.SetNoiseSensitivity(2))
+				},
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(4)", e.SetNoiseSensitivity(4))
+				},
+				6: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(5)", e.SetNoiseSensitivity(5))
+				},
+				9: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
+			name: "noise-sensitivity-4-disable-after-inter",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "noise:4",
+				7: "noise:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(4)", e.SetNoiseSensitivity(4))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetNoiseSensitivity(0)", e.SetNoiseSensitivity(0))
+				},
+			},
+		},
+		{
 			name: "cq-level-transition",
 			fx:   panning32,
 			opts: func() EncoderOptions {
@@ -2098,6 +2146,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 	}
 	panning32 := fixture{name: "panning-32x32", w: 32, h: 32, source: encoderValidationPanningFrame}
 	panning64 := fixture{name: "panning-64x64", w: 64, h: 64, source: encoderValidationPanningFrame}
+	segmented64 := fixture{name: "segmented-64x64", w: 64, h: 64, source: encoderValidationSegmentedFrame}
 
 	baseOpts := func(fx fixture) EncoderOptions {
 		return EncoderOptions{
@@ -2190,6 +2239,49 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				4: setReferencePanningApply(ReferenceGolden, 12, "golden"),
 			},
 			extraArgs: runtimeTemporalExtraArgs(TemporalLayeringTwoLayers, targetKbps),
+		},
+		{
+			name: "set-last-under-active-roi",
+			fx:   segmented64,
+			opts: baseOpts(segmented64),
+			script: runtimeControlScript(frames, map[int]string{
+				1: "active:checker+roi:border1",
+				4: "setref:last:panning:12",
+				7: "active:off+roi:off",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				1: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					activeMapApply("checker")(t, e)
+					roiMapApply("border1")(t, e)
+				},
+				4: setReferencePanningApply(ReferenceLast, 12, "last"),
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap(nil)", e.SetActiveMap(nil, 0, 0))
+					mustRuntime(t, "SetROIMap(nil)", e.SetROIMap(nil))
+				},
+			},
+		},
+		{
+			name: "set-altref-under-three-layer-temporal",
+			fx:   panning64,
+			opts: func() EncoderOptions {
+				opts := baseOpts(panning64)
+				opts.TemporalScalability = runtimeTemporalConfig(TemporalLayeringThreeLayers, targetKbps)
+				return opts
+			}(),
+			flags: temporalScalabilityReconfigureFlags(frames, TemporalLayeringThreeLayers, 0),
+			script: func() []string {
+				script := runtimeTemporalLayerIDScript(frames, TemporalLayeringThreeLayers)
+				appendRuntimeControl(script, 4, "setref:altref:panning:12")
+				return script
+			}(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: setReferencePanningApply(ReferenceAltRef, 12, "altref"),
+			},
+			extraArgs:  runtimeTemporalExtraArgs(TemporalLayeringThreeLayers, targetKbps),
+			matchLimit: 4,
 		},
 		{
 			name: "set-altref-after-runtime-resize",
@@ -2493,6 +2585,35 @@ func TestOracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T
 				},
 			},
 		},
+	}
+
+	for _, tc := range []struct {
+		name string
+		mode TemporalLayeringMode
+	}{
+		{name: "three-layer-no-inter-layer-prediction-enable-disable-only", mode: TemporalLayeringThreeLayersNoInterLayerPrediction},
+		{name: "three-layer-layer-one-prediction-enable-disable-only", mode: TemporalLayeringThreeLayersLayerOnePrediction},
+		{name: "three-layer-altref-sync-enable-disable-only", mode: TemporalLayeringThreeLayersAltRefWithSync},
+		{name: "three-layer-one-reference-enable-disable-only", mode: TemporalLayeringThreeLayersOneReference},
+	} {
+		modeName := tc.name
+		mode := tc.mode
+		cases = append(cases, temporalCase{
+			name:       modeName,
+			fx:         panning64,
+			frames:     12,
+			opts:       baseOpts(panning64, 0),
+			flags:      temporalScalabilityWindowFlags(12, mode, 2, 8),
+			script:     temporalScalabilityWindowScript(12, mode, 2, 8, runtimeTemporalControlToken(mode, targetKbps)),
+			matchLimit: 3,
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: runtimeTemporalApply(mode, targetKbps, modeName),
+				8: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalScalability(off)", e.SetTemporalScalability(TemporalScalabilityConfig{}))
+				},
+			},
+		})
 	}
 
 	for _, cpuUsed := range []int{0, -3, -8} {
