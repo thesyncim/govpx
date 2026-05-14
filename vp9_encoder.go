@@ -64,8 +64,9 @@ type VP9EncoderOptions struct {
 
 	// Segmentation enables static VP9 profile 0 segmentation metadata.
 	// When UpdateMap is set, every encoded block is assigned SegmentID.
-	// This supports AltQ and AltLF segment features; reference-frame and
-	// skip segment features are not exposed by this packet encoder path.
+	// This supports AltQ, AltLF, and forced-skip segment features;
+	// reference-frame segment features are not exposed by this packet
+	// encoder path.
 	Segmentation VP9SegmentationOptions
 }
 
@@ -86,6 +87,8 @@ type VP9SegmentationOptions struct {
 	// AltLFEnabled / AltLF configure SEG_LVL_ALT_LF per segment.
 	AltLFEnabled [VP9MaxSegments]bool
 	AltLF        [VP9MaxSegments]int16
+	// SkipEnabled configures SEG_LVL_SKIP per segment.
+	SkipEnabled [VP9MaxSegments]bool
 }
 
 // ErrVP9EncoderNotImplemented is retained for callers that already branch on
@@ -265,6 +268,10 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams() vp9dec.SegmentationParams {
 		if cfg.AltLFEnabled[i] {
 			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltLf)
 			seg.FeatureData[i][vp9dec.SegLvlAltLf] = cfg.AltLF[i]
+			seg.UpdateData = true
+		}
+		if cfg.SkipEnabled[i] {
+			seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlSkip)
 			seg.UpdateData = true
 		}
 	}
@@ -1981,14 +1988,19 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		reconBsize := vp9ModeInfoDecodeBSize(bsize)
 		hasResidue := false
 		uvMode := common.DcPred
-		if kind == vp9ModeTreeInterSource && inter != nil {
+		segID := vp9EncoderMiSegmentID(&cur)
+		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
+		if segmentSkip {
+			cur.Skip = 1
+			cur.Mode = common.ZeroMv
+			cur.Mv = [2]vp9dec.MV{}
+		} else if kind == vp9ModeTreeInterSource && inter != nil {
 			uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
 				miRow, miCol, reconBsize, tile, &cur)
 			if hasResidue {
 				cur.Skip = 0
 			}
 		}
-		segID := vp9EncoderMiSegmentID(&cur)
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
 		interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
 			tile, miRows, miRow, miCol, bsize)
@@ -2093,12 +2105,18 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			miRow, miCol, reconBsize, &cur)
 		uvMode := e.pickVP9KeyframeUvMode(key, tile, miRows, miCols,
 			miRow, miCol, reconBsize, &cur)
-		hasResidue := e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
-			miRow, miCol, reconBsize, &cur, uvMode)
-		if hasResidue {
-			cur.Skip = 0
-		}
 		segID := vp9EncoderMiSegmentID(&cur)
+		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
+		hasResidue := false
+		if segmentSkip {
+			cur.Skip = 1
+		} else {
+			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
+				miRow, miCol, reconBsize, &cur, uvMode)
+			if hasResidue {
+				cur.Skip = 0
+			}
+		}
 		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
 		maxTxSize := common.MaxTxsizeLookup[bsize]
 		txCtx := vp9dec.GetTxSizeContext(above, left, maxTxSize)

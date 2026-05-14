@@ -750,6 +750,44 @@ func TestVP9EncoderStaticSegmentationSignalsHeaderAndMap(t *testing.T) {
 	assertVP9DecoderSegmentIDForTest(t, d, segID)
 }
 
+func TestVP9EncoderStaticSkipSegmentForcesSkippedInterBlocks(t *testing.T) {
+	const width, height = 64, 64
+	const segID = 2
+
+	opts := VP9EncoderOptions{Width: width, Height: height}
+	opts.Segmentation.Enabled = true
+	opts.Segmentation.UpdateMap = true
+	opts.Segmentation.SegmentID = segID
+	opts.Segmentation.SkipEnabled[segID] = true
+
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	key, err := e.Encode(newVP9CheckerYCbCrForTest(width, height, 16, 240, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	keyHeader, _ := parseVP9EncoderHeaderForTest(t, key)
+	assertVP9StaticSkipSegmentationHeaderForTest(t, keyHeader.Seg, segID)
+
+	inter, err := e.Encode(newVP9MotionYCbCrForTest(width, height))
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	d := decodeVP9KeyInterForTest(t, key, inter)
+	assertVP9DecoderSegmentIDForTest(t, d, segID)
+	for i, mi := range d.miGrid {
+		if mi.Skip != 1 {
+			t.Fatalf("miGrid[%d].Skip = %d, want forced skip", i, mi.Skip)
+		}
+		if mi.Mode != common.ZeroMv || mi.Mv != ([2]vp9dec.MV{}) {
+			t.Fatalf("miGrid[%d] inter mode/mv = %v/%v, want ZeroMv/zero",
+				i, mi.Mode, mi.Mv)
+		}
+	}
+}
+
 func TestVP9EncoderLoopFilterLevelFromQuantizer(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, Quantizer: 128})
 	img := newVP9CheckerYCbCrForTest(64, 64, 32, 224, 128, 128)
@@ -3436,7 +3474,7 @@ func assertVP9StaticSegmentationHeaderForTest(t *testing.T,
 	}
 	wantMask := uint32((1 << uint(vp9dec.SegLvlAltQ)) |
 		(1 << uint(vp9dec.SegLvlAltLf)))
-	if got := seg.FeatureMask[segID]; got&wantMask != wantMask {
+	if got := seg.FeatureMask[segID]; got != wantMask {
 		t.Fatalf("FeatureMask[%d] = %#x, want AltQ|AltLF", segID, got)
 	}
 	if got := seg.FeatureData[segID][vp9dec.SegLvlAltQ]; got != altQ {
@@ -3444,6 +3482,28 @@ func assertVP9StaticSegmentationHeaderForTest(t *testing.T,
 	}
 	if got := seg.FeatureData[segID][vp9dec.SegLvlAltLf]; got != altLF {
 		t.Fatalf("AltLF[%d] = %d, want %d", segID, got, altLF)
+	}
+	for i := range vp9dec.MaxSegments {
+		if i == segID {
+			continue
+		}
+		if seg.FeatureMask[i] != 0 {
+			t.Fatalf("FeatureMask[%d] = %#x, want 0", i, seg.FeatureMask[i])
+		}
+	}
+}
+
+func assertVP9StaticSkipSegmentationHeaderForTest(t *testing.T,
+	seg vp9dec.SegmentationParams, segID int,
+) {
+	t.Helper()
+	if !seg.Enabled || !seg.UpdateMap || !seg.UpdateData {
+		t.Fatalf("segmentation flags = enabled:%v updateMap:%v updateData:%v, want all true",
+			seg.Enabled, seg.UpdateMap, seg.UpdateData)
+	}
+	wantMask := uint32(1 << uint(vp9dec.SegLvlSkip))
+	if got := seg.FeatureMask[segID]; got != wantMask {
+		t.Fatalf("FeatureMask[%d] = %#x, want Skip", segID, got)
 	}
 	for i := range vp9dec.MaxSegments {
 		if i == segID {
