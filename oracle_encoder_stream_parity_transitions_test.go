@@ -601,6 +601,23 @@ func TestOracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 	segmentedLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64", segmentedOpts, segmentedOpts.TargetBitrateKbps, segmentedSources)
 	assertSegmentByteParity(t, "twopass-e2e-segmented64", segmentedGovpxFrames, segmentedLibvpxFrames, 0)
 
+	segmentedSectionOpts := segmentedOpts
+	segmentedSectionOpts.TwoPassVBRBiasPct = 80
+	segmentedSectionOpts.TwoPassMinPct = 50
+	segmentedSectionOpts.TwoPassMaxPct = 200
+	segmentedSectionGovpxOpts := segmentedSectionOpts
+	segmentedSectionGovpxOpts.TwoPassStats = captureGovpxFirstPassStats(t, segmentedSectionOpts, segmentedSources)
+	segmentedSectionGovpxFrames := encodeFramesWithGovpx(t, segmentedSectionGovpxOpts, segmentedSources)
+	segmentedSectionSetterFrames := encodeFramesWithGovpxTwoPassStatsSetter(t, segmentedSectionOpts, segmentedSectionGovpxOpts.TwoPassStats, segmentedSources, false)
+	segmentedSectionLibvpxFrames := encodeFramesWithLibvpxTwoPassOracle(t, vpxenc, vpxencOracle, "twopass-e2e-segmented64-sections", segmentedSectionOpts, segmentedSectionOpts.TargetBitrateKbps, segmentedSources)
+	// Nondefault second-pass section limits now have an explicit
+	// bytestream row on a fixture whose default two-pass stream is strict.
+	// The keyframe still matches, and setter-vs-options is exact, but the
+	// post-key allocation path diverges from the reference stream.
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections", segmentedSectionGovpxFrames, segmentedSectionLibvpxFrames, 1)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections-setter-vs-options", segmentedSectionSetterFrames, segmentedSectionGovpxFrames, 0)
+	assertSegmentByteParity(t, "twopass-e2e-segmented64-sections-setter", segmentedSectionSetterFrames, segmentedSectionLibvpxFrames, 1)
+
 	tokenOpts := panningOpts
 	tokenOpts.TokenPartitions = 2
 	tokenGovpxOpts := tokenOpts
