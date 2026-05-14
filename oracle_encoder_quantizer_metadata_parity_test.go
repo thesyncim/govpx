@@ -73,10 +73,121 @@ func TestOracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 		"--drop-frame=60",
 	}
 
-	govpxFrames, trace := encodeFramesWithGovpxQuantizerTrace(t, opts, sources, nil)
+	govpxFrames, trace := encodeFramesWithGovpxQuantizerTrace(t, opts, sources, nil, nil)
 	libvpxFrames, logEntries := encodeFramesWithFrameFlagsDriverQuantizerLog(t, driver, "quantizer-metadata-drops", opts, targetKbps, sources, nil, extraArgs)
 	assertSegmentByteParity(t, "quantizer-metadata-drops", govpxFrames, libvpxFrames, 0)
 	assertQuantizerMetadataParity(t, trace, logEntries)
+}
+
+func TestOracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		frames     = 30
+		width      = 64
+		height     = 64
+		targetKbps = 50
+	)
+	baseOpts := func() EncoderOptions {
+		return EncoderOptions{
+			Width:               width,
+			Height:              height,
+			FPS:                 fps,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   targetKbps,
+			MinQuantizer:        4,
+			MaxQuantizer:        56,
+			KeyFrameInterval:    999,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             -3,
+			Tuning:              TunePSNR,
+			BufferSizeMs:        200,
+			BufferInitialSizeMs: 100,
+			BufferOptimalSizeMs: 150,
+			DropFrameAllowed:    true,
+			DropFrameWaterMark:  60,
+		}
+	}
+	baseArgs := func() []string {
+		return []string{
+			"--target-bitrate=50",
+			"--buf-sz=200",
+			"--buf-initial-sz=100",
+			"--buf-optimal-sz=150",
+			"--drop-frame=60",
+		}
+	}
+
+	cases := []struct {
+		name      string
+		opts      EncoderOptions
+		source    func(int) Image
+		apply     map[int]func(*testing.T, *VP8Encoder)
+		extraArgs []string
+	}{
+		{
+			name: "rtc-external",
+			opts: func() EncoderOptions {
+				opts := baseOpts()
+				opts.RTCExternalRateControl = true
+				return opts
+			}(),
+			extraArgs: append(baseArgs(), "--rtc-external=1"),
+		},
+		{
+			name: "error-resilient-token8",
+			opts: func() EncoderOptions {
+				opts := baseOpts()
+				opts.ErrorResilient = true
+				opts.ErrorResilientPartitions = true
+				opts.TokenPartitions = 3
+				return opts
+			}(),
+			extraArgs: append(baseArgs(), "--error-resilient=3", "--token-parts=3"),
+		},
+		{
+			name: "active-checker",
+			opts: baseOpts(),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: activeMapApply("checker"),
+			},
+			extraArgs: append(baseArgs(), "--active-map=checker"),
+		},
+		{
+			name: "roi-border1",
+			opts: baseOpts(),
+			source: func(frame int) Image {
+				return encoderValidationSegmentedFrame(width, height, frame)
+			},
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				0: roiMapApply("border1"),
+			},
+			extraArgs: append(baseArgs(), "--roi-map=border1"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := tc.source
+			if source == nil {
+				source = func(frame int) Image {
+					return encoderValidationPanningFrame(width, height, frame)
+				}
+			}
+			sources := make([]Image, frames)
+			for i := range sources {
+				sources[i] = source(i)
+			}
+			govpxFrames, trace := encodeFramesWithGovpxQuantizerTrace(t, tc.opts, sources, nil, tc.apply)
+			libvpxFrames, logEntries := encodeFramesWithFrameFlagsDriverQuantizerLog(t, driver, "quantizer-metadata-drop-cross-"+tc.name, tc.opts, targetKbps, sources, nil, tc.extraArgs)
+			assertSegmentByteParity(t, "quantizer-metadata-drop-cross-"+tc.name, govpxFrames, libvpxFrames, 0)
+			assertQuantizerMetadataParity(t, trace, logEntries)
+		})
+	}
 }
 
 func encodeFramesWithFrameFlagsDriverQuantizerLog(t *testing.T, driver, name string, opts EncoderOptions, targetKbps int, sources []Image, flags []EncodeFlags, extraArgs []string) ([][]byte, []frameFlagsQuantizerLogEntry) {
@@ -153,7 +264,7 @@ func parseQuantizerLogBool(t *testing.T, value, line string) bool {
 	}
 }
 
-func encodeFramesWithGovpxQuantizerTrace(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags) ([][]byte, []govpxQuantizerCallTrace) {
+func encodeFramesWithGovpxQuantizerTrace(t *testing.T, opts EncoderOptions, sources []Image, flags []EncodeFlags, apply map[int]func(*testing.T, *VP8Encoder)) ([][]byte, []govpxQuantizerCallTrace) {
 	t.Helper()
 	enc, err := NewVP8Encoder(opts)
 	if err != nil {
@@ -164,6 +275,9 @@ func encodeFramesWithGovpxQuantizerTrace(t *testing.T, opts EncoderOptions, sour
 	out := make([][]byte, 0, len(sources))
 	trace := make([]govpxQuantizerCallTrace, 0, len(sources))
 	for i, src := range sources {
+		if fn := apply[i]; fn != nil {
+			fn(t, enc)
+		}
 		var f EncodeFlags
 		if i < len(flags) {
 			f = flags[i]
