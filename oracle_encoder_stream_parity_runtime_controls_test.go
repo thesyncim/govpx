@@ -2783,6 +2783,48 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run PhaseStats byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 12
+		width      = 64
+		height     = 64
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+
+	var stats EncoderPhaseStats
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           -3,
+		Tuning:            TunePSNR,
+		PhaseStats:        &stats,
+	}
+
+	govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+	libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "phase-stats-noop", opts, targetKbps, sources, nil, []string{"--end-usage=cbr"})
+	assertSegmentByteParity(t, "phase-stats-noop", govpxFrames, libvpxFrames, 0)
+	if stats.InterAttempts == 0 || stats.PacketWriteNS == 0 {
+		t.Fatalf("PhaseStats did not record encode work: inter_attempts=%d packet_write_ns=%d", stats.InterAttempts, stats.PacketWriteNS)
+	}
+}
+
 func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime reference-control byte-parity gate")
@@ -2875,6 +2917,24 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			}),
 			apply: map[int]func(*testing.T, *VP8Encoder){
 				3: setReferencePanningApply(ReferenceAltRef, 11, "altref"),
+			},
+		},
+		{
+			name: "set-last-after-force-golden-altref-same-frame",
+			fx:   panning32,
+			opts: baseOpts(panning32),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				2: EncodeForceGoldenFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast,
+				3: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+			}),
+			// The same-frame forced GF/ARF refresh packet matches; replacing
+			// LAST afterwards exposes the remaining reference-alias drift.
+			matchLimit: 3,
+			script: runtimeControlScript(frames, map[int]string{
+				3: "setref:last:panning:9",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				3: setReferencePanningApply(ReferenceLast, 9, "last"),
 			},
 		},
 		{
@@ -3107,6 +3167,44 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 				5: setReferencePanningApply(ReferenceAltRef, 13, "altref"),
 			},
 		},
+		{
+			name: "set-last-after-runtime-resize",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "resize:32x32",
+				5: "setref:last:panning:13",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(32x32)", e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}))
+				},
+				5: setReferencePanningApply(ReferenceLast, 13, "last"),
+			},
+		},
+		{
+			name: "set-golden-after-runtime-resize",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			flags: indexedResizeFlags(frames, map[int]EncodeFlags{
+				5: EncodeNoReferenceLast | EncodeNoReferenceAltRef,
+			}),
+			script: runtimeControlScript(frames, map[int]string{
+				4: "resize:32x32",
+				5: "setref:golden:panning:13",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				4: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetRealtimeTarget(32x32)", e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}))
+				},
+				5: setReferencePanningApply(ReferenceGolden, 13, "golden"),
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -3114,7 +3212,7 @@ func TestOracleEncoderStreamByteParityRuntimeReferenceControlCrosses(t *testing.
 			sources := make([]Image, frames)
 			for i := range sources {
 				w, h := tc.fx.w, tc.fx.h
-				if tc.name == "set-altref-after-runtime-resize" && i >= 4 {
+				if strings.Contains(tc.name, "after-runtime-resize") && i >= 4 {
 					w, h = 32, 32
 				}
 				sources[i] = tc.fx.source(w, h, i)
