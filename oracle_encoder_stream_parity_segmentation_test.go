@@ -550,6 +550,63 @@ func TestOracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 	}
 }
 
+func TestOracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
+	}
+	driver := findVpxencFrameFlags(t)
+
+	const (
+		fps        = 30
+		targetKbps = 700
+		frames     = 10
+		width      = 65
+		height     = 33
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = encoderValidationPanningFrame(width, height, i)
+	}
+	opts := EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               fps,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: targetKbps,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+		KeyFrameInterval:  999,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           0,
+		Tuning:            TunePSNR,
+	}
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	cases := []struct {
+		pattern string
+		limit   int
+	}{
+		{pattern: "checker"},
+		{pattern: "left-off"},
+		{pattern: "right-off"},
+		{pattern: "border-off"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pattern, func(t *testing.T) {
+			govpxFrames := encodeFramesWithGovpxRuntimeControls(t, opts, sources, nil, map[int]func(*testing.T, *VP8Encoder){
+				0: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetActiveMap("+tc.pattern+")", e.SetActiveMap(activeMapPattern(tc.pattern, rows, cols), rows, cols))
+				},
+			})
+			libvpxFrames := encodeFramesWithFrameFlagsDriver(t, driver, "active-map-odd-"+tc.pattern, opts, targetKbps, sources, nil, []string{
+				"--active-map=" + tc.pattern,
+			})
+			assertSegmentByteParity(t, "active-map-odd-"+tc.pattern, govpxFrames, libvpxFrames, tc.limit)
+		})
+	}
+}
+
 func TestOracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")

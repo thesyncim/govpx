@@ -1312,6 +1312,25 @@ func TestOracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			name: "temporal-layer-id-disabled-noop",
+			fx:   panning64,
+			opts: baseOpts(panning64),
+			script: runtimeControlScript(frames, map[int]string{
+				2: "tlid:0",
+				7: "tlid:0",
+			}),
+			apply: map[int]func(*testing.T, *VP8Encoder){
+				2: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalLayerID(0)", e.SetTemporalLayerID(0))
+				},
+				7: func(t *testing.T, e *VP8Encoder) {
+					t.Helper()
+					mustRuntime(t, "SetTemporalLayerID(0)", e.SetTemporalLayerID(0))
+				},
+			},
+		},
+		{
 			name: "temporal-layer-id-manual-three-layer-transition",
 			fx:   panning64,
 			opts: func() EncoderOptions {
